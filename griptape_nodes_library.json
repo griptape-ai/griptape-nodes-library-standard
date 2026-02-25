@@ -29,14 +29,14 @@
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
     "library_version": "0.63.7",
-    "engine_version": "0.75.2",
+    "engine_version": "0.75.0",
     "tags": [
       "Griptape",
       "AI"
     ],
     "dependencies": {
       "pip_dependencies": [
-        "griptape[drivers-prompt-amazon-bedrock,drivers-prompt-anthropic,drivers-prompt-cohere,drivers-prompt-ollama,drivers-web-scraper-trafilatura,drivers-web-search-duckduckgo,drivers-web-search-exa,loaders-image,loaders-pdf]>=1.9.1",
+        "griptape[drivers-prompt-amazon-bedrock,drivers-prompt-anthropic,drivers-prompt-cohere,drivers-prompt-ollama,drivers-web-scraper-trafilatura,drivers-web-search-duckduckgo,drivers-web-search-exa,loaders-image,loaders-pdf]>=1.9.3",
         "json-repair>=0.46.1",
         "static-ffmpeg>=2.8",
         "jmespath>=1.0.1",
