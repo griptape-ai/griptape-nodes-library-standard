@@ -2771,6 +2771,16 @@
       }
     },
     {
+      "class_name": "SaveToProject",
+      "file_path": "griptape_nodes_library/files/save_to_project.py",
+      "metadata": {
+        "category": "files",
+        "description": "Save a file to the project using situation-based path resolution.",
+        "display_name": "Save To Project",
+        "icon": "Save"
+      }
+    },
+    {
       "class_name": "TopazImageEnhance",
       "file_path": "griptape_nodes_library/image/topaz_image_enhance.py",
       "metadata": {
