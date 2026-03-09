@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import json as _json
 import logging
-import time
 from contextlib import suppress
 from copy import deepcopy
 from io import BytesIO
@@ -12,14 +11,14 @@ from typing import Any
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from PIL import Image
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.files.file import File, FileLoadError, FileWriteError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
@@ -207,14 +206,18 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             )
         )
 
-        with ParameterGroup(name="Generation Settings", ui_options={"collapsed": True}) as generation_settings_group:
+        # Seed parameter
+        self.add_parameter(
             ParameterInt(
                 name="seed",
                 default_value=-1,
                 tooltip="Random seed for reproducible results (-1 for random)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
+        )
 
+        # Max images parameter for models that support sequential generation (Seedream 5.0 Lite, 4.5, and 4.0)
+        self.add_parameter(
             ParameterInt(
                 name="max_images",
                 tooltip="Maximum number of images to generate (1-15, Seedream 5.0 Lite, 4.5, and 4.0 only)",
@@ -225,7 +228,10 @@ class SeedreamImageGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 hide=False,
             )
+        )
 
+        # Guidance scale for Seedream 3.0 T2I
+        self.add_parameter(
             ParameterFloat(
                 name="guidance_scale",
                 default_value=2.5,
@@ -233,8 +239,15 @@ class SeedreamImageGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"hide": True},
             )
+        )
 
-        self.add_node_element(generation_settings_group)
+        # Output file path configuration
+        self._output_file_param = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="seedream_image.png",
+        )
+        self._output_file_param.add_parameter()
 
         # OUTPUTS
         self.add_parameter(
@@ -427,12 +440,11 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         with suppress(Exception):
             logger.info(message)
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
+    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
         """Parse the result and set output parameters.
 
         Args:
             result_json: The JSON response from the /result endpoint
-            generation_id: The generation ID for this request
         """
         # Extract image data
         data = result_json.get("data", [])
@@ -453,7 +465,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
                 self._log(f"No URL found for image {idx}")
                 continue
 
-            artifact = await self._save_single_image_from_url(image_url, generation_id, idx)
+            artifact = await self._save_single_image_from_url(image_url, idx)
             if artifact:
                 image_artifacts.append(artifact)
 
@@ -701,13 +713,14 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             self._log(f"Request payload: {_json.dumps(sanitized_payload, indent=2)}")
 
     async def _save_single_image_from_url(
-        self, image_url: str, generation_id: str | None = None, index: int = 0
+        self,
+        image_url: str,
+        index: int = 0,
     ) -> ImageUrlArtifact | None:
         """Download and save a single image from the provided URL.
 
         Args:
             image_url: URL of the image to download
-            generation_id: Optional generation ID for filename
             index: Index of the image in multi-image response
 
         Returns:
@@ -726,15 +739,19 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             pil_image.save(png_buffer, format="PNG")
             png_bytes = png_buffer.getvalue()
 
-            if generation_id:
-                filename = f"seedream_image_{generation_id}_{index}.png"
-            else:
-                filename = f"seedream_image_{int(time.time())}_{index}.png"
+            # Resolve output path from ProjectFileParameter and write to project directory.
+            # Pass _index for multi-image responses so each image gets a unique numbered path;
+            # the first image (index=0) omits the index for a clean single-image filename.
+            extra = {"_index": index} if index > 0 else {}
+            output_file = self._output_file_param.build_file(**extra)
+            try:
+                result_file = await output_file.awrite_bytes(png_bytes)
+            except FileWriteError as e:
+                self._log(f"Failed to write image {index}: {e}")
+                return ImageUrlArtifact(value=image_url)
+            self._log(f"Saved image {index} to {result_file.resolve()}")
 
-            static_files_manager = GriptapeNodes.StaticFilesManager()
-            saved_url = static_files_manager.save_static_file(png_bytes, filename)
-            self._log(f"Saved image {index} to static storage as {filename}")
-            return ImageUrlArtifact(value=saved_url, name=filename)
+            return ImageUrlArtifact(value=result_file.location, name=result_file.name)
 
         except Exception as e:
             self._log(f"Failed to save image {index} from URL: {e}")
