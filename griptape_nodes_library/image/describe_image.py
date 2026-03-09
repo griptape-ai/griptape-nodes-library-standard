@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact, ModelArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
@@ -7,7 +8,7 @@ from griptape.structures import Structure
 from griptape.tasks import PromptTask
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterType
+from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode, ParameterType
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -18,6 +19,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.options import Options
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
 from griptape_nodes_library.utils.error_utils import try_throw_error
+from griptape_nodes.utils.artifact_normalization import as_list
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
 
 SERVICE = "Griptape"
@@ -72,6 +74,15 @@ class DescribeImage(ControlNode):
                 ui_options={"expander": True},
             )
         )
+        self.image_list = ParameterList(
+            name="image_list",
+            tooltip="List of input images",
+            type="ImageUrlArtifact",
+            output_type="ImageUrlArtifact",
+            allowed_modes={ParameterMode.PROPERTY},
+            ui_options={"hide": True},
+        )
+        self.add_parameter(self.image_list)
         self.add_parameter(
             ParameterString(
                 name="prompt",
@@ -113,6 +124,50 @@ class DescribeImage(ControlNode):
                 ui_options={"display_name": "output"},
             )
         )
+
+    def _switch_to_list_display(self) -> None:
+        """Hide the image property display and show image_list for list input."""
+        image_param = self.get_parameter_by_name("image")
+        if image_param is not None:
+            ui_options = image_param.ui_options.copy()
+            ui_options["hide_property"] = True
+            image_param.ui_options = ui_options
+        image_list_ui = self.image_list.ui_options.copy()
+        image_list_ui.pop("hide", None)
+        self.image_list.ui_options = image_list_ui
+
+    def _switch_to_scalar_display(self) -> None:
+        """Show the image property display and hide image_list."""
+        image_param = self.get_parameter_by_name("image")
+        if image_param is not None:
+            ui_options = image_param.ui_options.copy()
+            ui_options.pop("hide_property", None)
+            image_param.ui_options = ui_options
+        self._clear_image_list()
+        image_list_ui = self.image_list.ui_options.copy()
+        image_list_ui["hide"] = True
+        self.image_list.ui_options = image_list_ui
+
+    def _clear_image_list(self) -> None:
+        """Remove all child parameters from image_list."""
+        for child in self.image_list.find_elements_by_type(Parameter):
+            if child.name in self.parameter_values:
+                self.remove_parameter_value(child.name)
+            if child.name in self.parameter_output_values:
+                del self.parameter_output_values[child.name]
+        self.image_list.clear_list()
+
+    def _update_image_list(self, images: list) -> None:
+        """Rebuild image_list children from a list of image values."""
+        self._clear_image_list()
+        for image in images:
+            new_child = self.image_list.add_child_parameter()
+            new_child.type = "ImageUrlArtifact"
+            new_child.output_type = "ImageUrlArtifact"
+            new_child.input_types = ["ImageUrlArtifact"]
+            new_child.allowed_modes = {ParameterMode.PROPERTY}
+            new_child.ui_options = {"display": "image"}
+            self.set_parameter_value(new_child.name, image)
 
     def _update_output_type_and_validate_connections(self, new_output_type: str) -> None:
         output_param = self.get_parameter_by_name("output")
@@ -187,6 +242,11 @@ class DescribeImage(ControlNode):
             ui_options["display_name"] = source_parameter.ui_options.get("display_name", source_parameter.name)
             target_parameter.ui_options = ui_options
 
+        if target_parameter.name == "image":
+            output_type = (source_parameter.output_type or "").lower()
+            if output_type == "list" or output_type.startswith("list["):
+                self._switch_to_list_display()
+
         return super().after_incoming_connection(source_node, source_parameter, target_parameter)
 
     def after_incoming_connection_removed(
@@ -214,7 +274,16 @@ class DescribeImage(ControlNode):
             target_parameter.ui_options = ui_options
             self.set_parameter_value("model", DEFAULT_MODEL)
 
+        if target_parameter.name == "image":
+            self._switch_to_scalar_display()
+
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        """Populate image_list children when a list of images is set on the image parameter."""
+        if parameter.name == "image" and isinstance(value, list):
+            self._update_image_list(value)
+        return super().after_value_set(parameter, value)
 
     def process(self) -> AsyncResult[Structure]:  # noqa: C901, PLR0915, PLR0912
         # Get the parameters from the node
@@ -302,14 +371,20 @@ class DescribeImage(ControlNode):
 
         image_artifact = params.get("image", None)
 
-        if isinstance(image_artifact, ImageUrlArtifact):
-            image_artifact = load_image_from_url_artifact(image_artifact)
-        if image_artifact is None:
+        # Normalize scalar or list to always-a-list, then load each item.
+        # image may be a single artifact (scalar connection) or a list (list connection).
+        items = as_list(image_artifact)
+        if all(item is None for item in items):
             self.parameter_output_values["output"] = "No image provided"
             return
 
+        loaded_images = [
+            load_image_from_url_artifact(item) if isinstance(item, ImageUrlArtifact) else item
+            for item in items
+        ]
+
         # Run the agent
-        yield lambda: agent.run([prompt, image_artifact])
+        yield lambda: agent.run([prompt, *loaded_images])
         agent_output = agent.output
         output_value = agent_output.value
         if isinstance(agent_output, ModelArtifact):
