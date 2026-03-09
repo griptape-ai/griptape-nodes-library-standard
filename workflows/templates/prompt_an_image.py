@@ -8,7 +8,7 @@
 # node_libraries_referenced = [["Griptape Nodes Library", "0.52.3"]]
 # node_types_used = [["Griptape Nodes Library", "GenerateImage"], ["Griptape Nodes Library", "Note"]]
 # description = "The simplest image generation workflow."
-# image = "https://raw.githubusercontent.com/griptape-ai/griptape-nodes/refs/heads/main/libraries/griptape_nodes_library/workflows/templates/thumbnail_prompt_an_image.webp"
+# image = "https://github.com/griptape-ai/griptape-nodes-library-standard/blob/main/workflows/templates/thumbnail_prompt_an_image.webp?raw=true"
 # is_griptape_provided = true
 # is_template = true
 # creation_date = 2025-10-22T19:04:50.774123Z

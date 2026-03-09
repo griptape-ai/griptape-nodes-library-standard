@@ -8,7 +8,7 @@
 # node_libraries_referenced = [["Griptape Nodes Library", "0.52.3"]]
 # node_types_used = [["Griptape Nodes Library", "Agent"], ["Griptape Nodes Library", "GenerateImage"], ["Griptape Nodes Library", "MergeTexts"], ["Griptape Nodes Library", "Note"], ["Griptape Nodes Library", "TextInput"]]
 # description = "See how 3 different approaches to prompts affect image generation."
-# image = "https://raw.githubusercontent.com/griptape-ai/griptape-nodes/refs/heads/main/libraries/griptape_nodes_library/workflows/templates/thumbnail_compare_prompts.webp"
+# image = "https://github.com/griptape-ai/griptape-nodes-library-standard/blob/main/workflows/templates/thumbnail_compare_prompts.webp?raw=true"
 # is_griptape_provided = true
 # is_template = true
 # creation_date = 2025-10-22T19:01:21.850102Z

@@ -8,7 +8,7 @@
 # node_libraries_referenced = [["Griptape Nodes Library", "0.52.3"]]
 # node_types_used = [["Griptape Nodes Library", "Agent"], ["Griptape Nodes Library", "DisplayText"], ["Griptape Nodes Library", "MergeTexts"], ["Griptape Nodes Library", "Note"]]
 # description = "Multiple agents with different jobs."
-# image = "https://raw.githubusercontent.com/griptape-ai/griptape-nodes/refs/heads/main/libraries/griptape_nodes_library/workflows/templates/thumbnail_coordinating_agents.webp"
+# image = "https://github.com/griptape-ai/griptape-nodes-library-standard/blob/main/workflows/templates/thumbnail_coordinating_agents.webp"
 # is_griptape_provided = true
 # is_template = true
 # creation_date = 2025-10-22T19:03:54.190207Z
