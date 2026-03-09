@@ -8,7 +8,7 @@
 # node_libraries_referenced = [["Griptape Nodes Library", "0.52.3"]]
 # node_types_used = [["Griptape Nodes Library", "Agent"], ["Griptape Nodes Library", "AgentToTool"], ["Griptape Nodes Library", "GenerateImage"], ["Griptape Nodes Library", "Note"], ["Griptape Nodes Library", "Ruleset"], ["Griptape Nodes Library", "ToolList"]]
 # description = "A team of experts develop a prompt."
-# image = "https://raw.githubusercontent.com/griptape-ai/griptape-nodes/refs/heads/main/libraries/griptape_nodes_library/workflows/templates/thumbnail_photography_team.webp"
+# image = "https://github.com/griptape-ai/griptape-nodes-library-standard/blob/main/workflows/templates/thumbnail_photography_team.webp?raw=true"
 # is_griptape_provided = true
 # is_template = true
 # creation_date = 2025-10-22T19:00:07.437329Z
