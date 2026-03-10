@@ -61,21 +61,73 @@ class SortList(ControlNode):
             self._update_key_parameter_visibility()
         return super().after_value_set(parameter, value)
 
+    def process(self) -> None:
+        raw_values = self.get_parameter_value("items")
+        list_values = self._parse_list_input(raw_values)
+        if not list_values:
+            return
+
+        self._update_key_parameter_visibility()
+
+        sort_order = self.get_parameter_value("sort_order") or "asc"
+        reverse = sort_order == "desc"
+        key = self.get_parameter_value("key")
+
+        list_copy = deepcopy(list_values)
+
+        if self._is_list_of_dicts(list_copy) and key:
+            sorted_list = sorted(
+                list_copy,
+                key=lambda x: self._get_sort_key_for_item(x, key),
+                reverse=reverse,
+            )
+        else:
+            sorted_list = sorted(list_copy, reverse=reverse)
+
+        self.parameter_output_values["output"] = sorted_list
+
+    def _update_key_parameter_visibility(self) -> None:
+        """Show/hide key parameter and update dropdown based on list content."""
+        raw_values = self.get_parameter_value("items")
+        list_values = self._parse_list_input(raw_values)
+        if not list_values:
+            self.hide_parameter_by_name("key")
+            return
+
+        if not self._is_list_of_dicts(list_values):
+            self.hide_parameter_by_name("key")
+            return
+
+        keys = self._get_dict_keys(list_values)
+        if not keys:
+            self.hide_parameter_by_name("key")
+            return
+
+        self.show_parameter_by_name("key")
+        current_key = self.get_parameter_value("key")
+        if current_key and current_key in keys:
+            default_key = current_key
+        else:
+            default_key = keys[0]
+        self._update_option_choices("key", keys, default_key)
+
     def _parse_dict_like(self, s: str) -> dict[Any, Any] | None:
         """Try to parse a string as a dict (JSON or Python literal syntax)."""
         if not isinstance(s, str) or not s.strip():
             return None
         s = s.strip()
-        # Try JSON first (double quotes)
         try:
             parsed = json.loads(s)
-            return parsed if isinstance(parsed, dict) else None
+            if isinstance(parsed, dict):
+                return parsed
+            return None
         except (json.JSONDecodeError, TypeError):
             pass
-        # Try ast.literal_eval for Python literal syntax (single quotes)
         try:
             parsed = ast.literal_eval(s)
-            return parsed if isinstance(parsed, dict) else None
+            if isinstance(parsed, dict):
+                return parsed
+            return None
         except (ValueError, SyntaxError, TypeError):
             pass
         return None
@@ -87,7 +139,9 @@ class SortList(ControlNode):
         if isinstance(list_values, str):
             try:
                 parsed = json.loads(list_values)
-                return parsed if isinstance(parsed, list) else None
+                if isinstance(parsed, list):
+                    return parsed
+                return None
             except (json.JSONDecodeError, TypeError):
                 return None
         if isinstance(list_values, list):
@@ -127,50 +181,3 @@ class SortList(ControlNode):
             if parsed:
                 return str(parsed.get(key, ""))
         return str(item)
-
-    def _update_key_parameter_visibility(self) -> None:
-        """Show/hide key parameter and update dropdown based on list content."""
-        raw_values = self.get_parameter_value("items")
-        list_values = self._parse_list_input(raw_values)
-        if not list_values:
-            self.hide_parameter_by_name("key")
-            return
-
-        if self._is_list_of_dicts(list_values):
-            keys = self._get_dict_keys(list_values)
-            if keys:
-                self.show_parameter_by_name("key")
-                current_key = self.get_parameter_value("key")
-                default_key = (
-                    current_key if current_key and current_key in keys else keys[0]
-                )
-                self._update_option_choices("key", keys, default_key)
-            else:
-                self.hide_parameter_by_name("key")
-        else:
-            self.hide_parameter_by_name("key")
-
-    def process(self) -> None:
-        raw_values = self.get_parameter_value("items")
-        list_values = self._parse_list_input(raw_values)
-        if not list_values:
-            return
-
-        self._update_key_parameter_visibility()
-
-        sort_order = self.get_parameter_value("sort_order") or "asc"
-        reverse = sort_order == "desc"
-        key = self.get_parameter_value("key")
-
-        list_copy = deepcopy(list_values)
-
-        if self._is_list_of_dicts(list_copy) and key:
-            sorted_list = sorted(
-                list_copy,
-                key=lambda x: self._get_sort_key_for_item(x, key),
-                reverse=reverse,
-            )
-        else:
-            sorted_list = sorted(list_copy, reverse=reverse)
-
-        self.parameter_output_values["output"] = sorted_list
