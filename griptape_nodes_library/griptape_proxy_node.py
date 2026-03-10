@@ -9,13 +9,19 @@ from typing import Any
 from urllib.parse import urljoin
 
 import httpx
-
+from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.slider import Slider
 
 logger = logging.getLogger("griptape_nodes")
 
-__all__ = ["GriptapeProxyNode"]
+
+class GenerationFailedError(RuntimeError):
+    """Raised when the API returns FAILED or ERRORED status. Used for retry logic."""
+
+
+__all__ = ["GenerationFailedError", "GriptapeProxyNode"]
 
 
 class GriptapeProxyNode(SuccessFailureNode, ABC):
@@ -41,6 +47,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     # Polling configuration
     DEFAULT_POLL_INTERVAL = 5
     DEFAULT_MAX_ATTEMPTS = 120  # 10 minutes with 5s intervals
+    MAX_RETRIES = 10
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -51,6 +58,20 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         api_base = urljoin(base_slash, "api/")
         self._proxy_base = urljoin(api_base, "proxy/v2/")
         self._user_auth_info: str | None = None
+
+        self.add_parameter(
+            Parameter(
+                name="max_retries",
+                input_types=["int"],
+                type="int",
+                output_type="int",
+                default_value=0,
+                tooltip="Number of retries when generation returns FAILED or ERRORED status (0 = no retries).",
+                traits={Slider(min_val=0, max_val=self.MAX_RETRIES)},
+                hide=True,
+                ui_options={"display_name": "max retries"},
+            )
+        )
 
     def register_user_auth_info(self, user_auth_info: str | None) -> None:
         """Register optional user auth info to send with generation submissions."""
@@ -70,7 +91,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
 
     @abstractmethod
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
+    async def _parse_result(
+        self, result_json: dict[str, Any], generation_id: str
+    ) -> None:
         """Parse the model-specific result data and set output parameters.
 
         This method must be implemented by subclasses to parse the result data
@@ -109,7 +132,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             str: A formatted error message to display to the user
         """
         if not response_json:
-            return f"{self.name} generation failed with no error details provided by API."
+            return (
+                f"{self.name} generation failed with no error details provided by API."
+            )
 
         # First, try to extract from status_detail.details (user-oriented message)
         status_detail = response_json.get("status_detail")
@@ -189,7 +214,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 request_headers = headers.copy()
                 if self._user_auth_info:
                     request_headers["X-GTC-PROXY-AUTH-INFO"] = self._user_auth_info
-                response = await client.post(proxy_url, json=payload, headers=request_headers, timeout=60)
+                response = await client.post(
+                    proxy_url, json=payload, headers=request_headers, timeout=60
+                )
                 response.raise_for_status()
                 response_json = response.json()
                 self._log("Request submitted successfully")
@@ -227,7 +254,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             error_message = self._extract_error_message(error_json)
             return f"{self.name}: {error_message}"
 
-    async def _poll_generation_status(self, generation_id: str, headers: dict[str, str]) -> dict[str, Any] | None:
+    async def _poll_generation_status(
+        self, generation_id: str, headers: dict[str, str]
+    ) -> dict[str, Any] | None:
         """Poll generation status until terminal state is reached.
 
         Args:
@@ -236,6 +265,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         Returns:
             dict | None: The final status response, or None if polling failed
+
+        Raises:
+            GenerationFailedError: When status is FAILED or ERRORED (used for retry logic)
         """
         get_url = urljoin(self._proxy_base, f"generations/{generation_id}")
         max_attempts = self.DEFAULT_MAX_ATTEMPTS
@@ -244,7 +276,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         async with httpx.AsyncClient() as client:
             for attempt in range(max_attempts):
                 try:
-                    self._log(f"Polling attempt #{attempt + 1} for generation {generation_id}")
+                    self._log(
+                        f"Polling attempt #{attempt + 1} for generation {generation_id}"
+                    )
 
                     response = await client.get(get_url, headers=headers, timeout=60)
                     response.raise_for_status()
@@ -257,33 +291,41 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                         return result_json
 
                     if status in ["FAILED", "ERRORED"]:
-                        logger.error("%s: Generation failed with status: %s", self.name, status)
-                        logger.error("%s: Error response: %s", self.name, result_json)
-                        self._set_safe_defaults()
                         error_message = self._extract_error_message(result_json)
-                        logger.error("%s: Extracted error message: %s", self.name, error_message)
                         if not error_message:
                             error_message = f"{self.name} generation failed with status {status} but no error details were provided."
-                        self._set_status_results(was_successful=False, result_details=error_message)
-                        return None
+                        logger.info(
+                            "%s: Generation failed (attempt will retry or surface): generation_id=%s status=%s error=%s",
+                            self.name,
+                            generation_id,
+                            status,
+                            error_message,
+                        )
+                        raise GenerationFailedError(error_message)
 
                     # Still processing (QUEUED or RUNNING), wait before next poll
                     if attempt < max_attempts - 1:
                         await asyncio.sleep(poll_interval)
 
                 except httpx.HTTPStatusError as e:
-                    self._log(f"HTTP error while polling: {e.response.status_code} - {e.response.text}")
+                    self._log(
+                        f"HTTP error while polling: {e.response.status_code} - {e.response.text}"
+                    )
                     if attempt == max_attempts - 1:
                         self._set_safe_defaults()
                         error_msg = f"Failed to poll generation status: HTTP {e.response.status_code}"
-                        self._set_status_results(was_successful=False, result_details=error_msg)
+                        self._set_status_results(
+                            was_successful=False, result_details=error_msg
+                        )
                         return None
                 except Exception as e:
                     self._log(f"Error while polling: {e}")
                     if attempt == max_attempts - 1:
                         self._set_safe_defaults()
                         error_msg = f"Failed to poll generation status: {e}"
-                        self._set_status_results(was_successful=False, result_details=error_msg)
+                        self._set_status_results(
+                            was_successful=False, result_details=error_msg
+                        )
                         return None
 
         # Timeout reached
@@ -295,7 +337,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         )
         return None
 
-    async def _fetch_generation_result(self, generation_id: str) -> dict[str, Any] | None:
+    async def _fetch_generation_result(
+        self, generation_id: str
+    ) -> dict[str, Any] | None:
         """Fetch the final result from the /result endpoint.
 
         Args:
@@ -313,15 +357,22 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._handle_api_key_validation_error(e)
             return None
 
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(result_url, headers=headers, timeout=300)
                 response.raise_for_status()
         except httpx.HTTPStatusError as e:
-            self._log(f"HTTP error fetching result: {e.response.status_code} - {e.response.text}")
+            self._log(
+                f"HTTP error fetching result: {e.response.status_code} - {e.response.text}"
+            )
             self._set_safe_defaults()
-            error_msg = f"Failed to fetch generation result: HTTP {e.response.status_code}"
+            error_msg = (
+                f"Failed to fetch generation result: HTTP {e.response.status_code}"
+            )
             self._set_status_results(was_successful=False, result_details=error_msg)
             return None
         except Exception as e:
@@ -340,7 +391,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 return result_json
 
             # Handle binary responses (raw audio, video, etc.)
-            self._log(f"Result fetched successfully (binary, content-type: {content_type})")
+            self._log(
+                f"Result fetched successfully (binary, content-type: {content_type})"
+            )
             return {"raw_bytes": response.content}
 
     def _handle_api_key_validation_error(self, e: ValueError) -> None:
@@ -376,7 +429,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._set_status_results(was_successful=False, result_details=error_msg)
         self._handle_failure_exception(e)
 
-    async def _submit_and_poll(self, headers: dict[str, str]) -> tuple[str, dict[str, Any]] | None:
+    async def _submit_and_poll(
+        self, headers: dict[str, str]
+    ) -> tuple[str, dict[str, Any]] | None:
         """Submit generation request and poll for completion.
 
         Args:
@@ -384,6 +439,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         Returns:
             tuple | None: (generation_id, status_response) if successful, None otherwise
+
+        Raises:
+            GenerationFailedError: When status is FAILED or ERRORED (propagated for retry logic)
         """
         # Build payload
         try:
@@ -400,7 +458,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         # Submit request to get generation ID
         try:
-            generation_id = await self._submit_generation(payload, headers, api_model_id)
+            generation_id = await self._submit_generation(
+                payload, headers, api_model_id
+            )
             if not generation_id:
                 self._set_safe_defaults()
                 self._set_status_results(
@@ -443,11 +503,46 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._handle_api_key_validation_error(e)
             return
 
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
 
-        # Submit and poll
-        result = await self._submit_and_poll(headers)
+        # Submit and poll (with retry on FAILED/ERRORED)
+        max_retries = self.get_parameter_value("max_retries") or 0
+        max_retries = max(0, min(self.MAX_RETRIES, int(max_retries)))
+        max_attempts = max_retries + 1
+        result = None
+        last_error: GenerationFailedError | None = None
+
+        for attempt in range(max_attempts):
+            try:
+                result = await self._submit_and_poll(headers)
+                if result:
+                    break
+            except GenerationFailedError as e:
+                last_error = e
+                if attempt < max_attempts - 1:
+                    logger.info(
+                        "%s: Retrying after failure (attempt %d of %d): %s",
+                        self.name,
+                        attempt + 1,
+                        max_attempts,
+                        str(e),
+                    )
+                else:
+                    logger.info(
+                        "%s: All retries exhausted. Final failure: %s",
+                        self.name,
+                        str(e),
+                    )
+
         if not result:
+            if last_error:
+                self._set_safe_defaults()
+                self._set_status_results(
+                    was_successful=False, result_details=str(last_error)
+                )
             return
 
         generation_id, _status_response = result
