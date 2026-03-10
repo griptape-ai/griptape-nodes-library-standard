@@ -500,7 +500,7 @@
       "file_path": "griptape_nodes_library/lists/sort_list.py",
       "metadata": {
         "category": "lists",
-        "description": "Takes a list input and sorts it in ascending or descending order.",
+        "description": "Takes a list input and sorts it in ascending or descending order. When the list contains dictionaries, a Key dropdown appears to select which key to sort by.",
         "display_name": "Sort List",
         "icon": "arrow-up-down",
         "group": "edit"
