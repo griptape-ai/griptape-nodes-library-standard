@@ -2761,12 +2761,12 @@
       }
     },
     {
-      "class_name": "FileSelector",
-      "file_path": "griptape_nodes_library/files/file_selector.py",
+      "class_name": "SelectFromProject",
+      "file_path": "griptape_nodes_library/files/select_from_project.py",
       "metadata": {
         "category": "files",
-        "description": "Select a file and resolve it to a macro path using project directories.",
-        "display_name": "File Selector",
+        "description": "Select a file or directory from the project and resolve it to a macro path.",
+        "display_name": "Select From Project",
         "icon": "FolderOpen"
       }
     },
