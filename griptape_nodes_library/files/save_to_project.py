@@ -1,7 +1,7 @@
 """SaveToProject node - save a file to the project using situation-based path resolution."""
 
 import logging
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from griptape.artifacts import UrlArtifact
@@ -92,7 +92,7 @@ class SaveToProject(SuccessFailureNode):
 
         return exceptions or None
 
-    def process(self) -> None:
+    async def aprocess(self) -> None:
         self._clear_execution_status()
 
         source_value = self.get_parameter_value("source")
@@ -138,7 +138,9 @@ class SaveToProject(SuccessFailureNode):
         if output_file_value and output_file_value != "output":
             return
 
-        suffix = PurePosixPath(source_path).suffix or Path(source_path).suffix
+        # PureWindowsPath handles both forward slashes and backslashes as separators,
+        # so it correctly extracts suffixes from any path style on any platform.
+        suffix = PureWindowsPath(source_path).suffix
         new_default = f"output{suffix}" if suffix else "output"
         self.set_parameter_value("output_file", new_default)
 
