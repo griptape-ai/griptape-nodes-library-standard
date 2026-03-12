@@ -1,7 +1,7 @@
 import ast
 import json
 from copy import deepcopy
-from typing import Any
+from typing import Any, NamedTuple
 
 from griptape_nodes.exe_types.core_types import (
     Parameter,
@@ -10,6 +10,14 @@ from griptape_nodes.exe_types.core_types import (
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
+from json_repair import repair_json
+
+
+class _SortKey(NamedTuple):
+    """Sort key: type_order (0=numeric, 1=string) and value for correct ordering."""
+
+    type_order: int
+    value: float | str
 
 
 class SortList(ControlNode):
@@ -65,6 +73,7 @@ class SortList(ControlNode):
         raw_values = self.get_parameter_value("items")
         list_values = self._parse_list_input(raw_values)
         if not list_values:
+            self.parameter_output_values["output"] = []
             return
 
         self._update_key_parameter_visibility()
@@ -72,17 +81,26 @@ class SortList(ControlNode):
         sort_order = self.get_parameter_value("sort_order") or "asc"
         reverse = sort_order == "desc"
         key = self.get_parameter_value("key")
+        # Strip Options display suffix if present (e.g. "age [42]" or "age (str)" -> "age")
+        if key and isinstance(key, str):
+            for sep in (" [", " (", " -"):
+                if sep in key:
+                    key = key.split(sep)[0].strip()
+                    break
 
         list_copy = deepcopy(list_values)
 
-        if self._is_list_of_dicts(list_copy) and key:
-            sorted_list = sorted(
-                list_copy,
-                key=lambda x: self._get_sort_key_for_item(x, key),
-                reverse=reverse,
-            )
+        # Always use a key function - artifacts (ImageUrlArtifact, VideoUrlArtifact, etc.)
+        # and other non-comparable types don't support default < comparison
+        if key:
+            dict_key = key
         else:
-            sorted_list = sorted(list_copy, reverse=reverse)
+            dict_key = None
+        sorted_list = sorted(
+            list_copy,
+            key=lambda x: self._get_sort_key_for_item(x, dict_key),
+            reverse=reverse,
+        )
 
         self.parameter_output_values["output"] = sorted_list
 
@@ -133,7 +151,8 @@ class SortList(ControlNode):
         return None
 
     def _parse_list_input(self, list_values: Any) -> list[Any] | None:
-        """Parse and normalize the input to a list. Preserves original item types."""
+        """Parse and normalize the input to a list. Preserves original item types.
+        Handles JSON strings (from connections/serialization) and ensures proper types."""
         if list_values is None:
             return None
         if isinstance(list_values, str):
@@ -141,9 +160,15 @@ class SortList(ControlNode):
                 parsed = json.loads(list_values)
                 if isinstance(parsed, list):
                     return parsed
-                return None
             except (json.JSONDecodeError, TypeError):
-                return None
+                pass
+            try:
+                parsed = repair_json(list_values)
+                if isinstance(parsed, list):
+                    return parsed
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+            return None
         if isinstance(list_values, list):
             return list_values
         return None
@@ -172,12 +197,38 @@ class SortList(ControlNode):
                     keys.update(parsed.keys())
         return sorted(keys)
 
-    def _get_sort_key_for_item(self, item: Any, key: str) -> str:
-        """Extract sort key from item (dict or string representation of dict)."""
-        if isinstance(item, dict):
-            return str(item.get(key, ""))
-        if isinstance(item, str):
+    def _get_sort_key_for_item(self, item: Any, dict_key: str | None) -> _SortKey:
+        """Extract a sortable key for any item. Handles dicts, artifacts, and primitives.
+        Returns _SortKey with type_order 0 for numeric values, 1 for strings."""
+        def _key_for_val(val: Any) -> _SortKey:
+            """Use numeric sort when value is a number (including string '42')."""
+            if isinstance(val, (int, float)):
+                return _SortKey(0, float(val))
+            if isinstance(val, str) and val.strip():
+                try:
+                    return _SortKey(0, float(val))
+                except (ValueError, TypeError):
+                    pass
+            str_val = str(val) if val is not None else ""
+            return _SortKey(1, str_val)
+
+        # Dict with key specified - extract that field
+        if dict_key and isinstance(item, dict):
+            return _key_for_val(item.get(dict_key, ""))
+        if dict_key and isinstance(item, str):
             parsed = self._parse_dict_like(item)
             if parsed:
-                return str(parsed.get(key, ""))
-        return str(item)
+                return _key_for_val(parsed.get(dict_key, ""))
+
+        # Artifacts (ImageUrlArtifact, VideoUrlArtifact, AudioUrlArtifact, etc.) - sort by value (URL)
+        # name is often a UUID and would produce incorrect sort order
+        if hasattr(item, "value"):
+            val = getattr(item, "value", None)
+            if val is not None and str(val).strip():
+                return _SortKey(1, str(val))
+
+        # Dict without key - deterministic string for stable sort
+        if isinstance(item, dict):
+            return _SortKey(1, json.dumps(item, sort_keys=True))
+
+        return _SortKey(1, str(item))
