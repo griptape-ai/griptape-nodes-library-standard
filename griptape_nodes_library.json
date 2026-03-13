@@ -2761,6 +2761,16 @@
       }
     },
     {
+      "class_name": "SelectFromProject",
+      "file_path": "griptape_nodes_library/files/select_from_project.py",
+      "metadata": {
+        "category": "files",
+        "description": "Select a file or directory from the project and resolve it to a macro path.",
+        "display_name": "Select From Project",
+        "icon": "FolderOpen"
+      }
+    },
+    {
       "class_name": "TopazImageEnhance",
       "file_path": "griptape_nodes_library/image/topaz_image_enhance.py",
       "metadata": {
