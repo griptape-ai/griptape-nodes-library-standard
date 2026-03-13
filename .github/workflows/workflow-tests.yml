@@ -2,7 +2,7 @@ name: Workflow Tests
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "feat/save-static-file"]
   merge_group:
     types: [checks_requested]
 
@@ -22,6 +22,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Checkout griptape-nodes-library-testing
+        uses: actions/checkout@v4
+        with:
+          repository: griptape-ai/griptape-nodes-library-testing
+          path: ../griptape-nodes-library-testing
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
