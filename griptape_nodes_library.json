@@ -30,10 +30,7 @@
     "description": "Default nodes for Griptape Nodes",
     "library_version": "0.67.0",
     "engine_version": "0.77.0",
-    "tags": [
-      "Griptape",
-      "AI"
-    ],
+    "tags": ["Griptape", "AI"],
     "dependencies": {
       "pip_dependencies": [
         "griptape[drivers-prompt-amazon-bedrock,drivers-prompt-anthropic,drivers-prompt-cohere,drivers-prompt-ollama,drivers-web-scraper-trafilatura,drivers-web-search-duckduckgo,drivers-web-search-exa,loaders-image,loaders-pdf]>=1.9.3",
@@ -2768,6 +2765,16 @@
         "description": "Select a file or directory from the project and resolve it to a macro path.",
         "display_name": "Select From Project",
         "icon": "FolderOpen"
+      }
+    },
+    {
+      "class_name": "SaveToProject",
+      "file_path": "griptape_nodes_library/files/save_to_project.py",
+      "metadata": {
+        "category": "files",
+        "description": "Save a file to the project using situation-based path resolution.",
+        "display_name": "Save To Project",
+        "icon": "Save"
       }
     },
     {
