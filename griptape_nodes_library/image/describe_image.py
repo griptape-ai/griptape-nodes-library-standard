@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact, ModelArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
@@ -7,13 +8,12 @@ from griptape.structures import Structure
 from griptape.tasks import PromptTask
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterType
+from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode, ParameterType
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
-from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.events.connection_events import DeleteConnectionRequest
+from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest, DeleteConnectionRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.options import Options
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
@@ -46,7 +46,7 @@ class DescribeImage(ControlNode):
                 name="agent",
                 type="Agent",
                 output_type="Agent",
-                tooltip="An agent that can be used to describe the image.",
+                tooltip="An agent that will be used to describe the image(s).",
                 default_value=None,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
             )
@@ -65,20 +65,22 @@ class DescribeImage(ControlNode):
             )
         )
         self.add_parameter(
-            ParameterImage(
-                name="image",
-                tooltip="The image you would like to describe",
+            ParameterList(
+                name="images",
+                input_types=["ImageUrlArtifact", "ImageArtifact"],
                 default_value=None,
-                ui_options={"expander": True},
+                tooltip="The image(s) to be described",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={"display_name": "image(s)", "collapsed": True},
             )
         )
         self.add_parameter(
             ParameterString(
                 name="prompt",
-                tooltip="Explain how you'd like to describe the image.",
+                tooltip="Explain how you'd like the image(s) to be described.",
                 default_value="",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                placeholder_text="Explain the various aspects of the image you want to describe.",
+                placeholder_text="Explain the various aspects of the image(s) you want to be described.",
                 multiline=True,
                 ui_options={"display_name": "description prompt"},
             ),
@@ -111,6 +113,17 @@ class DescribeImage(ControlNode):
                 multiline=True,
                 placeholder_text="The description of the image",
                 ui_options={"display_name": "output"},
+            )
+        )
+
+        self.add_parameter(
+            Parameter(
+                name="image",
+                input_types=["ImageUrlArtifact", "ImageArtifact"],
+                default_value=None,
+                tooltip="Deprecated. Use images.",
+                allowed_modes={ParameterMode.INPUT},
+                hide=True,
             )
         )
 
@@ -150,6 +163,56 @@ class DescribeImage(ControlNode):
                         target_parameter_name=target_param.name,
                     )
                 )
+
+    def set_parameter_value(
+        self,
+        param_name: str,
+        value: Any,
+        *,
+        initial_setup: bool = False,
+        emit_change: bool = True,
+        skip_before_value_set: bool = False,
+    ) -> None:
+        if param_name == "image" and value is not None:
+            logger.info(
+                f"DescribeImage '{self.name}': 'image' parameter is deprecated. Migrating value to 'images' parameter."
+            )
+            images_list = self.get_parameter_by_name("images")
+            assert isinstance(images_list, ParameterList)
+            child = images_list.add_child_parameter()
+            connections = GriptapeNodes.FlowManager().get_connections()
+            image_conn_ids = connections.incoming_index.get(self.name, {}).get("image", [])
+            if image_conn_ids:
+                conn = connections.connections[image_conn_ids[0]]
+                GriptapeNodes.handle_request(
+                    DeleteConnectionRequest(
+                        source_node_name=conn.source_node.name,
+                        source_parameter_name=conn.source_parameter.name,
+                        target_node_name=self.name,
+                        target_parameter_name="image",
+                    )
+                )
+                GriptapeNodes.handle_request(
+                    CreateConnectionRequest(
+                        source_node_name=conn.source_node.name,
+                        source_parameter_name=conn.source_parameter.name,
+                        target_node_name=self.name,
+                        target_parameter_name=child.name,
+                    )
+                )
+            super().set_parameter_value(
+                child.name, value,
+                initial_setup=initial_setup,
+                emit_change=emit_change,
+                skip_before_value_set=skip_before_value_set,
+            )
+            return
+        super().set_parameter_value(
+            param_name, value,
+            initial_setup=initial_setup,
+            emit_change=emit_change,
+            skip_before_value_set=skip_before_value_set,
+        )
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
         # TODO: https://github.com/griptape-ai/griptape-nodes/issues/871
@@ -300,16 +363,18 @@ class DescribeImage(ControlNode):
         if get_description_only:
             prompt += "\n\nOutput image description only."
 
-        image_artifact = params.get("image", None)
+        image_artifacts = [
+            load_image_from_url_artifact(img) if isinstance(img, ImageUrlArtifact) else img
+            for img in (self.get_parameter_value("images") or [])
+            if img is not None
+        ]
 
-        if isinstance(image_artifact, ImageUrlArtifact):
-            image_artifact = load_image_from_url_artifact(image_artifact)
-        if image_artifact is None:
+        if not image_artifacts:
             self.parameter_output_values["output"] = "No image provided"
             return
 
         # Run the agent
-        yield lambda: agent.run([prompt, image_artifact])
+        yield lambda: agent.run([prompt, *image_artifacts])
         agent_output = agent.output
         output_value = agent_output.value
         if isinstance(agent_output, ModelArtifact):
