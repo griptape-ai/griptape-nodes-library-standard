@@ -46,6 +46,16 @@ class SelectFromProject(DataNode):
             )
         )
 
+        self.add_parameter(
+            Parameter(
+                name="in_project",
+                type="bool",
+                default_value=False,
+                tooltip="Whether the selected path is within the project.",
+                allowed_modes={ParameterMode.OUTPUT},
+            )
+        )
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "selected_path":
             file_path_str = str(value) if value is not None else ""
@@ -57,21 +67,24 @@ class SelectFromProject(DataNode):
         file_path_str = self.get_parameter_value("selected_path") or ""
         self._update_project_path(str(file_path_str))
 
-    def _resolve_project_path(self, file_path_str: str) -> UrlArtifact | None:
-        """Resolve a file path to a UrlArtifact, mapping to a macro path if one exists."""
+    def _resolve_project_path(self, file_path_str: str) -> tuple[UrlArtifact | None, bool]:
+        """Resolve a file path to a UrlArtifact, mapping to a macro path if one exists.
+
+        Returns a tuple of (resolved artifact, whether the path was in the project).
+        """
         if not file_path_str:
-            return None
+            return None, False
 
         result = GriptapeNodes.handle_request(AttemptMapAbsolutePathToProjectRequest(absolute_path=Path(file_path_str)))
 
         if isinstance(result, AttemptMapAbsolutePathToProjectResultSuccess) and result.mapped_path is not None:
-            return UrlArtifact(result.mapped_path)
+            return UrlArtifact(result.mapped_path), True
 
-        return UrlArtifact(file_path_str)
+        return UrlArtifact(file_path_str), False
 
     def _update_project_path(self, file_path_str: str) -> None:
         """Compute the project path output from the given file path and keep both parameters in sync."""
-        resolved = self._resolve_project_path(file_path_str)
+        resolved, in_project = self._resolve_project_path(file_path_str)
         mapped_path = resolved.value if resolved is not None else ""
 
         # Direct assignment bypasses hooks to avoid re-triggering after_value_set
@@ -80,3 +93,6 @@ class SelectFromProject(DataNode):
 
         self.parameter_output_values["project_path"] = resolved
         self.publish_update_to_parameter("project_path", resolved)
+
+        self.parameter_output_values["in_project"] = in_project
+        self.publish_update_to_parameter("in_project", in_project)
