@@ -5,13 +5,11 @@
 # schema_version = "0.16.0"
 # engine_version_created_with = "0.77.3"
 # node_libraries_referenced = [["Griptape Nodes Library", "0.67.0"], ["Griptape Nodes Testing Library", "0.1.0"]]
-# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "Rodin23DGeneration"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
+# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "Rodin23DGeneration"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
 # ///
-import argparse
 import asyncio
-import json
 import logging
 from pathlib import Path
 
@@ -38,6 +36,10 @@ flow_name = GriptapeNodes.handle_request(
 ).flow_name
 
 with GriptapeNodes.ContextManager().flow(flow_name):
+    source_node = GriptapeNodes.handle_request(CreateNodeRequest(
+        node_type="CreateColorBars", specific_library_name="Griptape Nodes Library",
+        node_name="Create Color Bars", metadata={}, resolution="resolved", initial_setup=True,
+    )).node_name
     gen_node = GriptapeNodes.handle_request(CreateNodeRequest(
         node_type="Rodin23DGeneration", specific_library_name="Griptape Nodes Library",
         node_name="Rodin23DGeneration", metadata={}, resolution="resolved", initial_setup=True,
@@ -50,17 +52,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
         node_type="AssertFileExists", specific_library_name="Griptape Nodes Testing Library",
         node_name="Assert File Exists", metadata={}, resolution="resolved", initial_setup=True,
     )).node_name
-    start_node = GriptapeNodes.handle_request(CreateNodeRequest(
-        node_type="StartFlow", specific_library_name="Griptape Nodes Library",
-        node_name="Start Flow", metadata={}, resolution="resolved", initial_setup=True,
-    )).node_name
-    with GriptapeNodes.ContextManager().node(start_node):
-        GriptapeNodes.handle_request(AddParameterToNodeRequest(
-            parameter_name="prompt", default_value="", tooltip="Prompt",
-            type="str", input_types=["any"], output_type="str",
-            ui_options={"display_name": "Prompt", "multiline": True},
-            parent_container_name="", initial_setup=True,
-        ))
     end_node = GriptapeNodes.handle_request(CreateNodeRequest(
         node_type="EndFlow", specific_library_name="Griptape Nodes Library",
         node_name="End Flow", metadata={}, resolution="resolved", initial_setup=True,
@@ -71,10 +62,13 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             type="str", input_types=["str"], output_type="str",
             ui_options={}, parent_container_name="", initial_setup=True,
         ))
-
     GriptapeNodes.handle_request(CreateConnectionRequest(
-        source_node_name=start_node, source_parameter_name="prompt",
-        target_node_name=gen_node, target_parameter_name="prompt", initial_setup=True))
+        source_node_name=source_node, source_parameter_name="image",
+        target_node_name=gen_node, target_parameter_name="input_images", initial_setup=True))
+    with GriptapeNodes.ContextManager().node(gen_node):
+        GriptapeNodes.handle_request(SetParameterValueRequest(
+            parameter_name="prompt", node_name=gen_node,
+            value="A simple chair", initial_setup=True, is_output=False))
     GriptapeNodes.handle_request(CreateConnectionRequest(
         source_node_name=gen_node, source_parameter_name="model_url",
         target_node_name=to_text_node, target_parameter_name="from", initial_setup=True))
@@ -84,12 +78,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
     GriptapeNodes.handle_request(CreateConnectionRequest(
         source_node_name=assert_node, source_parameter_name="result_details",
         target_node_name=end_node, target_parameter_name="str", initial_setup=True))
-
-    with GriptapeNodes.ContextManager().node(start_node):
-        GriptapeNodes.handle_request(SetParameterValueRequest(
-            parameter_name="prompt", node_name=start_node,
-            value="A simple chair", initial_setup=True, is_output=False))
-
 
 def _ensure_workflow_context():
     context_manager = GriptapeNodes.ContextManager()
@@ -119,21 +107,5 @@ async def aexecute_workflow(input, storage_backend="local", project_file_path=No
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--storage-backend", choices=["local", "gtc"], default="local")
-    parser.add_argument("--project-file-path", default=None)
-    parser.add_argument("--json-input", default=None)
-    parser.add_argument("--prompt", default=None)
-    args = parser.parse_args()
-    flow_input = {}
-    if args.json_input is not None:
-        flow_input = json.loads(args.json_input)
-    if args.json_input is None:
-        if "Start Flow" not in flow_input:
-            flow_input["Start Flow"] = {}
-        if args.prompt is not None:
-            flow_input["Start Flow"]["prompt"] = args.prompt
-    workflow_output = execute_workflow(
-        input=flow_input, storage_backend=args.storage_backend,
-        project_file_path=args.project_file_path)
+    workflow_output = execute_workflow(input={})
     print(workflow_output)
