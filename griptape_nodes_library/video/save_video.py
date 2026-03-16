@@ -12,6 +12,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
+
 from griptape_nodes_library.utils.video_utils import (
     SUPPORTED_VIDEO_EXTENSIONS,
     download_video_to_temp_file,

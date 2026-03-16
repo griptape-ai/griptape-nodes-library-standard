@@ -2,13 +2,13 @@ from io import BytesIO
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact, UrlArtifact
-from PIL import Image
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
+from PIL import Image
+
 from griptape_nodes_library.utils.image_utils import load_pil_from_url
 
 

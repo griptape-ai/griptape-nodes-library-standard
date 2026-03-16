@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 

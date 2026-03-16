@@ -9,7 +9,6 @@ from http import HTTPStatus
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -19,6 +18,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
+
 from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -289,7 +289,7 @@ class QwenImageGeneration(GriptapeProxyNode):
             image_bytes = await File(image_url).aread_bytes()
             if image_bytes:
                 filename = f"qwen_image_{int(time.time())}.jpg"
-                from griptape_nodes.retained_mode.retained_mode import GriptapeNodes
+                from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
                 static_files_manager = GriptapeNodes.StaticFilesManager()
                 saved_url = static_files_manager.save_static_file(image_bytes, filename)

@@ -9,14 +9,13 @@ import json
 from typing import Any
 
 from griptape.rules import Rule, Ruleset
-from json_repair import repair_json
-from pydantic import BaseModel, create_model
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.options import Options
+from json_repair import repair_json
+from pydantic import BaseModel, create_model
 
 # Example templates for common schema patterns
 EXAMPLE_TEMPLATES = {

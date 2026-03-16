@@ -11,10 +11,10 @@ from typing import Any
 
 import requests
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver as GtGriptapeCloudPromptDriver
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button
+
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
 
 # --- Constants ---

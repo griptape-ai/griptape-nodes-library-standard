@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from static_ffmpeg import run  # type: ignore[import-untyped]
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -15,6 +13,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 # static_ffmpeg is dynamically installed by the library loader at runtime
 # into the library's own virtual environment, but not available during type checking
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from static_ffmpeg import run  # type: ignore[import-untyped]
 
 
 @dataclass

@@ -2,8 +2,6 @@ from io import BytesIO
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
-from PIL import Image
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -12,6 +10,8 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
 from griptape_nodes.traits.options import Options
+from PIL import Image
+
 from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
     apply_mask_transformations,
@@ -207,8 +207,8 @@ class ApplyMask(DataNode):
         if apply_edge_blur and blur_mask > 0:
             edge_mask = self._create_edge_mask(input_pil.size, blur_mask)
             # Combine edge mask with alpha channel by multiplying
-            alpha_array = list(alpha.getdata())
-            edge_array = list(edge_mask.getdata())
+            alpha_array = list(alpha.getdata())  # pyright: ignore[reportArgumentType]
+            edge_array = list(edge_mask.getdata())  # pyright: ignore[reportArgumentType]
             combined = [int(a * e / 255) for a, e in zip(alpha_array, edge_array, strict=True)]
             alpha.putdata(combined)
 

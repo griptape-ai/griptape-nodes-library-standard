@@ -9,8 +9,6 @@ from io import BytesIO
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from PIL import Image
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -23,6 +21,8 @@ from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
+from PIL import Image
+
 from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
 from griptape_nodes_library.three_d.three_d_artifact import ThreeDUrlArtifact
 

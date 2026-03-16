@@ -1,8 +1,8 @@
 import openai
 from griptape.drivers.audio_transcription.openai import OpenAiAudioTranscriptionDriver
 from griptape.tools.audio_transcription.tool import AudioTranscriptionTool as GtAudioTranscriptionTool
-
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
 from griptape_nodes_library.tools.base_tool import BaseTool
 
 API_KEY_ENV_VAR = "OPENAI_API_KEY"

@@ -5,6 +5,7 @@ from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.files.file import File
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 from griptape_nodes.utils.dict_utils import to_dict
+
 from griptape_nodes_library.utils.file_utils import SUPPORTED_TEXT_EXTENSIONS
 
 

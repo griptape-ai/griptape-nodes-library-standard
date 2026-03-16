@@ -3,9 +3,9 @@ from typing import Any
 from griptape.drivers.structure_run.local import LocalStructureRunDriver
 from griptape.structures import Agent as gtAgent
 from griptape.tools import StructureRunTool
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
+
 from griptape_nodes_library.utils.utilities import to_pascal_case
 
 placeholder_description = "Tool created from an Agent"

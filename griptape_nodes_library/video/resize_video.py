@@ -5,11 +5,6 @@ from pathlib import Path
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-
-# static_ffmpeg is dynamically installed by the library loader at runtime
-# into the library's own virtual environment, but not available during type checking
-from static_ffmpeg import run  # type: ignore[import-untyped]
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -20,6 +15,11 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
+
+# static_ffmpeg is dynamically installed by the library loader at runtime
+# into the library's own virtual environment, but not available during type checking
+from static_ffmpeg import run  # type: ignore[import-untyped]
+
 from griptape_nodes_library.utils.video_utils import (
     detect_video_format,
     to_video_artifact,

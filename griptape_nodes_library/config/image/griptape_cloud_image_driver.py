@@ -3,11 +3,11 @@ from typing import Any
 from griptape.drivers.image_generation.griptape_cloud import (
     GriptapeCloudImageGenerationDriver as GtGriptapeCloudImageGenerationDriver,
 )
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
+
 from griptape_nodes_library.config.image.base_image_driver import BaseImageDriver
 
 # --- Constants ---

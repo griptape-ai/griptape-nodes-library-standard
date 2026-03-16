@@ -2,10 +2,10 @@ from griptape.artifacts import ListArtifact
 from griptape.structures import Agent, Structure
 from griptape.tasks import PromptTask
 from griptape.tools import WebScraperTool as GtWebScraperTool
-
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.traits.options import Options
+
 from griptape_nodes_library.tasks.base_task import BaseTask
 
 

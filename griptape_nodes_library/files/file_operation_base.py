@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from griptape.artifacts import UrlArtifact
-
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.retained_mode.events.os_events import (
     GetFileInfoRequest,
@@ -17,6 +16,7 @@ from griptape_nodes.retained_mode.events.os_events import (
     ListDirectoryResultSuccess,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
 from griptape_nodes_library.utils.image_utils import resolve_localhost_url_to_path
 
 if TYPE_CHECKING:

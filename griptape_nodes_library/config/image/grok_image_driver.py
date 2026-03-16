@@ -1,8 +1,8 @@
 from griptape.drivers.image_generation.openai_image_generation_driver import (
     OpenAiImageGenerationDriver as GtGrokImageGenerationDriver,
 )
-
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
 from griptape_nodes_library.config.image.base_image_driver import BaseImageDriver
 
 # --- Constants ---

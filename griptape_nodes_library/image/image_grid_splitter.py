@@ -10,8 +10,6 @@ if TYPE_CHECKING:
 
 import numpy as np
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from PIL import Image, ImageDraw, ImageFilter
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode, ParameterTypeBuiltin
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -22,6 +20,8 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 from griptape_nodes.utils import async_utils
+from PIL import Image, ImageDraw, ImageFilter
+
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     load_pil_from_url,

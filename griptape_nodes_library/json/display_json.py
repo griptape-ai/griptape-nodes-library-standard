@@ -4,12 +4,11 @@ from enum import StrEnum
 from typing import Any
 
 import yaml
-from json_repair import repair_json
-
 from griptape_nodes.exe_types.core_types import (
     Parameter,
 )
 from griptape_nodes.exe_types.node_types import DataNode
+from json_repair import repair_json
 
 KEY_VALUE_PARTS = 2
 MIN_YAML_LINES = 2

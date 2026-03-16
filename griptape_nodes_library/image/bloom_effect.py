@@ -1,12 +1,12 @@
 from typing import Any
 
-from PIL import Image, ImageEnhance, ImageFilter
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.slider import Slider
+from PIL import Image, ImageEnhance, ImageFilter
+
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,

@@ -3,10 +3,10 @@
 from unittest.mock import Mock, patch
 
 import pytest
-from griptape_nodes_library.text.load_text import LoadText
-
 from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
+from griptape_nodes_library.text.load_text import LoadText
 
 
 class TestLoadTextProcess:

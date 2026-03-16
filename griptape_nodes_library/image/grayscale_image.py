@@ -1,9 +1,9 @@
 from typing import Any
 
-from PIL import Image, ImageEnhance
-
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.retained_mode.griptape_nodes import logger
+from PIL import Image, ImageEnhance
+
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
 from griptape_nodes_library.utils.image_utils import (
     load_pil_from_url,

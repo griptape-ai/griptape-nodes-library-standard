@@ -8,8 +8,6 @@ from io import BytesIO
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from PIL import Image, ImageDraw, ImageFont
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -19,6 +17,8 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
+from PIL import Image, ImageDraw, ImageFont
+
 from griptape_nodes_library.utils.color_utils import parse_color_to_rgba
 from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (

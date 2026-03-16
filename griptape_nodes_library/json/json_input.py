@@ -1,13 +1,12 @@
 import json
 from typing import Any
 
-from json_repair import repair_json
-
 from griptape_nodes.exe_types.core_types import (
     Parameter,
     ParameterMode,
 )
 from griptape_nodes.exe_types.node_types import DataNode
+from json_repair import repair_json
 
 
 class JsonInput(DataNode):

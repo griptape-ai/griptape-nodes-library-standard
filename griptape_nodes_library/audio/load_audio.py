@@ -1,10 +1,10 @@
 from typing import Any
 
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
-
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.node_types import BaseNode, DataNode
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
+
 from griptape_nodes_library.utils.artifact_path_tethering import (
     ArtifactPathTethering,
     ArtifactTetheringConfig,

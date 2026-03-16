@@ -5,11 +5,11 @@ from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.structures import Agent, Structure
 from griptape.tasks import PromptTask
 from griptape.tools import WebSearchTool
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
+
 from griptape_nodes_library.tasks.base_task import BaseTask
 
 SEARCH_ENGINE_MAP = {

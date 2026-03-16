@@ -10,10 +10,10 @@ import logging
 from typing import Any
 
 from griptape.drivers.prompt.ollama import OllamaPromptDriver as GtOllamaPromptDriver
-
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterGroup, ParameterMessage
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
+
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
 
 logger = logging.getLogger("griptape_nodes")

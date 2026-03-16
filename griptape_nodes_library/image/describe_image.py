@@ -6,8 +6,6 @@ from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
 from griptape.drivers.prompt.griptape_cloud_prompt_driver import GriptapeCloudPromptDriver
 from griptape.structures import Structure
 from griptape.tasks import PromptTask
-from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode, ParameterType
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -16,6 +14,8 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest, DeleteConnectionRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.options import Options
+from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
+
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
@@ -201,14 +201,16 @@ class DescribeImage(ControlNode):
                     )
                 )
             super().set_parameter_value(
-                child.name, value,
+                child.name,
+                value,
                 initial_setup=initial_setup,
                 emit_change=emit_change,
                 skip_before_value_set=skip_before_value_set,
             )
             return
         super().set_parameter_value(
-            param_name, value,
+            param_name,
+            value,
             initial_setup=initial_setup,
             emit_change=emit_change,
             skip_before_value_set=skip_before_value_set,

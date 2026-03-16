@@ -1,6 +1,5 @@
 from griptape.rules import Rule
 from griptape.rules import Ruleset as gtRuleset
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 

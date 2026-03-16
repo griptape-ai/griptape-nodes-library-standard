@@ -10,9 +10,9 @@ and instantiates a GriptapeCloudImageGenerationDriver with appropriate settings.
 from typing import Any
 
 from griptape.drivers.image_generation.dummy import DummyImageGenerationDriver
-
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.traits.options import Options
+
 from griptape_nodes_library.config.base_driver import BaseDriver
 
 

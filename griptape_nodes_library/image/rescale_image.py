@@ -1,13 +1,13 @@
 from typing import Any
 
-from PIL import Image
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
+from PIL import Image
+
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
 
 

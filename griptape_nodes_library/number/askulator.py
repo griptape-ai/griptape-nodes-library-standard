@@ -6,11 +6,11 @@ from griptape.events import ActionChunkEvent, TextChunkEvent
 from griptape.rules import Rule
 from griptape.structures import Agent, Structure
 from griptape.tools import CalculatorTool as GtCalculatorTool
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.traits.options import Options
 from json_repair import repair_json  # json_repair
 from pydantic import BaseModel
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.traits.options import Options
 from griptape_nodes_library.tasks.base_task import BaseTask
 
 
@@ -75,7 +75,7 @@ class Askulator(BaseTask):
             if isinstance(event, TextChunkEvent):
                 full_result += event.token
                 try:
-                    result_json = json.loads(repair_json(full_result))
+                    result_json = json.loads(repair_json(full_result))  # pyright: ignore[reportArgumentType]
                     if "reasoning" in result_json:
                         new_reasoning = result_json["reasoning"]
                         if new_reasoning != last_reasoning:

@@ -2,7 +2,6 @@ import json
 from typing import Any
 
 import jmespath  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString

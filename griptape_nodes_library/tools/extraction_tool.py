@@ -2,8 +2,8 @@ from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.engines import CsvExtractionEngine, JsonExtractionEngine
 from griptape.rules import Rule
 from griptape.tools import ExtractionTool as GtExtractionTool
-
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
 from griptape_nodes_library.tools.base_tool import BaseTool
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"

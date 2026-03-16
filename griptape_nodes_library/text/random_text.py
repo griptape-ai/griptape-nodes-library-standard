@@ -6,13 +6,13 @@ from typing import Any
 
 from griptape.artifacts import BaseArtifact
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.retained_mode.events.execution_events import ResolveNodeRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
+
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"

@@ -52,13 +52,14 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [dependency-groups]
-dev = ["pyright>=1.1.396", "ruff>=0.8.0", "pytest"]
+dev = ["pyright>=1.1.396", "pytest-asyncio>=0.21.0", "ruff>=0.8.0", "pytest"]
 
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
 include = ["."]
 exclude = [
+  "**/templates/*",
   ".venv",
   "**/node_modules",
   "**/__pycache__",

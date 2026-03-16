@@ -10,8 +10,6 @@ from typing import Any, ClassVar
 
 import numpy as np
 from color_matcher import ColorMatcher  # type: ignore[reportMissingImports]
-from PIL import Image
-
 from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -20,6 +18,8 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
+from PIL import Image
+
 from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,

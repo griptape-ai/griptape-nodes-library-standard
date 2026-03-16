@@ -2,8 +2,6 @@ from io import BytesIO
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from PIL import Image
-
 from griptape_nodes.exe_types.core_types import (
     Parameter,
     ParameterMode,
@@ -13,6 +11,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import logger
+from PIL import Image
 
 
 class DisplayImage(DataNode):

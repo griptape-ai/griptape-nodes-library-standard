@@ -1,5 +1,6 @@
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup
 from griptape_nodes.traits.options import Options
+
 from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 
 

@@ -12,6 +12,7 @@ from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
+
 from griptape_nodes_library.utils.audio_utils import (
     SUPPORTED_AUDIO_EXTENSIONS,
     download_audio_to_temp_file,

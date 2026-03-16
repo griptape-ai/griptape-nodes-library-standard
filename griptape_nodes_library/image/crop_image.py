@@ -3,8 +3,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
-from PIL import Image
-
 from griptape_nodes.exe_types.core_types import (
     NodeMessagePayload,
     NodeMessageResult,
@@ -23,6 +21,8 @@ from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
+from PIL import Image
+
 from griptape_nodes_library.utils.color_utils import NAMED_COLORS, parse_color_to_rgba
 from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (

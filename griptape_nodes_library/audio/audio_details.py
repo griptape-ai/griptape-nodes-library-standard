@@ -6,7 +6,6 @@ from typing import Any
 
 from griptape.artifacts import AudioArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
-
 from griptape_nodes.exe_types.core_types import ParameterGroup
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio

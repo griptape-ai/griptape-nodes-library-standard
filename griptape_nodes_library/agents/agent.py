@@ -16,9 +16,6 @@ from griptape.events import ActionChunkEvent, FinishStructureRunEvent, StartStru
 from griptape.memory.structure import ConversationMemory, Run
 from griptape.structures import Structure
 from griptape.tasks import PromptTask
-from jinja2 import Template
-from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
-
 from griptape_nodes.exe_types.core_types import (
     Parameter,
     ParameterGroup,
@@ -34,6 +31,9 @@ from griptape_nodes.retained_mode.events.connection_events import DeleteConnecti
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
+from jinja2 import Template
+from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
+
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
 from griptape_nodes_library.utils.error_utils import try_throw_error
 

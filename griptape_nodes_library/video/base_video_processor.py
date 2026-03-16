@@ -8,12 +8,12 @@ from typing import Any, ClassVar
 # into the library's own virtual environment, but not available during type checking
 import static_ffmpeg.run  # type: ignore[import-untyped]
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
+
 from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.video_utils import (
     detect_video_format,

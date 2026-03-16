@@ -2,9 +2,9 @@
 
 import pytest
 from griptape.artifacts import ImageUrlArtifact
-from griptape_nodes_library.image.load_image import LoadImage
-
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
+from griptape_nodes_library.image.load_image import LoadImage
 
 
 class TestLoadImageFromPath:

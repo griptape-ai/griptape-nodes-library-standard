@@ -6,7 +6,6 @@ from contextlib import suppress
 from typing import Any
 
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -15,6 +14,7 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
+
 from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
 
 logger = logging.getLogger(__name__)

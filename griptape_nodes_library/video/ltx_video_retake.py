@@ -6,10 +6,6 @@ import subprocess
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-
-# static_ffmpeg is dynamically installed by the library loader at runtime
-from static_ffmpeg import run  # type: ignore[import-untyped]
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_range import ParameterRange
@@ -18,6 +14,10 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
+
+# static_ffmpeg is dynamically installed by the library loader at runtime
+from static_ffmpeg import run  # type: ignore[import-untyped]
+
 from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
