@@ -8,7 +8,7 @@
 # node_libraries_referenced = [["Griptape Nodes Library", "0.52.3"]]
 # node_types_used = [["Griptape Nodes Library", "Agent"], ["Griptape Nodes Library", "AudioDetails"], ["Griptape Nodes Library", "CombineAudio"], ["Griptape Nodes Library", "DisplayText"], ["Griptape Nodes Library", "ElevenLabsMusicGeneration"], ["Griptape Nodes Library", "ElevenLabsTextToSpeechGeneration"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "ExecutePython"], ["Griptape Nodes Library", "KeyValuePair"], ["Griptape Nodes Library", "ListToDictKeys"], ["Griptape Nodes Library", "Math"], ["Griptape Nodes Library", "MergeKeyValuePairs"], ["Griptape Nodes Library", "MergeTexts"], ["Griptape Nodes Library", "Note"], ["Griptape Nodes Library", "Ruleset"], ["Griptape Nodes Library", "SeedreamImageGeneration"], ["Griptape Nodes Library", "SplitText"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "TextInput"], ["Griptape Nodes Library", "ToText"]]
 # description = "Create vocal and music tracks with a fill-in-the-blank story workflow."
-# image = "https://github.com/griptape-ai/griptape-nodes-library-standard/blob/main/workflows/templates/thumbnail_fill_in_the_story.webp?raw=true"
+# image = "https://raw.githubusercontent.com/griptape-ai/griptape-nodes-library-standard/main/workflows/templates/thumbnail_fill_in_the_story.webp"
 # is_griptape_provided = true
 # is_template = true
 # creation_date = 2025-10-31T23:30:07.808893Z
