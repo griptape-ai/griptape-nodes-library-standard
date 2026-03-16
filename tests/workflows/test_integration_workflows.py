@@ -4,12 +4,10 @@ import pytest
 
 from griptape_nodes.bootstrap.workflow_executors.local_workflow_executor import LocalWorkflowExecutor
 
-LIBRARY_ROOT = Path(__file__).parents[2]
-
 
 def get_integration_workflows() -> list[str]:
     """Get all integration test workflows for this library."""
-    workflows_dir = LIBRARY_ROOT / "workflows" / "integration_tests"
+    workflows_dir = Path(__file__).parent / "integration_tests"
     return [
         str(f)
         for f in workflows_dir.iterdir()

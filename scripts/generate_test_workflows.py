@@ -1,6 +1,6 @@
 """Generator script for integration test workflows.
 
-Produces one workflow .py file per node in workflows/integration_tests/.
+Produces one workflow .py file per node in tests/workflows/integration_tests/.
 Run with: python scripts/generate_test_workflows.py
 """
 
@@ -554,7 +554,7 @@ def generate_advanced_workflow(cfg: dict) -> str:
 
 
 def main() -> None:
-    output_dir = Path(__file__).parents[1] / "workflows" / "integration_tests"
+    output_dir = Path(__file__).parents[1] / "tests" / "workflows" / "integration_tests"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     generated = []
