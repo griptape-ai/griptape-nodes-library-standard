@@ -44,4 +44,4 @@ jobs:
         run: uv pip install --system griptape-nodes pytest pytest-asyncio python-dotenv
 
       - name: Run workflow tests
-        run: make test/workflows
+        run: pytest -s tests/workflows/test_integration_workflows.py
