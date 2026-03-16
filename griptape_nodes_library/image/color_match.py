@@ -257,7 +257,7 @@ class ColorMatch(SuccessFailureNode):
             # Save and set output
             image_bytes = image_to_bytes(processed_image, "PNG")
             dest = self._output_file.build_file()
-            saved = dest.write_bytes(image_bytes)
+            saved = await dest.awrite_bytes(image_bytes)
             output_artifact = ImageUrlArtifact(saved.location)
 
             self.set_parameter_value("output", output_artifact)
