@@ -41,47 +41,268 @@ ADVANCED_CONFIGS = [
         "suffix": "create_color_bars",
     },
     # single_image — standard params: image_in=input_image, output=output
-    {"template": "single_image", "node_type": "AdjustImageEQ", "image_in": "input_image", "output_param": "output", "suffix": "adjust_image_eq"},
-    {"template": "single_image", "node_type": "AdjustImageLevels", "image_in": "input_image", "output_param": "output", "suffix": "adjust_image_levels"},
-    {"template": "single_image", "node_type": "BloomEffect", "image_in": "input_image", "output_param": "output", "suffix": "bloom_effect"},
-    {"template": "single_image", "node_type": "FlipImage", "image_in": "input_image", "output_param": "output", "suffix": "flip_image"},
-    {"template": "single_image", "node_type": "GaussianBlurImage", "image_in": "input_image", "output_param": "output", "suffix": "gaussian_blur_image"},
-    {"template": "single_image", "node_type": "GrayscaleImage", "image_in": "input_image", "output_param": "output", "suffix": "grayscale_image"},
-    {"template": "single_image", "node_type": "CropImage", "image_in": "input_image", "output_param": "output", "suffix": "crop_image"},
-    {"template": "single_image", "node_type": "DisplayChannel", "image_in": "input_image", "output_param": "output", "suffix": "display_channel"},
-    {"template": "single_image", "node_type": "InvertImage", "image_in": "input_image", "output_param": "output", "suffix": "invert_image"},
-    {"template": "single_image", "node_type": "SetColorToTransparent", "image_in": "input_image", "output_param": "output", "suffix": "set_color_to_transparent"},
+    {
+        "template": "single_image",
+        "node_type": "AdjustImageEQ",
+        "image_in": "input_image",
+        "output_param": "output",
+        "suffix": "adjust_image_eq",
+    },
+    {
+        "template": "single_image",
+        "node_type": "AdjustImageLevels",
+        "image_in": "input_image",
+        "output_param": "output",
+        "suffix": "adjust_image_levels",
+    },
+    {
+        "template": "single_image",
+        "node_type": "BloomEffect",
+        "image_in": "input_image",
+        "output_param": "output",
+        "suffix": "bloom_effect",
+    },
+    {
+        "template": "single_image",
+        "node_type": "FlipImage",
+        "image_in": "input_image",
+        "output_param": "output",
+        "suffix": "flip_image",
+    },
+    {
+        "template": "single_image",
+        "node_type": "GaussianBlurImage",
+        "image_in": "input_image",
+        "output_param": "output",
+        "suffix": "gaussian_blur_image",
+    },
+    {
+        "template": "single_image",
+        "node_type": "GrayscaleImage",
+        "image_in": "input_image",
+        "output_param": "output",
+        "suffix": "grayscale_image",
+    },
+    {
+        "template": "single_image",
+        "node_type": "CropImage",
+        "image_in": "input_image",
+        "output_param": "output",
+        "suffix": "crop_image",
+    },
+    {
+        "template": "single_image",
+        "node_type": "DisplayChannel",
+        "image_in": "input_image",
+        "output_param": "output",
+        "suffix": "display_channel",
+    },
+    {
+        "template": "single_image",
+        "node_type": "InvertImage",
+        "image_in": "input_image",
+        "output_param": "output",
+        "suffix": "invert_image",
+    },
+    {
+        "template": "single_image",
+        "node_type": "SetColorToTransparent",
+        "image_in": "input_image",
+        "output_param": "output",
+        "suffix": "set_color_to_transparent",
+    },
     # single_image — non-standard params
-    {"template": "single_image", "node_type": "ExtendCanvas", "image_in": "input_image", "output_param": "extended_image", "suffix": "extend_canvas"},
-    {"template": "single_image", "node_type": "GaussianEdgeFade", "image_in": "input_image", "output_param": "output_image", "suffix": "gaussian_edge_fade"},
-    {"template": "single_image", "node_type": "DisplayMask", "image_in": "input_image", "output_param": "output_mask", "suffix": "display_mask"},
-    {"template": "single_image", "node_type": "InvertMask", "image_in": "input_mask", "output_param": "output_mask", "suffix": "invert_mask"},
-    {"template": "single_image", "node_type": "ImageGridSplitter", "image_in": "input_image", "output_param": "preview", "suffix": "image_grid_splitter"},
-    {"template": "single_image", "node_type": "WriteImageMetadataNode", "image_in": "input_image", "output_param": "output_image", "suffix": "write_image_metadata"},
+    {
+        "template": "single_image",
+        "node_type": "ExtendCanvas",
+        "image_in": "input_image",
+        "output_param": "extended_image",
+        "suffix": "extend_canvas",
+    },
+    {
+        "template": "single_image",
+        "node_type": "GaussianEdgeFade",
+        "image_in": "input_image",
+        "output_param": "output_image",
+        "suffix": "gaussian_edge_fade",
+    },
+    {
+        "template": "single_image",
+        "node_type": "DisplayMask",
+        "image_in": "input_image",
+        "output_param": "output_mask",
+        "suffix": "display_mask",
+    },
+    {
+        "template": "single_image",
+        "node_type": "InvertMask",
+        "image_in": "input_mask",
+        "output_param": "output_mask",
+        "suffix": "invert_mask",
+    },
+    {
+        "template": "single_image",
+        "node_type": "ImageGridSplitter",
+        "image_in": "input_image",
+        "output_param": "preview",
+        "suffix": "image_grid_splitter",
+    },
+    {
+        "template": "single_image",
+        "node_type": "WriteImageMetadataNode",
+        "image_in": "input_image",
+        "output_param": "output_image",
+        "suffix": "write_image_metadata",
+    },
     # single_image — API proxy nodes
-    {"template": "single_image", "node_type": "SeedVRImageUpscale", "image_in": "image_url", "output_param": "image", "suffix": "seedvr_image_upscale"},
-    {"template": "single_image", "node_type": "TopazImageEnhance", "image_in": "image_input", "output_param": "image_output", "suffix": "topaz_image_enhance"},
+    {
+        "template": "single_image",
+        "node_type": "SeedVRImageUpscale",
+        "image_in": "image_url",
+        "output_param": "image",
+        "suffix": "seedvr_image_upscale",
+    },
+    {
+        "template": "single_image",
+        "node_type": "TopazImageEnhance",
+        "image_in": "image_input",
+        "output_param": "image_output",
+        "suffix": "topaz_image_enhance",
+    },
     # dual_image — two CreateColorBars instances feed two image inputs
-    {"template": "dual_image", "node_type": "ApplyMask", "image_in_1": "input_image", "image_in_2": "input_mask", "output_param": "output", "suffix": "apply_mask"},
-    {"template": "dual_image", "node_type": "ColorMatch", "image_in_1": "reference_image", "image_in_2": "target_image", "output_param": "output", "suffix": "color_match"},
-    {"template": "dual_image", "node_type": "ImageBlendCompositor", "image_in_1": "input_image", "image_in_2": "blend_image", "output_param": "output", "suffix": "image_blend_compositor"},
+    {
+        "template": "dual_image",
+        "node_type": "ApplyMask",
+        "image_in_1": "input_image",
+        "image_in_2": "input_mask",
+        "output_param": "output",
+        "suffix": "apply_mask",
+    },
+    {
+        "template": "dual_image",
+        "node_type": "ColorMatch",
+        "image_in_1": "reference_image",
+        "image_in_2": "target_image",
+        "output_param": "output",
+        "suffix": "color_match",
+    },
+    {
+        "template": "dual_image",
+        "node_type": "ImageBlendCompositor",
+        "image_in_1": "input_image",
+        "image_in_2": "blend_image",
+        "output_param": "output",
+        "suffix": "image_blend_compositor",
+    },
     # image_and_text — CreateColorBars + a text param set directly on the node
-    {"template": "image_and_text", "node_type": "AddTextToExistingImage", "image_in": "input_image", "text_param": "text", "text_value": "Hello", "output_param": "output", "suffix": "add_text_to_existing_image"},
-    {"template": "image_and_text", "node_type": "GrokImageEdit", "image_in": "image", "text_param": "prompt", "text_value": "Make it blue", "output_param": "image_url", "suffix": "grok_image_edit"},
-    {"template": "image_and_text", "node_type": "Rodin23DGeneration", "image_in": "input_images", "text_param": "prompt", "text_value": "A simple chair", "output_param": "model_url", "suffix": "rodin2_3d_generation"},
+    {
+        "template": "image_and_text",
+        "node_type": "AddTextToExistingImage",
+        "image_in": "input_image",
+        "text_param": "text",
+        "text_value": "Hello",
+        "output_param": "output",
+        "suffix": "add_text_to_existing_image",
+    },
+    {
+        "template": "image_and_text",
+        "node_type": "GrokImageEdit",
+        "image_in": "image",
+        "text_param": "prompt",
+        "text_value": "Make it blue",
+        "output_param": "image_url",
+        "suffix": "grok_image_edit",
+    },
+    {
+        "template": "image_and_text",
+        "node_type": "Rodin23DGeneration",
+        "image_in": "input_images",
+        "text_param": "prompt",
+        "text_value": "A simple chair",
+        "output_param": "model_url",
+        "suffix": "rodin2_3d_generation",
+    },
     # video_input — LTXTextToVideoGeneration generates a video, node receives it
-    {"template": "video_input", "node_type": "CropVideo", "video_in": "video", "output_param": "output", "suffix": "crop_video"},
-    {"template": "video_input", "node_type": "ExtractAudio", "video_in": "video", "output_param": "extracted_audio", "suffix": "extract_audio"},
-    {"template": "video_input", "node_type": "ExtractLastFrame", "video_in": "video", "output_param": "last_frame_image", "suffix": "extract_last_frame"},
-    {"template": "video_input", "node_type": "ResizeVideo", "video_in": "video", "output_param": "resized_video", "suffix": "resize_video"},
-    {"template": "video_input", "node_type": "SeedVRVideoUpscale", "video_in": "video_url", "output_param": "video", "suffix": "seedvr_video_upscale"},
+    {
+        "template": "video_input",
+        "node_type": "CropVideo",
+        "video_in": "video",
+        "output_param": "output",
+        "suffix": "crop_video",
+    },
+    {
+        "template": "video_input",
+        "node_type": "ExtractAudio",
+        "video_in": "video",
+        "output_param": "extracted_audio",
+        "suffix": "extract_audio",
+    },
+    {
+        "template": "video_input",
+        "node_type": "ExtractLastFrame",
+        "video_in": "video",
+        "output_param": "last_frame_image",
+        "suffix": "extract_last_frame",
+    },
+    {
+        "template": "video_input",
+        "node_type": "ResizeVideo",
+        "video_in": "video",
+        "output_param": "resized_video",
+        "suffix": "resize_video",
+    },
+    {
+        "template": "video_input",
+        "node_type": "SeedVRVideoUpscale",
+        "video_in": "video_url",
+        "output_param": "video",
+        "suffix": "seedvr_video_upscale",
+    },
     # video_and_prompt — LTXTextToVideoGeneration video + a prompt set on the node
-    {"template": "video_and_prompt", "node_type": "GrokVideoEdit", "video_in": "video", "prompt_value": "Make it slow motion", "output_param": "video_url", "suffix": "grok_video_edit"},
-    {"template": "video_and_prompt", "node_type": "LTXVideoRetake", "video_in": "video", "prompt_value": "A ball bouncing", "output_param": "video_url", "suffix": "ltx_video_retake"},
+    {
+        "template": "video_and_prompt",
+        "node_type": "GrokVideoEdit",
+        "video_in": "video",
+        "prompt_value": "Make it slow motion",
+        "output_param": "video_url",
+        "suffix": "grok_video_edit",
+    },
+    {
+        "template": "video_and_prompt",
+        "node_type": "LTXVideoRetake",
+        "video_in": "video",
+        "prompt_value": "A ball bouncing",
+        "output_param": "video_url",
+        "suffix": "ltx_video_retake",
+    },
     # image_to_video — CreateColorBars provides an image; prompt_param=None means no prompt needed
-    {"template": "image_to_video", "node_type": "KlingImageToVideoGeneration", "image_in": "image", "prompt_param": "prompt", "prompt_value": "Animate this", "output_param": "video_url", "suffix": "kling_image_to_video_generation"},
-    {"template": "image_to_video", "node_type": "LTXImageToVideoGeneration", "image_in": "image", "prompt_param": "prompt", "prompt_value": "Animate this", "output_param": "video_url", "suffix": "ltx_image_to_video_generation"},
-    {"template": "image_to_video", "node_type": "WanImageToVideoGeneration", "image_in": "input_image", "prompt_param": None, "prompt_value": None, "output_param": "video", "suffix": "wan_image_to_video_generation"},
+    {
+        "template": "image_to_video",
+        "node_type": "KlingImageToVideoGeneration",
+        "image_in": "image",
+        "prompt_param": "prompt",
+        "prompt_value": "Animate this",
+        "output_param": "video_url",
+        "suffix": "kling_image_to_video_generation",
+    },
+    {
+        "template": "image_to_video",
+        "node_type": "LTXImageToVideoGeneration",
+        "image_in": "image",
+        "prompt_param": "prompt",
+        "prompt_value": "Animate this",
+        "output_param": "video_url",
+        "suffix": "ltx_image_to_video_generation",
+    },
+    {
+        "template": "image_to_video",
+        "node_type": "WanImageToVideoGeneration",
+        "image_in": "input_image",
+        "prompt_param": None,
+        "prompt_value": None,
+        "output_param": "video",
+        "suffix": "wan_image_to_video_generation",
+    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -231,6 +452,7 @@ def _connect(src: str, src_param: str, tgt: str, tgt_param: str) -> str:
 # ---------------------------------------------------------------------------
 # Body builders for each template type
 # ---------------------------------------------------------------------------
+
 
 def _body_no_input(cfg: dict) -> str:
     node_type = cfg["node_type"]
@@ -512,8 +734,7 @@ if __name__ == "__main__":
 
 def generate_text_prompt_workflow(node_type: str, prompt_param: str, output_param: str, filename_suffix: str) -> str:
     return (
-        WORKFLOW_TEMPLATE
-        .replace("{node_snake}", filename_suffix)
+        WORKFLOW_TEMPLATE.replace("{node_snake}", filename_suffix)
         .replace("{NodeType}", node_type)
         .replace("{prompt_param}", prompt_param)
         .replace("{output_param}", output_param)
@@ -525,30 +746,30 @@ def generate_advanced_workflow(cfg: dict) -> str:
     node_type = cfg["node_type"]
     suffix = cfg["suffix"]
 
-    node_types_list = (
-        "[" + _NODE_TYPES_USED[template].replace("{NodeType}", node_type) + "]"
-    )
+    node_types_list = "[" + _NODE_TYPES_USED[template].replace("{NodeType}", node_type) + "]"
 
     body = _BODY_BUILDERS[template](cfg)
 
-    content = "\n".join([
-        "# /// script",
-        "# dependencies = []",
-        "# [tool.griptape-nodes]",
-        f'# name = "test_{suffix}"',
-        '# schema_version = "0.16.0"',
-        '# engine_version_created_with = "0.77.3"',
-        '# node_libraries_referenced = [["Griptape Nodes Library", "0.67.0"], ["Griptape Nodes Testing Library", "0.1.0"]]',
-        f"# node_types_used = {node_types_list}",
-        "# is_griptape_provided = false",
-        "# is_template = false",
-        "# ///",
-        _IMPORTS,
-        "",
-        _SETUP,
-        body,
-        _FOOTER,
-    ])
+    content = "\n".join(
+        [
+            "# /// script",
+            "# dependencies = []",
+            "# [tool.griptape-nodes]",
+            f'# name = "test_{suffix}"',
+            '# schema_version = "0.16.0"',
+            '# engine_version_created_with = "0.77.3"',
+            '# node_libraries_referenced = [["Griptape Nodes Library", "0.67.0"], ["Griptape Nodes Testing Library", "0.1.0"]]',
+            f"# node_types_used = {node_types_list}",
+            "# is_griptape_provided = false",
+            "# is_template = false",
+            "# ///",
+            _IMPORTS,
+            "",
+            _SETUP,
+            body,
+            _FOOTER,
+        ]
+    )
     return content
 
 
@@ -558,7 +779,7 @@ def generate_flow_inputs(text_prompt_configs: list) -> str:
         "# Generated by scripts/generate_test_workflows.py — do not edit manually.",
         "FLOW_INPUTS: dict[str, dict] = {",
     ]
-    for node_type, prompt_param, _output_param, prompt_value, filename_suffix in text_prompt_configs:
+    for _node_type, _prompt_param, _output_param, prompt_value, filename_suffix in text_prompt_configs:
         lines.append(f'    "test_{filename_suffix}.py": {{"Start Flow": {{"prompt": "{prompt_value}"}}}},')
     lines.append("}")
     return "\n".join(lines) + "\n"
@@ -570,7 +791,7 @@ def main() -> None:
 
     generated = []
 
-    for node_type, prompt_param, output_param, prompt_value, filename_suffix in TEXT_PROMPT_CONFIGS:
+    for node_type, prompt_param, output_param, _prompt_value, filename_suffix in TEXT_PROMPT_CONFIGS:
         content = generate_text_prompt_workflow(node_type, prompt_param, output_param, filename_suffix)
         output_path = output_dir / f"test_{filename_suffix}.py"
         output_path.write_text(content)

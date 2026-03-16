@@ -89,11 +89,7 @@ class SaveAudio(SuccessFailureNode):
 
     def _report_warning(self, _message: str) -> None:
         """Report warning status."""
-        result_details = (
-            f"No audio to save (warning)\n"
-            f"Input: No audio input\n"
-            f"Result: No file created"
-        )
+        result_details = "No audio to save (warning)\nInput: No audio input\nResult: No file created"
 
         self._set_status_results(was_successful=True, result_details=f"WARNING: {result_details}")
 

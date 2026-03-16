@@ -1,8 +1,6 @@
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
-from PIL import Image
-
 from griptape_nodes.drivers.image_metadata.image_metadata_driver_registry import (
     ImageMetadataDriverRegistry,
 )
@@ -10,6 +8,8 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.retained_mode.griptape_nodes import logger
+from PIL import Image
+
 from griptape_nodes_library.utils.image_utils import load_pil_image_from_artifact
 
 # Image format to file extension mapping

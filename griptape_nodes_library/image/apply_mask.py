@@ -210,8 +210,8 @@ class ApplyMask(DataNode):
         if apply_edge_blur and blur_mask > 0:
             edge_mask = self._create_edge_mask(input_pil.size, blur_mask)
             # Combine edge mask with alpha channel by multiplying
-            alpha_array = list(alpha.getdata())
-            edge_array = list(edge_mask.getdata())
+            alpha_array = list(alpha.getdata())  # pyright: ignore[reportArgumentType]
+            edge_array = list(edge_mask.getdata())  # pyright: ignore[reportArgumentType]
             combined = [int(a * e / 255) for a, e in zip(alpha_array, edge_array, strict=True)]
             alpha.putdata(combined)
 

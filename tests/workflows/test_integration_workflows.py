@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from griptape_nodes.bootstrap.workflow_executors.local_workflow_executor import LocalWorkflowExecutor
 
 from tests.workflows.integration_tests.flow_inputs import FLOW_INPUTS
