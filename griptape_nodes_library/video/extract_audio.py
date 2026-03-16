@@ -5,6 +5,7 @@ from typing import Any, ClassVar
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
@@ -45,6 +46,13 @@ class ExtractAudio(BaseVideoProcessor):
                 ui_options={"pulse_on_run": True, "expander": True},
             )
         )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="extracted_audio.mp3",
+        )
+        self._output_file.add_parameter()
 
     def _setup_custom_parameters(self) -> None:
         """Setup custom parameters for audio extraction."""
@@ -149,15 +157,12 @@ class ExtractAudio(BaseVideoProcessor):
         return f"_extracted_audio_{audio_format}_{audio_quality}"
 
     def _save_audio_artifact(self, audio_bytes: bytes, format_extension: str, suffix: str = "") -> AudioUrlArtifact:
-        """Save audio bytes to static file and return AudioUrlArtifact."""
-        import uuid
-
-        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
-        # Generate meaningful filename
-        filename = f"extracted_audio{suffix}_{uuid.uuid4().hex[:8]}.{format_extension}"
-        url = GriptapeNodes.StaticFilesManager().save_static_file(audio_bytes, filename)
-        return AudioUrlArtifact(url)
+        """Save audio bytes to project storage and return AudioUrlArtifact."""
+        filename = f"extracted_audio{suffix}.{format_extension}"
+        self.set_parameter_value("output_file", filename)
+        dest = self._output_file.build_file()
+        saved = dest.write_bytes(audio_bytes)
+        return AudioUrlArtifact(saved.location)
 
     def process(self) -> AsyncResult[None]:
         """Extract audio from the input video and save as AudioUrlArtifact."""

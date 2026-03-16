@@ -17,6 +17,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
@@ -281,6 +282,13 @@ class Veo3VideoGeneration(GriptapeProxyNode):
                     ui_options={"pulse_on_run": True, "hide": i > 1},
                 )
             )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="veo3_video.mp4",
+        )
+        self._output_file.add_parameter()
 
         # Create status parameters for success/failure tracking
         self._create_status_parameters(
@@ -705,7 +713,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             )
             return
 
-        video_artifacts = self._process_videos_from_result(videos_array, generation_id)
+        video_artifacts = await self._process_videos_from_result(videos_array, generation_id)
         if not video_artifacts:
             logger.warning("%s: No videos could be processed", self.name)
             self._set_safe_defaults()
@@ -717,7 +725,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
 
         self._set_video_output_parameters(video_artifacts)
 
-    def _process_videos_from_result(
+    async def _process_videos_from_result(
         self,
         videos_array: list[dict[str, Any]],
         generation_id: str,
@@ -727,21 +735,19 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         Returns a list of VideoUrlArtifact objects.
         """
         video_artifacts = []
-        static_files_manager = GriptapeNodes.StaticFilesManager()
 
         for idx, video_data in enumerate(videos_array, start=1):
-            artifact = self._process_single_video(video_data, generation_id, idx, static_files_manager)
+            artifact = await self._process_single_video(video_data, generation_id, idx)
             if artifact:
                 video_artifacts.append(artifact)
 
         return video_artifacts
 
-    def _process_single_video(
+    async def _process_single_video(
         self,
         video_data: dict[str, Any],
         generation_id: str,
         idx: int,
-        static_files_manager: Any,
     ) -> VideoUrlArtifact | None:
         """Process a single video from base64 data.
 
@@ -763,13 +769,15 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             if "/" in mime_type:
                 extension = mime_type.split("/")[1]
 
-            # Save to static storage
+            # Save using project file parameter with indexed filename
             filename = f"veo3_video_{generation_id}_{idx}.{extension}"
-            saved_url = static_files_manager.save_static_file(video_bytes, filename)
+            self.set_parameter_value("output_file", filename)
+            dest = self._output_file.build_file()
+            saved = await dest.awrite_bytes(video_bytes)
 
-            logger.info("%s: Saved video %s as %s (%s bytes)", self.name, idx, filename, len(video_bytes))
+            logger.info("%s: Saved video %s as %s (%s bytes)", self.name, idx, saved.name, len(video_bytes))
 
-            return VideoUrlArtifact(value=saved_url, name=filename)
+            return VideoUrlArtifact(value=saved.location, name=saved.name)
 
         except Exception as e:
             logger.error("%s: Failed to process video %s: %s", self.name, idx, e)

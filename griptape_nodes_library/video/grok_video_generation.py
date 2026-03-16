@@ -12,7 +12,7 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
@@ -158,6 +158,13 @@ class GrokVideoGeneration(GriptapeProxyNode):
             )
         )
 
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="grok_video.mp4",
+        )
+        self._output_file.add_parameter()
+
         self._create_status_parameters(
             result_details_tooltip="Details about the video generation result or any errors",
             result_details_placeholder="Generation status and details will appear here.",
@@ -273,17 +280,16 @@ class GrokVideoGeneration(GriptapeProxyNode):
 
         if video_bytes:
             try:
-                static_files_manager = GriptapeNodes.StaticFilesManager()
-                filename = f"grok_video_{generation_id}.mp4"
-                saved_url = static_files_manager.save_static_file(video_bytes, filename)
+                dest = self._output_file.build_file()
+                saved = await dest.awrite_bytes(video_bytes)
             except (OSError, PermissionError) as e:
                 with suppress(Exception):
                     logger.warning("%s failed to save video: %s", self.name, e)
             else:
-                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved_url, name=filename)
+                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
                 self._set_status_results(
                     was_successful=True,
-                    result_details=f"Video generated successfully and saved as {filename}.",
+                    result_details=f"Video generated successfully and saved as {saved.name}.",
                 )
                 return
 

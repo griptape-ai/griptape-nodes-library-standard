@@ -6,15 +6,17 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
 from PIL import Image, ImageDraw
 
-from griptape_nodes_library.utils.image_utils import save_pil_image_to_static_file
+from griptape_nodes_library.utils.image_utils import image_to_bytes
 from griptape_nodes_library.utils.video_utils import to_video_artifact
 from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 
@@ -102,6 +104,8 @@ class CropVideo(BaseVideoProcessor):
         # Cache for first frame of video (for preview background)
         self._cached_first_frame: Image.Image | None = None
         self._cached_video_url: str | None = None
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="preview.png")
+        self._output_file.add_parameter()
 
     def _setup_custom_parameters(self) -> None:
         """Setup custom parameters specific to this video processor."""
@@ -504,7 +508,10 @@ class CropVideo(BaseVideoProcessor):
         preview_image = self._create_preview_image_with_overlay(preview_size, crop_rect, scale_factor)
 
         try:
-            preview_artifact = save_pil_image_to_static_file(preview_image, "PNG")
+            preview_bytes = image_to_bytes(preview_image, "PNG")
+            dest = self._output_file.build_file()
+            preview_saved = dest.write_bytes(preview_bytes)
+            preview_artifact = ImageUrlArtifact(preview_saved.location)
         except (ValueError, OSError) as e:
             self.append_value_to_parameter("logs", f"Warning: Could not save preview image: {e}\n")
             return

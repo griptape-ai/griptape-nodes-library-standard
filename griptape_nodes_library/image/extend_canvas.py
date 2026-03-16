@@ -4,6 +4,7 @@ from typing import Any, NamedTuple
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
@@ -14,8 +15,8 @@ from PIL import Image
 from griptape_nodes_library.utils.color_utils import NAMED_COLORS
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
+    image_to_bytes,
     load_pil_from_url,
-    save_pil_image_to_static_file,
 )
 
 
@@ -113,6 +114,11 @@ ASPECT_RATIO_PRESETS = {
 class ExtendCanvas(ControlNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="extended.png")
+        self._output_file.add_parameter()
+        self._mask_file = ProjectFileParameter(node=self, name="mask_file", default_filename="mask.png")
+        self._mask_file.add_parameter()
 
         self.category = "Image"
         self.description = "Extend canvas around an image to fit target aspect ratios or custom dimensions"
@@ -354,8 +360,15 @@ class ExtendCanvas(ControlNode):
         mask_image.paste(color_config.mask_fg_color, (x, y, x + original_width, y + original_height))
 
         # Save outputs
-        extended_artifact = save_pil_image_to_static_file(new_image)
-        mask_artifact = save_pil_image_to_static_file(mask_image)
+        extended_bytes = image_to_bytes(new_image, "PNG")
+        extended_dest = self._output_file.build_file()
+        extended_saved = extended_dest.write_bytes(extended_bytes)
+        extended_artifact = ImageUrlArtifact(extended_saved.location)
+
+        mask_bytes = image_to_bytes(mask_image, "PNG")
+        mask_dest = self._mask_file.build_file()
+        mask_saved = mask_dest.write_bytes(mask_bytes)
+        mask_artifact = ImageUrlArtifact(mask_saved.location)
 
         # Set outputs
         self.set_parameter_value("extended_image", extended_artifact)

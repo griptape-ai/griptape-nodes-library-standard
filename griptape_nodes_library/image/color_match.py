@@ -10,8 +10,10 @@ from typing import Any, ClassVar
 
 import numpy as np
 from color_matcher import ColorMatcher  # type: ignore[reportMissingImports]
+from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -20,11 +22,10 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 from PIL import Image
 
-from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
+    image_to_bytes,
     load_pil_from_url,
-    save_pil_image_with_named_filename,
 )
 
 
@@ -58,6 +59,9 @@ class ColorMatch(SuccessFailureNode):
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="colormatch.png")
+        self._output_file.add_parameter()
 
         # Reference image input (FIRST - the source of the color palette)
         self.add_parameter(
@@ -190,14 +194,6 @@ class ColorMatch(SuccessFailureNode):
         result_uint8 = (result * 255).astype(np.uint8)
         return Image.fromarray(result_uint8, mode="RGB")
 
-    def _generate_filename(self, suffix: str = "", extension: str = "png") -> str:
-        """Generate a meaningful filename based on workflow and node information."""
-        return generate_filename(
-            node_name=self.name,
-            suffix=suffix,
-            extension=extension,
-        )
-
     def validate_before_node_run(self) -> list[Exception] | None:
         """Validate parameters before running."""
         exceptions = []
@@ -258,9 +254,11 @@ class ColorMatch(SuccessFailureNode):
             # Process with current settings
             processed_image = self._process_images(target_pil, ref_pil)
 
-            # Save and set output with proper filename
-            filename = self._generate_filename("_colormatch", "png")
-            output_artifact = save_pil_image_with_named_filename(processed_image, filename, "PNG")
+            # Save and set output
+            image_bytes = image_to_bytes(processed_image, "PNG")
+            dest = self._output_file.build_file()
+            saved = dest.write_bytes(image_bytes)
+            output_artifact = ImageUrlArtifact(saved.location)
 
             self.set_parameter_value("output", output_artifact)
             self.publish_update_to_parameter("output", output_artifact)

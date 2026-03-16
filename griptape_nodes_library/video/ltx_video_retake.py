@@ -12,7 +12,7 @@ from griptape_nodes.exe_types.param_types.parameter_range import ParameterRange
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.traits.options import Options
 
 # static_ffmpeg is dynamically installed by the library loader at runtime
@@ -153,6 +153,13 @@ class LTXVideoRetake(GriptapeProxyNode):
                 ui_options={"pulse_on_run": True},
             )
         )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="ltx_video_retake.mp4",
+        )
+        self._output_file.add_parameter()
 
         # Create status parameters for success/failure tracking
         self._create_status_parameters(
@@ -447,13 +454,12 @@ class LTXVideoRetake(GriptapeProxyNode):
             return
 
         try:
-            static_files_manager = GriptapeNodes.StaticFilesManager()
-            filename = f"ltx_video_retake_{generation_id}.mp4"
-            saved_url = static_files_manager.save_static_file(video_bytes, filename)
-            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved_url, name=filename)
-            logger.info("%s saved video to static storage as %s", self.name, filename)
+            dest = self._output_file.build_file()
+            saved = await dest.awrite_bytes(video_bytes)
+            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
+            logger.info("%s saved video as %s", self.name, saved.name)
             self._set_status_results(
-                was_successful=True, result_details=f"Video retake successful and saved as {filename}."
+                was_successful=True, result_details=f"Video retake successful and saved as {saved.name}."
             )
         except (OSError, PermissionError) as e:
             logger.error("%s failed to save to static storage: %s", self.name, e)
