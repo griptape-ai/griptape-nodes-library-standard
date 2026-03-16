@@ -3,12 +3,12 @@ from pathlib import Path
 import pytest
 from griptape_nodes.bootstrap.workflow_executors.local_workflow_executor import LocalWorkflowExecutor
 
-from tests.workflows.integration_tests.flow_inputs import FLOW_INPUTS
+from tests.integration.flow_inputs import FLOW_INPUTS
 
 
 def get_integration_workflows() -> list[tuple[str, dict]]:
     """Get all integration test workflows for this library."""
-    workflows_dir = Path(__file__).parent / "integration_tests"
+    workflows_dir = Path(__file__).parents[1] / "integration"
     return [
         (str(f), FLOW_INPUTS.get(f.name, {}))
         for f in workflows_dir.iterdir()
