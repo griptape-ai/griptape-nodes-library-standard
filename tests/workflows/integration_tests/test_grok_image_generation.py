@@ -85,11 +85,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
         source_node_name=assert_node, source_parameter_name="result_details",
         target_node_name=end_node, target_parameter_name="str", initial_setup=True))
 
-    with GriptapeNodes.ContextManager().node(start_node):
-        GriptapeNodes.handle_request(SetParameterValueRequest(
-            parameter_name="prompt", node_name=start_node,
-            value="A red circle", initial_setup=True, is_output=False))
-
 
 def _ensure_workflow_context():
     context_manager = GriptapeNodes.ContextManager()

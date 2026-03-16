@@ -29,8 +29,6 @@ TEXT_PROMPT_CONFIGS = [
     ("ElevenLabsTextToSpeechGeneration", "text", "audio_url", "Hello world", "elevenlabs_text_to_speech_generation"),
     ("ElevenLabsSoundEffectGeneration", "text", "audio_url", "Thunder clap", "elevenlabs_sound_effect_generation"),
     ("ElevenLabsMusicGeneration", "text", "audio_url", "Upbeat jazz", "elevenlabs_music_generation"),
-    # 3D generation
-    ("Rodin23DGeneration", "prompt", "model_url", "A simple chair", "rodin2_3d_generation"),
 ]
 
 # Advanced configs — each dict must include "template" and "suffix" plus template-specific keys.
@@ -70,6 +68,7 @@ ADVANCED_CONFIGS = [
     # image_and_text — CreateColorBars + a text param set directly on the node
     {"template": "image_and_text", "node_type": "AddTextToExistingImage", "image_in": "input_image", "text_param": "text", "text_value": "Hello", "output_param": "output", "suffix": "add_text_to_existing_image"},
     {"template": "image_and_text", "node_type": "GrokImageEdit", "image_in": "image", "text_param": "prompt", "text_value": "Make it blue", "output_param": "image_url", "suffix": "grok_image_edit"},
+    {"template": "image_and_text", "node_type": "Rodin23DGeneration", "image_in": "input_images", "text_param": "prompt", "text_value": "A simple chair", "output_param": "model_url", "suffix": "rodin2_3d_generation"},
     # video_input — LTXTextToVideoGeneration generates a video, node receives it
     {"template": "video_input", "node_type": "CropVideo", "video_in": "video", "output_param": "output", "suffix": "crop_video"},
     {"template": "video_input", "node_type": "ExtractAudio", "video_in": "video", "output_param": "extracted_audio", "suffix": "extract_audio"},
@@ -162,6 +161,12 @@ _CREATE_NODE = """\
         node_name="{node_name}", metadata={{}}, resolution="resolved", initial_setup=True,
     )).node_name"""
 
+_CREATE_NODE_TESTING = """\
+    {var} = GriptapeNodes.handle_request(CreateNodeRequest(
+        node_type="{node_type}", specific_library_name="Griptape Nodes Testing Library",
+        node_name="{node_name}", metadata={{}}, resolution="resolved", initial_setup=True,
+    )).node_name"""
+
 _ADD_END_FLOW_PARAM = """\
     with GriptapeNodes.ContextManager().node(end_node):
         GriptapeNodes.handle_request(AddParameterToNodeRequest(
@@ -197,11 +202,15 @@ def _create_node(var: str, node_type: str, node_name: str) -> str:
     return _CREATE_NODE.format(var=var, node_type=node_type, node_name=node_name)
 
 
+def _create_node_testing(var: str, node_type: str, node_name: str) -> str:
+    return _CREATE_NODE_TESTING.format(var=var, node_type=node_type, node_name=node_name)
+
+
 def _common_utility_nodes() -> str:
     """Create ToText, AssertFileExists, and EndFlow nodes with the EndFlow param."""
     lines = []
     lines.append(_create_node("to_text_node", "ToText", "To Text"))
-    lines.append(_create_node("assert_node", "AssertFileExists", "Assert File Exists"))
+    lines.append(_create_node_testing("assert_node", "AssertFileExists", "Assert File Exists"))
     lines.append(_create_node("end_node", "EndFlow", "End Flow"))
     lines.append(_ADD_END_FLOW_PARAM)
     return "\n".join(lines)
@@ -354,18 +363,14 @@ _BODY_BUILDERS = {
 # ---------------------------------------------------------------------------
 
 _NODE_TYPES_USED = {
-    "no_input": '["Griptape Nodes Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
-    "single_image": '["Griptape Nodes Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
-    "dual_image": '["Griptape Nodes Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
-    "image_and_text": '["Griptape Nodes Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
-    "video_input": '["Griptape Nodes Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "LTXTextToVideoGeneration"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
-    "video_and_prompt": '["Griptape Nodes Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "LTXTextToVideoGeneration"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
-    "image_to_video": '["Griptape Nodes Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
+    "no_input": '["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
+    "single_image": '["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
+    "dual_image": '["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
+    "image_and_text": '["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
+    "video_input": '["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "LTXTextToVideoGeneration"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
+    "video_and_prompt": '["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "LTXTextToVideoGeneration"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
+    "image_to_video": '["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
 }
-
-# ---------------------------------------------------------------------------
-# Existing text_prompt template (unchanged from original implementation)
-# ---------------------------------------------------------------------------
 
 WORKFLOW_TEMPLATE = """\
 # /// script
@@ -374,8 +379,8 @@ WORKFLOW_TEMPLATE = """\
 # name = "test_{node_snake}"
 # schema_version = "0.16.0"
 # engine_version_created_with = "0.77.3"
-# node_libraries_referenced = [["Griptape Nodes Library", "0.67.0"]]
-# node_types_used = [["Griptape Nodes Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
+# node_libraries_referenced = [["Griptape Nodes Library", "0.67.0"], ["Griptape Nodes Testing Library", "0.1.0"]]
+# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
 # ///
@@ -417,7 +422,7 @@ with GriptapeNodes.ContextManager().flow(flow_name):
         node_name="To Text", metadata={}, resolution="resolved", initial_setup=True,
     )).node_name
     assert_node = GriptapeNodes.handle_request(CreateNodeRequest(
-        node_type="AssertFileExists", specific_library_name="Griptape Nodes Library",
+        node_type="AssertFileExists", specific_library_name="Griptape Nodes Testing Library",
         node_name="Assert File Exists", metadata={}, resolution="resolved", initial_setup=True,
     )).node_name
     start_node = GriptapeNodes.handle_request(CreateNodeRequest(
@@ -454,11 +459,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
     GriptapeNodes.handle_request(CreateConnectionRequest(
         source_node_name=assert_node, source_parameter_name="result_details",
         target_node_name=end_node, target_parameter_name="str", initial_setup=True))
-
-    with GriptapeNodes.ContextManager().node(start_node):
-        GriptapeNodes.handle_request(SetParameterValueRequest(
-            parameter_name="prompt", node_name=start_node,
-            value="{prompt_value}", initial_setup=True, is_output=False))
 
 
 def _ensure_workflow_context():
@@ -510,14 +510,13 @@ if __name__ == "__main__":
 """
 
 
-def generate_text_prompt_workflow(node_type: str, prompt_param: str, output_param: str, prompt_value: str, filename_suffix: str) -> str:
+def generate_text_prompt_workflow(node_type: str, prompt_param: str, output_param: str, filename_suffix: str) -> str:
     return (
         WORKFLOW_TEMPLATE
         .replace("{node_snake}", filename_suffix)
         .replace("{NodeType}", node_type)
         .replace("{prompt_param}", prompt_param)
         .replace("{output_param}", output_param)
-        .replace("{prompt_value}", prompt_value)
     )
 
 
@@ -533,17 +532,17 @@ def generate_advanced_workflow(cfg: dict) -> str:
     body = _BODY_BUILDERS[template](cfg)
 
     content = "\n".join([
-        f"# /// script",
-        f"# dependencies = []",
-        f"# [tool.griptape-nodes]",
-        f"# name = \"test_{suffix}\"",
-        f"# schema_version = \"0.16.0\"",
-        f"# engine_version_created_with = \"0.77.3\"",
-        f"# node_libraries_referenced = [[\"Griptape Nodes Library\", \"0.67.0\"]]",
+        "# /// script",
+        "# dependencies = []",
+        "# [tool.griptape-nodes]",
+        f'# name = "test_{suffix}"',
+        '# schema_version = "0.16.0"',
+        '# engine_version_created_with = "0.77.3"',
+        '# node_libraries_referenced = [["Griptape Nodes Library", "0.67.0"], ["Griptape Nodes Testing Library", "0.1.0"]]',
         f"# node_types_used = {node_types_list}",
-        f"# is_griptape_provided = false",
-        f"# is_template = false",
-        f"# ///",
+        "# is_griptape_provided = false",
+        "# is_template = false",
+        "# ///",
         _IMPORTS,
         "",
         _SETUP,
@@ -553,6 +552,18 @@ def generate_advanced_workflow(cfg: dict) -> str:
     return content
 
 
+def generate_flow_inputs(text_prompt_configs: list) -> str:
+    """Generate a flow_inputs.py file mapping workflow filename to flow_input dict."""
+    lines = [
+        "# Generated by scripts/generate_test_workflows.py — do not edit manually.",
+        "FLOW_INPUTS: dict[str, dict] = {",
+    ]
+    for node_type, prompt_param, _output_param, prompt_value, filename_suffix in text_prompt_configs:
+        lines.append(f'    "test_{filename_suffix}.py": {{"Start Flow": {{"prompt": "{prompt_value}"}}}},')
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
 def main() -> None:
     output_dir = Path(__file__).parents[1] / "tests" / "workflows" / "integration_tests"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -560,7 +571,7 @@ def main() -> None:
     generated = []
 
     for node_type, prompt_param, output_param, prompt_value, filename_suffix in TEXT_PROMPT_CONFIGS:
-        content = generate_text_prompt_workflow(node_type, prompt_param, output_param, prompt_value, filename_suffix)
+        content = generate_text_prompt_workflow(node_type, prompt_param, output_param, filename_suffix)
         output_path = output_dir / f"test_{filename_suffix}.py"
         output_path.write_text(content)
         generated.append(output_path.name)
@@ -572,6 +583,10 @@ def main() -> None:
         output_path.write_text(content)
         generated.append(output_path.name)
         print(f"Generated {output_path}")
+
+    flow_inputs_path = output_dir / "flow_inputs.py"
+    flow_inputs_path.write_text(generate_flow_inputs(TEXT_PROMPT_CONFIGS))
+    print(f"Generated {flow_inputs_path}")
 
     print(f"\nTotal: {len(generated)} workflow files generated in {output_dir}")
 
