@@ -12,6 +12,7 @@ import numpy as np
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode, ParameterTypeBuiltin
 from griptape_nodes.exe_types.node_types import DataNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -25,7 +26,6 @@ from PIL import Image, ImageDraw, ImageFilter
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     load_pil_from_url,
-    save_pil_image_to_static_file,
 )
 
 
@@ -213,6 +213,20 @@ class ImageGridSplitter(DataNode):
         self.move_element_to_position(self._detections_group.name, preview_index + 1)
         self.move_element_to_position(self._grid_cells_group.name, "last")
 
+        self._preview_file = ProjectFileParameter(
+            node=self,
+            name="preview_file",
+            default_filename="preview.jpg",
+        )
+        self._preview_file.add_parameter()
+
+        self._cell_file = ProjectFileParameter(
+            node=self,
+            name="cell_file",
+            default_filename="cell.jpg",
+        )
+        self._cell_file.add_parameter()
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "grid_detection_mode":
             if value == "manual":
@@ -252,8 +266,12 @@ class ImageGridSplitter(DataNode):
 
         preview, cell_images = await async_utils.to_thread(self._compute_preview_and_cells, pil_image, rows, cols)
 
-        # Save and publish preview on the main thread (StaticFilesManager interaction).
-        preview_artifact = save_pil_image_to_static_file(preview, image_format="JPEG")
+        # Save and publish preview on the main thread.
+        preview_buffer = BytesIO()
+        preview.save(preview_buffer, format="JPEG")
+        dest = self._preview_file.build_file()
+        saved = dest.write_bytes(preview_buffer.getvalue())
+        preview_artifact = ImageUrlArtifact(saved.location)
         self.parameter_output_values["preview"] = preview_artifact
 
         # Ensure the per-cell output parameters exist for this run.
@@ -263,10 +281,14 @@ class ImageGridSplitter(DataNode):
         for r_idx in range(rows):
             for c_idx in range(cols):
                 cell = cell_images[r_idx][c_idx]
-                cell_artifact = save_pil_image_to_static_file(cell, image_format="JPEG")
-                outputs.append(cell_artifact)
-
                 cell_name = f"r{r_idx + 1}c{c_idx + 1}"
+                cell_buffer = BytesIO()
+                cell.save(cell_buffer, format="JPEG")
+                self.set_parameter_value("cell_file", f"{cell_name}.jpg")
+                cell_dest = self._cell_file.build_file()
+                cell_saved = cell_dest.write_bytes(cell_buffer.getvalue())
+                cell_artifact = ImageUrlArtifact(cell_saved.location)
+                outputs.append(cell_artifact)
                 self.parameter_output_values[cell_name] = cell_artifact
 
         self.parameter_output_values["images"] = outputs
@@ -283,7 +305,11 @@ class ImageGridSplitter(DataNode):
         self._publish_detected(rows, cols)
 
         preview, cell_images = self._compute_preview_and_cells(pil_image, rows, cols)
-        preview_artifact = save_pil_image_to_static_file(preview, image_format="JPEG")
+        preview_buffer = BytesIO()
+        preview.save(preview_buffer, format="JPEG")
+        dest = self._preview_file.build_file()
+        saved = dest.write_bytes(preview_buffer.getvalue())
+        preview_artifact = ImageUrlArtifact(saved.location)
         self.parameter_output_values["preview"] = preview_artifact
 
         self._ensure_cell_output_parameters(rows, cols)
@@ -292,10 +318,14 @@ class ImageGridSplitter(DataNode):
         for r_idx in range(rows):
             for c_idx in range(cols):
                 cell = cell_images[r_idx][c_idx]
-                cell_artifact = save_pil_image_to_static_file(cell, image_format="JPEG")
-                outputs.append(cell_artifact)
-
                 cell_name = f"r{r_idx + 1}c{c_idx + 1}"
+                cell_buffer = BytesIO()
+                cell.save(cell_buffer, format="JPEG")
+                self.set_parameter_value("cell_file", f"{cell_name}.jpg")
+                cell_dest = self._cell_file.build_file()
+                cell_saved = cell_dest.write_bytes(cell_buffer.getvalue())
+                cell_artifact = ImageUrlArtifact(cell_saved.location)
+                outputs.append(cell_artifact)
                 self.parameter_output_values[cell_name] = cell_artifact
 
         self.parameter_output_values["images"] = outputs
@@ -348,7 +378,11 @@ class ImageGridSplitter(DataNode):
         self._publish_detected(rows, cols)
 
         preview = self._draw_preview(pil_image, rows, cols)
-        preview_artifact = save_pil_image_to_static_file(preview, image_format="JPEG")
+        preview_buffer = BytesIO()
+        preview.save(preview_buffer, format="JPEG")
+        dest = self._preview_file.build_file()
+        saved = dest.write_bytes(preview_buffer.getvalue())
+        preview_artifact = ImageUrlArtifact(saved.location)
 
         self.parameter_output_values["preview"] = preview_artifact
         self.publish_update_to_parameter("preview", preview_artifact)

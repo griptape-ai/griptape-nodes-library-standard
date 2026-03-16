@@ -3,6 +3,7 @@ from typing import Any
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode, SuccessFailureNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
@@ -12,13 +13,12 @@ from griptape_nodes_library.utils.artifact_path_tethering import (
     ArtifactTetheringConfig,
     default_extract_url_from_artifact_value,
 )
-from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
     SUPPORTED_IMAGE_EXTENSIONS,
     dict_to_image_url_artifact,
     extract_channel_from_image,
+    image_to_bytes,
     load_pil_from_url,
-    save_pil_image_with_named_filename,
 )
 from griptape_nodes_library.utils.macro_path_utils import (
     copy_external_file_to_project,
@@ -43,6 +43,9 @@ class LoadImage(SuccessFailureNode):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="mask.png")
+        self._output_file.add_parameter()
 
         # Configuration for artifact tethering
         self._tethering_config = ArtifactTetheringConfig(
@@ -324,13 +327,11 @@ class LoadImage(SuccessFailureNode):
             # Extract the specified channel as mask
             mask = extract_channel_from_image(image_pil, channel, "image")
 
-            # Save output mask and create URL artifact with proper filename
-            filename = generate_filename(
-                node_name=self.name,
-                suffix="_load_mask",
-                extension="png",
-            )
-            output_artifact = save_pil_image_with_named_filename(mask, filename, "PNG")
+            # Save output mask and create URL artifact
+            image_bytes = image_to_bytes(mask, "PNG")
+            dest = self._output_file.build_file()
+            saved = dest.write_bytes(image_bytes)
+            output_artifact = ImageUrlArtifact(saved.location)
             self.set_parameter_value("output_mask", output_artifact)
             self.publish_update_to_parameter("output_mask", output_artifact)
 

@@ -4,16 +4,16 @@ from typing import Any
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 from PIL import Image
 
-from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
-    save_pil_image_with_named_filename,
+    image_to_bytes,
 )
 
 
@@ -25,6 +25,9 @@ class MergeImages(ControlNode):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="merged.png")
+        self._output_file.add_parameter()
 
         self.LAYOUT_METHODS = {
             "horizontal": self._process_horizontal_layout,
@@ -180,12 +183,10 @@ class MergeImages(ControlNode):
         layout = self.get_parameter_value("layout")
         merged = self.LAYOUT_METHODS[layout](images)
 
-        # Save output image with deterministic filename (overwrites same file)
-        output_filename = generate_filename(
-            node_name=self.name,
-            suffix="_merged",
-            extension="png",
-        )
-        url_artifact = save_pil_image_with_named_filename(merged, output_filename, "PNG")
+        # Save output image
+        image_bytes = image_to_bytes(merged, "PNG")
+        dest = self._output_file.build_file()
+        saved = dest.write_bytes(image_bytes)
+        url_artifact = ImageUrlArtifact(saved.location)
         self.set_parameter_value("output", url_artifact)
         self.parameter_output_values["output"] = url_artifact

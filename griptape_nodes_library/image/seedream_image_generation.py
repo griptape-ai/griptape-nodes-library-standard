@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import json as _json
 import logging
-import time
 from contextlib import suppress
 from copy import deepcopy
 from io import BytesIO
@@ -11,13 +10,13 @@ from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 from PIL import Image
@@ -271,6 +270,13 @@ class SeedreamImageGeneration(GriptapeProxyNode):
                     ui_options={"pulse_on_run": True, "hide": i > 1},
                 )
             )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="seedream_image.png",
+        )
+        self._output_file.add_parameter()
 
         # Create status parameters for success/failure tracking (at the end)
         self._create_status_parameters(
@@ -726,15 +732,11 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             pil_image.save(png_buffer, format="PNG")
             png_bytes = png_buffer.getvalue()
 
-            if generation_id:
-                filename = f"seedream_image_{generation_id}_{index}.png"
-            else:
-                filename = f"seedream_image_{int(time.time())}_{index}.png"
-
-            static_files_manager = GriptapeNodes.StaticFilesManager()
-            saved_url = static_files_manager.save_static_file(png_bytes, filename)
-            self._log(f"Saved image {index} to static storage as {filename}")
-            return ImageUrlArtifact(value=saved_url, name=filename)
+            self.set_parameter_value("output_file", f"seedream_image_{index}.png")
+            dest = self._output_file.build_file()
+            saved = await dest.awrite_bytes(png_bytes)
+            self._log(f"Saved image {index} as {saved.name}")
+            return ImageUrlArtifact(value=saved.location, name=saved.name)
 
         except Exception as e:
             self._log(f"Failed to save image {index} from URL: {e}")

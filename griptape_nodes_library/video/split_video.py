@@ -12,6 +12,7 @@ from griptape.structures import Agent as GriptapeAgent
 from griptape.tasks import PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
 # static_ffmpeg is dynamically installed by the library loader at runtime
@@ -148,6 +149,13 @@ class SplitVideo(ControlNode):
             tooltip="The split video segments",
         )
         self.add_parameter(self.split_videos_list)
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="segment.mp4",
+        )
+        self._output_file.add_parameter()
         # Group for logging information
         with ParameterGroup(name="Logs") as logs_group:
             ParameterString(
@@ -590,14 +598,16 @@ If no title is provided, just use "Segment X:" format.
                     f"{original_filename}_segment_{i + 1:03d}_{sanitize_filename(segment.title)}.{detected_format}"
                 )
 
-                # Save to static files
-                url = GriptapeNodes.StaticFilesManager().save_static_file(video_bytes, filename)
+                # Save to project storage
+                self.set_parameter_value("output_file", filename)
+                dest = self._output_file.build_file()
+                saved = dest.write_bytes(video_bytes)
 
                 # Create output artifact
-                video_artifact = VideoUrlArtifact(url)
+                video_artifact = VideoUrlArtifact(saved.location)
                 split_video_artifacts.append(video_artifact)
 
-                self.append_value_to_parameter("logs", f"Saved segment {i + 1}: {filename}\n")
+                self.append_value_to_parameter("logs", f"Saved segment {i + 1}: {saved.name}\n")
 
             # Save all artifacts to parameter list
             logger.info(f"Saving {len(split_video_artifacts)} split video artifacts")

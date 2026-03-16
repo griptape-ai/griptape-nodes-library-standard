@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
+
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
@@ -18,9 +18,9 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
-
 from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -269,6 +269,13 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
             )
         )
 
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="wan_video.mp4",
+        )
+        self._output_file.add_parameter()
+
         # Create status parameters for success/failure tracking (at the end)
         self._create_status_parameters(
             result_details_tooltip="Details about the video generation result or any errors",
@@ -499,15 +506,12 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
             logger.info("Downloading video from URL")
             video_bytes = await self._download_bytes_from_url(video_url)
             if video_bytes:
-                filename = f"wan_video_{int(time.time())}.mp4"
-                from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
-                static_files_manager = GriptapeNodes.StaticFilesManager()
-                saved_url = static_files_manager.save_static_file(video_bytes, filename)
-                self.parameter_output_values["video"] = VideoUrlArtifact(value=saved_url, name=filename)
-                logger.info("Saved video to static storage as %s", filename)
+                dest = self._output_file.build_file()
+                saved = await dest.awrite_bytes(video_bytes)
+                self.parameter_output_values["video"] = VideoUrlArtifact(value=saved.location, name=saved.name)
+                logger.info("Saved video as %s", saved.name)
                 self._set_status_results(
-                    was_successful=True, result_details=f"Video generated successfully and saved as {filename}."
+                    was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
                 )
             else:
                 self._set_status_results(

@@ -1,13 +1,12 @@
 import base64
-import uuid
+
+from griptape_nodes.files.project_file import ProjectFileDestination
 
 from griptape_nodes_library.three_d.three_d_artifact import ThreeDUrlArtifact
 
 
 def dict_to_three_d_url_artifact(three_d_dict: dict, three_d_format: str | None = None) -> ThreeDUrlArtifact:
     """Convert a dictionary representation of a 3D file to a ThreeDArtifact."""
-    from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
     # Get the base64 encoded string
     value = three_d_dict["value"]
     if three_d_dict["type"] == "ThreeDUrlArtifact":
@@ -29,6 +28,6 @@ def dict_to_three_d_url_artifact(three_d_dict: dict, three_d_format: str | None 
         else:
             three_d_format = "glb"
 
-    url = GriptapeNodes.StaticFilesManager().save_static_file(three_d_bytes, f"{uuid.uuid4()}.{three_d_format}")
-
-    return ThreeDUrlArtifact(url)
+    dest = ProjectFileDestination(filename=f"input.{three_d_format}", situation="copy_external_file")
+    saved = dest.write_bytes(three_d_bytes)
+    return ThreeDUrlArtifact(saved.location)

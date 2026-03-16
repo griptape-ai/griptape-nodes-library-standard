@@ -1,15 +1,15 @@
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
+from PIL import Image
+
 from griptape_nodes.drivers.image_metadata.image_metadata_driver_registry import (
     ImageMetadataDriverRegistry,
 )
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
-from PIL import Image
-
-from griptape_nodes_library.utils.file_utils import generate_filename
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes_library.utils.image_utils import load_pil_image_from_artifact
 
 # Image format to file extension mapping
@@ -66,6 +66,13 @@ class WriteImageMetadataNode(SuccessFailureNode):
                 tooltip="Dictionary of key-value pairs to write as metadata",
             )
         )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="output_with_metadata.png",
+        )
+        self._output_file.add_parameter()
 
         # Add status parameters
         self._create_status_parameters(
@@ -193,30 +200,24 @@ class WriteImageMetadataNode(SuccessFailureNode):
             raise
 
     def _save_image_to_storage(self, image_bytes: bytes, pil_image: Image.Image) -> ImageUrlArtifact:
-        """Save image bytes to static storage.
+        """Save image bytes to storage.
 
         Args:
-            image_bytes: Image data to save
+            image_bytes: Image data to save (already contains the metadata we just wrote)
             pil_image: PIL Image (for format detection)
 
         Returns:
-            ImageUrlArtifact with saved URL
+            ImageUrlArtifact with saved location
 
         Raises:
             Exception: If save operation fails
         """
         try:
-            # Use format if available, otherwise default to png
-            image_format = pil_image.format if pil_image.format else "PNG"
-            extension = IMAGE_FORMAT_TO_EXTENSION.get(image_format, "png")
-            filename = generate_filename(self.name, suffix="_with_metadata", extension=extension)
-            static_files_manager = GriptapeNodes.StaticFilesManager()
-
-            # Skip metadata injection since image bytes already contain the metadata we just wrote.
-            # This prevents circular injection of workflow metadata on top of user-specified metadata.
-            saved_url = static_files_manager.save_static_file(image_bytes, filename, skip_metadata_injection=True)
-
-            return ImageUrlArtifact(value=saved_url, name=filename)
+            # write_bytes performs a raw write without injecting additional metadata,
+            # preserving the metadata we already embedded above.
+            dest = self._output_file.build_file()
+            saved = dest.write_bytes(image_bytes)
+            return ImageUrlArtifact(value=saved.location, name=saved.name)
         except Exception as e:
             error_msg = f"{self.name}: Failed to save image: {e}"
             logger.warning(error_msg)

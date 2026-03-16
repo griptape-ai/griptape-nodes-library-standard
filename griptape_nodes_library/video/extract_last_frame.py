@@ -2,12 +2,14 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from PIL import Image
 
-from griptape_nodes_library.utils.image_utils import save_pil_image_to_static_file
+from griptape_nodes_library.utils.image_utils import image_to_bytes
 from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 
 
@@ -16,6 +18,9 @@ class ExtractLastFrame(BaseVideoProcessor):
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="last_frame.png")
+        self._output_file.add_parameter()
 
         # Hide parameters that aren't relevant for frame extraction
         self.hide_parameter_by_name("output_frame_rate")
@@ -133,8 +138,11 @@ class ExtractLastFrame(BaseVideoProcessor):
             # Load the extracted frame as PIL Image
             last_frame_pil = Image.open(temp_image_path)
 
-            # Save as ImageUrlArtifact using utility function
-            image_artifact = save_pil_image_to_static_file(last_frame_pil, "PNG")
+            # Save as ImageUrlArtifact
+            image_bytes = image_to_bytes(last_frame_pil, "PNG")
+            dest = self._output_file.build_file()
+            saved = dest.write_bytes(image_bytes)
+            image_artifact = ImageUrlArtifact(saved.location)
 
             # Set the output parameter
             self.parameter_output_values["last_frame_image"] = image_artifact
