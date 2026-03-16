@@ -270,7 +270,7 @@ class ImageGridSplitter(DataNode):
         preview_buffer = BytesIO()
         preview.save(preview_buffer, format="JPEG")
         dest = self._preview_file.build_file()
-        saved = dest.write_bytes(preview_buffer.getvalue())
+        saved = await dest.awrite_bytes(preview_buffer.getvalue())
         preview_artifact = ImageUrlArtifact(saved.location)
         self.parameter_output_values["preview"] = preview_artifact
 
@@ -286,7 +286,7 @@ class ImageGridSplitter(DataNode):
                 cell.save(cell_buffer, format="JPEG")
                 self.set_parameter_value("cell_file", f"{cell_name}.jpg")
                 cell_dest = self._cell_file.build_file()
-                cell_saved = cell_dest.write_bytes(cell_buffer.getvalue())
+                cell_saved = await cell_dest.awrite_bytes(cell_buffer.getvalue())
                 cell_artifact = ImageUrlArtifact(cell_saved.location)
                 outputs.append(cell_artifact)
                 self.parameter_output_values[cell_name] = cell_artifact
