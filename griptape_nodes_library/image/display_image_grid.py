@@ -1,8 +1,6 @@
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
-from PIL import UnidentifiedImageError
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
@@ -13,6 +11,8 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.traits.clamp import Clamp
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
+from PIL import UnidentifiedImageError
+
 from griptape_nodes_library.utils.image_utils import (
     DEFAULT_PLACEHOLDER_HEIGHT,
     DEFAULT_PLACEHOLDER_WIDTH,

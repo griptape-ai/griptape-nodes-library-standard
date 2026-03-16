@@ -7,7 +7,6 @@ from copy import deepcopy
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_components.api_key_provider_parameter import ApiKeyProviderParameter
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
@@ -19,6 +18,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
+
 from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")

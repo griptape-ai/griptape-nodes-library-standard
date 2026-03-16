@@ -25,6 +25,7 @@ from griptape_nodes.traits.slider import Slider
 from PIL import Image
 
 from griptape_nodes_library.utils.color_utils import NAMED_COLORS, parse_color_to_rgba
+from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     load_pil_from_url,

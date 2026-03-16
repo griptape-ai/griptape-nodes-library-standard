@@ -89,11 +89,7 @@ class SaveVideo(SuccessFailureNode):
 
     def _report_warning(self, _message: str) -> None:
         """Report warning status."""
-        result_details = (
-            f"No video to save (warning)\n"
-            f"Input: No video input\n"
-            f"Result: No file created"
-        )
+        result_details = "No video to save (warning)\nInput: No video input\nResult: No file created"
 
         self._set_status_results(was_successful=True, result_details=f"WARNING: {result_details}")
 

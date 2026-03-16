@@ -1,8 +1,6 @@
 from pathlib import Path
 
 import pytest
-
-
 from griptape_nodes.bootstrap.workflow_executors.local_workflow_executor import LocalWorkflowExecutor
 
 LIBRARY_ROOT = Path(__file__).parents[2]

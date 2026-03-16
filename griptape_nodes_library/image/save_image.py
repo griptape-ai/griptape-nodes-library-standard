@@ -3,8 +3,6 @@ from io import BytesIO
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from PIL import Image
-
 from griptape_nodes.exe_types.core_types import (
     ParameterMode,
 )
@@ -12,6 +10,8 @@ from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.retained_mode.griptape_nodes import logger
+from PIL import Image
+
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     load_image_from_url_artifact,
@@ -204,26 +204,16 @@ class SaveImage(SuccessFailureNode):
                 logger.error(f"Error saving image: {details}")
 
             case SaveImageStatus.WARNING:
-                result_details = (
-                    f"No image to save (warning)\n"
-                    f"Input: {input_info}\n"
-                    f"Result: No file created"
-                )
+                result_details = f"No image to save (warning)\nInput: {input_info}\nResult: No file created"
 
                 self._set_status_results(was_successful=True, result_details=f"{status}: {result_details}")
 
             case SaveImageStatus.SUCCESS:
-                result_details = (
-                    f"Image saved successfully\n"
-                    f"Input: {input_info}\n"
-                    f"Saved to: {saved_path}"
-                )
+                result_details = f"Image saved successfully\nInput: {input_info}\nSaved to: {saved_path}"
 
                 self._set_status_results(was_successful=True, result_details=f"{status}: {result_details}")
 
-    def _handle_error_with_graceful_exit(
-        self, error_details: str, exception: Exception, input_info: str
-    ) -> None:
+    def _handle_error_with_graceful_exit(self, error_details: str, exception: Exception, input_info: str) -> None:
         """Handle error with graceful exit if failure output is connected."""
         self._handle_execution_result(
             status=SaveImageStatus.FAILURE,

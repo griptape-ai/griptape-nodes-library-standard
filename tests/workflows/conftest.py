@@ -6,7 +6,6 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from dotenv import load_dotenv
-
 from griptape_nodes.bootstrap.workflow_executors.local_workflow_executor import LocalWorkflowExecutor
 from griptape_nodes.retained_mode.events.object_events import ClearAllObjectStateRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
