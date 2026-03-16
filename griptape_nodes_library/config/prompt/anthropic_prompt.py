@@ -26,13 +26,13 @@ MODEL_CHOICES = [
     "claude-sonnet-4-6",
     "claude-sonnet-4-5-20250929",
     "claude-haiku-4-5-20251001",
-    "claude-3-7-sonnet-20250219",
+    "claude-3-7-sonnet",
 ]
 DEFAULT_MODEL = MODEL_CHOICES[1]
 
 # Deprecated models and their replacements
 DEPRECATED_MODELS = {
-    "claude-3-7-sonnet-latest": "claude-3-7-sonnet-20250219",
+    "claude-3-7-sonnet-latest": "claude-3-7-sonnet",
     "claude-3-5-sonnet-latest": "claude-sonnet-4-6",
     "claude-3-5-opus-latest": "claude-opus-4-6",
     "claude-3-5-haiku-latest": "claude-haiku-4-5-20251001",
@@ -134,7 +134,13 @@ class AnthropicPrompt(BasePrompt):
         specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
 
         # Get the selected model.
-        specific_args["model"] = self.get_parameter_value("model")
+        model = self.get_parameter_value("model")
+        specific_args["model"] = model
+
+        # Claude 4 models don't support both temperature and top_p
+        # Remove temperature from common_args and use top_p instead
+        if "claude-4" in model or "claude-opus-4" in model or "claude-sonnet-4" in model or "claude-haiku-4" in model:
+            common_args.pop("temperature", None)
 
         # Handle specific parameter conversions/logic for Anthropic driver
         # Anthropic uses 'top_p' and 'top_k' directly as kwargs.
