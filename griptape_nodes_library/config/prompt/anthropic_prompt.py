@@ -7,9 +7,13 @@ Anthropic specific model options, requires an Anthropic API key via
 node configuration, and instantiates the `GtAnthropicPromptDriver`.
 """
 
-from griptape.drivers.prompt.anthropic import AnthropicPromptDriver as GtAnthropicPromptDriver
+from typing import Any
 
+from griptape.drivers.prompt.anthropic import AnthropicPromptDriver as GtAnthropicPromptDriver
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.button import Button
+
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
 
 # --- Constants ---
@@ -18,12 +22,21 @@ SERVICE = "Anthropic"
 API_KEY_URL = "https://console.anthropic.com/settings/keys"
 API_KEY_ENV_VAR = "ANTHROPIC_API_KEY"
 MODEL_CHOICES = [
-    "claude-3-7-sonnet-latest",
-    "claude-3-5-sonnet-latest",
-    "claude-3-5-opus-latest",
-    "claude-3-5-haiku-latest",
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "claude-sonnet-4-5-20250929",
+    "claude-haiku-4-5-20251001",
+    "claude-3-7-sonnet-20250219",
 ]
-DEFAULT_MODEL = MODEL_CHOICES[0]
+DEFAULT_MODEL = MODEL_CHOICES[1]
+
+# Deprecated models and their replacements
+DEPRECATED_MODELS = {
+    "claude-3-7-sonnet-latest": "claude-3-7-sonnet-20250219",
+    "claude-3-5-sonnet-latest": "claude-sonnet-4-6",
+    "claude-3-5-opus-latest": "claude-opus-4-6",
+    "claude-3-5-haiku-latest": "claude-haiku-4-5-20251001",
+}
 
 
 class AnthropicPrompt(BasePrompt):
@@ -60,6 +73,39 @@ class AnthropicPrompt(BasePrompt):
 
         # Remove the 'seed' parameter as it's not directly used by GriptapeCloudPromptDriver.
         self.remove_parameter_element_by_name("seed")
+
+        # Add deprecation notice message element
+        self.add_node_element(
+            ParameterMessage(
+                name="model_deprecation_notice",
+                title="Model Deprecation Notice",
+                variant="info",
+                value="",
+                traits={
+                    Button(
+                        full_width=True,
+                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
+                    )
+                },
+                button_text="Dismiss",
+                hide=True,
+            )
+        )
+
+    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
+        """Auto-migrate deprecated models and show a deprecation notice."""
+        if parameter.name == "model" and value in DEPRECATED_MODELS:
+            replacement = DEPRECATED_MODELS[value]
+            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
+            if message is None:
+                raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
+            message.value = f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. Please save your workflow to apply this change."
+            self.show_message_by_name("model_deprecation_notice")
+            value = replacement
+        elif parameter.name == "model":
+            self.hide_message_by_name("model_deprecation_notice")
+
+        return super().before_value_set(parameter, value)
 
     def process(self) -> None:
         """Processes the node configuration to create an AnthropicPromptDriver.
