@@ -307,7 +307,7 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
         converted_image = pil_image.copy()
         return converted_image.convert(target_mode)
 
-    def _save_image_artifact(self, pil_image: Image.Image, format_extension: str, suffix: str = "") -> ImageUrlArtifact:
+    def _save_image_artifact(self, pil_image: Image.Image, format_extension: str) -> ImageUrlArtifact:
         """Save PIL image and return ImageUrlArtifact."""
         # Check if image needs conversion for the target format.
         # This will create a copy in the new format ONLY if the source image required a conversion
@@ -414,7 +414,7 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
         suffix = self._get_output_suffix(**kwargs)
 
         # Save processed image
-        output_artifact = self._save_image_artifact(processed_image, output_format, suffix)
+        output_artifact = self._save_image_artifact(processed_image, output_format)
 
         self.append_value_to_parameter(
             "logs", f"Successfully processed image with suffix: {suffix}.{output_format.lower()}\n"
