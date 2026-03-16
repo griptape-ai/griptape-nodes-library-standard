@@ -60,7 +60,7 @@ venv = ".venv"
 include = ["."]
 exclude = [
   "**/templates/*",
-  "**/integration_tests/*",
+  "tests/integration/*",
   ".venv",
   "**/node_modules",
   "**/__pycache__",
