@@ -200,6 +200,7 @@ class SortList(ControlNode):
     def _get_sort_key_for_item(self, item: Any, dict_key: str | None) -> _SortKey:
         """Extract a sortable key for any item. Handles dicts, artifacts, and primitives.
         Returns _SortKey with type_order 0 for numeric values, 1 for strings."""
+
         def _key_for_val(val: Any) -> _SortKey:
             """Use numeric sort when value is a number (including string '42')."""
             if isinstance(val, (int, float)):

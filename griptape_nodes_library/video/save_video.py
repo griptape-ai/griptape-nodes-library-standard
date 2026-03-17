@@ -10,14 +10,13 @@ from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 
 from griptape_nodes_library.utils.video_utils import (
     SUPPORTED_VIDEO_EXTENSIONS,
-    download_video_to_temp_file,
     extract_url_from_video_object,
-    is_downloadable_video_url,
     is_video_url_artifact,
 )
 
@@ -29,21 +28,8 @@ class VideoInput:
     """Normalized video input - single source of truth."""
 
     data: bytes | None = None  # Video bytes (if we have them)
-    source_url: str | None = None  # URL to download (if we need to)
+    source_url: str | None = None  # URL video was loaded from (for reporting)
     format_hint: str | None = None  # Format from source
-
-    @property
-    def needs_download(self) -> bool:
-        """True if we need to download from URL."""
-        return self.source_url is not None and self.data is None
-
-
-class DownloadedVideoArtifact:
-    """Simple artifact for downloaded video bytes."""
-
-    def __init__(self, value: bytes, detected_format: str | None = None):
-        self.value = value
-        self.detected_format = detected_format
 
 
 class SaveVideo(SuccessFailureNode):
@@ -202,54 +188,18 @@ class SaveVideo(SuccessFailureNode):
         if not raw_input:
             return VideoInput()
 
-        # Check if input contains a downloadable URL (handles all URL cases)
-        if is_downloadable_video_url(raw_input):
+        # Handle VideoUrlArtifact - use File to load bytes
+        if is_video_url_artifact(raw_input):
             url = extract_url_from_video_object(raw_input)
             if url:
-                return VideoInput(source_url=url, format_hint=self._extract_format_from_url(url))
+                video_bytes = File(url).read_bytes()
+                return VideoInput(data=video_bytes, source_url=url, format_hint=self._extract_format_from_url(url))
 
         # Handle all other cases - try to extract bytes and format
         video_bytes = self._extract_bytes_from_artifact(raw_input)
         format_hint = self._extract_format_from_artifact(raw_input)
 
         return VideoInput(data=video_bytes, format_hint=format_hint)
-
-    async def _download_video(self, video_input: VideoInput) -> VideoInput:
-        """Download video from URL, return VideoInput with data populated."""
-        if not video_input.source_url:
-            msg = "No source URL provided for download"
-            raise ValueError(msg)
-
-        # Update status to show download starting
-        self._set_status_results(
-            was_successful=True, result_details=f"Downloading video from URL: {video_input.source_url}"
-        )
-
-        # Download to temp file
-        download_result = await download_video_to_temp_file(video_input.source_url)
-
-        try:
-            # Update status to show download completed
-            file_size = download_result.temp_file_path.stat().st_size
-            size_mb = file_size / (1024 * 1024)
-            self._set_status_results(
-                was_successful=True,
-                result_details=f"Downloaded video ({size_mb:.1f}MB) to temporary file, processing...",
-            )
-
-            # Read video bytes from temp file
-            video_bytes = download_result.temp_file_path.read_bytes()
-
-            return VideoInput(
-                data=video_bytes,
-                source_url=video_input.source_url,
-                format_hint=download_result.detected_format or video_input.format_hint,
-            )
-
-        finally:
-            # Always cleanup temp file
-            if download_result.temp_file_path.exists():
-                download_result.temp_file_path.unlink(missing_ok=True)
 
     def _save_video_bytes(self, video_bytes: bytes, format_hint: str | None) -> str:
         """Save bytes to appropriate location, return saved path."""
@@ -378,58 +328,35 @@ class SaveVideo(SuccessFailureNode):
         return exceptions if exceptions else None
 
     async def aprocess(self) -> None:
-        """Async process method - linear pipeline approach."""
-        # Reset execution state at the very top
+        """Async process method."""
         self._clear_execution_status()
 
         try:
-            # Step 1: Normalize input (handles ALL artifact types)
             video_input = self._normalize_input(self.get_parameter_value("video"))
 
-            # Step 2: Download if needed (simple conditional)
-            if video_input.needs_download:
-                video_input = await self._download_video(video_input)
-
-            # Step 3: Validate we have data
             if not video_input.data:
                 self._report_warning("No video data available")
                 return
 
-            # Step 4: Save video bytes
             saved_path = self._save_video_bytes(video_input.data, video_input.format_hint)
-
-            # Step 5: Report success
             self._report_success(saved_path, video_input.source_url)
 
         except Exception as e:
             self._report_error(str(e), e)
 
     def process(self) -> None:
-        """Sync process method - handles non-URL videos only."""
-        # Reset execution state and result details at the start of each run
+        """Sync process method."""
         self._clear_execution_status()
 
         try:
-            # Step 1: Normalize input
             video_input = self._normalize_input(self.get_parameter_value("video"))
 
-            # Step 2: Check if we need async download (not supported in sync)
-            if video_input.needs_download:
-                self._report_error(
-                    "URL video downloads require async processing. This should not happen in normal operation."
-                )
-                return
-
-            # Step 3: Validate we have data
             if not video_input.data:
                 self._report_warning("No video data available")
                 return
 
-            # Step 4: Save video bytes
             saved_path = self._save_video_bytes(video_input.data, video_input.format_hint)
-
-            # Step 5: Report success
-            self._report_success(saved_path, None)
+            self._report_success(saved_path, video_input.source_url)
 
         except Exception as e:
             self._report_error(str(e), e)
