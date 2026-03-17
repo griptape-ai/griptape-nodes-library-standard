@@ -9,7 +9,7 @@ from typing import Any
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
-from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.files.file import File
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
@@ -105,8 +105,6 @@ class CropVideo(BaseVideoProcessor):
         # Cache for first frame of video (for preview background)
         self._cached_first_frame: Image.Image | None = None
         self._cached_video_url: str | None = None
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="preview.png")
-        self.set_parameter_value("output_file", "preview.png")
 
     def _setup_custom_parameters(self) -> None:
         """Setup custom parameters specific to this video processor."""
@@ -510,7 +508,12 @@ class CropVideo(BaseVideoProcessor):
 
         try:
             preview_bytes = image_to_bytes(preview_image, "PNG")
-            dest = self._output_file.build_file()
+            dest = ProjectFileDestination(
+                filename="preview.png",
+                situation="save_griptape_nodes_preview",
+                source_file_name="crop_video_preview",
+                preview_format="png",
+            )
             preview_saved = dest.write_bytes(preview_bytes)
             preview_artifact = ImageUrlArtifact(preview_saved.location)
         except (ValueError, OSError) as e:
