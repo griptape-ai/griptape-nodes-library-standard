@@ -353,7 +353,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
         # Add prompt first
         if prompt:
             # Explicitly instruct the model to return generated images.
-            parts.append({"text": f"generate the following image(s): {prompt}"})
+            parts.append({"text": f"Generate the following image(s): {prompt}"})
 
         # Add all input images
         for img in all_images:
