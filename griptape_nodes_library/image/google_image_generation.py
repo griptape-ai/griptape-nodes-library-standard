@@ -3,9 +3,9 @@ from __future__ import annotations
 import base64
 import json
 import logging
-from uuid import uuid4
 from typing import Any, ClassVar
 from urllib.parse import urljoin
+from uuid import uuid4
 
 import httpx
 from griptape.artifacts import ImageArtifact
