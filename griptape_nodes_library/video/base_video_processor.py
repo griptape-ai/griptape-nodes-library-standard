@@ -12,6 +12,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, Param
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.file import File
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
@@ -297,7 +298,7 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
         """Get video input URL and detected format."""
         video = self.parameter_values.get("video")
         video_artifact = to_video_artifact(video)
-        input_url = video_artifact.value
+        input_url = File(video_artifact.value).resolve()
 
         detected_format = detect_video_format(video)
         if not detected_format:
