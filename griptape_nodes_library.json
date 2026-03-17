@@ -28,7 +28,11 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
+<<<<<<< feature/update-anthropic-models
     "library_version": "0.67.3",
+=======
+    "library_version": "0.67.2",
+>>>>>>> main
     "engine_version": "0.77.0",
     "tags": [
       "Griptape",
@@ -492,6 +496,17 @@
         "description": "Takes a list input and splits it either by index or by item value, with options for keeping the split item.",
         "display_name": "Split List",
         "icon": "square-split-vertical",
+        "group": "edit"
+      }
+    },
+    {
+      "class_name": "SortList",
+      "file_path": "griptape_nodes_library/lists/sort_list.py",
+      "metadata": {
+        "category": "lists",
+        "description": "Takes a list input and sorts it in ascending or descending order. When the list contains dictionaries, a Key dropdown appears to select which key to sort by.",
+        "display_name": "Sort List",
+        "icon": "arrow-up-down",
         "group": "edit"
       }
     },
