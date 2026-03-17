@@ -106,6 +106,7 @@ class CropVideo(BaseVideoProcessor):
         self._cached_first_frame: Image.Image | None = None
         self._cached_video_url: str | None = None
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="preview.png")
+        self.set_parameter_value("output_file", "preview.png")
 
     def _setup_custom_parameters(self) -> None:
         """Setup custom parameters specific to this video processor."""
