@@ -3,9 +3,9 @@ from __future__ import annotations
 import base64
 import json
 import logging
-from time import time
 from typing import Any, ClassVar
 from urllib.parse import urljoin
+from uuid import uuid4
 
 import httpx
 from griptape.artifacts import ImageArtifact
@@ -512,9 +512,9 @@ class GoogleImageGeneration(GriptapeProxyNode):
 
         try:
             image_bytes = base64.b64decode(base64_data)
-            timestamp = int(time())
+            unique_id = uuid4().hex
             ext = "png" if "png" in mime_type else "jpg"
-            filename = f"google_image_{timestamp}_{candidate_idx}_{part_idx}.{ext}"
+            filename = f"google_image_{unique_id}_{candidate_idx}_{part_idx}.{ext}"
 
             static_files_manager = GriptapeNodes.StaticFilesManager()
             saved_url = static_files_manager.save_static_file(image_bytes, filename)
