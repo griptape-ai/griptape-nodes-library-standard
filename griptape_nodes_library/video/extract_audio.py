@@ -5,7 +5,6 @@ from typing import Any, ClassVar
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
-from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
@@ -46,13 +45,6 @@ class ExtractAudio(BaseVideoProcessor):
                 ui_options={"pulse_on_run": True, "expander": True},
             )
         )
-
-        self._output_file = ProjectFileParameter(
-            node=self,
-            name="output_file",
-            default_filename="extracted_audio.mp3",
-        )
-        self._output_file.add_parameter()
 
     def _setup_custom_parameters(self) -> None:
         """Setup custom parameters for audio extraction."""

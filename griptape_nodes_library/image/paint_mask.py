@@ -44,6 +44,14 @@ class PaintMask(DataNode):
                 allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT},
             )
         )
+        self._mask_file = ProjectFileParameter(
+            node=self,
+            name="mask_file",
+            default_filename="mask.png",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY, ParameterMode.OUTPUT},
+        )
+        self._mask_file.add_parameter()
+
         self.add_parameter(ParameterBool(name="invert_mask", default_value=False))
         self.add_parameter(ParameterFloat(name="grow_shrink", default_value=0, slider=True, min_val=-100, max_val=100))
         self.add_parameter(ParameterFloat(name="blur_mask", default_value=0, slider=True, min_val=-0, max_val=100))
@@ -56,13 +64,6 @@ class PaintMask(DataNode):
                 allowed_modes={ParameterMode.OUTPUT},
             )
         )
-
-        self._mask_file = ProjectFileParameter(
-            node=self,
-            name="mask_file",
-            default_filename="mask.png",
-        )
-        self._mask_file.add_parameter()
 
         self._output_file = ProjectFileParameter(
             node=self,
