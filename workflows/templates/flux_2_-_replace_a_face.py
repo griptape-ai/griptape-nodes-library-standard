@@ -22,6 +22,7 @@ import asyncio
 import json
 import logging
 import pickle
+from pathlib import Path
 
 from griptape_nodes.bootstrap.workflow_executors.local_workflow_executor import LocalWorkflowExecutor
 from griptape_nodes.bootstrap.workflow_executors.workflow_executor import WorkflowExecutor
@@ -41,7 +42,6 @@ from griptape_nodes.retained_mode.events.parameter_events import (
     SetParameterValueRequest,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-from pathlib import Path
 
 GriptapeNodes.handle_request(
     RegisterLibraryFromFileRequest(library_name="Griptape Nodes Library", perform_discovery_if_not_found=True)
