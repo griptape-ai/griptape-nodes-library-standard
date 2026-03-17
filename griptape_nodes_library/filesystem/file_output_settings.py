@@ -22,10 +22,6 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.files.file import FileDestination
 from griptape_nodes.files.path_utils import FilenameParts
 from griptape_nodes.files.project_file import FALLBACK_MACRO_TEMPLATE, SITUATION_TO_FILE_POLICY
-from griptape_nodes.retained_mode.events.connection_events import (
-    ListConnectionsForNodeRequest,
-    ListConnectionsForNodeResultSuccess,
-)
 from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
 from griptape_nodes.retained_mode.events.project_events import (
     AttemptMapAbsolutePathToProjectRequest,
@@ -320,7 +316,6 @@ class FileOutputSettings(BaseNode):
         variables: dict[str, str | int] = {
             "file_name_base": parts.stem,
             "file_extension": parts.extension,
-            "node_name": self._get_target_node_name(),
         }
 
         parsed_macro = ParsedMacro(macro_template)
@@ -365,29 +360,13 @@ class FileOutputSettings(BaseNode):
         self.set_parameter_value(self.file_destination_parameter.name, absolute_path)
         self.absolute_path_warning.ui_options = {"hide": False}
 
-    def _get_target_node_name(self) -> str:
-        """Return the name of the downstream node connected to file_destination.
-
-        When file_destination is connected to a save node, the save node's name is
-        used as the node_name macro variable so the output path reflects the
-        actual saving node rather than this configuration node.
-
-        Falls back to this node's own name when no connection exists.
-        """
-        result = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=self.name))
-        if isinstance(result, ListConnectionsForNodeResultSuccess):
-            for conn in result.outgoing_connections:
-                if conn.source_parameter_name == self.file_destination_parameter.name:
-                    return conn.target_node_name
-        return self.name
-
     def after_outgoing_connection(
         self,
         source_parameter: Parameter,
         target_node: BaseNode,  # noqa: ARG002
         target_parameter: Parameter,  # noqa: ARG002
     ) -> None:
-        """Re-resolve path using the newly connected downstream node's name."""
+        """Re-resolve path when a downstream connection is made."""
         if source_parameter.name == self.file_destination_parameter.name:
             self._resolve_and_update_path()
 
@@ -397,7 +376,7 @@ class FileOutputSettings(BaseNode):
         target_node: BaseNode,  # noqa: ARG002
         target_parameter: Parameter,  # noqa: ARG002
     ) -> None:
-        """Re-resolve path, falling back to this node's own name."""
+        """Re-resolve path when a downstream connection is removed."""
         if source_parameter.name == self.file_destination_parameter.name:
             self._resolve_and_update_path()
 
