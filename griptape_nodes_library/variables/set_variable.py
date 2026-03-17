@@ -2,6 +2,7 @@ from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
 from griptape_nodes.exe_types.node_types import ControlNode, NodeResolutionState
+
 from griptape_nodes_library.variables.variable_utils import (
     create_advanced_parameter_group,
     get_variable,

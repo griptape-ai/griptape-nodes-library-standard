@@ -4,6 +4,7 @@ from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.traits.slider import Slider
+
 from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 
 

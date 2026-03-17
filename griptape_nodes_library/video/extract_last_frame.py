@@ -2,11 +2,11 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from PIL import Image
-
 from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
+from PIL import Image
+
 from griptape_nodes_library.utils.image_utils import save_pil_image_to_static_file
 from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 

@@ -4,13 +4,13 @@ from griptape.drivers.audio_transcription.openai import OpenAiAudioTranscription
 from griptape.loaders import AudioLoader
 from griptape.structures import Structure
 from griptape.tasks import AudioTranscriptionTask
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
+
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
 from griptape_nodes_library.utils.audio_utils import dict_to_audio_url_artifact
 from griptape_nodes_library.utils.error_utils import try_throw_error

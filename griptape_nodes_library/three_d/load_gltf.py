@@ -1,7 +1,6 @@
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage

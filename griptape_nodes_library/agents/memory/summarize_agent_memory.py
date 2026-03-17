@@ -3,7 +3,6 @@ from typing import Any
 from griptape.artifacts import ErrorArtifact, TextArtifact
 from griptape.memory.structure import Run
 from griptape.structures.agent import Agent
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString

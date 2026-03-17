@@ -1,6 +1,7 @@
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import ParameterTypeBuiltin
+
 from griptape_nodes_library.lists.base_create_list import BaseCreateListNode
 
 

@@ -3,12 +3,12 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
-
 from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
+
 from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 
 

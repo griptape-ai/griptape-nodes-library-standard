@@ -3,14 +3,13 @@ from __future__ import annotations
 import base64
 import json
 import logging
-from time import time
 from typing import Any, ClassVar
 from urllib.parse import urljoin
+from uuid import uuid4
 
 import httpx
 from griptape.artifacts import ImageArtifact
 from griptape.artifacts.image_url_artifact import ImageUrlArtifact
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -21,6 +20,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
+
 from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
 from griptape_nodes_library.utils.image_utils import shrink_image_to_size
 
@@ -512,9 +512,9 @@ class GoogleImageGeneration(GriptapeProxyNode):
 
         try:
             image_bytes = base64.b64decode(base64_data)
-            timestamp = int(time())
+            unique_id = uuid4().hex
             ext = "png" if "png" in mime_type else "jpg"
-            filename = f"google_image_{timestamp}_{candidate_idx}_{part_idx}.{ext}"
+            filename = f"google_image_{unique_id}_{candidate_idx}_{part_idx}.{ext}"
 
             static_files_manager = GriptapeNodes.StaticFilesManager()
             saved_url = static_files_manager.save_static_file(image_bytes, filename)

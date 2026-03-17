@@ -4,12 +4,12 @@ import io
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from PIL import Image, ImageChops
-
 from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.retained_mode.griptape_nodes import logger
+from PIL import Image, ImageChops
+
 from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
     load_pil_from_url,

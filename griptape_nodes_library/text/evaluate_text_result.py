@@ -2,10 +2,10 @@ from typing import Any
 
 from griptape.engines import EvalEngine
 from griptape.structures import Agent, Structure
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.traits.options import Options
+
 from griptape_nodes_library.tasks.base_task import BaseTask
 
 EXAMPLES = [

@@ -1,8 +1,9 @@
-name: Workflow Tests
+name: CI
 
 on:
   push:
     branches: ["main"]
+  pull_request:
   merge_group:
     types: [checks_requested]
 
@@ -11,12 +12,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  workflow-tests:
+  check:
     runs-on: ubuntu-latest
-    env:
-      GT_CLOUD_API_KEY: ${{ secrets.GT_CLOUD_API_KEY }}
     strategy:
-      fail-fast: false
       matrix:
         python-version: ["3.12"]
     steps:
@@ -32,7 +30,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
-        run: uv pip install --system griptape-nodes pytest pytest-asyncio python-dotenv
+        run: make install/dev
 
-      - name: Run workflow tests
-        run: make test/workflows
+      - name: Run checks
+        run: make check

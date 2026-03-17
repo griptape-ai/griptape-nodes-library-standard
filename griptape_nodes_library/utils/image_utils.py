@@ -11,11 +11,11 @@ from urllib.parse import urlparse
 import numpy as np
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.loaders import ImageLoader
+from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from PIL import Image, ImageDraw, ImageFilter
 from requests.exceptions import RequestException
 
-from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes_library.utils.color_utils import NAMED_COLORS
 
 logger = logging.getLogger("griptape_nodes")

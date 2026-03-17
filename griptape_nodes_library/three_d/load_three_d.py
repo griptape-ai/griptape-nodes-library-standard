@@ -1,11 +1,11 @@
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageUrlArtifact
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_three_d import Parameter3D
+
 from griptape_nodes_library.three_d.three_d_artifact import ThreeDUrlArtifact
 from griptape_nodes_library.utils.artifact_path_tethering import (
     ArtifactPathTethering,

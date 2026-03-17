@@ -1,7 +1,6 @@
 from typing import Literal
 
 from griptape.tools import BaseTool as GtBaseTool
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 

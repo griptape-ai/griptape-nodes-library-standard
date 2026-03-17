@@ -1,6 +1,6 @@
 # /// script
 # dependencies = []
-# 
+#
 # [tool.griptape-nodes]
 # name = "flux_2_-_replace_a_face"
 # schema_version = "0.16.0"
@@ -22,16 +22,20 @@ import asyncio
 import json
 import logging
 import pickle
-from griptape.artifacts.image_url_artifact import ImageUrlArtifact
+
 from griptape_nodes.bootstrap.workflow_executors.local_workflow_executor import LocalWorkflowExecutor
 from griptape_nodes.bootstrap.workflow_executors.workflow_executor import WorkflowExecutor
 from griptape_nodes.drivers.storage.storage_backend import StorageBackend
-from griptape_nodes.node_library.library_registry import IconVariant, NodeDeprecationMetadata, NodeMetadata
+from griptape_nodes.node_library.library_registry import NodeMetadata
 from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest
 from griptape_nodes.retained_mode.events.flow_events import CreateFlowRequest, GetTopLevelFlowRequest, GetTopLevelFlowResultSuccess
 from griptape_nodes.retained_mode.events.library_events import RegisterLibraryFromFileRequest
 from griptape_nodes.retained_mode.events.node_events import CreateNodeRequest
-from griptape_nodes.retained_mode.events.parameter_events import AddParameterToNodeRequest, AlterParameterDetailsRequest, SetParameterValueRequest
+from griptape_nodes.retained_mode.events.parameter_events import (
+    AddParameterToNodeRequest,
+    AlterParameterDetailsRequest,
+    SetParameterValueRequest,
+)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from pathlib import Path
 
@@ -52,9 +56,11 @@ if not context_manager.has_current_workflow():
 """
 top_level_unique_values_dict = {'b2abd5f6-6df7-4a32-8141-c0056de9a195': pickle.loads(b'\x80\x04\x95\x0e\x03\x00\x00\x00\x00\x00\x00X\x07\x03\x00\x00# Flux 2 - Replace part of an Image\n\nThis workflow demonstrates using a mask to replace part of an image with Black Forest Labs Flux 2 model.\n\nThis technique is called "inpainting" and is very useful for providing a specific location to a model for updating.\n\nTo demonstrate the technique, we\'ll get an image from the Public Digital Image Archive, paint a mask over a particular area, and replace that area with another image.\n\n## Video Tutorial\n\n<iframe width="560" height="315" src="https://www.youtube.com/embed/rZI9rPsAPsA?si=Fo6TtKLhhnoZelcq" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>\x94.'), '3f5fee0d-d328-4d1c-a4cf-49996e2ba7d2': pickle.loads(b'\x80\x04\x95~\x00\x00\x00\x00\x00\x00\x00\x8czhttps://images.pdimagearchive.org/collections/rogues-a-study-of-characters-samuel-g-szabo/rogues-samuel-g-szabo-00017.jpeg\x94.'), 'afb17b7d-2911-485b-8027-d15a0c13dc46': pickle.loads(b'\x80\x04\x95\x80\x00\x00\x00\x00\x00\x00\x00\x8c|Get an image from the [Public Domain Image Archive](https://pdimagearchive.org/images/83f00ea0-3c8f-4a3d-83a7-d89324d44160/)\x94.'), 'a793b129-f868-445b-8393-f16ba6aee5b4': pickle.loads(b"\x80\x04\x95\x88\x00\x00\x00\x00\x00\x00\x00\x8c\x84Rescale the image using the new width and height.\n\n_Note: we're using a `fit_mode` of `fit` to make sure we don't distort the image_\x94."), '7ea7485f-f416-4e4b-97b4-e9db1d3aa5d7': pickle.loads(b"\x80\x04\x95\xfd\x00\x00\x00\x00\x00\x00\x00\x8c\xf9## Paint Mask Node\n\nNow we'll paint a mask in the image where we want to **inpaint** a new face.\n\n1. Hover over the input image\n2. Click the _mask_ icon\n3. In the **Paint Mask Editor** choose the **Eraser** and erase part of the image.\n4. Click Save\x94."), '499c3401-5983-40fb-91b7-f45455fd364d': pickle.loads(b'\x80\x04\x89.'), 'b0e68914-24a5-4d5f-a7b0-9c8c02b14a6e': pickle.loads(b'\x80\x04\x95\x97\x01\x00\x00\x00\x00\x00\x00\x8c%griptape.artifacts.image_url_artifact\x94\x8c\x10ImageUrlArtifact\x94\x93\x94)\x81\x94}\x94(\x8c\x04type\x94\x8c\x10ImageUrlArtifact\x94\x8c\x0bmodule_name\x94\x8c%griptape.artifacts.image_url_artifact\x94\x8c\x02id\x94\x8c e5624b5ae3dd4840aa1c031d356bbfc7\x94\x8c\treference\x94N\x8c\x04meta\x94}\x94\x8c\x04name\x94h\n\x8c\x16encoding_error_handler\x94\x8c\x06strict\x94\x8c\x08encoding\x94\x8c\x05utf-8\x94\x8c\x05value\x94\x8czhttps://images.pdimagearchive.org/collections/rogues-a-study-of-characters-samuel-g-szabo/rogues-samuel-g-szabo-00017.jpeg\x94ub.'), 'fd381e5b-e313-49e6-9132-41b12b90557f': pickle.loads(b'\x80\x04K\x00.'), '9f166067-ddaf-407d-9a9b-79f657ef02a6': pickle.loads(b"\x80\x04\x95\x04\x00\x00\x00\x00\x00\x00\x00M'\x03."), 'bb20875e-c70e-4af2-b9ca-88cdc813d554': pickle.loads(b'\x80\x04\x95\x04\x00\x00\x00\x00\x00\x00\x00M\x80\x04.'), '0e64f9a8-3c25-41ab-82c2-6027cc95018e': pickle.loads(b'\x80\x04\x95\x07\x00\x00\x00\x00\x00\x00\x00\x8c\x030:0\x94.'), 'dae4113f-92ef-4b46-8304-05b513a2f0dd': pickle.loads(b'\x80\x04\x95\x0b\x00\x00\x00\x00\x00\x00\x00\x8c\x07269:384\x94.'), '54b6e1bc-adcd-47b6-8f8e-bee658ef837d': pickle.loads(b'\x80\x04\x95\n\x00\x00\x00\x00\x00\x00\x00G\x00\x00\x00\x00\x00\x00\x00\x00.'), 'd240bcbb-9df0-4d34-9dc2-eb09519e8b84': pickle.loads(b'\x80\x04\x95\n\x00\x00\x00\x00\x00\x00\x00G?\xe6j\xaa\xaa\xaa\xaa\xab.'), 'd454ff7b-be8b-4127-8457-e7272afeee8a': pickle.loads(b'\x80\x04\x95\x0b\x00\x00\x00\x00\x00\x00\x00\x8c\x07UNKNOWN\x94.'), 'bab906ee-eba5-4432-a346-505f0ffe3554': pickle.loads(b'\x80\x04\x95\x07\x00\x00\x00\x00\x00\x00\x00\x8c\x03RGB\x94.'), '47140898-9c0f-4a0c-be19-87da7bad1fc0': pickle.loads(b'\x80\x04K\x03.'), '1849ab0a-b503-40df-9c93-758746f165d1': pickle.loads(b'\x80\x04\x95\x08\x00\x00\x00\x00\x00\x00\x00\x8c\x04JPEG\x94.'), '9ee8238b-fb40-4e6a-ac2a-6f2553d564ab': pickle.loads(b"\x80\x04\x95\xd5\x00\x00\x00\x00\x00\x00\x00\x8c\xd1The Flux 2 Image Generation node requires width and height to be divisible by `16`. \n\nSo we'll use the **Image Details** node, some math, and a **Rescale Image** node to generate the image at the correct size.\x94."), 'bb6c3b78-f231-46d9-91bd-40056bc6c3c0': pickle.loads(b'\x80\x04\x95\x12\x00\x00\x00\x00\x00\x00\x00\x8c\x0eround(a/b) * b\x94.'), 'c4f44639-fbb9-4c55-9768-9e9f05ec1719': pickle.loads(b'\x80\x04K\x10.'), '00e13a5b-8404-43b6-a557-dc38c1411afa': pickle.loads(b'\x80\x04K\x02.'), '046d0fac-d8bd-47fd-8804-8aa4aa51cf02': pickle.loads(b'\x80\x04\x95\x07\x00\x00\x00\x00\x00\x00\x00\x8c\x03int\x94.'), '9709dc09-19e2-4b41-90d4-ecff202805ed': pickle.loads(b'\x80\x04K\x06.'), 'cea13423-d42a-4b32-8c45-4bb0500dfa55': pickle.loads(b'\x80\x04\x95\x04\x00\x00\x00\x00\x00\x00\x00M \x03.'), 'b35aa816-e555-4283-9a22-e83beae95e2a': pickle.loads(b'\x80\x04\x95w\x00\x00\x00\x00\x00\x00\x00\x8csThe model will require the area you want to mask to be white. To do this we can just use the **Invert Image** node.\x94.'), '61ce78e9-6de4-4571-bfa5-4a92cb36f423': pickle.loads(b'\x80\x04\x95\x16\x00\x00\x00\x00\x00\x00\x00\x8c\x12Review the results\x94.'), '7cffc52b-16d0-41e3-a9da-96d55fda6db2': pickle.loads(b'\x80\x04\x95\x93\x00\x00\x00\x00\x00\x00\x00\x8c\x8fGenerate the image using **flux-2-max**.\n\nThe prompt should include information about what input to use as the mask, and what image to replace.\x94.'), '3273f645-17af-47ee-a32d-aea08da6db6b': pickle.loads(b'\x80\x04\x95\x93\x00\x00\x00\x00\x00\x00\x00\x8c\x8fTo provide an image to replace, use the **Webcam** node to take a screenshot of your face, or use a **Load Image** node and connect it instead.\x94.'), 'b93751b1-6320-4446-a107-d4f7a5b07f71': pickle.loads(b'\x80\x04\x95\x08\x00\x00\x00\x00\x00\x00\x00\x8c\x04none\x94.'), '414f5eaa-0409-467c-8cb6-c879f6ae4d98': pickle.loads(b'\x80\x04\x95\x14\x00\x00\x00\x00\x00\x00\x00\x8c\x10width and height\x94.'), '3159257b-d093-4b28-bef9-1e7b9b4f7dfe': pickle.loads(b'\x80\x04\x95\x04\x00\x00\x00\x00\x00\x00\x00M\xe8\x03.'), '55bf7d11-c058-4a29-9fa5-cb48da0c0313': pickle.loads(b'\x80\x04Kd.'), '2fb7b6e0-5268-43a6-9833-3b403bc3528f': pickle.loads(b'\x80\x04\x95\x07\x00\x00\x00\x00\x00\x00\x00\x8c\x03fit\x94.'), 'f36216f1-f763-4bcd-880b-c32ee3313080': pickle.loads(b'\x80\x04\x95\x0b\x00\x00\x00\x00\x00\x00\x00\x8c\x07#000000\x94.'), 'a372e78b-8d9e-41d0-84d4-515a131c4720': pickle.loads(b'\x80\x04\x95\x0b\x00\x00\x00\x00\x00\x00\x00\x8c\x07lanczos\x94.'), '587b4b4e-61c9-4c69-9c1e-cd9bc5899ce9': pickle.loads(b'\x80\x04\x95\x08\x00\x00\x00\x00\x00\x00\x00\x8c\x04auto\x94.'), 'f44aee52-becf-4aae-898b-8a4b05709c58': pickle.loads(b'\x80\x04\x95\x06\x00\x00\x00\x00\x00\x00\x00\x8c\x0295\x94.'), '038377c4-70c8-408c-9a53-61c24e07f7a2': pickle.loads(b'\x80\x04\x95\x10\x00\x00\x00\x00\x00\x00\x00\x8c\x0cFlux.2 [pro]\x94.'), 'ba1b0f64-59d9-498a-b390-01d0aabca793': pickle.loads(b'\x80\x04\x95\xb2\x00\x00\x00\x00\x00\x00\x00\x8c\xaeInpaint the person from Image 3 into Image 1 using the mask from Image 2\nMatch the texture, art style, color, tone, hue, contrast, brightness, levels, and clothing of Image 1\x94.'), '71f493df-228c-4931-91f4-6bd7288138b3': pickle.loads(b'\x80\x04]\x94.'), '0e7950a1-9b05-4505-a960-77505a138172': pickle.loads(b'\x80\x04K*.'), 'c3c8ce16-fe9c-4938-b76e-9b6aa2b691e2': pickle.loads(b'\x80\x04\x95\x08\x00\x00\x00\x00\x00\x00\x00\x8c\x04jpeg\x94.'), 'f93a8399-a24e-4ba0-85f2-ed62afee7f34': pickle.loads(b'\x80\x04\x95\x15\x00\x00\x00\x00\x00\x00\x00\x8c\x11least restrictive\x94.'), '8aa955bd-1671-492f-8138-bff903d93319': pickle.loads(b'\x80\x04K2.'), '825b2280-9334-461a-b2d4-7dfd92e7e38d': pickle.loads(b'\x80\x04\x95\n\x00\x00\x00\x00\x00\x00\x00G@\x12\x00\x00\x00\x00\x00\x00.')}
 
-'# Create the Flow, then do work within it as context.'
+"# Create the Flow, then do work within it as context."
 
-flow0_name = GriptapeNodes.handle_request(CreateFlowRequest(parent_flow_name=None, flow_name='ControlFlow_1', set_as_new_context=False, metadata={})).flow_name
+flow0_name = GriptapeNodes.handle_request(
+    CreateFlowRequest(parent_flow_name=None, flow_name="ControlFlow_1", set_as_new_context=False, metadata={})
+).flow_name
 
 with GriptapeNodes.ContextManager().flow(flow0_name):
     node0_name = GriptapeNodes.handle_request(CreateNodeRequest(node_type='Note', specific_library_name='Griptape Nodes Library', node_name='Workflow Description', metadata={'position': {'x': -617.6213590658149, 'y': -773.552661767276}, 'tempId': 'placing-1766172442198-lnzeb9', 'library_node_metadata': NodeMetadata(category='misc', description='Create a note node to provide helpful context in your workflow', display_name='Note', tags=None, icon='notepad-text', color=None, group='create', deprecation=None, is_node_group=None), 'library': 'Griptape Nodes Library', 'node_type': 'Note', 'showaddparameter': False, 'size': {'width': 686, 'height': 755}, 'category': 'misc'}, initial_setup=True)).node_name
@@ -274,7 +280,10 @@ def _ensure_workflow_context():
     if not context_manager.has_current_flow():
         top_level_flow_request = GetTopLevelFlowRequest()
         top_level_flow_result = GriptapeNodes.handle_request(top_level_flow_request)
-        if isinstance(top_level_flow_result, GetTopLevelFlowResultSuccess) and top_level_flow_result.flow_name is not None:
+        if (
+            isinstance(top_level_flow_result, GetTopLevelFlowResultSuccess)
+            and top_level_flow_result.flow_name is not None
+        ):
             flow_manager = GriptapeNodes.FlowManager()
             flow_obj = flow_manager.get_flow_by_name(top_level_flow_result.flow_name)
             context_manager.push_flow(flow_obj)
@@ -304,10 +313,10 @@ if __name__ == '__main__':
     if args.json_input is not None:
         flow_input = json.loads(args.json_input)
     if args.json_input is None:
-        if 'Start Flow' not in flow_input:
-            flow_input['Start Flow'] = {}
+        if "Start Flow" not in flow_input:
+            flow_input["Start Flow"] = {}
         if args.exec_out is not None:
-            flow_input['Start Flow']['exec_out'] = args.exec_out
+            flow_input["Start Flow"]["exec_out"] = args.exec_out
         if args.input_url is not None:
             flow_input['Start Flow']['input_url'] = args.input_url
     workflow_output = execute_workflow(input=flow_input, storage_backend=args.storage_backend, project_file_path=args.project_file_path)

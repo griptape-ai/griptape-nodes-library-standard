@@ -8,6 +8,7 @@ from griptape_nodes.exe_types.core_types import (
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
+
 from griptape_nodes_library.utils.file_utils import SUPPORTED_TEXT_EXTENSIONS
 
 

@@ -11,6 +11,7 @@ from griptape_nodes.retained_mode.events.parameter_events import (
     RemoveParameterFromNodeRequest,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+
 from griptape_nodes_library.utils.image_utils import load_pil_image_from_artifact
 
 

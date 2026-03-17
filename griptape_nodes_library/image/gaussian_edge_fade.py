@@ -3,8 +3,6 @@ from typing import Any
 
 import numpy as np
 from griptape.artifacts import ImageUrlArtifact
-from PIL import Image, ImageFilter
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, DataNode
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -14,6 +12,8 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
+from PIL import Image, ImageFilter
+
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     load_pil_from_url,

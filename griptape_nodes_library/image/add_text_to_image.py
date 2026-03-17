@@ -3,8 +3,6 @@ from typing import Any
 
 import httpx
 from griptape.artifacts import ImageUrlArtifact
-from PIL import Image, ImageDraw, ImageFont
-
 from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -20,6 +18,8 @@ from griptape_nodes.retained_mode.events.static_file_events import (
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.color_picker import ColorPicker
+from PIL import Image, ImageDraw, ImageFont
+
 from griptape_nodes_library.utils.color_utils import parse_color_to_rgba
 from griptape_nodes_library.utils.file_utils import generate_filename
 

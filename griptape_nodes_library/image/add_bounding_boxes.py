@@ -1,14 +1,14 @@
 import re
 from typing import Any
 
-from PIL import Image, ImageDraw, ImageFont
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.color_picker import ColorPicker
+from PIL import Image, ImageDraw, ImageFont
+
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
 from griptape_nodes_library.utils.color_utils import parse_color_to_rgba
 

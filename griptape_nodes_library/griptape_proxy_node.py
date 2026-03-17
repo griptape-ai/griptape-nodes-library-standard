@@ -9,7 +9,6 @@ from typing import Any
 from urllib.parse import urljoin
 
 import httpx
-
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
@@ -23,6 +22,7 @@ STATUS_RUNNING = "RUNNING"
 STATUS_ERRORED = "ERRORED"
 STATUS_FAILED = "FAILED"
 STATUS_COMPLETED = "COMPLETED"
+
 
 class GriptapeProxyNode(SuccessFailureNode, ABC):
     """Base class for nodes that use the Griptape Cloud v2 async model proxy API.

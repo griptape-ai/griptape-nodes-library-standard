@@ -8,8 +8,8 @@ node configuration, and instantiates the `GrokPromptDriver`.
 """
 
 from griptape.drivers.prompt.grok import GrokPromptDriver as GtGrokPromptDriver
-
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
 
 # --- Constants ---

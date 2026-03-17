@@ -1,10 +1,10 @@
 from griptape.engines import PromptSummaryEngine
 from griptape.structures import Agent, Structure
 from griptape.tasks import TextSummaryTask
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.traits.options import Options
+
 from griptape_nodes_library.tasks.base_task import BaseTask
 
 

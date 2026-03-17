@@ -2,7 +2,6 @@ import logging
 from typing import Any
 
 from griptape.artifacts import AudioArtifact, ImageArtifact, ImageUrlArtifact
-
 from griptape_nodes.exe_types.core_types import (
     Parameter,
     ParameterList,
@@ -13,6 +12,7 @@ from griptape_nodes.exe_types.core_types import (
 from griptape_nodes.exe_types.node_types import BaseNode, ControlNode
 from griptape_nodes.retained_mode.events.connection_events import DeleteConnectionRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+
 from griptape_nodes_library.three_d.three_d_artifact import ThreeDArtifact, ThreeDUrlArtifact
 from griptape_nodes_library.utils.audio_utils import is_audio_url_artifact
 from griptape_nodes_library.utils.video_utils import is_video_url_artifact

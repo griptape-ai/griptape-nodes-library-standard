@@ -1,5 +1,6 @@
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
+
 from griptape_nodes_library.utils.image_utils import dict_to_image_url_artifact
 
 

@@ -4,10 +4,6 @@ from typing import Any
 
 import numpy as np
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from PIL import Image
-from sklearn.cluster import KMeans  # type: ignore[import-untyped]
-from threadpoolctl import threadpool_limits  # type: ignore[import-untyped]
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -16,6 +12,10 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
+from PIL import Image
+from sklearn.cluster import KMeans  # type: ignore[import-untyped]
+from threadpoolctl import threadpool_limits  # type: ignore[import-untyped]
+
 from griptape_nodes_library.utils.image_utils import dict_to_image_url_artifact
 
 logger = logging.getLogger(__name__)

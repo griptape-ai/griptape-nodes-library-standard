@@ -9,8 +9,8 @@ node configuration, and instantiates the `AmazonBedrockPromptDriver`.
 
 import boto3  # pyright: ignore[reportMissingImports]
 from griptape.drivers.prompt.amazon_bedrock import AmazonBedrockPromptDriver as GtAmazonBedrockPromptDriver
-
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
 
 # --- Constants ---

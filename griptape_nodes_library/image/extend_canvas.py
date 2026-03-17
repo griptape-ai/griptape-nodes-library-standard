@@ -2,8 +2,6 @@ from enum import StrEnum
 from typing import Any, NamedTuple
 
 from griptape.artifacts import ImageUrlArtifact
-from PIL import Image
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -11,6 +9,8 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
+from PIL import Image
+
 from griptape_nodes_library.utils.color_utils import NAMED_COLORS
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
