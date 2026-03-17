@@ -8,6 +8,7 @@ from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.files.file import File
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -484,7 +485,7 @@ class ResizeVideo(ControlNode):
             video_artifact = to_video_artifact(video)
 
             # Get the video URL directly. Note - we've validated this in validate_before_workflow_run.
-            input_url = video_artifact.value
+            input_url = File(video_artifact.value).resolve()
 
             # Detect video format for output filename
             detected_format = detect_video_format(video)

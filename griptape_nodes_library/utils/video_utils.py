@@ -181,7 +181,10 @@ def validate_url(url: str) -> bool:
     """Validate that the URL is safe for ffmpeg processing."""
     try:
         parsed = urlparse(url)
-        return bool(parsed.scheme in ("http", "https", "file") and parsed.netloc)
+        if parsed.scheme in ("http", "https", "file") and parsed.netloc:
+            return True
+        # Also accept absolute file paths (e.g., resolved from project macro paths)
+        return Path(url).is_absolute()
     except Exception:
         return False
 

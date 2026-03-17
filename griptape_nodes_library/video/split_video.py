@@ -8,6 +8,7 @@ from typing import Any
 import static_ffmpeg.run  # type: ignore[import-untyped]
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape.drivers.prompt.griptape_cloud_prompt_driver import GriptapeCloudPromptDriver
+from griptape_nodes.files.file import File
 from griptape.structures import Agent as GriptapeAgent
 from griptape.tasks import PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
@@ -646,7 +647,7 @@ If no title is provided, just use "Segment X:" format.
             video_artifact = to_video_artifact(video)
 
             # Get the video URL directly
-            input_url = video_artifact.value
+            input_url = File(video_artifact.value).resolve()
 
             # Always detect video properties for best results
             self.append_value_to_parameter("logs", "Detecting video properties...\n")

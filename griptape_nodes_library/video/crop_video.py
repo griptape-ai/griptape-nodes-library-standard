@@ -11,6 +11,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
+from griptape_nodes.files.file import File
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
@@ -267,7 +268,7 @@ class CropVideo(BaseVideoProcessor):
                     # Convert to VideoUrlArtifact if needed (handles dict, VideoUrlArtifact, etc.)
                     video_artifact = to_video_artifact(value)
                     if video_artifact and hasattr(video_artifact, "value") and video_artifact.value:
-                        input_url = video_artifact.value
+                        input_url = File(video_artifact.value).resolve()
                         # Only extract if video URL changed
                         if input_url != self._cached_video_url:
                             self._cached_first_frame = self._extract_first_frame(input_url)
@@ -377,7 +378,7 @@ class CropVideo(BaseVideoProcessor):
         if not video_artifact or not hasattr(video_artifact, "value") or not video_artifact.value:
             return None
 
-        input_url = video_artifact.value
+        input_url = File(video_artifact.value).resolve()
 
         try:
             self._validate_url_safety(input_url)
