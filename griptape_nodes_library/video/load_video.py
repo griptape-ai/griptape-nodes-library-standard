@@ -1,8 +1,17 @@
+from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import urlparse
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.node_types import BaseNode, DataNode
+from griptape_nodes.files.file import File
+from griptape_nodes.files.project_file import ProjectFileDestination
+from griptape_nodes.retained_mode.events.project_events import (
+    AttemptMapAbsolutePathToProjectRequest,
+    AttemptMapAbsolutePathToProjectResultSuccess,
+)
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 
 from griptape_nodes_library.utils.artifact_path_tethering import (
     ArtifactPathTethering,
@@ -92,7 +101,45 @@ class LoadVideo(DataNode):
     def process(self) -> None:
         # Get parameter values and assign to outputs
         video_artifact = self.get_parameter_value("video")
-        self.parameter_output_values["video"] = video_artifact
-
         path_value = self.get_parameter_value("path")
+
+        if isinstance(video_artifact, VideoUrlArtifact):
+            resolved = self._resolve_to_macro_path(video_artifact.value)  # pyright: ignore[reportAttributeAccessIssue]
+            video_artifact = VideoUrlArtifact(resolved)
+            path_value = resolved
+
+        self.parameter_output_values["video"] = video_artifact
         self.parameter_output_values["path"] = path_value
+
+    def _resolve_to_macro_path(self, path: str) -> str:
+        """Resolve a path to a project macro path.
+
+        If the path exists on disk and is inside the project, returns the macro form.
+        If the path exists on disk but is outside the project, returns it unchanged.
+        If the path does not exist on disk (e.g. a remote URL), downloads it and
+        copies it into the project's inputs directory.
+        """
+        if Path(path).exists():
+            try:
+                result = GriptapeNodes.handle_request(AttemptMapAbsolutePathToProjectRequest(absolute_path=Path(path)))
+                if isinstance(result, AttemptMapAbsolutePathToProjectResultSuccess) and result.mapped_path is not None:
+                    return result.mapped_path
+            except Exception as e:
+                logger.debug(f"LoadVideo '{self.name}': failed to map path to macro: {e}")
+            return path
+
+        try:
+            content = File(path).read_bytes()
+            filename = PurePosixPath(urlparse(path).path).name or "video.mp4"
+            dest = ProjectFileDestination(
+                filename=filename,
+                situation="copy_external_file",
+                node_name=self.name,
+                parameter_name="video",
+            )
+            saved = dest.write_bytes(content)
+            return saved.location
+        except Exception as e:
+            logger.debug(f"LoadVideo '{self.name}': failed to copy to project: {e}")
+
+        return path

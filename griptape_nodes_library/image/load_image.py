@@ -1,9 +1,17 @@
+from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import urlparse
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode, SuccessFailureNode
-from griptape_nodes.retained_mode.griptape_nodes import logger
+from griptape_nodes.files.file import File
+from griptape_nodes.files.project_file import ProjectFileDestination
+from griptape_nodes.retained_mode.events.project_events import (
+    AttemptMapAbsolutePathToProjectRequest,
+    AttemptMapAbsolutePathToProjectResultSuccess,
+)
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.utils.artifact_path_tethering import (
@@ -182,6 +190,8 @@ class LoadImage(SuccessFailureNode):
             # Verify image can be loaded (we know it's not None at this point)
             if isinstance(image_artifact, ImageUrlArtifact):
                 self._verify_image_loadable(image_artifact)
+                image_artifact = ImageUrlArtifact(self._resolve_to_macro_path(image_artifact.value))  # pyright: ignore[reportAttributeAccessIssue]
+                path_value = image_artifact.value
 
             # Set output values on success
             self.parameter_output_values["image"] = image_artifact
@@ -204,6 +214,39 @@ class LoadImage(SuccessFailureNode):
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
             logger.error(f"LoadImage '{self.name}': {error_details}")
             self._handle_failure_exception(e)
+
+    def _resolve_to_macro_path(self, path: str) -> str:
+        """Resolve a path to a project macro path.
+
+        If the path exists on disk and is inside the project, returns the macro form.
+        If the path exists on disk but is outside the project, returns it unchanged.
+        If the path does not exist on disk (e.g. a remote URL), downloads it and
+        copies it into the project's inputs directory.
+        """
+        if Path(path).exists():
+            try:
+                result = GriptapeNodes.handle_request(AttemptMapAbsolutePathToProjectRequest(absolute_path=Path(path)))
+                if isinstance(result, AttemptMapAbsolutePathToProjectResultSuccess) and result.mapped_path is not None:
+                    return result.mapped_path
+            except Exception as e:
+                logger.debug(f"LoadImage '{self.name}': failed to map path to macro: {e}")
+            return path
+
+        try:
+            content = File(path).read_bytes()
+            filename = PurePosixPath(urlparse(path).path).name or "image.png"
+            dest = ProjectFileDestination(
+                filename=filename,
+                situation="copy_external_file",
+                node_name=self.name,
+                parameter_name="image",
+            )
+            saved = dest.write_bytes(content)
+            return saved.location
+        except Exception as e:
+            logger.debug(f"LoadImage '{self.name}': failed to copy to project: {e}")
+
+        return path
 
     def _load_image_from_path(self, path_value: str | None) -> ImageUrlArtifact | None:
         """Load image artifact from a path value."""
