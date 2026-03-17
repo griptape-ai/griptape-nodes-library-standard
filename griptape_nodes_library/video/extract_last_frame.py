@@ -20,7 +20,6 @@ class ExtractLastFrame(BaseVideoProcessor):
         super().__init__(name, metadata)
 
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="last_frame.png")
-        self._output_file.add_parameter()
 
         # Hide parameters that aren't relevant for frame extraction
         self.hide_parameter_by_name("output_frame_rate")

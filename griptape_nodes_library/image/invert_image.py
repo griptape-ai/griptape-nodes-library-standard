@@ -19,9 +19,6 @@ class InvertImage(DataNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="inverted.png")
-        self._output_file.add_parameter()
-
         self.add_parameter(
             ParameterImage(
                 name="input_image",
@@ -40,6 +37,9 @@ class InvertImage(DataNode):
                 allowed_modes={ParameterMode.OUTPUT},
             )
         )
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="inverted.png")
+        self._output_file.add_parameter()
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "input_image" and value is not None:
