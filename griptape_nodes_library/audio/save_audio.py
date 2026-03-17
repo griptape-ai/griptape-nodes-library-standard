@@ -25,7 +25,6 @@ class AudioInput:
     format_hint: str | None = None  # Format from source
 
 
-
 class SaveAudio(SuccessFailureNode):
     """Save a audio to a file."""
 

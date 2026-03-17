@@ -25,7 +25,6 @@ class VideoInput:
     format_hint: str | None = None  # Format from source
 
 
-
 class SaveVideo(SuccessFailureNode):
     """Save a video to a file."""
 
