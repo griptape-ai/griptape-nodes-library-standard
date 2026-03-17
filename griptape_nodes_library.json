@@ -28,7 +28,11 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
+<<<<<<< feature/update-anthropic-models
+    "library_version": "0.67.3",
+=======
     "library_version": "0.67.2",
+>>>>>>> main
     "engine_version": "0.77.0",
     "tags": [
       "Griptape",
