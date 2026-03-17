@@ -104,7 +104,7 @@ class AnthropicPrompt(BasePrompt):
         value: Any,
     ) -> Any:
         if parameter.name == "model":
-            if value in DEPRECATED_MODELS:
+            if isinstance(value, str) and value in DEPRECATED_MODELS:
                 replacement = DEPRECATED_MODELS[value]
                 message = self.get_message_by_name_or_element_id("model_deprecation_notice")
                 if message is None:
