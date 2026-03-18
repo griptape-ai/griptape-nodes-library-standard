@@ -577,7 +577,6 @@ If no title is provided, just use "Segment X:" format.
         *,
         stream_copy: bool,
         accurate_seek: bool,
-        detected_format: str,
     ) -> None:
         """Performs the synchronous video splitting operation."""
         try:
@@ -590,18 +589,10 @@ If no title is provided, just use "Segment X:" format.
 
             # Convert output files to artifacts
             split_video_artifacts = []
-            original_filename = Path(input_url).stem  # Get filename without extension
 
             for i, video_bytes in enumerate(output_files):
-                # Create filename for the split segment
-                segment = segments[i]
-                filename = (
-                    f"{original_filename}_segment_{i + 1:03d}_{sanitize_filename(segment.title)}.{detected_format}"
-                )
-
                 # Save to project storage
-                self.set_parameter_value("output_file", filename)
-                dest = self._output_file.build_file()
+                dest = self._output_file.build_file(_index=i + 1)
                 saved = dest.write_bytes(video_bytes)
 
                 # Create output artifact
@@ -709,7 +700,6 @@ If no title is provided, just use "Segment X:" format.
                 segments,
                 stream_copy=True,  # Always use best quality
                 accurate_seek=True,  # Always use best quality
-                detected_format=detected_format,
             )
             self.append_value_to_parameter("logs", "[Finished video processing.]\n")
 
