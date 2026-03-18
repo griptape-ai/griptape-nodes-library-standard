@@ -189,7 +189,7 @@ class SplitVideo(ControlNode):
             exceptions.append(ValueError(msg))
 
         # Validate timecodes
-        timecodes = self.parameter_values.get("timecodes")
+        timecodes = self.get_parameter_value("timecodes")
         if not timecodes:
             msg = f"{self.name}: Timecodes parameter is required"
             exceptions.append(ValueError(msg))
@@ -627,8 +627,8 @@ If no title is provided, just use "Segment X:" format.
         self._clear_list()
 
         # Get the video and timecodes
-        video = self.parameter_values.get("video")
-        timecodes = self.parameter_values.get("timecodes", "")
+        video = self.get_parameter_value("video")
+        timecodes = self.get_parameter_value("timecodes") or ""
 
         # Initialize logs
         self.append_value_to_parameter("logs", "[Processing video split..]\n")
