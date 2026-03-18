@@ -11,7 +11,7 @@ from griptape_nodes.retained_mode.events.project_events import (
     AttemptMapAbsolutePathToProjectRequest,
     AttemptMapAbsolutePathToProjectResultSuccess,
 )
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 
 _WARNING_TEXT_EXTERNAL = (
     "This file is outside the project. Click 'Copy to Project' to copy it into the project's inputs folder."
@@ -40,6 +40,7 @@ def resolve_to_macro_path(path: str) -> MacroPathResult:
         result = GriptapeNodes.handle_request(AttemptMapAbsolutePathToProjectRequest(absolute_path=resolved))
         if isinstance(result, AttemptMapAbsolutePathToProjectResultSuccess) and result.mapped_path is not None:
             return MacroPathResult(resolved_path=result.mapped_path, is_external=False)
+        logger.debug(f"Failed to map path to project macro: '{path}' (result: {result})")
         # Path exists on disk but is outside the project
         return MacroPathResult(resolved_path=path, is_external=True)
 
