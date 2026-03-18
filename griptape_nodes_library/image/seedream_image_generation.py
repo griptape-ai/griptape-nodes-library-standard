@@ -732,8 +732,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             pil_image.save(png_buffer, format="PNG")
             png_bytes = png_buffer.getvalue()
 
-            self.set_parameter_value("output_file", f"seedream_image_{index}.png")
-            dest = self._output_file.build_file()
+            dest = self._output_file.build_file(_index=index)
             saved = await dest.awrite_bytes(png_bytes)
             self._log(f"Saved image {index} as {saved.name}")
             return ImageUrlArtifact(value=saved.location, name=saved.name)
