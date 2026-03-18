@@ -1,17 +1,15 @@
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import urlparse
 
 from griptape.artifacts import ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode, SuccessFailureNode
+from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.files.file import File
 from griptape_nodes.files.project_file import ProjectFileDestination
-from griptape_nodes.retained_mode.events.project_events import (
-    AttemptMapAbsolutePathToProjectRequest,
-    AttemptMapAbsolutePathToProjectResultSuccess,
-)
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.retained_mode.griptape_nodes import logger
+from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.utils.artifact_path_tethering import (
@@ -27,6 +25,7 @@ from griptape_nodes_library.utils.image_utils import (
     load_pil_from_url,
     save_pil_image_with_named_filename,
 )
+from griptape_nodes_library.utils.macro_path_utils import resolve_to_macro_path
 
 CHANNEL_NONE = "none"
 CHANNEL_RED = "red"
@@ -106,6 +105,26 @@ class LoadImage(SuccessFailureNode):
                 allowed_modes={ParameterMode.OUTPUT},
             )
         )
+
+        # Warning shown when file is outside the project (initially hidden)
+        self._external_warning = ParameterMessage(
+            name="external_file_warning",
+            variant="warning",
+            value="This file is outside the project. Click 'Copy to Project' to copy it into the project's inputs folder.",
+            hide=True,
+        )
+        self.add_node_element(self._external_warning)
+
+        # Button to copy external file into the project (initially hidden)
+        self._copy_button = ParameterButton(
+            name="copy_to_project",
+            label="Copy to Project",
+            variant="default",
+            icon="folder-input",
+            state="hidden",
+            on_click=self._on_copy_to_project_clicked,
+        )
+        self.add_parameter(self._copy_button)
 
         # Add status parameters using the helper method
         self._create_status_parameters(
@@ -190,8 +209,15 @@ class LoadImage(SuccessFailureNode):
             # Verify image can be loaded (we know it's not None at this point)
             if isinstance(image_artifact, ImageUrlArtifact):
                 self._verify_image_loadable(image_artifact)
-                image_artifact = ImageUrlArtifact(self._resolve_to_macro_path(image_artifact.value))  # pyright: ignore[reportAttributeAccessIssue]
-                path_value = image_artifact.value
+                macro_result = resolve_to_macro_path(image_artifact.value, self.name)  # pyright: ignore[reportAttributeAccessIssue]
+                if macro_result.is_external:
+                    self._external_warning.hide = False
+                    self._copy_button.state = "normal"
+                else:
+                    image_artifact = ImageUrlArtifact(macro_result.resolved_path)
+                    path_value = image_artifact.value
+                    self._external_warning.hide = True
+                    self._copy_button.state = "hidden"
 
             # Set output values on success
             self.parameter_output_values["image"] = image_artifact
@@ -215,22 +241,15 @@ class LoadImage(SuccessFailureNode):
             logger.error(f"LoadImage '{self.name}': {error_details}")
             self._handle_failure_exception(e)
 
-    def _resolve_to_macro_path(self, path: str) -> str:
-        """Resolve a path to a project macro path.
-
-        If the path exists on disk and is inside the project, returns the macro form.
-        If the path exists on disk but is outside the project, returns it unchanged.
-        If the path does not exist on disk (e.g. a remote URL), downloads it and
-        copies it into the project's inputs directory.
-        """
-        if Path(path).exists():
-            try:
-                result = GriptapeNodes.handle_request(AttemptMapAbsolutePathToProjectRequest(absolute_path=Path(path)))
-                if isinstance(result, AttemptMapAbsolutePathToProjectResultSuccess) and result.mapped_path is not None:
-                    return result.mapped_path
-            except Exception as e:
-                logger.debug(f"LoadImage '{self.name}': failed to map path to macro: {e}")
-            return path
+    def _on_copy_to_project_clicked(
+        self,
+        button: Button,  # noqa: ARG002
+        button_details: ButtonDetailsMessagePayload,
+    ) -> NodeMessageResult:
+        """Copy the external file into the project's inputs folder."""
+        path = self.parameter_output_values.get("path")
+        if not path:
+            return NodeMessageResult(success=False, details="No external path to copy", response=button_details)
 
         try:
             content = File(path).read_bytes()
@@ -242,11 +261,25 @@ class LoadImage(SuccessFailureNode):
                 parameter_name="image",
             )
             saved = dest.write_bytes(content)
-            return saved.location
+            macro_path = saved.location
+            new_artifact = ImageUrlArtifact(macro_path)
+            self.parameter_output_values["image"] = new_artifact
+            self.parameter_output_values["path"] = macro_path
+            self.publish_update_to_parameter("image", new_artifact)
+            self.publish_update_to_parameter("path", macro_path)
+            self._external_warning.hide = True
+            self._copy_button.state = "hidden"
+            return NodeMessageResult(
+                success=True,
+                details=f"Copied to project: {macro_path}",
+                response=button_details,
+                altered_workflow_state=True,
+            )
         except Exception as e:
-            logger.debug(f"LoadImage '{self.name}': failed to copy to project: {e}")
-
-        return path
+            logger.error(f"LoadImage '{self.name}': failed to copy to project: {e}")
+            return NodeMessageResult(
+                success=False, details=f"Failed to copy to project: {e}", response=button_details
+            )
 
     def _load_image_from_path(self, path_value: str | None) -> ImageUrlArtifact | None:
         """Load image artifact from a path value."""

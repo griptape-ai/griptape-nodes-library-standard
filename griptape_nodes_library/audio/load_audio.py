@@ -1,18 +1,16 @@
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import urlparse
 
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter
+from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMessage
 from griptape_nodes.exe_types.node_types import BaseNode, DataNode
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
+from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.files.file import File
 from griptape_nodes.files.project_file import ProjectFileDestination
-from griptape_nodes.retained_mode.events.project_events import (
-    AttemptMapAbsolutePathToProjectRequest,
-    AttemptMapAbsolutePathToProjectResultSuccess,
-)
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.retained_mode.griptape_nodes import logger
+from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 
 from griptape_nodes_library.utils.artifact_path_tethering import (
     ArtifactPathTethering,
@@ -20,6 +18,7 @@ from griptape_nodes_library.utils.artifact_path_tethering import (
     default_extract_url_from_artifact_value,
 )
 from griptape_nodes_library.utils.audio_utils import SUPPORTED_AUDIO_EXTENSIONS, dict_to_audio_url_artifact
+from griptape_nodes_library.utils.macro_path_utils import resolve_to_macro_path
 
 
 class LoadAudio(DataNode):
@@ -69,6 +68,26 @@ class LoadAudio(DataNode):
 
         self.set_initial_node_size(height=320)
 
+        # Warning shown when file is outside the project (initially hidden)
+        self._external_warning = ParameterMessage(
+            name="external_file_warning",
+            variant="warning",
+            value="This file is outside the project. Click 'Copy to Project' to copy it into the project's inputs folder.",
+            hide=True,
+        )
+        self.add_node_element(self._external_warning)
+
+        # Button to copy external file into the project (initially hidden)
+        self._copy_button = ParameterButton(
+            name="copy_to_project",
+            label="Copy to Project",
+            variant="default",
+            icon="folder-input",
+            state="hidden",
+            on_click=self._on_copy_to_project_clicked,
+        )
+        self.add_parameter(self._copy_button)
+
     def after_incoming_connection(
         self,
         source_node: BaseNode,
@@ -104,29 +123,28 @@ class LoadAudio(DataNode):
         path_value = self.get_parameter_value("path")
 
         if isinstance(audio_artifact, AudioUrlArtifact):
-            resolved = self._resolve_to_macro_path(audio_artifact.value)  # pyright: ignore[reportAttributeAccessIssue]
-            audio_artifact = AudioUrlArtifact(resolved)
-            path_value = resolved
+            result = resolve_to_macro_path(audio_artifact.value, self.name)  # pyright: ignore[reportAttributeAccessIssue]
+            if result.is_external:
+                self._external_warning.hide = False
+                self._copy_button.state = "normal"
+            else:
+                audio_artifact = AudioUrlArtifact(result.resolved_path)
+                path_value = result.resolved_path
+                self._external_warning.hide = True
+                self._copy_button.state = "hidden"
 
         self.parameter_output_values["audio"] = audio_artifact
         self.parameter_output_values["path"] = path_value
 
-    def _resolve_to_macro_path(self, path: str) -> str:
-        """Resolve a path to a project macro path.
-
-        If the path exists on disk and is inside the project, returns the macro form.
-        If the path exists on disk but is outside the project, returns it unchanged.
-        If the path does not exist on disk (e.g. a remote URL), downloads it and
-        copies it into the project's inputs directory.
-        """
-        if Path(path).exists():
-            try:
-                result = GriptapeNodes.handle_request(AttemptMapAbsolutePathToProjectRequest(absolute_path=Path(path)))
-                if isinstance(result, AttemptMapAbsolutePathToProjectResultSuccess) and result.mapped_path is not None:
-                    return result.mapped_path
-            except Exception as e:
-                logger.debug(f"LoadAudio '{self.name}': failed to map path to macro: {e}")
-            return path
+    def _on_copy_to_project_clicked(
+        self,
+        button: Button,  # noqa: ARG002
+        button_details: ButtonDetailsMessagePayload,
+    ) -> NodeMessageResult:
+        """Copy the external file into the project's inputs folder."""
+        path = self.parameter_output_values.get("path")
+        if not path:
+            return NodeMessageResult(success=False, details="No external path to copy", response=button_details)
 
         try:
             content = File(path).read_bytes()
@@ -138,8 +156,22 @@ class LoadAudio(DataNode):
                 parameter_name="audio",
             )
             saved = dest.write_bytes(content)
-            return saved.location
+            macro_path = saved.location
+            new_artifact = AudioUrlArtifact(macro_path)
+            self.parameter_output_values["audio"] = new_artifact
+            self.parameter_output_values["path"] = macro_path
+            self.publish_update_to_parameter("audio", new_artifact)
+            self.publish_update_to_parameter("path", macro_path)
+            self._external_warning.hide = True
+            self._copy_button.state = "hidden"
+            return NodeMessageResult(
+                success=True,
+                details=f"Copied to project: {macro_path}",
+                response=button_details,
+                altered_workflow_state=True,
+            )
         except Exception as e:
-            logger.debug(f"LoadAudio '{self.name}': failed to copy to project: {e}")
-
-        return path
+            logger.error(f"LoadAudio '{self.name}': failed to copy to project: {e}")
+            return NodeMessageResult(
+                success=False, details=f"Failed to copy to project: {e}", response=button_details
+            )
