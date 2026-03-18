@@ -697,7 +697,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         else:
             return sanitized
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
+    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
         rai_filtered_count = result_json.get("response", {}).get("raiMediaFilteredCount", 0)
         if rai_filtered_count > 0:
             logger.warning("%s: %s video(s) filtered by RAI", self.name, rai_filtered_count)
@@ -712,7 +712,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             )
             return
 
-        video_artifacts = await self._process_videos_from_result(videos_array, generation_id)
+        video_artifacts = await self._process_videos_from_result(videos_array)
         if not video_artifacts:
             logger.warning("%s: No videos could be processed", self.name)
             self._set_safe_defaults()
@@ -727,7 +727,6 @@ class Veo3VideoGeneration(GriptapeProxyNode):
     async def _process_videos_from_result(
         self,
         videos_array: list[dict[str, Any]],
-        generation_id: str,
     ) -> list[VideoUrlArtifact]:
         """Process all videos from the result array.
 
@@ -736,7 +735,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         video_artifacts = []
 
         for idx, video_data in enumerate(videos_array, start=1):
-            artifact = await self._process_single_video(video_data, generation_id, idx)
+            artifact = await self._process_single_video(video_data, idx)
             if artifact:
                 video_artifacts.append(artifact)
 
@@ -745,7 +744,6 @@ class Veo3VideoGeneration(GriptapeProxyNode):
     async def _process_single_video(
         self,
         video_data: dict[str, Any],
-        generation_id: str,
         idx: int,
     ) -> VideoUrlArtifact | None:
         """Process a single video from base64 data.
@@ -754,7 +752,6 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         """
         try:
             base64_data = video_data.get("bytesBase64Encoded")
-            mime_type = video_data.get("mimeType", "video/mp4")
 
             if not base64_data:
                 logger.warning("%s: Video %s missing base64 data", self.name, idx)
@@ -763,15 +760,8 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             # Decode base64
             video_bytes = base64.b64decode(base64_data)
 
-            # Determine file extension from mime type
-            extension = "mp4"
-            if "/" in mime_type:
-                extension = mime_type.split("/")[1]
-
             # Save using project file parameter with indexed filename
-            filename = f"veo3_video_{generation_id}_{idx}.{extension}"
-            self.set_parameter_value("output_file", filename)
-            dest = self._output_file.build_file()
+            dest = self._output_file.build_file(_index=idx)
             saved = await dest.awrite_bytes(video_bytes)
 
             logger.info("%s: Saved video %s as %s (%s bytes)", self.name, idx, saved.name, len(video_bytes))
