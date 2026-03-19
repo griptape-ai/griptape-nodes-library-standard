@@ -21,7 +21,7 @@ from griptape_nodes.exe_types.param_types.parameter_button import ParameterButto
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import FileDestination
 from griptape_nodes.files.path_utils import FilenameParts
-from griptape_nodes.files.project_file import FALLBACK_MACRO_TEMPLATE, SITUATION_TO_FILE_POLICY
+from griptape_nodes.files.project_file import FALLBACK_MACRO_TEMPLATE, SITUATION_TO_FILE_POLICY, ProjectFileDestination
 from griptape_nodes.retained_mode.events.connection_events import (
     ListConnectionsForNodeRequest,
     ListConnectionsForNodeResultSuccess,
@@ -293,19 +293,21 @@ class FileOutputSettings(BaseNode):
         else:
             self.if_file_exists.clear_badge()
 
-    def _build_file_from_template(self, macro_template: str, variables: dict[str, str | int]) -> FileDestination:
-        """Build a FileDestination with a MacroPath from a template and variables.
+    def _build_file_from_template(self, macro_template: str, variables: dict[str, str | int]) -> ProjectFileDestination:
+        """Build a ProjectFileDestination with a MacroPath from a template and variables.
 
         Args:
             macro_template: The macro template string
             variables: Variable values for macro substitution
 
         Returns:
-            FileDestination with an unresolved MacroPath and baked-in write policy
+            ProjectFileDestination with an unresolved MacroPath and baked-in write policy
         """
         macro_path = MacroPath(ParsedMacro(macro_template), variables)
         create_dirs = bool(self.get_parameter_value(self.auto_create_path.name))
-        return FileDestination(macro_path, existing_file_policy=self._get_file_policy(), create_parents=create_dirs)
+        return ProjectFileDestination(
+            macro_path, existing_file_policy=self._get_file_policy(), create_parents=create_dirs
+        )
 
     def _handle_relative_path(self, classified: ClassifiedPath) -> None:
         """Handle relative path: apply situation template macro."""
