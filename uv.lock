@@ -559,7 +559,7 @@ loaders-pdf = [
 
 [[package]]
 name = "griptape-nodes"
-version = "0.77.2"
+version = "0.77.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiofiles" },
@@ -592,9 +592,9 @@ dependencies = [
     { name = "websockets" },
     { name = "xdg-base-dirs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/28/53/98ce324096485dbf486b126bd760e7dcad56806409422fdcbdbc76872324/griptape_nodes-0.77.2.tar.gz", hash = "sha256:ee95a656345212ea50145ee0532708821cd952efaafe82f0287af0b5fb07e553", size = 678140, upload-time = "2026-03-10T22:35:21.999Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9c/cd/b04bb01bbfed269f350ce3847892add8008c068c3ad0a6c56bc7dd95ca82/griptape_nodes-0.77.5.tar.gz", hash = "sha256:a0c415c3349136054a2d25c2a48dc621702aae928bda00879715dd4ad39098a1", size = 678709, upload-time = "2026-03-19T22:14:53.659Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/63/3c/7a0b76260521ea8dd3cc38e23e99be706877ec050cb9aafc85ec2d90ec7e/griptape_nodes-0.77.2-py3-none-any.whl", hash = "sha256:b1bc7154295b7e7990c4e93f0de1c0b91906ee8862b740bcf43b3d8a5be00da5", size = 876288, upload-time = "2026-03-10T22:35:23.795Z" },
+    { url = "https://files.pythonhosted.org/packages/90/1c/33cad667383f8c94bfd3b49856e87a4ca24badbb75d8d73391a44a0c17a7/griptape_nodes-0.77.5-py3-none-any.whl", hash = "sha256:a472fec76e5fc7283479fb66ec410f1dee1e7aac7f37870a0f6990d6cc63f4ef", size = 878593, upload-time = "2026-03-19T22:13:55.061Z" },
 ]
 
 [[package]]
@@ -629,7 +629,7 @@ requires-dist = [
     { name = "asteval", specifier = ">=1.0.8" },
     { name = "color-matcher" },
     { name = "griptape", extras = ["drivers-prompt-amazon-bedrock", "drivers-prompt-anthropic", "drivers-prompt-cohere", "drivers-prompt-ollama", "drivers-web-scraper-trafilatura", "drivers-web-search-duckduckgo", "drivers-web-search-exa", "loaders-image", "loaders-pdf"], specifier = ">=1.9.4" },
-    { name = "griptape-nodes", specifier = ">=0.77.2" },
+    { name = "griptape-nodes", specifier = ">=0.77.5" },
     { name = "jmespath", specifier = ">=1.0.1" },
     { name = "json-repair", specifier = ">=0.46.1" },
     { name = "json-schema-to-pydantic", specifier = ">=0.4.6" },
