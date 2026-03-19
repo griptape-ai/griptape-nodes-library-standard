@@ -81,6 +81,8 @@ class LoadVideo(DataNode):
     ) -> None:
         # Delegate to tethering helper - only artifact parameter can receive connections
         self._tethering.on_incoming_connection(target_parameter)
+        if target_parameter.name == "video":
+            self._update_video_controls(source_node.get_parameter_value(source_parameter.name))
         return super().after_incoming_connection(source_node, source_parameter, target_parameter)
 
     def after_incoming_connection_removed(
@@ -91,6 +93,8 @@ class LoadVideo(DataNode):
     ) -> None:
         # Delegate to tethering helper - only artifact parameter can have connections removed
         self._tethering.on_incoming_connection_removed(target_parameter)
+        if target_parameter.name == "video":
+            self._update_video_controls(self.get_parameter_value("video"))
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
     def before_value_set(self, parameter: Parameter, value: Any) -> Any:
@@ -100,7 +104,25 @@ class LoadVideo(DataNode):
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         # Delegate tethering logic to helper for value synchronization and settable restoration
         self._tethering.on_after_value_set(parameter, value)
+
+        if parameter.name == "video":
+            self._update_video_controls(value)
+
         return super().after_value_set(parameter, value)
+
+    def _update_video_controls(self, value: Any) -> None:
+        if isinstance(value, VideoUrlArtifact) and value.value:
+            result = resolve_to_macro_path(value.value)  # pyright: ignore[reportAttributeAccessIssue]
+            update_external_file_controls(result, self._external_warning, self._copy_button, self.name, "video")
+            if not result.is_external and result.resolved_path != value.value:
+                resolved = VideoUrlArtifact(result.resolved_path)
+                self.parameter_output_values["video"] = resolved
+                self.parameter_output_values["path"] = result.resolved_path
+                self.publish_update_to_parameter("video", resolved)
+                self.publish_update_to_parameter("path", result.resolved_path)
+        else:
+            self._external_warning.hide = True
+            self._copy_button.hide = True
 
     def process(self) -> None:
         # Get parameter values and assign to outputs
@@ -135,12 +157,9 @@ class LoadVideo(DataNode):
                 node_name=self.name,
                 parameter_name="video",
             )
-            self.parameter_output_values["video"] = new_artifact
-            self.parameter_output_values["path"] = macro_path
+            self.set_parameter_value("video", new_artifact)
             self.publish_update_to_parameter("video", new_artifact)
             self.publish_update_to_parameter("path", macro_path)
-            self._external_warning.hide = True
-            self._copy_button.state = "hidden"
             return NodeMessageResult(
                 success=True,
                 details=f"Copied to project: {macro_path}",

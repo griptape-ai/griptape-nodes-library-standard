@@ -3,6 +3,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlparse
 
+from griptape_nodes.common.macro_parser import MacroSyntaxError, ParsedMacro
 from griptape_nodes.exe_types.core_types import ParameterMessage
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.files.file import File
@@ -14,10 +15,12 @@ from griptape_nodes.retained_mode.events.project_events import (
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 
 _WARNING_TEXT_EXTERNAL = (
-    "This file is outside the project. Click 'Copy to Project' to copy it into the project's inputs folder."
+    "This file is outside the project and may not be accessible when this workflow is shared or run headlessly. "
+    "Click 'Copy to Project' to copy it into the project."
 )
 _WARNING_TEXT_INCOMING = (
-    "This file is outside the project. To use a project path, update the upstream node that is providing this value."
+    "This file is outside the project and may not be accessible when this workflow is shared or run headlessly. "
+    "To use a project path, update the upstream node that is providing this value."
 )
 
 
@@ -35,6 +38,14 @@ def resolve_to_macro_path(path: str) -> MacroPathResult:
     exist on disk (e.g. a remote URL), returns the original path with is_external=True
     so the caller can prompt the user to copy it into the project.
     """
+    # Already a macro path (e.g. "{inputs}/image.png") — treat as in-project
+    try:
+        parsed = ParsedMacro(path)
+        if parsed.get_variables():
+            return MacroPathResult(resolved_path=path, is_external=False)
+    except MacroSyntaxError:
+        pass
+
     resolved = Path(path).resolve()
     if resolved.exists():
         result = GriptapeNodes.handle_request(AttemptMapAbsolutePathToProjectRequest(absolute_path=resolved))
@@ -61,7 +72,7 @@ def create_external_file_controls(on_click_callback: Any) -> tuple[ParameterMess
         label="Copy to Project",
         variant="default",
         icon="folder-input",
-        state="hidden",
+        hide=True,
         on_click=on_click_callback,
     )
     return warning, button
@@ -86,13 +97,13 @@ def update_external_file_controls(
         warning.hide = False
         if has_incoming:
             warning.value = _WARNING_TEXT_INCOMING
-            button.state = "hidden"
+            button.hide = True
         else:
             warning.value = _WARNING_TEXT_EXTERNAL
-            button.state = "normal"
+            button.hide = False
     else:
         warning.hide = True
-        button.state = "hidden"
+        button.hide = True
 
 
 def copy_external_file_to_project(

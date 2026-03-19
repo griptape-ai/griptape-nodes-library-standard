@@ -125,6 +125,8 @@ class LoadImage(SuccessFailureNode):
     ) -> None:
         # Delegate to tethering helper - only artifact parameter can receive connections
         self._tethering.on_incoming_connection(target_parameter)
+        if target_parameter.name == "image":
+            self._update_image_controls(source_node.get_parameter_value(source_parameter.name))
         return super().after_incoming_connection(source_node, source_parameter, target_parameter)
 
     def after_incoming_connection_removed(
@@ -135,6 +137,8 @@ class LoadImage(SuccessFailureNode):
     ) -> None:
         # Delegate to tethering helper - only artifact parameter can have connections removed
         self._tethering.on_incoming_connection_removed(target_parameter)
+        if target_parameter.name == "image":
+            self._update_image_controls(self.get_parameter_value("image"))
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
     def before_value_set(self, parameter: Parameter, value: Any) -> Any:
@@ -149,7 +153,24 @@ class LoadImage(SuccessFailureNode):
         if parameter.name in ["image", "mask_channel"] and value is not None:
             self._extract_mask_if_possible()
 
+        if parameter.name == "image":
+            self._update_image_controls(value)
+
         return super().after_value_set(parameter, value)
+
+    def _update_image_controls(self, value: Any) -> None:
+        if isinstance(value, ImageUrlArtifact) and value.value:
+            result = resolve_to_macro_path(value.value)  # pyright: ignore[reportAttributeAccessIssue]
+            update_external_file_controls(result, self._external_warning, self._copy_button, self.name, "image")
+            if not result.is_external and result.resolved_path != value.value:
+                resolved = ImageUrlArtifact(result.resolved_path)
+                self.parameter_output_values["image"] = resolved
+                self.parameter_output_values["path"] = result.resolved_path
+                self.publish_update_to_parameter("image", resolved)
+                self.publish_update_to_parameter("path", result.resolved_path)
+        else:
+            self._external_warning.hide = True
+            self._copy_button.hide = True
 
     def process(self) -> None:
         # Reset execution state and result details at the start of each run
@@ -242,12 +263,9 @@ class LoadImage(SuccessFailureNode):
                 node_name=self.name,
                 parameter_name="image",
             )
-            self.parameter_output_values["image"] = new_artifact
-            self.parameter_output_values["path"] = macro_path
+            self.set_parameter_value("image", new_artifact)
             self.publish_update_to_parameter("image", new_artifact)
             self.publish_update_to_parameter("path", macro_path)
-            self._external_warning.hide = True
-            self._copy_button.state = "hidden"
             return NodeMessageResult(
                 success=True,
                 details=f"Copied to project: {macro_path}",
