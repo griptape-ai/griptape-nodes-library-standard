@@ -26,6 +26,8 @@ __all__ = ["LTXImageToVideoGeneration"]
 MODEL_MAPPING = {
     "LTX 2 Pro": "ltx-2-pro",
     "LTX 2 Fast": "ltx-2-fast",
+    "LTX 2.3 Pro": "ltx-2-3-pro",
+    "LTX 2.3 Fast": "ltx-2-3-fast",
 }
 
 # Camera motion options
@@ -46,7 +48,7 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
     Inputs:
         - image (ImageArtifact|ImageUrlArtifact|str): Input image (required, base64 data URI format)
         - prompt (str): Text prompt for video generation (required)
-        - model (str): Model to use (LTX 2 Pro or LTX 2 Fast)
+        - model (str): Model to use (LTX 2 Pro, LTX 2 Fast, LTX 2.3 Pro, or LTX 2.3 Fast)
         - resolution (str): Video resolution (1920x1080, 2560x1440, or 3840x2160)
         - duration (int): Video length in seconds
         - fps (int): Frames per second (default: 25)
@@ -65,34 +67,40 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
     API_KEY_NAME = "GT_CLOUD_API_KEY"
     DEFAULT_MAX_ATTEMPTS = 240
 
+    FAST_MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
+        "resolutions": {
+            "1920x1080": {
+                "fps": {25: [6, 8, 10, 12, 14, 16, 18, 20], 50: [6, 8, 10]},
+            },
+            "2560x1440": {
+                "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "3840x2160": {
+                "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+        }
+    }
+
+    PRO_MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
+        "resolutions": {
+            "1920x1080": {
+                "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "2560x1440": {
+                "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "3840x2160": {
+                "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+        }
+    }
+
     # Model capability definitions
     MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
-        "ltx-2-fast": {
-            "resolutions": {
-                "1920x1080": {
-                    "fps": {25: [6, 8, 10, 12, 14, 16, 18, 20], 50: [6, 8, 10]},
-                },
-                "2560x1440": {
-                    "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
-                },
-                "3840x2160": {
-                    "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
-                },
-            }
-        },
-        "ltx-2-pro": {
-            "resolutions": {
-                "1920x1080": {
-                    "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
-                },
-                "2560x1440": {
-                    "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
-                },
-                "3840x2160": {
-                    "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
-                },
-            }
-        },
+        "ltx-2-fast": FAST_MODEL_CAPABILITIES,
+        "ltx-2-3-fast": FAST_MODEL_CAPABILITIES,
+        "ltx-2-pro": PRO_MODEL_CAPABILITIES,
+        "ltx-2-3-pro": PRO_MODEL_CAPABILITIES,
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -105,7 +113,7 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
                 default_value="LTX 2 Fast",
                 tooltip="Model to use for video generation",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["LTX 2 Pro", "LTX 2 Fast"])},
+                traits={Options(choices=["LTX 2 Pro", "LTX 2 Fast", "LTX 2.3 Pro", "LTX 2.3 Fast"])},
             )
         )
         self.add_parameter(
