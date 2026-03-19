@@ -92,7 +92,7 @@ fix: ## Fix project.
 	@uv run ruff check --fix --unsafe-fixes
 
 .PHONY: check
-check: check/format check/lint check/types ## Run all checks.
+check: check/format check/lint check/types check/json ## Run all checks.
 
 .PHONY: check/format
 check/format:
@@ -105,6 +105,14 @@ check/lint:
 .PHONY: check/types
 check/types:
 	@uv run pyright .
+
+.PHONY: check/json
+check/json: ## Validate JSON files.
+	@echo "Checking JSON files..."
+	@find . -name "*.json" -type f \
+		! -path "./.venv/*" \
+		! -path "./node_modules/*" \
+		-exec sh -c 'jq empty "{}" > /dev/null 2>&1 || (echo "Invalid JSON: {}" && exit 1)' \;
 
 .PHONY: test
 test: ## Run all tests.
