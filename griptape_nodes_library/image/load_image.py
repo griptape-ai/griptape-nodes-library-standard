@@ -125,7 +125,7 @@ class LoadImage(SuccessFailureNode):
     ) -> None:
         # Delegate to tethering helper - only artifact parameter can receive connections
         self._tethering.on_incoming_connection(target_parameter)
-        if target_parameter.name == "image":
+        if target_parameter == self.image_parameter:
             self._update_image_controls(source_node.get_parameter_value(source_parameter.name))
         return super().after_incoming_connection(source_node, source_parameter, target_parameter)
 
@@ -137,7 +137,7 @@ class LoadImage(SuccessFailureNode):
     ) -> None:
         # Delegate to tethering helper - only artifact parameter can have connections removed
         self._tethering.on_incoming_connection_removed(target_parameter)
-        if target_parameter.name == "image":
+        if target_parameter == self.image_parameter:
             self._update_image_controls(self.get_parameter_value("image"))
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
@@ -153,7 +153,7 @@ class LoadImage(SuccessFailureNode):
         if parameter.name in ["image", "mask_channel"] and value is not None:
             self._extract_mask_if_possible()
 
-        if parameter.name == "image":
+        if parameter == self.image_parameter:
             self._update_image_controls(value)
 
         return super().after_value_set(parameter, value)
@@ -268,13 +268,15 @@ class LoadImage(SuccessFailureNode):
             self.publish_update_to_parameter("path", macro_path)
             return NodeMessageResult(
                 success=True,
-                details=f"Copied to project: {macro_path}",
+                details=f"Copied '{path}' to project: {macro_path}",
                 response=button_details,
                 altered_workflow_state=True,
             )
         except Exception as e:
             logger.error(f"LoadImage '{self.name}': failed to copy to project: {e}")
-            return NodeMessageResult(success=False, details=f"Failed to copy to project: {e}", response=button_details)
+            return NodeMessageResult(
+                success=False, details=f"Failed to copy '{path}' to project: {e}", response=button_details
+            )
 
     def _load_image_from_path(self, path_value: str | None) -> ImageUrlArtifact | None:
         """Load image artifact from a path value."""

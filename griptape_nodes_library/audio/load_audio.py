@@ -81,7 +81,7 @@ class LoadAudio(DataNode):
     ) -> None:
         # Delegate to tethering helper - only artifact parameter can receive connections
         self._tethering.on_incoming_connection(target_parameter)
-        if target_parameter.name == "audio":
+        if target_parameter == self.audio_parameter:
             self._update_audio_controls(source_node.get_parameter_value(source_parameter.name))
         return super().after_incoming_connection(source_node, source_parameter, target_parameter)
 
@@ -93,7 +93,7 @@ class LoadAudio(DataNode):
     ) -> None:
         # Delegate to tethering helper - only artifact parameter can have connections removed
         self._tethering.on_incoming_connection_removed(target_parameter)
-        if target_parameter.name == "audio":
+        if target_parameter == self.audio_parameter:
             self._update_audio_controls(self.get_parameter_value("audio"))
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
@@ -105,7 +105,7 @@ class LoadAudio(DataNode):
         # Delegate tethering logic to helper for value synchronization and settable restoration
         self._tethering.on_after_value_set(parameter, value)
 
-        if parameter.name == "audio":
+        if parameter == self.audio_parameter:
             self._update_audio_controls(value)
 
         return super().after_value_set(parameter, value)
@@ -162,10 +162,12 @@ class LoadAudio(DataNode):
             self.publish_update_to_parameter("path", macro_path)
             return NodeMessageResult(
                 success=True,
-                details=f"Copied to project: {macro_path}",
+                details=f"Copied '{path}' to project: {macro_path}",
                 response=button_details,
                 altered_workflow_state=True,
             )
         except Exception as e:
             logger.error(f"LoadAudio '{self.name}': failed to copy to project: {e}")
-            return NodeMessageResult(success=False, details=f"Failed to copy to project: {e}", response=button_details)
+            return NodeMessageResult(
+                success=False, details=f"Failed to copy '{path}' to project: {e}", response=button_details
+            )
