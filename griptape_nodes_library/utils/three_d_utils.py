@@ -28,6 +28,6 @@ def dict_to_three_d_url_artifact(three_d_dict: dict, three_d_format: str | None 
         else:
             three_d_format = "glb"
 
-    dest = ProjectFileDestination(filename=f"input.{three_d_format}", situation="copy_external_file")
+    dest = ProjectFileDestination.from_situation(filename=f"input.{three_d_format}", situation="copy_external_file")
     saved = dest.write_bytes(three_d_bytes)
     return ThreeDUrlArtifact(saved.location)

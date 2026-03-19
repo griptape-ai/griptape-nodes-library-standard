@@ -190,7 +190,7 @@ def dict_to_image_url_artifact(image_dict: dict, image_format: str | None = None
         else:
             image_format = "png"
 
-    dest = ProjectFileDestination(filename=f"input.{image_format}", situation="copy_external_file")
+    dest = ProjectFileDestination.from_situation(filename=f"input.{image_format}", situation="copy_external_file")
     saved = dest.write_bytes(image_bytes)
     return ImageUrlArtifact(saved.location)
 

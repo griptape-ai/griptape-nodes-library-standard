@@ -78,7 +78,7 @@ def dict_to_audio_url_artifact(audio_dict: dict, audio_format: str | None = None
         else:
             audio_format = "mp3"
 
-    dest = ProjectFileDestination(filename=f"input.{audio_format}", situation="copy_external_file")
+    dest = ProjectFileDestination.from_situation(filename=f"input.{audio_format}", situation="copy_external_file")
     saved = dest.write_bytes(audio_bytes)
     return AudioUrlArtifact(saved.location)
 
