@@ -6,13 +6,13 @@ from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.widget import Widget
 
@@ -296,6 +296,13 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
                 placeholder_text="The Kling AI video ID",
             )
         )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="kling_text_video.mp4",
+        )
+        self._output_file.add_parameter()
 
         # Create status parameters for success/failure tracking
         self._create_status_parameters(
@@ -690,20 +697,19 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
 
         if video_bytes:
             try:
-                static_files_manager = GriptapeNodes.StaticFilesManager()
-                filename = f"kling_text_to_video_{generation_id}.mp4"
-                saved_url = static_files_manager.save_static_file(video_bytes, filename)
-                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved_url, name=filename)
-                logger.info("%s saved video to static storage as %s", self.name, filename)
+                dest = self._output_file.build_file()
+                saved = await dest.awrite_bytes(video_bytes)
+                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
+                logger.info("%s saved video as %s", self.name, saved.name)
                 self._set_status_results(
-                    was_successful=True, result_details=f"Video generated successfully and saved as {filename}."
+                    was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
                 )
             except (OSError, PermissionError) as e:
-                logger.warning("%s failed to save to static storage: %s, using provider URL", self.name, e)
+                logger.warning("%s failed to save video: %s, using provider URL", self.name, e)
                 self.parameter_output_values["video_url"] = VideoUrlArtifact(value=download_url)
                 self._set_status_results(
                     was_successful=True,
-                    result_details=f"Video generated successfully. Using provider URL (could not save to static storage: {e}).",
+                    result_details=f"Video generated successfully. Using provider URL (could not save to storage: {e}).",
                 )
         else:
             self.parameter_output_values["video_url"] = VideoUrlArtifact(value=download_url)

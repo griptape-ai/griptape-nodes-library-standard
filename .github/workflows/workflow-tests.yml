@@ -23,6 +23,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Checkout griptape-nodes-library-testing
+        uses: actions/checkout@v4
+        with:
+          repository: griptape-ai/griptape-nodes-library-testing
+          path: griptape-nodes-library-testing
+
+      - name: Move testing library to sibling directory
+        run: mv griptape-nodes-library-testing ../griptape-nodes-library-testing
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
@@ -35,4 +44,4 @@ jobs:
         run: uv pip install --system griptape-nodes pytest pytest-asyncio python-dotenv
 
       - name: Run workflow tests
-        run: make test/workflows
+        run: pytest -s tests/workflows/test_integration_workflows.py
