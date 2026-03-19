@@ -119,7 +119,7 @@ def copy_external_file_to_project(
     """
     content = File(path).read_bytes()
     filename = PurePosixPath(urlparse(path).path).name or default_filename
-    dest = ProjectFileDestination(
+    dest = ProjectFileDestination.from_situation(
         filename=filename,
         situation="copy_external_file",
         node_name=node_name,
