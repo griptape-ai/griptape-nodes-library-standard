@@ -102,7 +102,7 @@ def dict_to_video_url_artifact(video_dict: dict, video_format: str | None = None
         else:
             video_format = "mp4"
 
-    dest = ProjectFileDestination(filename=f"input.{video_format}", situation="copy_external_file")
+    dest = ProjectFileDestination.from_situation(filename=f"input.{video_format}", situation="copy_external_file")
     saved = dest.write_bytes(video_bytes)
     return VideoUrlArtifact(saved.location)
 

@@ -28,6 +28,6 @@ def dict_to_gltf_url_artifact(gltf_dict: dict, gltf_format: str | None = None) -
         else:
             gltf_format = "glb"
 
-    dest = ProjectFileDestination(filename=f"input.{gltf_format}", situation="copy_external_file")
+    dest = ProjectFileDestination.from_situation(filename=f"input.{gltf_format}", situation="copy_external_file")
     saved = dest.write_bytes(gltf_bytes)
     return GLTFUrlArtifact(saved.location)

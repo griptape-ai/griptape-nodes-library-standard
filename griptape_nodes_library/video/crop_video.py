@@ -508,7 +508,7 @@ class CropVideo(BaseVideoProcessor):
 
         try:
             preview_bytes = image_to_bytes(preview_image, "PNG")
-            dest = ProjectFileDestination(
+            dest = ProjectFileDestination.from_situation(
                 filename="preview.png",
                 situation="save_griptape_nodes_preview",
                 source_file_name="crop_video_preview",
