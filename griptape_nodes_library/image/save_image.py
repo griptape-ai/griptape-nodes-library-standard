@@ -51,7 +51,7 @@ class SaveImage(SuccessFailureNode):
         self.add_parameter(
             ParameterImage(
                 name="image",
-                allowed_modes={ParameterMode.INPUT},
+                allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
                 tooltip="The image to save to file",
             )
         )
@@ -141,6 +141,7 @@ class SaveImage(SuccessFailureNode):
 
         # Set output values BEFORE processing
         self.parameter_output_values["output_path"] = output_file
+        self.parameter_output_values["image"] = image
 
         if not image:
             # Blank image is a warning, not a failure
