@@ -42,7 +42,7 @@ class SaveVideo(SuccessFailureNode):
         self.add_parameter(
             ParameterVideo(
                 name="video",
-                allowed_modes={ParameterMode.INPUT},
+                allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
                 tooltip="The video to save to file",
             )
         )
@@ -332,7 +332,9 @@ class SaveVideo(SuccessFailureNode):
         self._clear_execution_status()
 
         try:
-            video_input = self._normalize_input(self.get_parameter_value("video"))
+            raw_video = self.get_parameter_value("video")
+            self.parameter_output_values["video"] = raw_video
+            video_input = self._normalize_input(raw_video)
 
             if not video_input.data:
                 self._report_warning("No video data available")
@@ -349,7 +351,9 @@ class SaveVideo(SuccessFailureNode):
         self._clear_execution_status()
 
         try:
-            video_input = self._normalize_input(self.get_parameter_value("video"))
+            raw_video = self.get_parameter_value("video")
+            self.parameter_output_values["video"] = raw_video
+            video_input = self._normalize_input(raw_video)
 
             if not video_input.data:
                 self._report_warning("No video data available")

@@ -42,7 +42,7 @@ class SaveAudio(SuccessFailureNode):
         self.add_parameter(
             ParameterAudio(
                 name="audio",
-                allowed_modes={ParameterMode.INPUT},
+                allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
                 tooltip="The audio to save to file",
             )
         )
@@ -332,7 +332,9 @@ class SaveAudio(SuccessFailureNode):
         self._clear_execution_status()
 
         try:
-            audio_input = self._normalize_input(self.get_parameter_value("audio"))
+            raw_audio = self.get_parameter_value("audio")
+            self.parameter_output_values["audio"] = raw_audio
+            audio_input = self._normalize_input(raw_audio)
 
             if not audio_input.data:
                 self._report_warning("No audio data available")
@@ -349,7 +351,9 @@ class SaveAudio(SuccessFailureNode):
         self._clear_execution_status()
 
         try:
-            audio_input = self._normalize_input(self.get_parameter_value("audio"))
+            raw_audio = self.get_parameter_value("audio")
+            self.parameter_output_values["audio"] = raw_audio
+            audio_input = self._normalize_input(raw_audio)
 
             if not audio_input.data:
                 self._report_warning("No audio data available")
