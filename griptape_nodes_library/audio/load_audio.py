@@ -107,6 +107,12 @@ class LoadAudio(DataNode):
 
         if parameter == self.audio_parameter:
             self._update_audio_controls(value)
+        elif parameter == self.path_parameter and value:
+            result = resolve_to_macro_path(value)
+            if not result.is_external and result.resolved_path != value:
+                self.set_parameter_value("path", result.resolved_path)
+            else:
+                self._update_audio_controls(AudioUrlArtifact(value))
 
         return super().after_value_set(parameter, value)
 
