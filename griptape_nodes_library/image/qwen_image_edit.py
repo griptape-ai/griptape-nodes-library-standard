@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from contextlib import suppress
 from copy import deepcopy
 from http import HTTPStatus
@@ -10,6 +9,7 @@ from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -181,6 +181,13 @@ class QwenImageEdit(GriptapeProxyNode):
                 ui_options={"is_full_width": True, "pulse_on_run": True},
             )
         )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="qwen_edit.jpg",
+        )
+        self._output_file.add_parameter()
 
         # Create status parameters for success/failure tracking (at the end)
         self._create_status_parameters(
@@ -410,15 +417,12 @@ class QwenImageEdit(GriptapeProxyNode):
             logger.info("Downloading image from URL")
             image_bytes = await File(image_url).aread_bytes()
             if image_bytes:
-                filename = f"qwen_edit_{int(time.time())}.jpg"
-                from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
-                static_files_manager = GriptapeNodes.StaticFilesManager()
-                saved_url = static_files_manager.save_static_file(image_bytes, filename)
-                self.parameter_output_values["image_url"] = ImageUrlArtifact(value=saved_url, name=filename)
-                logger.info("Saved image to static storage as %s", filename)
+                dest = self._output_file.build_file()
+                saved = await dest.awrite_bytes(image_bytes)
+                self.parameter_output_values["image_url"] = ImageUrlArtifact(saved.location)
+                logger.info("Saved image as %s", saved.name)
                 self._set_status_results(
-                    was_successful=True, result_details=f"Image edited successfully and saved as {filename}."
+                    was_successful=True, result_details=f"Image edited successfully and saved as {saved.name}."
                 )
             else:
                 self.parameter_output_values["image_url"] = ImageUrlArtifact(value=image_url)

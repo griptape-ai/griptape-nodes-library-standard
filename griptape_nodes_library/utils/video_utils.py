@@ -4,7 +4,6 @@ import logging
 import re
 import subprocess
 import tempfile
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,6 +12,7 @@ from urllib.parse import urlparse
 import httpx
 import static_ffmpeg.run  # type: ignore[import-untyped]  # static_ffmpeg is dynamically installed by the library loader at runtime
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
+from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.utils.async_utils import subprocess_run
 
 logger = logging.getLogger("griptape_nodes")
@@ -80,7 +80,6 @@ def detect_video_format(video: Any | dict) -> str | None:
 def dict_to_video_url_artifact(video_dict: dict, video_format: str | None = None) -> VideoUrlArtifact:
     """Convert a dictionary representation of video to a VideoUrlArtifact."""
     from griptape.artifacts import VideoUrlArtifact
-    from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
     value = video_dict["value"]
 
@@ -103,11 +102,9 @@ def dict_to_video_url_artifact(video_dict: dict, video_format: str | None = None
         else:
             video_format = "mp4"
 
-    # Save to static file server
-    filename = f"{uuid.uuid4()}.{video_format}"
-    url = GriptapeNodes.StaticFilesManager().save_static_file(video_bytes, filename)
-
-    return VideoUrlArtifact(url)
+    dest = ProjectFileDestination.from_situation(filename=f"input.{video_format}", situation="copy_external_file")
+    saved = dest.write_bytes(video_bytes)
+    return VideoUrlArtifact(saved.location)
 
 
 def to_video_artifact(video: Any | dict) -> Any:
@@ -184,7 +181,10 @@ def validate_url(url: str) -> bool:
     """Validate that the URL is safe for ffmpeg processing."""
     try:
         parsed = urlparse(url)
-        return bool(parsed.scheme in ("http", "https", "file") and parsed.netloc)
+        if parsed.scheme in ("http", "https", "file") and parsed.netloc:
+            return True
+        # Also accept absolute file paths (e.g., resolved from project macro paths)
+        return Path(url).is_absolute()
     except Exception:
         return False
 

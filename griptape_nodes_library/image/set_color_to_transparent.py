@@ -10,19 +10,19 @@ import numpy as np
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.color_picker import ColorPicker
 from PIL import Image
 
-from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
     apply_mask_transformations,
     dict_to_image_url_artifact,
+    image_to_bytes,
     load_pil_from_url,
     parse_hex_color,
-    save_pil_image_with_named_filename,
 )
 
 
@@ -43,6 +43,9 @@ class SetColorToTransparent(DataNode):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="transparent.png")
+        self._output_file.add_parameter()
 
         # Input image
         self.add_parameter(
@@ -192,13 +195,11 @@ class SetColorToTransparent(DataNode):
             # Convert back to PIL Image
             result_image = Image.fromarray(img_array.astype(np.uint8), mode="RGBA")
 
-            # Save output image as PNG with proper filename
-            filename = generate_filename(
-                node_name=self.name,
-                suffix="_transparent",
-                extension="png",
-            )
-            output_artifact = save_pil_image_with_named_filename(result_image, filename, "PNG")
+            # Save output image as PNG
+            image_bytes = image_to_bytes(result_image, "PNG")
+            dest = self._output_file.build_file()
+            saved = dest.write_bytes(image_bytes)
+            output_artifact = ImageUrlArtifact(saved.location)
             self.set_parameter_value("output", output_artifact)
             self.publish_update_to_parameter("output", output_artifact)
 

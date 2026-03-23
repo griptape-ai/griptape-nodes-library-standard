@@ -5,7 +5,6 @@ import contextlib
 import io
 import json as _json
 import logging
-import time
 from typing import Any, ClassVar
 
 import httpx
@@ -15,6 +14,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, Param
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -182,6 +182,13 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
                 ui_options={"pulse_on_run": True},
             )
         )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="omnihuman_video.mp4",
+        )
+        self._output_file.add_parameter()
 
         # Create status parameters for success/failure tracking
         self._create_status_parameters(
@@ -455,12 +462,12 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
             return
 
         try:
-            video_filename = f"omnihuman_video_{int(time.time())}.mp4"
-            saved_url = GriptapeNodes.StaticFilesManager().save_static_file(video_bytes, video_filename)
-            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved_url, name=video_filename)
+            dest = self._output_file.build_file()
+            saved = await dest.awrite_bytes(video_bytes)
+            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
             self._set_status_results(
                 was_successful=True,
-                result_details=f"Video generation completed successfully. Saved as: {video_filename}",
+                result_details=f"Video generation completed successfully. Saved as: {saved.name}",
             )
         except Exception as e:
             self.parameter_output_values["video_url"] = None
@@ -574,16 +581,22 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         self.parameter_output_values["video_url"] = VideoUrlArtifact(value=video_url)
         try:
             self._log("Downloading video bytes from provider URL")
-            video_filename = await self._save_video_bytes(video_url)
+            saved_location = await self._save_video_bytes(video_url)
         except Exception as e:
             self._log(f"Failed to download video: {e}")
-            video_filename = None
+            saved_location = None
 
-        self._set_status_results(
-            was_successful=True,
-            result_details=f"Video generation completed successfully. Video URL: {video_url}"
-            + (f", saved as: {video_filename}" if video_filename else ""),
-        )
+        if saved_location:
+            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved_location)
+            self._set_status_results(
+                was_successful=True,
+                result_details=f"Video generation completed successfully. Saved as: {saved_location}",
+            )
+        else:
+            self._set_status_results(
+                was_successful=True,
+                result_details=f"Video generation completed successfully. Video URL: {video_url}",
+            )
 
     @staticmethod
     def _extract_video_url(response_json: dict[str, Any]) -> str | None:
@@ -595,20 +608,19 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
 
         return None
 
-    @staticmethod
-    async def _save_video_bytes(url: str) -> str | None:
-        """Download video bytes from URL and save to static storage."""
+    async def _save_video_bytes(self, url: str) -> str | None:
+        """Download video bytes from URL and save to project storage."""
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.get(url, timeout=120)
                 resp.raise_for_status()
                 video_bytes = resp.content
-            video_filename = f"omnihuman_video_{int(time.time())}.mp4"
-            GriptapeNodes.StaticFilesManager().save_static_file(video_bytes, video_filename)
+            dest = self._output_file.build_file()
+            saved = await dest.awrite_bytes(video_bytes)
         except Exception:
             return None
 
-        return video_filename
+        return saved.location
 
     def _set_safe_defaults(self) -> None:
         """Set safe default values for outputs on error."""

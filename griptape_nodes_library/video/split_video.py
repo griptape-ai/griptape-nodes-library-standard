@@ -12,11 +12,13 @@ from griptape.structures import Agent as GriptapeAgent
 from griptape.tasks import PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
 # static_ffmpeg is dynamically installed by the library loader at runtime
 # into the library's own virtual environment, but not available during type checking
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 
 from griptape_nodes_library.utils.video_utils import (
@@ -148,6 +150,13 @@ class SplitVideo(ControlNode):
             tooltip="The split video segments",
         )
         self.add_parameter(self.split_videos_list)
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="segment.mp4",
+        )
+        self._output_file.add_parameter()
         # Group for logging information
         with ParameterGroup(name="Logs") as logs_group:
             ParameterString(
@@ -180,7 +189,7 @@ class SplitVideo(ControlNode):
             exceptions.append(ValueError(msg))
 
         # Validate timecodes
-        timecodes = self.parameter_values.get("timecodes")
+        timecodes = self.get_parameter_value("timecodes")
         if not timecodes:
             msg = f"{self.name}: Timecodes parameter is required"
             exceptions.append(ValueError(msg))
@@ -568,7 +577,6 @@ If no title is provided, just use "Segment X:" format.
         *,
         stream_copy: bool,
         accurate_seek: bool,
-        detected_format: str,
     ) -> None:
         """Performs the synchronous video splitting operation."""
         try:
@@ -581,23 +589,17 @@ If no title is provided, just use "Segment X:" format.
 
             # Convert output files to artifacts
             split_video_artifacts = []
-            original_filename = Path(input_url).stem  # Get filename without extension
 
             for i, video_bytes in enumerate(output_files):
-                # Create filename for the split segment
-                segment = segments[i]
-                filename = (
-                    f"{original_filename}_segment_{i + 1:03d}_{sanitize_filename(segment.title)}.{detected_format}"
-                )
-
-                # Save to static files
-                url = GriptapeNodes.StaticFilesManager().save_static_file(video_bytes, filename)
+                # Save to project storage
+                dest = self._output_file.build_file(_index=i + 1)
+                saved = dest.write_bytes(video_bytes)
 
                 # Create output artifact
-                video_artifact = VideoUrlArtifact(url)
+                video_artifact = VideoUrlArtifact(saved.location)
                 split_video_artifacts.append(video_artifact)
 
-                self.append_value_to_parameter("logs", f"Saved segment {i + 1}: {filename}\n")
+                self.append_value_to_parameter("logs", f"Saved segment {i + 1}: {saved.name}\n")
 
             # Save all artifacts to parameter list
             logger.info(f"Saving {len(split_video_artifacts)} split video artifacts")
@@ -625,8 +627,8 @@ If no title is provided, just use "Segment X:" format.
         self._clear_list()
 
         # Get the video and timecodes
-        video = self.parameter_values.get("video")
-        timecodes = self.parameter_values.get("timecodes", "")
+        video = self.get_parameter_value("video")
+        timecodes = self.get_parameter_value("timecodes") or ""
 
         # Initialize logs
         self.append_value_to_parameter("logs", "[Processing video split..]\n")
@@ -636,7 +638,7 @@ If no title is provided, just use "Segment X:" format.
             video_artifact = to_video_artifact(video)
 
             # Get the video URL directly
-            input_url = video_artifact.value
+            input_url = File(video_artifact.value).resolve()
 
             # Always detect video properties for best results
             self.append_value_to_parameter("logs", "Detecting video properties...\n")
@@ -698,7 +700,6 @@ If no title is provided, just use "Segment X:" format.
                 segments,
                 stream_copy=True,  # Always use best quality
                 accurate_seek=True,  # Always use best quality
-                detected_format=detected_format,
             )
             self.append_value_to_parameter("logs", "[Finished video processing.]\n")
 

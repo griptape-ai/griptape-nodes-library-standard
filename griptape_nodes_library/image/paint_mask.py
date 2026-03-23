@@ -4,18 +4,17 @@ from typing import Any
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode, DataNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from PIL import Image
 
-from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
     apply_mask_transformations,
     dict_to_image_url_artifact,
-    save_pil_image_with_named_filename,
 )
 
 
@@ -45,6 +44,14 @@ class PaintMask(DataNode):
                 allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT},
             )
         )
+        self._mask_file = ProjectFileParameter(
+            node=self,
+            name="mask_file",
+            default_filename="mask.png",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY, ParameterMode.OUTPUT},
+        )
+        self._mask_file.add_parameter()
+
         self.add_parameter(ParameterBool(name="invert_mask", default_value=False))
         self.add_parameter(ParameterFloat(name="grow_shrink", default_value=0, slider=True, min_val=-100, max_val=100))
         self.add_parameter(ParameterFloat(name="blur_mask", default_value=0, slider=True, min_val=-0, max_val=100))
@@ -57,6 +64,13 @@ class PaintMask(DataNode):
                 allowed_modes={ParameterMode.OUTPUT},
             )
         )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="output.png",
+        )
+        self._output_file.add_parameter()
 
     def process(self) -> None:
         # Get input image
@@ -74,16 +88,12 @@ class PaintMask(DataNode):
             # Generate mask (extract alpha channel)
             mask_pil = self.generate_initial_mask(input_image)
 
-            # Save mask to static folder
+            # Save mask
             mask_buffer = BytesIO()
             mask_pil.save(mask_buffer, format="PNG")
-            mask_buffer.seek(0)
-            mask_filename = generate_filename(
-                node_name=self.name,
-                suffix="_mask",
-                extension="png",
-            )
-            mask_url = GriptapeNodes.StaticFilesManager().save_static_file(mask_buffer.getvalue(), mask_filename)
+            dest = self._mask_file.build_file()
+            saved = dest.write_bytes(mask_buffer.getvalue())
+            mask_url = saved.location
 
             # Create ImageUrlArtifact directly with source_image_url in meta
             mask_artifact = ImageUrlArtifact(mask_url, meta={"source_image_url": input_image.value})
@@ -128,13 +138,9 @@ class PaintMask(DataNode):
         output_mask_value = self.generate_initial_mask(image_artifact)
         mask_buffer = BytesIO()
         output_mask_value.save(mask_buffer, format="PNG")
-        mask_buffer.seek(0)
-        mask_filename = generate_filename(
-            node_name=self.name,
-            suffix="_mask",
-            extension="png",
-        )
-        mask_url = GriptapeNodes.StaticFilesManager().save_static_file(mask_buffer.getvalue(), mask_filename)
+        dest = self._mask_file.build_file()
+        saved = dest.write_bytes(mask_buffer.getvalue())
+        mask_url = saved.location
         output_mask_artifact = ImageUrlArtifact(mask_url, meta={"source_image_url": image_artifact.value})
         self.set_parameter_value("output_mask", output_mask_artifact)
         self.set_parameter_value("output_image", image_artifact)
@@ -153,12 +159,9 @@ class PaintMask(DataNode):
                 # If mask was edited, keep it but update source image URL
                 mask_url = output_mask_value.value
                 mask_content = File(mask_url).read_bytes()
-                new_mask_filename = generate_filename(
-                    node_name=self.name,
-                    suffix="_mask",
-                    extension="png",
-                )
-                mask_url = GriptapeNodes.StaticFilesManager().save_static_file(mask_content, new_mask_filename)
+                dest = self._mask_file.build_file()
+                saved = dest.write_bytes(mask_content)
+                mask_url = saved.location
                 mask_artifact = ImageUrlArtifact(
                     mask_url, meta={"source_image_url": image_artifact.value, "maskEdited": True}
                 )
@@ -297,11 +300,9 @@ class PaintMask(DataNode):
         # Apply alpha channel to input image
         input_pil.putalpha(alpha)
 
-        # Save output image with deterministic filename (overwrites same file)
-        output_filename = generate_filename(
-            node_name=self.name,
-            suffix="_output",
-            extension="png",
-        )
-        output_artifact = save_pil_image_with_named_filename(input_pil, output_filename)
-        self.set_parameter_value("output_image", output_artifact)
+        # Save output image
+        output_buffer = BytesIO()
+        input_pil.save(output_buffer, format="PNG")
+        dest = self._output_file.build_file()
+        saved = dest.write_bytes(output_buffer.getvalue())
+        self.set_parameter_value("output_image", ImageUrlArtifact(saved.location))
