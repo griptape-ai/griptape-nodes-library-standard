@@ -2712,6 +2712,17 @@
       }
     },
     {
+      "class_name": "LoadPdf",
+      "file_path": "griptape_nodes_library/files/load_pdf.py",
+      "metadata": {
+        "category": "files",
+        "description": "Load a local PDF file and extract its text content, with outputs for the full joined text, a per-page list, and page count.",
+        "display_name": "Load PDF",
+        "icon": "file-text",
+        "group": "Input/Output"
+      }
+    },
+    {
       "class_name": "PathAddExtension",
       "file_path": "griptape_nodes_library/files/path_add_extension.py",
       "metadata": {
