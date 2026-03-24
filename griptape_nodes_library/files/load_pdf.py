@@ -1,15 +1,9 @@
 from typing import Any
 
+from griptape.loaders import PdfLoader
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
-
-# pdfminer.six is a lightweight pure-Python dependency (~6.5MB). It handles
-# font encoding edge cases (e.g. OpenType alternate glyphs) that pypdf cannot,
-# and its only new sub-dependencies (charset-normalizer, cryptography) are
-# already installed transitively by griptape.
-from pdfminer.high_level import extract_pages
-from pdfminer.layout import LTTextContainer
 
 
 class LoadPdf(ControlNode):
@@ -84,10 +78,10 @@ class LoadPdf(ControlNode):
         path = self.get_parameter_value("path")
         password = self.get_parameter_value("password") or ""
 
-        page_texts = []
-        for page_layout in extract_pages(path, password=password):
-            page_text = "".join(element.get_text() for element in page_layout if isinstance(element, LTTextContainer))
-            page_texts.append(page_text)
+        loader = PdfLoader()
+        data = loader.fetch(path)
+        pages_artifact = loader.try_parse(data, password=password or None)
+        page_texts = [page.value for page in pages_artifact]
 
         full_text = "\n\n".join(page_texts)
         page_count = len(page_texts)

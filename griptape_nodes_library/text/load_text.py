@@ -1,12 +1,11 @@
 import os
 from typing import Any
 
+from griptape.loaders import PdfLoader
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.files.file import File
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
-from pdfminer.high_level import extract_pages
-from pdfminer.layout import LTTextContainer
 
 from griptape_nodes_library.utils.file_utils import SUPPORTED_TEXT_EXTENSIONS
 
@@ -57,11 +56,8 @@ class LoadText(ControlNode):
         # Load file content based on extension
         ext = os.path.splitext(text_path)[1]  # noqa: PTH122
         if ext.lower() == ".pdf":
-            page_texts = [
-                "".join(element.get_text() for element in page_layout if isinstance(element, LTTextContainer))
-                for page_layout in extract_pages(text_path)
-            ]
-            output_text = "\n\n".join(page_texts)
+            pages_artifact = PdfLoader().load(text_path)
+            output_text = "\n\n".join(page.value for page in pages_artifact)
         else:
             output_text = File(text_path).read_text()
 
