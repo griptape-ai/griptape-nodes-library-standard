@@ -102,6 +102,8 @@ class LoadImage(SuccessFailureNode):
             default_filename="mask.png",
         )
         self._mask_output_file.add_parameter()
+        if mask_output_file_param := self.get_parameter_by_name("mask_output_file"):
+            mask_output_file_param.update_ui_options_key("hide", True)
 
         self.add_parameter(
             Parameter(
