@@ -1,9 +1,15 @@
 from typing import Any
 
-from griptape.loaders import PdfLoader
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
+
+# pdfminer.six is a lightweight pure-Python dependency (~6.5MB). It handles
+# font encoding edge cases (e.g. OpenType alternate glyphs) that pypdf cannot,
+# and its only new sub-dependencies (charset-normalizer, cryptography) are
+# already installed transitively by griptape.
+from pdfminer.high_level import extract_pages
+from pdfminer.layout import LTTextContainer
 
 
 class LoadPdf(ControlNode):
@@ -45,22 +51,11 @@ class LoadPdf(ControlNode):
 
         self.add_parameter(
             Parameter(
-                name="page_separator",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                input_types=["str"],
-                type="str",
-                default_value="\n\n",
-                tooltip="String inserted between pages when joining all pages into a single text output. Defaults to two newlines.",
-            )
-        )
-
-        self.add_parameter(
-            Parameter(
                 name="text",
                 allowed_modes={ParameterMode.OUTPUT},
                 output_type="str",
                 default_value="",
-                tooltip="The full text content of the PDF, with all pages joined using the page separator.",
+                tooltip="The full text content of the PDF, with all pages joined by two newlines.",
                 ui_options={"multiline": True, "placeholder_text": "PDF text will appear here."},
             )
         )
@@ -87,15 +82,14 @@ class LoadPdf(ControlNode):
 
     def process(self) -> None:
         path = self.get_parameter_value("path")
-        password = self.get_parameter_value("password") or None
-        page_separator = self.get_parameter_value("page_separator")
+        password = self.get_parameter_value("password") or ""
 
-        loader = PdfLoader()
-        data = loader.fetch(path)
-        pages_artifact = loader.try_parse(data, password=password)
+        page_texts = []
+        for page_layout in extract_pages(path, password=password):
+            page_text = "".join(element.get_text() for element in page_layout if isinstance(element, LTTextContainer))
+            page_texts.append(page_text)
 
-        page_texts = [page.value for page in pages_artifact]
-        full_text = page_separator.join(page_texts)
+        full_text = "\n\n".join(page_texts)
         page_count = len(page_texts)
 
         self.parameter_output_values["text"] = full_text
