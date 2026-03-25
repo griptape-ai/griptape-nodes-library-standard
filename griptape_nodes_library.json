@@ -1,6 +1,7 @@
 {
   "name": "Griptape Nodes Library",
   "library_schema_version": "0.6.0",
+  "advanced_library_path": "griptape_nodes_library/griptape_nodes_library_advanced.py",
   "settings": [
     {
       "description": "API keys required by nodes in this library",
