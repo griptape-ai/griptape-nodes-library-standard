@@ -33,6 +33,7 @@ class SubflowWorkflowNode(BaseNode):
             traits={Options(choices=choices)},
         )
         self.add_parameter(self.workflow_file)
+        self.metadata["workflow_node"] = True
 
         # Pre-populate dynamic parameters so they exist before connections and
         # set-value commands are applied during deserialization.
