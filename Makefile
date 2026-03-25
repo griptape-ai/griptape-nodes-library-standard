@@ -1,3 +1,5 @@
+SHELL := /bin/bash
+
 .PHONY: version/get
 version/get: ## Get version.
 	@jq -r '.metadata.library_version' griptape_nodes_library.json
