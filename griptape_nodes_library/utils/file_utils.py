@@ -13,6 +13,7 @@ SUPPORTED_TEXT_EXTENSIONS = {
     ".xml",
     ".env",
     ".py",
+    ".pdf",
 }
 
 
