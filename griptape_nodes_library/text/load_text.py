@@ -56,7 +56,8 @@ class LoadText(ControlNode):
         # Load file content based on extension
         ext = os.path.splitext(text_path)[1]  # noqa: PTH122
         if ext.lower() == ".pdf":
-            output_text = PdfLoader().load(text_path)[0].value
+            pages_artifact = PdfLoader().load(text_path)
+            output_text = "\n\n".join(page.value for page in pages_artifact)
         else:
             output_text = File(text_path).read_text()
 
