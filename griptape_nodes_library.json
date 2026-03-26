@@ -2534,6 +2534,18 @@
       }
     },
     {
+      "class_name": "RetryGroupNode",
+      "file_path": "griptape_nodes_library/execution/retry_group.py",
+      "metadata": {
+        "category": "execution_flow",
+        "description": "Group node that retries its child nodes on failure, up to a configurable number of attempts",
+        "display_name": "Retry Group",
+        "icon": "refresh-cw",
+        "group": "iteration",
+        "is_node_group": true
+      }
+    },
+    {
       "class_name": "StandardSubflowNodeGroup",
       "file_path": "griptape_nodes_library/engine/standard_subflow_node_group.py",
       "metadata": {
