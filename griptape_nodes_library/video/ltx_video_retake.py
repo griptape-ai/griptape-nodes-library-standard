@@ -28,6 +28,11 @@ MAX_VIDEO_DURATION = 21
 MIN_RETAKE_DURATION = 2.0
 RETAKE_SEGMENT_LENGTH = 2
 
+MODEL_MAPPING = {
+    "LTX 2 Pro": "ltx-2-pro",
+    "LTX 2.3 Pro": "ltx-2-3-pro",
+}
+
 
 class LTXVideoRetake(GriptapeProxyNode):
     """Regenerate a segment of an existing video using LTX AI via Griptape Cloud model proxy.
@@ -37,7 +42,7 @@ class LTXVideoRetake(GriptapeProxyNode):
         - retake_segment (list[float]): Time range [start, end] in seconds to regenerate
         - prompt (str): Text describing what should happen in the retake segment (max 5000 chars)
         - mode (str): What to replace - audio only, video only, or both (default: both)
-        - model (str): Model to use (only LTX 2 Pro supported currently)
+        - model (str): Model to use (LTX 2 Pro or LTX 2.3 Pro)
         (Always polls for result: 5s interval, 20 min timeout)
 
     Outputs:
@@ -57,14 +62,14 @@ class LTXVideoRetake(GriptapeProxyNode):
 
         # INPUTS / PROPERTIES
 
-        # Model parameter (only ltx-2-pro supported)
+        # Model parameter (retake supports pro-tier LTX models)
         self.add_parameter(
             ParameterString(
                 name="model",
                 default_value="LTX 2 Pro",
-                tooltip="Model to use for video retake (only LTX 2 Pro supported currently)",
+                tooltip="Model to use for video retake",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["LTX 2 Pro"])},
+                traits={Options(choices=["LTX 2 Pro", "LTX 2.3 Pro"])},
             )
         )
         self.add_parameter(
@@ -299,7 +304,9 @@ class LTXVideoRetake(GriptapeProxyNode):
         }
 
     def _get_api_model_id(self) -> str:
-        return "ltx-2-pro:retake"
+        model_name = self.get_parameter_value("model") or "LTX 2 Pro"
+        model_id = MODEL_MAPPING.get(model_name, "ltx-2-pro")
+        return f"{model_id}:retake"
 
     def _validate_video_input(self, video: Any) -> str | None:
         """Validate video is provided and doesn't exceed duration limits."""
@@ -413,7 +420,7 @@ class LTXVideoRetake(GriptapeProxyNode):
             "duration": duration,
             "prompt": params["prompt"].strip(),
             "mode": params["mode"],
-            "model": "ltx-2-pro",  # API only supports ltx-2-pro
+            "model": MODEL_MAPPING.get(params["model"], "ltx-2-pro"),
         }
 
         return payload
