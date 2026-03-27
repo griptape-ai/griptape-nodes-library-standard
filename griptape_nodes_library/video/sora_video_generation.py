@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import logging
@@ -251,7 +252,7 @@ class SoraVideoGeneration(GriptapeProxyNode):
 
         # Process and add start_frame if provided
         if params["start_frame"]:
-            base64_image = self._process_start_frame(params["start_frame"], params["size"])
+            base64_image = await asyncio.to_thread(self._process_start_frame, params["start_frame"], params["size"])
             if base64_image:
                 json_data["input_reference"] = base64_image
 

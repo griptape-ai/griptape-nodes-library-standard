@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import contextlib
 import io
@@ -268,13 +269,14 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
                 f"Input image is {width}x{height}, resizing to under {MAX_IMAGE_DIMENSION}x{MAX_IMAGE_DIMENSION}..."
             )
 
-        # Resize for resolution if needed, then shrink for size
-        resized_bytes = (
-            resize_image_for_resolution(file_contents, MAX_IMAGE_DIMENSION, self.name)
-            if exceeds_resolution
-            else file_contents
-        )
-        shrunk_bytes = shrink_image_to_size(resized_bytes, MAX_IMAGE_SIZE_BYTES, self.name)
+        # Resize for resolution if needed, then shrink for size (CPU-bound, run in thread pool)
+        if exceeds_resolution:
+            resized_bytes = await asyncio.to_thread(
+                resize_image_for_resolution, file_contents, MAX_IMAGE_DIMENSION, self.name
+            )
+        else:
+            resized_bytes = file_contents
+        shrunk_bytes = await asyncio.to_thread(shrink_image_to_size, resized_bytes, MAX_IMAGE_SIZE_BYTES, self.name)
 
         if len(shrunk_bytes) >= len(file_contents):
             # Shrinking didn't help

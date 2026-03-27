@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -471,9 +472,9 @@ class Rodin23DGeneration(GriptapeProxyNode):
 
             image_bytes = await self._get_image_bytes(image_input)
             if image_bytes:
-                mime_type = self._detect_image_mime(image_bytes)
-                b64 = base64.b64encode(image_bytes).decode("utf-8")
-                images.append(f"data:{mime_type};base64,{b64}")
+                # Run CPU-bound PIL mime detection + base64 encode in a thread pool
+                data_uri = await asyncio.to_thread(self._make_image_data_uri, image_bytes)
+                images.append(data_uri)
 
         return images
 
@@ -531,6 +532,13 @@ class Rodin23DGeneration(GriptapeProxyNode):
             "TIFF": "image/tiff",
         }
         return mime_map.get(image_format, "image/png")
+
+    @staticmethod
+    def _make_image_data_uri(image_bytes: bytes) -> str:
+        """Encode image bytes to a base64 data URI (CPU-bound, run in thread pool)."""
+        mime_type = Rodin23DGeneration._detect_image_mime(image_bytes)
+        b64 = base64.b64encode(image_bytes).decode("utf-8")
+        return f"data:{mime_type};base64,{b64}"
 
     async def _string_to_bytes(self, value: str) -> bytes | None:
         """Convert a string (URL, data URI, file path, or base64) to raw bytes."""

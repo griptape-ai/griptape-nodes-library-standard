@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json as _json
 import logging
@@ -216,7 +217,7 @@ class ElevenLabsMusicGeneration(GriptapeProxyNode):
                 return
 
             try:
-                audio_bytes = base64.b64decode(audio_base64)
+                audio_bytes = await asyncio.to_thread(base64.b64decode, audio_base64)
                 self._log("Decoded base64 audio")
             except Exception as e:
                 self._log(f"Failed to decode base64 audio: {e}")
