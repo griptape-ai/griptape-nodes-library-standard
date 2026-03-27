@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -205,7 +206,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
 
         # If it's already a data URL, normalize the MIME type if needed
         if audio_url.startswith("data:audio/"):
-            return self._normalize_audio_data_url(audio_url)
+            return await self._normalize_audio_data_url(audio_url)
 
         try:
             data_url = await File(audio_url).aread_data_uri(fallback_mime="audio/mpeg")
@@ -213,9 +214,9 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
             logger.debug("%s failed to load audio from %s: %s", self.name, audio_url, e)
             return None
 
-        return self._normalize_audio_data_url(data_url)
+        return await self._normalize_audio_data_url(data_url)
 
-    def _normalize_audio_data_url(self, audio_url: str) -> str:
+    async def _normalize_audio_data_url(self, audio_url: str) -> str:
         """Normalize audio data URL to ensure MIME type and codec are supported.
 
         The LTX API requires audio in specific formats. This method:
@@ -261,7 +262,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
                 self.name,
             )
             try:
-                return self._transcode_audio_to_mp3(audio_url)
+                return await asyncio.to_thread(self._transcode_audio_to_mp3, audio_url)
             except RuntimeError as e:
                 logger.warning(
                     "%s failed to transcode audio: %s. Sending as-is and hoping for the best.",
