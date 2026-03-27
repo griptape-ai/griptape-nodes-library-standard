@@ -26,6 +26,7 @@ __all__ = ["LTXAudioToVideoGeneration"]
 
 MODEL_MAPPING = {
     "LTX 2 Pro": "ltx-2-pro",
+    "LTX 2.3 Pro": "ltx-2-3-pro",
 }
 
 
@@ -61,7 +62,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
                 default_value="LTX 2 Pro",
                 tooltip="Model to use for video generation",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["LTX 2 Pro"])},
+                traits={Options(choices=["LTX 2 Pro", "LTX 2.3 Pro"])},
             )
         )
         self.add_parameter(
