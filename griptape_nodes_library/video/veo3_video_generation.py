@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -758,7 +759,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
                 return None
 
             # Decode base64
-            video_bytes = base64.b64decode(base64_data)
+            video_bytes = await asyncio.to_thread(base64.b64decode, base64_data)
 
             # Save using project file parameter with indexed filename
             dest = self._output_file.build_file(_index=idx)
