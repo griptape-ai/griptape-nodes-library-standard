@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -664,7 +665,11 @@ class GoogleImageGeneration(GriptapeProxyNode):
             logger.debug("%s failed to load image value: %s", self.name, image_value)
             return None
 
-        return self._extract_mime_and_base64_from_data_uri(data_uri, auto_image_resize=auto_image_resize)
+        # Run CPU-bound base64 decode + PIL image resizing in a thread pool
+        # to avoid blocking the event loop for large images.
+        return await asyncio.to_thread(
+            self._extract_mime_and_base64_from_data_uri, data_uri, auto_image_resize=auto_image_resize
+        )
 
     def _extract_mime_and_base64_from_data_uri(
         self, data_uri: str, *, auto_image_resize: bool = True
