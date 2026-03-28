@@ -1,9 +1,13 @@
+import re
 from collections.abc import Iterable
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+
+# Matches width:height with optional decimals and optional spaces around ':'.
+_ASPECT_RATIO_TOKEN_PATTERN = re.compile(r"\d+(?:\.\d+)?\s*:\s*\d+(?:\.\d+)?")
 
 
 def closest_aspect_ratio(target: str, aspect_ratios: list[str]) -> str:
@@ -57,16 +61,11 @@ def _valid_aspect_ratio_candidates(raw_items: Iterable[Any]) -> list[str]:
 
 
 def _aspect_ratio_list_from_value(raw: Any) -> list[str]:
-    """Build candidate aspect ratios from a delimited string or an iterable of strings."""
+    """Build candidate aspect ratios from a string (comma/newline/space separated) or an iterable of strings."""
     if raw is None:
         return []
     if isinstance(raw, str):
-        items: list[str] = []
-        for line in raw.splitlines():
-            for piece in line.split(","):
-                s = piece.strip()
-                if s:
-                    items.append(s)
+        items = _ASPECT_RATIO_TOKEN_PATTERN.findall(raw)
         return _valid_aspect_ratio_candidates(items)
     if isinstance(raw, Iterable):
         return _valid_aspect_ratio_candidates(raw)
@@ -94,7 +93,7 @@ class GetClosestAspectRatio(DataNode):
                 name="aspect_ratios",
                 default_value="1:1, 3:2, 2:3, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9",
                 tooltip=(
-                    "Comma or newline separated candidate aspect ratios (e.g. 1:1, 3:2, 2:3 or one ratio per line)"
+                    "Candidate aspect ratios separated by commas, newlines, or spaces (e.g. 1:1 3:2 or 1:1, 2:3)"
                 ),
             )
         )
