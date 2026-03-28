@@ -12,7 +12,12 @@ _ASPECT_RATIO_TOKEN_PATTERN = re.compile(r"\d+(?:\.\d+)?\s*:\s*\d+(?:\.\d+)?")
 
 def closest_aspect_ratio(target: str, aspect_ratios: list[str]) -> str:
     def ratio_to_float(ratio: str) -> float:
-        w, h = map(float, ratio.split(":"))
+        parts = ratio.split(":")
+        if len(parts) != 2:
+            raise ValueError(f"expected width:height, got {ratio!r}")
+        w, h = map(float, parts)
+        if h == 0:
+            raise ValueError(f"aspect ratio height cannot be zero: {ratio!r}")
         return w / h
 
     target_value = ratio_to_float(target)
