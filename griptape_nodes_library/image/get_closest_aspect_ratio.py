@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import ParameterMode
-from griptape_nodes.exe_types.node_types import DataNode
+from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
 # Matches width:height with optional decimals and optional spaces around ':'.
@@ -33,46 +33,65 @@ def _is_valid_aspect_ratio_string(value: str) -> bool:
     return True
 
 
-def _normalized_valid_target(aspect_ratio_value: Any) -> str | None:
+def _require_valid_aspect_ratio_token(token: str, *, in_list: bool) -> str:
+    candidate = token.strip()
+    ctx = "aspect_ratios" if in_list else "aspect_ratio"
+    if not candidate:
+        raise ValueError(f"Empty aspect ratio in {ctx}")
+    if not _is_valid_aspect_ratio_string(candidate):
+        raise ValueError(f"Invalid aspect ratio in {ctx}: {candidate!r} (expected width:height, e.g. 16:9)")
+    return candidate
+
+
+def _parse_target_aspect_ratio(aspect_ratio_value: Any) -> str:
     if aspect_ratio_value is None:
-        return None
+        raise ValueError("aspect_ratio is required")
     if not isinstance(aspect_ratio_value, str):
-        return None
-    target = aspect_ratio_value.strip()
-    if not target:
-        return None
-    if not _is_valid_aspect_ratio_string(target):
-        return None
-    return target
+        msg = f"aspect_ratio must be a string, got {type(aspect_ratio_value).__name__}"
+        raise ValueError(msg)
+    return _require_valid_aspect_ratio_token(aspect_ratio_value, in_list=False)
 
 
-def _valid_aspect_ratio_candidates(raw_items: Iterable[Any]) -> list[str]:
-    result: list[str] = []
-    for item in raw_items:
+def _parse_candidate_aspect_ratios_string(text: str) -> list[str]:
+    if not text.strip():
+        raise ValueError("aspect_ratios is empty")
+    matches = _ASPECT_RATIO_TOKEN_PATTERN.findall(text)
+    if not matches:
+        raise ValueError(f"No valid aspect ratio tokens in aspect_ratios: {text!r}")
+    depleted = _ASPECT_RATIO_TOKEN_PATTERN.sub("", text)
+    junk = re.sub(r"[\s,;]+", "", depleted)
+    if junk:
+        raise ValueError(f"Invalid text in aspect_ratios: {junk!r}")
+    return [_require_valid_aspect_ratio_token(m, in_list=True) for m in matches]
+
+
+def _parse_candidate_aspect_ratios_iterable(items: Iterable[Any]) -> list[str]:
+    out: list[str] = []
+    for i, item in enumerate(items):
+        if item is None or (isinstance(item, str) and not item.strip()):
+            continue
         if not isinstance(item, str):
-            continue
-        candidate = item.strip()
-        if not candidate:
-            continue
-        if not _is_valid_aspect_ratio_string(candidate):
-            continue
-        result.append(candidate)
-    return result
+            msg = f"aspect_ratios item at index {i} must be a string, got {type(item).__name__}"
+            raise ValueError(msg)
+        out.append(_require_valid_aspect_ratio_token(item, in_list=True))
+    if not out:
+        raise ValueError("aspect_ratios contains no valid entries")
+    return out
 
 
-def _aspect_ratio_list_from_value(raw: Any) -> list[str]:
-    """Build candidate aspect ratios from a string (comma/newline/space separated) or an iterable of strings."""
+def _parse_aspect_ratio_candidates(raw: Any) -> list[str]:
+    """Parse aspect_ratios from a delimiter string or an iterable; raises ValueError if invalid."""
     if raw is None:
-        return []
+        raise ValueError("aspect_ratios is required")
     if isinstance(raw, str):
-        items = _ASPECT_RATIO_TOKEN_PATTERN.findall(raw)
-        return _valid_aspect_ratio_candidates(items)
+        return _parse_candidate_aspect_ratios_string(raw)
     if isinstance(raw, Iterable):
-        return _valid_aspect_ratio_candidates(raw)
-    return []
+        return _parse_candidate_aspect_ratios_iterable(raw)
+    msg = f"aspect_ratios must be a string or iterable, got {type(raw).__name__}"
+    raise ValueError(msg)
 
 
-class GetClosestAspectRatio(DataNode):
+class GetClosestAspectRatio(SuccessFailureNode):
     """Pick the candidate aspect ratio whose numeric value is nearest to the target."""
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
@@ -108,15 +127,29 @@ class GetClosestAspectRatio(DataNode):
             )
         )
 
+        self._create_status_parameters(
+            result_details_tooltip="Details about the closest aspect ratio result",
+            result_details_placeholder="Details on the comparison will be presented here.",
+            parameter_group_initially_collapsed=True,
+        )
+
     def process(self) -> None:
-        target = _normalized_valid_target(self.get_parameter_value("aspect_ratio"))
-        if target is None:
+        self._clear_execution_status()
+
+        try:
+            target = _parse_target_aspect_ratio(self.get_parameter_value("aspect_ratio"))
+            candidates = _parse_aspect_ratio_candidates(self.get_parameter_value("aspect_ratios"))
+            chosen = closest_aspect_ratio(target, candidates)
+        except ValueError as e:
+            self.set_parameter_value("closest_aspect_ratio", "")
             self.parameter_output_values["closest_aspect_ratio"] = ""
+            self._set_status_results(was_successful=False, result_details=f"FAILURE: {e}")
+            self._handle_failure_exception(e)
             return
 
-        candidates = _aspect_ratio_list_from_value(self.get_parameter_value("aspect_ratios"))
-        if not candidates:
-            self.parameter_output_values["closest_aspect_ratio"] = ""
-            return
-
-        self.parameter_output_values["closest_aspect_ratio"] = closest_aspect_ratio(target, candidates)
+        self.set_parameter_value("closest_aspect_ratio", chosen)
+        self.parameter_output_values["closest_aspect_ratio"] = chosen
+        self._set_status_results(
+            was_successful=True,
+            result_details=f"SUCCESS: Closest aspect ratio to {target} is {chosen}",
+        )
