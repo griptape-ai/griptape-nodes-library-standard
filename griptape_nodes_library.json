@@ -1782,6 +1782,17 @@
       }
     },
     {
+      "class_name": "GetClosestAspectRatio",
+      "file_path": "griptape_nodes_library/image/get_closest_aspect_ratio.py",
+      "metadata": {
+        "category": "image",
+        "description": "Pick the candidate aspect ratio whose numeric value is nearest to the target",
+        "display_name": "Get Closest Aspect Ratio",
+        "icon": "ratio",
+        "group": "edit"
+      }
+    },
+    {
       "class_name": "ImageDetails",
       "file_path": "griptape_nodes_library/image/image_details.py",
       "metadata": {
