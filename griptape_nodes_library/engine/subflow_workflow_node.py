@@ -11,6 +11,7 @@ from griptape_nodes.retained_mode.events.execution_events import StartLocalSubfl
 from griptape_nodes.retained_mode.events.flow_events import DeleteFlowRequest
 from griptape_nodes.retained_mode.events.parameter_events import RemoveParameterFromNodeRequest, SetParameterValueRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
 
@@ -30,7 +31,16 @@ class SubflowWorkflowNode(BaseNode):
             type=ParameterTypeBuiltin.STR,
             allowed_modes={ParameterMode.PROPERTY},
             default_value=default,
-            traits={Options(choices=choices)},
+            traits={
+                Options(choices=choices),
+                Button(
+                    label="Refresh Workflow",
+                    icon="refresh-cw",
+                    variant="secondary",
+                    size="sm",
+                    on_click=self._on_refresh_workflow,
+                ),
+            },
         )
         self.add_parameter(self.workflow_file)
         self.metadata["workflow_node"] = True
@@ -43,6 +53,24 @@ class SubflowWorkflowNode(BaseNode):
             self.metadata["workflow_shape_params"] = []
             self._update_workflow_shape_parameters(saved_workflow)
 
+    def on_delete(self) -> None:
+        subflow_name = self.metadata.get("subflow_name")
+        if subflow_name is not None:
+            # The subflow may have already been deleted if the parent flow was deleted first
+            # (parent flow deletion deletes child flows before nodes).
+            subflow = GriptapeNodes.ObjectManager().attempt_get_object_by_name_as_type(subflow_name, ControlFlow)
+            if subflow is not None:
+                GriptapeNodes.handle_request(DeleteFlowRequest(flow_name=subflow_name))
+
+    def _on_refresh_workflow(self, button: Button, button_details: ButtonDetailsMessagePayload) -> None:  # noqa: ARG002
+        workflow_name = self.get_parameter_value("workflow_file")
+        if not workflow_name:
+            return
+        self._update_workflow_shape_parameters(workflow_name, preserve_matching=True)
+        # Clear so _reload_subflow doesn't skip the reload for the same workflow.
+        self.metadata.pop("_subflow_workflow", None)
+        self._reload_subflow(workflow_name)
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "workflow_file":
             # Only update if the workflow actually changed to avoid tearing down
@@ -52,73 +80,127 @@ class SubflowWorkflowNode(BaseNode):
             if value != current:
                 self._update_workflow_shape_parameters(value)
                 self.metadata["_workflow_file_value"] = value
+                self._reload_subflow(value)
         super().after_value_set(parameter, value)
 
-    def _update_workflow_shape_parameters(self, workflow_name: str) -> None:
-        self._remove_workflow_shape_parameters()
+    def _reload_subflow(self, workflow_name: str) -> None:
+        existing_subflow = self.metadata.get("subflow_name")
+        if existing_subflow:
+            existing_flow_names = set(GriptapeNodes.ObjectManager().get_filtered_subset(type=ControlFlow).keys())
+            # Skip if this workflow is already loaded and the flow still exists.
+            if self.metadata.get("_subflow_workflow") == workflow_name and existing_subflow in existing_flow_names:
+                return
+            # Only delete if the flow still exists (it may be stale from a previous session).
+            if existing_subflow in existing_flow_names:
+                GriptapeNodes.handle_request(DeleteFlowRequest(flow_name=existing_subflow))
+            del self.metadata["subflow_name"]
+            self.metadata.pop("_subflow_workflow", None)
+            self.metadata.pop("subflow_file_path", None)
 
         if not workflow_name or not WorkflowRegistry.has_workflow_with_name(workflow_name):
             return
 
         workflow = WorkflowRegistry.get_workflow_by_name(workflow_name)
-        workflow_shape = workflow.metadata.workflow_shape
-        if workflow_shape is None:
+        file_path = WorkflowRegistry.get_complete_file_path(workflow.file_path)
+        content = Path(file_path).read_text(encoding="utf-8")
+
+        existing_flows = set(GriptapeNodes.ObjectManager().get_filtered_subset(type=ControlFlow).keys())
+        exec(content, {"__file__": file_path, "__name__": "workflow_module", "__builtins__": __builtins__})  # noqa: S102
+        new_flows = set(GriptapeNodes.ObjectManager().get_filtered_subset(type=ControlFlow).keys()) - existing_flows
+
+        if new_flows:
+            self.metadata["subflow_name"] = next(iter(new_flows))
+            self.metadata["_subflow_workflow"] = workflow_name
+            self.metadata["subflow_file_path"] = file_path
+
+    def _create_shape_parameter(self, param_name: str, param_dict: dict, allowed_modes: set[ParameterMode]) -> Parameter:
+        return Parameter(
+            name=param_name,
+            tooltip=param_dict.get("tooltip", ""),
+            type=param_dict.get("type"),
+            input_types=param_dict.get("input_types"),
+            output_type=param_dict.get("output_type"),
+            default_value=param_dict.get("default_value"),
+            allowed_modes=allowed_modes,
+            ui_options=param_dict.get("ui_options"),
+        )
+
+    def _update_workflow_shape_parameters(self, workflow_name: str, preserve_matching: bool = False) -> None:
+        if not workflow_name or not WorkflowRegistry.has_workflow_with_name(workflow_name):
+            self._remove_workflow_shape_parameters()
             return
 
-        shape_param_names = []
+        workflow = WorkflowRegistry.get_workflow_by_name(workflow_name)
+        workflow_shape = workflow.metadata.workflow_shape
+        if workflow_shape is None:
+            self._remove_workflow_shape_parameters()
+            return
 
+        # Collect desired params: name -> (param_dict, allowed_modes)
+        desired: dict[str, tuple[dict, set[ParameterMode]]] = {}
         for _node_name, params in workflow_shape.inputs.items():
             for param_name, param_dict in params.items():
                 if param_dict.get("type") == ParameterTypeBuiltin.CONTROL_TYPE:
                     continue
-                param = Parameter(
-                    name=param_name,
-                    tooltip=param_dict.get("tooltip", ""),
-                    type=param_dict.get("type"),
-                    input_types=param_dict.get("input_types"),
-                    output_type=param_dict.get("output_type"),
-                    default_value=param_dict.get("default_value"),
-                    allowed_modes={ParameterMode.INPUT},
-                    ui_options=param_dict.get("ui_options"),
-                )
-                self.add_parameter(param)
-                shape_param_names.append(param_name)
-                if "left_parameters" not in self.metadata:
-                    self.metadata["left_parameters"] = []
-                self.metadata["left_parameters"].append(param_name)
+                input_modes: set[ParameterMode] = {ParameterMode.INPUT}
+                if param_dict.get("mode_allowed_property"):
+                    input_modes.add(ParameterMode.PROPERTY)
+                desired[param_name] = (param_dict, input_modes)
 
         for _node_name, params in workflow_shape.outputs.items():
             for param_name, param_dict in params.items():
                 if param_dict.get("type") == ParameterTypeBuiltin.CONTROL_TYPE:
                     continue
-                param = Parameter(
-                    name=param_name,
-                    tooltip=param_dict.get("tooltip", ""),
-                    type=param_dict.get("type"),
-                    input_types=param_dict.get("input_types"),
-                    output_type=param_dict.get("output_type"),
-                    default_value=param_dict.get("default_value"),
-                    allowed_modes={ParameterMode.OUTPUT},
-                    ui_options=param_dict.get("ui_options"),
-                )
-                self.add_parameter(param)
-                shape_param_names.append(param_name)
-                if "right_parameters" not in self.metadata:
-                    self.metadata["right_parameters"] = []
-                self.metadata["right_parameters"].append(param_name)
+                desired[param_name] = (param_dict, {ParameterMode.OUTPUT})
 
-        self.metadata["workflow_shape_params"] = shape_param_names
+        current_names = set(self.metadata.get("workflow_shape_params", []))
+        desired_names = set(desired.keys())
+
+        # When preserve_matching=True, keep params whose names appear in both sets
+        # (their values and connections survive untouched). Otherwise replace everything.
+        to_remove = current_names - desired_names if preserve_matching else current_names
+        to_add = desired_names - current_names if preserve_matching else desired_names
+
+        for param_name in to_remove:
+            self.parameter_output_values.pop(param_name, None)
+
+        self._remove_shape_params(to_remove)
+
+        for param_name in to_add:
+            param_dict, allowed_modes = desired[param_name]
+            self.add_parameter(self._create_shape_parameter(param_name, param_dict, allowed_modes))
+
+        self.metadata["workflow_shape_params"] = list(desired_names)
+
+        # Rebuild side lists from scratch so ordering is correct for the full desired set,
+        # including any preserved params.
+        self.metadata["left_parameters"] = []
+        self.metadata["right_parameters"] = []
+        for param_name, (_, allowed_modes) in desired.items():
+            if ParameterMode.OUTPUT in allowed_modes:
+                self.metadata["right_parameters"].append(param_name)
+            else:
+                self.metadata["left_parameters"].append(param_name)
 
     def _remove_workflow_shape_parameters(self) -> None:
-        shape_param_names = self.metadata.get("workflow_shape_params", [])
-        for param_name in shape_param_names:
+        self._remove_shape_params(set(self.metadata.get("workflow_shape_params", [])))
+        self.metadata["workflow_shape_params"] = []
+        self.metadata["left_parameters"] = []
+        self.metadata["right_parameters"] = []
+
+    def _remove_shape_params(self, param_names: set[str]) -> None:
+        for param_name in param_names:
+            param = self.get_parameter_by_name(param_name)
+            if param is not None:
+                # RemoveParameterFromNodeRequest rejects non-user-defined parameters to protect
+                # built-in node params. Shape params are intentionally user_defined=False so they
+                # are NOT serialized as AddParameterToNodeRequest commands (which would cause _1
+                # duplicates on load since __init__ pre-creates them). We temporarily flip the flag
+                # here so the removal handler allows the delete while still cleaning up connections.
+                param.user_defined = True
             GriptapeNodes.handle_request(
                 RemoveParameterFromNodeRequest(node_name=self.name, parameter_name=param_name)
             )
-            for side in ("left_parameters", "right_parameters"):
-                if side in self.metadata and param_name in self.metadata[side]:
-                    self.metadata[side].remove(param_name)
-        self.metadata["workflow_shape_params"] = []
 
     async def aprocess(self) -> None:
         workflow_name = self.get_parameter_value("workflow_file")
@@ -130,29 +212,23 @@ class SubflowWorkflowNode(BaseNode):
         if workflow_shape is None:
             return
 
-        file_path = WorkflowRegistry.get_complete_file_path(workflow.file_path)
-        content = Path(file_path).read_text(encoding="utf-8")
+        # Use the pre-loaded subflow if available; otherwise load it now.
+        existing_flow_names = set(GriptapeNodes.ObjectManager().get_filtered_subset(type=ControlFlow).keys())
+        subflow_name = self.metadata.get("subflow_name")
+        if not subflow_name or subflow_name not in existing_flow_names:
+            self._reload_subflow(workflow_name)
+            subflow_name = self.metadata.get("subflow_name")
+            if not subflow_name:
+                return
 
-        existing_flows = set(GriptapeNodes.ObjectManager().get_filtered_subset(type=ControlFlow).keys())
-        exec(content, {"__file__": file_path, "__name__": "workflow_module", "__builtins__": __builtins__})  # noqa: S102
-        new_flows = set(GriptapeNodes.ObjectManager().get_filtered_subset(type=ControlFlow).keys()) - existing_flows
-
-        if not new_flows:
-            return
-
-        workflow_flow_name = next(iter(new_flows))
-
-        try:
-            self._set_workflow_inputs(workflow_flow_name, workflow_shape)
-            result = await GriptapeNodes.FlowManager().on_start_local_subflow_request(
-                StartLocalSubflowRequest(flow_name=workflow_flow_name)
-            )
-            if isinstance(result, StartLocalSubflowResultFailure):
-                msg = f"Workflow '{workflow_name}' execution failed: {result.result_details}"
-                raise RuntimeError(msg)
-            self._collect_workflow_outputs(workflow_flow_name, workflow_shape)
-        finally:
-            GriptapeNodes.handle_request(DeleteFlowRequest(flow_name=workflow_flow_name))
+        self._set_workflow_inputs(subflow_name, workflow_shape)
+        result = await GriptapeNodes.FlowManager().on_start_local_subflow_request(
+            StartLocalSubflowRequest(flow_name=subflow_name)
+        )
+        if isinstance(result, StartLocalSubflowResultFailure):
+            msg = f"Workflow '{workflow_name}' execution failed: {result.result_details}"
+            raise RuntimeError(msg)
+        self._collect_workflow_outputs(subflow_name, workflow_shape)
 
     def _set_workflow_inputs(self, flow_name: str, workflow_shape: Any) -> None:
         flow = GriptapeNodes.FlowManager().get_flow_by_name(flow_name)
