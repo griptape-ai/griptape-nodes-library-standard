@@ -7,9 +7,15 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, Parame
 from griptape_nodes.exe_types.flow import ControlFlow
 from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.node_library.workflow_registry import WorkflowRegistry
-from griptape_nodes.retained_mode.events.execution_events import StartLocalSubflowRequest, StartLocalSubflowResultFailure
+from griptape_nodes.retained_mode.events.execution_events import (
+    StartLocalSubflowRequest,
+    StartLocalSubflowResultFailure,
+)
 from griptape_nodes.retained_mode.events.flow_events import DeleteFlowRequest
-from griptape_nodes.retained_mode.events.parameter_events import RemoveParameterFromNodeRequest, SetParameterValueRequest
+from griptape_nodes.retained_mode.events.parameter_events import (
+    RemoveParameterFromNodeRequest,
+    SetParameterValueRequest,
+)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
@@ -113,7 +119,9 @@ class SubflowWorkflowNode(BaseNode):
             self.metadata["_subflow_workflow"] = workflow_name
             self.metadata["subflow_file_path"] = file_path
 
-    def _create_shape_parameter(self, param_name: str, param_dict: dict, allowed_modes: set[ParameterMode]) -> Parameter:
+    def _create_shape_parameter(
+        self, param_name: str, param_dict: dict, allowed_modes: set[ParameterMode]
+    ) -> Parameter:
         return Parameter(
             name=param_name,
             tooltip=param_dict.get("tooltip", ""),
@@ -198,9 +206,7 @@ class SubflowWorkflowNode(BaseNode):
                 # duplicates on load since __init__ pre-creates them). We temporarily flip the flag
                 # here so the removal handler allows the delete while still cleaning up connections.
                 param.user_defined = True
-            GriptapeNodes.handle_request(
-                RemoveParameterFromNodeRequest(node_name=self.name, parameter_name=param_name)
-            )
+            GriptapeNodes.handle_request(RemoveParameterFromNodeRequest(node_name=self.name, parameter_name=param_name))
 
     async def aprocess(self) -> None:
         workflow_name = self.get_parameter_value("workflow_file")
