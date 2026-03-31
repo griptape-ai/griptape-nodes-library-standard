@@ -174,6 +174,9 @@ class RenameFile(FileOperationBaseNode):
         new_path_input = self.get_parameter_value("new_path")
         overwrite = self.get_parameter_value("overwrite") or False
 
+        # Extract value from artifact (handles UrlArtifact, localhost URLs, dicts, etc.)
+        old_path = self._extract_value_from_artifact(old_path)
+
         # Clean paths to remove newlines/carriage returns that cause Windows errors
         old_path = GriptapeNodes.OSManager().sanitize_path_string(old_path)
         new_path_input = GriptapeNodes.OSManager().sanitize_path_string(new_path_input)
