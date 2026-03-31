@@ -64,7 +64,7 @@ class SubflowWorkflowNode(BaseNode):
             self.metadata["workflow_shape_params"] = []
             self._update_workflow_shape_parameters(saved_workflow)
 
-    def on_delete(self) -> None:
+    def after_deleted(self) -> None:
         subflow_name = self.metadata.get("subflow_name")
         if subflow_name is not None:
             # The subflow may have already been deleted if the parent flow was deleted first
