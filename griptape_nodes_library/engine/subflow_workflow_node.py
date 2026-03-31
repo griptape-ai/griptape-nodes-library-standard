@@ -16,6 +16,10 @@ from griptape_nodes.retained_mode.events.parameter_events import (
     RemoveParameterFromNodeRequest,
     SetParameterValueRequest,
 )
+from griptape_nodes.retained_mode.events.workflow_events import (
+    ListCallableWorkflowsRequest,
+    ListCallableWorkflowsResultSuccess,
+)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
@@ -24,7 +28,8 @@ from griptape_nodes.traits.options import Options
 class SubflowWorkflowNode(BaseNode):
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
-        workflow_names = list(WorkflowRegistry.list_valid_workflows().keys())
+        result = GriptapeNodes.handle_request(ListCallableWorkflowsRequest())
+        workflow_names = list(result.workflows.keys()) if isinstance(result, ListCallableWorkflowsResultSuccess) else []
         choices = workflow_names if workflow_names else [""]
 
         # If a workflow was previously selected, restore it as the default.
