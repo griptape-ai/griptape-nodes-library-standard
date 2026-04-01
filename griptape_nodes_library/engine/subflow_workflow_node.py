@@ -235,9 +235,7 @@ class SubflowWorkflowNode(BaseNode):
                 return
 
         self._set_workflow_inputs(subflow_name, workflow_shape)
-        result = await GriptapeNodes.FlowManager().on_start_local_subflow_request(
-            StartLocalSubflowRequest(flow_name=subflow_name)
-        )
+        result = await GriptapeNodes.ahandle_request(StartLocalSubflowRequest(flow_name=subflow_name))
         if isinstance(result, StartLocalSubflowResultFailure):
             msg = f"Workflow '{workflow_name}' execution failed: {result.result_details}"
             raise RuntimeError(msg)
