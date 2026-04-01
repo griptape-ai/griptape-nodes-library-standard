@@ -31,7 +31,7 @@ class SubflowWorkflowNode(BaseNode):
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
         result = GriptapeNodes.handle_request(ListCallableWorkflowsRequest())
-        workflow_names = list(result.workflows.keys()) if isinstance(result, ListCallableWorkflowsResultSuccess) else []
+        workflow_names = result.workflow_names if isinstance(result, ListCallableWorkflowsResultSuccess) else []
         choices = workflow_names if workflow_names else [""]
 
         # If a workflow was previously selected, restore it as the default.
@@ -66,7 +66,7 @@ class SubflowWorkflowNode(BaseNode):
             self.metadata["workflow_shape_params"] = []
             self._update_workflow_shape_parameters(saved_workflow)
 
-    def after_deleted(self) -> None:
+    def after_node_deleted(self) -> None:
         subflow_name = self.metadata.get("subflow_name")
         if subflow_name is not None:
             # The subflow may have already been deleted if the parent flow was deleted first
