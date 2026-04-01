@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
@@ -12,11 +11,14 @@ from griptape_nodes.retained_mode.events.execution_events import (
     StartLocalSubflowResultFailure,
 )
 from griptape_nodes.retained_mode.events.flow_events import DeleteFlowRequest
+from griptape_nodes.retained_mode.events.node_events import GetFlowForNodeRequest, GetFlowForNodeResultSuccess
 from griptape_nodes.retained_mode.events.parameter_events import (
     RemoveParameterFromNodeRequest,
     SetParameterValueRequest,
 )
 from griptape_nodes.retained_mode.events.workflow_events import (
+    ImportWorkflowAsReferencedSubFlowRequest,
+    ImportWorkflowAsReferencedSubFlowResultSuccess,
     ListCallableWorkflowsRequest,
     ListCallableWorkflowsResultSuccess,
 )
@@ -83,7 +85,7 @@ class SubflowWorkflowNode(BaseNode):
         self._reload_subflow(workflow_name)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        if parameter.name == "workflow_file":
+        if parameter == self.workflow_file:
             # Only update if the workflow actually changed to avoid tearing down
             # parameters (and their connections) when the saved value is restored
             # during deserialization.
@@ -106,23 +108,23 @@ class SubflowWorkflowNode(BaseNode):
                 GriptapeNodes.handle_request(DeleteFlowRequest(flow_name=existing_subflow))
             del self.metadata["subflow_name"]
             self.metadata.pop("_subflow_workflow", None)
-            self.metadata.pop("subflow_file_path", None)
 
         if not workflow_name or not WorkflowRegistry.has_workflow_with_name(workflow_name):
             return
 
-        workflow = WorkflowRegistry.get_workflow_by_name(workflow_name)
-        file_path = WorkflowRegistry.get_complete_file_path(workflow.file_path)
-        content = Path(file_path).read_text(encoding="utf-8")
+        # Resolve the parent flow for this node so the import knows where to create the subflow.
+        flow_result = GriptapeNodes.handle_request(GetFlowForNodeRequest(node_name=self.name))
+        if not isinstance(flow_result, GetFlowForNodeResultSuccess):
+            return
 
-        existing_flows = set(GriptapeNodes.ObjectManager().get_filtered_subset(type=ControlFlow).keys())
-        exec(content, {"__file__": file_path, "__name__": "workflow_module", "__builtins__": __builtins__})  # noqa: S102
-        new_flows = set(GriptapeNodes.ObjectManager().get_filtered_subset(type=ControlFlow).keys()) - existing_flows
-
-        if new_flows:
-            self.metadata["subflow_name"] = next(iter(new_flows))
+        result = GriptapeNodes.handle_request(
+            ImportWorkflowAsReferencedSubFlowRequest(
+                workflow_name=workflow_name, flow_name=flow_result.flow_name, track_as_referenced=False
+            )
+        )
+        if isinstance(result, ImportWorkflowAsReferencedSubFlowResultSuccess):
+            self.metadata["subflow_name"] = result.created_flow_name
             self.metadata["_subflow_workflow"] = workflow_name
-            self.metadata["subflow_file_path"] = file_path
 
     def _create_shape_parameter(
         self, param_name: str, param_dict: dict, allowed_modes: set[ParameterMode]
