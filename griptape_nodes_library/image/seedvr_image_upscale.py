@@ -296,8 +296,6 @@ class SeedVRImageUpscale(GriptapeProxyNode):
 
         if image_bytes:
             try:
-                output_format = self.get_parameter_value("output_format") or "jpg"
-                self.set_parameter_value("output_file", f"seedvr_upscale.{output_format}")
                 dest = self._output_file.build_file()
                 saved = await dest.awrite_bytes(image_bytes)
                 self.parameter_output_values["image"] = ImageUrlArtifact(value=saved.location, name=saved.name)

@@ -513,7 +513,6 @@ class GoogleImageGeneration(GriptapeProxyNode):
         image_artifacts: list[ImageUrlArtifact],
     ) -> None:
         """Process inline image data and save to static storage."""
-        mime_type = inline_data.get("mimeType", "image/png")
         base64_data = inline_data.get("data", "")
 
         if not base64_data:
@@ -521,8 +520,6 @@ class GoogleImageGeneration(GriptapeProxyNode):
 
         try:
             image_bytes = base64.b64decode(base64_data)
-            ext = "png" if "png" in mime_type else "jpg"
-            self.set_parameter_value("output_file", f"google_image_{candidate_idx}_{part_idx}.{ext}")
             dest = self._output_file.build_file()
             saved = dest.write_bytes(image_bytes)
             image_artifacts.append(ImageUrlArtifact(value=saved.location, name=saved.name))

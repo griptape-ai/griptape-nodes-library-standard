@@ -148,10 +148,8 @@ class ExtractAudio(BaseVideoProcessor):
         audio_quality = kwargs.get("audio_quality", self.DEFAULT_AUDIO_QUALITY)
         return f"_extracted_audio_{audio_format}_{audio_quality}"
 
-    def _save_audio_artifact(self, audio_bytes: bytes, format_extension: str, suffix: str = "") -> AudioUrlArtifact:
+    def _save_audio_artifact(self, audio_bytes: bytes) -> AudioUrlArtifact:
         """Save audio bytes to project storage and return AudioUrlArtifact."""
-        filename = f"extracted_audio{suffix}.{format_extension}"
-        self.set_parameter_value("output_file", filename)
         dest = self._output_file.build_file()
         saved = dest.write_bytes(audio_bytes)
         return AudioUrlArtifact(saved.location)
@@ -241,11 +239,8 @@ class ExtractAudio(BaseVideoProcessor):
             with temp_audio_path.open("rb") as f:
                 audio_bytes = f.read()
 
-            # Get output suffix
-            suffix = self._get_output_suffix(**kwargs)
-
             # Save as AudioUrlArtifact
-            audio_artifact = self._save_audio_artifact(audio_bytes, audio_format, suffix)
+            audio_artifact = self._save_audio_artifact(audio_bytes)
 
             # Set the output parameter
             self.parameter_output_values["extracted_audio"] = audio_artifact
