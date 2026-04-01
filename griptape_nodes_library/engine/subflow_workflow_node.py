@@ -276,6 +276,3 @@ class SubflowWorkflowNode(BaseNode):
                     value = end_node.get_parameter_value(param_name)
                 if value is not None:
                     self.parameter_output_values[param_name] = value
-
-    def process(self) -> Any:
-        raise NotImplementedError
