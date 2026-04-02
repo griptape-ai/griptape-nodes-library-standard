@@ -2556,6 +2556,16 @@
       }
     },
     {
+      "class_name": "SubflowWorkflowNode",
+      "file_path": "griptape_nodes_library/engine/subflow_workflow_node.py",
+      "metadata": {
+        "category": "execution_flow",
+        "description": "Selects and executes a registered workflow, routing inputs and outputs via the workflow shape",
+        "display_name": "Workflow Node",
+        "icon": "Layers"
+      }
+    },
+    {
       "class_name": "AgentToTool",
       "file_path": "griptape_nodes_library/convert/agent_to_tool.py",
       "metadata": {
