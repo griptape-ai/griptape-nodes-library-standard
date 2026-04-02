@@ -4,7 +4,7 @@ from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
 from griptape_nodes.exe_types.flow import ControlFlow
-from griptape_nodes.exe_types.node_types import BaseNode
+from griptape_nodes.exe_types.node_types import BaseNode, NodeDependencies
 from griptape_nodes.node_library.workflow_registry import WorkflowRegistry
 from griptape_nodes.retained_mode.events.execution_events import (
     StartLocalSubflowRequest,
@@ -96,6 +96,15 @@ class SubflowWorkflowNode(BaseNode):
                 self._reload_subflow(value)
         super().after_value_set(parameter, value)
 
+    def get_node_dependencies(self) -> NodeDependencies | None:
+        deps = super().get_node_dependencies()
+        if deps is None:
+            deps = NodeDependencies()
+        workflow_name = self.get_parameter_value("workflow_file")
+        if workflow_name and WorkflowRegistry.has_workflow_with_name(workflow_name):
+            deps.referenced_workflows.add(workflow_name)
+        return deps
+
     def _reload_subflow(self, workflow_name: str) -> None:
         existing_subflow = self.metadata.get("subflow_name")
         if existing_subflow:
@@ -118,9 +127,7 @@ class SubflowWorkflowNode(BaseNode):
             return
 
         result = GriptapeNodes.handle_request(
-            ImportWorkflowAsReferencedSubFlowRequest(
-                workflow_name=workflow_name, flow_name=flow_result.flow_name, track_as_referenced=False
-            )
+            ImportWorkflowAsReferencedSubFlowRequest(workflow_name=workflow_name, flow_name=flow_result.flow_name)
         )
         if isinstance(result, ImportWorkflowAsReferencedSubFlowResultSuccess):
             self.metadata["subflow_name"] = result.created_flow_name
@@ -196,6 +203,10 @@ class SubflowWorkflowNode(BaseNode):
                 self.metadata["right_parameters"].append(param_name)
             else:
                 self.metadata["left_parameters"].append(param_name)
+
+        # Enforce display order: left params (inputs) at top, right params (outputs) below.
+        for param_name in self.metadata["left_parameters"] + self.metadata["right_parameters"]:
+            self.move_element_to_position(param_name, "last")
 
     def _remove_workflow_shape_parameters(self) -> None:
         self._remove_shape_params(set(self.metadata.get("workflow_shape_params", [])))
