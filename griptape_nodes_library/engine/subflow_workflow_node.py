@@ -16,13 +16,15 @@ from griptape_nodes.retained_mode.events.parameter_events import (
     RemoveParameterFromNodeRequest,
     SetParameterValueRequest,
 )
+
+# Add pyright ignore because this is a new event - we know it does exist
 from griptape_nodes.retained_mode.events.workflow_events import (
     ImportWorkflowAsReferencedSubFlowRequest,
     ImportWorkflowAsReferencedSubFlowResultSuccess,
-    ListCallableWorkflowsRequest,
-    ListCallableWorkflowsResultSuccess,
+    ListCallableWorkflowsRequest,  # pyright: ignore[reportAttributeAccessIssue]
+    ListCallableWorkflowsResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
 )
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
@@ -31,8 +33,13 @@ class SubflowWorkflowNode(BaseNode):
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
         result = GriptapeNodes.handle_request(ListCallableWorkflowsRequest())
-        workflow_names = result.workflow_names if isinstance(result, ListCallableWorkflowsResultSuccess) else []
-        choices = workflow_names if workflow_names else [""]
+        if isinstance(result, ListCallableWorkflowsResultSuccess):
+            # Add pyright ignore here becuase we know ListCallableWOrkflowsResultSuccess reutrns workflow_names
+            workflow_names = result.workflow_names  # pyright: ignore[reportAttributeAccessIssue]
+            choices = workflow_names
+        else:
+            workflow_names = []
+            choices = [""]
 
         # If a workflow was previously selected, restore it as the default.
         saved_workflow = self.metadata.get("_workflow_file_value")
@@ -103,6 +110,9 @@ class SubflowWorkflowNode(BaseNode):
         workflow_name = self.get_parameter_value("workflow_file")
         if workflow_name and WorkflowRegistry.has_workflow_with_name(workflow_name):
             deps.referenced_workflows.add(workflow_name)
+        else:
+            msg = f"Node {self.name} has a dependency on workflow {workflow_name} but it is not in your WorkflowRegistry. Register this workflow for proper dependency bundling."
+            logger.warning(msg)
         return deps
 
     def _reload_subflow(self, workflow_name: str) -> None:
