@@ -10,7 +10,6 @@ from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     load_pil_from_url,
-    save_pil_image_with_named_filename,
 )
 
 
@@ -61,9 +60,8 @@ class FlipImage(BaseImageProcessor):
             # Process with current flip settings
             processed_image = self._process_image(pil_image, direction=direction)
 
-            # Save and set output with proper filename
-            filename = self._generate_processed_image_filename("png")
-            output_artifact = save_pil_image_with_named_filename(processed_image, filename, "PNG")
+            # Save and set output
+            output_artifact = self._save_image_artifact(processed_image, "png")
 
             self.set_parameter_value("output", output_artifact)
             self.publish_update_to_parameter("output", output_artifact)

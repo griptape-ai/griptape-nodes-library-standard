@@ -7,7 +7,6 @@ from PIL import Image, ImageEnhance
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
 from griptape_nodes_library.utils.image_utils import (
     load_pil_from_url,
-    save_pil_image_with_named_filename,
 )
 
 
@@ -41,10 +40,8 @@ class GrayscaleImage(BaseImageProcessor):
             # Process with current EQ settings
             processed_image = self._process_image(pil_image)
 
-            # Save and set output with proper filename
-            # Generate a meaningful filename with processing parameters
-            filename = self._generate_processed_image_filename("png")
-            output_artifact = save_pil_image_with_named_filename(processed_image, filename, "PNG")
+            # Save and set output
+            output_artifact = self._save_image_artifact(processed_image, "png")
 
             self.set_parameter_value("output", output_artifact)
             self.publish_update_to_parameter("output", output_artifact)

@@ -368,9 +368,9 @@ class ConcatenateVideos(BaseVideoProcessor):
 
             # Extract video URL from the normalized artifact
             if isinstance(video_input, str):
-                video_url = video_input
+                video_url = File(video_input).resolve()
             elif isinstance(video_artifact, VideoUrlArtifact) or hasattr(video_artifact, "value"):
-                video_url = video_artifact.value
+                video_url = File(video_artifact.value).resolve()
             else:
                 raise _create_input_validation_error(type(video_input))
 

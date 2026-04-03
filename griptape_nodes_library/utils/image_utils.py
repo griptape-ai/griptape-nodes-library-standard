@@ -1,7 +1,6 @@
 import base64
 import io
 import logging
-import uuid
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any, NamedTuple
@@ -12,7 +11,7 @@ import numpy as np
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.loaders import ImageLoader
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.files.project_file import ProjectFileDestination
 from PIL import Image, ImageDraw, ImageFilter
 from requests.exceptions import RequestException
 
@@ -191,39 +190,9 @@ def dict_to_image_url_artifact(image_dict: dict, image_format: str | None = None
         else:
             image_format = "png"
 
-    url = GriptapeNodes.StaticFilesManager().save_static_file(image_bytes, f"{uuid.uuid4()}.{image_format}")
-    return ImageUrlArtifact(url)
-
-
-def save_pil_image_to_static_file(image: Image.Image, image_format: str = "PNG") -> ImageUrlArtifact:
-    """Save a PIL image to the static file system and return an ImageUrlArtifact."""
-    # Validate the image format
-    validate_pil_format(image_format, "image_format")
-
-    buffer = io.BytesIO()
-    image.save(buffer, format=image_format)
-    image_bytes = buffer.getvalue()
-
-    filename = f"{uuid.uuid4()}.{image_format.lower()}"
-    url = GriptapeNodes.StaticFilesManager().save_static_file(image_bytes, filename)
-
-    return ImageUrlArtifact(url)
-
-
-def save_pil_image_with_named_filename(
-    image: Image.Image, filename: str, image_format: str = "PNG"
-) -> ImageUrlArtifact:
-    """Save a PIL image to the static file system with a specific filename and return an ImageUrlArtifact."""
-    # Validate the image format
-    validate_pil_format(image_format, "image_format")
-
-    buffer = io.BytesIO()
-    image.save(buffer, format=image_format)
-    image_bytes = buffer.getvalue()
-
-    url = GriptapeNodes.StaticFilesManager().save_static_file(image_bytes, filename)
-
-    return ImageUrlArtifact(url)
+    dest = ProjectFileDestination.from_situation(filename=f"input.{image_format}", situation="copy_external_file")
+    saved = dest.write_bytes(image_bytes)
+    return ImageUrlArtifact(saved.location)
 
 
 def resolve_localhost_url_to_path(url: str) -> str:
@@ -347,8 +316,8 @@ def load_image_from_url_artifact(image_url_artifact: ImageUrlArtifact) -> ImageA
         ValueError: If image download fails with descriptive error message
     """
     try:
-        image_bytes = image_url_artifact.to_bytes()
-    except (URLError, RequestException, ConnectionError, TimeoutError) as err:
+        image_bytes = File(image_url_artifact.value).read_bytes()
+    except (URLError, RequestException, ConnectionError, TimeoutError, OSError) as err:
         details = (
             f"Failed to download image at '{image_url_artifact.value}'.\n"
             f"If this workflow was shared from another engine installation, "

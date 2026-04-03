@@ -149,15 +149,12 @@ class ExtractAudio(BaseVideoProcessor):
         return f"_extracted_audio_{audio_format}_{audio_quality}"
 
     def _save_audio_artifact(self, audio_bytes: bytes, format_extension: str, suffix: str = "") -> AudioUrlArtifact:
-        """Save audio bytes to static file and return AudioUrlArtifact."""
-        import uuid
-
-        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
-        # Generate meaningful filename
-        filename = f"extracted_audio{suffix}_{uuid.uuid4().hex[:8]}.{format_extension}"
-        url = GriptapeNodes.StaticFilesManager().save_static_file(audio_bytes, filename)
-        return AudioUrlArtifact(url)
+        """Save audio bytes to project storage and return AudioUrlArtifact."""
+        filename = f"extracted_audio{suffix}.{format_extension}"
+        self.set_parameter_value("output_file", filename)
+        dest = self._output_file.build_file()
+        saved = dest.write_bytes(audio_bytes)
+        return AudioUrlArtifact(saved.location)
 
     def process(self) -> AsyncResult[None]:
         """Extract audio from the input video and save as AudioUrlArtifact."""

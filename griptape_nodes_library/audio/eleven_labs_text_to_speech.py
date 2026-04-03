@@ -7,12 +7,12 @@ from typing import Any
 
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
@@ -235,6 +235,13 @@ class ElevenLabsTextToSpeechGeneration(GriptapeProxyNode):
             )
         )
 
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="tts.mp3",
+        )
+        self._output_file.add_parameter()
+
         # Alignment outputs
         self.add_parameter(
             ParameterDict(
@@ -380,11 +387,10 @@ class ElevenLabsTextToSpeechGeneration(GriptapeProxyNode):
 
         # Save audio
         try:
-            filename = f"eleven_tts_{generation_id}.mp3"
-            static_files_manager = GriptapeNodes.StaticFilesManager()
-            saved_url = static_files_manager.save_static_file(audio_bytes, filename)
-            self.parameter_output_values["audio_url"] = AudioUrlArtifact(value=saved_url, name=filename)
-            self._log(f"Saved audio to static storage as {filename}")
+            dest = self._output_file.build_file()
+            saved = await dest.awrite_bytes(audio_bytes)
+            self.parameter_output_values["audio_url"] = AudioUrlArtifact(value=saved.location, name=saved.name)
+            self._log(f"Saved audio as {saved.name}")
         except Exception as e:
             self._log(f"Failed to save audio: {e}")
             self._set_safe_defaults()

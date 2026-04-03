@@ -1,13 +1,12 @@
 import base64
-import uuid
+
+from griptape_nodes.files.project_file import ProjectFileDestination
 
 from griptape_nodes_library.three_d.gltf_artifact import GLTFUrlArtifact
 
 
 def dict_to_gltf_url_artifact(gltf_dict: dict, gltf_format: str | None = None) -> GLTFUrlArtifact:
     """Convert a dictionary representation of a GLTF file to a GLTFArtifact."""
-    from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
     # Get the base64 encoded string
     value = gltf_dict["value"]
     if gltf_dict["type"] == "GLTFUrlArtifact":
@@ -29,6 +28,6 @@ def dict_to_gltf_url_artifact(gltf_dict: dict, gltf_format: str | None = None) -
         else:
             gltf_format = "glb"
 
-    url = GriptapeNodes.StaticFilesManager().save_static_file(gltf_bytes, f"{uuid.uuid4()}.{gltf_format}")
-
-    return GLTFUrlArtifact(url)
+    dest = ProjectFileDestination.from_situation(filename=f"input.{gltf_format}", situation="copy_external_file")
+    saved = dest.write_bytes(gltf_bytes)
+    return GLTFUrlArtifact(saved.location)

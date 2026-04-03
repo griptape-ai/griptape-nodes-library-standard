@@ -67,7 +67,7 @@ class DescribeImage(ControlNode):
         self.add_parameter(
             ParameterList(
                 name="images",
-                input_types=["ImageUrlArtifact", "ImageArtifact"],
+                input_types=["ImageUrlArtifact", "ImageArtifact", "str"],
                 default_value=None,
                 tooltip="The image(s) to be described",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},

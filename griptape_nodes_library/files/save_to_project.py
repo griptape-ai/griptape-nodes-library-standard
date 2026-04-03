@@ -114,7 +114,7 @@ class SaveToProject(SuccessFailureNode):
 
         try:
             destination = self._file_param.build_file()
-            saved_file = destination.write_bytes(content)
+            saved_file = await destination.awrite_bytes(content)
             saved_path = Path(saved_file.resolve())
         except Exception as e:
             msg = f"Failed to write destination file: {e}"

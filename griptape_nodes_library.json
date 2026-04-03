@@ -28,12 +28,8 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-<<<<<<< feature/update-anthropic-models
-    "library_version": "0.67.3",
-=======
-    "library_version": "0.67.2",
->>>>>>> main
-    "engine_version": "0.77.0",
+    "library_version": "0.68.0",
+    "engine_version": "0.78.2",
     "tags": [
       "Griptape",
       "AI"
@@ -1786,6 +1782,17 @@
       }
     },
     {
+      "class_name": "GetClosestAspectRatio",
+      "file_path": "griptape_nodes_library/image/get_closest_aspect_ratio.py",
+      "metadata": {
+        "category": "image",
+        "description": "Pick the candidate aspect ratio whose numeric value is nearest to the target",
+        "display_name": "Get Closest Aspect Ratio",
+        "icon": "ratio",
+        "group": "edit"
+      }
+    },
+    {
       "class_name": "ImageDetails",
       "file_path": "griptape_nodes_library/image/image_details.py",
       "metadata": {
@@ -2549,6 +2556,16 @@
       }
     },
     {
+      "class_name": "SubflowWorkflowNode",
+      "file_path": "griptape_nodes_library/engine/subflow_workflow_node.py",
+      "metadata": {
+        "category": "execution_flow",
+        "description": "Selects and executes a registered workflow, routing inputs and outputs via the workflow shape",
+        "display_name": "Workflow Node",
+        "icon": "Layers"
+      }
+    },
+    {
       "class_name": "AgentToTool",
       "file_path": "griptape_nodes_library/convert/agent_to_tool.py",
       "metadata": {
@@ -2713,6 +2730,17 @@
         "description": "Join multiple path components together to create a file path using appropriate path separators",
         "display_name": "Path Join",
         "icon": "Combine"
+      }
+    },
+    {
+      "class_name": "LoadPdf",
+      "file_path": "griptape_nodes_library/files/load_pdf.py",
+      "metadata": {
+        "category": "files",
+        "description": "Load a local PDF file and extract its text content, with outputs for the full joined text, a per-page list, and page count.",
+        "display_name": "Load PDF",
+        "icon": "file-text",
+        "group": "Input/Output"
       }
     },
     {

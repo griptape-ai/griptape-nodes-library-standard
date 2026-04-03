@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
-import time
 from contextlib import suppress
 from io import BytesIO
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -17,7 +18,6 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_three_d import Parameter3D
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
@@ -302,6 +302,13 @@ class Rodin23DGeneration(GriptapeProxyNode):
             )
         )
 
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="model.glb",
+        )
+        self._output_file.add_parameter()
+
         # Create status parameters for success/failure tracking (at the end)
         self._create_status_parameters(
             result_details_tooltip="Details about the 3D generation result or any errors",
@@ -465,9 +472,9 @@ class Rodin23DGeneration(GriptapeProxyNode):
 
             image_bytes = await self._get_image_bytes(image_input)
             if image_bytes:
-                mime_type = self._detect_image_mime(image_bytes)
-                b64 = base64.b64encode(image_bytes).decode("utf-8")
-                images.append(f"data:{mime_type};base64,{b64}")
+                # Run CPU-bound PIL mime detection + base64 encode in a thread pool
+                data_uri = await asyncio.to_thread(self._make_image_data_uri, image_bytes)
+                images.append(data_uri)
 
         return images
 
@@ -526,6 +533,13 @@ class Rodin23DGeneration(GriptapeProxyNode):
         }
         return mime_map.get(image_format, "image/png")
 
+    @staticmethod
+    def _make_image_data_uri(image_bytes: bytes) -> str:
+        """Encode image bytes to a base64 data URI (CPU-bound, run in thread pool)."""
+        mime_type = Rodin23DGeneration._detect_image_mime(image_bytes)
+        b64 = base64.b64encode(image_bytes).decode("utf-8")
+        return f"data:{mime_type};base64,{b64}"
+
     async def _string_to_bytes(self, value: str) -> bytes | None:
         """Convert a string (URL, data URI, file path, or base64) to raw bytes."""
         try:
@@ -570,8 +584,6 @@ class Rodin23DGeneration(GriptapeProxyNode):
     async def _save_model_files(self, files: list[dict[str, Any]], params: dict[str, Any]) -> None:
         """Download and save the generated 3D model files."""
         requested_format = params["geometry_file_format"]
-        timestamp = int(time.time())
-        static_files_manager = GriptapeNodes.StaticFilesManager()
 
         all_file_urls: list[str] = []
         primary_url: str | None = None
@@ -592,22 +604,22 @@ class Rodin23DGeneration(GriptapeProxyNode):
                     # Create safe filename
                     extension = file_name.rsplit(".", 1)[-1] if "." in file_name else requested_format
                     base_name = file_name.rsplit(".", 1)[0] if "." in file_name else file_name
-                    static_filename = f"rodin2_3d_{timestamp}_{idx}_{base_name}.{extension}"
+                    static_filename = f"rodin2_3d_{idx}_{base_name}.{extension}"
 
-                    saved_url = static_files_manager.save_static_file(
-                        file_bytes, static_filename, ExistingFilePolicy.CREATE_NEW
-                    )
-                    all_file_urls.append(saved_url)
-                    self._log(f"Saved file: {static_filename}")
+                    self.set_parameter_value("output_file", static_filename)
+                    dest = self._output_file.build_file()
+                    saved = await dest.awrite_bytes(file_bytes)
+                    all_file_urls.append(saved.location)
+                    self._log(f"Saved file: {saved.name}")
 
                     # Track primary model file
                     if file_name.lower().endswith(f".{requested_format}") and primary_url is None:
-                        primary_url = saved_url
-                        primary_filename = static_filename
+                        primary_url = saved.location
+                        primary_filename = saved.name
                     elif primary_url is None:
                         # Use first file as fallback
-                        primary_url = saved_url
-                        primary_filename = static_filename
+                        primary_url = saved.location
+                        primary_filename = saved.name
 
             except Exception as e:
                 self._log(f"Failed to save file {file_name}: {e}")

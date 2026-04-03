@@ -6,15 +6,18 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.file import File
+from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.traits.options import Options
 from PIL import Image, ImageDraw
 
-from griptape_nodes_library.utils.image_utils import save_pil_image_to_static_file
+from griptape_nodes_library.utils.image_utils import image_to_bytes
 from griptape_nodes_library.utils.video_utils import to_video_artifact
 from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 
@@ -264,7 +267,7 @@ class CropVideo(BaseVideoProcessor):
                     # Convert to VideoUrlArtifact if needed (handles dict, VideoUrlArtifact, etc.)
                     video_artifact = to_video_artifact(value)
                     if video_artifact and hasattr(video_artifact, "value") and video_artifact.value:
-                        input_url = video_artifact.value
+                        input_url = File(video_artifact.value).resolve()
                         # Only extract if video URL changed
                         if input_url != self._cached_video_url:
                             self._cached_first_frame = self._extract_first_frame(input_url)
@@ -374,7 +377,7 @@ class CropVideo(BaseVideoProcessor):
         if not video_artifact or not hasattr(video_artifact, "value") or not video_artifact.value:
             return None
 
-        input_url = video_artifact.value
+        input_url = File(video_artifact.value).resolve()
 
         try:
             self._validate_url_safety(input_url)
@@ -504,7 +507,15 @@ class CropVideo(BaseVideoProcessor):
         preview_image = self._create_preview_image_with_overlay(preview_size, crop_rect, scale_factor)
 
         try:
-            preview_artifact = save_pil_image_to_static_file(preview_image, "PNG")
+            preview_bytes = image_to_bytes(preview_image, "PNG")
+            dest = ProjectFileDestination.from_situation(
+                filename="preview.png",
+                situation="save_griptape_nodes_preview",
+                source_file_name="crop_video_preview",
+                preview_format="png",
+            )
+            preview_saved = dest.write_bytes(preview_bytes)
+            preview_artifact = ImageUrlArtifact(preview_saved.location)
         except (ValueError, OSError) as e:
             self.append_value_to_parameter("logs", f"Warning: Could not save preview image: {e}\n")
             return

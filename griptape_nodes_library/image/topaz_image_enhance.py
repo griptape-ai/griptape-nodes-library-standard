@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from contextlib import suppress
 from copy import deepcopy
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -783,6 +783,13 @@ class TopazImageEnhance(GriptapeProxyNode):
             )
         )
 
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="topaz_enhanced.jpg",
+        )
+        self._output_file.add_parameter()
+
         # Create status parameters for success/failure tracking
         self._create_status_parameters(
             result_details_tooltip="Details about the image processing result or any errors",
@@ -968,13 +975,12 @@ class TopazImageEnhance(GriptapeProxyNode):
     async def _handle_binary_image_response(self, image_bytes: bytes) -> None:
         """Handle binary image data returned directly from the API."""
         try:
-            filename = f"topaz_enhanced_{int(time.time())}.jpg"
-            static_files_manager = GriptapeNodes.StaticFilesManager()
-            saved_url = static_files_manager.save_static_file(image_bytes, filename)
-            self.parameter_output_values["image_output"] = ImageUrlArtifact(value=saved_url, name=filename)
-            self._log(f"Saved binary image to static storage as {filename}")
+            dest = self._output_file.build_file()
+            saved = await dest.awrite_bytes(image_bytes)
+            self.parameter_output_values["image_output"] = ImageUrlArtifact(value=saved.location, name=saved.name)
+            self._log(f"Saved binary image as {saved.name}")
             self._set_status_results(
-                was_successful=True, result_details=f"Image processed successfully and saved as {filename}."
+                was_successful=True, result_details=f"Image processed successfully and saved as {saved.name}."
             )
         except Exception as e:
             self._log(f"Failed to save binary image: {e}")
@@ -990,13 +996,12 @@ class TopazImageEnhance(GriptapeProxyNode):
             self._log("Downloading image from URL")
             image_bytes = await self._download_bytes_from_url(image_url)
             if image_bytes:
-                filename = f"topaz_enhanced_{int(time.time())}.jpg"
-                static_files_manager = GriptapeNodes.StaticFilesManager()
-                saved_url = static_files_manager.save_static_file(image_bytes, filename)
-                self.parameter_output_values["image_output"] = ImageUrlArtifact(value=saved_url, name=filename)
-                self._log(f"Saved image to static storage as {filename}")
+                dest = self._output_file.build_file()
+                saved = await dest.awrite_bytes(image_bytes)
+                self.parameter_output_values["image_output"] = ImageUrlArtifact(value=saved.location, name=saved.name)
+                self._log(f"Saved image as {saved.name}")
                 self._set_status_results(
-                    was_successful=True, result_details=f"Image processed successfully and saved as {filename}."
+                    was_successful=True, result_details=f"Image processed successfully and saved as {saved.name}."
                 )
             else:
                 self.parameter_output_values["image_output"] = ImageUrlArtifact(value=image_url)

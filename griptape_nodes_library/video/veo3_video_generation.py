@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -10,6 +11,7 @@ from typing import Any
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -18,7 +20,6 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
@@ -281,6 +282,13 @@ class Veo3VideoGeneration(GriptapeProxyNode):
                     ui_options={"pulse_on_run": True, "hide": i > 1},
                 )
             )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="veo3_video.mp4",
+        )
+        self._output_file.add_parameter()
 
         # Create status parameters for success/failure tracking
         self._create_status_parameters(
@@ -690,7 +698,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         else:
             return sanitized
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
+    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
         rai_filtered_count = result_json.get("response", {}).get("raiMediaFilteredCount", 0)
         if rai_filtered_count > 0:
             logger.warning("%s: %s video(s) filtered by RAI", self.name, rai_filtered_count)
@@ -705,7 +713,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             )
             return
 
-        video_artifacts = self._process_videos_from_result(videos_array, generation_id)
+        video_artifacts = await self._process_videos_from_result(videos_array)
         if not video_artifacts:
             logger.warning("%s: No videos could be processed", self.name)
             self._set_safe_defaults()
@@ -717,31 +725,27 @@ class Veo3VideoGeneration(GriptapeProxyNode):
 
         self._set_video_output_parameters(video_artifacts)
 
-    def _process_videos_from_result(
+    async def _process_videos_from_result(
         self,
         videos_array: list[dict[str, Any]],
-        generation_id: str,
     ) -> list[VideoUrlArtifact]:
         """Process all videos from the result array.
 
         Returns a list of VideoUrlArtifact objects.
         """
         video_artifacts = []
-        static_files_manager = GriptapeNodes.StaticFilesManager()
 
         for idx, video_data in enumerate(videos_array, start=1):
-            artifact = self._process_single_video(video_data, generation_id, idx, static_files_manager)
+            artifact = await self._process_single_video(video_data, idx)
             if artifact:
                 video_artifacts.append(artifact)
 
         return video_artifacts
 
-    def _process_single_video(
+    async def _process_single_video(
         self,
         video_data: dict[str, Any],
-        generation_id: str,
         idx: int,
-        static_files_manager: Any,
     ) -> VideoUrlArtifact | None:
         """Process a single video from base64 data.
 
@@ -749,27 +753,21 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         """
         try:
             base64_data = video_data.get("bytesBase64Encoded")
-            mime_type = video_data.get("mimeType", "video/mp4")
 
             if not base64_data:
                 logger.warning("%s: Video %s missing base64 data", self.name, idx)
                 return None
 
             # Decode base64
-            video_bytes = base64.b64decode(base64_data)
+            video_bytes = await asyncio.to_thread(base64.b64decode, base64_data)
 
-            # Determine file extension from mime type
-            extension = "mp4"
-            if "/" in mime_type:
-                extension = mime_type.split("/")[1]
+            # Save using project file parameter with indexed filename
+            dest = self._output_file.build_file(_index=idx)
+            saved = await dest.awrite_bytes(video_bytes)
 
-            # Save to static storage
-            filename = f"veo3_video_{generation_id}_{idx}.{extension}"
-            saved_url = static_files_manager.save_static_file(video_bytes, filename)
+            logger.info("%s: Saved video %s as %s (%s bytes)", self.name, idx, saved.name, len(video_bytes))
 
-            logger.info("%s: Saved video %s as %s (%s bytes)", self.name, idx, filename, len(video_bytes))
-
-            return VideoUrlArtifact(value=saved_url, name=filename)
+            return VideoUrlArtifact(value=saved.location, name=saved.name)
 
         except Exception as e:
             logger.error("%s: Failed to process video %s: %s", self.name, idx, e)

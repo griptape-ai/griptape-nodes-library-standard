@@ -7,11 +7,12 @@ from typing import Any
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.files.file import File
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
@@ -191,6 +192,13 @@ class ResizeVideo(ControlNode):
                 pulse_on_run=True,
             )
         )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="resized_video.mp4",
+        )
+        self._output_file.add_parameter()
         # Group for logging information.
         with ParameterGroup(name="Logs") as logs_group:
             ParameterString(
@@ -431,12 +439,14 @@ class ResizeVideo(ControlNode):
             # Extract original filename from URL and create new filename
             original_filename = Path(input_url).stem  # Get filename without extension
             filename = f"{original_filename}_resized_{settings.scaling_algorithm}.{detected_format}"
-            url = GriptapeNodes.StaticFilesManager().save_static_file(resized_video_bytes, filename)
+            self.set_parameter_value("output_file", filename)
+            dest = self._output_file.build_file()
+            saved = dest.write_bytes(resized_video_bytes)
 
-            self.append_value_to_parameter("logs", f"Successfully resized video: {filename}\n")
+            self.append_value_to_parameter("logs", f"Successfully resized video: {saved.name}\n")
 
             # Create output artifact and save to parameter
-            resized_video_artifact = VideoUrlArtifact(url)
+            resized_video_artifact = VideoUrlArtifact(saved.location)
             self.parameter_output_values["resized_video"] = resized_video_artifact
         except Exception as e:
             error_message = str(e)
@@ -475,7 +485,7 @@ class ResizeVideo(ControlNode):
             video_artifact = to_video_artifact(video)
 
             # Get the video URL directly. Note - we've validated this in validate_before_workflow_run.
-            input_url = video_artifact.value
+            input_url = File(video_artifact.value).resolve()
 
             # Detect video format for output filename
             detected_format = detect_video_format(video)
