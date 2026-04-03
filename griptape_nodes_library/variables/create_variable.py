@@ -2,7 +2,33 @@ import logging
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
-from griptape_nodes.exe_types.node_types import BaseNode, ControlNode
+from griptape_nodes.exe_types.node_types import BaseNode, ControlNode, NodeResolutionState
+from griptape_nodes.retained_mode.events.connection_events import (
+    DeleteConnectionRequest,
+    DeleteConnectionResultSuccess,
+    ListConnectionsForNodeRequest,
+    ListConnectionsForNodeResultSuccess,
+)
+from griptape_nodes.retained_mode.events.node_events import (
+    GetFlowForNodeRequest,
+    GetFlowForNodeResultSuccess,
+)
+from griptape_nodes.retained_mode.events.variable_events import (
+    CreateVariableRequest,
+    CreateVariableResultSuccess,
+    DeleteVariableRequest,
+    DeleteVariableResultSuccess,
+    GetVariableDetailsRequest,
+    GetVariableDetailsResultSuccess,
+    HasVariableRequest,
+    HasVariableResultSuccess,
+    SetVariableTypeRequest,
+    SetVariableTypeResultSuccess,
+    SetVariableValueRequest,
+    SetVariableValueResultSuccess,
+)
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.retained_mode.variable_types import VariableScope
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -83,14 +109,6 @@ class CreateVariable(ControlNode):
 
     def _delete_incoming_connections_to_parameter(self, parameter_name: str) -> None:
         """Helper to delete all incoming connections to a specific parameter."""
-        from griptape_nodes.retained_mode.events.connection_events import (
-            DeleteConnectionRequest,
-            DeleteConnectionResultSuccess,
-            ListConnectionsForNodeRequest,
-            ListConnectionsForNodeResultSuccess,
-        )
-        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
         connections_request = ListConnectionsForNodeRequest(node_name=self.name)
         connections_result = GriptapeNodes.handle_request(connections_request)
 
@@ -113,14 +131,6 @@ class CreateVariable(ControlNode):
 
     def _cleanup_incompatible_value_connections(self) -> None:
         """Remove all connections to/from value parameter that are incompatible with its current type."""
-        from griptape_nodes.retained_mode.events.connection_events import (
-            DeleteConnectionRequest,
-            DeleteConnectionResultSuccess,
-            ListConnectionsForNodeRequest,
-            ListConnectionsForNodeResultSuccess,
-        )
-        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
         connections_request = ListConnectionsForNodeRequest(node_name=self.name)
         connections_result = GriptapeNodes.handle_request(connections_request)
 
@@ -187,12 +197,6 @@ class CreateVariable(ControlNode):
 
     def _get_flow_name(self) -> str:
         """Get the flow name that owns this node."""
-        from griptape_nodes.retained_mode.events.node_events import (
-            GetFlowForNodeRequest,
-            GetFlowForNodeResultSuccess,
-        )
-        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
         flow_request = GetFlowForNodeRequest(node_name=self.name)
         flow_result = GriptapeNodes.handle_request(flow_request)
 
@@ -204,15 +208,6 @@ class CreateVariable(ControlNode):
 
     def _register_variable(self, variable_name: str) -> None:
         """Eagerly register a variable with the VariablesManager."""
-        from griptape_nodes.retained_mode.events.variable_events import (
-            CreateVariableRequest,
-            CreateVariableResultSuccess,
-            HasVariableRequest,
-            HasVariableResultSuccess,
-        )
-        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-        from griptape_nodes.retained_mode.variable_types import VariableScope
-
         current_flow_name = self._get_flow_name()
 
         has_request = HasVariableRequest(
@@ -245,15 +240,6 @@ class CreateVariable(ControlNode):
 
     def _unregister_variable(self, variable_name: str) -> None:
         """Remove a previously registered variable from the VariablesManager."""
-        from griptape_nodes.retained_mode.events.variable_events import (
-            DeleteVariableRequest,
-            DeleteVariableResultSuccess,
-            HasVariableRequest,
-            HasVariableResultSuccess,
-        )
-        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-        from griptape_nodes.retained_mode.variable_types import VariableScope
-
         current_flow_name = self._get_flow_name()
 
         has_request = HasVariableRequest(
@@ -313,26 +299,6 @@ class CreateVariable(ControlNode):
         return value
 
     def process(self) -> None:
-        # Lazy imports to avoid circular import issues
-        from griptape_nodes.retained_mode.events.node_events import (
-            GetFlowForNodeRequest,
-            GetFlowForNodeResultSuccess,
-        )
-        from griptape_nodes.retained_mode.events.variable_events import (
-            CreateVariableRequest,
-            CreateVariableResultSuccess,
-            GetVariableDetailsRequest,
-            GetVariableDetailsResultSuccess,
-            HasVariableRequest,
-            HasVariableResultSuccess,
-            SetVariableTypeRequest,
-            SetVariableTypeResultSuccess,
-            SetVariableValueRequest,
-            SetVariableValueResultSuccess,
-        )
-        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-        from griptape_nodes.retained_mode.variable_types import VariableScope
-
         variable_name = self.get_parameter_value("variable_name")
         variable_type = self.get_parameter_value("variable_type")
         value = self.get_parameter_value("value")
@@ -423,8 +389,6 @@ class CreateVariable(ControlNode):
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
         """Variable nodes have side effects and need to execute every workflow run."""
-        from griptape_nodes.exe_types.node_types import NodeResolutionState
-
         self.make_node_unresolved(
             current_states_to_trigger_change_event={NodeResolutionState.RESOLVED, NodeResolutionState.RESOLVING}
         )
@@ -432,8 +396,6 @@ class CreateVariable(ControlNode):
 
     def validate_before_node_run(self) -> list[Exception] | None:
         """Variable nodes have side effects and need to execute every time they run."""
-        from griptape_nodes.exe_types.node_types import NodeResolutionState
-
         self.make_node_unresolved(
             current_states_to_trigger_change_event={NodeResolutionState.RESOLVED, NodeResolutionState.RESOLVING}
         )
