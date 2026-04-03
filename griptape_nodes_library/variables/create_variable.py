@@ -185,8 +185,111 @@ class CreateVariable(ControlNode):
                             )
                             raise TypeError(error_msg)
 
+    def _get_flow_name(self) -> str:
+        """Get the flow name that owns this node."""
+        from griptape_nodes.retained_mode.events.node_events import (
+            GetFlowForNodeRequest,
+            GetFlowForNodeResultSuccess,
+        )
+        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
+        flow_request = GetFlowForNodeRequest(node_name=self.name)
+        flow_result = GriptapeNodes.handle_request(flow_request)
+
+        if not isinstance(flow_result, GetFlowForNodeResultSuccess):
+            msg = f"Failed to get flow for node '{self.name}': {flow_result.result_details}"
+            raise TypeError(msg)
+
+        return flow_result.flow_name
+
+    def _register_variable(self, variable_name: str) -> None:
+        """Eagerly register a variable with the VariablesManager."""
+        from griptape_nodes.retained_mode.events.variable_events import (
+            CreateVariableRequest,
+            CreateVariableResultSuccess,
+            HasVariableRequest,
+            HasVariableResultSuccess,
+        )
+        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+        from griptape_nodes.retained_mode.variable_types import VariableScope
+
+        current_flow_name = self._get_flow_name()
+
+        has_request = HasVariableRequest(
+            name=variable_name,
+            lookup_scope=VariableScope.CURRENT_FLOW_ONLY,
+            starting_flow=current_flow_name,
+        )
+        has_result = GriptapeNodes.handle_request(has_request)
+
+        if not isinstance(has_result, HasVariableResultSuccess):
+            msg = f"Failed to check if variable '{variable_name}' exists: {has_result.result_details}"
+            raise TypeError(msg)
+
+        if not has_result.exists:
+            variable_type = self.get_parameter_value("variable_type")
+            value = self.get_parameter_value("value")
+
+            create_request = CreateVariableRequest(
+                name=variable_name,
+                type=variable_type,
+                is_global=False,
+                value=value,
+                owning_flow=current_flow_name,
+            )
+            create_result = GriptapeNodes.handle_request(create_request)
+
+            if not isinstance(create_result, CreateVariableResultSuccess):
+                msg = f"Failed to create variable '{variable_name}': {create_result.result_details}"
+                raise TypeError(msg)
+
+    def _unregister_variable(self, variable_name: str) -> None:
+        """Remove a previously registered variable from the VariablesManager."""
+        from griptape_nodes.retained_mode.events.variable_events import (
+            DeleteVariableRequest,
+            DeleteVariableResultSuccess,
+            HasVariableRequest,
+            HasVariableResultSuccess,
+        )
+        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+        from griptape_nodes.retained_mode.variable_types import VariableScope
+
+        current_flow_name = self._get_flow_name()
+
+        has_request = HasVariableRequest(
+            name=variable_name,
+            lookup_scope=VariableScope.CURRENT_FLOW_ONLY,
+            starting_flow=current_flow_name,
+        )
+        has_result = GriptapeNodes.handle_request(has_request)
+
+        if not isinstance(has_result, HasVariableResultSuccess):
+            msg = f"Failed to check if variable '{variable_name}' exists: {has_result.result_details}"
+            raise TypeError(msg)
+
+        if has_result.exists:
+            delete_request = DeleteVariableRequest(
+                name=variable_name,
+                lookup_scope=VariableScope.CURRENT_FLOW_ONLY,
+                starting_flow=current_flow_name,
+            )
+            delete_result = GriptapeNodes.handle_request(delete_request)
+
+            if not isinstance(delete_result, DeleteVariableResultSuccess):
+                msg = f"Failed to delete variable '{variable_name}': {delete_result.result_details}"
+                raise TypeError(msg)
+
     def before_value_set(self, parameter: Parameter, value: Any) -> Any:
-        """Handle changes to the variable_type parameter."""
+        """Handle changes to variable_name (eager registration) and variable_type parameters."""
+        if parameter == self.variable_name_param:
+            old_name = self.get_parameter_value("variable_name")
+
+            if old_name and old_name != value:
+                self._unregister_variable(old_name)
+
+            if value:
+                self._register_variable(value)
+
         if parameter == self.variable_type_param:
             # Step 1: If variable_type_param is set to None or "", assign it to None
             if value is None or value == "":
