@@ -601,12 +601,6 @@ class Rodin23DGeneration(GriptapeProxyNode):
                 file_bytes = await self._download_bytes_from_url(file_url)
 
                 if file_bytes:
-                    # Create safe filename
-                    extension = file_name.rsplit(".", 1)[-1] if "." in file_name else requested_format
-                    base_name = file_name.rsplit(".", 1)[0] if "." in file_name else file_name
-                    static_filename = f"rodin2_3d_{idx}_{base_name}.{extension}"
-
-                    self.set_parameter_value("output_file", static_filename)
                     dest = self._output_file.build_file()
                     saved = await dest.awrite_bytes(file_bytes)
                     all_file_urls.append(saved.location)
