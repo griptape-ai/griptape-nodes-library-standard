@@ -1,6 +1,6 @@
 """Tests for CreateVariable node."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
