@@ -8,21 +8,34 @@ from pathlib import Path
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
+from griptape_nodes.common.macro_parser import MacroSyntaxError, ParsedMacro
 from griptape_nodes.exe_types.core_types import (
+    BadgeData,
     NodeMessageResult,
     Parameter,
     ParameterGroup,
     ParameterMode,
 )
-from griptape_nodes.exe_types.node_types import AsyncResult, NodeResolutionState, SuccessFailureNode
+from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, NodeResolutionState, SuccessFailureNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
-from griptape_nodes.exe_types.param_types.parameter_range import ParameterRange
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.file import File, FileDestination, FileDestinationProvider, FileLoadError
+from griptape_nodes.files.project_file import SITUATION_TO_FILE_POLICY, ProjectFileDestination
+from griptape_nodes.retained_mode.events.connection_events import (
+    ListConnectionsForNodeRequest,
+    ListConnectionsForNodeResultSuccess,
+)
+from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
+from griptape_nodes.retained_mode.events.project_events import (
+    GetSituationRequest,
+    GetSituationResultSuccess,
+    MacroPath,
+)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
-from griptape_nodes.traits.file_system_picker import FileSystemPicker
 from griptape_nodes.traits.options import Options
 
 # static_ffmpeg is dynamically installed by the library loader at runtime
@@ -33,40 +46,55 @@ logger = logging.getLogger("griptape_nodes")
 __all__ = ["ExtractFrames"]
 
 # Constants
-EXTRACTION_MODES = ["All", "List", "Step"]
+EXTRACTION_MODES = ["All", "Step", "List"]
 FRAME_NUMBERING_OPTIONS = ["Keep original frame numbers", "Renumber sequentially"]
 FORMAT_OPTIONS = ["jpg", "png", "webp"]
-DEFAULT_FILENAME_PATTERN = "extract.####.jpg"
+# User path (extension comes from format): hashes set frame padding (#### -> four digits).
+DEFAULT_OUTPUT_FILE_SPEC = "extracted_frames/frames.####"
+DEFAULT_PAD_DIGITS = 4
 DEFAULT_STEP = 2
 MIN_FRAME_NUMBER = 0
-FRAME_RANGE_LENGTH = 2
+DEFAULT_END_FRAME = 100
+FRAME_INDEX_MAX_UI = 1000
 RANGE_PARTS_LENGTH = 2
+_INDEX_MACRO_PATTERN = re.compile(r"\{_index(?:\?\:\d+|\:\d+)?\}")
+
+
+def _index_macro_segment(pad_width: int) -> str:
+    """Official-style optional segment e.g. {_index?:04}; pad_width from #### count."""
+    w = max(1, min(pad_width, 99))
+    token = f"0{w}" if w < 10 else str(w)
+    return f"{{_index?:{token}}}"
 
 
 class ExtractFrames(SuccessFailureNode):
-    """Extract frames from a video to image files using ffmpeg.
+    """Extract frames from a video to image files on disk.
 
     Inputs:
         - video (VideoUrlArtifact): Input video to extract frames from (required)
-        - extraction_mode (str): How to extract frames - "All", "List", or "Step"
-        - frame_range (list[float]): Frame range [start, end] to extract from
+        - extraction_frame_range (group): start_frame and end_frame with optional reset-to-video buttons
+        - extraction_mode (str): All, Step, or List — how frames are chosen between start_frame and end_frame
+        - start_frame (int): First frame index (inclusive) of the extraction window
+        - end_frame (int): Last frame index (inclusive) of the extraction window
         - frame_list (str): Comma/space-separated frame numbers or ranges (e.g., "1, 2, 3, 5-8, 14 27")
         - step (int): Extract every Nth frame (default: 2)
-        - output_folder (str): Folder to save extracted frames (default: relative to static files)
-        - format (str): Output image format - jpg, png, or webp
+        - output_file (str): Human path like extracted_frames/frames.#### (each # is one digit of zero-padding).
+          Extension always comes from format; paths are expanded with save_node_output-style _index and file_extension
+          under the project outputs root. Optional FileOutputSettings or advanced macro strings for experts.
+        - format (str): File format written to disk (jpg/png/webp); overrides the extension in output_file for the actual files
         - overwrite_files (bool): Whether to overwrite existing files
-        - filename_pattern (str): Filename pattern with #### for frame number (default: "extract.####.jpg")
-        - frame_numbering (str): "Keep original frame numbers" or "Renumber sequentially"
+        - frame_numbering (str): "Keep original frame numbers" or "Renumber sequentially" (how _index is chosen)
         - remove_previous_frames (bool): Remove previously generated frames before extracting
 
     Outputs:
-        - frame_paths (list[str]): List of created frame file paths
+        - frame_paths (list[str]): Absolute filesystem paths to each extracted frame file
         - was_successful (bool): Whether the extraction succeeded
         - result_details (str): Details about the extraction result or error
     """
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
+        self._last_synced_video_identity: str | None = None
 
         # INPUTS / PROPERTIES
 
@@ -110,28 +138,72 @@ class ExtractFrames(SuccessFailureNode):
             )
 
         self.add_node_element(video_info_group)
-        with ParameterGroup(name="Extraction Options") as extraction_options_group:
-            # Frame range selector
-            ParameterRange(
-                name="frame_range",
-                default_value=[0.0, 100.0],
-                tooltip="Frame range [start, end] to extract from",
+
+        with ParameterGroup(name="extraction_frame_range") as extraction_frame_range_group:
+            ParameterInt(
+                name="start_frame",
+                default_value=MIN_FRAME_NUMBER,
+                tooltip=(
+                    "Inclusive start frame index for the extraction window. extraction_mode controls how frames "
+                    "are chosen only within this window and end_frame. Use the reset control to set to the first "
+                    "frame of the video."
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                range_slider=True,
-                min_val=0.0,
-                max_val=1000.0,
-                step=1.0,
-                min_label="start frame",
-                max_label="end frame",
-                hide_range_labels=True,
+                min_val=MIN_FRAME_NUMBER,
+                max_val=FRAME_INDEX_MAX_UI,
+                step=1,
+                traits={
+                    Button(
+                        icon="rotate-ccw",
+                        size="icon",
+                        tooltip="Set start frame to the first frame of the video (0)",
+                        on_click=self._reset_start_frame_to_video,
+                    ),
+                },
             )
-            # Extraction mode dropdown
+            ParameterInt(
+                name="end_frame",
+                default_value=DEFAULT_END_FRAME,
+                tooltip=(
+                    "Inclusive end frame index for the extraction window. extraction_mode controls how frames "
+                    "are chosen only within this window and start_frame. Use the reset control to set to the last "
+                    "frame index from the video."
+                ),
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                min_val=MIN_FRAME_NUMBER,
+                max_val=FRAME_INDEX_MAX_UI,
+                step=1,
+                traits={
+                    Button(
+                        icon="rotate-ccw",
+                        size="icon",
+                        tooltip="Set end frame to the last frame index of the video (requires readable frame count)",
+                        on_click=self._reset_end_frame_to_video,
+                    ),
+                },
+            )
+
+        self.add_node_element(extraction_frame_range_group)
+
+        with ParameterGroup(name="Extraction Options") as extraction_options_group:
             ParameterString(
                 name="extraction_mode",
                 default_value=EXTRACTION_MODES[0],
-                tooltip="How to extract frames: All (all frames in range), List (specific frames), Step (every Nth frame)",
+                tooltip="How frames are picked between start frame and end frame (see help badge for All, Step, and List).",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=EXTRACTION_MODES)},
+                badge=BadgeData(
+                    variant="help",
+                    title="Extraction modes",
+                    message=(
+                        "Determines how frames are picked between `start frame` and `end frame`.\n\n"
+                        "**All** — Saves every frame.\n\n"
+                        "**Step** — Saves every Nth frame in that range. For example, step **3** means “every 3rd "
+                        "frame”: keep one frame, skip two, repeat.\n\n"
+                        "**List** — Saves only the frame numbers you enter. Mix single frames and ranges; separate "
+                        "with commas or spaces, e.g. `1, 3, 4-7, 22`."
+                    ),
+                ),
             )
 
             # Frame list string field (shown when mode is "List")
@@ -164,61 +236,87 @@ class ExtractFrames(SuccessFailureNode):
 
         self.add_node_element(extraction_options_group)
 
-        with ParameterGroup(name="Output Options") as output_options_group:
-            # Output folder parameter
-            # Filename pattern
-            ParameterString(
-                name="filename_pattern",
-                default_value=DEFAULT_FILENAME_PATTERN,
-                tooltip='Filename pattern with #### for frame number (e.g., "extract.####.jpg")',
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            )
-            ParameterString(
-                name="output_folder",
-                default_value="frames",
-                tooltip="Folder to save extracted frames (relative to static files location)",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                placeholder_text="extracted_frames",
-                traits={FileSystemPicker(allow_directories=True, allow_create=True, allow_files=False)},
-            )
-
-            # Format dropdown
-            ParameterString(
-                name="format",
-                default_value=FORMAT_OPTIONS[0],
-                tooltip="Output image format",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=FORMAT_OPTIONS)},
-            )
-
-        self.add_node_element(output_options_group)
-
-        with ParameterGroup(name="File Options") as overwrite_options_group:
+        with ParameterGroup(name="Overwrite Options") as overwrite_options_group:
             # Overwrite files option
             ParameterBool(
                 name="overwrite_files",
                 default_value=True,
-                tooltip="Whether to overwrite existing files",
+                tooltip=(
+                    "If a still image with the same name already exists, replace it. Turn off to keep old files and "
+                    "let the node warn you when a name is already taken."
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                badge=BadgeData(
+                    variant="help",
+                    title="Replace images with the same name",
+                    message=(
+                        "When this is on, running the node again can update an image that already uses the same file "
+                        "name. When it is off, the node may stop if that name is already in use. "
+                        "This only affects one name at a time—it does not clear out a whole previous batch. "
+                        "To remove earlier stills before exporting, enable `remove_previous_frames`."
+                    ),
+                ),
             )
 
             # Remove previous frames option
             ParameterBool(
                 name="remove_previous_frames",
                 default_value=False,
-                tooltip="Remove previously generated frames in output folder before extracting",
+                tooltip=(
+                    "Before saving new stills, delete existing images in the output folder that match this export's "
+                    "name pattern and image type (jpg, png, or webp)."
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                badge=BadgeData(
+                    variant="help",
+                    title="Remove old stills in this folder first",
+                    message=(
+                        "When this is on, the node deletes existing images in the same output folder that match the "
+                        "same naming pattern and the format you picked—like frames.0001.png, frames.0002.png, and so on. "
+                        "Use it when you want a clean set of stills or after changing which part of the clip you export. "
+                        "Leave it off if the folder has other work you want to keep untouched."
+                    ),
+                ),
             )
 
         self.add_node_element(overwrite_options_group)
 
+        self.add_parameter(
+            ParameterString(
+                name="format",
+                default_value=FORMAT_OPTIONS[0],
+                tooltip=(
+                    "Image format written to disk. The extension here is used for output files even if output_file shows "
+                    "a different suffix (e.g. .jpg in the path is only a hint)."
+                ),
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Options(choices=FORMAT_OPTIONS)},
+                badge=BadgeData(
+                    variant="help",
+                    title="Image format",
+                    message="The extension used for output files even if `output_file` shows a different suffix (e.g. .jpg in the path is only a hint).",
+                ),
+            )
+        )
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename=DEFAULT_OUTPUT_FILE_SPEC,
+            ui_options={
+                "tooltip": (
+                    "Output path under project outputs, e.g. extracted_frames/frames.#### "
+                    "(one # per digit). Extension always follows the format parameter. Connect FileOutputSettings to customize save policy."
+                ),
+            },
+        )
+        self._output_file.add_parameter()
         # OUTPUTS
         self.add_parameter(
             Parameter(
                 name="frame_paths",
                 output_type="list",
                 type="list",
-                tooltip="List of created frame file paths",
+                tooltip="Absolute paths to each extracted frame file",
                 allowed_modes={ParameterMode.OUTPUT},
                 default_value=[],
             )
@@ -231,9 +329,20 @@ class ExtractFrames(SuccessFailureNode):
             parameter_group_initially_collapsed=True,
         )
 
+    def after_incoming_connection(
+        self,
+        source_node: BaseNode,
+        source_parameter: Parameter,
+        target_parameter: Parameter,
+    ) -> None:
+        if target_parameter.name == "video":
+            # Target value may not be committed yet; read from the upstream port like load_video.
+            incoming_video = source_node.get_parameter_value(source_parameter.name)
+            self._sync_frame_range_after_video_connected(incoming_video)
+        super().after_incoming_connection(source_node, source_parameter, target_parameter)
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to update dependent parameters."""
-        super().after_value_set(parameter, value)
 
         if parameter.name == "extraction_mode":
             if value == "All":
@@ -249,53 +358,72 @@ class ExtractFrames(SuccessFailureNode):
                 self.hide_parameter_by_name("frame_list")
                 self.hide_parameter_by_name("step")
 
-        # Update frame_range max value when video changes
-        # Only update if not currently executing (to avoid modifying user's frame range during execution)
+        # Refresh fps / frame_count when the video source changes (not on every re-application at run).
+        # start/end are updated when the video input is wired (see after_incoming_connection), not here.
         if parameter.name == "video" and self.state != NodeResolutionState.RESOLVING:
-            self._update_frame_range_from_video(value)
-            # Update video information parameters when video changes
-            self._update_video_info()
+            new_identity = self._stable_video_identity(value)
+            if new_identity != self._last_synced_video_identity:
+                self._last_synced_video_identity = new_identity
+                self._update_video_info(value)
 
-    def _update_frame_range_from_video(self, video_input: Any) -> None:
-        """Update the frame_range parameter's max value based on video frame count.
+        super().after_value_set(parameter, value)
 
-        This only updates the max constraint of the ParameterRange, not the actual value.
-        The user's frame range selection is always preserved.
-        """
-        if not video_input:
-            self._reset_frame_range_to_default()
+    def _sync_frame_range_after_video_connected(self, video: Any | None = None) -> None:
+        """Set start/end to the full clip and refresh video metadata after input video is wired."""
+        if video is None:
+            video = self.get_parameter_value("video")
+        if not video:
             return
-
+        self._last_synced_video_identity = self._stable_video_identity(video)
+        self._update_video_info(video)
+        fc_raw = self.get_parameter_value("frame_count")
         try:
-            video_url = self._extract_video_url(video_input)
-            if not video_url:
-                return
-
-            frame_count = self._get_video_frame_count(video_url)
-            if frame_count is None:
-                logger.warning("%s could not determine video frame count, using default max", self.name)
-                return
-
-            max_frame = float(max(frame_count - 1, MIN_FRAME_NUMBER))
-
-            # Only update the max constraint, never modify the actual frame_range value
-            # This preserves the user's selection even when video changes
-            self._update_frame_range_max(max_frame, frame_count)
-
-        except Exception as e:
-            logger.warning("%s failed to update frame range from video: %s", self.name, e)
-
-    def _reset_frame_range_to_default(self) -> None:
-        """Reset frame_range parameter to default max value."""
-        frame_range_param = self.get_parameter_by_name("frame_range")
-        if frame_range_param and isinstance(frame_range_param, ParameterRange):
-            frame_range_param.max_val = 1000.0
+            fc = int(fc_raw) if fc_raw is not None else 0
+        except (TypeError, ValueError):
+            return
+        if fc <= 0:
+            return
+        last = fc - 1
+        self.set_parameter_value("start_frame", MIN_FRAME_NUMBER)
+        self.set_parameter_value("end_frame", last)
 
     def _extract_video_url(self, video_input: Any) -> str | None:
         """Extract video URL from video input."""
         if isinstance(video_input, VideoUrlArtifact):
             return video_input.value
         return str(video_input) if video_input else None
+
+    def _stable_video_identity(self, video_input: Any) -> str | None:
+        """Comparable id for the same on-disk / URL source (macro vs absolute path).
+
+        Avoids treating a re-resolved path on each run as a new video.
+        """
+        url = self._extract_video_url(video_input)
+        if not url or not str(url).strip():
+            return None
+        s = str(url).strip()
+        if s.startswith(("http://", "https://", "file://")):
+            return s
+        try:
+            return str(File(s).resolve())
+        except (ValueError, FileLoadError, OSError):
+            return s
+
+    def _resolve_video_input_for_local_tools(self, location: str) -> str:
+        """Resolve project macro paths (e.g. {inputs}/file.mp4) for ffmpeg/ffprobe.
+
+        Leaves http(s) and file:// URLs unchanged.
+        """
+        if not location or not str(location).strip():
+            return location
+        s = str(location).strip()
+        if s.startswith(("http://", "https://", "file://")):
+            return s
+        try:
+            return File(s).resolve()
+        except FileLoadError as e:
+            msg = f"{self.name}: Could not resolve video path for local processing: {e.result_details}"
+            raise ValueError(msg) from e
 
     def _get_video_fps(self, video_url: str) -> float | None:
         """Get video frame rate (FPS) using ffprobe."""
@@ -340,9 +468,10 @@ class ExtractFrames(SuccessFailureNode):
         ):
             return None
 
-    def _update_video_info(self) -> None:
-        """Update the frame_rate and frame_count parameters based on connected video."""
-        video = self.get_parameter_value("video")
+    def _update_video_info(self, video: Any | None = None) -> None:
+        """Update frame_rate and frame_count from the connected video (read-only for the window)."""
+        if video is None:
+            video = self.get_parameter_value("video")
         if not video:
             self.set_parameter_value("frame_rate", "")
             self.set_parameter_value("frame_count", 0)
@@ -350,6 +479,13 @@ class ExtractFrames(SuccessFailureNode):
 
         video_url = self._extract_video_url(video)
         if not video_url:
+            self.set_parameter_value("frame_rate", "")
+            self.set_parameter_value("frame_count", 0)
+            return
+
+        try:
+            video_url = self._resolve_video_input_for_local_tools(video_url)
+        except ValueError:
             self.set_parameter_value("frame_rate", "")
             self.set_parameter_value("frame_count", 0)
             return
@@ -364,7 +500,6 @@ class ExtractFrames(SuccessFailureNode):
         else:
             self.set_parameter_value("frame_rate", "")
 
-        # Update frame_count
         if frame_count is not None:
             self.set_parameter_value("frame_count", frame_count)
         else:
@@ -380,32 +515,50 @@ class ExtractFrames(SuccessFailureNode):
             altered_workflow_state=False,
         )
 
-    def _update_frame_range_max(self, max_frame: float, total_frames: int) -> None:
-        """Update frame_range max constraint only.
+    def _last_frame_index_from_current_video(self) -> int | None:
+        video = self.get_parameter_value("video")
+        if not video:
+            return None
+        video_url = self._extract_video_url(video)
+        if not video_url:
+            return None
+        try:
+            video_url = self._resolve_video_input_for_local_tools(video_url)
+        except ValueError:
+            return None
+        frame_count = self._get_video_frame_count(video_url)
+        if frame_count is None or frame_count <= 0:
+            return None
+        return frame_count - 1
 
-        This only updates the max_val of the ParameterRange parameter.
-        It does NOT modify the actual frame_range value to preserve user's selection.
-        """
-        frame_range_param = self.get_parameter_by_name("frame_range")
-        if not frame_range_param or not isinstance(frame_range_param, ParameterRange):
-            return
+    def _reset_start_frame_to_video(self, _button: Button, _details: ButtonDetailsMessagePayload) -> NodeMessageResult:
+        self.set_parameter_value("start_frame", MIN_FRAME_NUMBER)
+        return NodeMessageResult(
+            success=True,
+            details="start_frame set to first frame (0)",
+            response=None,
+            altered_workflow_state=True,
+        )
 
-        frame_range_param.max_val = max_frame
-        logger.info("%s updated frame_range max to %.0f (video has %d frames)", self.name, max_frame, total_frames)
-
-    def _adjust_range_to_max(self, frame_range: list[float], max_frame: float) -> list[float]:
-        """Adjust range end if it exceeds max."""
-        start_frame, end_frame = frame_range
-        if end_frame <= max_frame:
-            return frame_range
-
-        new_end = max_frame
-        # Ensure start is not greater than end
-        if start_frame > new_end:
-            new_start = max(0.0, new_end - 1.0)
-            return [new_start, new_end]
-
-        return [start_frame, new_end]
+    def _reset_end_frame_to_video(self, _button: Button, _details: ButtonDetailsMessagePayload) -> NodeMessageResult:
+        last = self._last_frame_index_from_current_video()
+        if last is None:
+            return NodeMessageResult(
+                success=False,
+                details=(
+                    f"{self.name}: Could not determine last frame index. Connect a video and use "
+                    "Refresh Video Info if needed."
+                ),
+                response=None,
+                altered_workflow_state=False,
+            )
+        self.set_parameter_value("end_frame", last)
+        return NodeMessageResult(
+            success=True,
+            details=f"end_frame set to last frame index ({last})",
+            response=None,
+            altered_workflow_state=True,
+        )
 
     def _get_video_frame_count(self, video_url: str) -> int | None:
         """Extract video frame count using ffprobe.
@@ -537,6 +690,14 @@ class ExtractFrames(SuccessFailureNode):
             logger.error("%s validation failed: invalid video URL", self.name)
             return
 
+        try:
+            video_url = self._resolve_video_input_for_local_tools(video_url)
+        except ValueError as e:
+            self._set_safe_defaults()
+            self._set_status_results(was_successful=False, result_details=str(e))
+            logger.error("%s validation failed: %s", self.name, e)
+            return
+
         # Get and validate parameters
         params = self._get_and_validate_parameters(video_url)
         if params is None:
@@ -554,27 +715,26 @@ class ExtractFrames(SuccessFailureNode):
 
     def _perform_extraction_async(self, video_url: str, params: dict[str, Any]) -> None:
         """Perform the actual frame extraction (blocking operation)."""
-        # Get output directory
-        output_dir = self._get_output_directory(params["output_folder"])
-
-        # Remove previous frames if requested
         if params["remove_previous_frames"]:
-            self._remove_previous_frames(output_dir, params["filename_pattern"])
+            first_num = self._first_output_frame_number(params["frames_to_extract"], params["frame_numbering"])
+            first_path = Path(self._resolve_frame_output_path(first_num, params["format_type"]))
+            output_dir = first_path.parent
+            stem_hint = self._output_stem_glob_hint()
+            self._remove_previous_frames_matching_stem(output_dir, params["format_type"], stem_hint)
 
-        # Extract frames
         frame_paths = self._extract_frames(
             video_url=video_url,
             frame_numbers=params["frames_to_extract"],
-            output_dir=output_dir,
             format_type=params["format_type"],
-            filename_pattern=params["filename_pattern"],
             frame_numbering=params["frame_numbering"],
             overwrite_files=params["overwrite_files"],
         )
 
         # Set results after extraction completes
         self.parameter_output_values["frame_paths"] = frame_paths
-        result_details = f"Successfully extracted {len(frame_paths)} frames to {params['output_folder']}"
+        out_spec = self.get_parameter_value("output_file")
+        dest_summary = out_spec if isinstance(out_spec, str) and out_spec.strip() else DEFAULT_OUTPUT_FILE_SPEC
+        result_details = f"Successfully extracted {len(frame_paths)} frames ({dest_summary})"
         self._set_status_results(was_successful=True, result_details=result_details)
         logger.info("%s extracted %d frames successfully", self.name, len(frame_paths))
 
@@ -582,54 +742,39 @@ class ExtractFrames(SuccessFailureNode):
         """Get and validate all parameters."""
         extraction_mode = self.get_parameter_value("extraction_mode") or EXTRACTION_MODES[0]
 
-        # Get frame_range - be explicit about None vs empty list
-        frame_range_raw = self.get_parameter_value("frame_range")
-        if frame_range_raw is None:
-            # Parameter not set, use default
-            frame_range = [0.0, 100.0]
-        else:
-            frame_range = frame_range_raw
-
-        logger.debug("%s read frame_range value: %s (type: %s)", self.name, frame_range, type(frame_range).__name__)
+        start_frame_raw = self.get_parameter_value("start_frame")
+        end_frame_raw = self.get_parameter_value("end_frame")
+        start_frame = int(MIN_FRAME_NUMBER if start_frame_raw is None else start_frame_raw)
+        end_frame = int(DEFAULT_END_FRAME if end_frame_raw is None else end_frame_raw)
+        logger.debug("%s frame window: start=%d end=%d", self.name, start_frame, end_frame)
 
         frame_list_str = self.get_parameter_value("frame_list") or ""
         step = self.get_parameter_value("step") or DEFAULT_STEP
-        output_folder = self.get_parameter_value("output_folder") or "frames"
         format_type = self.get_parameter_value("format") or FORMAT_OPTIONS[0]
         overwrite_files = self.get_parameter_value("overwrite_files") or False
-        filename_pattern = self.get_parameter_value("filename_pattern") or DEFAULT_FILENAME_PATTERN
         frame_numbering = self.get_parameter_value("frame_numbering") or FRAME_NUMBERING_OPTIONS[0]
         remove_previous_frames = self.get_parameter_value("remove_previous_frames") or False
 
-        # Validate frame range
-        if not isinstance(frame_range, list) or len(frame_range) != FRAME_RANGE_LENGTH:
-            self._set_safe_defaults()
-            error_msg = f"{self.name}: Frame range must be a list with two values [start, end]"
-            self._set_status_results(was_successful=False, result_details=error_msg)
-            logger.error("%s validation failed: invalid frame range", self.name)
-            return None
-
-        start_frame = int(frame_range[0])
-        end_frame = int(frame_range[1])
-
         if start_frame < 0 or end_frame < start_frame:
             self._set_safe_defaults()
-            error_msg = f"{self.name}: Invalid frame range - start must be >= 0 and end must be >= start"
+            error_msg = (
+                f"{self.name}: Invalid frame window: start_frame must be >= 0 and end_frame must be >= start_frame"
+            )
             self._set_status_results(was_successful=False, result_details=error_msg)
-            logger.error("%s validation failed: invalid frame range values", self.name)
+            logger.error("%s validation failed: invalid start_frame/end_frame", self.name)
             return None
 
-        # Validate frame range against video frame count if video URL is available
+        # Clamp end_frame to video length when frame count is known
         if video_url:
             video_frame_count = self._get_video_frame_count(video_url)
             if video_frame_count is not None:
                 max_frame = video_frame_count - 1
                 if end_frame > max_frame:
                     logger.warning(
-                        "%s frame range end (%d) exceeds video frame count (%d), clamping to %d",
+                        "%s end_frame (%d) exceeds maximum frame index %d for this video; clamping to %d",
                         self.name,
                         end_frame,
-                        video_frame_count,
+                        max_frame,
                         max_frame,
                     )
                     end_frame = max_frame
@@ -637,7 +782,7 @@ class ExtractFrames(SuccessFailureNode):
                         start_frame = 0
 
         logger.info(
-            "%s extracting frames with range [%d, %d] in mode '%s'",
+            "%s extracting frames in window [%d, %d] with mode '%s'",
             self.name,
             start_frame,
             end_frame,
@@ -677,10 +822,8 @@ class ExtractFrames(SuccessFailureNode):
         return {
             "extraction_mode": extraction_mode,
             "frames_to_extract": frames_to_extract,
-            "output_folder": output_folder,
             "format_type": format_type,
             "overwrite_files": overwrite_files,
-            "filename_pattern": filename_pattern,
             "frame_numbering": frame_numbering,
             "remove_previous_frames": remove_previous_frames,
         }
@@ -744,36 +887,158 @@ class ExtractFrames(SuccessFailureNode):
 
         return frames
 
-    def _get_output_directory(self, output_folder: str) -> Path:
-        """Get output directory path, creating if needed."""
-        if Path(output_folder).is_absolute():
-            output_dir = Path(output_folder)
+    def _first_output_frame_number(self, frame_numbers: list[int], frame_numbering: str) -> int:
+        if not frame_numbers:
+            return MIN_FRAME_NUMBER
+        if frame_numbering == FRAME_NUMBERING_OPTIONS[1]:
+            return 1
+        return frame_numbers[0]
+
+    def _parse_user_output_path(self, spec: str) -> tuple[str, str, int]:
+        """Parse paths like extracted_frames/frames.#### into subdirs, stem, digit width.
+
+        Avoids Path.stem for the basename: a lone .#### is treated as extension by pathlib and would drop padding.
+        """
+        s = spec.strip().replace("\\", "/")
+        parent, sep, name = s.rpartition("/")
+        sub_dirs = parent if sep else ""
+        m_hash = re.search(r"#+", name)
+        if m_hash:
+            pad = len(m_hash.group(0))
+            stem_base = name[: m_hash.start()].rstrip("._") or "frame"
         else:
-            workspace_path = GriptapeNodes.ConfigManager().workspace_path
-            static_files_manager = GriptapeNodes.StaticFilesManager()
-            static_files_dir = static_files_manager._get_static_files_directory()
-            static_files_path = workspace_path / static_files_dir
-            output_dir = static_files_path / output_folder
+            pad = DEFAULT_PAD_DIGITS
+            stem_base = Path(name).stem.strip("._") or "frame"
+        return sub_dirs, stem_base, pad
 
-        # Check if path exists as a file (not a directory) - this would cause errors
+    def _infer_file_name_base_for_expert_macro(self) -> str:
+        """file_name_base for templates that reference it; derive from literal prefix before first brace."""
+        raw = self.get_parameter_value("output_file")
+        if not isinstance(raw, str) or not raw.strip():
+            return "frame"
+        lit = raw.split("{", 1)[0]
+        leaf = Path(lit.rstrip("/")).name
+        stem = Path(leaf).stem if leaf else Path(lit).stem
+        return re.sub(r"#+", "", stem).strip("._") or "frame"
+
+    def _normalize_output_macro_template(self, template: str) -> str:
+        """Connected FileOutputSettings / expert macros: four-digit _index and dot before index if missing."""
+        normalized = _INDEX_MACRO_PATTERN.sub(_index_macro_segment(DEFAULT_PAD_DIGITS), template)
+        return re.sub(r"\}\{_index", "}.{_index", normalized)
+
+    def _output_stem_glob_hint(self) -> str:
+        incoming = self._incoming_output_file_destination()
+        if incoming is not None:
+            template = incoming.location
+        else:
+            raw = self.get_parameter_value("output_file")
+            template = raw if isinstance(raw, str) and raw.strip() else DEFAULT_OUTPUT_FILE_SPEC
+        if "{" in template:
+            segment = template.rsplit("/", 1)[-1]
+            stem_part = segment.split("{", 1)[0].rstrip(".")
+            return stem_part if stem_part else "*"
+        _, stem_base, _ = self._parse_user_output_path(template)
+        return stem_base if stem_base else "*"
+
+    def _variables_for_output_macro(
+        self, template: str, output_frame_num: int, format_type: str
+    ) -> dict[str, str | int]:
+        try:
+            parsed = ParsedMacro(template)
+        except MacroSyntaxError as e:
+            msg = f"{self.name}: Invalid output path macro: {e}"
+            raise ValueError(msg) from e
+        variables: dict[str, str | int] = {
+            "node_name": self.name,
+            "_index": output_frame_num,
+            "file_extension": format_type,
+        }
+        for v in parsed.get_variables():
+            if v.name == "file_name_base":
+                variables["file_name_base"] = self._infer_file_name_base_for_expert_macro()
+        return variables
+
+    def _project_destination_from_template(
+        self, template: str, variables: dict[str, str | int]
+    ) -> ProjectFileDestination:
+        result = GriptapeNodes.handle_request(
+            GetSituationRequest(situation_name=ProjectFileParameter.DEFAULT_SITUATION)
+        )
+        if isinstance(result, GetSituationResultSuccess):
+            on_collision = result.situation.policy.on_collision
+            existing_file_policy = SITUATION_TO_FILE_POLICY.get(on_collision, ExistingFilePolicy.OVERWRITE)
+            create_dirs = result.situation.policy.create_dirs
+        else:
+            existing_file_policy = ExistingFilePolicy.OVERWRITE
+            create_dirs = True
+        try:
+            macro_path = MacroPath(ParsedMacro(template), variables)
+        except MacroSyntaxError as e:
+            msg = f"{self.name}: Invalid output path macro: {e}"
+            raise ValueError(msg) from e
+        return ProjectFileDestination(
+            macro_path,
+            existing_file_policy=existing_file_policy,
+            create_parents=create_dirs,
+        )
+
+    def _resolve_frame_output_path(self, output_frame_num: int, format_type: str) -> str:
+        # Per-frame paths cannot use ProjectFileParameter.build_file() alone: save_node_output expects a single
+        # stem+extension from FilenameParts; we inject _index per frame like seedream's build_file(_index=…) but must
+        # compose the macro template explicitly for ### / subfolders.
+        incoming = self._incoming_output_file_destination()
+        if incoming is not None:
+            template = self._normalize_output_macro_template(incoming.location)
+            if "{" not in template:
+                msg = (
+                    f"{self.name}: Connected file output must be a macro path that includes frame placeholders "
+                    f"(e.g. {{_index?:04}}), got: {template!r}"
+                )
+                raise ValueError(msg)
+            variables = self._variables_for_output_macro(template, output_frame_num, format_type)
+            return self._project_destination_from_template(template, variables).resolve()
+
+        raw = self.get_parameter_value("output_file")
+        spec = raw.strip() if isinstance(raw, str) and raw.strip() else DEFAULT_OUTPUT_FILE_SPEC
+        if "{" in spec:
+            template = self._normalize_output_macro_template(spec)
+            variables = self._variables_for_output_macro(template, output_frame_num, format_type)
+            return self._project_destination_from_template(template, variables).resolve()
+
+        sub_dirs, stem, pad = self._parse_user_output_path(spec)
+        idx = _index_macro_segment(pad)
+        if sub_dirs:
+            friendly_template = f"{{outputs}}/{sub_dirs}/{stem}.{idx}.{{file_extension}}"
+        else:
+            friendly_template = f"{{outputs}}/{stem}.{idx}.{{file_extension}}"
+        variables = {"_index": output_frame_num, "file_extension": format_type}
+        return self._project_destination_from_template(friendly_template, variables).resolve()
+
+    def _incoming_output_file_destination(self) -> FileDestination | None:
+        result = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=self.name))
+        if isinstance(result, ListConnectionsForNodeResultSuccess):
+            for conn in result.incoming_connections:
+                if conn.target_parameter_name == "output_file":
+                    source_node = GriptapeNodes.ObjectManager().attempt_get_object_by_name(conn.source_node_name)
+                    if isinstance(source_node, FileDestinationProvider):
+                        fd = source_node.file_destination
+                        if fd is not None:
+                            return fd
+        return None
+
+    def _resolved_output_path_string(self, path: Path) -> str:
+        return str(path.resolve())
+
+    def _remove_previous_frames_matching_stem(self, output_dir: Path, format_type: str, stem_hint: str) -> None:
+        """Remove files from a prior run in the same output folder."""
+        if stem_hint == "*":
+            glob_pattern = f"*.{format_type}"
+        else:
+            glob_pattern = f"{stem_hint}*.{format_type}"
         if output_dir.exists() and not output_dir.is_dir():
-            error_msg = f"{self.name} output folder path exists as a file, not a directory: {output_dir}"
+            error_msg = f"{self.name} output path is a file, not a directory: {output_dir}"
             raise ValueError(error_msg)
-
-        # Create directory if it doesn't exist (exist_ok=True handles case where it already exists as directory)
         output_dir.mkdir(parents=True, exist_ok=True)
-        return output_dir
-
-    def _remove_previous_frames(self, output_dir: Path, filename_pattern: str) -> None:
-        """Remove previously generated frames matching the filename pattern."""
-        # Convert pattern to glob pattern (replace #### with *)
-        glob_pattern = filename_pattern.replace("####", "*")
-        # Also handle if pattern doesn't have ####
-        if "####" not in filename_pattern and "*" not in glob_pattern:
-            # Try to extract base pattern
-            base_name = Path(filename_pattern).stem
-            glob_pattern = f"{base_name}*"
-
         for file_path in output_dir.glob(glob_pattern):
             if file_path.is_file():
                 try:
@@ -786,21 +1051,19 @@ class ExtractFrames(SuccessFailureNode):
         self,
         video_url: str,
         frame_numbers: list[int],
-        output_dir: Path,
         format_type: str,
-        filename_pattern: str,
         frame_numbering: str,
         *,
         overwrite_files: bool,
     ) -> list[str]:
-        """Extract frames from video using ffmpeg."""
+        """Extract frames from video to still image files."""
         if not frame_numbers:
             return []
 
         try:
             ffmpeg_path, _ = run.get_or_fetch_platform_executables_else_raise()
         except Exception as e:
-            error_msg = f"FFmpeg not found: {e}"
+            error_msg = f"Video export tools are not available on this system. {e}"
             raise ValueError(error_msg) from e
 
         frame_paths = []
@@ -822,22 +1085,18 @@ class ExtractFrames(SuccessFailureNode):
         )
 
         for idx, frame_num in enumerate(frame_numbers):
-            # Determine output frame number
             if renumber:
                 output_frame_num = idx + 1
             else:
                 output_frame_num = frame_num
 
-            # Generate filename from pattern
-            filename = filename_pattern.replace("####", f"{output_frame_num:04d}")
-            # Ensure correct extension
-            filename = Path(filename).with_suffix(f".{format_type}").name
-            output_path = output_dir / filename
+            output_path = Path(self._resolve_frame_output_path(output_frame_num, format_type))
+            output_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Skip if file exists and overwrite is disabled
             if output_path.exists() and not overwrite_files:
                 logger.debug("%s skipping existing frame: %s", self.name, output_path)
-                frame_paths.append(str(output_path))
+                frame_paths.append(self._resolved_output_path_string(output_path))
                 continue
 
             # Build ffmpeg command to extract specific frame
@@ -860,14 +1119,25 @@ class ExtractFrames(SuccessFailureNode):
                 subprocess.run(  # noqa: S603
                     cmd, capture_output=True, text=True, check=True, timeout=60
                 )
-                frame_paths.append(str(output_path))
+                frame_paths.append(self._resolved_output_path_string(output_path))
                 logger.debug("%s extracted frame %d to %s", self.name, frame_num, output_path)
 
             except subprocess.TimeoutExpired as e:
-                error_msg = f"FFmpeg timed out extracting frame {frame_num}: {e}"
+                error_msg = (
+                    f"Saving frame {frame_num} took too long and was stopped. "
+                    f"Try a shorter clip, fewer frames, or check disk and permissions. ({e})"
+                )
                 raise RuntimeError(error_msg) from e
             except subprocess.CalledProcessError as e:
-                error_msg = f"FFmpeg failed to extract frame {frame_num}: {e.stderr}"
+                detail = (e.stderr or str(e)).strip()
+                if len(detail) > 400:
+                    detail = detail[:400] + "..."
+                error_msg = (
+                    f"Could not export frame {frame_num}. "
+                    f"The file or video may be unreadable, or the output location may not be writable."
+                )
+                if detail:
+                    error_msg = f"{error_msg} Detail: {detail}"
                 raise RuntimeError(error_msg) from e
 
         return frame_paths
