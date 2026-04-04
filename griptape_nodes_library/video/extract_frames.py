@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,8 @@ from griptape_nodes.retained_mode.events.connection_events import (
 )
 from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
 from griptape_nodes.retained_mode.events.project_events import (
+    GetPathForMacroRequest,
+    GetPathForMacroResultFailure,
     GetSituationRequest,
     GetSituationResultSuccess,
     MacroPath,
@@ -45,6 +48,9 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["ExtractFrames"]
 
+# Project situation for writes: versioned run folder ({_index}) + per-item names (e.g. frame_number).
+OUTPUT_FILE_SITUATION = "save_node_output_group"
+
 # Constants
 EXTRACTION_MODES = ["All", "Step", "List"]
 FRAME_NUMBERING_OPTIONS = ["Keep original frame numbers", "Renumber sequentially"]
@@ -52,19 +58,31 @@ FORMAT_OPTIONS = ["jpg", "png", "webp"]
 # User path (extension comes from format): hashes set frame padding (#### -> four digits).
 DEFAULT_OUTPUT_FILE_SPEC = "extracted_frames/frames.####"
 DEFAULT_PAD_DIGITS = 4
+DEFAULT_BATCH_INDEX_PAD_DIGITS = 3
 DEFAULT_STEP = 2
 MIN_FRAME_NUMBER = 0
 DEFAULT_END_FRAME = 100
 FRAME_INDEX_MAX_UI = 1000
 RANGE_PARTS_LENGTH = 2
-_INDEX_MACRO_PATTERN = re.compile(r"\{_index(?:\?\:\d+|\:\d+)?\}")
+# {_index…}/ is the versioned run folder (OUTPUT_FILE_SITUATION / batch _index). Other {_index} tokens → frame.
+_LEGACY_INDEX_FRAME_PATTERN = re.compile(r"\{_index(?:\?\:(\d+)|\:(\d+))?\}")
+_BATCH_INDEX_BEFORE_SLASH = re.compile(r"\{_index(?:\?\:\d+|\:\d+)?\}/")  # run folder token before next path segment
+_BATCH_INDEX_PAD_IN_FOLDER_RE = re.compile(r"\{_index(?:\?\:(\d+)|\:(\d+))?\}/")
+_VERSIONED_OUTPUT_SUBDIR_RE = re.compile(r"\{outputs\}/(?:.*/)?([^/{]+)\.\{_index(?:\?\:\d+|\:\d+)?\}/")
 
 
-def _index_macro_segment(pad_width: int) -> str:
-    """Official-style optional segment e.g. {_index?:04}; pad_width from #### count."""
+def _batch_index_macro_segment(pad_width: int) -> str:
+    """Run / batch folder segment e.g. {_index?:03} — aligns with per-save _index versioning."""
     w = max(1, min(pad_width, 99))
     token = f"0{w}" if w < 10 else str(w)
     return f"{{_index?:{token}}}"
+
+
+def _frame_number_macro_segment(pad_width: int) -> str:
+    """Per-frame sequence in the filename e.g. {frame_number?:04} (from #### in friendly paths)."""
+    w = max(1, min(pad_width, 99))
+    token = f"0{w}" if w < 10 else str(w)
+    return f"{{frame_number?:{token}}}"
 
 
 class ExtractFrames(SuccessFailureNode):
@@ -79,11 +97,12 @@ class ExtractFrames(SuccessFailureNode):
         - frame_list (str): Comma/space-separated frame numbers or ranges (e.g., "1, 2, 3, 5-8, 14 27")
         - step (int): Extract every Nth frame (default: 2)
         - output_file (str): Human path like extracted_frames/frames.#### (each # is one digit of zero-padding).
-          Extension always comes from format; paths are expanded with save_node_output-style _index and file_extension
-          under the project outputs root. Optional FileOutputSettings or advanced macro strings for experts.
+          Writes under a versioned folder matching save _index semantics: {outputs}/extracted_frames.{_index}/frames.{frame_number}.jpg.
+          Extension comes from format. Macros: {_index} = run/batch folder, {frame_number} = per-frame sequence.
         - format (str): File format written to disk (jpg/png/webp); overrides the extension in output_file for the actual files
-        - overwrite_files (bool): Whether to overwrite existing files
-        - frame_numbering (str): "Keep original frame numbers" or "Renumber sequentially" (how _index is chosen)
+        - overwrite_files (bool): If true, clears and reuses the latest numbered run folder (e.g. .../extracted_frames.003);
+          if false, creates the next folder (004, ...).
+        - frame_numbering (str): "Keep original frame numbers" or "Renumber sequentially" (how frame_number is chosen)
         - remove_previous_frames (bool): Remove previously generated frames before extracting
 
     Outputs:
@@ -232,8 +251,16 @@ class ExtractFrames(SuccessFailureNode):
                 tooltip="Keep original frame numbers from video or renumber sequentially starting from 1",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=FRAME_NUMBERING_OPTIONS)},
+                badge=BadgeData(
+                    variant="help",
+                    title="Frame numbering",
+                    message=(
+                        "Determines how the frame numbers will be applied to the output files.\n\n"
+                        "**Keep original** — Uses the frame numbers from the video. For example, if extracting every 4 frames, files will be saved with `filename.0001.jpg`, `filename.0005.jpg`, etc.\n\n"
+                        "**Renumber sequentially** — Starts from 1 and increments by 1 for each frame. For example, if extracting every 4 frames, files will be saved with `filename.0001.jpg`, `filename.0002.jpg`, etc."
+                    ),
+                ),
             )
-
         self.add_node_element(extraction_options_group)
 
         with ParameterGroup(name="Overwrite Options") as overwrite_options_group:
@@ -242,18 +269,18 @@ class ExtractFrames(SuccessFailureNode):
                 name="overwrite_files",
                 default_value=True,
                 tooltip=(
-                    "If a still image with the same name already exists, replace it. Turn off to keep old files and "
-                    "let the node warn you when a name is already taken."
+                    "When on, reuses the highest existing numbered output folder after clearing it (same batch path as "
+                    "last run). When off, writes into a new numbered folder (extracted_frames.001, .002, …)."
                 ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 badge=BadgeData(
                     variant="help",
-                    title="Replace images with the same name",
+                    title="Run folder vs new folder",
                     message=(
-                        "When this is on, running the node again can update an image that already uses the same file "
-                        "name. When it is off, the node may stop if that name is already in use. "
-                        "This only affects one name at a time—it does not clear out a whole previous batch. "
-                        "To remove earlier stills before exporting, enable `remove_previous_frames`."
+                        "Outputs go under a versioned subfolder such as `extracted_frames.001`.\n\n"
+                        "**On** — Deletes that folder’s contents from the **latest** number in use, then writes there again.\n\n"
+                        "**Off** — Picks the **next** number so each run keeps earlier batches.\n\n"
+                        "FFmpeg still needs distinct filenames inside the folder; see also `remove_previous_frames`."
                     ),
                 ),
             )
@@ -263,18 +290,18 @@ class ExtractFrames(SuccessFailureNode):
                 name="remove_previous_frames",
                 default_value=False,
                 tooltip=(
-                    "Before saving new stills, delete existing images in the output folder that match this export's "
-                    "name pattern and image type (jpg, png, or webp)."
+                    "Before saving, delete images in this run’s output folder that match this export’s frame filename "
+                    "pattern and format (jpg/png/webp)."
                 ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 badge=BadgeData(
                     variant="help",
                     title="Remove old stills in this folder first",
                     message=(
-                        "When this is on, the node deletes existing images in the same output folder that match the "
-                        "same naming pattern and the format you picked—like frames.0001.png, frames.0002.png, and so on. "
-                        "Use it when you want a clean set of stills or after changing which part of the clip you export. "
-                        "Leave it off if the folder has other work you want to keep untouched."
+                        "Targets only the **current run folder** (the numbered directory like `extracted_frames.003`), "
+                        "not earlier numbered folders.\n\n"
+                        "Deletes files matching the same stem pattern and format, e.g. `frames.0001.jpg` …\n\n"
+                        "Use when iterating on one batch without touching older runs."
                     ),
                 ),
             )
@@ -302,10 +329,12 @@ class ExtractFrames(SuccessFailureNode):
             node=self,
             name="output_file",
             default_filename=DEFAULT_OUTPUT_FILE_SPEC,
+            situation=OUTPUT_FILE_SITUATION,
             ui_options={
                 "tooltip": (
-                    "Output path under project outputs, e.g. extracted_frames/frames.#### "
-                    "(one # per digit). Extension always follows the format parameter. Connect FileOutputSettings to customize save policy."
+                    "Folder and frame pattern under project outputs, e.g. extracted_frames/frames.#### "
+                    "(one # per digit). Frames are written to extracted_frames.001/…, .002/… unless Overwrite reuses "
+                    "the latest. Expert macros: {_index} = run folder, {frame_number} = frame sequence (legacy {_index} in filenames is normalized to frame_number)."
                 ),
             },
         )
@@ -715,9 +744,12 @@ class ExtractFrames(SuccessFailureNode):
 
     def _perform_extraction_async(self, video_url: str, params: dict[str, Any]) -> None:
         """Perform the actual frame extraction (blocking operation)."""
+        run_version, output_template = self._prepare_output_run(params["overwrite_files"])
         if params["remove_previous_frames"]:
             first_num = self._first_output_frame_number(params["frames_to_extract"], params["frame_numbering"])
-            first_path = Path(self._resolve_frame_output_path(first_num, params["format_type"]))
+            first_path = Path(
+                self._resolve_frame_output_path(first_num, params["format_type"], run_version, output_template)
+            )
             output_dir = first_path.parent
             stem_hint = self._output_stem_glob_hint()
             self._remove_previous_frames_matching_stem(output_dir, params["format_type"], stem_hint)
@@ -728,6 +760,8 @@ class ExtractFrames(SuccessFailureNode):
             format_type=params["format_type"],
             frame_numbering=params["frame_numbering"],
             overwrite_files=params["overwrite_files"],
+            run_version=run_version,
+            output_template=output_template,
         )
 
         # Set results after extraction completes
@@ -922,9 +956,24 @@ class ExtractFrames(SuccessFailureNode):
         return re.sub(r"#+", "", stem).strip("._") or "frame"
 
     def _normalize_output_macro_template(self, template: str) -> str:
-        """Connected FileOutputSettings / expert macros: four-digit _index and dot before index if missing."""
-        normalized = _INDEX_MACRO_PATTERN.sub(_index_macro_segment(DEFAULT_PAD_DIGITS), template)
-        return re.sub(r"\}\{_index", "}.{_index", normalized)
+        """Map legacy filename {_index} to {frame_number}; preserve {_index…}/ run-folder tokens."""
+        protected: list[str] = []
+
+        def shield(m: re.Match[str]) -> str:
+            protected.append(m.group(0))
+            return f"__GTN_BATCH_INDEX_{len(protected) - 1}__"
+
+        shielded = _BATCH_INDEX_BEFORE_SLASH.sub(shield, template)
+
+        def repl(m: re.Match[str]) -> str:
+            w = m.group(1) or m.group(2)
+            pad = int(w) if w else DEFAULT_PAD_DIGITS
+            return _frame_number_macro_segment(pad)
+
+        normalized = _LEGACY_INDEX_FRAME_PATTERN.sub(repl, shielded)
+        for i, token in enumerate(protected):
+            normalized = normalized.replace(f"__GTN_BATCH_INDEX_{i}__", token)
+        return re.sub(r"\}\{frame_number", "}.{frame_number", normalized)
 
     def _output_stem_glob_hint(self) -> str:
         incoming = self._incoming_output_file_destination()
@@ -950,7 +999,7 @@ class ExtractFrames(SuccessFailureNode):
             raise ValueError(msg) from e
         variables: dict[str, str | int] = {
             "node_name": self.name,
-            "_index": output_frame_num,
+            "frame_number": output_frame_num,
             "file_extension": format_type,
         }
         for v in parsed.get_variables():
@@ -962,7 +1011,7 @@ class ExtractFrames(SuccessFailureNode):
         self, template: str, variables: dict[str, str | int]
     ) -> ProjectFileDestination:
         result = GriptapeNodes.handle_request(
-            GetSituationRequest(situation_name=ProjectFileParameter.DEFAULT_SITUATION)
+            GetSituationRequest(situation_name=OUTPUT_FILE_SITUATION)
         )
         if isinstance(result, GetSituationResultSuccess):
             on_collision = result.situation.policy.on_collision
@@ -982,37 +1031,126 @@ class ExtractFrames(SuccessFailureNode):
             create_parents=create_dirs,
         )
 
-    def _resolve_frame_output_path(self, output_frame_num: int, format_type: str) -> str:
-        # Per-frame paths cannot use ProjectFileParameter.build_file() alone: save_node_output expects a single
-        # stem+extension from FilenameParts; we inject _index per frame like seedream's build_file(_index=…) but must
-        # compose the macro template explicitly for ### / subfolders.
+    def _outputs_root_dir(self) -> Path:
+        result = GriptapeNodes.handle_request(
+            GetPathForMacroRequest(parsed_macro=ParsedMacro("{outputs}"), variables={})
+        )
+        if isinstance(result, GetPathForMacroResultFailure):
+            msg = f"{self.name}: Could not resolve project outputs directory: {result.result_details}"
+            raise ValueError(msg)
+        abs_path = getattr(result, "absolute_path", None)
+        if abs_path is None:
+            msg = f"{self.name}: Could not resolve project outputs directory."
+            raise ValueError(msg)
+        return Path(abs_path)
+
+    def _template_uses_versioned_output_folder(self, template: str) -> bool:
+        return _VERSIONED_OUTPUT_SUBDIR_RE.search(template) is not None
+
+    def _batch_index_padding_from_template(self, template: str) -> int:
+        m = _BATCH_INDEX_PAD_IN_FOLDER_RE.search(template)
+        if m:
+            w = m.group(1) or m.group(2)
+            return max(1, min(int(w), 99))
+        return DEFAULT_BATCH_INDEX_PAD_DIGITS
+
+    def _inject_batch_index_into_expert_template(self, template: str) -> str:
+        if _BATCH_INDEX_BEFORE_SLASH.search(template):
+            return template
+        m = re.match(r"^(\{outputs\}/)([^{}/]+)/(.+)$", template)
+        if m:
+            batch_seg = _batch_index_macro_segment(DEFAULT_BATCH_INDEX_PAD_DIGITS)
+            return f"{m.group(1)}{m.group(2)}.{batch_seg}/{m.group(3)}"
+        return template
+
+    def _folder_base_for_versioned_output(self, template: str) -> str:
+        m = _VERSIONED_OUTPUT_SUBDIR_RE.search(template)
+        if m:
+            return m.group(1)
+        safe = re.sub(r"[^\w\-]+", "_", self.name).strip("_")
+        return safe or "extract_frames"
+
+    def _friendly_versioned_macro_template(self, sub_dirs: str, stem: str, pad: int) -> str:
+        frame_seg = _frame_number_macro_segment(pad)
+        batch_seg = _batch_index_macro_segment(DEFAULT_BATCH_INDEX_PAD_DIGITS)
+        if sub_dirs:
+            if "/" in sub_dirs:
+                parent, leaf = sub_dirs.rsplit("/", 1)
+                middle = f"{parent}/{leaf}.{batch_seg}"
+            else:
+                middle = f"{sub_dirs}.{batch_seg}"
+        else:
+            middle = f"{stem}.{batch_seg}"
+        return f"{{outputs}}/{middle}/{stem}.{frame_seg}.{{file_extension}}"
+
+    def _output_template_and_folder_base(self) -> tuple[str, str]:
         incoming = self._incoming_output_file_destination()
         if incoming is not None:
             template = self._normalize_output_macro_template(incoming.location)
             if "{" not in template:
                 msg = (
                     f"{self.name}: Connected file output must be a macro path that includes frame placeholders "
-                    f"(e.g. {{_index?:04}}), got: {template!r}"
+                    f"(e.g. {{frame_number?:04}}), got: {template!r}"
                 )
                 raise ValueError(msg)
-            variables = self._variables_for_output_macro(template, output_frame_num, format_type)
-            return self._project_destination_from_template(template, variables).resolve()
+            template = self._inject_batch_index_into_expert_template(template)
+            folder_base = self._folder_base_for_versioned_output(template)
+            return template, folder_base
 
         raw = self.get_parameter_value("output_file")
         spec = raw.strip() if isinstance(raw, str) and raw.strip() else DEFAULT_OUTPUT_FILE_SPEC
         if "{" in spec:
             template = self._normalize_output_macro_template(spec)
-            variables = self._variables_for_output_macro(template, output_frame_num, format_type)
-            return self._project_destination_from_template(template, variables).resolve()
+            template = self._inject_batch_index_into_expert_template(template)
+            folder_base = self._folder_base_for_versioned_output(template)
+            return template, folder_base
 
         sub_dirs, stem, pad = self._parse_user_output_path(spec)
-        idx = _index_macro_segment(pad)
-        if sub_dirs:
-            friendly_template = f"{{outputs}}/{sub_dirs}/{stem}.{idx}.{{file_extension}}"
-        else:
-            friendly_template = f"{{outputs}}/{stem}.{idx}.{{file_extension}}"
-        variables = {"_index": output_frame_num, "file_extension": format_type}
-        return self._project_destination_from_template(friendly_template, variables).resolve()
+        template = self._friendly_versioned_macro_template(sub_dirs, stem, pad)
+        folder_base = stem if not sub_dirs else sub_dirs.rsplit("/", 1)[-1]
+        return template, folder_base
+
+    def _allocate_output_run_version(
+        self, outputs_root: Path, folder_base: str, overwrite: bool, pad: int
+    ) -> int:
+        width = max(1, min(pad, 99))
+        prefix = f"{folder_base}."
+        max_n = 0
+        found_any = False
+        if outputs_root.is_dir():
+            for p in outputs_root.iterdir():
+                if not p.is_dir():
+                    continue
+                name = p.name
+                if name.startswith(prefix):
+                    suffix = name[len(prefix) :]
+                    if suffix.isdigit():
+                        found_any = True
+                        max_n = max(max_n, int(suffix))
+        if overwrite:
+            n = max_n if found_any else 1
+            target = outputs_root / f"{folder_base}.{n:0{width}d}"
+            if target.exists():
+                shutil.rmtree(target)
+            return n
+        return max_n + 1 if found_any else 1
+
+    def _prepare_output_run(self, overwrite_files: bool) -> tuple[int, str]:
+        template, folder_base = self._output_template_and_folder_base()
+        if not self._template_uses_versioned_output_folder(template):
+            return 1, template
+        run_pad = self._batch_index_padding_from_template(template)
+        outputs_root = self._outputs_root_dir()
+        run_n = self._allocate_output_run_version(outputs_root, folder_base, overwrite_files, run_pad)
+        return run_n, template
+
+    def _resolve_frame_output_path(
+        self, output_frame_num: int, format_type: str, run_version: int, template: str
+    ) -> str:
+        variables = self._variables_for_output_macro(template, output_frame_num, format_type)
+        if self._template_uses_versioned_output_folder(template):
+            variables["_index"] = run_version
+        return self._project_destination_from_template(template, variables).resolve()
 
     def _incoming_output_file_destination(self) -> FileDestination | None:
         result = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=self.name))
@@ -1055,6 +1193,8 @@ class ExtractFrames(SuccessFailureNode):
         frame_numbering: str,
         *,
         overwrite_files: bool,
+        run_version: int,
+        output_template: str,
     ) -> list[str]:
         """Extract frames from video to still image files."""
         if not frame_numbers:
@@ -1090,7 +1230,9 @@ class ExtractFrames(SuccessFailureNode):
             else:
                 output_frame_num = frame_num
 
-            output_path = Path(self._resolve_frame_output_path(output_frame_num, format_type))
+            output_path = Path(
+                self._resolve_frame_output_path(output_frame_num, format_type, run_version, output_template)
+            )
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Skip if file exists and overwrite is disabled
