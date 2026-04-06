@@ -32,18 +32,15 @@ MODEL_MAPPING = {
 
 DEFAULT_MODEL = "Wan 2.7 Image"
 
-# Size options (pixel count must be between 589,824 and 16,777,216)
-SIZE_OPTIONS = [
-    "1024*1024",
-    "1280*720",
-    "720*1280",
-    "1920*1080",
-    "1080*1920",
-    "768*768",
-    "1024*576",
-    "576*1024",
-    "2048*2048",
-]
+# Size presets supported by the API
+SIZE_PRESETS = ["Custom", "1K", "2K", "4K"]
+
+# Pixel constraints per model
+# wan2.7-image: 768*768 to 2048*2048, no 4K
+# wan2.7-image-pro: 768*768 to 4096*4096 (4K only for text-to-image)
+MIN_DIMENSION = 768
+MAX_DIMENSION_STANDARD = 2048
+MAX_DIMENSION_PRO = 4096
 
 
 class WanImageGeneration(GriptapeProxyNode):
@@ -53,11 +50,13 @@ class WanImageGeneration(GriptapeProxyNode):
         - model (str): Wan model to use (default: "Wan 2.7 Image")
         - prompt (str): Text description of the desired image
         - negative_prompt (str): Text description of what to avoid
-        - size (str): Output image dimensions (default: "1024*1024")
-        - n (int): Number of images to generate (1-12, default: 1)
+        - size_preset (str): Named resolution preset ("1K", "2K", "4K") or "Custom"
+        - width (int): Output width in pixels (used when size_preset is "Custom")
+        - height (int): Output height in pixels (used when size_preset is "Custom")
+        - n (int): Number of images to generate (1-4, default: 4)
+        - thinking_mode (bool): Improves quality at cost of longer generation time (default: True)
         - randomize_seed (bool): If true, randomize the seed on each run
         - seed (int): Random seed for reproducible results
-        - prompt_extend (bool): Enable intelligent prompt rewriting (default: True)
 
     Outputs:
         - generation_id (str): Generation ID from the API
@@ -110,35 +109,59 @@ class WanImageGeneration(GriptapeProxyNode):
             )
         )
 
-        # Size parameter
+        # Size parameters
         self.add_parameter(
-            ParameterString(
-                name="size",
-                default_value="1024*1024",
-                tooltip="Output image dimensions (width*height). Total pixels must be between 589,824 and 16,777,216.",
+            Parameter(
+                name="size_preset",
+                input_types=["str"],
+                type="str",
+                default_value="2K",
+                tooltip="Named resolution preset. Select 'Custom' to specify exact width and height. wan2.7-image does not support 4K.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=SIZE_OPTIONS)},
+                traits={Options(choices=SIZE_PRESETS)},
+            )
+        )
+
+        self.add_parameter(
+            ParameterInt(
+                name="width",
+                default_value=1024,
+                tooltip="Output width in pixels (used when size_preset is 'Custom'). Aspect ratio must be between 1:8 and 8:1.",
+                allow_output=False,
+                min_val=MIN_DIMENSION,
+                max_val=MAX_DIMENSION_PRO,
+            )
+        )
+
+        self.add_parameter(
+            ParameterInt(
+                name="height",
+                default_value=1024,
+                tooltip="Output height in pixels (used when size_preset is 'Custom'). Aspect ratio must be between 1:8 and 8:1.",
+                allow_output=False,
+                min_val=MIN_DIMENSION,
+                max_val=MAX_DIMENSION_PRO,
             )
         )
 
         with ParameterGroup(name="Generation Settings", ui_options={"collapsed": True}) as generation_settings_group:
             ParameterInt(
                 name="n",
-                default_value=1,
-                tooltip="Number of images to generate (1-12)",
+                default_value=4,
+                tooltip="Number of images to generate (1-4). Cost scales with number of images.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Slider(min_val=1, max_val=12)},
+                traits={Slider(min_val=1, max_val=4)},
+            )
+
+            ParameterBool(
+                name="thinking_mode",
+                default_value=True,
+                tooltip="Improves image quality at the cost of longer generation time. Only effective for text-to-image without image input.",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
 
             self._seed_parameter = SeedParameter(self)
             self._seed_parameter.add_input_parameters(inside_param_group=True)
-
-            ParameterBool(
-                name="prompt_extend",
-                default_value=True,
-                tooltip="Enable intelligent prompt rewriting to improve generation quality",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            )
 
         self.add_node_element(generation_settings_group)
 
@@ -195,13 +218,23 @@ class WanImageGeneration(GriptapeProxyNode):
         model = self.get_parameter_value("model") or DEFAULT_MODEL
         return MODEL_MAPPING.get(str(model), str(model))
 
+    def _resolve_size(self) -> str:
+        """Resolve the size parameter from preset or custom width/height."""
+        size_preset = self.get_parameter_value("size_preset") or "2K"
+        if size_preset != "Custom":
+            return size_preset
+
+        width = self.get_parameter_value("width") or 1024
+        height = self.get_parameter_value("height") or 1024
+        return f"{int(width)}*{int(height)}"
+
     async def _build_payload(self) -> dict[str, Any]:
         prompt = self.get_parameter_value("prompt") or ""
         negative_prompt = self.get_parameter_value("negative_prompt") or ""
-        size = self.get_parameter_value("size") or "1024*1024"
-        n = self.get_parameter_value("n") or 1
+        size = self._resolve_size()
+        n = self.get_parameter_value("n") or 4
         seed = self._seed_parameter.get_seed()
-        prompt_extend = self.get_parameter_value("prompt_extend")
+        thinking_mode = self.get_parameter_value("thinking_mode")
 
         # Build content array with text prompt
         content = [{"text": prompt}]
@@ -220,7 +253,7 @@ class WanImageGeneration(GriptapeProxyNode):
                 "n": int(n),
                 "size": size,
                 "seed": seed,
-                "prompt_extend": prompt_extend if prompt_extend is not None else True,
+                "thinking_mode": thinking_mode if thinking_mode is not None else True,
             },
         }
 
