@@ -38,9 +38,13 @@ The `.scratch/` directory is for temporary working files and MUST NOT be committ
 
 Store the API key in `.api_key` so downstream skills can read it without it being embedded in the spec.
 
-## 4. Fetch and Read API Documentation
+## 4. Resolve URLs and Fetch API Documentation
 
-Use `WebFetch` on the service URL and any docs links found in the issue. Extract and understand:
+**URL resolution:** Issue bodies often contain shortened URLs (t.co, bit.ly, etc.) or redirect URLs. Before fetching, resolve any shortened URLs to their final destinations using `curl -Ls -o /dev/null -w '%{url_effective}' <url>`. This ensures you fetch the actual documentation page.
+
+**Preferred approach:** Many API documentation sites (Alibaba Cloud, Replicate, etc.) are SPAs that return empty content via `WebFetch`. **Start with `/agent-browser`** to render the documentation page and extract its text content. This is the most reliable approach and avoids wasting time on empty WebFetch responses.
+
+Use the documentation to extract and understand:
 
 - Base URL and endpoint paths
 - Authentication method (Bearer token, API key header, JWT, OAuth, etc.)
@@ -51,25 +55,36 @@ Use `WebFetch` on the service URL and any docs links found in the issue. Extract
 - Rate limits and quotas
 - Error response format and status codes
 
-**Fallback strategies when docs are inaccessible** (e.g. JS-rendered pages that return empty content):
-1. Use the `/agent-browser` skill to render JS-heavy documentation pages and extract their text content. This is the most reliable approach for SPA-based doc sites.
+**Fallback strategies if agent-browser is unavailable or insufficient:**
+1. Try `WebFetch` on the docs URL (works for static HTML docs)
 2. Search for an OpenAPI/Swagger spec URL (often at `/openapi.json` or similar)
 3. Check if the provider has a model listing endpoint (e.g. `/v1/models`) and call it to discover available model IDs programmatically
 4. Search GitHub for the provider's official SDK source code, which often contains endpoint URLs, request schemas, and model ID constants
 5. Use web search to find blog posts, tutorials, or community documentation
 6. Try the provider's API with common endpoint patterns and inspect error messages for clues about the correct schema
 
-**Important:** Do not rely solely on API trial-and-error to determine parameter schemas. Even if a request succeeds, you may miss optional parameters, constraints, or valid value ranges. Always prefer reading the actual documentation (via agent-browser if needed) over reverse-engineering.
+**Important:** Do not rely solely on API trial-and-error to determine parameter schemas. Even if a request succeeds, you may miss optional parameters, constraints, or valid value ranges. Always prefer reading the actual documentation over reverse-engineering.
 
 ## 5. Verify Model IDs Before Proceeding
 
-Before writing exploration tests, verify that the model IDs from the documentation actually work. Many providers use different IDs than what their docs suggest.
+Before writing exploration tests, verify that **all** model IDs from the documentation actually work. Many providers use different IDs than what their docs suggest.
 
 1. If the provider has a model listing endpoint, call it and confirm the exact model ID strings.
-2. If no listing endpoint exists, make a minimal test request with the documented model ID and check that you don't get a "model not found" error.
+2. If no listing endpoint exists, make a minimal test request with each documented model ID and check that you don't get a "model not found" error.
 3. If the documented model IDs fail, try variations (e.g. with/without version suffixes, different casing, hyphenated vs underscored).
 
-Do NOT proceed to write the spec until you have confirmed at least one model ID works with a successful API call.
+Do NOT proceed to write the spec until you have confirmed that **every** model ID you plan to include works with a successful API call. Remove any model IDs that cannot be verified.
+
+## 5b. Verify Request Body Structure
+
+Many APIs have non-obvious request body structures (e.g. nested under `input.messages` instead of top-level `messages`, or wrapped in a `parameters` object). Before writing the full test suite:
+
+1. Make a minimal request with what you believe is the correct body structure.
+2. If it fails, read the error message carefully. Providers often return the expected field path (e.g. "Field required: input.messages").
+3. Adjust and retry until you get a successful response.
+4. Record the exact working request body structure. This is what goes into the spec's "Request/Response Examples" section.
+
+Do NOT write the spec's endpoint schema based solely on documentation. The spec MUST reflect the request structure that was verified to work with a live API call.
 
 ## 6. Write and Run Exploration Test Scripts
 

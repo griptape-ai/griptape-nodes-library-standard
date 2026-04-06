@@ -63,9 +63,11 @@ If this is a new provider (not already in the enum), edit `control_plane/api/gri
 
 Add a new `ServiceModelConfigProvider` choice tuple. Follow the existing pattern.
 
-## 6. Create the Proxy Client
+## 6. Create or Update the Proxy Client
 
-Create a new file at `control_plane/api/griptapecloud/components/proxy/clients/<provider_name>.py`.
+**Important:** Before creating a new file, check if the provider already has an existing client file at `control_plane/api/griptapecloud/components/proxy/clients/<provider_name>.py`. Some providers (e.g. DashScope, ElevenLabs) have multiple client classes in a single file. If a file already exists for this provider, add your new client class to the existing file instead of creating a new one. Study the existing classes in that file and follow their patterns.
+
+If no file exists for this provider, create a new file at `control_plane/api/griptapecloud/components/proxy/clients/<provider_name>.py`.
 
 ### Required Implementation
 
@@ -208,23 +210,23 @@ First check if containers are already running from a previous session:
 docker compose ps
 ```
 
-If containers are already running, you can skip `make up/debug`. If ports are in conflict (e.g. postgres on 54320), stop the existing containers first with `make down` before starting fresh.
+If containers are already running and healthy, you can skip starting them. If ports are in conflict (e.g. postgres on 54320), stop the existing containers first with `make down` before starting fresh.
 
-If no containers are running:
+If no containers are running, start them in **detached mode** (the `make up/debug` target runs in the foreground, which blocks the terminal):
 
 ```bash
-make up/debug
+docker compose -f docker-compose.debug.yaml up -d
 ```
 
-Wait for all services to be healthy. The local setup includes:
+Wait for services to become healthy. You can check status with `docker compose ps`. The local setup includes:
 - Django API at `http://localhost:8000`
 - PostgreSQL, Redis, MinIO
 - Celery workers for async task processing
 - Auth is disabled (auto-login)
 
-Verify the server is up:
+Verify the server is up by checking that it responds (note: `/api/` may return 404, try a known endpoint or just check for any HTTP response):
 ```bash
-curl -s http://localhost:8000/api/ | head -20
+curl -sv http://localhost:8000/api/ 2>&1 | head -20
 ```
 
 ### Ensure MinIO bucket exists
