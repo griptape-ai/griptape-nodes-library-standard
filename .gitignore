@@ -201,6 +201,9 @@ cython_debug/
 #   you could uncomment the following to ignore the entire vscode folder
 # .vscode/
 
+# Scratch work (API research specs, test scripts, etc.)
+.scratch/
+
 # Ruff stuff:
 .ruff_cache/
 
