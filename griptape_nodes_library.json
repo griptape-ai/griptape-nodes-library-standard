@@ -1686,6 +1686,17 @@
       }
     },
     {
+      "class_name": "WanImageGeneration",
+      "file_path": "griptape_nodes_library/image/wan_image_generation.py",
+      "metadata": {
+        "category": "image",
+        "description": "Generate images using Wan 2.7 models via Griptape model proxy",
+        "display_name": "Wan Image Generation",
+        "group": "create",
+        "icon": "Sparkles"
+      }
+    },
+    {
       "class_name": "AddTextToImage",
       "file_path": "griptape_nodes_library/image/add_text_to_image.py",
       "metadata": {
