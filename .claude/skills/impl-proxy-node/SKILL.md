@@ -336,11 +336,15 @@ Study the existing test carefully and replicate its structure. Key patterns:
 
 The local griptape-cloud infrastructure should still be running from the `/impl-proxy-client` phase.
 
+**Important:** Use `uv run python` (not bare `python`) to ensure the correct virtual environment and dependencies are available:
+
 ```bash
-GT_CLOUD_PROXY_BASE_URL=http://localhost:8000 GT_CLOUD_PROXY_API_KEY=local python -m pytest tests/integration/test_<provider>_<modality>.py -v
+GT_CLOUD_PROXY_BASE_URL=http://localhost:8000 GT_CLOUD_PROXY_API_KEY=local uv run python -m pytest tests/integration/test_<provider>_<modality>.py -v
 ```
 
 These proxy-specific env vars override only the proxy endpoint and API key without affecting other engine systems (file storage, user auth, etc.) that use `GT_CLOUD_BASE_URL` / `GT_CLOUD_API_KEY`. The `GT_CLOUD_PROXY_API_KEY` must NOT start with `gt-` when targeting local infra, because the local server's `ApiKeyAuthenticator` would reject any `gt-` token not in its DB. A non-`gt-` value like `local` falls through to `LocalUserAuthenticator` which auto-authenticates.
+
+**Test all model IDs:** If the node supports multiple models, run the test once for each model ID to verify they all work through the proxy. You can parameterize the test or run it multiple times with different `--json-input` values.
 
 If the test fails:
 - Check the node's `_build_payload()` output matches what the proxy client expects

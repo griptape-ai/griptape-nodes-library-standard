@@ -2,13 +2,13 @@
 name: new-proxy-service
 description: End-to-end implementation of a new proxy service. Takes a GitHub issue and API key, produces a working proxy client and node with PRs in both repos.
 argument-hint: <owner/repo#issue> --key <api-key>
-allowed-tools: Bash Read Write Edit Grep Glob WebFetch Skill
+allowed-tools: Bash Read Write Edit Grep Glob WebFetch Skill Agent
 disable-model-invocation: false
 ---
 
 # Implement a New Proxy Service End-to-End
 
-This skill orchestrates the full implementation of a new proxy service, from API research through to PRs in both repos.
+This skill orchestrates the full implementation of a new proxy service, from API research through to PRs in both repos. Each phase runs in a subagent to keep context clean.
 
 Input: `$ARGUMENTS` should contain a GitHub issue reference and API key, e.g.:
 ```
@@ -17,19 +17,26 @@ griptape-ai/griptape-nodes#4176 --key sk-xxx
 
 ## Phase 1: Research the API
 
-Run the `/api-research` skill:
+Launch a subagent to run the `/api-research` skill:
 
 ```
-/api-research $ARGUMENTS
+Use the Agent tool to launch a general-purpose subagent with this prompt:
+
+"Run the /api-research skill with arguments: $ARGUMENTS
+
+Use the Skill tool to invoke it. When it completes, read the generated spec file
+at .scratch/proxy-spec-<service-name>/spec.md and report back:
+1. The spec file path
+2. The service name
+3. The model IDs found
+4. Whether it's sync or async
+5. The full contents of the Request/Response Examples section (so we can verify real data)"
 ```
 
-This produces a spec file at `.scratch/proxy-spec-<service-name>/spec.md` and saves the API key to `.scratch/proxy-spec-<service-name>/.api_key`.
-
-After it completes, read the spec file to confirm it looks reasonable. Verify:
+After the subagent completes, read the spec file yourself and verify:
 - All sections are populated
-- Model IDs are defined **and were verified with a successful API call** (check the Request/Response Examples section for real response data)
+- Model IDs are defined **and were verified with a successful API call** (the Request/Response Examples section should contain real response data, not placeholders)
 - The endpoint path was verified with a successful API call
-- Request/response examples look correct and contain real data (not placeholders)
 - Classification (sync/async) is determined
 
 **Gate check:** If the spec's Request/Response Examples section does not contain a real successful response, do NOT proceed to Phase 2. The spec must be backed by at least one verified successful API call to avoid building on incorrect assumptions.
@@ -38,20 +45,22 @@ Note the spec file path for the next phases.
 
 ## Phase 2: Implement the Proxy Client
 
-Run the `/impl-proxy-client` skill from the griptape-cloud repo:
+Launch a subagent to run the `/impl-proxy-client` skill:
 
 ```
-/impl-proxy-client .scratch/proxy-spec-<service-name>/spec.md
+Use the Agent tool to launch a general-purpose subagent with this prompt:
+
+"Run the /impl-proxy-client skill with arguments: .scratch/proxy-spec-<service-name>/spec.md
+
+Use the Skill tool to invoke it. When it completes, report back:
+1. Whether the local proxy test succeeded
+2. The griptape-cloud PR URL
+3. Whether the review checklist passed
+4. Whether local infrastructure is still running
+5. Any issues encountered and how they were resolved"
 ```
 
-This phase:
-1. Creates the proxy client in `../../griptape-cloud`
-2. Starts local infrastructure with `make up/debug`
-3. Creates DB records and tests the proxy locally
-4. **Reviews the client against the spec** (cross-checks endpoints, request format, response parsing, billing, model IDs)
-5. Creates a PR in griptape-cloud
-
-After it completes, verify:
+After the subagent completes, verify:
 - The local proxy test succeeded
 - The review checklist passed with no discrepancies
 - The PR was created
@@ -61,20 +70,21 @@ Note the griptape-cloud PR URL.
 
 ## Phase 3: Implement the Node
 
-Run the `/impl-proxy-node` skill from this repo:
+Launch a subagent to run the `/impl-proxy-node` skill:
 
 ```
-/impl-proxy-node .scratch/proxy-spec-<service-name>/spec.md
+Use the Agent tool to launch a general-purpose subagent with this prompt:
+
+"Run the /impl-proxy-node skill with arguments: .scratch/proxy-spec-<service-name>/spec.md
+
+Use the Skill tool to invoke it. When it completes, report back:
+1. Whether the integration test passed
+2. The griptape-nodes-library-standard PR URL
+3. Whether the review checklist passed
+4. Any issues encountered and how they were resolved"
 ```
 
-This phase:
-1. Creates the node in this repo
-2. Writes an integration test
-3. Runs the integration test against the still-running local griptape-cloud
-4. **Reviews the node against the spec and docs** (uses agent-browser to re-read the API docs and cross-checks parameters, payload structure, response parsing, model mapping)
-5. Creates a PR in this repo
-
-After it completes, verify:
+After the subagent completes, verify:
 - The integration test passed
 - The review checklist passed with no discrepancies
 - The PR was created
@@ -107,7 +117,7 @@ PRs Created:
 
 Files Created/Modified:
   griptape-cloud:
-    - control_plane/api/griptapecloud/components/proxy/clients/<provider>.py (new)
+    - control_plane/api/griptapecloud/components/proxy/clients/<provider>.py (new or modified)
     - control_plane/api/griptapecloud/components/proxy/views.py (modified)
     - control_plane/api/griptapecloud/components/proxy/v2/tasks.py (modified, if sync)
     - control_plane/api/griptapecloud/components/credits/activities.py (modified)
@@ -130,5 +140,5 @@ Manual Steps Remaining:
 If any phase fails:
 1. Check the error output carefully
 2. Fix the issue in the relevant repo
-3. Re-run the failed skill (they are idempotent for the implementation steps)
+3. Re-run the failed phase's subagent (the skills are idempotent for the implementation steps)
 4. Always ensure local infra is torn down when done: `cd ../../griptape-cloud && make down`
