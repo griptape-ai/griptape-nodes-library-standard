@@ -29,7 +29,7 @@
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
     "library_version": "0.68.0",
-    "engine_version": "0.78.2",
+    "engine_version": "0.79.0",
     "tags": [
       "Griptape",
       "AI"
@@ -2540,6 +2540,18 @@
         "description": "Group node that iterates over a list or dictionary, executing child nodes for each item",
         "display_name": "ForEach Group",
         "icon": "repeat",
+        "group": "iteration",
+        "is_node_group": true
+      }
+    },
+    {
+      "class_name": "RetryGroupNode",
+      "file_path": "griptape_nodes_library/execution/retry_group.py",
+      "metadata": {
+        "category": "execution_flow",
+        "description": "Group node that retries its child nodes on failure, up to a configurable number of attempts",
+        "display_name": "Retry Group",
+        "icon": "refresh-cw",
         "group": "iteration",
         "is_node_group": true
       }
