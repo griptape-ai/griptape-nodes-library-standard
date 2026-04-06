@@ -6,6 +6,7 @@ FLOW_INPUTS: dict[str, dict] = {
     "test_google_image_generation.py": {"Start Flow": {"prompt": "A red circle"}},
     "test_seedream_image_generation.py": {"Start Flow": {"prompt": "A red circle"}},
     "test_qwen_image_generation.py": {"Start Flow": {"prompt": "A red circle"}},
+    "test_wan_image_generation.py": {"Start Flow": {"prompt": "A red circle"}},
     "test_generate_image.py": {"Start Flow": {"prompt": "A red circle"}},
     "test_grok_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_kling_text_to_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
