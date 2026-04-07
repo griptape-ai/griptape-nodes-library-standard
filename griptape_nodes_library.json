@@ -2618,6 +2618,17 @@
       }
     },
     {
+      "class_name": "RodinBang3DEdit",
+      "file_path": "griptape_nodes_library/three_d/rodin_bang_3d_edit.py",
+      "metadata": {
+        "category": "3D",
+        "description": "Split 3D models into parts using Rodin Bang! via Griptape model proxy",
+        "display_name": "Rodin Bang! 3D Edit",
+        "icon": "box",
+        "group": "edit"
+      }
+    },
+    {
       "class_name": "ForLoopStartNode",
       "file_path": "griptape_nodes_library/execution/for_loop_start.py",
       "metadata": {
