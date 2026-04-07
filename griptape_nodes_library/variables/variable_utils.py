@@ -140,6 +140,40 @@ def has_variable(node_name: str, variable_name: str, scope: "VariableScope") -> 
     return result.exists
 
 
+def list_variable_names(node_name: str, scope: "VariableScope") -> list[str]:
+    """List the names of all variables visible at the specified scope.
+
+    Args:
+        node_name: The name of the node requesting the variable list
+        scope: The scope to search for variables within
+
+    Returns:
+        A sorted list of variable names
+
+    Raises:
+        RuntimeError: If the flow for the node cannot be found
+    """
+    from griptape_nodes.retained_mode.events.variable_events import (
+        ListVariablesRequest,
+        ListVariablesResultSuccess,
+    )
+    from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
+    current_flow_name = _get_flow_for_node(node_name)
+
+    request = ListVariablesRequest(
+        lookup_scope=scope,
+        starting_flow=current_flow_name,
+    )
+
+    result = GriptapeNodes.handle_request(request)
+    if not isinstance(result, ListVariablesResultSuccess):
+        msg = f"Failed to list variables: {result.result_details}"
+        raise RuntimeError(msg)  # noqa: TRY004
+
+    return sorted({v.name for v in result.variables})
+
+
 def _get_flow_for_node(node_name: str) -> str:
     """Get the flow name that owns a given node.
 

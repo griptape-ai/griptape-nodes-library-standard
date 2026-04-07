@@ -238,6 +238,38 @@ class CreateVariable(ControlNode):
                 msg = f"Failed to create variable '{variable_name}': {create_result.result_details}"
                 raise TypeError(msg)
 
+    def _update_variable_type(self, variable_type: str | None) -> None:
+        """Eagerly update the type of the registered variable."""
+        variable_name = self.get_parameter_value("variable_name")
+        if not variable_name:
+            return
+
+        current_flow_name = self._get_flow_name()
+
+        has_request = HasVariableRequest(
+            name=variable_name,
+            lookup_scope=VariableScope.CURRENT_FLOW_ONLY,
+            starting_flow=current_flow_name,
+        )
+        has_result = GriptapeNodes.handle_request(has_request)
+
+        if not isinstance(has_result, HasVariableResultSuccess):
+            msg = f"Failed to check if variable '{variable_name}' exists: {has_result.result_details}"
+            raise TypeError(msg)
+
+        if has_result.exists:
+            type_request = SetVariableTypeRequest(
+                name=variable_name,
+                type=variable_type,
+                lookup_scope=VariableScope.CURRENT_FLOW_ONLY,
+                starting_flow=current_flow_name,
+            )
+            type_result = GriptapeNodes.handle_request(type_request)
+
+            if not isinstance(type_result, SetVariableTypeResultSuccess):
+                msg = f"Failed to update type for variable '{variable_name}': {type_result.result_details}"
+                raise TypeError(msg)
+
     def _unregister_variable(self, variable_name: str) -> None:
         """Remove a previously registered variable from the VariablesManager."""
         current_flow_name = self._get_flow_name()
@@ -295,6 +327,9 @@ class CreateVariable(ControlNode):
 
                 # Clean up incompatible connections
                 self._cleanup_incompatible_value_connections()
+
+            # Step 4: Eagerly update the registered variable's type
+            self._update_variable_type(value)
 
         return value
 
