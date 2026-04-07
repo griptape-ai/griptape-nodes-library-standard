@@ -12,17 +12,32 @@ Implement a proxy client in the griptape-cloud repo based on the specification f
 
 The griptape-cloud repo is located at `../../griptape-cloud` relative to this repo root (both repos live under the same parent directory).
 
-## 1. Read the Spec and API Key
+## 1. Read the Spec and Credentials
 
-Read the spec file from `$ARGUMENTS`. Also read the API key from `.api_key` in the same directory.
+Read the spec file from `$ARGUMENTS`. Detect which authentication type is used and read the appropriate credentials.
 
 ```bash
 SPEC_DIR=$(dirname "$ARGUMENTS")
-API_KEY=$(cat "$SPEC_DIR/.api_key")
+
+# Check which auth type is present
+if [ -f "$SPEC_DIR/.api_key" ]; then
+    AUTH_TYPE="api_key"
+    API_KEY=$(cat "$SPEC_DIR/.api_key")
+    echo "Using API key authentication"
+elif [ -f "$SPEC_DIR/.client_id" ] && [ -f "$SPEC_DIR/.client_secret" ]; then
+    AUTH_TYPE="client_credentials"
+    CLIENT_ID=$(cat "$SPEC_DIR/.client_id")
+    CLIENT_SECRET=$(cat "$SPEC_DIR/.client_secret")
+    echo "Using client credentials authentication (OAuth/JWT)"
+else
+    echo "Error: No credentials found in $SPEC_DIR"
+    exit 1
+fi
 ```
 
 Extract from the spec:
-- Service name, base URL, auth method, auth header
+- Service name, base URL, auth method, auth type (api_key or client_credentials), auth header
+- If client_credentials: token exchange endpoint, token expiry
 - Model IDs
 - Sync vs Async classification
 - Endpoint schemas
@@ -39,12 +54,16 @@ git checkout -b feat/<service-name>-proxy-client
 
 ## 3. Read Reference Implementations
 
-Based on the spec's classification, read the most similar existing client:
+Based on the spec's classification and auth type, read the most similar existing client:
 
+**By response type:**
 - **Sync returning bytes**: Read `control_plane/api/griptapecloud/components/proxy/clients/elevenlabs.py` (focus on `ElevenLabsMusicClient`)
 - **Sync returning JSON**: Read `control_plane/api/griptapecloud/components/proxy/clients/elevenlabs.py` (focus on `ElevenLabsTtsClient`)
 - **Async with polling**: Read `control_plane/api/griptapecloud/components/proxy/clients/openai.py` or `control_plane/api/griptapecloud/components/proxy/clients/xai.py`
-- **JWT-based auth**: Read `control_plane/api/griptapecloud/components/proxy/clients/kling.py`
+
+**By authentication type:**
+- **API key auth**: Most clients (OpenAI, ElevenLabs, etc.) - simple `self.api_key` usage
+- **Client credentials / JWT auth**: Read `control_plane/api/griptapecloud/components/proxy/clients/kling.py` for token exchange and refresh patterns
 
 Also read the base classes in `control_plane/api/griptapecloud/components/proxy/clients/client.py` to confirm the abstract interface:
 
@@ -94,13 +113,53 @@ from griptapecloud.components.credits.activities import ActivityType
 
 **`__init__(self, model_id: str)`**
 - Store `model_id`
-- Fetch API key from `ServiceModelConfig.objects.filter(model_type=..., model_name=model_id, active=True).first()`
+- Fetch credentials from `ServiceModelConfig.objects.filter(model_type=..., model_name=model_id, active=True).first()`
 - Raise `ProxyClientError("unconfigured proxy client")` if not found
+
+**For API key authentication:**
+- Set `self.api_key = config.auth_details.api_key`
+
+**For client credentials authentication:**
+- Set `self.client_id = config.auth_details.client_id`
+- Set `self.client_secret = config.auth_details.client_secret`
+- Initialize token management: `self.access_token = None` and `self.token_expiry = None`
+- Optionally call `self._refresh_access_token()` in `__init__` to obtain initial token
 
 **`get_model_ids(cls) -> list[str]`** (classmethod)
 - Return the model ID strings from the spec's "Model IDs" section
 
+**JWT Token Management (only for client credentials auth):**
+
+If using client credentials, implement these helper methods:
+
+**`_get_access_token(self) -> str`**
+- Check if current token is valid and not expired
+- If expired or missing, call `_refresh_access_token()`
+- Return the valid access token
+
+**`_refresh_access_token(self) -> None`**
+- Make a POST request to the token exchange endpoint with client_id and client_secret
+- Extract the access_token and expiry time from the response
+- Store in `self.access_token` and `self.token_expiry`
+- Handle errors: raise `ProxyClientError` if token exchange fails
+- Example pattern (from Kling):
+```python
+response = requests.post(
+    self.token_url,
+    headers={"Content-Type": "application/json"},
+    json={"client_id": self.client_id, "client_secret": self.client_secret},
+    timeout=30,
+)
+self._raise_for_provider_response(response)
+data = response.json()
+self.access_token = data["access_token"]
+self.token_expiry = time.time() + data.get("expires_in", 3600)
+```
+
 **`create_generation(self, **kwargs) -> tuple[str | None, dict | bytes]`**
+- Build the authorization header:
+  - **API key auth**: Use `self.api_key` directly
+  - **Client credentials auth**: Call `self._get_access_token()` to get a valid token
 - Make the HTTP request to the upstream API using `requests.post()`
 - Call `self._raise_for_provider_response(response)` before processing
 - For sync APIs: return `(None, response.json())` or `(None, response.content)`
@@ -119,7 +178,9 @@ from griptapecloud.components.credits.activities import ActivityType
 - Add `ImageModerationObject(data_uri)` for image inputs
 
 **`register_user_auth_info(self, user_auth_info: str)`**
-- Override `self.api_key` with the user-provided key (BYOK support)
+- Override credentials with user-provided values (BYOK support)
+- **API key auth**: Override `self.api_key` with `user_auth_info`
+- **Client credentials auth**: Parse `user_auth_info` as JSON containing `{"client_id": "...", "client_secret": "..."}` and override `self.client_id` and `self.client_secret`, then invalidate the current token by setting `self.access_token = None`
 
 **`_raise_for_provider_response(self, response)`**
 - Follow the EXACT standard error pattern:
@@ -270,9 +331,17 @@ for el in EntitlementLimits.objects.all():
     el.save()
 
 # Create auth details
+# For API key authentication:
 auth_details = ServiceModelConfigAuthDetails.objects.create(
     provider=ServiceModelConfigProvider.<PROVIDER>,
     api_key="<API_KEY_FROM_.api_key_FILE>",
+)
+
+# OR for client credentials authentication:
+auth_details = ServiceModelConfigAuthDetails.objects.create(
+    provider=ServiceModelConfigProvider.<PROVIDER>,
+    client_id="<CLIENT_ID_FROM_.client_id_FILE>",
+    client_secret="<CLIENT_SECRET_FROM_.client_secret_FILE>",
 )
 
 # Create model config for each model ID

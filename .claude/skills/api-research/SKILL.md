@@ -1,7 +1,7 @@
 ---
 name: api-research
 description: Research a new API service from a GitHub issue, test endpoints with live credentials, and produce a structured specification file.
-argument-hint: <owner/repo#issue> --key <api-key>
+argument-hint: <owner/repo#issue> --key <api-key> | --client-id <id> --client-secret <secret>
 allowed-tools: Bash Read Write Grep Glob WebFetch
 disable-model-invocation: false
 ---
@@ -12,11 +12,24 @@ Research the API service described in the GitHub issue and produce a structured 
 
 ## 1. Parse Arguments
 
-Extract from `$ARGUMENTS`:
+Extract from `$ARGUMENTS` in one of two formats:
+
+**Option A: Simple API Key**
+```
+<owner/repo#issue> --key <api-key>
+```
 - **Issue reference**: e.g. `griptape-ai/griptape-nodes#4176` (the part before `--key`)
 - **API key**: the value after `--key`
 
-If either is missing, stop and ask the user.
+**Option B: Client Credentials (OAuth/JWT)**
+```
+<owner/repo#issue> --client-id <id> --client-secret <secret>
+```
+- **Issue reference**: e.g. `griptape-ai/griptape-nodes#4176` (the part before `--client-id`)
+- **Client ID**: the value after `--client-id`
+- **Client Secret**: the value after `--client-secret`
+
+If the issue reference is missing or neither auth format is provided, stop and ask the user.
 
 ## 2. Fetch the GitHub Issue
 
@@ -31,12 +44,22 @@ Extract the service URL and any documentation links from the issue body and comm
 ```bash
 SERVICE_NAME="<lowercase-hyphenated-service-name>"
 mkdir -p .scratch/proxy-spec-$SERVICE_NAME/responses
-echo "<api-key>" > .scratch/proxy-spec-$SERVICE_NAME/.api_key
 ```
 
 The `.scratch/` directory is for temporary working files and MUST NOT be committed. Verify it is in `.gitignore` before proceeding (add it if missing).
 
-Store the API key in `.api_key` so downstream skills can read it without it being embedded in the spec.
+Store the credentials so downstream skills can read them without being embedded in the spec:
+
+**If using API key:**
+```bash
+echo "<api-key>" > .scratch/proxy-spec-$SERVICE_NAME/.api_key
+```
+
+**If using client credentials:**
+```bash
+echo "<client-id>" > .scratch/proxy-spec-$SERVICE_NAME/.client_id
+echo "<client-secret>" > .scratch/proxy-spec-$SERVICE_NAME/.client_secret
+```
 
 ## 4. Resolve URLs and Fetch API Documentation
 
@@ -90,6 +113,21 @@ Do NOT write the spec's endpoint schema based solely on documentation. The spec 
 
 Create `.scratch/proxy-spec-$SERVICE_NAME/test_api.py` with `requests` or `httpx` and run it with `python3`. The script should perform these tests and save results:
 
+### Authentication Setup
+
+**For API key authentication:**
+- Read the API key from `.api_key`
+- Include it in every request per the documentation (e.g., `Authorization: Bearer {api_key}` or `X-API-Key: {api_key}`)
+
+**For client credentials authentication:**
+- Read client_id from `.client_id` and client_secret from `.client_secret`
+- Implement a token exchange function that:
+  1. Calls the token endpoint with client_id and client_secret
+  2. Extracts the access_token and expiry time from the response
+  3. Caches the token and refreshes it before expiry
+- Test the token exchange first and save the response to `responses/token_exchange.json`
+- Use the obtained access token in the `Authorization: Bearer {access_token}` header for all subsequent requests
+
 ### Required Tests
 
 1. **Minimal success** - Call the primary endpoint with only required parameters. Save the full response (status code, headers, body) to `responses/minimal_success.json`.
@@ -111,9 +149,13 @@ Create `.scratch/proxy-spec-$SERVICE_NAME/test_api.py` with `requests` or `httpx
 ### Script Requirements
 
 - Print a summary table after each test: test name, status code, response shape (top-level keys), timing
-- Sanitize the API key from ALL saved output (replace with `<REDACTED>`)
+- Sanitize ALL credentials from saved output:
+  - API keys: replace with `<REDACTED>`
+  - Client IDs: replace with `<REDACTED_CLIENT_ID>`
+  - Client Secrets: replace with `<REDACTED_CLIENT_SECRET>`
+  - Access tokens: replace with `<REDACTED_TOKEN>`
 - Handle and report errors gracefully (don't crash on one failed test)
-- Use the API key from the argument, not hardcoded
+- Read credentials from the appropriate files (`.api_key` or `.client_id`/`.client_secret`), never hardcode
 
 Run the script and review the output. If any test fails unexpectedly, investigate and adjust.
 
@@ -137,8 +179,11 @@ Write `.scratch/proxy-spec-$SERVICE_NAME/spec.md` using EXACTLY these section he
 
 - **Name**: {service name}
 - **Base URL**: {base API URL}
-- **Auth Method**: {e.g. "Bearer token via Authorization header", "API key via X-Api-Key header"}
-- **Auth Header**: {exact header name and format}
+- **Auth Method**: {e.g. "Bearer token via Authorization header", "API key via X-Api-Key header", "JWT via client credentials"}
+- **Auth Type**: {either "api_key" or "client_credentials"}
+- **Auth Header**: {exact header name and format, e.g. "Authorization: Bearer {token}"}
+- **Token Exchange Endpoint**: {only if Auth Type is client_credentials - endpoint to exchange credentials for JWT}
+- **Token Expiry**: {only if Auth Type is client_credentials - token lifetime in seconds or "see response"}
 - **Docs URL**: {link to API docs}
 - **GitHub Issue**: {issue reference}
 

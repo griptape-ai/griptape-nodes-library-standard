@@ -1,7 +1,7 @@
 ---
 name: new-proxy-service
-description: End-to-end implementation of a new proxy service. Takes a GitHub issue and API key, produces a working proxy client and node with PRs in both repos.
-argument-hint: <owner/repo#issue> --key <api-key>
+description: End-to-end implementation of a new proxy service. Takes a GitHub issue and credentials (API key OR client credentials), produces a working proxy client and node with PRs in both repos.
+argument-hint: <owner/repo#issue> --key <api-key> | --client-id <id> --client-secret <secret>
 allowed-tools: Bash Read Write Edit Grep Glob WebFetch Skill Agent
 disable-model-invocation: false
 ---
@@ -10,10 +10,19 @@ disable-model-invocation: false
 
 This skill orchestrates the full implementation of a new proxy service, from API research through to PRs in both repos. Each phase runs in a subagent to keep context clean.
 
-Input: `$ARGUMENTS` should contain a GitHub issue reference and API key, e.g.:
+Input: `$ARGUMENTS` should contain a GitHub issue reference and credentials in one of two formats:
+
+**API Key authentication:**
 ```
 griptape-ai/griptape-nodes#4176 --key sk-xxx
 ```
+
+**Client credentials authentication (OAuth/JWT):**
+```
+griptape-ai/griptape-nodes#4176 --client-id abc123 --client-secret xyz789
+```
+
+The sub-skills (`/api-research`, `/impl-proxy-client`, `/impl-proxy-node`) will automatically detect which authentication pattern is used based on the credentials files present in the spec directory.
 
 ## Phase 1: Research the API
 
