@@ -925,6 +925,28 @@
       }
     },
     {
+      "class_name": "KlingLipSync",
+      "file_path": "griptape_nodes_library/video/kling_lip_sync.py",
+      "metadata": {
+        "category": "video",
+        "description": "Add lip-synced audio to videos using Kling AI Lip Sync via Griptape Cloud model proxy.",
+        "display_name": "Kling Lip Sync",
+        "icon": "Sparkles",
+        "group": "create"
+      }
+    },
+    {
+      "class_name": "KlingAdvancedLipSync",
+      "file_path": "griptape_nodes_library/video/kling_advanced_lip_sync.py",
+      "metadata": {
+        "category": "video",
+        "description": "Add advanced lip-synced audio to videos with precise face selection and audio timing control using Kling AI via Griptape Cloud model proxy.",
+        "display_name": "Kling Advanced Lip Sync",
+        "icon": "Sparkles",
+        "group": "create"
+      }
+    },
+    {
       "class_name": "SoraVideoGeneration",
       "file_path": "griptape_nodes_library/video/sora_video_generation.py",
       "metadata": {
