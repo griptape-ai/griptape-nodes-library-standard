@@ -2,7 +2,33 @@ import logging
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
-from griptape_nodes.exe_types.node_types import BaseNode, ControlNode
+from griptape_nodes.exe_types.node_types import BaseNode, ControlNode, NodeResolutionState
+from griptape_nodes.retained_mode.events.connection_events import (
+    DeleteConnectionRequest,
+    DeleteConnectionResultSuccess,
+    ListConnectionsForNodeRequest,
+    ListConnectionsForNodeResultSuccess,
+)
+from griptape_nodes.retained_mode.events.node_events import (
+    GetFlowForNodeRequest,
+    GetFlowForNodeResultSuccess,
+)
+from griptape_nodes.retained_mode.events.variable_events import (
+    CreateVariableRequest,
+    CreateVariableResultSuccess,
+    DeleteVariableRequest,
+    DeleteVariableResultSuccess,
+    GetVariableDetailsRequest,
+    GetVariableDetailsResultSuccess,
+    HasVariableRequest,
+    HasVariableResultSuccess,
+    SetVariableTypeRequest,
+    SetVariableTypeResultSuccess,
+    SetVariableValueRequest,
+    SetVariableValueResultSuccess,
+)
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.retained_mode.variable_types import VariableScope
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -83,14 +109,6 @@ class CreateVariable(ControlNode):
 
     def _delete_incoming_connections_to_parameter(self, parameter_name: str) -> None:
         """Helper to delete all incoming connections to a specific parameter."""
-        from griptape_nodes.retained_mode.events.connection_events import (
-            DeleteConnectionRequest,
-            DeleteConnectionResultSuccess,
-            ListConnectionsForNodeRequest,
-            ListConnectionsForNodeResultSuccess,
-        )
-        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
         connections_request = ListConnectionsForNodeRequest(node_name=self.name)
         connections_result = GriptapeNodes.handle_request(connections_request)
 
@@ -113,14 +131,6 @@ class CreateVariable(ControlNode):
 
     def _cleanup_incompatible_value_connections(self) -> None:
         """Remove all connections to/from value parameter that are incompatible with its current type."""
-        from griptape_nodes.retained_mode.events.connection_events import (
-            DeleteConnectionRequest,
-            DeleteConnectionResultSuccess,
-            ListConnectionsForNodeRequest,
-            ListConnectionsForNodeResultSuccess,
-        )
-        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
         connections_request = ListConnectionsForNodeRequest(node_name=self.name)
         connections_result = GriptapeNodes.handle_request(connections_request)
 
@@ -185,8 +195,119 @@ class CreateVariable(ControlNode):
                             )
                             raise TypeError(error_msg)
 
+    def _get_flow_name(self) -> str:
+        """Get the flow name that owns this node."""
+        flow_request = GetFlowForNodeRequest(node_name=self.name)
+        flow_result = GriptapeNodes.handle_request(flow_request)
+
+        if not isinstance(flow_result, GetFlowForNodeResultSuccess):
+            msg = f"Failed to get flow for node '{self.name}': {flow_result.result_details}"
+            raise TypeError(msg)
+
+        return flow_result.flow_name
+
+    def _register_variable(self, variable_name: str) -> None:
+        """Eagerly register a variable with the VariablesManager."""
+        current_flow_name = self._get_flow_name()
+
+        has_request = HasVariableRequest(
+            name=variable_name,
+            lookup_scope=VariableScope.CURRENT_FLOW_ONLY,
+            starting_flow=current_flow_name,
+        )
+        has_result = GriptapeNodes.handle_request(has_request)
+
+        if not isinstance(has_result, HasVariableResultSuccess):
+            msg = f"Failed to check if variable '{variable_name}' exists: {has_result.result_details}"
+            raise TypeError(msg)
+
+        if not has_result.exists:
+            variable_type = self.get_parameter_value("variable_type")
+            value = self.get_parameter_value("value")
+
+            create_request = CreateVariableRequest(
+                name=variable_name,
+                type=variable_type,
+                is_global=False,
+                value=value,
+                owning_flow=current_flow_name,
+            )
+            create_result = GriptapeNodes.handle_request(create_request)
+
+            if not isinstance(create_result, CreateVariableResultSuccess):
+                msg = f"Failed to create variable '{variable_name}': {create_result.result_details}"
+                raise TypeError(msg)
+
+    def _update_variable_type(self, variable_type: str | None) -> None:
+        """Eagerly update the type of the registered variable."""
+        variable_name = self.get_parameter_value("variable_name")
+        if not variable_name:
+            return
+
+        current_flow_name = self._get_flow_name()
+
+        has_request = HasVariableRequest(
+            name=variable_name,
+            lookup_scope=VariableScope.CURRENT_FLOW_ONLY,
+            starting_flow=current_flow_name,
+        )
+        has_result = GriptapeNodes.handle_request(has_request)
+
+        if not isinstance(has_result, HasVariableResultSuccess):
+            msg = f"Failed to check if variable '{variable_name}' exists: {has_result.result_details}"
+            raise TypeError(msg)
+
+        if has_result.exists:
+            type_request = SetVariableTypeRequest(
+                name=variable_name,
+                type=variable_type,
+                lookup_scope=VariableScope.CURRENT_FLOW_ONLY,
+                starting_flow=current_flow_name,
+            )
+            type_result = GriptapeNodes.handle_request(type_request)
+
+            if not isinstance(type_result, SetVariableTypeResultSuccess):
+                msg = f"Failed to update type for variable '{variable_name}': {type_result.result_details}"
+                raise TypeError(msg)
+
+    def _unregister_variable(self, variable_name: str) -> None:
+        """Remove a previously registered variable from the VariablesManager."""
+        current_flow_name = self._get_flow_name()
+
+        has_request = HasVariableRequest(
+            name=variable_name,
+            lookup_scope=VariableScope.CURRENT_FLOW_ONLY,
+            starting_flow=current_flow_name,
+        )
+        has_result = GriptapeNodes.handle_request(has_request)
+
+        if not isinstance(has_result, HasVariableResultSuccess):
+            msg = f"Failed to check if variable '{variable_name}' exists: {has_result.result_details}"
+            raise TypeError(msg)
+
+        if has_result.exists:
+            delete_request = DeleteVariableRequest(
+                name=variable_name,
+                lookup_scope=VariableScope.CURRENT_FLOW_ONLY,
+                starting_flow=current_flow_name,
+            )
+            delete_result = GriptapeNodes.handle_request(delete_request)
+
+            if not isinstance(delete_result, DeleteVariableResultSuccess):
+                msg = f"Failed to delete variable '{variable_name}': {delete_result.result_details}"
+                raise TypeError(msg)
+
     def before_value_set(self, parameter: Parameter, value: Any) -> Any:
-        """Handle changes to the variable_type parameter."""
+        """Handle changes to variable_name (eager registration) and variable_type parameters."""
+        if parameter == self.variable_name_param:
+            old_name = self.get_parameter_value("variable_name")
+
+            if old_name and old_name != value:
+                self._unregister_variable(old_name)
+
+            if value:
+                self._register_variable(value)
+
         if parameter == self.variable_type_param:
             # Step 1: If variable_type_param is set to None or "", assign it to None
             if value is None or value == "":
@@ -207,29 +328,12 @@ class CreateVariable(ControlNode):
                 # Clean up incompatible connections
                 self._cleanup_incompatible_value_connections()
 
+            # Step 4: Eagerly update the registered variable's type
+            self._update_variable_type(value)
+
         return value
 
     def process(self) -> None:
-        # Lazy imports to avoid circular import issues
-        from griptape_nodes.retained_mode.events.node_events import (
-            GetFlowForNodeRequest,
-            GetFlowForNodeResultSuccess,
-        )
-        from griptape_nodes.retained_mode.events.variable_events import (
-            CreateVariableRequest,
-            CreateVariableResultSuccess,
-            GetVariableDetailsRequest,
-            GetVariableDetailsResultSuccess,
-            HasVariableRequest,
-            HasVariableResultSuccess,
-            SetVariableTypeRequest,
-            SetVariableTypeResultSuccess,
-            SetVariableValueRequest,
-            SetVariableValueResultSuccess,
-        )
-        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-        from griptape_nodes.retained_mode.variable_types import VariableScope
-
         variable_name = self.get_parameter_value("variable_name")
         variable_type = self.get_parameter_value("variable_type")
         value = self.get_parameter_value("value")
@@ -320,8 +424,6 @@ class CreateVariable(ControlNode):
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
         """Variable nodes have side effects and need to execute every workflow run."""
-        from griptape_nodes.exe_types.node_types import NodeResolutionState
-
         self.make_node_unresolved(
             current_states_to_trigger_change_event={NodeResolutionState.RESOLVED, NodeResolutionState.RESOLVING}
         )
@@ -329,8 +431,6 @@ class CreateVariable(ControlNode):
 
     def validate_before_node_run(self) -> list[Exception] | None:
         """Variable nodes have side effects and need to execute every time they run."""
-        from griptape_nodes.exe_types.node_types import NodeResolutionState
-
         self.make_node_unresolved(
             current_states_to_trigger_change_event={NodeResolutionState.RESOLVED, NodeResolutionState.RESOLVING}
         )
