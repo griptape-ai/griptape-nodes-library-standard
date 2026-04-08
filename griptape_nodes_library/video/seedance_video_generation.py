@@ -29,24 +29,34 @@ __all__ = ["SeedanceVideoGeneration"]
 class SeedanceVideoGeneration(GriptapeProxyNode):
     """Generate a video using the Seedance model via Griptape Cloud model proxy.
 
-    Inputs:
-        - prompt (str): Text prompt for the video (supports provider flags like --resolution)
-        - model_id (str): Provider model id (default: seedance-1-0-pro-250528)
-        - resolution (str): Output resolution (default: 720p, options: 480p, 720p, 1080p)
-        - ratio (str): Output aspect ratio (default: 16:9, options: auto, 21:9, 16:9, 4:3, 1:1, 3:4, 9:16)
-        - duration (int): Video duration in seconds (default: 5, options: 4-12)
-        - camerafixed (bool): Camera fixed flag (default: False)
-        - audio (bool): Generate audio with video (default: False, only for seedance-1-5-pro-251215)
-        - first_frame (ImageArtifact|ImageUrlArtifact|str): Optional first frame image (URL or base64 data URI)
-        - last_frame (ImageArtifact|ImageUrlArtifact|str): Optional last frame image for i2v and 1.5 pro models (URL or base64 data URI)
-        (Always polls for result: 5s interval, 10 min timeout)
+    Supports Seedance V1 models (via BytePlus) and Seedance V2 models (via MuAPI).
 
-    Model capabilities:
+    Inputs:
+        - prompt (str): Text prompt for the video
+        - model_id (str): Provider model id
+        - resolution (str): Output resolution (V1 only, default: 720p)
+        - ratio (str): Output aspect ratio (default: 16:9)
+        - duration (int): Video duration in seconds (default: 5)
+        - camerafixed (bool): Camera fixed flag (V1 only, default: False)
+        - audio (bool): Generate audio with video (V1 seedance-1-5-pro only)
+        - first_frame: Optional first frame image
+        - last_frame: Optional last frame image
+        - reference_images: Optional reference images (1-4)
+        - video_input: Optional video input (V2 video-edit only)
+
+    V1 Model capabilities:
         - seedance-1-5-pro-251215: 480p/720p, 4-12s duration, first+last frame, audio support
         - seedance-1-0-pro-250528: 480p/720p/1080p, 5s/10s duration, first+last frame
         - seedance-1-0-pro-fast-251015: 480p/720p/1080p, 5s/10s duration, first frame only
         - seedance-1-0-lite-t2v-250428: Text-to-video only (no images)
         - seedance-1-0-lite-i2v-250428: 1-4 reference images OR first+last frame OR first frame only
+
+    V2 Model capabilities (via MuAPI):
+        - seedance-2-text-to-video / fast: Text-to-video only
+        - seedance-2-image-to-video / fast: Single image input
+        - seedance-2-first-last-frame / fast: First and last frame images
+        - seedance-2-omni-reference-no-video / fast: 1+ reference images
+        - seedance-v2.0-video-edit: Video input for editing
 
     Outputs:
         - generation_id (str): Griptape Cloud generation id
@@ -58,11 +68,35 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
 
     # Map user-facing names to provider model IDs
     MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
+        # V1 models (BytePlus)
         "Seedance 1.5 Pro": "seedance-1-5-pro-251215",
         "Seedance 1.0 Pro": "seedance-1-0-pro-250528",
         "Seedance 1.0 Pro Fast": "seedance-1-0-pro-fast-251015",
         "Seedance 1.0 Lite T2V": "seedance-1-0-lite-t2v-250428",
         "Seedance 1.0 Lite I2V": "seedance-1-0-lite-i2v-250428",
+        # V2 models (MuAPI)
+        "Seedance 2.0": "seedance-2-text-to-video",
+        "Seedance 2.0 Fast": "seedance-2-text-to-video-fast",
+        "Seedance 2.0 I2V": "seedance-2-image-to-video",
+        "Seedance 2.0 I2V Fast": "seedance-2-image-to-video-fast",
+        "Seedance 2.0 First Last Frame": "seedance-2-first-last-frame",
+        "Seedance 2.0 First Last Frame Fast": "seedance-2-first-last-frame-fast",
+        "Seedance 2.0 Omni Reference": "seedance-2-omni-reference-no-video",
+        "Seedance 2.0 Omni Reference Fast": "seedance-2-omni-reference-no-video-fast",
+        "Seedance 2.0 Video Edit": "seedance-v2.0-video-edit",
+    }
+
+    # V2 model IDs (use flat MuAPI payload format instead of BytePlus content-list format)
+    V2_MODEL_IDS: ClassVar[set[str]] = {
+        "seedance-2-text-to-video",
+        "seedance-2-text-to-video-fast",
+        "seedance-2-image-to-video",
+        "seedance-2-image-to-video-fast",
+        "seedance-2-first-last-frame",
+        "seedance-2-first-last-frame-fast",
+        "seedance-2-omni-reference-no-video",
+        "seedance-2-omni-reference-no-video-fast",
+        "seedance-v2.0-video-edit",
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -83,13 +117,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
                 },
                 traits={
                     Options(
-                        choices=[
-                            "Seedance 1.5 Pro",
-                            "Seedance 1.0 Pro",
-                            "Seedance 1.0 Pro Fast",
-                            "Seedance 1.0 Lite T2V",
-                            "Seedance 1.0 Lite I2V",
-                        ]
+                        choices=list(SeedanceVideoGeneration.MODEL_NAME_MAP.keys()),
                     )
                 },
             )
@@ -139,6 +167,17 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Reference Images", "expander": True},
                 max_items=4,
+            )
+        )
+
+        # Optional video input for V2 video-edit model
+        self.add_parameter(
+            ParameterVideo(
+                name="video_input",
+                default_value=None,
+                tooltip="Input video for Seedance 2.0 Video Edit model",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={"display_name": "Video Input"},
             )
         )
 
@@ -235,61 +274,85 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         # Set initial parameter visibility based on default model
         default_model = "Seedance 1.5 Pro"
         default_provider_model_id = self._get_provider_model_id(default_model)
-        if default_provider_model_id == "seedance-1-0-lite-t2v-250428":
-            # T2V only - hide all image inputs
-            self.hide_parameter_by_name("first_frame")
-            self.hide_parameter_by_name("last_frame")
-            self.hide_parameter_by_name("reference_images")
-        elif default_provider_model_id == "seedance-1-0-lite-i2v-250428":
-            # Lite I2V - show all image inputs (user can choose reference images OR first/last frame)
-            self.show_parameter_by_name("first_frame")
-            self.show_parameter_by_name("last_frame")
-            self.show_parameter_by_name("reference_images")
-        else:
-            # Other models - show first_frame, conditionally show last_frame, hide reference_images
-            self.show_parameter_by_name("first_frame")
-            self.hide_parameter_by_name("reference_images")
-            supports_last_frame = default_provider_model_id in (
-                "seedance-1-5-pro-251215",
-                "seedance-1-0-pro-250528",
-            )
-            if supports_last_frame:
-                self.show_parameter_by_name("last_frame")
-            else:
-                self.hide_parameter_by_name("last_frame")
-
-        # Hide audio parameter by default (only show for 1.5 pro)
-        if default_provider_model_id == "seedance-1-5-pro-251215":
-            self.show_parameter_by_name("generate_audio")
-        else:
-            self.hide_parameter_by_name("generate_audio")
+        self._update_parameter_visibility(default_provider_model_id)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        """Handle parameter value changes to show/hide dependent parameters based on model capabilities.
-
-        Model capabilities:
-        - seedance-1-5-pro-251215: text-to-video, i2v with first frame, i2v with first+last frame, audio support
-        - seedance-1-0-pro-250528: i2v with first+last frame, i2v with first frame, text-to-video
-        - seedance-1-0-pro-fast-251015: i2v with first frame only, text-to-video
-        - seedance-1-0-lite-t2v-250428: text-to-video only (no images)
-        - seedance-1-0-lite-i2v-250428: i2v with reference images, i2v with first+last frame, i2v with first frame
-        """
+        """Handle parameter value changes to show/hide dependent parameters based on model capabilities."""
         if parameter.name == "model_id":
-            # Convert friendly name to provider model ID
             provider_model_id = self._get_provider_model_id(value)
+            self._update_parameter_visibility(provider_model_id)
+
+        # Convert string paths to ImageUrlArtifact by uploading to static storage
+        if parameter.name == "reference_images" and isinstance(value, list):
+            updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
+            if updated_list != value:
+                self.set_parameter_value("reference_images", updated_list)
+
+        return super().after_value_set(parameter, value)
+
+    def _update_parameter_visibility(self, provider_model_id: str) -> None:
+        """Update parameter visibility based on the selected model's capabilities."""
+        is_v2 = provider_model_id in self.V2_MODEL_IDS
+
+        if is_v2:
+            # V2 models don't use resolution, camerafixed, or audio parameters
+            self.hide_parameter_by_name("resolution")
+            self.hide_parameter_by_name("camerafixed")
+            self.hide_parameter_by_name("generate_audio")
+
+            if provider_model_id in (
+                "seedance-2-text-to-video",
+                "seedance-2-text-to-video-fast",
+            ):
+                self.hide_parameter_by_name("first_frame")
+                self.hide_parameter_by_name("last_frame")
+                self.hide_parameter_by_name("reference_images")
+                self.hide_parameter_by_name("video_input")
+            elif provider_model_id in (
+                "seedance-2-image-to-video",
+                "seedance-2-image-to-video-fast",
+            ):
+                self.show_parameter_by_name("first_frame")
+                self.hide_parameter_by_name("last_frame")
+                self.hide_parameter_by_name("reference_images")
+                self.hide_parameter_by_name("video_input")
+            elif provider_model_id in (
+                "seedance-2-first-last-frame",
+                "seedance-2-first-last-frame-fast",
+            ):
+                self.show_parameter_by_name("first_frame")
+                self.show_parameter_by_name("last_frame")
+                self.hide_parameter_by_name("reference_images")
+                self.hide_parameter_by_name("video_input")
+            elif provider_model_id in (
+                "seedance-2-omni-reference-no-video",
+                "seedance-2-omni-reference-no-video-fast",
+            ):
+                self.hide_parameter_by_name("first_frame")
+                self.hide_parameter_by_name("last_frame")
+                self.show_parameter_by_name("reference_images")
+                self.hide_parameter_by_name("video_input")
+            elif provider_model_id == "seedance-v2.0-video-edit":
+                self.hide_parameter_by_name("first_frame")
+                self.hide_parameter_by_name("last_frame")
+                self.hide_parameter_by_name("reference_images")
+                self.show_parameter_by_name("video_input")
+        else:
+            # V1 models don't use video_input
+            self.hide_parameter_by_name("video_input")
+            # V1 models use resolution and camerafixed
+            self.show_parameter_by_name("resolution")
+            self.show_parameter_by_name("camerafixed")
 
             if provider_model_id == "seedance-1-0-lite-t2v-250428":
-                # T2V only - hide all image inputs
                 self.hide_parameter_by_name("first_frame")
                 self.hide_parameter_by_name("last_frame")
                 self.hide_parameter_by_name("reference_images")
             elif provider_model_id == "seedance-1-0-lite-i2v-250428":
-                # Lite I2V - show all image inputs (user can choose reference images OR first/last frame)
                 self.show_parameter_by_name("first_frame")
                 self.show_parameter_by_name("last_frame")
                 self.show_parameter_by_name("reference_images")
             else:
-                # Other models - show first_frame, conditionally show last_frame, hide reference_images
                 self.show_parameter_by_name("first_frame")
                 self.hide_parameter_by_name("reference_images")
                 supports_last_frame = provider_model_id in (
@@ -306,14 +369,6 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
                 self.show_parameter_by_name("generate_audio")
             else:
                 self.hide_parameter_by_name("generate_audio")
-
-        # Convert string paths to ImageUrlArtifact by uploading to static storage
-        if parameter.name == "reference_images" and isinstance(value, list):
-            updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
-            if updated_list != value:
-                self.set_parameter_value("reference_images", updated_list)
-
-        return super().after_value_set(parameter, value)
 
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
@@ -362,6 +417,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
             "first_frame": self.get_parameter_value("first_frame"),
             "last_frame": self.get_parameter_value("last_frame"),
             "reference_images": normalized_reference_images,
+            "video_input": self.get_parameter_value("video_input"),
             "duration": self.get_parameter_value("duration"),
             "camerafixed": self.get_parameter_value("camerafixed"),
             "generate_audio": self.get_parameter_value("generate_audio"),
@@ -401,14 +457,17 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
                 raise ValueError(msg)
 
     async def _build_payload(self) -> dict[str, Any]:
-        """Build the request payload for Seedance API (without model field)."""
-        # Get parameters
+        """Build the request payload for Seedance API."""
         params = self._get_parameters()
 
-        # Build content array with text prompt
+        if params["model_id"] in self.V2_MODEL_IDS:
+            return await self._build_v2_payload(params)
+        return await self._build_v1_payload(params)
+
+    async def _build_v1_payload(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Build the BytePlus content-list payload for V1 models."""
         prompt_text = params["prompt"].strip()
 
-        # Build payload with config params at top level (model is handled separately by base class)
         payload: dict[str, Any] = {"model": params["model_id"]}
 
         # Add config parameters at top level
@@ -428,12 +487,74 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         if params["model_id"] == "seedance-1-5-pro-251215" and params["generate_audio"] is not None:
             payload["generate_audio"] = bool(params["generate_audio"])
 
-        content_list = [{"type": "text", "text": prompt_text}]
+        content_list: list[dict[str, Any]] = [{"type": "text", "text": prompt_text}]
 
         # Add frame images based on model capabilities
         await self._add_frame_images_async(content_list, params)
 
         payload["content"] = content_list
+
+        return payload
+
+    async def _build_v2_payload(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Build the flat MuAPI payload for V2 models."""
+        payload: dict[str, Any] = {
+            "prompt": params["prompt"].strip(),
+        }
+
+        if params["duration"] is not None:
+            payload["duration"] = int(params["duration"])
+
+        if params["ratio"] and params["ratio"] != "adaptive":
+            payload["aspect_ratio"] = params["ratio"]
+
+        model_id = params["model_id"]
+
+        # Build images_list for models that accept image inputs
+        if model_id in (
+            "seedance-2-image-to-video",
+            "seedance-2-image-to-video-fast",
+        ):
+            images_list = []
+            frame_url = await self._prepare_frame_url_async(params["first_frame"])
+            if frame_url:
+                images_list.append(frame_url)
+            payload["images_list"] = images_list
+
+        elif model_id in (
+            "seedance-2-first-last-frame",
+            "seedance-2-first-last-frame-fast",
+        ):
+            images_list = []
+            first_url = await self._prepare_frame_url_async(params["first_frame"])
+            if first_url:
+                images_list.append(first_url)
+            last_url = await self._prepare_frame_url_async(params["last_frame"])
+            if last_url:
+                images_list.append(last_url)
+            payload["images_list"] = images_list
+
+        elif model_id in (
+            "seedance-2-omni-reference-no-video",
+            "seedance-2-omni-reference-no-video-fast",
+        ):
+            images_list = []
+            reference_images = params.get("reference_images", [])
+            if reference_images and isinstance(reference_images, list):
+                for ref_image in reference_images:
+                    ref_url = await self._prepare_frame_url_async(ref_image)
+                    if ref_url:
+                        images_list.append(ref_url)
+            payload["images_list"] = images_list
+
+        elif model_id == "seedance-v2.0-video-edit":
+            video_urls = []
+            video_input = params.get("video_input")
+            if video_input:
+                video_url = self._coerce_video_url(video_input)
+                if video_url:
+                    video_urls.append(video_url)
+            payload["video_urls"] = video_urls
 
         return payload
 
@@ -615,7 +736,9 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
             val = obj.get(key) if isinstance(obj, dict) else None
             if isinstance(val, str) and val.startswith("http"):
                 return val
-        # 2) nested known containers (Seedance returns content.video_url)
+        # 2) nested known containers
+        # V1 (BytePlus) returns content.video_url
+        # V2 (MuAPI) returns outputs: ["https://cdn.muapi.ai/..."]
         for key in ("result", "data", "output", "outputs", "content", "task_result"):
             nested = obj.get(key) if isinstance(obj, dict) else None
             if isinstance(nested, dict):
@@ -624,9 +747,30 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
                     return url
             elif isinstance(nested, list):
                 for item in nested:
+                    if isinstance(item, str) and item.startswith("http"):
+                        return item
                     url = SeedanceVideoGeneration._extract_video_url(item if isinstance(item, dict) else None)
                     if url:
                         return url
+        return None
+
+    @staticmethod
+    def _coerce_video_url(val: Any) -> str | None:
+        """Extract a video URL from a VideoUrlArtifact or string."""
+        if val is None:
+            return None
+
+        if isinstance(val, str):
+            v = val.strip()
+            if v.startswith(("http://", "https://")):
+                return v
+            return None
+
+        # VideoUrlArtifact: .value holds URL string
+        v = getattr(val, "value", None)
+        if isinstance(v, str) and v.startswith(("http://", "https://")):
+            return v
+
         return None
 
     @staticmethod
