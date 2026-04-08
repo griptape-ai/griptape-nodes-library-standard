@@ -1675,6 +1675,17 @@
       }
     },
     {
+      "class_name": "MuapiImageGeneration",
+      "file_path": "griptape_nodes_library/image/muapi_image_generation.py",
+      "metadata": {
+        "category": "image",
+        "description": "Generate images using MuAPI models (Flux, Midjourney, HiDream, Seedream, and more) via Griptape model proxy",
+        "display_name": "MuAPI Image Generation",
+        "group": "create",
+        "icon": "Sparkles"
+      }
+    },
+    {
       "class_name": "QwenImageEdit",
       "file_path": "griptape_nodes_library/image/qwen_image_edit.py",
       "metadata": {
