@@ -13,14 +13,13 @@ from griptape_nodes_library.video.cartwheel_character_generation import (
 class TestCartwheelCharacterGeneration:
     @pytest.fixture
     def node(
-        self, griptape_nodes: GriptapeNodes  # noqa: ARG002
+        self,
+        griptape_nodes: GriptapeNodes,  # noqa: ARG002
     ) -> CartwheelCharacterGeneration:
         return CartwheelCharacterGeneration(name="test_cartwheel_character_generation")
 
     @pytest.mark.asyncio
-    async def test_build_payload_for_text_mode(
-        self, node: CartwheelCharacterGeneration
-    ) -> None:
+    async def test_build_payload_for_text_mode(self, node: CartwheelCharacterGeneration) -> None:
         node.set_parameter_value("prompt", "  blue robot hero  ")
         node.set_parameter_value("character_name", "  Robot Hero  ")
 
@@ -32,9 +31,7 @@ class TestCartwheelCharacterGeneration:
         }
 
     @pytest.mark.asyncio
-    async def test_build_payload_for_reference_image_mode(
-        self, node: CartwheelCharacterGeneration
-    ) -> None:
+    async def test_build_payload_for_reference_image_mode(self, node: CartwheelCharacterGeneration) -> None:
         node.set_parameter_value("mode", REFERENCE_IMAGE_MODE)
         node.set_parameter_value("reference_media_id", " media-123 ")
         node.set_parameter_value("character_name", " Character From Ref ")
@@ -54,9 +51,7 @@ class TestCartwheelCharacterGeneration:
         exceptions = node.validate_before_node_run()
 
         assert exceptions is not None
-        assert any(
-            "reference image media ID" in str(exception) for exception in exceptions
-        )
+        assert any("reference image media ID" in str(exception) for exception in exceptions)
 
     @pytest.mark.asyncio
     async def test_parse_result_falls_back_to_provider_thumbnail_url(
