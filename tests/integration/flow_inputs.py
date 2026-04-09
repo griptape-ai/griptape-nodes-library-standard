@@ -15,6 +15,7 @@ FLOW_INPUTS: dict[str, dict] = {
     "test_wan_text_to_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_minimax_hailuo_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_seedance_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
+    "test_seedance_v2_text_to_video.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_elevenlabs_text_to_speech_generation.py": {"Start Flow": {"prompt": "Hello world"}},
     "test_elevenlabs_sound_effect_generation.py": {"Start Flow": {"prompt": "Thunder clap"}},
     "test_elevenlabs_music_generation.py": {"Start Flow": {"prompt": "Upbeat jazz"}},

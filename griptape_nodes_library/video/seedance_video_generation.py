@@ -8,10 +8,12 @@ from typing import Any, ClassVar
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
+    PublicArtifactUrlParameter,
+)
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
-from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
@@ -136,26 +138,34 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
             )
         )
         # Optional first frame (image) - accepts artifact or URL/base64 string
-        self.add_parameter(
-            ParameterImage(
+        self._public_first_frame_parameter = PublicArtifactUrlParameter(
+            node=self,
+            artifact_url_parameter=Parameter(
                 name="first_frame",
-                default_value=None,
-                tooltip="Optional first frame image (URL or base64 data URI)",
+                tooltip="Optional first frame image",
+                input_types=["ImageArtifact", "ImageUrlArtifact"],
+                type="ImageUrlArtifact",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"display_name": "First Frame"},
-            )
+            ),
+            disclaimer_message="The video generation API service utilizes this URL to access the image.",
         )
+        self._public_first_frame_parameter.add_input_parameters()
 
-        # Optional last frame (image) - accepts artifact or URL/base64 string valid only with seedance-1-0-lite-i2v
-        self.add_parameter(
-            ParameterImage(
+        # Optional last frame (image) - accepts artifact or URL/base64 string
+        self._public_last_frame_parameter = PublicArtifactUrlParameter(
+            node=self,
+            artifact_url_parameter=Parameter(
                 name="last_frame",
-                default_value=None,
-                tooltip="Optional Last frame image for seedance-1-0-lite-i2v model(URL or base64 data URI)",
+                tooltip="Optional last frame image",
+                input_types=["ImageArtifact", "ImageUrlArtifact"],
+                type="ImageUrlArtifact",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"display_name": "Last Frame"},
-            )
+            ),
+            disclaimer_message="The video generation API service utilizes this URL to access the image.",
         )
+        self._public_last_frame_parameter.add_input_parameters()
 
         # Optional reference images (list of images) - for seedance-1-0-lite-i2v model (1-4 images)
         self.add_parameter(
@@ -456,6 +466,14 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
                 )
                 raise ValueError(msg)
 
+    async def aprocess(self) -> None:
+        """Async processing entry point with cleanup for uploaded public URL artifacts."""
+        try:
+            await self._process_generation()
+        finally:
+            self._public_first_frame_parameter.delete_uploaded_artifact()
+            self._public_last_frame_parameter.delete_uploaded_artifact()
+
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for Seedance API."""
         params = self._get_parameters()
@@ -497,7 +515,11 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         return payload
 
     async def _build_v2_payload(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Build the flat MuAPI payload for V2 models."""
+        """Build the flat MuAPI payload for V2 models.
+
+        V2 models require publicly accessible URLs for images (not data URIs),
+        so we use PublicArtifactUrlParameter to upload local files and get public URLs.
+        """
         payload: dict[str, Any] = {
             "prompt": params["prompt"].strip(),
         }
@@ -516,9 +538,10 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
             "seedance-2-image-to-video-fast",
         ):
             images_list = []
-            frame_url = await self._prepare_frame_url_async(params["first_frame"])
-            if frame_url:
-                images_list.append(frame_url)
+            if params["first_frame"]:
+                frame_url = self._public_first_frame_parameter.get_public_url_for_parameter()
+                if frame_url:
+                    images_list.append(frame_url)
             payload["images_list"] = images_list
 
         elif model_id in (
@@ -526,12 +549,14 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
             "seedance-2-first-last-frame-fast",
         ):
             images_list = []
-            first_url = await self._prepare_frame_url_async(params["first_frame"])
-            if first_url:
-                images_list.append(first_url)
-            last_url = await self._prepare_frame_url_async(params["last_frame"])
-            if last_url:
-                images_list.append(last_url)
+            if params["first_frame"]:
+                first_url = self._public_first_frame_parameter.get_public_url_for_parameter()
+                if first_url:
+                    images_list.append(first_url)
+            if params["last_frame"]:
+                last_url = self._public_last_frame_parameter.get_public_url_for_parameter()
+                if last_url:
+                    images_list.append(last_url)
             payload["images_list"] = images_list
 
         elif model_id in (
@@ -625,7 +650,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         try:
             return await File(frame_url).aread_data_uri(fallback_mime="image/jpeg")
         except FileLoadError as e:
-            logger.debug("%s failed to load frame from %s: %s", self.name, frame_url, e)
+            logger.warning("Failed to load frame URL %s: %s", frame_url[:200], e)
             return None
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
