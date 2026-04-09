@@ -317,7 +317,9 @@ class KlingAdvancedLipSync(GriptapeProxyNode):
         else:
             sound_file = self.get_parameter_value("sound_file")
             if not sound_file:
-                exceptions.append(ValueError(f"{self.name} requires an audio file or URL when audio input type is sound_file."))
+                exceptions.append(
+                    ValueError(f"{self.name} requires an audio file or URL when audio input type is sound_file.")
+                )
 
         try:
             sound_start_time = int(sound_start_time)
