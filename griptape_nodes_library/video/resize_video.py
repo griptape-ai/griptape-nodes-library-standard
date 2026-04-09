@@ -436,10 +436,6 @@ class ResizeVideo(ControlNode):
             with Path(output_path).open("rb") as f:
                 resized_video_bytes = f.read()
 
-            # Extract original filename from URL and create new filename
-            original_filename = Path(input_url).stem  # Get filename without extension
-            filename = f"{original_filename}_resized_{settings.scaling_algorithm}.{detected_format}"
-            self.set_parameter_value("output_file", filename)
             dest = self._output_file.build_file()
             saved = dest.write_bytes(resized_video_bytes)
 

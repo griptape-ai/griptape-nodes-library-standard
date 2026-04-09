@@ -230,19 +230,6 @@ class ElevenLabsMusicGeneration(GriptapeProxyNode):
 
         # Save audio with appropriate file extension
         try:
-            # Determine file extension based on output format
-            output_format = self.get_parameter_value("output_format") or "mp3_44100_128"
-            if output_format.startswith("mp3_"):
-                ext = "mp3"
-            elif output_format.startswith(("pcm_", "ulaw_", "alaw_")):
-                ext = "wav"
-            elif output_format.startswith("opus_"):
-                ext = "opus"
-            else:
-                ext = "mp3"
-
-            filename = f"eleven_music_{generation_id}.{ext}"
-            self.set_parameter_value("output_file", filename)
             dest = self._output_file.build_file()
             saved = await dest.awrite_bytes(audio_bytes)
             self.parameter_output_values["audio_url"] = AudioUrlArtifact(value=saved.location, name=saved.name)

@@ -305,7 +305,6 @@ class GrokImageGeneration(GriptapeProxyNode):
             if not image_bytes:
                 return ImageUrlArtifact(value=image_url)
 
-            self.set_parameter_value("output_file", f"grok_image_{index}.jpg")
             dest = self._output_file.build_file()
             saved = await dest.awrite_bytes(image_bytes)
             return ImageUrlArtifact(value=saved.location, name=saved.name)
