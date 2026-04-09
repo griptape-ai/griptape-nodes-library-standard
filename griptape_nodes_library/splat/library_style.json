@@ -1,0 +1,6 @@
+{
+  "color": "border-purple-500",
+  "title": "Splat",
+  "description": "Gaussian splatting and 3D world generation nodes",
+  "icon": "Sparkles"
+}
