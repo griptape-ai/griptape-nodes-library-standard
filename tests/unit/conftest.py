@@ -42,6 +42,10 @@ def isolate_user_config() -> Generator[Path, None, None]:
 
 
 @pytest.fixture
-def griptape_nodes() -> GriptapeNodes:
+def griptape_nodes() -> Generator[GriptapeNodes, None, None]:
     """Provide a properly initialized GriptapeNodes instance for testing."""
-    return GriptapeNodes()
+    with patch(
+        "griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter.PublicArtifactUrlParameter._get_bucket_id",
+        return_value="test-bucket-id",
+    ):
+        yield GriptapeNodes()
