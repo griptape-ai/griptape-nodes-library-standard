@@ -71,7 +71,6 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         - generation_id (str): Generation ID from the API
         - provider_response (dict): Complete World object from provider
         - world_id (str): World Labs world identifier
-        - viewer_url (str): URL to view world in Marble viewer
         - splat_100k (SplatUrlArtifact): 100k resolution Gaussian splat file
         - splat_500k (SplatUrlArtifact): 500k resolution Gaussian splat file
         - splat_full_res (SplatUrlArtifact): Full resolution Gaussian splat file
@@ -279,16 +278,6 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
                 settable=False,
                 ui_options={"display_name": "World ID"},
-            )
-        )
-
-        self.add_parameter(
-            ParameterString(
-                name="viewer_url",
-                tooltip="URL to view the world in Marble viewer",
-                allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
-                settable=False,
-                ui_options={"display_name": "Viewer URL"},
             )
         )
 
@@ -727,20 +716,18 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         # Store provider response
         self.parameter_output_values["provider_response"] = world
 
-        # Extract world ID and viewer URL
+        # Extract world ID
         world_id = world.get("world_id")
-        viewer_url = world.get("world_marble_url")
 
-        if not world_id or not viewer_url:
+        if not world_id:
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details="World generation completed but world_id or viewer_url is missing",
+                result_details="World generation completed but world_id is missing",
             )
             return
 
         self.parameter_output_values["world_id"] = world_id
-        self.parameter_output_values["viewer_url"] = viewer_url
 
         # Parse assets
         assets = world.get("assets") or {}
@@ -800,7 +787,6 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
     def _set_safe_defaults(self) -> None:
         """Clear output parameters on failure."""
         self.parameter_output_values["world_id"] = ""
-        self.parameter_output_values["viewer_url"] = ""
         self.parameter_output_values["splat_100k"] = None
         self.parameter_output_values["splat_500k"] = None
         self.parameter_output_values["splat_full_res"] = None
