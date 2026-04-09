@@ -8,6 +8,7 @@ from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.api_key_provider_parameter import ApiKeyProviderParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -84,11 +85,23 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
 
     SERVICE_NAME = "Griptape"
     API_KEY_NAME = "GT_CLOUD_API_KEY"
+    USER_API_KEY_NAME = "WORLD_LABS_API_KEY"
+    USER_API_KEY_URL = "https://platform.worldlabs.ai/api-keys"
+    USER_API_KEY_PROVIDER_NAME = "World Labs"
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.category = "API Nodes"
         self.description = "Generate 3D worlds using World Labs Marble via Griptape model proxy"
+
+        # Add API key provider component
+        self._api_key_provider = ApiKeyProviderParameter(
+            node=self,
+            api_key_name=self.USER_API_KEY_NAME,
+            provider_name=self.USER_API_KEY_PROVIDER_NAME,
+            api_key_url=self.USER_API_KEY_URL,
+        )
+        self._api_key_provider.add_parameters()
 
         # Model selection
         self.add_parameter(
@@ -367,6 +380,20 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
 
+        # Set initial visibility based on default input type
+        self._update_input_visibility()
+
+    def preprocess(self) -> None:
+        """Preprocess before generation - validate and register user API key if provided."""
+        validation_result = self._api_key_provider.validate_api_key()
+        if validation_result.user_api_key:
+            self.register_user_auth_info(validation_result.user_api_key)
+
+    async def _process_generation(self) -> None:
+        """Process generation with preprocessing."""
+        self.preprocess()
+        await super()._process_generation()
+
     def _get_parameters(self) -> dict[str, Any]:
         """Get all parameter values for the node."""
         return {
@@ -394,6 +421,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter changes and update visibility."""
         super().after_value_set(parameter, value)
+        self._api_key_provider.after_value_set(parameter, value)
 
         if parameter.name == "input_type":
             self._update_input_visibility()
@@ -404,19 +432,36 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         input_type = params.get("input_type", DEFAULT_INPUT_TYPE)
 
         # Image-specific parameters
-        self.get_parameter("image").hide = input_type != "Image"  # pyright: ignore[reportAttributeAccessIssue]
-        self.get_parameter("is_panorama").hide = input_type != "Image"  # pyright: ignore[reportAttributeAccessIssue]
+        image_param = self.get_parameter_by_name("image")
+        if image_param:
+            image_param.hide = input_type != "Image"
+
+        is_panorama_param = self.get_parameter_by_name("is_panorama")
+        if is_panorama_param:
+            is_panorama_param.hide = input_type != "Image"
 
         # Multi-image-specific parameters
-        self.get_parameter("images").hide = input_type != "Multi-Image"  # pyright: ignore[reportAttributeAccessIssue]
-        self.get_parameter("azimuth_angles").hide = input_type != "Multi-Image"  # pyright: ignore[reportAttributeAccessIssue]
-        self.get_parameter("enable_reconstruction").hide = input_type != "Multi-Image"  # pyright: ignore[reportAttributeAccessIssue]
+        images_param = self.get_parameter_by_name("images")
+        if images_param:
+            images_param.hide = input_type != "Multi-Image"
+
+        azimuth_param = self.get_parameter_by_name("azimuth_angles")
+        if azimuth_param:
+            azimuth_param.hide = input_type != "Multi-Image"
+
+        reconstruction_param = self.get_parameter_by_name("enable_reconstruction")
+        if reconstruction_param:
+            reconstruction_param.hide = input_type != "Multi-Image"
 
         # Video-specific parameters
-        self.get_parameter("video").hide = input_type != "Video"  # pyright: ignore[reportAttributeAccessIssue]
+        video_param = self.get_parameter_by_name("video")
+        if video_param:
+            video_param.hide = input_type != "Video"
 
         # Disable recaption only visible for non-text inputs
-        self.get_parameter("disable_recaption").hide = input_type == "Text"  # pyright: ignore[reportAttributeAccessIssue]
+        recaption_param = self.get_parameter_by_name("disable_recaption")
+        if recaption_param:
+            recaption_param.hide = input_type == "Text"
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the World Labs request payload."""
