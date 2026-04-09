@@ -925,6 +925,17 @@
       }
     },
     {
+      "class_name": "CartwheelCharacterGeneration",
+      "file_path": "griptape_nodes_library/video/cartwheel_character_generation.py",
+      "metadata": {
+        "category": "video",
+        "description": "Generate Cartwheel characters from text or a Cartwheel reference image media ID via Griptape Cloud model proxy.",
+        "display_name": "Cartwheel Character Generation",
+        "icon": "Sparkles",
+        "group": "create"
+      }
+    },
+    {
       "class_name": "SoraVideoGeneration",
       "file_path": "griptape_nodes_library/video/sora_video_generation.py",
       "metadata": {
