@@ -3,10 +3,10 @@
 from collections.abc import Callable
 from typing import Any
 
-from griptape_nodes_library.splat.splat_artifact import SplatUrlArtifact  # pyright: ignore[reportMissingImports]
-
 from griptape_nodes.exe_types.core_types import BadgeData, Parameter, ParameterMode, Trait
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
+
+from griptape_nodes_library.splat.splat_artifact import SplatUrlArtifact  # pyright: ignore[reportMissingImports]
 
 
 class ParameterSplat(Parameter):

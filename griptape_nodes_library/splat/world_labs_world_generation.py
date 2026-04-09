@@ -2,33 +2,25 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import json
 import logging
-from contextlib import suppress
 from io import BytesIO
 from typing import Any
 
-from griptape.artifacts import ImageArtifact, TextArtifact
+from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
-from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
-from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.exe_types.param_types.parameter_three_d import Parameter3D
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
-from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 from PIL import Image
 
 from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
-from griptape_nodes_library.splat.splat_artifact import SplatUrlArtifact
 from griptape_nodes_library.splat.parameter_splat import ParameterSplat
+from griptape_nodes_library.splat.splat_artifact import SplatUrlArtifact
 from griptape_nodes_library.three_d.three_d_artifact import ThreeDUrlArtifact
-from griptape_nodes_library.three_d.parameter_three_d import ParameterThreeD
-from griptape_nodes_library.media.image_url_artifact import ImageUrlArtifact as ImageUrl
-from griptape_nodes_library.media.parameter_media import ParameterMedia
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -136,11 +128,11 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
 
         # Image input (visible when input_type == "Image")
         self.add_parameter(
-            ParameterMedia(
+            Parameter(
                 name="image",
+                input_types=["ImageArtifact", "ImageUrlArtifact", "str"],
                 tooltip="Input image for image-to-world generation",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                accept_any=True,
                 ui_options={"display_name": "Image Input"},
             )
         )
@@ -199,11 +191,11 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
 
         # Video input (visible when input_type == "Video")
         self.add_parameter(
-            ParameterMedia(
+            Parameter(
                 name="video",
+                input_types=["VideoUrlArtifact", "VideoArtifact", "str"],
                 tooltip="Input video for video-to-world generation (max 100MB)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                accept_any=True,
                 ui_options={"display_name": "Video Input"},
             )
         )
@@ -321,9 +313,9 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
             )
         )
 
-        # Mesh output (using ParameterThreeD)
+        # Mesh output (using Parameter3D)
         self.add_parameter(
-            ParameterThreeD(
+            Parameter3D(
                 name="mesh",
                 tooltip="Collider mesh in GLB format",
                 allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
@@ -333,27 +325,25 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
             )
         )
 
-        # Image outputs (using ParameterMedia)
+        # Image outputs
         self.add_parameter(
-            ParameterMedia(
+            Parameter(
                 name="panorama",
+                input_types=["ImageArtifact", "ImageUrlArtifact"],
                 tooltip="Panorama image of the world",
                 allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
                 settable=False,
-                allow_input=False,
-                allow_property=True,
                 ui_options={"display_name": "Panorama"},
             )
         )
 
         self.add_parameter(
-            ParameterMedia(
+            Parameter(
                 name="thumbnail",
+                input_types=["ImageArtifact", "ImageUrlArtifact"],
                 tooltip="Thumbnail image",
                 allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
                 settable=False,
-                allow_input=False,
-                allow_property=True,
                 ui_options={"display_name": "Thumbnail"},
             )
         )
@@ -389,15 +379,33 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
             )
         )
 
+    def _get_parameters(self) -> dict[str, Any]:
+        """Get all parameter values for the node."""
+        return {
+            "model": self.get_parameter_value("model") or DEFAULT_MODEL,
+            "input_type": self.get_parameter_value("input_type") or DEFAULT_INPUT_TYPE,
+            "text_prompt": self.get_parameter_value("text_prompt") or "",
+            "image": self.get_parameter_value("image"),
+            "is_panorama": self.get_parameter_value("is_panorama") or False,
+            "images": self.get_parameter_list_value("images") or [],
+            "azimuth_angles": self.get_parameter_value("azimuth_angles") or "",
+            "enable_reconstruction": self.get_parameter_value("enable_reconstruction") or False,
+            "video": self.get_parameter_value("video"),
+            "disable_recaption": self.get_parameter_value("disable_recaption") or False,
+            "display_name": self.get_parameter_value("display_name") or "",
+            "tags": self.get_parameter_value("tags") or "",
+            "seed": self._seed_parameter.get_seed(),
+        }
+
     def _get_api_model_id(self) -> str:
         """Map friendly model name to backend model ID."""
         params = self._get_parameters()
         model_name = params.get("model", DEFAULT_MODEL)
         return MODEL_ID_MAP.get(model_name, "marble-1.1")
 
-    def after_value_set(self, parameter: Parameter, old_value: Any, new_value: Any) -> None:
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter changes and update visibility."""
-        super().after_value_set(parameter, old_value, new_value)
+        super().after_value_set(parameter, value)
 
         if parameter.name == "input_type":
             self._update_input_visibility()
@@ -408,19 +416,19 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         input_type = params.get("input_type", DEFAULT_INPUT_TYPE)
 
         # Image-specific parameters
-        self.get_parameter("image").hide = input_type != "Image"
-        self.get_parameter("is_panorama").hide = input_type != "Image"
+        self.get_parameter("image").hide = input_type != "Image"  # pyright: ignore[reportAttributeAccessIssue]
+        self.get_parameter("is_panorama").hide = input_type != "Image"  # pyright: ignore[reportAttributeAccessIssue]
 
         # Multi-image-specific parameters
-        self.get_parameter("images").hide = input_type != "Multi-Image"
-        self.get_parameter("azimuth_angles").hide = input_type != "Multi-Image"
-        self.get_parameter("enable_reconstruction").hide = input_type != "Multi-Image"
+        self.get_parameter("images").hide = input_type != "Multi-Image"  # pyright: ignore[reportAttributeAccessIssue]
+        self.get_parameter("azimuth_angles").hide = input_type != "Multi-Image"  # pyright: ignore[reportAttributeAccessIssue]
+        self.get_parameter("enable_reconstruction").hide = input_type != "Multi-Image"  # pyright: ignore[reportAttributeAccessIssue]
 
         # Video-specific parameters
-        self.get_parameter("video").hide = input_type != "Video"
+        self.get_parameter("video").hide = input_type != "Video"  # pyright: ignore[reportAttributeAccessIssue]
 
         # Disable recaption only visible for non-text inputs
-        self.get_parameter("disable_recaption").hide = input_type == "Text"
+        self.get_parameter("disable_recaption").hide = input_type == "Text"  # pyright: ignore[reportAttributeAccessIssue]
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the World Labs request payload."""
@@ -528,7 +536,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
             try:
                 azimuth_angles = [float(a.strip()) for a in azimuth_angles_str.split(",")]
             except ValueError:
-                raise ValueError(f"Invalid azimuth angles format: {azimuth_angles_str}")
+                raise ValueError(f"Invalid azimuth angles format: {azimuth_angles_str}") from None
 
         # Build multi_image_prompt array
         multi_image_prompt = []
@@ -541,7 +549,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
                 angle = azimuth_angles[i]
                 if angle < 0 or angle > 360:
                     raise ValueError(f"Azimuth angle must be between 0 and 360 degrees: {angle}")
-                item["azimuth"] = angle
+                item["azimuth"] = angle  # pyright: ignore[reportArgumentType]
 
             multi_image_prompt.append(item)
 
@@ -746,13 +754,13 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         # Parse imagery
         imagery = assets.get("imagery") or {}
         if imagery.get("pano_url"):
-            self.parameter_output_values["panorama"] = ImageUrl(
+            self.parameter_output_values["panorama"] = ImageUrlArtifact(
                 value=imagery["pano_url"], meta={"type": "panorama", "world_id": world_id}
             )
 
         # Parse thumbnail
         if assets.get("thumbnail_url"):
-            self.parameter_output_values["thumbnail"] = ImageUrl(
+            self.parameter_output_values["thumbnail"] = ImageUrlArtifact(
                 value=assets["thumbnail_url"], meta={"type": "thumbnail", "world_id": world_id}
             )
 
