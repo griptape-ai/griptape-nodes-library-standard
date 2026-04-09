@@ -141,9 +141,7 @@ class CartwheelMascotGeneration(GriptapeProxyNode):
     async def _build_payload(self) -> dict[str, Any]:
         job: dict[str, Any] = {
             "inputVideoMediaID": self._required_string("input_video_media_id"),
-            "characterReferenceMediaIDs": self._required_string_list(
-                "character_reference_media_ids"
-            ),
+            "characterReferenceMediaIDs": self._required_string_list("character_reference_media_ids"),
             "prompt": self._required_string("prompt"),
         }
 
@@ -192,9 +190,7 @@ class CartwheelMascotGeneration(GriptapeProxyNode):
             try:
                 dest = self._output_file.build_file()
                 saved = await dest.awrite_bytes(video_bytes)
-                self.parameter_output_values["video_url"] = VideoUrlArtifact(
-                    value=saved.location, name=saved.name
-                )
+                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
                 self._set_status_results(
                     was_successful=True,
                     result_details=f"Mascot video generated successfully and saved as {saved.name}.",
@@ -221,9 +217,7 @@ class CartwheelMascotGeneration(GriptapeProxyNode):
             exceptions.append(ValueError(f"{self.name} requires an input video media ID."))
 
         if not self._required_string_list("character_reference_media_ids", raise_on_error=False):
-            exceptions.append(
-                ValueError(f"{self.name} requires at least one character reference media ID.")
-            )
+            exceptions.append(ValueError(f"{self.name} requires at least one character reference media ID."))
 
         if not (self.get_parameter_value("prompt") or "").strip():
             exceptions.append(ValueError(f"{self.name} requires a prompt."))
@@ -239,9 +233,7 @@ class CartwheelMascotGeneration(GriptapeProxyNode):
     def _optional_string(self, parameter_name: str) -> str:
         return str(self.get_parameter_value(parameter_name) or "").strip()
 
-    def _required_string_list(
-        self, parameter_name: str, *, raise_on_error: bool = True
-    ) -> list[str]:
+    def _required_string_list(self, parameter_name: str, *, raise_on_error: bool = True) -> list[str]:
         value = self.get_parameter_value(parameter_name) or []
         if not isinstance(value, list):
             if raise_on_error:

@@ -33,8 +33,7 @@ class CartwheelCharacterGeneration(GriptapeProxyNode):
         super().__init__(**kwargs)
         self.category = "API Nodes"
         self.description = (
-            "Generate a Cartwheel character for downstream motion workflows via "
-            "Griptape Cloud model proxy"
+            "Generate a Cartwheel character for downstream motion workflows via Griptape Cloud model proxy"
         )
 
         self.add_parameter(
@@ -152,9 +151,7 @@ class CartwheelCharacterGeneration(GriptapeProxyNode):
         self._thumbnail_file.add_parameter()
 
         self._create_status_parameters(
-            result_details_tooltip=(
-                "Details about the character generation result or any errors"
-            ),
+            result_details_tooltip=("Details about the character generation result or any errors"),
             result_details_placeholder="Generation status and details will appear here.",
             parameter_group_initially_collapsed=True,
         )
@@ -193,17 +190,13 @@ class CartwheelCharacterGeneration(GriptapeProxyNode):
 
         return payload
 
-    async def _parse_result(
-        self, result_json: dict[str, Any], _generation_id: str
-    ) -> None:
+    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
         character = result_json.get("character", {})
         if not isinstance(character, dict):
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=(
-                    f"{self.name} completed but returned no Cartwheel character payload."
-                ),
+                result_details=(f"{self.name} completed but returned no Cartwheel character payload."),
             )
             return
 
@@ -212,19 +205,13 @@ class CartwheelCharacterGeneration(GriptapeProxyNode):
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=(
-                    f"{self.name} completed but Cartwheel returned no characterID."
-                ),
+                result_details=(f"{self.name} completed but Cartwheel returned no characterID."),
             )
             return
 
         self.parameter_output_values["character_id"] = character_id
-        self.parameter_output_values["upload_status"] = self._string_or_empty(
-            character.get("uploadStatus")
-        )
-        self.parameter_output_values["generated_status"] = self._string_or_empty(
-            character.get("generatedStatus")
-        )
+        self.parameter_output_values["upload_status"] = self._string_or_empty(character.get("uploadStatus"))
+        self.parameter_output_values["generated_status"] = self._string_or_empty(character.get("generatedStatus"))
         self.parameter_output_values["estimated_seconds_wait_time"] = float(
             character.get("estimatedSecondsWaitTime") or 0
         )
@@ -235,8 +222,7 @@ class CartwheelCharacterGeneration(GriptapeProxyNode):
             self._set_status_results(
                 was_successful=True,
                 result_details=(
-                    "Character generated successfully. "
-                    f"Character ID: {character_id}. Cartwheel returned no thumbnail."
+                    f"Character generated successfully. Character ID: {character_id}. Cartwheel returned no thumbnail."
                 ),
             )
             return
@@ -261,14 +247,11 @@ class CartwheelCharacterGeneration(GriptapeProxyNode):
             except (OSError, PermissionError) as e:
                 logger.warning("%s failed to save Cartwheel thumbnail: %s", self.name, e)
 
-        self.parameter_output_values["thumbnail_image"] = ImageUrlArtifact(
-            value=thumbnail_url
-        )
+        self.parameter_output_values["thumbnail_image"] = ImageUrlArtifact(value=thumbnail_url)
         self._set_status_results(
             was_successful=True,
             result_details=(
-                "Character generated successfully. "
-                f"Character ID: {character_id}. Using provider thumbnail URL."
+                f"Character generated successfully. Character ID: {character_id}. Using provider thumbnail URL."
             ),
         )
 
@@ -287,19 +270,14 @@ class CartwheelCharacterGeneration(GriptapeProxyNode):
         if mode == REFERENCE_IMAGE_MODE:
             if not self._optional_string("reference_media_id"):
                 exceptions.append(
-                    ValueError(
-                        f"{self.name} requires a Cartwheel reference image media "
-                        "ID in reference-image mode."
-                    )
+                    ValueError(f"{self.name} requires a Cartwheel reference image media ID in reference-image mode.")
                 )
         elif not self._optional_string("prompt"):
             exceptions.append(ValueError(f"{self.name} requires a prompt in text mode."))
 
         character_name = self._optional_string("character_name")
         if len(character_name) > 100:
-            exceptions.append(
-                ValueError(f"{self.name} character_name must be 100 characters or fewer.")
-            )
+            exceptions.append(ValueError(f"{self.name} character_name must be 100 characters or fewer."))
 
         return exceptions or None
 

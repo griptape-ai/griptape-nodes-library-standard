@@ -399,9 +399,7 @@ class CartwheelMotionGeneration(GriptapeProxyNode):
         self.parameter_output_values["gltf_url"] = self._string_or_empty(first_motion.get("gltfURL"))
 
         download_count = sum(
-            1
-            for key in ("bvh_url", "cwms_url", "fbx_url", "gltf_url")
-            if self.parameter_output_values[key]
+            1 for key in ("bvh_url", "cwms_url", "fbx_url", "gltf_url") if self.parameter_output_values[key]
         )
         if download_count == 0:
             self._set_status_results(
@@ -443,9 +441,7 @@ class CartwheelMotionGeneration(GriptapeProxyNode):
             reference_media_id = self.get_parameter_value("reference_media_id") or ""
             if not reference_media_id.strip():
                 exceptions.append(
-                    ValueError(
-                        f"{self.name} requires a Cartwheel reference video media ID in reference-video mode."
-                    )
+                    ValueError(f"{self.name} requires a Cartwheel reference video media ID in reference-video mode.")
                 )
 
         return exceptions or None
