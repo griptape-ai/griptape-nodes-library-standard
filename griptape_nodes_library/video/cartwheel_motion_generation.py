@@ -4,6 +4,7 @@ import logging
 from typing import Any, ClassVar
 
 from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
@@ -83,15 +84,6 @@ class CartwheelMotionGeneration(GriptapeProxyNode):
 
         self.add_parameter(
             ParameterString(
-                name="batch_name",
-                default_value="",
-                tooltip="Optional Cartwheel batch name",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            )
-        )
-
-        self.add_parameter(
-            ParameterString(
                 name="character_id",
                 default_value="",
                 tooltip="Cartwheel character ID to export the motion on",
@@ -128,7 +120,23 @@ class CartwheelMotionGeneration(GriptapeProxyNode):
                 traits={Options(choices=REQUESTED_MODEL_OPTIONS)},
             )
 
+            ParameterString(
+                name="duration_seconds",
+                default_value="5",
+                tooltip="Motion duration in seconds (Cartwheel bills per second)",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            )
+
         self.add_node_element(generation_settings_group)
+
+        self.add_parameter(
+            ParameterString(
+                name="batch_name",
+                default_value="",
+                tooltip="Optional Cartwheel batch name",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            )
+        )
 
         with ParameterGroup(name="Export Settings", ui_options={"collapsed": True}) as export_settings_group:
             ParameterString(
@@ -170,20 +178,18 @@ class CartwheelMotionGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
 
-            ParameterString(
+            ParameterBool(
                 name="move_in_place",
-                default_value="false",
+                default_value=False,
                 tooltip="Whether to move the character in place",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["false", "true"])},
             )
 
-            ParameterString(
+            ParameterBool(
                 name="loop",
-                default_value="false",
+                default_value=False,
                 tooltip="Whether to loop the motion",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["false", "true"])},
             )
 
             ParameterString(
@@ -203,26 +209,26 @@ class CartwheelMotionGeneration(GriptapeProxyNode):
 
             ParameterString(
                 name="ik_feet",
-                default_value="",
+                default_value="Default",
                 tooltip="Optional inverse kinematics setting for feet",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["", "true", "false"])},
+                traits={Options(choices=["Default", "Enabled", "Disabled"])},
             )
 
             ParameterString(
                 name="ik_hands",
-                default_value="",
+                default_value="Default",
                 tooltip="Optional inverse kinematics setting for hands",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["", "true", "false"])},
+                traits={Options(choices=["Default", "Enabled", "Disabled"])},
             )
 
             ParameterString(
                 name="include_mesh",
-                default_value="",
+                default_value="Default",
                 tooltip="Optional include-mesh override",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["", "true", "false"])},
+                traits={Options(choices=["Default", "Enabled", "Disabled"])},
             )
 
             ParameterString(
@@ -344,7 +350,8 @@ class CartwheelMotionGeneration(GriptapeProxyNode):
             "up": self.get_parameter_value("up"),
             "frameRate": self._parse_float_string("frame_rate", as_int_if_possible=False),
             "frameStepSize": self._parse_float_string("frame_step_size", as_int_if_possible=True),
-            "moveInPlace": self._parse_bool_string("move_in_place"),
+            "moveInPlace": bool(self.get_parameter_value("move_in_place")),
+            "loop": bool(self.get_parameter_value("loop")),
         }
 
         self._add_optional_string(export_settings, "faceExpression", "face_expression")
@@ -354,9 +361,6 @@ class CartwheelMotionGeneration(GriptapeProxyNode):
         self._add_optional_bool(export_settings, "includeMesh", "include_mesh")
         self._add_optional_string(export_settings, "keyframeCleaning", "keyframe_cleaning")
         self._add_optional_string(export_settings, "skinHex", "skin_hex")
-        loop = self.get_parameter_value("loop")
-        if loop in {"true", "false"}:
-            export_settings["loop"] = self._parse_bool_string("loop")
 
         payload: dict[str, Any] = {
             "exportSettings": export_settings,
@@ -372,6 +376,9 @@ class CartwheelMotionGeneration(GriptapeProxyNode):
             payload["requestedModel"] = self.get_parameter_value("requested_model")
         else:
             payload["mediaIDs"] = [self._required_string("reference_media_id")]
+
+        # Cartwheel requires duration for billing (per second)
+        payload["durationSeconds"] = self._parse_float_string("duration_seconds", as_int_if_possible=False)
 
         return payload
 
@@ -453,12 +460,6 @@ class CartwheelMotionGeneration(GriptapeProxyNode):
             raise ValueError(f"{self.name} requires {parameter_name}.")
         return value
 
-    def _parse_bool_string(self, parameter_name: str) -> bool:
-        value = str(self.get_parameter_value(parameter_name) or "").strip().lower()
-        if value not in {"true", "false"}:
-            raise ValueError(f"{self.name} parameter {parameter_name} must be 'true' or 'false'.")
-        return value == "true"
-
     def _parse_float_string(self, parameter_name: str, *, as_int_if_possible: bool) -> int | float:
         raw_value = str(self.get_parameter_value(parameter_name) or "").strip()
         try:
@@ -476,9 +477,12 @@ class CartwheelMotionGeneration(GriptapeProxyNode):
             payload[key] = value
 
     def _add_optional_bool(self, payload: dict[str, Any], key: str, parameter_name: str) -> None:
-        raw_value = str(self.get_parameter_value(parameter_name) or "").strip().lower()
-        if raw_value in {"true", "false"}:
-            payload[key] = raw_value == "true"
+        raw_value = str(self.get_parameter_value(parameter_name) or "Default").strip()
+        if raw_value == "Enabled":
+            payload[key] = True
+        elif raw_value == "Disabled":
+            payload[key] = False
+        # If "Default", don't include in payload
 
     @staticmethod
     def _string_or_empty(value: Any) -> str:

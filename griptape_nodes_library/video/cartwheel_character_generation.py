@@ -9,7 +9,6 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import (
     ProjectFileParameter,
 )
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
-from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
@@ -28,6 +27,7 @@ class CartwheelCharacterGeneration(GriptapeProxyNode):
     """Generate a Cartwheel character via Griptape Cloud model proxy."""
 
     MODEL_ID: ClassVar[str] = "cartwheel-character"
+    DEFAULT_MAX_ATTEMPTS = 360  # 30 minutes with 5s intervals
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -109,31 +109,6 @@ class CartwheelCharacterGeneration(GriptapeProxyNode):
         )
 
         self.add_parameter(
-            ParameterString(
-                name="upload_status",
-                tooltip="Cartwheel upload pipeline status",
-                allowed_modes={ParameterMode.OUTPUT},
-            )
-        )
-
-        self.add_parameter(
-            ParameterString(
-                name="generated_status",
-                tooltip="Cartwheel generated-character pipeline status",
-                allowed_modes={ParameterMode.OUTPUT},
-            )
-        )
-
-        self.add_parameter(
-            ParameterFloat(
-                name="estimated_seconds_wait_time",
-                tooltip="Estimated seconds remaining reported by Cartwheel",
-                default_value=0.0,
-                allowed_modes={ParameterMode.OUTPUT},
-            )
-        )
-
-        self.add_parameter(
             ParameterImage(
                 name="thumbnail_image",
                 tooltip="Generated character thumbnail",
@@ -210,11 +185,6 @@ class CartwheelCharacterGeneration(GriptapeProxyNode):
             return
 
         self.parameter_output_values["character_id"] = character_id
-        self.parameter_output_values["upload_status"] = self._string_or_empty(character.get("uploadStatus"))
-        self.parameter_output_values["generated_status"] = self._string_or_empty(character.get("generatedStatus"))
-        self.parameter_output_values["estimated_seconds_wait_time"] = float(
-            character.get("estimatedSecondsWaitTime") or 0
-        )
 
         thumbnail_url = self._string_or_empty(character.get("thumbnailURL"))
         if not thumbnail_url:
@@ -258,9 +228,6 @@ class CartwheelCharacterGeneration(GriptapeProxyNode):
     def _set_safe_defaults(self) -> None:
         self.parameter_output_values["provider_response"] = None
         self.parameter_output_values["character_id"] = ""
-        self.parameter_output_values["upload_status"] = ""
-        self.parameter_output_values["generated_status"] = ""
-        self.parameter_output_values["estimated_seconds_wait_time"] = 0.0
         self.parameter_output_values["thumbnail_image"] = None
 
     def validate_before_node_run(self) -> list[Exception] | None:
