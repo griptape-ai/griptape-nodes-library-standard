@@ -29,10 +29,12 @@ class CartwheelMascotGeneration(GriptapeProxyNode):
 
         self.add_parameter(
             ParameterString(
-                name="batch_name",
+                name="prompt",
                 default_value="",
-                tooltip="Optional Cartwheel batch name",
+                tooltip="Prompt describing the character replacement",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                multiline=True,
+                placeholder_text="Describe the mascot replacement...",
             )
         )
 
@@ -58,20 +60,18 @@ class CartwheelMascotGeneration(GriptapeProxyNode):
 
         self.add_parameter(
             ParameterString(
-                name="prompt",
+                name="environment_image_media_id",
                 default_value="",
-                tooltip="Prompt describing the character replacement",
+                tooltip="Optional Cartwheel media ID for the environment image",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                multiline=True,
-                placeholder_text="Describe the mascot replacement...",
             )
         )
 
         self.add_parameter(
             ParameterString(
-                name="environment_image_media_id",
+                name="batch_name",
                 default_value="",
-                tooltip="Optional Cartwheel media ID for the environment image",
+                tooltip="Optional Cartwheel batch name",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
