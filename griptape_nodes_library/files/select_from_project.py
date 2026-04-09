@@ -3,7 +3,7 @@ from typing import Any
 
 from griptape.artifacts import UrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import DataNode
+from griptape_nodes.exe_types.node_types import DataNode, NodeDependencies
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.events.project_events import (
     AttemptMapAbsolutePathToProjectRequest,
@@ -55,6 +55,15 @@ class SelectFromProject(DataNode):
                 allowed_modes={ParameterMode.OUTPUT},
             )
         )
+
+    def get_node_dependencies(self) -> NodeDependencies | None:
+        deps = super().get_node_dependencies()
+        if deps is None:
+            deps = NodeDependencies()
+        value = self.get_parameter_value("selected_path")
+        if value and isinstance(value, str):
+            deps.static_files.add(value)
+        return deps
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "selected_path":
