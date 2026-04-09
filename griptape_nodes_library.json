@@ -661,6 +661,17 @@
       }
     },
     {
+      "class_name": "OpenAiAudioTranscription",
+      "file_path": "griptape_nodes_library/audio/openai_audio_transcription.py",
+      "metadata": {
+        "category": "audio",
+        "description": "Transcribe audio to text using OpenAI models via Griptape Cloud proxy",
+        "display_name": "OpenAI Audio Transcription",
+        "icon": "ear",
+        "group": "describe"
+      }
+    },
+    {
       "class_name": "CombineAudio",
       "file_path": "griptape_nodes_library/audio/combine_audio.py",
       "metadata": {
