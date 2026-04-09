@@ -2,7 +2,7 @@ from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter
-from griptape_nodes.exe_types.node_types import BaseNode, DataNode
+from griptape_nodes.exe_types.node_types import BaseNode, DataNode, NodeDependencies
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 
@@ -72,6 +72,15 @@ class LoadVideo(DataNode):
         self._external_warning, self._copy_button = create_external_file_controls(self._on_copy_to_project_clicked)
         self.add_node_element(self._external_warning)
         self.add_parameter(self._copy_button)
+
+    def get_node_dependencies(self) -> NodeDependencies | None:
+        deps = super().get_node_dependencies()
+        if deps is None:
+            deps = NodeDependencies()
+        value = self.get_parameter_value("path")
+        if value and isinstance(value, str):
+            deps.static_files.add(value)
+        return deps
 
     def after_incoming_connection(
         self,
