@@ -360,23 +360,11 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
             )
         )
 
-        self.add_parameter(
-            ParameterBool(
-                name="was_successful",
-                tooltip="Whether the world generation succeeded",
-                allow_input=False,
-                allow_property=False,
-            )
-        )
-
-        self.add_parameter(
-            ParameterString(
-                name="result_details",
-                tooltip="Details about the generation result or error",
-                allow_input=False,
-                allow_property=False,
-                multiline=True,
-            )
+        # Status parameters MUST be last and use _create_status_parameters
+        self._create_status_parameters(
+            result_details_tooltip="Details about the generation result or any errors",
+            result_details_placeholder="Generation status will appear here...",
+            parameter_group_initially_collapsed=True,
         )
 
     def _get_parameters(self) -> dict[str, Any]:
