@@ -320,7 +320,9 @@ class KlingLipSync(GriptapeProxyNode):
         else:
             video_url = self.get_parameter_value("input_video")
             if not video_url:
-                exceptions.append(ValueError(f"{self.name} requires a video file or URL when video input type is video_url."))
+                exceptions.append(
+                    ValueError(f"{self.name} requires a video file or URL when video input type is video_url.")
+                )
 
         if mode == "audio2video":
             input_audio = self.get_parameter_value("input_audio")

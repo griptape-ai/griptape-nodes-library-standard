@@ -229,9 +229,7 @@ class KlingIdentifyFace(GriptapeProxyNode):
             return
 
         self.parameter_output_values["selected_face"] = selected_face
-        self.parameter_output_values["selected_face_id"] = str(
-            selected_face.get("face_id") or ""
-        )
+        self.parameter_output_values["selected_face_id"] = str(selected_face.get("face_id") or "")
 
     def _set_safe_defaults(self) -> None:
         self.parameter_output_values["session_id"] = ""
@@ -252,7 +250,9 @@ class KlingIdentifyFace(GriptapeProxyNode):
         else:
             video_url = self.get_parameter_value("video_url")
             if not video_url:
-                exceptions.append(ValueError(f"{self.name} requires a video file or URL when video input type is video_url."))
+                exceptions.append(
+                    ValueError(f"{self.name} requires a video file or URL when video input type is video_url.")
+                )
 
         try:
             if int(selected_face_index) < 0:
