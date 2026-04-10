@@ -8,11 +8,11 @@ disable-model-invocation: false
 
 # Implement a Proxy Node
 
-Implement a node in this repo (griptape-nodes-library-standard) based on the specification file produced by `/api-research`. The node extends `GriptapeProxyNode` and communicates with the upstream API through the Griptape Cloud proxy.
+Implement a node in this repo (griptape-nodes-library-standard) based on the specification file produced by `/api-research` (in the griptape-cloud repo). The node extends `GriptapeProxyNode` and communicates with the upstream API through the Griptape Cloud proxy.
 
 ## 1. Read the Spec and API Key
 
-Read the spec file from `$ARGUMENTS`. Also read the API key from `.api_key` in the same directory (needed for integration testing).
+Read the spec file from `$ARGUMENTS`. The path may be absolute or relative to this repo (e.g., `../../griptape-cloud/.scratch/proxy-spec-<name>/spec.md`). Also read the API key from `.api_key` in the same directory as the spec (needed for integration testing).
 
 Extract from the spec:
 - Service name, model IDs
