@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import suppress
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
@@ -139,8 +139,12 @@ class RecraftImageGeneration(GriptapeProxyNode):
     Outputs:
         - generation_id (str): Generation ID from the API
         - provider_response (dict): Verbatim provider response
-        - output_image (ImageUrlArtifact): First generated image
+        - image_url (ImageUrlArtifact): First generated image
+        - image_url_2 ... image_url_6 (ImageUrlArtifact): Additional images
     """
+
+    MIN_IMAGES: ClassVar[int] = 1
+    MAX_IMAGES: ClassVar[int] = 6
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -234,15 +238,17 @@ class RecraftImageGeneration(GriptapeProxyNode):
             )
         )
 
-        self.add_parameter(
-            ParameterImage(
-                name="output_image",
-                tooltip="Generated image",
-                allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
-                settable=False,
-                ui_options={"pulse_on_run": True},
+        for i in range(1, self.MAX_IMAGES + 1):
+            param_name = "image_url" if i == 1 else f"image_url_{i}"
+            self.add_parameter(
+                ParameterImage(
+                    name=param_name,
+                    tooltip=f"Generated image {i}",
+                    allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
+                    settable=False,
+                    ui_options={"pulse_on_run": True, "hide": i > 1},
+                )
             )
-        )
 
         self._output_file = ProjectFileParameter(
             node=self,
@@ -310,14 +316,23 @@ class RecraftImageGeneration(GriptapeProxyNode):
 
         return payload
 
+    def _show_image_output_parameters(self, count: int) -> None:
+        """Show only the image output parameters that have results."""
+        for i in range(1, self.MAX_IMAGES + 1):
+            param_name = "image_url" if i == 1 else f"image_url_{i}"
+            if i <= count:
+                self.show_parameter_by_name(param_name)
+            else:
+                self.hide_parameter_by_name(param_name)
+
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         """Parse the Recraft result and set output parameters.
 
         The proxy returns the raw Recraft API response:
         {"created": ..., "credits": ..., "data": [{"image_id": "...", "url": "..."}]}
         """
-        data = result_json.get("data")
-        if not data or not isinstance(data, list) or len(data) == 0:
+        data = result_json.get("data", [])
+        if not data:
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
@@ -325,49 +340,66 @@ class RecraftImageGeneration(GriptapeProxyNode):
             )
             return
 
-        first_image = data[0]
-        url = first_image.get("url")
-        if not url:
+        # The recraftv2_vector model produces SVG files; all other models produce PNG files.
+        api_model_id = self._get_api_model_id()
+        extension = "svg" if api_model_id == "recraftv2_vector" else "png"
+        self.set_parameter_value("output_file", f"recraft_image.{extension}")
+
+        image_artifacts: list[ImageUrlArtifact] = []
+        for idx, image_data in enumerate(data):
+            image_url = image_data.get("url")
+            if not image_url:
+                continue
+
+            artifact = await self._save_single_image_from_url(image_url, generation_id, idx)
+            if artifact:
+                image_artifacts.append(artifact)
+
+        if not image_artifacts:
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details="Generation completed but no image URL was found in the response.",
+                result_details="Generation completed but no image URLs were found in the response.",
             )
             return
 
-        try:
-            self._log("Downloading image from URL")
-            image_bytes = await File(url).aread_bytes()
-            if image_bytes:
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(image_bytes)
-                self.parameter_output_values["output_image"] = ImageUrlArtifact(saved.location)
-                self._log(f"Saved image as {saved.name}")
+        self._show_image_output_parameters(len(image_artifacts))
 
-                count = len(data)
-                details = f"Generated {count} image{'s' if count > 1 else ''} successfully."
-                if count > 1:
-                    details += " Only the first image is shown in the output."
-                self._set_status_results(was_successful=True, result_details=details)
-            else:
-                self.parameter_output_values["output_image"] = ImageUrlArtifact(value=url)
-                self._set_status_results(
-                    was_successful=True,
-                    result_details="Image generated successfully. Using provider URL (could not download image bytes).",
-                )
+        for idx, artifact in enumerate(image_artifacts, start=1):
+            param_name = "image_url" if idx == 1 else f"image_url_{idx}"
+            self.parameter_output_values[param_name] = artifact
+
+        filenames = [artifact.name for artifact in image_artifacts]
+        if len(image_artifacts) == 1:
+            details = f"Image generated successfully and saved as {filenames[0]}."
+        else:
+            details = f"Generated {len(image_artifacts)} images successfully: {', '.join(filenames)}."
+
+        self._set_status_results(was_successful=True, result_details=details)
+
+    async def _save_single_image_from_url(
+        self, image_url: str, generation_id: str | None = None, index: int = 0
+    ) -> ImageUrlArtifact | None:
+        """Download and save a single image from a URL."""
+        try:
+            image_bytes = await File(image_url).aread_bytes()
+            if not image_bytes:
+                return ImageUrlArtifact(value=image_url)
+
+            dest = self._output_file.build_file()
+            saved = await dest.awrite_bytes(image_bytes)
+            return ImageUrlArtifact(value=saved.location, name=saved.name)
         except Exception as e:
-            self._log(f"Failed to save image from URL: {e}")
-            self.parameter_output_values["output_image"] = ImageUrlArtifact(value=url)
-            self._set_status_results(
-                was_successful=True,
-                result_details=f"Image generated successfully. Using provider URL (could not save to static storage: {e}).",
-            )
+            self._log(f"Failed to save image {index}: {e}")
+            return ImageUrlArtifact(value=image_url)
 
     def _set_safe_defaults(self) -> None:
         """Clear all output parameters on error."""
         self.parameter_output_values["generation_id"] = ""
         self.parameter_output_values["provider_response"] = None
-        self.parameter_output_values["output_image"] = None
+        for i in range(1, self.MAX_IMAGES + 1):
+            param_name = "image_url" if i == 1 else f"image_url_{i}"
+            self.parameter_output_values[param_name] = None
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:
         """Extract error message from Recraft error response.
