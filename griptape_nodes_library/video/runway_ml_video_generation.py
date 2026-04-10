@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import logging
 from contextlib import suppress
 from typing import Any, ClassVar
@@ -12,7 +13,10 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
+
+from griptape_nodes_library.utils.image_utils import shrink_image_to_size
 
 from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
 
@@ -247,7 +251,7 @@ class RunwayMLVideoGeneration(GriptapeProxyNode):
 
         # Determine endpoint based on image presence
         if prompt_image:
-            data_uri = self._image_to_data_uri(prompt_image)
+            data_uri = await self._prepare_image_data_uri(prompt_image)
             if data_uri:
                 payload["promptImage"] = data_uri
                 payload["_endpoint"] = "image_to_video"
@@ -339,36 +343,57 @@ class RunwayMLVideoGeneration(GriptapeProxyNode):
                 result_details=f"Video generation completed but failed to save: {e}",
             )
 
-    @staticmethod
-    def _image_to_data_uri(image_input: Any) -> str | None:
-        """Convert an image parameter value to a data URI for RunwayML.
+    async def _prepare_image_data_uri(self, image_input: Any) -> str | None:
+        """Convert image input to a data URI, downloading from local paths if needed.
 
         RunwayML requires images as data URIs or publicly-accessible URLs with
         proper Content-Type headers. Data URIs are the most reliable option.
         """
-        if image_input is None:
+        if not image_input:
             return None
 
-        # String input
-        if isinstance(image_input, str):
-            v = image_input.strip()
+        image_url = self._coerce_image_url_or_data_uri(image_input)
+        if not image_url:
+            return None
+
+        if image_url.startswith("data:image/"):
+            return image_url
+
+        try:
+            image_bytes = await File(image_url).aread_bytes()
+        except FileLoadError as e:
+            logger.debug("%s failed to load image from %s: %s", self.name, image_url, e)
+            return None
+
+        # RunwayML data URIs are limited to 5,242,880 characters.
+        # The base64 prefix is ~22 chars, so raw bytes must encode to under ~3.9MB.
+        max_raw_bytes = 3_900_000
+        if len(image_bytes) > max_raw_bytes:
+            image_bytes = shrink_image_to_size(image_bytes, max_raw_bytes, context_name=self.name)
+
+        return f"data:image/png;base64,{base64.b64encode(image_bytes).decode('utf-8')}"
+
+    @staticmethod
+    def _coerce_image_url_or_data_uri(val: Any) -> str | None:
+        """Convert various image input types to a URL or data URI string."""
+        if val is None:
+            return None
+
+        if isinstance(val, str):
+            v = val.strip()
             if not v:
                 return None
-            if v.startswith("data:image/"):
-                return v
-            if v.startswith(("http://", "https://")):
-                return v
-            return f"data:image/png;base64,{v}"
+            return v if v.startswith(("http://", "https://", "data:image/")) else f"data:image/png;base64,{v}"
 
-        # ImageUrlArtifact: .value holds a URL string
-        value = getattr(image_input, "value", None)
-        if isinstance(value, str) and value.startswith(("http://", "https://", "data:image/")):
-            return value
-
-        # ImageArtifact: .base64 holds base64-encoded image data
-        b64 = getattr(image_input, "base64", None)
+        # ImageArtifact: .base64 holds raw or data-URI
+        b64 = getattr(val, "base64", None)
         if isinstance(b64, str) and b64:
             return b64 if b64.startswith("data:image/") else f"data:image/png;base64,{b64}"
+
+        # ImageUrlArtifact or similar: .value holds URL or local path
+        v = getattr(val, "value", None)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
 
         return None
 

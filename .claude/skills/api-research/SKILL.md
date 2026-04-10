@@ -102,7 +102,14 @@ Create `.scratch/proxy-spec-$SERVICE_NAME/test_api.py` with `requests` or `httpx
 
 5. **Error: bad auth** - Send a request with an invalid API key. Save to `responses/error_bad_auth.json`.
 
-6. **Async polling** (if applicable) - Submit a job, poll until completion, fetch the result. Measure and record:
+6. **Media input handling** (if the API accepts image/video/audio inputs) - Test how the API handles different input formats:
+   - Test with a data URI (base64-encoded). Record whether it works and any size limits.
+   - Test with a public HTTPS URL. Check if the API fetches the URL server-side and whether it validates the Content-Type header.
+   - Check the API docs for a dedicated upload endpoint (e.g. `/v1/uploads`) for large files.
+   - Save results to `responses/media_input_test.json`.
+   - **This is critical:** If the API rejects URLs with `application/octet-stream` Content-Type, the node MUST use data URIs or the provider's upload API. Document findings in the spec's "Media Input Requirements" section.
+
+7. **Async polling** (if applicable) - Submit a job, poll until completion, fetch the result. Measure and record:
    - Time from submission to first non-queued status
    - Total time to completion
    - Number of poll attempts
@@ -237,6 +244,18 @@ Headers: {headers with key redacted}
 ```json
 {response body}
 ```
+
+## Media Input Requirements
+
+(Include this section if any endpoint accepts images, videos, or audio as input)
+
+- **Accepted formats**: {e.g. "HTTPS URLs, data URIs, provider-specific upload URIs"}
+- **URL requirements**: {e.g. "Must serve with image/* Content-Type header", "Must be publicly accessible"}
+- **Data URI support**: {yes/no, and if yes, max size in characters}
+- **Max file size**: {e.g. "10MB for images, 100MB for videos"}
+- **Upload endpoint**: {if the provider has a dedicated upload API for large files, document it here}
+
+This section is critical for downstream node implementation. If the API fetches URLs server-side and validates Content-Type headers, nodes cannot use generic artifact upload (which serves as application/octet-stream). They must use data URIs or the provider's upload API instead.
 
 ## Quirks
 

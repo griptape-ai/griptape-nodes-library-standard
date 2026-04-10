@@ -47,6 +47,7 @@ Based on the spec's media type, read the closest existing node:
 - **Audio**: `griptape_nodes_library/audio/eleven_labs_music_generation.py` (simple, raw bytes result)
 - **Image**: `griptape_nodes_library/image/flux_2_image_generation.py` (model mapping, URL-based result, image download)
 - **Video**: `griptape_nodes_library/video/kling_text_to_video_generation.py` (async, video result)
+- **Image/video input handling**: `griptape_nodes_library/video/kling_image_to_video_generation.py` (data URI conversion pattern with `_prepare_image_data_url_async` and `_coerce_image_url_or_data_uri`)
 
 Study the patterns for:
 - Parameter definition in `__init__`
@@ -54,6 +55,26 @@ Study the patterns for:
 - How `_parse_result()` handles different result formats (URLs, base64, raw bytes)
 - How `ProjectFileParameter` is used for output files
 - How `_create_status_parameters()` is called at the end of `__init__`
+
+### Media Input Handling (if the node accepts image/video/audio inputs)
+
+**Check the spec's "Media Input Requirements" section first.** The approach depends on what the API accepts:
+
+1. **If the API validates Content-Type headers on fetched URLs:** Do NOT use `PublicArtifactUrlParameter`. The public artifact URL serves files with `application/octet-stream` Content-Type, which many APIs reject. Use data URIs instead.
+
+2. **If the API accepts data URIs:** Use the proven Kling pattern from `kling_image_to_video_generation.py`:
+   - `_coerce_image_url_or_data_uri(val)` - static method that extracts a URL or data URI from any input type (`str`, `ImageArtifact`, `ImageUrlArtifact`, local file paths)
+   - `_prepare_image_data_url_async(image_input)` - async method that calls the coerce method, then downloads bytes via `File().aread_bytes()` for non-data-URI inputs and encodes to base64
+   - Import `File` and `FileLoadError` from `griptape_nodes.files.file`
+   - Import `base64`
+
+3. **If the API has a size limit on data URIs:** Add compression before encoding using `shrink_image_to_size` from `griptape_nodes_library.utils.image_utils`. Calculate the max raw bytes based on the API's character limit (base64 encoding expands ~33%, plus the `data:image/...;base64,` prefix).
+
+4. **If the API has a dedicated upload endpoint for large files:** Implement upload logic and use the returned URI.
+
+5. **Only use `PublicArtifactUrlParameter`** if the API is confirmed to accept URLs with any Content-Type, or if the API does not fetch URLs server-side (i.e., it accepts arbitrary URL strings as references without fetching them during request validation).
+
+**Key principle:** Always test media input handling with realistically-sized images (1024x1024+), not tiny synthetic images. Small test images may hide Content-Type and size limit issues.
 
 ## 5. Create the Node File
 
@@ -202,8 +223,10 @@ async def _build_payload(self) -> dict[str, Any]:
         # ... map to the request schema from the spec ...
     }
 
-    # For image inputs, convert to data URI:
-    # data_uri = await File(image_url).aread_data_uri(fallback_mime="image/png")
+    # For image inputs, use the data URI pattern (see "Media Input Handling" above):
+    # image_data_uri = await self._prepare_image_data_url_async(self.get_parameter_value("image"))
+    # if image_data_uri:
+    #     payload["image"] = image_data_uri
 
     return payload
 ```
@@ -324,6 +347,12 @@ The test should:
 3. Wire up connections between nodes
 4. Provide minimal valid input via `StartFlow` parameters
 5. Execute and verify a file was produced
+
+### Testing media inputs
+
+If the node accepts image/video/audio inputs, the integration test MUST:
+- **Use a realistically-sized test image** (at least 512x512). Use `CreateColorBars` or a similar node to generate a synthetic image at a realistic resolution, not a tiny placeholder. Small images (e.g. 4x4 pixels) will hide Content-Type validation and size limit issues that only appear with real images.
+- **Assert the media input was actually used**, not just that output was produced. For example, if the node should use `image_to_video` when an image is provided, verify the request went to the correct endpoint. At minimum, verify the node didn't silently fall back to a text-only mode.
 
 Study the existing test carefully and replicate its structure. Key patterns:
 - Script metadata header with `# /// script` block
