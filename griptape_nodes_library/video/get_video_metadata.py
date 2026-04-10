@@ -9,6 +9,7 @@ from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.file import File
 
 # static_ffmpeg is dynamically installed by the library loader at runtime
 # into the library's own virtual environment, but not available during type checking
@@ -242,11 +243,11 @@ class GetVideoMetadata(DataNode):
         to VideoUrlArtifact before this method is called.
         """
         if isinstance(video_input, VideoUrlArtifact):
-            return video_input.value
+            return File(video_input.value).resolve()
 
         # Handle other artifact types that have a value attribute
         if hasattr(video_input, "value") and not isinstance(video_input, str):
-            return video_input.value
+            return File(video_input.value).resolve()
 
         msg = f"Unsupported video input type: {type(video_input)}. Expected VideoUrlArtifact (ParameterVideo should convert strings automatically)."
         raise ValueError(msg)
