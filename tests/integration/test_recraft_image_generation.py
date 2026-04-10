@@ -132,7 +132,7 @@ with GriptapeNodes.ContextManager().flow(flow_name):
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
             source_node_name=gen_node,
-            source_parameter_name="output_image",
+            source_parameter_name="image_url",
             target_node_name=to_text_node,
             target_parameter_name="from",
             initial_setup=True,
