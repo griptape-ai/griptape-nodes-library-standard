@@ -9,11 +9,11 @@ from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.files.file import File
 
 # static_ffmpeg is dynamically installed by the library loader at runtime
 # into the library's own virtual environment, but not available during type checking
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.files.file import File
 from static_ffmpeg import run  # type: ignore[import-untyped]
 
 
