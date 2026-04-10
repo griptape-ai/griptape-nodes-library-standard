@@ -178,14 +178,64 @@ Edit `control_plane/api/griptapecloud/components/proxy/v2/tasks.py`:
 
 Async clients do NOT need to be added here.
 
-## 9. Commit Changes
+## 9. Create Credit Cost Migration
+
+Create a data migration to seed the `ActivityCreditCost` for the new activity types. The credit cost should be provided by the caller (from pricing research in Phase 2 of `/new-proxy-service`). If no pricing info was provided, skip this step and note it as a manual TODO.
+
+Find the latest migration number in `control_plane/api/griptapecloud/components/credits/migrations/` and create the next one.
+
+Read an existing pricing migration for reference (e.g., `0032_populate_rodin_gen2_costs.py` or `0051_split_ltx_text_image_video_pricing.py`), then create a new migration following the same pattern:
+
+```python
+from django.db import migrations
+
+
+def populate_<service>_costs(apps, schema_editor):
+    ActivityCreditCost = apps.get_model("credits", "ActivityCreditCost")
+
+    # Credit conversion: 1,000,000 credits = $1.00
+    # Provider cost: $X.XX per <unit>, with 30% markup = $X.XX
+    CREDITS_PER_DOLLAR = 1_000_000
+
+    activities = [
+        {
+            "activity_name": "<activity_type_value>",
+            "credit_cost": int(<marked_up_cost> * CREDITS_PER_DOLLAR),
+            "description": "<Human-readable description>",
+        },
+    ]
+
+    for activity_data in activities:
+        ActivityCreditCost.objects.get_or_create(
+            activity_name=activity_data["activity_name"],
+            defaults={
+                "credit_cost": activity_data["credit_cost"],
+                "description": activity_data["description"],
+                "enabled": True,
+            },
+        )
+
+
+def reverse_populate(apps, schema_editor):
+    ActivityCreditCost = apps.get_model("credits", "ActivityCreditCost")
+    ActivityCreditCost.objects.filter(
+        activity_name__in=[<list of activity_name values>]
+    ).delete()
+
+
+class Migration(migrations.Migration):
+    dependencies = [("credits", "<previous_migration_name>")]
+    operations = [migrations.RunPython(populate_<service>_costs, reverse_populate)]
+```
+
+## 10. Commit Changes
 
 ```bash
 git add -A
 git commit -m "feat: add <service-name> proxy client"
 ```
 
-## 10. Run Django Migrations
+## 11. Run Django Migrations
 
 If you added new enum values to `ServiceModelConfigProvider` or any model fields:
 
@@ -202,7 +252,7 @@ git add -A
 git commit -m "feat: add <service-name> migrations"
 ```
 
-## 11. Start Local Infrastructure
+## 12. Start Local Infrastructure
 
 First check if containers are already running from a previous session:
 
@@ -242,7 +292,7 @@ except:
     s3.create_bucket(Bucket="proxy-generations")
 ```
 
-## 12. Create DB Records
+## 13. Create DB Records
 
 Use the Django shell to create the required database records. The management command path varies by container setup:
 
@@ -287,7 +337,7 @@ for model_id in [<list of model IDs from spec>]:
 
 Replace the placeholders with actual values from the spec.
 
-## 13. Test the Proxy Locally
+## 14. Test the Proxy Locally
 
 Make a request through the local proxy to verify end-to-end:
 
@@ -309,7 +359,7 @@ If the test fails, investigate the error. Check Django logs via `docker compose 
 
 Fix any issues before proceeding.
 
-## 14. Review: Verify Client Against Spec
+## 15. Review: Verify Client Against Spec
 
 Re-read the spec file and compare it against the implemented client code. Check:
 
@@ -338,7 +388,7 @@ Re-read the spec file and compare it against the implemented client code. Check:
 
 Fix any discrepancies before proceeding.
 
-## 15. Create a PR
+## 16. Create a PR
 
 ```bash
 git push -u origin feat/<service-name>-proxy-client
@@ -370,7 +420,6 @@ Tested end-to-end locally:
 After merging, create the following DB records in production:
 - `ServiceModelConfigAuthDetails` for the <PROVIDER> provider with the API key
 - `ServiceModelConfig` entries for each model ID: <list model IDs>
-- `ActivityCreditCost` entries for: <list ActivityType entries>
 
 Closes <issue-reference>
 EOF

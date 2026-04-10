@@ -43,14 +43,41 @@ After the subagent completes, read the spec file yourself and verify:
 
 Note the spec file path for the next phases.
 
-## Phase 2: Implement the Proxy Client
+## Phase 2: Research Pricing
 
-Launch a subagent to run the `/impl-proxy-client` skill:
+Research the API provider's pricing to determine the credit cost for the new activity. Use the web to find the provider's pricing page or documentation.
+
+```
+Use the Agent tool to launch a general-purpose subagent with this prompt:
+
+"Research the pricing for the <provider> <service> API. I need to know:
+1. How much it costs per API call or per unit (e.g., per second, per megapixel)
+2. Whether pricing varies by model ID, resolution, or other parameters
+3. The exact pricing tiers if they exist
+
+Search the provider's official documentation and pricing pages. Report the raw provider cost per operation."
+```
+
+After the subagent completes, calculate the credit cost using the standard formula:
+- `credit_cost = int(provider_cost_in_dollars * 1.3 * 1_000_000)` (30% markup, 1M credits = $1)
+- If pricing varies by parameter (resolution, duration, etc.), calculate a cost for each variant
+
+Note the calculated credit costs for Phase 3.
+
+## Phase 3: Implement the Proxy Client
+
+Launch a subagent to run the `/impl-proxy-client` skill, passing along the pricing info from Phase 2:
 
 ```
 Use the Agent tool to launch a general-purpose subagent with this prompt:
 
 "Run the /impl-proxy-client skill with arguments: .scratch/proxy-spec-<service-name>/spec.md
+
+Additional context for the credit cost migration:
+- Provider cost: $X.XX per <unit>
+- With 30% markup: $X.XX per <unit>
+- Credit cost: X credits per <unit>
+- If multiple variants: list each with its cost
 
 Use the Skill tool to invoke it. When it completes, report back:
 1. Whether the local proxy test succeeded
@@ -64,11 +91,11 @@ After the subagent completes, verify:
 - The local proxy test succeeded
 - The review checklist passed with no discrepancies
 - The PR was created
-- Local infrastructure is still running (needed for Phase 3)
+- Local infrastructure is still running (needed for Phase 4)
 
 Note the griptape-cloud PR URL.
 
-## Phase 3: Implement the Node
+## Phase 4: Implement the Node
 
 Launch a subagent to run the `/impl-proxy-node` skill:
 
@@ -91,7 +118,7 @@ After the subagent completes, verify:
 
 Note the griptape-nodes-library-standard PR URL.
 
-## Phase 4: Cleanup
+## Phase 5: Cleanup
 
 Tear down the local infrastructure:
 
@@ -99,7 +126,7 @@ Tear down the local infrastructure:
 cd ../../griptape-cloud && make down
 ```
 
-## Phase 5: Summary
+## Phase 6: Summary
 
 Print a summary of everything that was done:
 
@@ -122,6 +149,7 @@ Files Created/Modified:
     - control_plane/api/griptapecloud/components/proxy/v2/tasks.py (modified, if sync)
     - control_plane/api/griptapecloud/components/credits/activities.py (modified)
     - control_plane/api/griptapecloud/components/service_model_config/models.py (modified, if new provider)
+    - control_plane/api/griptapecloud/components/credits/migrations/<nnnn>_populate_<service>_costs.py (new)
 
   griptape-nodes-library-standard:
     - griptape_nodes_library/<category>/<provider>_<modality>.py (new)
@@ -132,7 +160,6 @@ Files Created/Modified:
 Manual Steps Remaining:
   - Review and merge both PRs
   - In production: create ServiceModelConfig and ServiceModelConfigAuthDetails DB records
-  - In production: create ActivityCreditCost records for billing
 ```
 
 ## Error Recovery
