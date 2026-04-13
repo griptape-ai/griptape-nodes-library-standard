@@ -10,10 +10,11 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_three_d import Parameter3D
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.three_d.three_d_artifact import ThreeDUrlArtifact
 
 logger = logging.getLogger("griptape_nodes")
@@ -57,6 +58,9 @@ class RodinBang3DEdit(GriptapeProxyNode):
         - model_url (ThreeDUrlArtifact): Primary generated 3D model part
         - all_files (list): URLs of all generated part files
     """
+
+    SERVICE_NAME = "Griptape"
+    API_KEY_NAME = "GT_CLOUD_API_KEY"
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -179,6 +183,14 @@ class RodinBang3DEdit(GriptapeProxyNode):
 
     def _get_api_model_id(self) -> str:
         return "rodin-bang"
+
+    def _validate_api_key(self) -> str:
+        api_key = GriptapeNodes.SecretsManager().get_secret(self.API_KEY_NAME)
+        if not api_key:
+            self._set_safe_defaults()
+            msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
+            raise ValueError(msg)
+        return api_key
 
     async def _build_payload(self) -> dict[str, Any]:
         asset_id = self.get_parameter_value("asset_id") or ""
@@ -306,3 +318,8 @@ class RodinBang3DEdit(GriptapeProxyNode):
             return
 
         super()._handle_payload_build_error(e)
+
+    def _handle_api_key_validation_error(self, e: ValueError) -> None:
+        self._set_safe_defaults()
+        self._set_status_results(was_successful=False, result_details=str(e))
+        self._handle_failure_exception(e)
