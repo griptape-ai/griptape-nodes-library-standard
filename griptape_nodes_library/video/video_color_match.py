@@ -341,6 +341,11 @@ class VideoColorMatch(SuccessFailureNode):
 
             logger.debug(f"{self.name}: Processing {total_frames} frames")
 
+            # Initialize progress bar with 100 (representing percentage points)
+            # 90 points for frame processing, 10 points for reassembly
+            self.progress_component.initialize(100)
+            last_progress = 0
+
             # Process each frame (90% of total progress)
             for i, frame_file in enumerate(frame_files, 1):
                 frame_pil = Image.open(frame_file)
@@ -351,15 +356,21 @@ class VideoColorMatch(SuccessFailureNode):
                 processed_frame.save(output_frame_path, "PNG")
 
                 # Update progress (0-90% range)
-                progress_percent = int((i / total_frames) * 90)
-                self.progress_component.set_progress(progress_percent, total=100)
+                current_progress = int((i / total_frames) * 90)
+                increments_needed = current_progress - last_progress
+                for _ in range(increments_needed):
+                    self.progress_component.increment()
+                last_progress = current_progress
 
                 if i % 30 == 0 or i == total_frames:
                     logger.debug(f"{self.name}: Processed {i}/{total_frames} frames")
 
             # Reassemble video from processed frames (last 10% of progress)
             logger.debug(f"{self.name}: Reassembling video")
-            self.progress_component.set_progress(90, total=100)
+            # Increment to 90% if not already there
+            while last_progress < 90:
+                self.progress_component.increment()
+                last_progress += 1
 
             # Build FFmpeg command for reassembly
             # Note: All inputs must be specified before codec options
@@ -398,8 +409,10 @@ class VideoColorMatch(SuccessFailureNode):
 
             try:
                 subprocess.run(reassemble_cmd, capture_output=True, check=True, timeout=600)  # noqa: S603
-                # Mark reassembly complete (100%)
-                self.progress_component.set_progress(100, total=100)
+                # Mark reassembly complete (100%) - increment remaining 10%
+                while last_progress < 100:
+                    self.progress_component.increment()
+                    last_progress += 1
             except subprocess.TimeoutExpired as e:
                 error_msg = f"{self.name}: Video reassembly timed out after 600 seconds"
                 raise ValueError(error_msg) from e
