@@ -113,6 +113,7 @@ _NODE_PROVIDER_CONFIGS = {
     "QwenImageEdit": DASHSCOPE,
     "QwenImageGeneration": DASHSCOPE,
     "Rodin23DGeneration": RODIN,
+    "RodinBang3DEdit": RODIN,
     "SeedanceVideoGeneration": SEED,
     "SeedreamImageGeneration": SEED,
     "SeedVRImageUpscale": SEED,
