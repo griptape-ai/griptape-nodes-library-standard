@@ -80,6 +80,11 @@ OPENAI = ProxyApiKeyProviderConfig(
     provider_name="OpenAI",
     api_key_url="https://platform.openai.com/api-keys",
 )
+WORLD_LABS = ProxyApiKeyProviderConfig(
+    api_key_name="WORLD_LABS_API_KEY",
+    provider_name="World Labs",
+    api_key_url="https://platform.worldlabs.ai/api-keys",
+)
 
 _NODE_PROVIDER_CONFIGS = {
     "ElevenLabsMusicGeneration": ELEVENLABS,
@@ -119,6 +124,7 @@ _NODE_PROVIDER_CONFIGS = {
     "WanImageToVideoGeneration": DASHSCOPE,
     "WanReferenceToVideoGeneration": DASHSCOPE,
     "WanTextToVideoGeneration": DASHSCOPE,
+    "WorldLabsWorldGeneration": WORLD_LABS,
 }
 
 _DISABLED_NODE_PROVIDER_CONFIGS: set[str] = {

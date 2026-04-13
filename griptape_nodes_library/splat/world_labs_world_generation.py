@@ -8,7 +8,6 @@ from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
-from griptape_nodes.exe_types.param_components.api_key_provider_parameter import ApiKeyProviderParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -18,7 +17,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from PIL import Image
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.splat.parameter_splat import ParameterSplat
 from griptape_nodes_library.splat.splat_artifact import SplatUrlArtifact
 from griptape_nodes_library.three_d.three_d_artifact import ThreeDUrlArtifact
@@ -82,25 +81,10 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         - result_details (str): Details about the generation result or error
     """
 
-    SERVICE_NAME = "Griptape"
-    API_KEY_NAME = "GT_CLOUD_API_KEY"
-    USER_API_KEY_NAME = "WORLD_LABS_API_KEY"
-    USER_API_KEY_URL = "https://platform.worldlabs.ai/api-keys"
-    USER_API_KEY_PROVIDER_NAME = "World Labs"
-
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.category = "API Nodes"
         self.description = "Generate 3D worlds using World Labs Marble via Griptape model proxy"
-
-        # Add API key provider component
-        self._api_key_provider = ApiKeyProviderParameter(
-            node=self,
-            api_key_name=self.USER_API_KEY_NAME,
-            provider_name=self.USER_API_KEY_PROVIDER_NAME,
-            api_key_url=self.USER_API_KEY_URL,
-        )
-        self._api_key_provider.add_parameters()
 
         # Model selection
         self.add_parameter(
@@ -372,17 +356,6 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         # Set initial visibility based on default input type
         self._update_input_visibility()
 
-    def preprocess(self) -> None:
-        """Preprocess before generation - validate and register user API key if provided."""
-        validation_result = self._api_key_provider.validate_api_key()
-        if validation_result.user_api_key:
-            self.register_user_auth_info(validation_result.user_api_key)
-
-    async def _process_generation(self) -> None:
-        """Process generation with preprocessing."""
-        self.preprocess()
-        await super()._process_generation()
-
     def _get_parameters(self) -> dict[str, Any]:
         """Get all parameter values for the node."""
         return {
@@ -410,7 +383,6 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter changes and update visibility."""
         super().after_value_set(parameter, value)
-        self._api_key_provider.after_value_set(parameter, value)
 
         if parameter.name == "input_type":
             self._update_input_visibility()
