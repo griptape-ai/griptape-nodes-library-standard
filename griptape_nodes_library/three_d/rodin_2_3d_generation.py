@@ -72,6 +72,7 @@ class Rodin23DGeneration(GriptapeProxyNode):
 
     Outputs:
         - generation_id (str): Generation ID from the API
+        - task_uuid (str): Task UUID from Rodin, usable as asset_id for Rodin Bang! 3D Edit
         - provider_response (dict): Verbatim provider response from the model proxy
         - model_url (ThreeDUrlArtifact): Generated 3D model as URL artifact
         - all_files (list): URLs of all generated files
@@ -264,6 +265,16 @@ class Rodin23DGeneration(GriptapeProxyNode):
                 allow_input=False,
                 allow_property=False,
                 hide=True,
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
+                name="task_uuid",
+                tooltip="Task UUID from Rodin. Can be used as the asset_id input for Rodin Bang! 3D Edit.",
+                allow_input=False,
+                allow_property=False,
+                ui_options={"display_name": "Task UUID"},
             )
         )
 
@@ -508,6 +519,9 @@ class Rodin23DGeneration(GriptapeProxyNode):
             return None
 
     async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
+        task_uuid = result_json.get("task_uuid", "") if isinstance(result_json, dict) else ""
+        self.parameter_output_values["task_uuid"] = task_uuid
+
         params = self._get_parameters()
         await self._handle_success(result_json, params)
 
@@ -655,6 +669,7 @@ class Rodin23DGeneration(GriptapeProxyNode):
     def _set_safe_defaults(self) -> None:
         """Set safe default values for outputs."""
         self.parameter_output_values["generation_id"] = ""
+        self.parameter_output_values["task_uuid"] = ""
         self.parameter_output_values["provider_response"] = None
         self.parameter_output_values["model_url"] = None
         self.parameter_output_values["all_files"] = []
