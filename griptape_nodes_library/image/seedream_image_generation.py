@@ -44,6 +44,22 @@ SIZE_OPTIONS = {
     "Seedream 5.0 Lite": [
         "2K",
         "3K",
+        "2048x2048",
+        "2304x1728",
+        "1728x2304",
+        "2848x1600",
+        "1600x2848",
+        "2496x1664",
+        "1664x2496",
+        "3136x1344",
+        "3072x3072",
+        "3456x2592",
+        "2592x3456",
+        "4096x2304",
+        "2304x4096",
+        "2496x3744",
+        "3744x2496",
+        "4704x2016",
     ],
     "Seedream 4.5": [
         "2K",
@@ -70,14 +86,14 @@ SIZE_OPTIONS = {
         "3024x1296",
     ],
     "Seedream 3.0 T2I": [
-        "2048x2048",
-        "2304x1728",
-        "1728x2304",
-        "2560x1440",
-        "1440x2560",
-        "2496x1664",
-        "1664x2496",
-        "3024x1296",
+        "1024x1024",
+        "1152x864",
+        "864x1152",
+        "1280x720",
+        "720x1280",
+        "1248x832",
+        "832x1248",
+        "1512x648",
     ],
     "Seedream 3.0 I2I": [
         "adaptive",
@@ -99,12 +115,19 @@ class SeedreamImageGeneration(GriptapeProxyNode):
     """Generate images using Seedream models via Griptape model proxy.
 
     Supports five models:
-    - Seedream 5.0 Lite: Text-to-image model with optional multiple image inputs (up to 14) and 2K/3K size options
-    - Seedream 4.5: Latest model with optional multiple image inputs (up to 14) and shorthand size options (2K, 4K)
-      Minimum resolution: 2560x1440, Maximum resolution: 4096x4096
-    - Seedream 4.0: Advanced model with optional multiple image inputs (up to 10) and shorthand size options (1K, 2K, 4K)
-    - Seedream 3.0 T2I: Text-to-image only model with explicit size dimensions (WIDTHxHEIGHT format)
-    - Seedream 3.0 I2I: Image-to-image editing model requiring single input image (WIDTHxHEIGHT format)
+    - Seedream 5.0 Lite: Text-to-image model with optional multiple image inputs (up to 14)
+      Size options: 2K, 3K (auto aspect ratio) or explicit dimensions (2048x2048 to 4096x2304)
+      Total pixels range: [3,686,400, 10,404,496], Aspect ratio: [1/16, 16]
+    - Seedream 4.5: Latest model with optional multiple image inputs (up to 14)
+      Size options: 2K, 4K (auto aspect ratio) or explicit dimensions
+      Total pixels range: [3,686,400, 16,777,216], Aspect ratio: [1/16, 16]
+    - Seedream 4.0: Advanced model with optional multiple image inputs (up to 10)
+      Size options: 1K, 2K, 4K (auto aspect ratio) or explicit dimensions
+      Total pixels range: [921,600, 16,777,216], Aspect ratio: [1/16, 16]
+    - Seedream 3.0 T2I: Text-to-image only model with explicit size dimensions
+      Total pixels range: [512x512, 2048x2048]
+    - Seedream 3.0 I2I: Image-to-image editing model requiring single input image
+      Size: adaptive (automatically selects closest match to input image)
 
     Inputs:
         - model (str): Model selection (Seedream 5.0 Lite, Seedream 4.5, Seedream 4.0, Seedream 3.0 T2I, Seedream 3.0 I2I)
@@ -112,9 +135,11 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         - image (ImageArtifact): Single input image (required for Seedream 3.0 I2I, hidden for other models)
         - images (list): Multiple input images (Seedream 5.0 Lite/4.5 support up to 14, Seedream 4.0 up to 10)
         - size (str): Image size specification (dynamic options based on selected model)
-        - seed (int): Random seed for reproducible results
+        - seed (int): Random seed for reproducible results (Seedream 3.0 T2I and 3.0 I2I only)
         - max_images (int): Maximum number of images to generate (1-15, Seedream 5.0 Lite, 4.5, and 4.0 only)
-        - guidance_scale (float): Guidance scale (hidden for v4, visible for v3 models)
+        - guidance_scale (float): Guidance scale (Seedream 3.0 T2I: default 2.5, Seedream 3.0 I2I: default 5.5)
+        - output_format (str): Output image format - jpeg or png (Seedream 5.0 Lite only, default: jpeg)
+        - optimize_prompt_mode (str): Prompt optimization mode - standard or fast (Seedream 5.0 Lite and 4.0 only, default: standard)
 
     Outputs:
         - generation_id (str): Generation ID from the API
@@ -210,7 +235,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             ParameterInt(
                 name="seed",
                 default_value=-1,
-                tooltip="Random seed for reproducible results (-1 for random)",
+                tooltip="Random seed for reproducible results (-1 for random, Seedream 3.0 T2I and 3.0 I2I only)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
 
@@ -230,6 +255,24 @@ class SeedreamImageGeneration(GriptapeProxyNode):
                 default_value=2.5,
                 tooltip="Guidance scale (Seedream 3.0 T2I only, default: 2.5)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={"hide": True},
+            )
+
+            ParameterString(
+                name="output_format",
+                default_value="jpeg",
+                tooltip="Output image format (Seedream 5.0 Lite only)",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Options(choices=["jpeg", "png"])},
+                ui_options={"hide": True},
+            )
+
+            ParameterString(
+                name="optimize_prompt_mode",
+                default_value="standard",
+                tooltip="Prompt optimization mode: standard (higher quality) or fast (Seedream 5.0 Lite and 4.0 only)",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Options(choices=["standard", "fast"])},
                 ui_options={"hide": True},
             )
 
@@ -308,29 +351,49 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         """Initialize parameter visibility based on default model selection."""
         default_model = self.get_parameter_value("model") or "Seedream 4.5"
         if default_model in SEQUENTIAL_GENERATION_MODELS:
-            # Hide single image input, show images list, show max_images, hide guidance scale
+            # Hide single image input, show images list, show max_images, hide guidance scale, hide seed
             self.hide_parameter_by_name("image")
             self.show_parameter_by_name("images")
             self.show_parameter_by_name("max_images")
             self.hide_parameter_by_name("guidance_scale")
+            self.hide_parameter_by_name("seed")
+            # Show output_format only for Seedream 5.0 Lite
+            if default_model == "Seedream 5.0 Lite":
+                self.show_parameter_by_name("output_format")
+                self.show_parameter_by_name("optimize_prompt_mode")
+            elif default_model == "Seedream 4.0":
+                self.hide_parameter_by_name("output_format")
+                self.show_parameter_by_name("optimize_prompt_mode")
+            else:  # Seedream 4.5
+                self.hide_parameter_by_name("output_format")
+                self.hide_parameter_by_name("optimize_prompt_mode")
         elif default_model in MULTI_IMAGE_MODELS:
-            # Hide single image input, show images list, hide max_images, hide guidance scale
+            # Hide single image input, show images list, hide max_images, hide guidance scale, hide seed
             self.hide_parameter_by_name("image")
             self.show_parameter_by_name("images")
             self.hide_parameter_by_name("max_images")
             self.hide_parameter_by_name("guidance_scale")
+            self.hide_parameter_by_name("seed")
+            self.hide_parameter_by_name("output_format")
+            self.hide_parameter_by_name("optimize_prompt_mode")
         elif default_model == "Seedream 3.0 T2I":
-            # Hide image inputs (not supported), hide max_images, show guidance scale
+            # Hide image inputs (not supported), hide max_images, show guidance scale, show seed
             self.hide_parameter_by_name("image")
             self.hide_parameter_by_name("images")
             self.hide_parameter_by_name("max_images")
-            self.hide_parameter_by_name("guidance_scale")
+            self.show_parameter_by_name("guidance_scale")
+            self.show_parameter_by_name("seed")
+            self.hide_parameter_by_name("output_format")
+            self.hide_parameter_by_name("optimize_prompt_mode")
         elif default_model == "Seedream 3.0 I2I":
-            # Show single image input (required), hide images list, hide max_images, show guidance scale
+            # Show single image input (required), hide images list, hide max_images, show guidance scale, show seed
             self.show_parameter_by_name("image")
             self.hide_parameter_by_name("images")
             self.hide_parameter_by_name("max_images")
             self.show_parameter_by_name("guidance_scale")
+            self.show_parameter_by_name("seed")
+            self.hide_parameter_by_name("output_format")
+            self.hide_parameter_by_name("optimize_prompt_mode")
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Update size options and parameter visibility based on parameter changes."""
@@ -372,16 +435,33 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             self._configure_seededit_model(new_choices, current_size)
 
     def _configure_v4_models(self, model: str, new_choices: list[str], current_size: str) -> None:
-        """Configure UI for Seedream 4.5 and Seedream 4.0 models."""
+        """Configure UI for Seedream 5.0 Lite, 4.5, and 4.0 models."""
         self.hide_parameter_by_name("image")
         self.show_parameter_by_name("images")
         self.show_parameter_by_name("max_images")
         self.hide_parameter_by_name("guidance_scale")
+        self.hide_parameter_by_name("seed")
+
+        # Show output_format only for Seedream 5.0 Lite
+        if model == "Seedream 5.0 Lite":
+            self.show_parameter_by_name("output_format")
+            self.show_parameter_by_name("optimize_prompt_mode")
+        elif model == "Seedream 4.0":
+            self.hide_parameter_by_name("output_format")
+            self.show_parameter_by_name("optimize_prompt_mode")
+        else:  # Seedream 4.5
+            self.hide_parameter_by_name("output_format")
+            self.hide_parameter_by_name("optimize_prompt_mode")
 
         if current_size in new_choices:
             self._update_option_choices("size", new_choices, current_size)
         else:
-            default_size = "2K" if model == "Seedream 4.5" else "1K"
+            if model == "Seedream 5.0 Lite":
+                default_size = "2K"
+            elif model == "Seedream 4.5":
+                default_size = "2K"
+            else:  # Seedream 4.0
+                default_size = "1K"
             default_size = default_size if default_size in new_choices else new_choices[0]
             self._update_option_choices("size", new_choices, default_size)
 
@@ -391,6 +471,9 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         self.show_parameter_by_name("images")
         self.hide_parameter_by_name("max_images")
         self.hide_parameter_by_name("guidance_scale")
+        self.hide_parameter_by_name("seed")
+        self.hide_parameter_by_name("output_format")
+        self.hide_parameter_by_name("optimize_prompt_mode")
 
         if current_size in new_choices:
             self._update_option_choices("size", new_choices, current_size)
@@ -403,12 +486,15 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         self.hide_parameter_by_name("images")
         self.hide_parameter_by_name("max_images")
         self.show_parameter_by_name("guidance_scale")
+        self.show_parameter_by_name("seed")
+        self.hide_parameter_by_name("output_format")
+        self.hide_parameter_by_name("optimize_prompt_mode")
         self.set_parameter_value("guidance_scale", 2.5)
 
         if current_size in new_choices:
             self._update_option_choices("size", new_choices, current_size)
         else:
-            self._update_option_choices("size", new_choices, "2048x2048")
+            self._update_option_choices("size", new_choices, "1024x1024")
 
     def _configure_seededit_model(self, new_choices: list[str], current_size: str) -> None:
         """Configure UI for Seedream 3.0 I2I model."""
@@ -416,13 +502,16 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         self.hide_parameter_by_name("images")
         self.hide_parameter_by_name("max_images")
         self.show_parameter_by_name("guidance_scale")
+        self.show_parameter_by_name("seed")
+        self.hide_parameter_by_name("output_format")
+        self.hide_parameter_by_name("optimize_prompt_mode")
 
         image_param = self.get_parameter_by_name("image")
         if image_param:
             image_param.tooltip = "Input image (required for Seedream 3.0 I2I)"
             image_param.ui_options["display_name"] = "Input Image"
 
-        self.set_parameter_value("guidance_scale", 2.5)
+        self.set_parameter_value("guidance_scale", 5.5)
 
         if current_size in new_choices:
             self._update_option_choices("size", new_choices, current_size)
@@ -521,6 +610,8 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             "size": self.get_parameter_value("size") or "2K",
             "seed": self.get_parameter_value("seed") or -1,
             "guidance_scale": self.get_parameter_value("guidance_scale") or 2.5,
+            "output_format": self.get_parameter_value("output_format") or "jpeg",
+            "optimize_prompt_mode": self.get_parameter_value("optimize_prompt_mode") or "standard",
             "watermark": False,
         }
 
@@ -550,8 +641,8 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             "watermark": params["watermark"],
         }
 
-        # Add seed if not -1
-        if params["seed"] != -1:
+        # Add seed if not -1 and model supports it (only v3 models)
+        if params["seed"] != -1 and model in {"Seedream 3.0 T2I", "Seedream 3.0 I2I"}:
             payload["seed"] = params["seed"]
 
         await self._add_model_specific_payload_fields(payload, model, params)
@@ -577,6 +668,13 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         if model in SEQUENTIAL_GENERATION_MODELS:
             payload["sequential_image_generation"] = params["sequential_image_generation"]
             payload["sequential_image_generation_options"] = params["sequential_image_generation_options"]
+
+            # Add output_format for Seedream 5.0 Lite
+            if model == "Seedream 5.0 Lite":
+                payload["output_format"] = params.get("output_format", "jpeg")
+                payload["optimize_prompt_options"] = {"mode": params.get("optimize_prompt_mode", "standard")}
+            elif model == "Seedream 4.0":
+                payload["optimize_prompt_options"] = {"mode": params.get("optimize_prompt_mode", "standard")}
             return
 
         if model == "Seedream 3.0 T2I":
