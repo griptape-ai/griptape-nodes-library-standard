@@ -121,6 +121,7 @@ _NODE_PROVIDER_CONFIGS = {
     "TopazImageEnhance": TOPAZ,
     "Veo3VideoGeneration": GOOGLE,
     "WanAnimateGeneration": DASHSCOPE,
+    "WanImageGeneration": DASHSCOPE,
     "WanImageToVideoGeneration": DASHSCOPE,
     "WanReferenceToVideoGeneration": DASHSCOPE,
     "WanTextToVideoGeneration": DASHSCOPE,
