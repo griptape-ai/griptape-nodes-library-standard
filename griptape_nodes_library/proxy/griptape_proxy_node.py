@@ -55,9 +55,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
-        # Compute API base once; GTC_PROXY_BASE_URL overrides just the proxy
+        # Compute API base once; GT_CLOUD_PROXY_BASE_URL overrides just the proxy
         # without affecting other engine systems that use GT_CLOUD_BASE_URL.
-        base = os.getenv("GTC_PROXY_BASE_URL") or os.getenv("GT_CLOUD_BASE_URL", "https://cloud.griptape.ai")
+        base = os.getenv("GT_CLOUD_PROXY_BASE_URL") or os.getenv("GT_CLOUD_BASE_URL", "https://cloud.griptape.ai")
         base_slash = base if base.endswith("/") else base + "/"
         api_base = urljoin(base_slash, "api/")
         self._proxy_base = urljoin(api_base, "proxy/v2/")
@@ -181,7 +181,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     def _validate_api_key(self) -> str:
         """Validate and return the API key.
 
-        GTC_PROXY_API_KEY overrides the key used for proxy requests
+        GT_CLOUD_PROXY_API_KEY overrides the key used for proxy requests
         without affecting other engine systems that use GT_CLOUD_API_KEY.
 
         Returns:
@@ -190,7 +190,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Raises:
             ValueError: If API key is missing
         """
-        proxy_key = os.getenv("GTC_PROXY_API_KEY")
+        proxy_key = os.getenv("GT_CLOUD_PROXY_API_KEY")
         if proxy_key:
             return proxy_key
         api_key = GriptapeNodes.SecretsManager().get_secret(self.API_KEY_NAME)
