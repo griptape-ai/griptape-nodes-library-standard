@@ -119,7 +119,7 @@ class WanAnimateGeneration(GriptapeProxyNode):
                 name="image_url",
                 default_value="",
                 tooltip="Source image to animate",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Image URL"},
             ),
             disclaimer_message="The WAN Animate service utilizes this URL to access the image for animation.",

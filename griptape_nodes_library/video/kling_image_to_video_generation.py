@@ -243,7 +243,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             ParameterImage(
                 name="image",
                 tooltip="Start frame image (required). Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Start Frame"},
             )
         )
@@ -251,7 +251,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             ParameterImage(
                 name="image_tail",
                 tooltip="End frame image (optional). Supported on kling-v2-1 and kling-v2-5-turbo with pro mode.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "End Frame"},
             )
         )
@@ -294,7 +294,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 name="static_mask",
                 default_value=None,
                 tooltip="Static brush application area. Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
             )
             ParameterString(
                 name="dynamic_masks",
