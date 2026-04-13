@@ -7,7 +7,7 @@ from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import Button
 
-from griptape_nodes_library.proxy_api_key_providers import ProxyApiKeyProviderConfig
+from griptape_nodes_library.proxy.proxy_api_key_providers import ProxyApiKeyProviderConfig
 
 __all__ = ["ProxyAuthProviderParameter"]
 

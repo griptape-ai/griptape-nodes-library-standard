@@ -12,7 +12,7 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
 )
 
 from griptape_nodes_library.image.flux_2_image_generation import Flux2ImageGeneration
-from griptape_nodes_library.proxy_api_key_providers import (
+from griptape_nodes_library.proxy import (
     get_proxy_api_key_provider_config,
     is_proxy_api_key_provider_disabled,
 )
@@ -98,7 +98,7 @@ async def test_flux2_submission_keeps_proxy_bearer_auth_with_byok(monkeypatch: p
             captured_request["timeout"] = timeout
             return FakeResponse()
 
-    monkeypatch.setattr("griptape_nodes_library.griptape_proxy_node.httpx.AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr("griptape_nodes_library.proxy.griptape_proxy_node.httpx.AsyncClient", FakeAsyncClient)
 
     node = Flux2ImageGeneration(name="Flux2")
     node.register_user_auth_info("user-bfl-key")

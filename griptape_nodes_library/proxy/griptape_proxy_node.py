@@ -13,8 +13,8 @@ from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
-from griptape_nodes_library.proxy_api_key_providers import get_proxy_api_key_provider_config
-from griptape_nodes_library.proxy_auth_provider_parameter import ProxyAuthProviderParameter
+from griptape_nodes_library.proxy.proxy_api_key_providers import get_proxy_api_key_provider_config
+from griptape_nodes_library.proxy.proxy_auth_provider_parameter import ProxyAuthProviderParameter
 
 logger = logging.getLogger("griptape_nodes")
 
