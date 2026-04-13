@@ -857,6 +857,39 @@
       }
     },
     {
+      "class_name": "KlingIdentifyFace",
+      "file_path": "griptape_nodes_library/video/kling_identify_face.py",
+      "metadata": {
+        "category": "video",
+        "description": "Identify candidate faces in a video for downstream Kling advanced lip sync via Griptape Cloud model proxy.",
+        "display_name": "Kling Identify Face",
+        "icon": "ScanFace",
+        "group": "describe"
+      }
+    },
+    {
+      "class_name": "KlingAdvancedLipSync",
+      "file_path": "griptape_nodes_library/video/kling_advanced_lip_sync.py",
+      "metadata": {
+        "category": "video",
+        "description": "Create an advanced lip-sync animation from a selected Kling face-identification result via Griptape Cloud model proxy.",
+        "display_name": "Kling Advanced Lip Sync",
+        "icon": "Sparkles",
+        "group": "create"
+      }
+    },
+    {
+      "class_name": "KlingLipSync",
+      "file_path": "griptape_nodes_library/video/kling_lip_sync.py",
+      "metadata": {
+        "category": "video",
+        "description": "Create a simple one-step Kling lip-sync video via Griptape Cloud model proxy.",
+        "display_name": "Kling Lip Sync",
+        "icon": "Sparkles",
+        "group": "create"
+      }
+    },
+    {
       "class_name": "LTXTextToVideoGeneration",
       "file_path": "griptape_nodes_library/video/ltx_text_to_video_generation.py",
       "metadata": {
