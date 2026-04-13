@@ -352,12 +352,21 @@ class VideoColorMatch(SuccessFailureNode):
             logger.debug(f"{self.name}: Reassembling video")
 
             # Build FFmpeg command for reassembly
+            # Note: All inputs must be specified before codec options
             reassemble_cmd = [
                 ffmpeg_path,
                 "-framerate",
                 str(frame_rate),
                 "-i",
                 str(processed_dir / "frame_%06d.png"),
+            ]
+
+            # Add audio input if present (must be before codec options)
+            if has_audio:
+                reassemble_cmd.extend(["-i", input_url])
+
+            # Add codec options
+            reassemble_cmd.extend([
                 "-c:v",
                 "libx264",
                 "-preset",
@@ -368,12 +377,13 @@ class VideoColorMatch(SuccessFailureNode):
                 "yuv420p",
                 "-movflags",
                 "+faststart",
-            ]
+            ])
 
-            # Add audio if present
+            # Add audio codec and mapping if present
             if has_audio:
-                reassemble_cmd.extend(["-i", input_url, "-c:a", "aac", "-b:a", "192k", "-map", "0:v:0", "-map", "1:a:0"])
+                reassemble_cmd.extend(["-c:a", "aac", "-b:a", "192k", "-map", "0:v:0", "-map", "1:a:0"])
 
+            # Add output file
             reassemble_cmd.extend(["-y", output_path])
 
             try:
