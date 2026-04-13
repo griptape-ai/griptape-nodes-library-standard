@@ -41,7 +41,9 @@ PROXY_NODE_CLASSES = tuple(_iter_proxy_node_classes())
 
 @pytest.fixture(autouse=True)
 def stub_public_artifact_bucket_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(PublicArtifactUrlParameter, "_get_bucket_id", staticmethod(lambda *_args, **_kwargs: "test-bucket"))
+    monkeypatch.setattr(
+        PublicArtifactUrlParameter, "_get_bucket_id", staticmethod(lambda *_args, **_kwargs: "test-bucket")
+    )
 
 
 @pytest.mark.parametrize(("class_name", "_module_name"), PROXY_NODE_CLASSES)
@@ -58,7 +60,9 @@ def test_every_proxy_node_exposes_shared_byok_ui(class_name: str, module_name: s
     node_class = getattr(module, class_name)
     node = node_class(name=class_name)
 
-    api_key_provider_parameter = next((parameter for parameter in node.parameters if parameter.name == "api_key_provider"), None)
+    api_key_provider_parameter = next(
+        (parameter for parameter in node.parameters if parameter.name == "api_key_provider"), None
+    )
     api_key_provider_message = node.get_message_by_name_or_element_id("api_key_provider_message")
 
     if is_proxy_api_key_provider_disabled(class_name):
