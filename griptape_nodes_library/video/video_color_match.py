@@ -13,7 +13,7 @@ from typing import Any, ClassVar
 import numpy as np
 import static_ffmpeg.run  # type: ignore[import-untyped]
 from color_matcher import ColorMatcher  # type: ignore[reportMissingImports]
-from griptape.artifacts import ImageUrlArtifact, VideoUrlArtifact
+from griptape.artifacts import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.progress_bar_component import ProgressBarComponent
@@ -76,9 +76,7 @@ class VideoColorMatch(SuccessFailureNode):
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
 
-        self._output_file = ProjectFileParameter(
-            node=self, name="output_file", default_filename="video_colormatch.mp4"
-        )
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="video_colormatch.mp4")
         self._output_file.add_parameter()
 
         # Reference image input (source of the color palette)
@@ -387,18 +385,20 @@ class VideoColorMatch(SuccessFailureNode):
                 reassemble_cmd.extend(["-i", input_url])
 
             # Add codec options
-            reassemble_cmd.extend([
-                "-c:v",
-                "libx264",
-                "-preset",
-                "medium",
-                "-crf",
-                "23",
-                "-pix_fmt",
-                "yuv420p",
-                "-movflags",
-                "+faststart",
-            ])
+            reassemble_cmd.extend(
+                [
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "medium",
+                    "-crf",
+                    "23",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-movflags",
+                    "+faststart",
+                ]
+            )
 
             # Add audio codec and mapping if present
             if has_audio:
