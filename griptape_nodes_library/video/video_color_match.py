@@ -16,6 +16,7 @@ from color_matcher import ColorMatcher  # type: ignore[reportMissingImports]
 from griptape.artifacts import ImageUrlArtifact, VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
+from griptape_nodes.exe_types.param_components.progress_bar_component import ProgressBarComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -148,6 +149,10 @@ class VideoColorMatch(SuccessFailureNode):
                 ui_options={"pulse_on_run": True, "expander": True},
             )
         )
+
+        # Create progress bar component
+        self.progress_component = ProgressBarComponent(self)
+        self.progress_component.add_property_parameters()
 
         # Add status parameters
         self._create_status_parameters(
@@ -336,7 +341,7 @@ class VideoColorMatch(SuccessFailureNode):
 
             logger.debug(f"{self.name}: Processing {total_frames} frames")
 
-            # Process each frame
+            # Process each frame (90% of total progress)
             for i, frame_file in enumerate(frame_files, 1):
                 frame_pil = Image.open(frame_file)
                 processed_frame = self._apply_color_match_to_frame(frame_pil, ref_pil, method, strength)
@@ -345,11 +350,16 @@ class VideoColorMatch(SuccessFailureNode):
                 output_frame_path = processed_dir / frame_file.name
                 processed_frame.save(output_frame_path, "PNG")
 
+                # Update progress (0-90% range)
+                progress_percent = int((i / total_frames) * 90)
+                self.progress_component.set_progress(progress_percent, total=100)
+
                 if i % 30 == 0 or i == total_frames:
                     logger.debug(f"{self.name}: Processed {i}/{total_frames} frames")
 
-            # Reassemble video from processed frames
+            # Reassemble video from processed frames (last 10% of progress)
             logger.debug(f"{self.name}: Reassembling video")
+            self.progress_component.set_progress(90, total=100)
 
             # Build FFmpeg command for reassembly
             # Note: All inputs must be specified before codec options
@@ -388,6 +398,8 @@ class VideoColorMatch(SuccessFailureNode):
 
             try:
                 subprocess.run(reassemble_cmd, capture_output=True, check=True, timeout=600)  # noqa: S603
+                # Mark reassembly complete (100%)
+                self.progress_component.set_progress(100, total=100)
             except subprocess.TimeoutExpired as e:
                 error_msg = f"{self.name}: Video reassembly timed out after 600 seconds"
                 raise ValueError(error_msg) from e
@@ -439,6 +451,7 @@ class VideoColorMatch(SuccessFailureNode):
         """Main workflow execution method."""
         # Reset execution state and clear status
         self._clear_execution_status()
+        self.progress_component.reset()
 
         # Get input parameters
         target_video = self.get_parameter_value("target_video")
