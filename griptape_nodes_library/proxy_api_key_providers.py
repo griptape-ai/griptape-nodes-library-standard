@@ -73,7 +73,7 @@ KLING = ProxyApiKeyProviderConfig(
 MINIMAX = ProxyApiKeyProviderConfig(
     api_key_name="MINIMAX_API_KEY",
     provider_name="MiniMax",
-    api_key_url="https://platform.minimaxi.com/",
+    api_key_url="https://minimax.io/",
 )
 OPENAI = ProxyApiKeyProviderConfig(
     api_key_name="OPENAI_API_KEY",
