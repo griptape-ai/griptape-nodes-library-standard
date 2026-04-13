@@ -1090,6 +1090,17 @@
       }
     },
     {
+      "class_name": "VideoColorMatch",
+      "file_path": "griptape_nodes_library/video/video_color_match.py",
+      "metadata": {
+        "category": "video",
+        "description": "Transfer color characteristics from a reference image to a video frame-by-frame using color matching algorithms",
+        "display_name": "Video Color Match",
+        "icon": "palette",
+        "group": "edit"
+      }
+    },
+    {
       "class_name": "AddRGBShift",
       "file_path": "griptape_nodes_library/video/add_rgb_shift.py",
       "metadata": {
