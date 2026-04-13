@@ -121,7 +121,10 @@ _NODE_PROVIDER_CONFIGS = {
     "WanTextToVideoGeneration": DASHSCOPE,
 }
 
-_DISABLED_NODE_PROVIDER_CONFIGS: set[str] = set()
+_DISABLED_NODE_PROVIDER_CONFIGS: set[str] = {
+    "GoogleImageGeneration",
+    "Veo3VideoGeneration",
+}
 
 
 def get_proxy_api_key_provider_config(node_class_name: str) -> ProxyApiKeyProviderConfig | None:
