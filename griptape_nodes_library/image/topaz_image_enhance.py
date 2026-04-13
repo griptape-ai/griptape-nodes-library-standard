@@ -16,7 +16,6 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
@@ -27,7 +26,7 @@ logger = logging.getLogger("griptape_nodes")
 __all__ = ["TopazImageEnhance"]
 
 # Output format options
-OUTPUT_FORMAT_OPTIONS = ["jpeg", "png", "webp"]
+OUTPUT_FORMAT_OPTIONS = ["jpeg", "png", "tiff"]
 
 # Operation types
 OPERATION_OPTIONS = [
@@ -102,6 +101,15 @@ ENHANCE_GENERATIVE_MODELS = {
     ],
     "Standard MAX": [],
     "Wonder": [],
+    "Wonder 2": [],
+    "Wonder 3": [],
+    "Bloom": [],
+    "Bloom Precision": [],
+    "Bloom Realism": [],
+    "Recover 3": [],
+    "Natural Enhance": [],
+    "Reimagine": [],
+    "Detail": [],
 }
 
 SHARPEN_MODELS = {
@@ -162,6 +170,7 @@ SHARPEN_MODELS = {
     ],
     "Wildlife": ["denoise_strength", "sharpen_strength"],
     "Portrait": ["denoise_strength", "sharpen_strength"],
+    "Auto Sharpen": [],
 }
 
 SHARPEN_GENERATIVE_MODELS = {
@@ -195,6 +204,33 @@ DENOISE_MODELS = {
         "original_detail",
     ],
     "Extreme": [
+        "face_enhancement",
+        "face_enhancement_strength",
+        "face_enhancement_creativity",
+        "subject_detection",
+        "strength",
+        "minor_deblur",
+        "original_detail",
+    ],
+    "Denoise Normal": [
+        "face_enhancement",
+        "face_enhancement_strength",
+        "face_enhancement_creativity",
+        "subject_detection",
+        "strength",
+        "minor_deblur",
+        "original_detail",
+    ],
+    "Denoise Strong": [
+        "face_enhancement",
+        "face_enhancement_strength",
+        "face_enhancement_creativity",
+        "subject_detection",
+        "strength",
+        "minor_deblur",
+        "original_detail",
+    ],
+    "Denoise Max": [
         "face_enhancement",
         "face_enhancement_strength",
         "face_enhancement_creativity",
@@ -273,10 +309,13 @@ class TopazImageEnhance(GriptapeProxyNode):
     """Enhance images using Topaz Labs models via Griptape model proxy.
 
     Inputs:
-        - operation (str): Type of enhancement operation ("enhance", "denoise", or "sharpen")
+        - operation (str): Type of enhancement operation ("enhance", "denoise", "sharpen", etc.)
         - model (str): Model to use for the selected operation
         - image_input (ImageArtifact/ImageUrlArtifact): Input image to process
-        - output_format (str): Desired format of the output image ("jpeg", "png", or "webp")
+        - output_format (str): Desired format of the output image ("jpeg", "png", or "tiff")
+        - output_width (int): Desired output width in pixels (enhance/tool only)
+        - output_height (int): Desired output height in pixels (enhance/tool only)
+        - crop_to_fill (bool): Crop to fill dimensions instead of letterboxing (enhance/tool only)
 
     Outputs:
         - generation_id (str): Generation ID from the API
@@ -752,6 +791,38 @@ class TopazImageEnhance(GriptapeProxyNode):
             )
         )
 
+        # Output dimension parameters (enhance and tool operations only)
+        self.add_parameter(
+            ParameterInt(
+                name="output_width",
+                default_value=0,
+                tooltip="Desired output width in pixels (0 = auto, enhance/tool only). Range: 1-32000.",
+                allow_output=False,
+                min_val=0,
+                max_val=32000,
+            )
+        )
+
+        self.add_parameter(
+            ParameterInt(
+                name="output_height",
+                default_value=0,
+                tooltip="Desired output height in pixels (0 = auto, enhance/tool only). Range: 1-32000.",
+                allow_output=False,
+                min_val=0,
+                max_val=32000,
+            )
+        )
+
+        self.add_parameter(
+            ParameterBool(
+                name="crop_to_fill",
+                default_value=False,
+                tooltip="Crop to fill dimensions instead of letterboxing (enhance/tool only)",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            )
+        )
+
         # OUTPUTS
         self.add_parameter(
             ParameterString(
@@ -829,6 +900,16 @@ class TopazImageEnhance(GriptapeProxyNode):
                 first_model = model_choices[0]
                 self._update_option_choices("model", model_choices, first_model)
 
+            # Show/hide dimension parameters based on operation
+            if value in ("enhance", "enhance-generative", "tool"):
+                self.show_parameter_by_name("output_width")
+                self.show_parameter_by_name("output_height")
+                self.show_parameter_by_name("crop_to_fill")
+            else:
+                self.hide_parameter_by_name("output_width")
+                self.hide_parameter_by_name("output_height")
+                self.hide_parameter_by_name("crop_to_fill")
+
         if parameter.name == "model" and value:
             self._update_visible_params_for_model(value)
 
@@ -856,14 +937,6 @@ class TopazImageEnhance(GriptapeProxyNode):
             params[param_name] = self.get_parameter_value(param_name)
 
         return params
-
-    def _validate_api_key(self) -> str:
-        api_key = GriptapeNodes.SecretsManager().get_secret(self.API_KEY_NAME)
-        if not api_key:
-            self._set_safe_defaults()
-            msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
-            raise ValueError(msg)
-        return api_key
 
     def _get_api_model_id(self) -> str:
         operation = self.get_parameter_value("operation") or "enhance"
@@ -894,6 +967,19 @@ class TopazImageEnhance(GriptapeProxyNode):
                 ):
                     continue
                 payload[param_name] = value
+
+        # Add output dimension parameters for enhance and tool operations
+        if operation in ("enhance", "enhance-generative", "tool"):
+            output_width = self.get_parameter_value("output_width") or 0
+            output_height = self.get_parameter_value("output_height") or 0
+            crop_to_fill = self.get_parameter_value("crop_to_fill") or False
+
+            if output_width > 0:
+                payload["output_width"] = output_width
+            if output_height > 0:
+                payload["output_height"] = output_height
+            if crop_to_fill:
+                payload["crop_to_fill"] = crop_to_fill
 
         # Add input image
         image_input = params.get("image_input")
