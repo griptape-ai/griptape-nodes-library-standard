@@ -2886,6 +2886,28 @@
         "icon": "palette",
         "group": "edit"
       }
+    },
+    {
+      "class_name": "RunwayMLVideoGeneration",
+      "file_path": "griptape_nodes_library/video/runway_ml_video_generation.py",
+      "metadata": {
+        "category": "video",
+        "description": "Generate video using RunwayML Gen-4 models via Griptape Cloud model proxy.",
+        "display_name": "RunwayML Video Generation",
+        "icon": "Sparkles",
+        "group": "create"
+      }
+    },
+    {
+      "class_name": "RunwayMLImageGeneration",
+      "file_path": "griptape_nodes_library/image/runway_ml_image_generation.py",
+      "metadata": {
+        "category": "image",
+        "description": "Generate images using RunwayML Gen-4 Image models via Griptape Cloud model proxy.",
+        "display_name": "RunwayML Image Generation",
+        "icon": "Sparkles",
+        "group": "create"
+      }
     }
   ],
   "workflows": [
