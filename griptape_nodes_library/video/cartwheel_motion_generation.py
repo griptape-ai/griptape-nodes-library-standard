@@ -9,7 +9,7 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -326,6 +326,7 @@ class CartwheelMotionGeneration(GriptapeProxyNode):
     def after_value_set(self, parameter, value: Any) -> None:
         if parameter.name == "mode":
             self._sync_visibility(value)
+        super().after_value_set(parameter, value)
 
     def _sync_visibility(self, mode: str) -> None:
         is_text_mode = mode == TEXT_MODE
