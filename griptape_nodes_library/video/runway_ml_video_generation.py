@@ -18,7 +18,7 @@ from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.utils.image_utils import shrink_image_to_size
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 

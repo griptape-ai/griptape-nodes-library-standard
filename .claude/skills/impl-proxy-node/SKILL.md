@@ -30,7 +30,7 @@ git checkout -b feat/<service-name>-proxy-node
 
 ## 3. Read the Base Class
 
-Read `griptape_nodes_library/griptape_proxy_node.py` to understand the interface. The three abstract methods you must implement:
+Read `griptape_nodes_library/proxy/griptape_proxy_node.py` to understand the interface. The three abstract methods you must implement:
 
 - `async _build_payload(self) -> dict[str, Any]` - Build the request JSON
 - `async _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None` - Parse result and set outputs
@@ -107,7 +107,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage 
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 ```
 
 Only import what you actually need.
