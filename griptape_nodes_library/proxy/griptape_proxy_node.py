@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from abc import ABC, abstractmethod
 from contextlib import suppress
 from typing import Any
@@ -203,17 +204,23 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     def _log(self, message: str) -> None:
         """Log a message with error suppression."""
         with suppress(Exception):
-            logger.info(message)
+            safe_message = re.sub(r"(?i)(authorization\s*:\s*bearer\s+)[^\s,;]+", r"\1[REDACTED]", message)
+            safe_message = re.sub(r"(?i)(bearer\s+)[^\s,;]+", r"\1[REDACTED]", safe_message)
+            safe_message = re.sub(
+                r"(?i)\b(api[_-]?key|password|secret|token)\b\s*[:=]\s*([^\s,;]+)",
+                r"\1=[REDACTED]",
+                safe_message,
+            )
+            logger.info(safe_message)
 
     def _log_auth_header_summary(self, context: str, headers: dict[str, str]) -> None:
-        authorization = headers.get("Authorization", "")
-        auth_scheme, _, auth_value = authorization.partition(" ")
+        authorization_present = bool(headers.get("Authorization"))
         proxy_auth_info = headers.get("X-GTC-PROXY-AUTH-INFO", "")
         self._log(
             f"{context} auth headers: "
-            f"authorization_present={bool(authorization)}, "
-            f"authorization_scheme={auth_scheme or 'missing'}, "
-            f"authorization_value_length={len(auth_value)}, "
+            f"authorization_present={authorization_present}, "
+            f"authorization_scheme={'present' if authorization_present else 'missing'}, "
+            f"authorization_value_length=0, "
             f"proxy_auth_info_present={bool(proxy_auth_info)}, "
             f"proxy_auth_info_length={len(proxy_auth_info)}"
         )

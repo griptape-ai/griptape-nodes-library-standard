@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from contextlib import suppress
 from typing import Any
 
@@ -219,7 +220,14 @@ class OpenAiAudioTranscription(GriptapeProxyNode):
 
     def _log(self, message: str) -> None:
         with suppress(Exception):
-            logger.info(message)
+            safe_message = re.sub(r"(?i)(authorization\s*:\s*bearer\s+)[^\s,;]+", r"\1[REDACTED]", message)
+            safe_message = re.sub(r"(?i)(bearer\s+)[^\s,;]+", r"\1[REDACTED]", safe_message)
+            safe_message = re.sub(
+                r"(?i)\b(api[_-]?key|password|secret|token)\b\s*[:=]\s*([^\s,;]+)",
+                r"\1=[REDACTED]",
+                safe_message,
+            )
+            logger.info(safe_message)
 
     async def _resolve_audio_data_uri(self, audio_value: Any) -> str | None:
         """Resolve an audio parameter value to a base64 data URI.
