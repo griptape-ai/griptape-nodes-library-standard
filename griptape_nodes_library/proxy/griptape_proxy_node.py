@@ -9,8 +9,12 @@ from typing import Any
 from urllib.parse import urljoin
 
 import httpx
+from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
+from griptape_nodes_library.proxy.proxy_api_key_providers import get_proxy_api_key_provider_config
+from griptape_nodes_library.proxy.proxy_auth_provider_parameter import ProxyAuthProviderParameter
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -58,10 +62,33 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         api_base = urljoin(base_slash, "api/")
         self._proxy_base = urljoin(api_base, "proxy/v2/")
         self._user_auth_info: str | None = None
+        self._api_key_provider: ProxyAuthProviderParameter | None = None
+        self._initialize_api_key_provider()
+
+    def _initialize_api_key_provider(self) -> None:
+        provider_config = get_proxy_api_key_provider_config(type(self).__name__)
+        if not provider_config:
+            return
+
+        self._api_key_provider = ProxyAuthProviderParameter(node=self, provider_config=provider_config)
+        self._api_key_provider.add_parameters()
 
     def register_user_auth_info(self, user_auth_info: str | None) -> None:
         """Register optional user auth info to send with generation submissions."""
         self._user_auth_info = user_auth_info
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        super().after_value_set(parameter, value)
+        if self._api_key_provider:
+            self._api_key_provider.after_value_set(parameter, value)
+
+    def _prepare_user_auth_info(self) -> None:
+        self.register_user_auth_info(None)
+        if not self._api_key_provider or not self._api_key_provider.is_user_auth_enabled():
+            return
+
+        user_auth_info = self._api_key_provider.get_user_auth_info()
+        self.register_user_auth_info(user_auth_info)
 
     @abstractmethod
     async def _build_payload(self) -> dict[str, Any]:
@@ -178,6 +205,19 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         with suppress(Exception):
             logger.info(message)
 
+    def _log_auth_header_summary(self, context: str, headers: dict[str, str]) -> None:
+        authorization = headers.get("Authorization", "")
+        auth_scheme, _, auth_value = authorization.partition(" ")
+        proxy_auth_info = headers.get("X-GTC-PROXY-AUTH-INFO", "")
+        self._log(
+            f"{context} auth headers: "
+            f"authorization_present={bool(authorization)}, "
+            f"authorization_scheme={auth_scheme or 'missing'}, "
+            f"authorization_value_length={len(auth_value)}, "
+            f"proxy_auth_info_present={bool(proxy_auth_info)}, "
+            f"proxy_auth_info_length={len(proxy_auth_info)}"
+        )
+
     async def _submit_generation(
         self, payload: dict[str, Any], headers: dict[str, str], api_model_id: str
     ) -> str | None:
@@ -202,6 +242,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 request_headers = headers.copy()
                 if self._user_auth_info:
                     request_headers["X-GTC-PROXY-AUTH-INFO"] = self._user_auth_info
+                self._log_auth_header_summary("Submitting generation request", request_headers)
                 response = await client.post(proxy_url, json=payload, headers=request_headers, timeout=60)
                 response.raise_for_status()
                 response_json = response.json()
@@ -356,6 +397,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             return None
 
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        self._log_auth_header_summary("Fetching generation result", headers)
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(result_url, headers=headers, timeout=300)
@@ -478,8 +520,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # Clear execution status at the start
         self._clear_execution_status()
 
-        # Validate API key
         try:
+            self._prepare_user_auth_info()
             api_key = self._validate_api_key()
         except ValueError as e:
             self._handle_api_key_validation_error(e)

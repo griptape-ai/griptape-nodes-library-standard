@@ -8,7 +8,6 @@ from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
-from griptape_nodes.exe_types.param_components.api_key_provider_parameter import ApiKeyProviderParameter
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -19,7 +18,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -79,23 +78,11 @@ class FluxImageGeneration(GriptapeProxyNode):
 
     SERVICE_NAME = "Griptape"
     API_KEY_NAME = "GT_CLOUD_API_KEY"
-    USER_API_KEY_NAME = "BFL_API_KEY"
-    USER_API_KEY_URL = "https://dashboard.bfl.ai/api/keys"
-    USER_API_KEY_PROVIDER_NAME = "BlackForest Labs"
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.category = "API Nodes"
         self.description = "Generate images using Flux models via API (supports user-provided API keys via proxy)"
-
-        # Add API key provider component
-        self._api_key_provider = ApiKeyProviderParameter(
-            node=self,
-            api_key_name=self.USER_API_KEY_NAME,
-            provider_name=self.USER_API_KEY_PROVIDER_NAME,
-            api_key_url=self.USER_API_KEY_URL,
-        )
-        self._api_key_provider.add_parameters()
         self.add_parameter(
             ParameterString(
                 name="model",
@@ -274,7 +261,6 @@ class FluxImageGeneration(GriptapeProxyNode):
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
-        self._api_key_provider.after_value_set(parameter, value)
         self._seed_parameter.after_value_set(parameter, value)
 
         # Convert string paths to ImageUrlArtifact by uploading to static storage
@@ -285,9 +271,6 @@ class FluxImageGeneration(GriptapeProxyNode):
 
     def preprocess(self) -> None:
         self._seed_parameter.preprocess()
-        validation_result = self._api_key_provider.validate_api_key()
-        if validation_result.user_api_key:
-            self.register_user_auth_info(validation_result.user_api_key)
 
     def _get_api_model_id(self) -> str:
         return self.get_parameter_value("model") or "flux-kontext-pro"
