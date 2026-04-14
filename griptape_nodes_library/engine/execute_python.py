@@ -24,11 +24,11 @@ class ExecutePython(SuccessFailureNode):
                 name="python_code",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 type="str",
-                default_value="# Enter your Python code here. Assign the output to the variable 'result', and access input variables by passing a dict of their names and values'",
+                default_value="result = 'Hello, World!'",
                 tooltip="Python code to execute. Set the 'result' variable to specify the output value.",
                 ui_options={
                     "multiline": True,
-                    "placeholder_text": "Enter your Python code here",
+                    "placeholder_text": "# Enter your Python code here. Assign the output to the variable 'result', and access input variables by passing a dict of their names and values",
                 },
             )
         )
@@ -50,7 +50,7 @@ class ExecutePython(SuccessFailureNode):
                 allowed_modes={ParameterMode.OUTPUT},
                 output_type="str",
                 default_value="",
-                tooltip="The printed value from the executed Python code.",
+                tooltip="The value of the result variable after the Python code is executed.",
             )
         )
         self._create_status_parameters(
@@ -85,7 +85,7 @@ class ExecutePython(SuccessFailureNode):
         full_code = self._assign_vars(python_code, input_variables)
 
         # Create the request
-        request = RunArbitraryPythonStringRequest(python_string=full_code)
+        request = RunArbitraryPythonStringRequest(python_string=full_code, local_variable_to_capture="result")
 
         response = GriptapeNodes.handle_request(request)
 
