@@ -90,7 +90,7 @@ class GrokVideoGeneration(GriptapeProxyNode):
                 name="image",
                 default_value="",
                 tooltip="Optional first frame image",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Input Image"},
             )
         )

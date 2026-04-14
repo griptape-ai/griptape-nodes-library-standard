@@ -150,7 +150,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             ParameterImage(
                 name="first_frame_image",
                 tooltip="First frame image (optional). Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "first frame"},
             )
         )
@@ -158,7 +158,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             ParameterImage(
                 name="end_frame_image",
                 tooltip="End frame image (optional). Requires first frame to be set.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "end frame"},
             )
         )
