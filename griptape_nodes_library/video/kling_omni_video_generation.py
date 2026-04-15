@@ -22,7 +22,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -150,7 +150,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             ParameterImage(
                 name="first_frame_image",
                 tooltip="First frame image (optional). Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "first frame"},
             )
         )
@@ -158,7 +158,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             ParameterImage(
                 name="end_frame_image",
                 tooltip="End frame image (optional). Requires first frame to be set.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "end frame"},
             )
         )

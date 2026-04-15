@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import asyncio
-import base64
 import json
 import logging
 from contextlib import suppress
-from io import BytesIO
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
@@ -21,9 +18,8 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
-from PIL import Image
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.three_d.three_d_artifact import ThreeDUrlArtifact
 
 logger = logging.getLogger("griptape_nodes")
@@ -470,89 +466,46 @@ class Rodin23DGeneration(GriptapeProxyNode):
             if len(images) >= MAX_INPUT_IMAGES:
                 break
 
-            image_bytes = await self._get_image_bytes(image_input)
-            if image_bytes:
-                # Run CPU-bound PIL mime detection + base64 encode in a thread pool
-                data_uri = await asyncio.to_thread(self._make_image_data_uri, image_bytes)
+            data_uri = await self._prepare_image_data_uri(image_input)
+            if data_uri:
                 images.append(data_uri)
 
         return images
 
-    async def _get_image_bytes(self, image_input: Any) -> bytes | None:
-        """Get raw bytes from an image input."""
-        if not image_input:
-            return None
-
-        # Handle ImageArtifact with to_bytes() method
-        if hasattr(image_input, "to_bytes"):
-            try:
-                return image_input.to_bytes()
-            except Exception as e:
-                self._log(f"Failed to get bytes from ImageArtifact: {e}")
-                return None
-
-        # Extract string value from various input types
-        image_value: str | None = None
-
-        # Handle string inputs (URL or base64) - should be rare after normalization
+    def _extract_image_value(self, image_input: Any) -> str | None:
+        """Extract a string value (URL, file path, or base64) from an image input."""
         if isinstance(image_input, str):
-            image_value = image_input
-        # Handle ImageUrlArtifact
-        elif hasattr(image_input, "value"):
-            value = getattr(image_input, "value", None)
-            if isinstance(value, str):
-                image_value = value
-        # Handle ImageArtifact with base64 property
-        elif hasattr(image_input, "base64"):
-            b64 = getattr(image_input, "base64", None)
-            if isinstance(b64, str) and b64:
-                image_value = b64
+            return image_input
 
-        # Convert string value to bytes if we found one
-        if image_value:
-            return await self._string_to_bytes(image_value)
+        try:
+            if hasattr(image_input, "value"):
+                value = getattr(image_input, "value", None)
+                if isinstance(value, str):
+                    return value
+
+            if hasattr(image_input, "base64"):
+                b64 = getattr(image_input, "base64", None)
+                if isinstance(b64, str) and b64:
+                    return b64
+        except Exception:
+            return None
 
         return None
 
-    @staticmethod
-    def _detect_image_mime(image_bytes: bytes) -> str:
-        try:
-            with Image.open(BytesIO(image_bytes)) as image:
-                image_format = (image.format or "").upper()
-        except Exception:
-            return "image/png"
-
-        mime_map = {
-            "JPEG": "image/jpeg",
-            "JPG": "image/jpeg",
-            "PNG": "image/png",
-            "WEBP": "image/webp",
-            "BMP": "image/bmp",
-            "GIF": "image/gif",
-            "TIFF": "image/tiff",
-        }
-        return mime_map.get(image_format, "image/png")
-
-    @staticmethod
-    def _make_image_data_uri(image_bytes: bytes) -> str:
-        """Encode image bytes to a base64 data URI (CPU-bound, run in thread pool)."""
-        mime_type = Rodin23DGeneration._detect_image_mime(image_bytes)
-        b64 = base64.b64encode(image_bytes).decode("utf-8")
-        return f"data:{mime_type};base64,{b64}"
-
-    async def _string_to_bytes(self, value: str) -> bytes | None:
-        """Convert a string (URL, data URI, file path, or base64) to raw bytes."""
-        try:
-            return await File(value).aread_bytes()
-        except FileLoadError as e:
-            self._log(f"Failed to load bytes from {value}: {e}")
+    async def _prepare_image_data_uri(self, image_input: Any) -> str | None:
+        """Convert an image input to a data URI via File."""
+        if not image_input:
             return None
 
-    def _log_form_data(self, form_data: dict[str, Any], num_files: int) -> None:
-        """Log form data for debugging (without sensitive data)."""
-        with suppress(Exception):
-            self._log(f"Form data: {json.dumps(form_data, indent=2)}")
-            self._log(f"Number of image files: {num_files}")
+        image_value = self._extract_image_value(image_input)
+        if not image_value:
+            return None
+
+        try:
+            return await File(image_value).aread_data_uri(fallback_mime="image/png")
+        except FileLoadError:
+            logger.debug("%s failed to load image value: %s", self.name, image_value)
+            return None
 
     async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
         params = self._get_parameters()

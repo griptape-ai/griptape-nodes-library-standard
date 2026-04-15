@@ -157,6 +157,15 @@
       }
     },
     {
+      "Splat": {
+        "color": "border-purple-500",
+        "title": "Splat",
+        "description": "Gaussian splatting and 3D world generation nodes",
+        "icon": "Sparkles",
+        "group": "create"
+      }
+    },
+    {
       "audio": {
         "color": "border-sky-500",
         "title": "Audio",
@@ -1697,6 +1706,17 @@
       }
     },
     {
+      "class_name": "WanImageGeneration",
+      "file_path": "griptape_nodes_library/image/wan_image_generation.py",
+      "metadata": {
+        "category": "image",
+        "description": "Generate images using Wan 2.7 models via Griptape model proxy",
+        "display_name": "Wan Image Generation",
+        "group": "create",
+        "icon": "Sparkles"
+      }
+    },
+    {
       "class_name": "AddTextToImage",
       "file_path": "griptape_nodes_library/image/add_text_to_image.py",
       "metadata": {
@@ -2625,6 +2645,16 @@
         "category": "3D",
         "description": "Generate 3D models using Rodin Gen-2 via Griptape model proxy",
         "display_name": "Rodin 3D Generation",
+        "group": "create"
+      }
+    },
+    {
+      "class_name": "WorldLabsWorldGeneration",
+      "file_path": "griptape_nodes_library/splat/world_labs_world_generation.py",
+      "metadata": {
+        "category": "Splat",
+        "description": "Generate 3D worlds using World Labs Marble via Griptape model proxy",
+        "display_name": "World Labs World Generation",
         "group": "create"
       }
     },

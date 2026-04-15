@@ -24,7 +24,7 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -39,16 +39,16 @@ class ModelName(StrEnum):
 
 
 class ModelId(StrEnum):
-    VEO_3_1_GENERATE_PREVIEW = "veo-3.1-generate-preview"
-    VEO_3_1_FAST_GENERATE_PREVIEW = "veo-3.1-fast-generate-preview"
+    VEO_3_1_GENERATE_001 = "veo-3.1-generate-001"
+    VEO_3_1_FAST_GENERATE_001 = "veo-3.1-fast-generate-001"
     VEO_3_0_GENERATE_001 = "veo-3.0-generate-001"
     VEO_3_0_FAST_GENERATE_001 = "veo-3.0-fast-generate-001"
 
 
 # Model mapping from human-friendly names to API model IDs
 MODEL_MAPPING = {
-    ModelName.VEO_3_1.value: ModelId.VEO_3_1_GENERATE_PREVIEW,
-    ModelName.VEO_3_1_FAST.value: ModelId.VEO_3_1_FAST_GENERATE_PREVIEW,
+    ModelName.VEO_3_1.value: ModelId.VEO_3_1_GENERATE_001,
+    ModelName.VEO_3_1_FAST.value: ModelId.VEO_3_1_FAST_GENERATE_001,
     ModelName.VEO_3_0.value: ModelId.VEO_3_0_GENERATE_001,
     ModelName.VEO_3_0_FAST.value: ModelId.VEO_3_0_FAST_GENERATE_001,
 }
@@ -339,17 +339,17 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         # Map friendly name to API model ID for comparison
         api_model_id = self._map_api_model_id(model_id)
 
-        # last_frame is only supported by veo-3.1-generate-preview and veo-3.1-fast-generate-preview
+        # last_frame is only supported by veo-3.1-generate-001 and veo-3.1-fast-generate-001
         if api_model_id in {
-            ModelId.VEO_3_1_GENERATE_PREVIEW,
-            ModelId.VEO_3_1_FAST_GENERATE_PREVIEW,
+            ModelId.VEO_3_1_GENERATE_001,
+            ModelId.VEO_3_1_FAST_GENERATE_001,
         }:
             self.show_parameter_by_name("last_frame")
         else:
             self.hide_parameter_by_name("last_frame")
 
-        # reference_images and reference_type are only supported by veo-3.1-generate-preview
-        if api_model_id == ModelId.VEO_3_1_GENERATE_PREVIEW:
+        # reference_images and reference_type are only supported by veo-3.1-generate-001
+        if api_model_id == ModelId.VEO_3_1_GENERATE_001:
             self.show_parameter_by_name("reference_images")
             self.show_parameter_by_name("reference_type")
         else:
@@ -441,10 +441,10 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         # Map friendly name to API model ID for validation
         api_model_id = self._map_api_model_id(model_id)
 
-        # lastFrame is only supported by veo-3.1-generate-preview and veo-3.1-fast-generate-preview
+        # lastFrame is only supported by veo-3.1-generate-001 and veo-3.1-fast-generate-001
         if params.get("last_frame") and api_model_id not in {
-            ModelId.VEO_3_1_GENERATE_PREVIEW,
-            ModelId.VEO_3_1_FAST_GENERATE_PREVIEW,
+            ModelId.VEO_3_1_GENERATE_001,
+            ModelId.VEO_3_1_FAST_GENERATE_001,
         }:
             msg = (
                 f"{self.name}: lastFrame parameter is only supported by "
@@ -453,11 +453,11 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             )
             raise ValueError(msg)
 
-        # referenceImages are only supported by veo-3.1-generate-preview
+        # referenceImages are only supported by veo-3.1-generate-001
         reference_images = params.get("reference_images", [])
         has_reference_images = reference_images and len(reference_images) > 0
         if has_reference_images:
-            if api_model_id != ModelId.VEO_3_1_GENERATE_PREVIEW:
+            if api_model_id != ModelId.VEO_3_1_GENERATE_001:
                 msg = (
                     f"{self.name}: referenceImages parameter is only supported by "
                     f"{ModelName.VEO_3_1.value} model. Current model: {model_id}"

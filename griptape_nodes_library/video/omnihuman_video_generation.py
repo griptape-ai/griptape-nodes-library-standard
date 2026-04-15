@@ -27,7 +27,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from PIL import Image
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.image_utils import resize_image_for_resolution, shrink_image_to_size
 
 logger = logging.getLogger("griptape_nodes")
@@ -101,7 +101,7 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
                 name="image_url",
                 default_value="",
                 tooltip="Source image URL.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={"placeholder_text": "https://example.com/image.jpg"},
             ),
             disclaimer_message="The OmniHuman service utilizes this URL to access the image for video generation.",

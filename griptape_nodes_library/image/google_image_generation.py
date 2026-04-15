@@ -22,7 +22,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.image_utils import shrink_image_to_size
 
 logger = logging.getLogger("griptape_nodes")
@@ -196,6 +196,17 @@ class GoogleImageGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
 
+            ParameterFloat(
+                name="top_p",
+                tooltip="Top-p nucleus sampling (0.0-1.0)",
+                default_value=0.95,
+                slider=True,
+                min_val=0.0,
+                max_val=1.0,
+                step=0.05,
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            )
+
             ParameterBool(
                 name="use_google_search",
                 default_value=False,
@@ -338,6 +349,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
         aspect_ratio = self.get_parameter_value("aspect_ratio")
         image_size = self.get_parameter_value("image_size")
         temperature = self.get_parameter_value("temperature")
+        top_p = self.get_parameter_value("top_p")
         use_google_search = self.get_parameter_value("use_google_search")
         use_google_image_search = self.get_parameter_value("use_google_image_search")
         auto_image_resize = self.get_parameter_value("auto_image_resize")
@@ -381,6 +393,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
             "generationConfig": {
                 "responseModalities": ["TEXT", "IMAGE"],
                 "temperature": temperature,
+                "topP": top_p,
                 "imageConfig": {"aspectRatio": aspect_ratio, "imageSize": image_size},
             },
         }
