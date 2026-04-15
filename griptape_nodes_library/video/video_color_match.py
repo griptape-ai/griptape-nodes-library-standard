@@ -391,23 +391,19 @@ class VideoColorMatch(SuccessFailureNode):
             hald_identity_path = temp_path / "hald_identity.png"
             hald_matched_path = temp_path / "hald_matched.png"
 
-            # Step 1: Generate HALD CLUT identity (10% progress)
+            # Step 1: Generate HALD CLUT identity
             logger.debug(f"{self.name}: Generating HALD CLUT identity")
             self._generate_hald_clut(ffmpeg_path, str(hald_identity_path))
-            for _ in range(10):
-                self.progress_component.increment()
 
-            # Step 2: Apply color matching to HALD CLUT (20% progress)
+            # Step 2: Apply color matching to HALD CLUT
             logger.debug(f"{self.name}: Applying color matching to HALD CLUT")
             hald_identity_pil = Image.open(hald_identity_path)
             hald_matched_pil = self._apply_color_match_to_frame(
                 hald_identity_pil, ref_pil, transfer_algorithm, strength
             )
             hald_matched_pil.save(hald_matched_path, "PNG")
-            for _ in range(20):
-                self.progress_component.increment()
 
-            # Step 3: Apply HALD CLUT to video with ffmpeg (70% progress)
+            # Step 3: Apply HALD CLUT to video with ffmpeg
             logger.debug(f"{self.name}: Applying HALD CLUT to video")
 
             # Build FFmpeg command
@@ -440,45 +436,13 @@ class VideoColorMatch(SuccessFailureNode):
             apply_cmd.extend(["-y", output_path])
 
             try:
-                # Run ffmpeg and track progress
-                process = subprocess.Popen(  # noqa: S603
-                    apply_cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                )
-
-                # Simulate progress during video processing (70% of total)
-                # Since we can't easily track ffmpeg progress, we'll increment gradually
-                progress_target = 70
-                progress_made = 0
-
-                # Poll process and increment progress
-                while process.poll() is None:
-                    import time
-
-                    time.sleep(0.5)
-                    # Increment a bit at a time
-                    if progress_made < progress_target:
-                        self.progress_component.increment()
-                        progress_made += 1
-
-                # Check for errors
-                if process.returncode != 0:
-                    _, stderr = process.communicate()
-                    error_msg = f"{self.name}: FFmpeg HALD CLUT application failed: {stderr}"
-                    raise ValueError(error_msg)
-
-                # Fill remaining progress to 100%
-                while progress_made < progress_target:
-                    self.progress_component.increment()
-                    progress_made += 1
-
+                # Run ffmpeg to apply HALD CLUT
+                subprocess.run(apply_cmd, capture_output=True, check=True, timeout=600)  # noqa: S603
             except subprocess.TimeoutExpired as e:
-                error_msg = f"{self.name}: Video processing timed out"
+                error_msg = f"{self.name}: Video processing timed out after 600 seconds"
                 raise ValueError(error_msg) from e
-            except Exception as e:
-                error_msg = f"{self.name}: Video processing failed: {e!s}"
+            except subprocess.CalledProcessError as e:
+                error_msg = f"{self.name}: FFmpeg HALD CLUT application failed: {e.stderr}"
                 raise ValueError(error_msg) from e
 
     def _process_video_frame_by_frame(
