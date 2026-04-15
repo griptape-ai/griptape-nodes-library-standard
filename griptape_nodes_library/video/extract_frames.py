@@ -48,8 +48,9 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["ExtractFrames"]
 
-# Project situation for writes: versioned run folder ({_index}) + per-item names (e.g. frame_number).
-OUTPUT_FILE_SITUATION = "save_node_output_group"
+# Policy for ProjectFileDestination (create_dirs, on_collision). Prefer save_node_output_group once the
+# project defines it with {outputs}/… in its macro; if the template still uses {inputs}, paths resolve wrong.
+OUTPUT_FILE_SITUATION = ProjectFileParameter.DEFAULT_SITUATION
 
 # Constants
 EXTRACTION_MODES = ["All", "Step", "List"]
@@ -975,6 +976,17 @@ class ExtractFrames(SuccessFailureNode):
             normalized = normalized.replace(f"__GTN_BATCH_INDEX_{i}__", token)
         return re.sub(r"\}\{frame_number", "}.{frame_number", normalized)
 
+    def _require_outputs_root_macro(self, template: str) -> None:
+        """Frame files always live under project outputs; macro paths must start with {outputs}/."""
+        t = template.strip()
+        if t.startswith("{outputs}/") or t == "{outputs}":
+            return
+        msg = (
+            f"{self.name}: output path must start with {{outputs}}/ (e.g. {{outputs}}/extracted_frames/...). "
+            f"Got: {template!r}"
+        )
+        raise ValueError(msg)
+
     def _output_stem_glob_hint(self) -> str:
         incoming = self._incoming_output_file_destination()
         if incoming is not None:
@@ -1087,6 +1099,7 @@ class ExtractFrames(SuccessFailureNode):
         incoming = self._incoming_output_file_destination()
         if incoming is not None:
             template = self._normalize_output_macro_template(incoming.location)
+            self._require_outputs_root_macro(template)
             if "{" not in template:
                 msg = (
                     f"{self.name}: Connected file output must be a macro path that includes frame placeholders "
@@ -1101,6 +1114,7 @@ class ExtractFrames(SuccessFailureNode):
         spec = raw.strip() if isinstance(raw, str) and raw.strip() else DEFAULT_OUTPUT_FILE_SPEC
         if "{" in spec:
             template = self._normalize_output_macro_template(spec)
+            self._require_outputs_root_macro(template)
             template = self._inject_batch_index_into_expert_template(template)
             folder_base = self._folder_base_for_versioned_output(template)
             return template, folder_base
