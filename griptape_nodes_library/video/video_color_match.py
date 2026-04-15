@@ -130,9 +130,9 @@ class VideoColorMatch(SuccessFailureNode):
             transfer_method_param.add_trait(Options(choices=self.TRANSFER_METHODS))
             self.add_parameter(transfer_method_param)
 
-            # Method selection
-            method_param = ParameterString(
-                name="method",
+            # Transfer algorithm selection
+            transfer_algorithm_param = ParameterString(
+                name="transfer_algorithm",
                 default_value="mkl",
                 tooltip=(
                     "Color transfer algorithm:\n"
@@ -144,8 +144,8 @@ class VideoColorMatch(SuccessFailureNode):
                     "• hm-mkl-hm: Alternative compound method"
                 ),
             )
-            method_param.add_trait(Options(choices=self.COLOR_MATCH_METHODS))
-            self.add_parameter(method_param)
+            transfer_algorithm_param.add_trait(Options(choices=self.COLOR_MATCH_METHODS))
+            self.add_parameter(transfer_algorithm_param)
 
             # Strength parameter
             strength_param = ParameterFloat(
@@ -172,9 +172,11 @@ class VideoColorMatch(SuccessFailureNode):
             )
         )
 
-        # Create progress bar component
+        # Create progress bar component (only shown when using frame-by-frame method)
         self.progress_component = ProgressBarComponent(self)
-        self.progress_component.add_property_parameters()
+        self.progress_component.add_property_parameters(
+            ui_options={"visible_when": {"transfer_method": "frame-by-frame"}}
+        )
 
         # Add status parameters
         self._create_status_parameters(
@@ -255,14 +257,14 @@ class VideoColorMatch(SuccessFailureNode):
             return self.DEFAULT_FRAME_RATE, (self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT), False
 
     def _apply_color_match_to_frame(
-        self, frame_pil: Image.Image, ref_pil: Image.Image, method: str, strength: float
+        self, frame_pil: Image.Image, ref_pil: Image.Image, transfer_algorithm: str, strength: float
     ) -> Image.Image:
         """Apply color matching to a single frame.
 
         Args:
             frame_pil: The video frame to process
             ref_pil: The reference image
-            method: Color matching method
+            transfer_algorithm: Color matching algorithm
             strength: Blending strength
 
         Returns:
@@ -290,7 +292,7 @@ class VideoColorMatch(SuccessFailureNode):
 
         # Apply color matching
         cm = ColorMatcher()
-        result = cm.transfer(src=frame_np, ref=ref_np, method=method)
+        result = cm.transfer(src=frame_np, ref=ref_np, method=transfer_algorithm)
 
         # Apply strength blending if not 1.0
         if strength != 1.0:
@@ -336,7 +338,7 @@ class VideoColorMatch(SuccessFailureNode):
         input_url: str,
         ref_pil: Image.Image,
         output_path: str,
-        method: str,
+        transfer_algorithm: str,
         strength: float,
         has_audio: bool,
     ) -> None:
@@ -346,7 +348,7 @@ class VideoColorMatch(SuccessFailureNode):
             input_url: Input video URL/path
             ref_pil: Reference image for color matching
             output_path: Output video path
-            method: Color matching method
+            transfer_algorithm: Color matching algorithm
             strength: Blending strength
             has_audio: Whether the video has audio
         """
@@ -366,7 +368,9 @@ class VideoColorMatch(SuccessFailureNode):
             # Step 2: Apply color matching to HALD CLUT (20% progress)
             logger.debug(f"{self.name}: Applying color matching to HALD CLUT")
             hald_identity_pil = Image.open(hald_identity_path)
-            hald_matched_pil = self._apply_color_match_to_frame(hald_identity_pil, ref_pil, method, strength)
+            hald_matched_pil = self._apply_color_match_to_frame(
+                hald_identity_pil, ref_pil, transfer_algorithm, strength
+            )
             hald_matched_pil.save(hald_matched_path, "PNG")
             for _ in range(20):
                 self.progress_component.increment()
@@ -450,7 +454,7 @@ class VideoColorMatch(SuccessFailureNode):
         input_url: str,
         ref_pil: Image.Image,
         output_path: str,
-        method: str,
+        transfer_algorithm: str,
         strength: float,
         frame_rate: float,
         has_audio: bool,
@@ -461,7 +465,7 @@ class VideoColorMatch(SuccessFailureNode):
             input_url: Input video URL/path
             ref_pil: Reference image for color matching
             output_path: Output video path
-            method: Color matching method
+            transfer_algorithm: Color matching algorithm
             strength: Blending strength
             frame_rate: Original video frame rate
             has_audio: Whether the video has audio
@@ -513,7 +517,7 @@ class VideoColorMatch(SuccessFailureNode):
             # Process each frame (90% of total progress)
             for i, frame_file in enumerate(frame_files, 1):
                 frame_pil = Image.open(frame_file)
-                processed_frame = self._apply_color_match_to_frame(frame_pil, ref_pil, method, strength)
+                processed_frame = self._apply_color_match_to_frame(frame_pil, ref_pil, transfer_algorithm, strength)
 
                 # Save processed frame
                 output_frame_path = processed_dir / frame_file.name
@@ -612,10 +616,10 @@ class VideoColorMatch(SuccessFailureNode):
             msg = f"{self.name} - Strength must be between {self.MIN_STRENGTH} and {self.MAX_STRENGTH}, got {strength}"
             exceptions.append(ValueError(msg))
 
-        # Validate method
-        method = self.get_parameter_value("method")
-        if method is not None and method not in self.COLOR_MATCH_METHODS:
-            msg = f"{self.name} - Invalid method '{method}'. Must be one of: {', '.join(self.COLOR_MATCH_METHODS)}"
+        # Validate transfer_algorithm
+        transfer_algorithm = self.get_parameter_value("transfer_algorithm")
+        if transfer_algorithm is not None and transfer_algorithm not in self.COLOR_MATCH_METHODS:
+            msg = f"{self.name} - Invalid transfer_algorithm '{transfer_algorithm}'. Must be one of: {', '.join(self.COLOR_MATCH_METHODS)}"
             exceptions.append(ValueError(msg))
 
         # Validate transfer_method
@@ -648,7 +652,7 @@ class VideoColorMatch(SuccessFailureNode):
         if target_video is None or ref_image is None:
             return
 
-        method = self.get_parameter_value("method") or "mkl"
+        transfer_algorithm = self.get_parameter_value("transfer_algorithm") or "mkl"
         strength = self.get_parameter_value("strength")
         if strength is None:
             strength = self.DEFAULT_STRENGTH
@@ -690,17 +694,17 @@ class VideoColorMatch(SuccessFailureNode):
 
                 logger.debug(
                     f"{self.name}: Processing video - {resolution[0]}x{resolution[1]} @ {frame_rate}fps, "
-                    f"audio={has_audio}, transfer_method={transfer_method}, method={method}, strength={strength}"
+                    f"audio={has_audio}, transfer_method={transfer_method}, transfer_algorithm={transfer_algorithm}, strength={strength}"
                 )
 
                 # Process video asynchronously using selected transfer method
                 if transfer_method == "ffmpeg-haldclut":
                     yield lambda: self._process_video_with_haldclut(
-                        input_url, ref_pil, str(output_path), method, strength, has_audio
+                        input_url, ref_pil, str(output_path), transfer_algorithm, strength, has_audio
                     )
                 else:  # frame-by-frame
                     yield lambda: self._process_video_frame_by_frame(
-                        input_url, ref_pil, str(output_path), method, strength, frame_rate, has_audio
+                        input_url, ref_pil, str(output_path), transfer_algorithm, strength, frame_rate, has_audio
                     )
 
                 # Read processed video
@@ -718,7 +722,7 @@ class VideoColorMatch(SuccessFailureNode):
                 success_details = (
                     f"Successfully applied color transfer\n"
                     f"Transfer Method: {transfer_method}\n"
-                    f"Color Method: {method}, Strength: {strength}\n"
+                    f"Color Algorithm: {transfer_algorithm}, Strength: {strength}\n"
                     f"Video: {resolution[0]}x{resolution[1]} @ {frame_rate}fps\n"
                     f"Reference: {ref_pil.width}x{ref_pil.height}"
                 )
