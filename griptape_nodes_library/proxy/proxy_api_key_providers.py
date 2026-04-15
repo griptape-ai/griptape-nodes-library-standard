@@ -107,6 +107,7 @@ _NODE_PROVIDER_CONFIGS = {
     "LTXTextToVideoGeneration": LTX,
     "LTXVideoRetake": LTX,
     "MinimaxHailuoVideoGeneration": MINIMAX,
+    "OpenAiAudioTranscription": OPENAI,
     "OmnihumanSubjectDetection": SEED,
     "OmnihumanSubjectRecognition": SEED,
     "OmnihumanVideoGeneration": SEED,
