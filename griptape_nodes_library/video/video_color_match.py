@@ -172,11 +172,12 @@ class VideoColorMatch(SuccessFailureNode):
             )
         )
 
-        # Create progress bar component (only shown when using frame-by-frame method)
+        # Create progress bar component
         self.progress_component = ProgressBarComponent(self)
-        self.progress_component.add_property_parameters(
-            ui_options={"visible_when": {"transfer_method": "frame-by-frame"}}
-        )
+        self.progress_component.add_property_parameters()
+
+        # Hide progress bar initially (default transfer_method is ffmpeg-haldclut)
+        self._set_progress_bar_visibility(visible=False)
 
         # Add status parameters
         self._create_status_parameters(
@@ -190,6 +191,37 @@ class VideoColorMatch(SuccessFailureNode):
         if isinstance(value, dict):
             return dict_to_video_url_artifact(value)
         return value
+
+    def _set_progress_bar_visibility(self, *, visible: bool) -> None:
+        """Set the visibility of the progress bar parameter.
+
+        Args:
+            visible: Whether the progress bar should be visible
+        """
+        progress_param = self.get_parameter_by_name("progress")
+        if progress_param is None:
+            return
+
+        ui_options = progress_param.ui_options.copy()
+        if visible:
+            ui_options.pop("hide", None)
+        else:
+            ui_options["hide"] = True
+        progress_param.ui_options = ui_options
+
+    def after_value_set(self, parameter: Any, value: Any) -> None:
+        """Handle parameter value changes.
+
+        Args:
+            parameter: The parameter that changed
+            value: The new value
+        """
+        # Show/hide progress bar based on transfer_method
+        if parameter.name == "transfer_method":
+            # Show progress bar only for frame-by-frame method
+            self._set_progress_bar_visibility(visible=(value == "frame-by-frame"))
+
+        return super().after_value_set(parameter, value)
 
     def _get_ffmpeg_paths(self) -> tuple[str, str]:
         """Get FFmpeg and FFprobe executable paths."""
