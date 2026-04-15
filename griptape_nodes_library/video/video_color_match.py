@@ -87,9 +87,6 @@ class VideoColorMatch(SuccessFailureNode):
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
 
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="video_colormatch.mp4")
-        self._output_file.add_parameter()
-
         # Reference image input (source of the color palette)
         self.add_parameter(
             ParameterImage(
@@ -178,6 +175,10 @@ class VideoColorMatch(SuccessFailureNode):
 
         # Hide progress bar initially (default transfer_method is ffmpeg-haldclut)
         self._set_progress_bar_visibility(visible=False)
+
+        # Output file parameter (controls save location)
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="video_colormatch.mp4")
+        self._output_file.add_parameter()
 
         # Add status parameters
         self._create_status_parameters(
