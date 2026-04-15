@@ -28,7 +28,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.68.0",
+    "library_version": "0.68.1",
     "engine_version": "0.79.0",
     "tags": [
       "Griptape",
@@ -1095,6 +1095,17 @@
         "description": "Adjust video brightness, contrast, saturation, and gamma with precise controls",
         "display_name": "Adjust Video EQ",
         "icon": "sliders",
+        "group": "edit"
+      }
+    },
+    {
+      "class_name": "VideoColorMatch",
+      "file_path": "griptape_nodes_library/video/video_color_match.py",
+      "metadata": {
+        "category": "video",
+        "description": "Transfer color characteristics from a reference image to a video frame-by-frame using color matching algorithms",
+        "display_name": "Video Color Match",
+        "icon": "palette",
         "group": "edit"
       }
     },
