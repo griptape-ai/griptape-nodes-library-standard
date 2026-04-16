@@ -2649,6 +2649,17 @@
       }
     },
     {
+      "class_name": "MeshyTextTo3DGeneration",
+      "file_path": "griptape_nodes_library/three_d/meshy_text_to_3d_generation.py",
+      "metadata": {
+        "category": "3D",
+        "description": "Generate 3D models from text using Meshy via Griptape model proxy",
+        "display_name": "Meshy Text to 3D",
+        "icon": "box",
+        "group": "create"
+      }
+    },
+    {
       "class_name": "WorldLabsWorldGeneration",
       "file_path": "griptape_nodes_library/splat/world_labs_world_generation.py",
       "metadata": {
