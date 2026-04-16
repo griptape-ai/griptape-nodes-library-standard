@@ -1034,7 +1034,7 @@
     },
     {
       "class_name": "CombineMasksVideo",
-      "file_path": "griptape_nodes_library/video/combine_masks.py",
+      "file_path": "griptape_nodes_library/video/combine_masks_video.py",
       "metadata": {
         "category": "video",
         "description": "Combine a list of mask videos into a single consolidated mask video using pixel-wise max operation per frame",
