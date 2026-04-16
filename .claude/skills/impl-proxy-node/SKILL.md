@@ -8,11 +8,11 @@ disable-model-invocation: false
 
 # Implement a Proxy Node
 
-Implement a node in this repo (griptape-nodes-library-standard) based on the specification file produced by `/api-research`. The node extends `GriptapeProxyNode` and communicates with the upstream API through the Griptape Cloud proxy.
+Implement a node in this repo (griptape-nodes-library-standard) based on the specification file produced by `/api-research` (in the griptape-cloud repo). The node extends `GriptapeProxyNode` and communicates with the upstream API through the Griptape Cloud proxy.
 
 ## 1. Read the Spec and API Key
 
-Read the spec file from `$ARGUMENTS`. Also read the API key from `.api_key` in the same directory (needed for integration testing).
+Read the spec file from `$ARGUMENTS`. The path may be absolute or relative to this repo (e.g., `../../griptape-cloud/.scratch/proxy-spec-<name>/spec.md`). Also read the API key from `.api_key` in the same directory as the spec (needed for integration testing).
 
 Extract from the spec:
 - Service name, model IDs
@@ -54,6 +54,20 @@ Study the patterns for:
 - How `_parse_result()` handles different result formats (URLs, base64, raw bytes)
 - How `ProjectFileParameter` is used for output files
 - How `_create_status_parameters()` is called at the end of `__init__`
+
+### Media Input Handling (if the node accepts image/video/audio inputs)
+
+**Check the spec's "Media Input Requirements" section first.** Choose the approach based on what the API accepts:
+
+1. **If the API accepts URLs:** Use `PublicArtifactUrlParameter` to provide a public URL for the media input.
+
+2. **If the API requires data URIs:** Use the Kling pattern from `kling_image_to_video_generation.py`:
+   - `_coerce_image_url_or_data_uri(val)` - static method that extracts a URL or data URI from any input type (`str`, `ImageArtifact`, `ImageUrlArtifact`, local file paths)
+   - `_prepare_image_data_url_async(image_input)` - async method that calls the coerce method, then downloads bytes via `File().aread_bytes()` for non-data-URI inputs and encodes to base64
+   - Import `File` and `FileLoadError` from `griptape_nodes.files.file`
+   - Import `base64`
+
+3. **If the API has a size limit on data URIs:** Add compression before encoding using `shrink_image_to_size` from `griptape_nodes_library.utils.image_utils`. Calculate the max raw bytes based on the API's character limit (base64 encoding expands ~33%, plus the `data:image/...;base64,` prefix).
 
 ## 5. Create the Node File
 

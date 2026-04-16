@@ -29,7 +29,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.68.0",
+    "library_version": "0.69.0",
     "engine_version": "0.79.0",
     "tags": [
       "Griptape",
@@ -154,6 +154,15 @@
         "title": "3D",
         "description": "3D model related nodes",
         "icon": "Cube",
+        "group": "create"
+      }
+    },
+    {
+      "Splat": {
+        "color": "border-purple-500",
+        "title": "Splat",
+        "description": "Gaussian splatting and 3D world generation nodes",
+        "icon": "Sparkles",
         "group": "create"
       }
     },
@@ -1091,6 +1100,17 @@
       }
     },
     {
+      "class_name": "VideoColorMatch",
+      "file_path": "griptape_nodes_library/video/video_color_match.py",
+      "metadata": {
+        "category": "video",
+        "description": "Transfer color characteristics from a reference image to a video frame-by-frame using color matching algorithms",
+        "display_name": "Video Color Match",
+        "icon": "palette",
+        "group": "edit"
+      }
+    },
+    {
       "class_name": "AddRGBShift",
       "file_path": "griptape_nodes_library/video/add_rgb_shift.py",
       "metadata": {
@@ -1683,6 +1703,17 @@
         "description": "Edit images using Qwen image editing models via Griptape model proxy",
         "display_name": "Qwen Image Edit",
         "group": "edit",
+        "icon": "Sparkles"
+      }
+    },
+    {
+      "class_name": "WanImageGeneration",
+      "file_path": "griptape_nodes_library/image/wan_image_generation.py",
+      "metadata": {
+        "category": "image",
+        "description": "Generate images using Wan 2.7 models via Griptape model proxy",
+        "display_name": "Wan Image Generation",
+        "group": "create",
         "icon": "Sparkles"
       }
     },
@@ -2615,6 +2646,16 @@
         "category": "3D",
         "description": "Generate 3D models using Rodin Gen-2 via Griptape model proxy",
         "display_name": "Rodin 3D Generation",
+        "group": "create"
+      }
+    },
+    {
+      "class_name": "WorldLabsWorldGeneration",
+      "file_path": "griptape_nodes_library/splat/world_labs_world_generation.py",
+      "metadata": {
+        "category": "Splat",
+        "description": "Generate 3D worlds using World Labs Marble via Griptape model proxy",
+        "display_name": "World Labs World Generation",
         "group": "create"
       }
     },

@@ -18,7 +18,7 @@ from griptape_nodes.traits.options import Options
 # static_ffmpeg is dynamically installed by the library loader at runtime
 from static_ffmpeg import run  # type: ignore[import-untyped]
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 

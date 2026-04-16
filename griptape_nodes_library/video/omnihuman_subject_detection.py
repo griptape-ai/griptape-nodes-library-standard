@@ -16,7 +16,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.image_utils import extract_image_url
 
 logger = logging.getLogger("griptape_nodes")
