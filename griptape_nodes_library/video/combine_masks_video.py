@@ -34,11 +34,13 @@ class CombineMasksVideo(DataNode):
             ParameterList(
                 name="mask_videos",
                 input_types=[
+                    "VideoArtifact",
                     "VideoUrlArtifact",
                     "list",
+                    "list[VideoArtifact]",
                     "list[VideoUrlArtifact]",
                 ],
-                default_value=None,
+                default_value=[],
                 tooltip="List of mask videos to combine into a single mask video (union/max per frame). Videos must have the same resolution but can have different durations - shorter videos will be padded with black frames.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"display_name": "Mask Videos"},
@@ -89,10 +91,11 @@ class CombineMasksVideo(DataNode):
             exceptions.append(ValueError(msg))
             return exceptions
 
-        # Validate all are video artifacts
+        # Validate all are video artifacts (duck typing - check for .value attribute)
         for idx, mask_value in enumerate(mask_videos):
-            if not isinstance(mask_value, VideoUrlArtifact):
-                msg = f"{self.name}: mask_videos[{idx}] must be a VideoUrlArtifact, got {type(mask_value)}."
+            # Accept VideoArtifact, VideoUrlArtifact, or any object with a .value attribute
+            if not hasattr(mask_value, "value"):
+                msg = f"{self.name}: mask_videos[{idx}] must be a video artifact with a .value attribute, got {type(mask_value)}."
                 exceptions.append(ValueError(msg))
 
         return exceptions or None
