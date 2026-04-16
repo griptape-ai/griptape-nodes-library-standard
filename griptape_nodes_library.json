@@ -1033,6 +1033,17 @@
       }
     },
     {
+      "class_name": "CombineMasksVideo",
+      "file_path": "griptape_nodes_library/video/combine_masks.py",
+      "metadata": {
+        "category": "video",
+        "description": "Combine a list of mask videos into a single consolidated mask video using pixel-wise max operation per frame",
+        "display_name": "Combine Masks Video",
+        "icon": "layers",
+        "group": "merge"
+      }
+    },
+    {
       "class_name": "HoldVideoFrames",
       "file_path": "griptape_nodes_library/video/hold_video_frames.py",
       "metadata": {
