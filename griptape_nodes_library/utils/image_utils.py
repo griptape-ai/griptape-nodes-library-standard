@@ -789,24 +789,31 @@ def apply_grow_shrink_to_mask(alpha: Image.Image, grow_shrink: float, context_na
     if iterations == 0:
         return alpha
 
-    # Prefer OpenCV (fastest), then PIL iterations as fallback
+    # Prefer OpenCV (fastest), then PIL as fallback.
     if OPENCV_AVAILABLE and cv2 is not None:
         msg = f"{context_name}: Using OpenCV for grow/shrink operation (iterations={iterations})"
         logger.debug(msg)
-        # Use OpenCV for fastest morphological operations
-        # Use a 3x3 kernel (same as PIL) and let OpenCV handle iterations
+        # One pass with a (2n+1)×(2n+1) flat rectangle is equivalent to n iterations of 3×3
+        # flat dilation/erosion (Minkowski sum of structuring elements); avoids O(n) full-image scans.
         alpha_array = np.array(alpha, dtype=np.uint8)
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        k = 2 * iterations + 1
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))
         if grow_shrink > 0:
-            alpha_array = cv2.erode(alpha_array, kernel, iterations=iterations)
+            alpha_array = cv2.erode(alpha_array, kernel, iterations=1)
         else:
-            alpha_array = cv2.dilate(alpha_array, kernel, iterations=iterations)
+            alpha_array = cv2.dilate(alpha_array, kernel, iterations=1)
         return Image.fromarray(alpha_array, mode="L")
 
-    msg = f"{context_name}: Using PIL iterations for grow/shrink operation (iterations={iterations})"
+    msg = f"{context_name}: Using PIL for grow/shrink operation (iterations={iterations})"
     logger.debug(msg)
-    # Fallback: PIL's MinFilter/MaxFilter only support size=3, so we must use iterations.
-    # Each iteration processes the entire image, so large values (e.g., 100) can be slow.
+    # Same flat-SE equivalence: one Min/Max filter with odd size (2n+1) matches n×3×3.
+    # Avoid enormous kernels (memory / slow naive paths): chunk into 3×3 passes when k is large.
+    k = 2 * iterations + 1
+    max_single_kernel = 201
+    if k <= max_single_kernel:
+        if grow_shrink > 0:
+            return alpha.filter(ImageFilter.MinFilter(size=k))
+        return alpha.filter(ImageFilter.MaxFilter(size=k))
     if grow_shrink > 0:
         for _ in range(iterations):
             alpha = alpha.filter(ImageFilter.MinFilter(size=3))
