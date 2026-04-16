@@ -186,8 +186,10 @@ def test_seedance_2_0_text_to_video(storage_backend="local", project_file_path=N
     flow_input = {"Start Flow": {"prompt": "A golden retriever running through a field of flowers at sunset"}}
 
     try:
-        output = execute_workflow(input=flow_input, storage_backend=storage_backend, project_file_path=project_file_path)
-        logger.info(f"✓ Seedance 2.0 text-to-video test passed")
+        output = execute_workflow(
+            input=flow_input, storage_backend=storage_backend, project_file_path=project_file_path
+        )
+        logger.info("✓ Seedance 2.0 text-to-video test passed")
         logger.info(f"Output: {output}")
         return True
     except Exception as e:
@@ -211,8 +213,10 @@ def test_seedance_2_0_fast_text_to_video(storage_backend="local", project_file_p
     flow_input = {"Start Flow": {"prompt": "A red sports car driving on a coastal highway"}}
 
     try:
-        output = execute_workflow(input=flow_input, storage_backend=storage_backend, project_file_path=project_file_path)
-        logger.info(f"✓ Seedance 2.0 Fast text-to-video test passed")
+        output = execute_workflow(
+            input=flow_input, storage_backend=storage_backend, project_file_path=project_file_path
+        )
+        logger.info("✓ Seedance 2.0 Fast text-to-video test passed")
         logger.info(f"Output: {output}")
         return True
     except Exception as e:
@@ -237,8 +241,10 @@ def test_seedance_2_0_with_audio(storage_backend="local", project_file_path=None
     flow_input = {"Start Flow": {"prompt": "A jazz band playing in a smoky nightclub"}}
 
     try:
-        output = execute_workflow(input=flow_input, storage_backend=storage_backend, project_file_path=project_file_path)
-        logger.info(f"✓ Seedance 2.0 with audio test passed")
+        output = execute_workflow(
+            input=flow_input, storage_backend=storage_backend, project_file_path=project_file_path
+        )
+        logger.info("✓ Seedance 2.0 with audio test passed")
         logger.info(f"Output: {output}")
         return True
     except Exception as e:
@@ -262,8 +268,10 @@ def test_seedance_2_0_smart_duration(storage_backend="local", project_file_path=
     flow_input = {"Start Flow": {"prompt": "Time-lapse of a flower blooming"}}
 
     try:
-        output = execute_workflow(input=flow_input, storage_backend=storage_backend, project_file_path=project_file_path)
-        logger.info(f"✓ Seedance 2.0 smart duration test passed")
+        output = execute_workflow(
+            input=flow_input, storage_backend=storage_backend, project_file_path=project_file_path
+        )
+        logger.info("✓ Seedance 2.0 smart duration test passed")
         logger.info(f"Output: {output}")
         return True
     except Exception as e:

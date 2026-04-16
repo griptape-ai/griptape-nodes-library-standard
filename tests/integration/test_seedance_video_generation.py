@@ -204,16 +204,15 @@ async def aexecute_workflow(
 
 def test_seedance_model(model_name: str, prompt: str, storage_backend: str = "local", project_file_path: str = None):
     """Test a specific Seedance model."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Testing {model_name}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     # Set the model on the generation node
     with GriptapeNodes.ContextManager().node(gen_node):
         from griptape_nodes.retained_mode.events.parameter_events import SetParameterValueRequest
-        GriptapeNodes.handle_request(
-            SetParameterValueRequest(parameter_name="model_id", value=model_name)
-        )
+
+        GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="model_id", value=model_name))
 
     # Execute the workflow
     flow_input = {"Start Flow": {"prompt": prompt}}
@@ -266,9 +265,9 @@ if __name__ == "__main__":
         for model in models_to_test:
             results[model] = test_seedance_model(model, test_prompt, args.storage_backend, args.project_file_path)
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("Test Summary")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         for model, passed in results.items():
             status = "✓ PASS" if passed else "✗ FAIL"
             print(f"{status}: {model}")
