@@ -413,7 +413,8 @@ class CombineMasksVideo(DataNode):
 
     def _reassemble_video(self, frames_dir: Path, props: dict[str, Any], ffmpeg_path: str) -> Path:
         """Reassemble video from combined frames."""
-        output_video = Path(tempfile.mktemp(suffix=".mp4"))
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_file:
+            output_video = Path(temp_file.name)
         input_pattern = str(frames_dir / "frame_%06d.png")
 
         cmd = [
