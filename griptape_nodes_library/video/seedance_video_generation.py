@@ -45,8 +45,8 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         (Always polls for result: 5s interval, 10 min timeout)
 
     Model capabilities:
-        - seedance-2-0-260128: 480p/720p, 4-15s, multimodal (images 0-9 + videos 0-3 + audio 0-3) OR first+last frame, audio
-        - seedance-2-0-fast-260128: Same as 2.0 but faster inference
+        - dreamina-seedance-2-0-260128: 480p/720p, 4-15s, multimodal (images 0-9 + videos 0-3 + audio 0-3) OR first+last frame, audio
+        - dreamina-seedance-2-0-fast-260128: Same as 2.0 but faster inference
         - seedance-1-5-pro-251215: 480p/720p, 4-12s duration, first+last frame, audio support
         - seedance-1-0-pro-250528: 480p/720p/1080p, 5s/10s duration, first+last frame
         - seedance-1-0-pro-fast-251015: 480p/720p/1080p, 5s/10s duration, first frame only
@@ -63,8 +63,8 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
 
     # Map user-facing names to provider model IDs
     MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
-        "Seedance 2.0": "seedance-2-0-260128",
-        "Seedance 2.0 Fast": "seedance-2-0-fast-260128",
+        "Seedance 2.0": "dreamina-seedance-2-0-260128",
+        "Seedance 2.0 Fast": "dreamina-seedance-2-0-fast-260128",
         "Seedance 1.5 Pro": "seedance-1-5-pro-251215",
         "Seedance 1.0 Pro": "seedance-1-0-pro-250528",
         "Seedance 1.0 Pro Fast": "seedance-1-0-pro-fast-251015",
@@ -276,8 +276,8 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         """Handle parameter value changes to show/hide dependent parameters based on model capabilities.
 
         Model capabilities:
-        - seedance-2-0-260128: multimodal (images 0-9, videos 0-3, audio 0-3), 4-15s, 480p/720p, audio support
-        - seedance-2-0-fast-260128: same as 2.0 but faster
+        - dreamina-seedance-2-0-260128: multimodal (images 0-9, videos 0-3, audio 0-3), 4-15s, 480p/720p, audio support
+        - dreamina-seedance-2-0-fast-260128: same as 2.0 but faster
         - seedance-1-5-pro-251215: text-to-video, i2v with first frame, i2v with first+last frame, audio support
         - seedance-1-0-pro-250528: i2v with first+last frame, i2v with first frame, text-to-video
         - seedance-1-0-pro-fast-251015: i2v with first frame only, text-to-video
@@ -299,13 +299,13 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
 
     def _update_parameter_visibility(self, provider_model_id: str) -> None:
         """Update parameter visibility based on the selected model's capabilities."""
-        is_v2 = provider_model_id in ("seedance-2-0-260128", "seedance-2-0-fast-260128")
+        is_v2 = provider_model_id in ("dreamina-seedance-2-0-260128", "dreamina-seedance-2-0-fast-260128")
         is_lite_t2v = provider_model_id == "seedance-1-0-lite-t2v-250428"
         is_lite_i2v = provider_model_id == "seedance-1-0-lite-i2v-250428"
         is_v1_5_pro = provider_model_id == "seedance-1-5-pro-251215"
         supports_last_frame = provider_model_id in (
-            "seedance-2-0-260128",
-            "seedance-2-0-fast-260128",
+            "dreamina-seedance-2-0-260128",
+            "dreamina-seedance-2-0-fast-260128",
             "seedance-1-5-pro-251215",
             "seedance-1-0-pro-250528",
         )
@@ -420,7 +420,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
             ValueError: If invalid parameter combinations are detected
         """
         model_id = params["model_id"]
-        is_v2 = model_id in ("seedance-2-0-260128", "seedance-2-0-fast-260128")
+        is_v2 = model_id in ("dreamina-seedance-2-0-260128", "dreamina-seedance-2-0-fast-260128")
         is_lite_i2v = model_id == "seedance-1-0-lite-i2v-250428"
         is_lite_t2v = model_id == "seedance-1-0-lite-t2v-250428"
 
@@ -508,7 +508,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         # Get parameters
         params = self._get_parameters()
         model_id = params["model_id"]
-        is_v2 = model_id in ("seedance-2-0-260128", "seedance-2-0-fast-260128")
+        is_v2 = model_id in ("dreamina-seedance-2-0-260128", "dreamina-seedance-2-0-fast-260128")
         is_v1_5_pro = model_id == "seedance-1-5-pro-251215"
 
         # Build content array with text prompt
@@ -562,7 +562,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         For lite-i2v: reference_images takes priority over first/last frames.
         """
         model_id = params["model_id"]
-        is_v2 = model_id in ("seedance-2-0-260128", "seedance-2-0-fast-260128")
+        is_v2 = model_id in ("dreamina-seedance-2-0-260128", "dreamina-seedance-2-0-fast-260128")
 
         # seedance-1-0-lite-t2v only supports text-to-video, no images
         if model_id == "seedance-1-0-lite-t2v-250428":
@@ -619,8 +619,8 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
 
         # Determine which frames this model supports
         supports_last_frame = model_id in (
-            "seedance-2-0-260128",
-            "seedance-2-0-fast-260128",
+            "dreamina-seedance-2-0-260128",
+            "dreamina-seedance-2-0-fast-260128",
             "seedance-1-5-pro-251215",
             "seedance-1-0-pro-250528",
             "seedance-1-0-lite-i2v-250428",
