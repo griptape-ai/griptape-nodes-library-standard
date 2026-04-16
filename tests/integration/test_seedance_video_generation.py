@@ -202,6 +202,33 @@ async def aexecute_workflow(
     return executor.output
 
 
+def test_seedance_model(model_name: str, prompt: str, storage_backend: str = "local", project_file_path: str = None):
+    """Test a specific Seedance model."""
+    print(f"\n{'='*60}")
+    print(f"Testing {model_name}")
+    print(f"{'='*60}")
+
+    # Set the model on the generation node
+    with GriptapeNodes.ContextManager().node(gen_node):
+        from griptape_nodes.retained_mode.events.parameter_events import SetParameterValueRequest
+        GriptapeNodes.handle_request(
+            SetParameterValueRequest(parameter_name="model_id", value=model_name)
+        )
+
+    # Execute the workflow
+    flow_input = {"Start Flow": {"prompt": prompt}}
+    try:
+        workflow_output = execute_workflow(
+            input=flow_input, storage_backend=storage_backend, project_file_path=project_file_path
+        )
+        print(f"✓ {model_name} test passed")
+        print(f"Output: {workflow_output}")
+        return True
+    except Exception as e:
+        print(f"✗ {model_name} test failed: {e}")
+        return False
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser()
@@ -209,16 +236,56 @@ if __name__ == "__main__":
     parser.add_argument("--project-file-path", default=None)
     parser.add_argument("--json-input", default=None)
     parser.add_argument("--prompt", default=None)
+    parser.add_argument("--model", default=None, help="Specific model to test (otherwise tests all)")
+    parser.add_argument("--test-all", action="store_true", help="Test all Seedance models")
     args = parser.parse_args()
-    flow_input = {}
+
+    # Default test prompt
+    test_prompt = args.prompt or "A cat walking on a sunny beach, cinematic style"
+
     if args.json_input is not None:
+        # Legacy behavior: run with JSON input
         flow_input = json.loads(args.json_input)
-    if args.json_input is None:
-        if "Start Flow" not in flow_input:
-            flow_input["Start Flow"] = {}
+        workflow_output = execute_workflow(
+            input=flow_input, storage_backend=args.storage_backend, project_file_path=args.project_file_path
+        )
+        print(workflow_output)
+    elif args.model:
+        # Test a specific model
+        test_seedance_model(args.model, test_prompt, args.storage_backend, args.project_file_path)
+    elif args.test_all:
+        # Test all models
+        models_to_test = [
+            "Seedance 2.0 Fast",
+            "Seedance 2.0",
+            "Seedance 1.5 Pro",
+            "Seedance 1.0 Pro",
+            "Seedance 1.0 Pro Fast",
+        ]
+        results = {}
+        for model in models_to_test:
+            results[model] = test_seedance_model(model, test_prompt, args.storage_backend, args.project_file_path)
+
+        print(f"\n{'='*60}")
+        print("Test Summary")
+        print(f"{'='*60}")
+        for model, passed in results.items():
+            status = "✓ PASS" if passed else "✗ FAIL"
+            print(f"{status}: {model}")
+
+        # Exit with error code if any test failed
+        if not all(results.values()):
+            exit(1)
+    else:
+        # Default behavior: test Seedance 2.0 Fast (new default)
+        if "Start Flow" not in {}:
+            flow_input = {"Start Flow": {}}
         if args.prompt is not None:
             flow_input["Start Flow"]["prompt"] = args.prompt
-    workflow_output = execute_workflow(
-        input=flow_input, storage_backend=args.storage_backend, project_file_path=args.project_file_path
-    )
-    print(workflow_output)
+        else:
+            flow_input = {"Start Flow": {"prompt": test_prompt}}
+
+        workflow_output = execute_workflow(
+            input=flow_input, storage_backend=args.storage_backend, project_file_path=args.project_file_path
+        )
+        print(workflow_output)

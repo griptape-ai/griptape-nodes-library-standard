@@ -31,17 +31,22 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
 
     Inputs:
         - prompt (str): Text prompt for the video (supports provider flags like --resolution)
-        - model_id (str): Provider model id (default: seedance-1-0-pro-250528)
-        - resolution (str): Output resolution (default: 720p, options: 480p, 720p, 1080p)
-        - ratio (str): Output aspect ratio (default: 16:9, options: auto, 21:9, 16:9, 4:3, 1:1, 3:4, 9:16)
-        - duration (int): Video duration in seconds (default: 5, options: 4-12)
-        - camerafixed (bool): Camera fixed flag (default: False)
-        - audio (bool): Generate audio with video (default: False, only for seedance-1-5-pro-251215)
+        - model_id (str): Provider model id (default: Seedance 2.0 Fast)
+        - resolution (str): Output resolution (default: 720p, options: 480p, 720p, 1080p - not all supported by all models)
+        - ratio (str): Output aspect ratio (default: adaptive, options: adaptive, 21:9, 16:9, 4:3, 1:1, 3:4, 9:16)
+        - duration (int): Video duration in seconds (default: 5, options: -1 for smart, 4-15 depending on model)
+        - camerafixed (bool): Camera fixed flag (default: False, not supported by 2.0)
+        - generate_audio (bool): Generate audio with video (default: False, for 1.5 Pro and 2.0)
         - first_frame (ImageArtifact|ImageUrlArtifact|str): Optional first frame image (URL or base64 data URI)
-        - last_frame (ImageArtifact|ImageUrlArtifact|str): Optional last frame image for i2v and 1.5 pro models (URL or base64 data URI)
+        - last_frame (ImageArtifact|ImageUrlArtifact|str): Optional last frame image (URL or base64 data URI)
+        - reference_images (list): Optional reference images (0-9 for 2.0, 1-4 for Lite I2V)
+        - reference_videos (list): Optional reference videos (0-3 for 2.0 only)
+        - reference_audio (list): Optional reference audio (0-3 for 2.0 only, requires image/video)
         (Always polls for result: 5s interval, 10 min timeout)
 
     Model capabilities:
+        - seedance-2-0-260128: 480p/720p, 4-15s, multimodal (images 0-9 + videos 0-3 + audio 0-3) OR first+last frame, audio
+        - seedance-2-0-fast-260128: Same as 2.0 but faster inference
         - seedance-1-5-pro-251215: 480p/720p, 4-12s duration, first+last frame, audio support
         - seedance-1-0-pro-250528: 480p/720p/1080p, 5s/10s duration, first+last frame
         - seedance-1-0-pro-fast-251015: 480p/720p/1080p, 5s/10s duration, first frame only
@@ -58,6 +63,8 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
 
     # Map user-facing names to provider model IDs
     MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
+        "Seedance 2.0": "seedance-2-0-260128",
+        "Seedance 2.0 Fast": "seedance-2-0-fast-260128",
         "Seedance 1.5 Pro": "seedance-1-5-pro-251215",
         "Seedance 1.0 Pro": "seedance-1-0-pro-250528",
         "Seedance 1.0 Pro Fast": "seedance-1-0-pro-fast-251015",
@@ -74,7 +81,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterString(
                 name="model_id",
-                default_value="Seedance 1.5 Pro",
+                default_value="Seedance 2.0 Fast",
                 tooltip="Model to use for video generation",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={
@@ -84,6 +91,8 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
                 traits={
                     Options(
                         choices=[
+                            "Seedance 2.0 Fast",
+                            "Seedance 2.0",
                             "Seedance 1.5 Pro",
                             "Seedance 1.0 Pro",
                             "Seedance 1.0 Pro Fast",
@@ -129,16 +138,42 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
             )
         )
 
-        # Optional reference images (list of images) - for seedance-1-0-lite-i2v model (1-4 images)
+        # Optional reference images (list of images) - for seedance-1-0-lite-i2v model (1-4 images) or seedance-2-0 models (0-9 images)
         self.add_parameter(
             ParameterList(
                 name="reference_images",
                 input_types=["ImageUrlArtifact", "ImageArtifact", "str"],
                 default_value=[],
-                tooltip="Optional reference images (1-4 images) for seedance-1-0-lite-i2v model",
+                tooltip="Optional reference images (1-4 for Lite I2V, 0-9 for Seedance 2.0)",
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Reference Images", "expander": True},
-                max_items=4,
+                max_items=9,
+            )
+        )
+
+        # Optional reference videos (list of videos) - for seedance-2-0 models (0-3 videos)
+        self.add_parameter(
+            ParameterList(
+                name="reference_videos",
+                input_types=["VideoUrlArtifact", "str"],
+                default_value=[],
+                tooltip="Optional reference videos (0-3 videos, 2-15s each, max 15s total) for Seedance 2.0",
+                allowed_modes={ParameterMode.INPUT},
+                ui_options={"display_name": "Reference Videos", "expander": True},
+                max_items=3,
+            )
+        )
+
+        # Optional reference audio (list of audio) - for seedance-2-0 models (0-3 audio)
+        self.add_parameter(
+            ParameterList(
+                name="reference_audio",
+                input_types=["str"],
+                default_value=[],
+                tooltip="Optional reference audio (0-3 audio files, 2-15s each, max 15s total) for Seedance 2.0",
+                allowed_modes={ParameterMode.INPUT},
+                ui_options={"display_name": "Reference Audio", "expander": True},
+                max_items=3,
             )
         )
 
@@ -161,13 +196,13 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
                 traits={Options(choices=["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"])},
             )
 
-            # Duration in seconds
+            # Duration in seconds (-1 for smart selection on Seedance 2.0/1.5 Pro)
             ParameterInt(
                 name="duration",
                 default_value=5,
-                tooltip="Video duration in seconds",
+                tooltip="Video duration in seconds (-1 for smart selection on Seedance 2.0/1.5 Pro)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=[4, 5, 6, 7, 8, 9, 10, 11, 12])},
+                traits={Options(choices=[-1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])},
             )
 
             # Camera fixed flag
@@ -233,41 +268,16 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         )
 
         # Set initial parameter visibility based on default model
-        default_model = "Seedance 1.5 Pro"
+        default_model = "Seedance 2.0 Fast"
         default_provider_model_id = self._get_provider_model_id(default_model)
-        if default_provider_model_id == "seedance-1-0-lite-t2v-250428":
-            # T2V only - hide all image inputs
-            self.hide_parameter_by_name("first_frame")
-            self.hide_parameter_by_name("last_frame")
-            self.hide_parameter_by_name("reference_images")
-        elif default_provider_model_id == "seedance-1-0-lite-i2v-250428":
-            # Lite I2V - show all image inputs (user can choose reference images OR first/last frame)
-            self.show_parameter_by_name("first_frame")
-            self.show_parameter_by_name("last_frame")
-            self.show_parameter_by_name("reference_images")
-        else:
-            # Other models - show first_frame, conditionally show last_frame, hide reference_images
-            self.show_parameter_by_name("first_frame")
-            self.hide_parameter_by_name("reference_images")
-            supports_last_frame = default_provider_model_id in (
-                "seedance-1-5-pro-251215",
-                "seedance-1-0-pro-250528",
-            )
-            if supports_last_frame:
-                self.show_parameter_by_name("last_frame")
-            else:
-                self.hide_parameter_by_name("last_frame")
-
-        # Hide audio parameter by default (only show for 1.5 pro)
-        if default_provider_model_id == "seedance-1-5-pro-251215":
-            self.show_parameter_by_name("generate_audio")
-        else:
-            self.hide_parameter_by_name("generate_audio")
+        self._update_parameter_visibility(default_provider_model_id)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to show/hide dependent parameters based on model capabilities.
 
         Model capabilities:
+        - seedance-2-0-260128: multimodal (images 0-9, videos 0-3, audio 0-3), 4-15s, 480p/720p, audio support
+        - seedance-2-0-fast-260128: same as 2.0 but faster
         - seedance-1-5-pro-251215: text-to-video, i2v with first frame, i2v with first+last frame, audio support
         - seedance-1-0-pro-250528: i2v with first+last frame, i2v with first frame, text-to-video
         - seedance-1-0-pro-fast-251015: i2v with first frame only, text-to-video
@@ -275,37 +285,9 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         - seedance-1-0-lite-i2v-250428: i2v with reference images, i2v with first+last frame, i2v with first frame
         """
         if parameter.name == "model_id":
-            # Convert friendly name to provider model ID
+            # Convert friendly name to provider model ID and update visibility
             provider_model_id = self._get_provider_model_id(value)
-
-            if provider_model_id == "seedance-1-0-lite-t2v-250428":
-                # T2V only - hide all image inputs
-                self.hide_parameter_by_name("first_frame")
-                self.hide_parameter_by_name("last_frame")
-                self.hide_parameter_by_name("reference_images")
-            elif provider_model_id == "seedance-1-0-lite-i2v-250428":
-                # Lite I2V - show all image inputs (user can choose reference images OR first/last frame)
-                self.show_parameter_by_name("first_frame")
-                self.show_parameter_by_name("last_frame")
-                self.show_parameter_by_name("reference_images")
-            else:
-                # Other models - show first_frame, conditionally show last_frame, hide reference_images
-                self.show_parameter_by_name("first_frame")
-                self.hide_parameter_by_name("reference_images")
-                supports_last_frame = provider_model_id in (
-                    "seedance-1-5-pro-251215",
-                    "seedance-1-0-pro-250528",
-                )
-                if supports_last_frame:
-                    self.show_parameter_by_name("last_frame")
-                else:
-                    self.hide_parameter_by_name("last_frame")
-
-            # Show audio parameter only for 1.5 pro model
-            if provider_model_id == "seedance-1-5-pro-251215":
-                self.show_parameter_by_name("generate_audio")
-            else:
-                self.hide_parameter_by_name("generate_audio")
+            self._update_parameter_visibility(provider_model_id)
 
         # Convert string paths to ImageUrlArtifact by uploading to static storage
         if parameter.name == "reference_images" and isinstance(value, list):
@@ -315,12 +297,65 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
 
         return super().after_value_set(parameter, value)
 
+    def _update_parameter_visibility(self, provider_model_id: str) -> None:
+        """Update parameter visibility based on the selected model's capabilities."""
+        is_v2 = provider_model_id in ("seedance-2-0-260128", "seedance-2-0-fast-260128")
+        is_lite_t2v = provider_model_id == "seedance-1-0-lite-t2v-250428"
+        is_lite_i2v = provider_model_id == "seedance-1-0-lite-i2v-250428"
+        is_v1_5_pro = provider_model_id == "seedance-1-5-pro-251215"
+        supports_last_frame = provider_model_id in (
+            "seedance-2-0-260128",
+            "seedance-2-0-fast-260128",
+            "seedance-1-5-pro-251215",
+            "seedance-1-0-pro-250528",
+        )
+
+        # Image inputs
+        if is_lite_t2v:
+            # T2V only - hide all image inputs
+            self.hide_parameter_by_name("first_frame")
+            self.hide_parameter_by_name("last_frame")
+            self.hide_parameter_by_name("reference_images")
+        elif is_lite_i2v or is_v2:
+            # Lite I2V and V2 - show all image inputs
+            self.show_parameter_by_name("first_frame")
+            self.show_parameter_by_name("last_frame")
+            self.show_parameter_by_name("reference_images")
+        else:
+            # Other models - show first_frame, conditionally show last_frame, hide reference_images
+            self.show_parameter_by_name("first_frame")
+            self.hide_parameter_by_name("reference_images")
+            if supports_last_frame:
+                self.show_parameter_by_name("last_frame")
+            else:
+                self.hide_parameter_by_name("last_frame")
+
+        # Video and audio inputs (only for V2)
+        if is_v2:
+            self.show_parameter_by_name("reference_videos")
+            self.show_parameter_by_name("reference_audio")
+        else:
+            self.hide_parameter_by_name("reference_videos")
+            self.hide_parameter_by_name("reference_audio")
+
+        # Audio generation (V1.5 Pro and V2)
+        if is_v1_5_pro or is_v2:
+            self.show_parameter_by_name("generate_audio")
+        else:
+            self.hide_parameter_by_name("generate_audio")
+
+        # Camera fixed (not supported by V2)
+        if is_v2:
+            self.hide_parameter_by_name("camerafixed")
+        else:
+            self.show_parameter_by_name("camerafixed")
+
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
 
         Converts user-facing model name to provider model ID.
         """
-        raw_model_id = self.get_parameter_value("model_id") or "Seedance 1.5 Pro"
+        raw_model_id = self.get_parameter_value("model_id") or "Seedance 2.0 Fast"
         return self._get_provider_model_id(raw_model_id)
 
     def _log(self, message: str) -> None:
@@ -342,7 +377,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         return exceptions if exceptions else None
 
     def _get_parameters(self) -> dict[str, Any]:
-        raw_model_id = self.get_parameter_value("model_id") or "Seedance 1.5 Pro"
+        raw_model_id = self.get_parameter_value("model_id") or "Seedance 2.0 Fast"
         # Convert friendly name to provider model ID
         model_id = self._get_provider_model_id(raw_model_id)
 
@@ -362,6 +397,8 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
             "first_frame": self.get_parameter_value("first_frame"),
             "last_frame": self.get_parameter_value("last_frame"),
             "reference_images": normalized_reference_images,
+            "reference_videos": self.get_parameter_value("reference_videos") or [],
+            "reference_audio": self.get_parameter_value("reference_audio") or [],
             "duration": self.get_parameter_value("duration"),
             "camerafixed": self.get_parameter_value("camerafixed"),
             "generate_audio": self.get_parameter_value("generate_audio"),
@@ -377,39 +414,108 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         return cls.MODEL_NAME_MAP.get(user_facing_name, user_facing_name)
 
     def _validate_parameters(self, params: dict[str, Any]) -> None:
-        """Validate parameter combinations.
+        """Validate parameter combinations before submission.
 
         Raises:
             ValueError: If invalid parameter combinations are detected
         """
         model_id = params["model_id"]
+        is_v2 = model_id in ("seedance-2-0-260128", "seedance-2-0-fast-260128")
+        is_lite_i2v = model_id == "seedance-1-0-lite-i2v-250428"
+        is_lite_t2v = model_id == "seedance-1-0-lite-t2v-250428"
 
-        # For lite-i2v model, check if both reference_images and first/last frames are provided
-        if model_id == "seedance-1-0-lite-i2v-250428":
-            has_reference_images = (
-                params.get("reference_images")
-                and isinstance(params.get("reference_images"), list)
-                and len(params.get("reference_images", [])) > 0
-            )
-            has_first_or_last_frame = params.get("first_frame") is not None or params.get("last_frame") is not None
+        # Get input states
+        has_reference_images = bool(params.get("reference_images") and len(params.get("reference_images", [])) > 0)
+        has_reference_videos = bool(params.get("reference_videos") and len(params.get("reference_videos", [])) > 0)
+        has_reference_audio = bool(params.get("reference_audio") and len(params.get("reference_audio", [])) > 0)
+        has_first_frame = params.get("first_frame") is not None
+        has_last_frame = params.get("last_frame") is not None
+        has_first_or_last_frame = has_first_frame or has_last_frame
 
-            if has_reference_images and has_first_or_last_frame:
+        # Validate Seedance 2.0 constraints
+        if is_v2:
+            # Image/video/audio cannot be mixed with first/last frame for V2
+            has_multimodal_refs = has_reference_images or has_reference_videos or has_reference_audio
+            if has_multimodal_refs and has_first_or_last_frame:
                 msg = (
-                    f"{self.name}: Cannot use both reference_images and first_frame/last_frame for Seedance 1.0 Lite I2V. "
-                    "Please use either reference_images (1-4 images) OR first_frame/last_frame, not both."
+                    f"{self.name}: Seedance 2.0 does not support mixing multimodal references "
+                    "(reference images/videos/audio) with first_frame/last_frame. "
+                    "Use either multimodal references OR first/last frame, not both."
                 )
                 raise ValueError(msg)
+
+            # Audio requires at least one image or video
+            if has_reference_audio and not (has_reference_images or has_reference_videos or has_first_or_last_frame):
+                msg = (
+                    f"{self.name}: Seedance 2.0 requires at least one reference image or video when using audio. "
+                    "Audio cannot be used alone."
+                )
+                raise ValueError(msg)
+
+            # V2 doesn't support 1080p
+            if params.get("resolution") == "1080p":
+                msg = f"{self.name}: Seedance 2.0 models do not support 1080p resolution. Use 480p or 720p."
+                raise ValueError(msg)
+
+            # Validate reference image count (0-9)
+            if has_reference_images and len(params.get("reference_images", [])) > 9:
+                msg = f"{self.name}: Seedance 2.0 supports up to 9 reference images, got {len(params['reference_images'])}."
+                raise ValueError(msg)
+
+            # Validate reference video count (0-3)
+            if has_reference_videos and len(params.get("reference_videos", [])) > 3:
+                msg = f"{self.name}: Seedance 2.0 supports up to 3 reference videos, got {len(params['reference_videos'])}."
+                raise ValueError(msg)
+
+            # Validate reference audio count (0-3)
+            if has_reference_audio and len(params.get("reference_audio", [])) > 3:
+                msg = f"{self.name}: Seedance 2.0 supports up to 3 reference audio files, got {len(params['reference_audio'])}."
+                raise ValueError(msg)
+
+            # Validate duration range for V2 (4-15 or -1)
+            duration = params.get("duration")
+            if duration is not None and duration != -1 and not (4 <= duration <= 15):
+                msg = f"{self.name}: Seedance 2.0 supports duration between 4-15 seconds or -1 for smart selection, got {duration}."
+                raise ValueError(msg)
+
+        # Validate Lite I2V constraints
+        if is_lite_i2v:
+            # Cannot mix reference_images with first/last frame
+            if has_reference_images and has_first_or_last_frame:
+                msg = (
+                    f"{self.name}: Seedance 1.0 Lite I2V does not support mixing reference_images with first_frame/last_frame. "
+                    "Use either reference_images (1-4 images) OR first_frame/last_frame, not both."
+                )
+                raise ValueError(msg)
+
+            # Validate reference image count (1-4)
+            if has_reference_images and not (1 <= len(params.get("reference_images", [])) <= 4):
+                msg = f"{self.name}: Seedance 1.0 Lite I2V requires 1-4 reference images, got {len(params['reference_images'])}."
+                raise ValueError(msg)
+
+        # Validate Lite T2V constraints (no images)
+        if is_lite_t2v and (has_reference_images or has_first_or_last_frame):
+            msg = f"{self.name}: Seedance 1.0 Lite T2V does not support image inputs. Use text prompts only."
+            raise ValueError(msg)
+
+        # Validate that video/audio are only used with V2
+        if not is_v2 and (has_reference_videos or has_reference_audio):
+            msg = f"{self.name}: Reference videos and audio are only supported by Seedance 2.0 models."
+            raise ValueError(msg)
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for Seedance API (without model field)."""
         # Get parameters
         params = self._get_parameters()
+        model_id = params["model_id"]
+        is_v2 = model_id in ("seedance-2-0-260128", "seedance-2-0-fast-260128")
+        is_v1_5_pro = model_id == "seedance-1-5-pro-251215"
 
         # Build content array with text prompt
         prompt_text = params["prompt"].strip()
 
         # Build payload with config params at top level (model is handled separately by base class)
-        payload: dict[str, Any] = {"model": params["model_id"]}
+        payload: dict[str, Any] = {"model": model_id}
 
         # Add config parameters at top level
         if params["resolution"]:
@@ -421,16 +527,19 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         if params["duration"] is not None:
             payload["duration"] = int(params["duration"])
             prompt_text += f" --duration {int(params['duration'])}"
-        if params["camerafixed"] is not None:
+
+        # Only add camera_fixed for non-V2 models (V2 doesn't support it)
+        if not is_v2 and params["camerafixed"] is not None:
             payload["camerafixed"] = bool(params["camerafixed"])
             prompt_text += f" --camerafixed {str(bool(params['camerafixed'])).lower()}"
-        # Only add audio flag for 1.5 pro model
-        if params["model_id"] == "seedance-1-5-pro-251215" and params["generate_audio"] is not None:
+
+        # Add audio flag for V1.5 Pro and V2 models
+        if (is_v1_5_pro or is_v2) and params["generate_audio"] is not None:
             payload["generate_audio"] = bool(params["generate_audio"])
 
         content_list = [{"type": "text", "text": prompt_text}]
 
-        # Add frame images based on model capabilities
+        # Add frame images/videos/audio based on model capabilities
         await self._add_frame_images_async(content_list, params)
 
         payload["content"] = content_list
@@ -438,23 +547,61 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         return payload
 
     async def _add_frame_images_async(self, content_list: list[dict[str, Any]], params: dict[str, Any]) -> None:
-        """Add frame images to content list based on model capabilities.
+        """Add frame images, videos, and audio to content list based on model capabilities.
 
-        Different models support different image inputs:
+        Different models support different inputs:
+        - seedance-2-0/2-0-fast: multimodal (images 0-9, videos 0-3, audio 0-3) OR first+last frame
         - seedance-1-5-pro: text-to-video, i2v with first frame, i2v with first+last frame
         - seedance-1-0-pro: i2v with first+last frame, i2v with first frame, text-to-video
         - seedance-1-0-lite-t2v: text-to-video only (no images)
         - seedance-1-0-lite-i2v: i2v with 1-4 reference images OR i2v with first+last frame OR i2v with first frame
 
-        Role is always specified in image_url object: "first_frame", "last_frame", or "reference_image"
+        Role is always specified: "first_frame", "last_frame", "reference_image", "reference_video", "reference_audio"
 
-        For lite-i2v model, if reference_images is provided, use those instead of first/last frames.
+        For V2 models: multimodal references (images/videos/audio) are mutually exclusive with first/last frame.
+        For lite-i2v: reference_images takes priority over first/last frames.
         """
         model_id = params["model_id"]
+        is_v2 = model_id in ("seedance-2-0-260128", "seedance-2-0-fast-260128")
 
         # seedance-1-0-lite-t2v only supports text-to-video, no images
         if model_id == "seedance-1-0-lite-t2v-250428":
             return
+
+        # For V2 models, check if multimodal references are provided (takes priority over first/last frame)
+        if is_v2:
+            reference_images = params.get("reference_images", [])
+            reference_videos = params.get("reference_videos", [])
+            reference_audio = params.get("reference_audio", [])
+            has_multimodal_refs = reference_images or reference_videos or reference_audio
+
+            if has_multimodal_refs:
+                # Add reference images (0-9)
+                for ref_image in reference_images[:9]:
+                    ref_url = await self._prepare_frame_url_async(ref_image)
+                    if ref_url:
+                        content_list.append(
+                            {"type": "image_url", "image_url": {"url": ref_url}, "role": "reference_image"}
+                        )
+
+                # Add reference videos (0-3)
+                for ref_video in reference_videos[:3]:
+                    video_url = self._coerce_video_url(ref_video)
+                    if video_url:
+                        content_list.append(
+                            {"type": "video_url", "video_url": {"url": video_url}, "role": "reference_video"}
+                        )
+
+                # Add reference audio (0-3)
+                for ref_audio in reference_audio[:3]:
+                    audio_url = self._coerce_audio_url(ref_audio)
+                    if audio_url:
+                        content_list.append(
+                            {"type": "audio_url", "audio_url": {"url": audio_url}, "role": "reference_audio"}
+                        )
+
+                # If multimodal references are provided, don't add first/last frames
+                return
 
         # For lite-i2v model, check if reference_images is provided (takes priority)
         if model_id == "seedance-1-0-lite-i2v-250428":
@@ -472,6 +619,8 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
 
         # Determine which frames this model supports
         supports_last_frame = model_id in (
+            "seedance-2-0-260128",
+            "seedance-2-0-fast-260128",
             "seedance-1-5-pro-251215",
             "seedance-1-0-pro-250528",
             "seedance-1-0-lite-i2v-250428",
@@ -651,6 +800,61 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
             b64 = getattr(val, "base64", None)
             if isinstance(b64, str) and b64:
                 return b64 if b64.startswith("data:image/") else f"data:image/png;base64,{b64}"
+        except Exception:  # noqa: S110
+            pass
+
+        return None
+
+    @staticmethod
+    def _coerce_video_url(val: Any) -> str | None:
+        """Convert video input to a URL string."""
+        if val is None:
+            return None
+
+        # String handling
+        if isinstance(val, str):
+            v = val.strip()
+            if not v:
+                return None
+            return v if v.startswith(("http://", "https://")) else None
+
+        # Artifact-like objects (VideoUrlArtifact)
+        try:
+            v = getattr(val, "value", None)
+            if isinstance(v, str) and v.startswith(("http://", "https://")):
+                return v
+        except Exception:  # noqa: S110
+            pass
+
+        return None
+
+    @staticmethod
+    def _coerce_audio_url(val: Any) -> str | None:
+        """Convert audio input to a URL or data URI string."""
+        if val is None:
+            return None
+
+        # String handling
+        if isinstance(val, str):
+            v = val.strip()
+            if not v:
+                return None
+            # Return if it's already a URL or data URI
+            if v.startswith(("http://", "https://", "data:audio/")):
+                return v
+            # Assume base64 if not a URL
+            return f"data:audio/wav;base64,{v}"
+
+        # Artifact-like objects (AudioArtifact or similar)
+        try:
+            # Try .value for URL-based artifacts
+            v = getattr(val, "value", None)
+            if isinstance(v, str) and v.startswith(("http://", "https://", "data:audio/")):
+                return v
+            # Try .base64 for base64-encoded artifacts
+            b64 = getattr(val, "base64", None)
+            if isinstance(b64, str) and b64:
+                return b64 if b64.startswith("data:audio/") else f"data:audio/wav;base64,{b64}"
         except Exception:  # noqa: S110
             pass
 
