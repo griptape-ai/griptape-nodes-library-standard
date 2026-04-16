@@ -34,8 +34,6 @@ class CombineMasksVideo(DataNode):
             ParameterList(
                 name="mask_videos",
                 input_types=[
-                    "VideoArtifact",
-                    "VideoUrlArtifact",
                     "list",
                     "list[VideoArtifact]",
                     "list[VideoUrlArtifact]",
