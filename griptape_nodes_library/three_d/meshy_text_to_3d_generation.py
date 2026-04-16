@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from contextlib import suppress
 from typing import Any
 
@@ -260,9 +261,26 @@ class MeshyTextTo3DGeneration(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
 
+    @staticmethod
+    def _sanitize_log_message(message: str) -> str:
+        sanitized = str(message)
+        sanitized = re.sub(r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,;]+", r"\1[REDACTED]", sanitized)
+        sanitized = re.sub(
+            r"(?i)\b(api[_-]?key|token|password|secret|authorization)\b\s*[:=]\s*([\"'])?[^\"'\s,;]+([\"'])?",
+            r"\1=[REDACTED]",
+            sanitized,
+        )
+        sanitized = re.sub(r"(?i)\bGT_CLOUD_API_KEY\b\s*[:=]\s*[^\s,;]+", "GT_CLOUD_API_KEY=[REDACTED]", sanitized)
+        sanitized = re.sub(
+            r"(?i)\bGT_CLOUD_PROXY_API_KEY\b\s*[:=]\s*[^\s,;]+",
+            "GT_CLOUD_PROXY_API_KEY=[REDACTED]",
+            sanitized,
+        )
+        return sanitized
+
     def _log(self, message: str) -> None:
         with suppress(Exception):
-            logger.info(message)
+            logger.info(self._sanitize_log_message(message))
 
     def _get_api_model_id(self) -> str:
         """Map friendly model name to API model ID."""
