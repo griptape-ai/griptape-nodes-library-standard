@@ -26,6 +26,10 @@ class DisplayChannel(DisplayMask):
             )
         )
 
+        # Re-append project file output so it stays below the image output (super() registers it after output_mask).
+        self.remove_parameter_element_by_name("output_file")
+        self._output_file.add_parameter()
+
         # Change default channel to red
         channel_param = self.get_parameter_by_name("channel")
         if channel_param is not None:

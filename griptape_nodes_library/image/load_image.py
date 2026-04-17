@@ -96,14 +96,6 @@ class LoadImage(SuccessFailureNode):
         )
         self.add_parameter(channel_param)
 
-        self._mask_output_file = ProjectFileParameter(
-            node=self,
-            name="mask_output_file",
-            default_filename="mask.png",
-            ui_options={"hide": True},
-        )
-        self._mask_output_file.add_parameter()
-
         self.add_parameter(
             Parameter(
                 name="output_mask",
@@ -124,6 +116,14 @@ class LoadImage(SuccessFailureNode):
             result_details_tooltip="Details about the image loading operation result",
             result_details_placeholder="Details on the load attempt will be presented here.",
         )
+
+        self._mask_output_file = ProjectFileParameter(
+            node=self,
+            name="mask_output_file",
+            default_filename="mask.png",
+            ui_options={"hide": True},
+        )
+        self._mask_output_file.add_parameter()
 
     def after_incoming_connection(
         self,

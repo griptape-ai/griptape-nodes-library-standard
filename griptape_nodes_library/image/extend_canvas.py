@@ -115,11 +115,6 @@ class ExtendCanvas(ControlNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="extended.png")
-        self._output_file.add_parameter()
-        self._mask_file = ProjectFileParameter(node=self, name="mask_file", default_filename="mask.png")
-        self._mask_file.add_parameter()
-
         self.category = "Image"
         self.description = "Extend canvas around an image to fit target aspect ratios or custom dimensions"
 
@@ -220,6 +215,9 @@ class ExtendCanvas(ControlNode):
             )
         )
 
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="extended.png")
+        self._output_file.add_parameter()
+
         # Output mask
         self.add_parameter(
             ParameterImage(
@@ -229,6 +227,9 @@ class ExtendCanvas(ControlNode):
                 allowed_modes={ParameterMode.OUTPUT},
             )
         )
+
+        self._mask_file = ProjectFileParameter(node=self, name="mask_file", default_filename="mask.png")
+        self._mask_file.add_parameter()
 
     def process(self) -> None:
         input_image = self.get_parameter_value("input_image")

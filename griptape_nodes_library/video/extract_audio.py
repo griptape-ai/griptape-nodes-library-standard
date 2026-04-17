@@ -34,9 +34,8 @@ class ExtractAudio(BaseVideoProcessor):
         # Hide parameters that aren't relevant for audio extraction
         self.hide_parameter_by_name("output_frame_rate")
         self.hide_parameter_by_name("processing_speed")
-        self.hide_parameter_by_name("output")
 
-        # Add audio output parameter
+    def _register_primary_output_parameter(self) -> None:
         self.add_parameter(
             ParameterAudio(
                 name="extracted_audio",

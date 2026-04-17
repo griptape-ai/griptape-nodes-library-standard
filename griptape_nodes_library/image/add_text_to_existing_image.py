@@ -81,8 +81,6 @@ class AddTextToExistingImage(SuccessFailureNode):
 
         self._cached_render_signature: _RenderSignature | None = None
         self._cached_render_png_bytes: bytes | None = None
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="text_overlay.png")
-        self._output_file.add_parameter()
 
         self.add_parameter(
             ParameterImage(
@@ -179,6 +177,9 @@ class AddTextToExistingImage(SuccessFailureNode):
             result_details_placeholder="Details on the text rendering will be presented here.",
             parameter_group_initially_collapsed=True,
         )
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="text_overlay.png")
+        self._output_file.add_parameter()
 
     def _expand_text_template(self, template: str, template_values: Any) -> _TextExpansionResult:
         template_value = template or ""

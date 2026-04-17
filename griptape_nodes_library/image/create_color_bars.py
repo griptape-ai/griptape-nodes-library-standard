@@ -74,9 +74,6 @@ class CreateColorBars(BaseNode):
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
 
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="color_bars.png")
-        self._output_file.add_parameter()
-
         # Add color bar type selector
         self.add_parameter(
             ParameterString(
@@ -151,6 +148,9 @@ class CreateColorBars(BaseNode):
                 ui_options={"expander": True},
             )
         )
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="color_bars.png")
+        self._output_file.add_parameter()
 
     def _generate_smpte_219_100_bars(self, width: int, height: int) -> Image.Image:
         """Generate SMPTE 219-100 Bars (HDTV Color Bars)."""

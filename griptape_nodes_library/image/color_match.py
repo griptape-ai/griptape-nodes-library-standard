@@ -60,9 +60,6 @@ class ColorMatch(SuccessFailureNode):
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
 
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="colormatch.png")
-        self._output_file.add_parameter()
-
         # Reference image input (FIRST - the source of the color palette)
         self.add_parameter(
             ParameterImage(
@@ -137,6 +134,9 @@ class ColorMatch(SuccessFailureNode):
             result_details_placeholder="Details on the color matching will be presented here.",
             parameter_group_initially_collapsed=True,
         )
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="colormatch.png")
+        self._output_file.add_parameter()
 
     def _process_images(self, target_pil: Image.Image, ref_pil: Image.Image) -> Image.Image:
         """Process the PIL images by applying color transfer.
