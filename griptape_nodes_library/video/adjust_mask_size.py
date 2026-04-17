@@ -167,11 +167,11 @@ class AdjustMaskSize(DataNode):
             )
             adjusted_frames_dir = Path(tempfile.mkdtemp())
             temp_dirs.append(adjusted_frames_dir)
-            self._adjust_frames(frames_dir, adjusted_frames_dir, props["frame_count"], adjustment)
+            last_progress = self._adjust_frames(frames_dir, adjusted_frames_dir, props["frame_count"], adjustment)
 
             # Reassemble video
             self.append_value_to_parameter("logs", "Reassembling video from adjusted frames...\n")
-            output_video = self._reassemble_video(adjusted_frames_dir, props, ffmpeg_path)
+            output_video = self._reassemble_video(adjusted_frames_dir, props, ffmpeg_path, last_progress)
             temp_files.append(output_video)
 
             # Read video bytes
@@ -293,7 +293,7 @@ class AdjustMaskSize(DataNode):
             msg = f"{self.name}: FFmpeg frame extraction timed out"
             raise ValueError(msg) from e
 
-    def _adjust_frames(self, input_dir: Path, output_dir: Path, frame_count: int, adjustment: int) -> None:
+    def _adjust_frames(self, input_dir: Path, output_dir: Path, frame_count: int, adjustment: int) -> int:
         """Adjust mask size in each frame using dilation or erosion.
 
         Args:
@@ -301,6 +301,9 @@ class AdjustMaskSize(DataNode):
             output_dir: Directory to save adjusted frames
             frame_count: Number of frames to process
             adjustment: Adjustment amount (positive for dilation, negative for erosion)
+
+        Returns:
+            The last progress value (should be ~90 for 90% complete after frame processing)
         """
         # Initialize progress bar (0-90% for frame processing, 90-100% for reassembly)
         self.progress_component.initialize(100)
@@ -309,11 +312,9 @@ class AdjustMaskSize(DataNode):
         # Create structuring element for morphological operations
         # Use a circular/elliptical kernel for more natural-looking results
         kernel_size = abs(adjustment)
-        kernel = None
-        if kernel_size > 0:
-            y, x = np.ogrid[-kernel_size : kernel_size + 1, -kernel_size : kernel_size + 1]
-            kernel = x**2 + y**2 <= kernel_size**2
-            kernel = kernel.astype(np.uint8)
+        y, x = np.ogrid[-kernel_size : kernel_size + 1, -kernel_size : kernel_size + 1]
+        kernel = x**2 + y**2 <= kernel_size**2
+        kernel = kernel.astype(np.uint8)
 
         for frame_idx in range(1, frame_count + 1):
             frame_filename = f"frame_{frame_idx:06d}.png"
@@ -351,6 +352,8 @@ class AdjustMaskSize(DataNode):
             if frame_idx % 100 == 0:
                 self.append_value_to_parameter("logs", f"Adjusted {frame_idx}/{frame_count} frames\n")
 
+        return last_progress
+
     def _dilate_binary(self, binary_mask: np.ndarray, kernel: np.ndarray) -> np.ndarray:
         """Perform binary dilation on a mask using a structuring element.
 
@@ -367,8 +370,7 @@ class AdjustMaskSize(DataNode):
         # Convert binary mask to uint8 image (0 or 255)
         mask_img = Image.fromarray((binary_mask * 255).astype(np.uint8), mode="L")
 
-        # Apply MaxFilter with kernel radius
-        kernel_radius = kernel.shape[0] // 2
+        # Apply MaxFilter with kernel size
         dilated_img = mask_img.filter(ImageFilter.MaxFilter(size=kernel.shape[0]))
 
         # Convert back to boolean array
@@ -391,27 +393,33 @@ class AdjustMaskSize(DataNode):
         # Convert binary mask to uint8 image (0 or 255)
         mask_img = Image.fromarray((binary_mask * 255).astype(np.uint8), mode="L")
 
-        # Apply MinFilter with kernel radius
-        kernel_radius = kernel.shape[0] // 2
+        # Apply MinFilter with kernel size
         eroded_img = mask_img.filter(ImageFilter.MinFilter(size=kernel.shape[0]))
 
         # Convert back to boolean array
         eroded_array = np.array(eroded_img) > 127
         return eroded_array
 
-    def _reassemble_video(self, frames_dir: Path, props: dict[str, Any], ffmpeg_path: str) -> Path:
-        """Reassemble video from adjusted frames."""
+    def _reassemble_video(self, frames_dir: Path, props: dict[str, Any], ffmpeg_path: str, last_progress: int) -> Path:
+        """Reassemble video from adjusted frames.
+
+        Args:
+            frames_dir: Directory containing adjusted frames
+            props: Video properties (fps, width, height)
+            ffmpeg_path: Path to FFmpeg executable
+            last_progress: Current progress value from frame processing
+
+        Returns:
+            Path to reassembled video file
+        """
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_file:
             output_video = Path(temp_file.name)
         input_pattern = str(frames_dir / "frame_%06d.png")
 
         # Ensure progress is at 90% before starting reassembly
-        try:
-            current = self.progress_component.get_progress()
-            for _ in range(max(0, 90 - current)):
-                self.progress_component.increment()
-        except Exception:
-            pass
+        while last_progress < 90:
+            self.progress_component.increment()
+            last_progress += 1
 
         cmd = [
             ffmpeg_path,
@@ -435,11 +443,9 @@ class AdjustMaskSize(DataNode):
             subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=600)  # noqa: S603
 
             # Complete progress to 100% (remaining 10%)
-            for _ in range(10):
-                try:
-                    self.progress_component.increment()
-                except Exception:
-                    pass
+            while last_progress < 100:
+                self.progress_component.increment()
+                last_progress += 1
 
         except subprocess.CalledProcessError as e:
             msg = f"{self.name}: FFmpeg video reassembly failed: {e.stderr}"
