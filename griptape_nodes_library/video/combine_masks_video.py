@@ -43,7 +43,7 @@ class CombineMasksVideo(DataNode):
                 default_value=[],
                 tooltip="List of mask videos to combine into a single mask video (union/max per frame). Videos must have the same resolution but can have different durations - shorter videos will be padded with black frames.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={"display_name": "Mask Videos"},
+                ui_options={"display_name": "Mask Videos", "hide_property": True},
             )
         )
 
