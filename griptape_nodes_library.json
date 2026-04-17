@@ -28,7 +28,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.69.1",
+    "library_version": "0.69.2",
     "engine_version": "0.79.0",
     "tags": [
       "Griptape",
@@ -1041,6 +1041,17 @@
         "display_name": "Combine Masks Video",
         "icon": "layers",
         "group": "merge"
+      }
+    },
+    {
+      "class_name": "AdjustMaskSize",
+      "file_path": "griptape_nodes_library/video/adjust_mask_size.py",
+      "metadata": {
+        "category": "video",
+        "description": "Adjust mask size in a video by dilating (expanding) or eroding (shrinking) the mask frame-by-frame",
+        "display_name": "Adjust Mask Size",
+        "icon": "maximize-2",
+        "group": "edit"
       }
     },
     {
