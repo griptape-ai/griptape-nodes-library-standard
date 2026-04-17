@@ -15,8 +15,7 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
 from griptape_nodes.traits.slider import Slider
-from PIL import Image
-from scipy import ndimage
+from PIL import Image, ImageFilter
 
 
 class AdjustMaskSize(DataNode):
@@ -310,6 +309,7 @@ class AdjustMaskSize(DataNode):
         # Create structuring element for morphological operations
         # Use a circular/elliptical kernel for more natural-looking results
         kernel_size = abs(adjustment)
+        kernel = None
         if kernel_size > 0:
             y, x = np.ogrid[-kernel_size : kernel_size + 1, -kernel_size : kernel_size + 1]
             kernel = x**2 + y**2 <= kernel_size**2
@@ -331,14 +331,10 @@ class AdjustMaskSize(DataNode):
             # Apply morphological operation
             if adjustment > 0:
                 # Dilation (expand mask)
-                adjusted_array = (
-                    ndimage.binary_dilation(frame_array > 127, structure=kernel, iterations=1).astype(np.uint8) * 255
-                )
+                adjusted_array = self._dilate_binary(frame_array > 127, kernel).astype(np.uint8) * 255
             else:
                 # Erosion (shrink mask)
-                adjusted_array = (
-                    ndimage.binary_erosion(frame_array > 127, structure=kernel, iterations=1).astype(np.uint8) * 255
-                )
+                adjusted_array = self._erode_binary(frame_array > 127, kernel).astype(np.uint8) * 255
 
             # Save adjusted frame
             adjusted_img = Image.fromarray(adjusted_array, mode="L")
@@ -354,6 +350,54 @@ class AdjustMaskSize(DataNode):
             # Log progress every 100 frames
             if frame_idx % 100 == 0:
                 self.append_value_to_parameter("logs", f"Adjusted {frame_idx}/{frame_count} frames\n")
+
+    def _dilate_binary(self, binary_mask: np.ndarray, kernel: np.ndarray) -> np.ndarray:
+        """Perform binary dilation on a mask using a structuring element.
+
+        Uses PIL's MaxFilter to expand the mask. Dilation sets a pixel to True if any
+        pixel in the kernel neighborhood is True.
+
+        Args:
+            binary_mask: Boolean array representing the binary mask
+            kernel: Boolean or uint8 array representing the structuring element
+
+        Returns:
+            Boolean array with dilated mask
+        """
+        # Convert binary mask to uint8 image (0 or 255)
+        mask_img = Image.fromarray((binary_mask * 255).astype(np.uint8), mode="L")
+
+        # Apply MaxFilter with kernel radius
+        kernel_radius = kernel.shape[0] // 2
+        dilated_img = mask_img.filter(ImageFilter.MaxFilter(size=kernel.shape[0]))
+
+        # Convert back to boolean array
+        dilated_array = np.array(dilated_img) > 127
+        return dilated_array
+
+    def _erode_binary(self, binary_mask: np.ndarray, kernel: np.ndarray) -> np.ndarray:
+        """Perform binary erosion on a mask using a structuring element.
+
+        Uses PIL's MinFilter to shrink the mask. Erosion sets a pixel to False if any
+        pixel in the kernel neighborhood is False.
+
+        Args:
+            binary_mask: Boolean array representing the binary mask
+            kernel: Boolean or uint8 array representing the structuring element
+
+        Returns:
+            Boolean array with eroded mask
+        """
+        # Convert binary mask to uint8 image (0 or 255)
+        mask_img = Image.fromarray((binary_mask * 255).astype(np.uint8), mode="L")
+
+        # Apply MinFilter with kernel radius
+        kernel_radius = kernel.shape[0] // 2
+        eroded_img = mask_img.filter(ImageFilter.MinFilter(size=kernel.shape[0]))
+
+        # Convert back to boolean array
+        eroded_array = np.array(eroded_img) > 127
+        return eroded_array
 
     def _reassemble_video(self, frames_dir: Path, props: dict[str, Any], ffmpeg_path: str) -> Path:
         """Reassemble video from adjusted frames."""
