@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import re
 from abc import ABC, abstractmethod
 from contextlib import suppress
 from typing import Any
@@ -218,6 +220,36 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             f"proxy_auth_info_length={len(proxy_auth_info)}"
         )
 
+    def _elide_base64_in_payload(self, payload: dict[str, Any]) -> str:
+        """Create a log-safe version of payload with base64 data elided.
+
+        Replaces base64 strings in data URIs with length indicators to make logs readable.
+        Example: "data:image/png;base64,iVBORw0K..." becomes "data:image/png;base64,[123 chars]"
+
+        Args:
+            payload: The payload dictionary to process
+
+        Returns:
+            JSON string with base64 data elided
+        """
+
+        def elide_value(obj: Any) -> Any:
+            if isinstance(obj, str):
+                # Match data URIs with base64 encoding
+                match = re.match(r"^(data:[^;]+;base64,)(.+)$", obj)
+                if match:
+                    prefix, b64_data = match.groups()
+                    return f"{prefix}[{len(b64_data)} chars]"
+                return obj
+            elif isinstance(obj, dict):
+                return {k: elide_value(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [elide_value(item) for item in obj]
+            return obj
+
+        elided = elide_value(payload)
+        return json.dumps(elided, indent=2)
+
     async def _submit_generation(
         self, payload: dict[str, Any], headers: dict[str, str], api_model_id: str
     ) -> str | None:
@@ -236,6 +268,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         proxy_url = urljoin(self._proxy_base, f"models/{api_model_id}")
         self._log(f"Submitting generation request to {proxy_url}")
+        self._log(f"Request payload:\n{self._elide_base64_in_payload(payload)}")
 
         try:
             async with httpx.AsyncClient() as client:
