@@ -94,7 +94,11 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 tooltip="Input mode: Text Only for pure text-to-video, First/Last Frame for i2v, or Multimodal References for images/videos/audio",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"display_name": "Input Mode", "hide": False},
-                traits={Options(choices=[INPUT_MODE_TEXT_ONLY, INPUT_MODE_FIRST_LAST_FRAME, INPUT_MODE_MULTIMODAL_REFERENCES])},
+                traits={
+                    Options(
+                        choices=[INPUT_MODE_TEXT_ONLY, INPUT_MODE_FIRST_LAST_FRAME, INPUT_MODE_MULTIMODAL_REFERENCES]
+                    )
+                },
             )
         )
 
@@ -385,7 +389,6 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         raw_model_id = self.get_parameter_value("model_id") or MODEL_NAME_SEEDANCE_2_0
         return self.MODEL_NAME_MAP.get(raw_model_id, raw_model_id)
 
-
     async def _process_generation(self) -> None:
         try:
             await super()._process_generation()
@@ -463,7 +466,9 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         reference_video_inputs = self._get_reference_video_inputs(params)
         has_reference_videos = bool(reference_video_inputs)
         has_reference_audio = bool(params.get("reference_audio") and len(params["reference_audio"]) > 0)
-        has_any_media = has_first_frame or has_last_frame or has_reference_images or has_reference_videos or has_reference_audio
+        has_any_media = (
+            has_first_frame or has_last_frame or has_reference_images or has_reference_videos or has_reference_audio
+        )
 
         # Text Only mode: no media allowed
         if input_mode == INPUT_MODE_TEXT_ONLY:

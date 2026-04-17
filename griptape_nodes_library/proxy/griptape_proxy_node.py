@@ -232,10 +232,11 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Returns:
             JSON string with base64 data elided
         """
+
         def elide_value(obj: Any) -> Any:
             if isinstance(obj, str):
                 # Match data URIs with base64 encoding
-                match = re.match(r'^(data:[^;]+;base64,)(.+)$', obj)
+                match = re.match(r"^(data:[^;]+;base64,)(.+)$", obj)
                 if match:
                     prefix, b64_data = match.groups()
                     return f"{prefix}[{len(b64_data)} chars]"
