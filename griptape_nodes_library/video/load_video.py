@@ -3,7 +3,7 @@ from typing import Any
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter
 from griptape_nodes.exe_types.node_types import BaseNode, DataNode, NodeDependencies
-from griptape_nodes.retained_mode.griptape_nodes import logger
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 
 from griptape_nodes_library.utils.artifact_path_tethering import (
@@ -11,6 +11,7 @@ from griptape_nodes_library.utils.artifact_path_tethering import (
     ArtifactTetheringConfig,
     default_extract_url_from_artifact_value,
 )
+from griptape_nodes_library.utils.image_utils import resolve_localhost_url_to_path
 from griptape_nodes_library.utils.macro_path_utils import (
     copy_external_file_to_project,
     create_external_file_controls,
@@ -78,8 +79,22 @@ class LoadVideo(DataNode):
         if deps is None:
             deps = NodeDependencies()
         value = self.get_parameter_value("path")
-        if value and isinstance(value, str):
-            deps.static_files.add(value)
+        if not value or not isinstance(value, str):
+            return deps
+
+        # Resolve localhost URLs to filesystem paths the packager can handle
+        resolved = resolve_localhost_url_to_path(value)
+        if resolved != value:
+            # URL was resolved to workspace-relative path — make it absolute, then macro
+            workspace = GriptapeNodes.ConfigManager().workspace_path
+            absolute = workspace / resolved
+            if absolute.exists():
+                macro_result = resolve_to_macro_path(str(absolute))
+                deps.static_files.add(macro_result.resolved_path)
+                return deps
+
+        # Already a macro path, absolute path, or non-localhost URL — pass through
+        deps.static_files.add(value)
         return deps
 
     def after_incoming_connection(
