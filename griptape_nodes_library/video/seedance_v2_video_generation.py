@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json as _json
 import logging
+import re
 from contextlib import suppress
 from typing import Any, ClassVar
 
@@ -26,6 +27,9 @@ from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
+_SENSITIVE_LOG_RE = re.compile(
+    r"(?i)((?:authorization|api[_-]?key|token|password|secret)\s*(?:[:=]\s*|\"\s*:\s*|'\s*:\s*))(?:bearer\s+)?([^\s,\"'}]+)"
+)
 
 __all__ = ["SeedanceV2VideoGeneration"]
 
@@ -375,7 +379,8 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
 
     def _log(self, message: str) -> None:
         with suppress(Exception):
-            logger.info(message)
+            sanitized_message = _SENSITIVE_LOG_RE.sub(r"\1[REDACTED]", str(message))
+            logger.info(sanitized_message)
 
     async def _process_generation(self) -> None:
         try:
