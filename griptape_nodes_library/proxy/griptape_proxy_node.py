@@ -207,8 +207,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     def _log(self, message: str) -> None:
         """Log a message with error suppression."""
         with suppress(Exception):
-            sanitized_message = _SENSITIVE_LOG_RE.sub(r"\1[REDACTED]", str(message))
-            logger.info(sanitized_message)
+            logger.info("proxy event (details redacted)")
 
     def _log_auth_header_summary(self, context: str, headers: dict[str, str]) -> None:
         authorization = headers.get("Authorization", "")
