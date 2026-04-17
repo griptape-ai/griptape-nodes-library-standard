@@ -120,7 +120,9 @@ async def test_flux2_submission_keeps_proxy_bearer_auth_with_byok(monkeypatch: p
 
 
 @pytest.mark.asyncio
-async def test_submit_generation_logs_sanitized_payload(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+async def test_submit_generation_logs_sanitized_payload(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     captured_request: dict[str, Any] = {}
 
     class FakeResponse:

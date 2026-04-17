@@ -4,7 +4,11 @@ from pathlib import Path
 
 import pytest
 from griptape.artifacts import ImageUrlArtifact
+from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
+    PublicArtifactUrlParameter,
+)
 from griptape_nodes.files.file import File
 
 import griptape_nodes_library.video.seedance_v2_video_generation as seedance_v2_module
@@ -13,7 +17,9 @@ from griptape_nodes_library.video.seedance_v2_video_generation import SeedanceV2
 
 def _set_parameter_list_values(node: SeedanceV2VideoGeneration, parameter_name: str, values: list[object]) -> None:
     parameter_list = next(
-        parameter for parameter in node.parameters if isinstance(parameter, ParameterList) and parameter.name == parameter_name
+        parameter
+        for parameter in node.parameters
+        if isinstance(parameter, ParameterList) and parameter.name == parameter_name
     )
     parameter_list.clear_list()
     for value in values:
@@ -21,10 +27,19 @@ def _set_parameter_list_values(node: SeedanceV2VideoGeneration, parameter_name: 
         node.set_parameter_value(child.name, value)
 
 
+def _parameter_by_name(node: SeedanceV2VideoGeneration, parameter_name: str):
+    return next(parameter for parameter in node.parameters if parameter.name == parameter_name)
+
+
+@pytest.fixture(autouse=True)
+def stub_public_artifact_bucket_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        PublicArtifactUrlParameter, "_get_bucket_id", staticmethod(lambda *_args, **_kwargs: "test-bucket")
+    )
+
+
 @pytest.mark.asyncio
-async def test_build_payload_normalizes_local_frame_paths(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-) -> None:
+async def test_build_payload_normalizes_local_frame_paths(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     node = SeedanceV2VideoGeneration(name="SeedanceV2")
     normalization_calls: list[str] = []
     first_frame = tmp_path / "first.png"
@@ -93,9 +108,34 @@ def test_frame_inputs_remain_input_only() -> None:
 def test_first_last_frame_mode_rejects_multimodal_reference_inputs() -> None:
     node = SeedanceV2VideoGeneration(name="SeedanceV2")
     node.set_parameter_value("input_mode", "First/Last Frame")
-    _set_parameter_list_values(node, "reference_videos", ["https://example.com/reference.mp4"])
+    node.set_parameter_value("reference_video_1", "https://example.com/reference.mp4")
 
     with pytest.raises(ValueError, match="only used in Multimodal References mode"):
+        node._validate_parameters(node._get_parameters())
+
+
+def test_multimodal_reference_video_inputs_progressively_appear() -> None:
+    node = SeedanceV2VideoGeneration(name="SeedanceV2")
+    node.set_parameter_value("input_mode", "Multimodal References")
+
+    assert _parameter_by_name(node, "reference_video_1").hide is False
+    assert _parameter_by_name(node, "reference_video_2").hide is True
+    assert _parameter_by_name(node, "reference_video_3").hide is True
+
+    node.set_parameter_value("reference_video_1", "https://example.com/reference-1.mp4")
+    assert _parameter_by_name(node, "reference_video_2").hide is False
+    assert _parameter_by_name(node, "reference_video_3").hide is True
+
+    node.set_parameter_value("reference_video_2", "https://example.com/reference-2.mp4")
+    assert _parameter_by_name(node, "reference_video_3").hide is False
+
+
+def test_multimodal_reference_video_inputs_require_contiguous_order() -> None:
+    node = SeedanceV2VideoGeneration(name="SeedanceV2")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    node.set_parameter_value("reference_video_2", "https://example.com/reference-2.mp4")
+
+    with pytest.raises(ValueError, match="reference_video_2 requires reference_video_1"):
         node._validate_parameters(node._get_parameters())
 
 
@@ -161,11 +201,7 @@ async def test_build_payload_includes_multimodal_video_url_and_audio_base64() ->
     node.set_parameter_value("model_id", "Seedance 2.0")
     node.set_parameter_value("input_mode", "Multimodal References")
     node.set_parameter_value("prompt", "Use the reference video motion")
-    _set_parameter_list_values(
-        node,
-        "reference_videos",
-        [{"type": "VideoUrlArtifact", "value": "https://public.example/reference.mp4"}],
-    )
+    node.set_parameter_value("reference_video_1", VideoUrlArtifact("https://public.example/reference.mp4"))
     _set_parameter_list_values(
         node,
         "reference_audio",
@@ -198,7 +234,37 @@ async def test_build_payload_rejects_local_reference_video_path(tmp_path) -> Non
     node.set_parameter_value("model_id", "Seedance 2.0")
     node.set_parameter_value("input_mode", "Multimodal References")
     node.set_parameter_value("prompt", "Use the reference video motion")
-    _set_parameter_list_values(node, "reference_videos", [str(reference_video)])
+    node.set_parameter_value("reference_video_1", {"type": "VideoUrlArtifact", "value": str(reference_video)})
 
-    with pytest.raises(ValueError, match="reference_videos only support public URLs or asset:// IDs"):
+    with pytest.raises(
+        ValueError, match="reference_video_1 only supports public URLs, uploaded asset URLs, or asset:// IDs"
+    ):
         await node._build_payload()
+
+
+@pytest.mark.asyncio
+async def test_build_payload_uses_public_artifact_url_parameter_for_reference_videos(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node = SeedanceV2VideoGeneration(name="SeedanceV2")
+    node.set_parameter_value("model_id", "Seedance 2.0")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    node.set_parameter_value("prompt", "Use the reference video motion")
+    node.set_parameter_value("reference_video_1", "workspace/reference.mp4")
+
+    monkeypatch.setattr(
+        node._public_reference_video_parameter_1,
+        "get_public_url_for_parameter",
+        lambda: "https://public.example/reference.mp4",
+    )
+
+    payload = await node._build_payload()
+
+    assert payload["content"] == [
+        {"type": "text", "text": "Use the reference video motion"},
+        {
+            "type": "video_url",
+            "video_url": {"url": "https://public.example/reference.mp4"},
+            "role": "reference_video",
+        },
+    ]

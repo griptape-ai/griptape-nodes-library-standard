@@ -9,6 +9,9 @@ from griptape.artifacts import AudioArtifact, ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
+    PublicArtifactUrlParameter,
+)
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -48,7 +51,7 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
         - duration (int): Video duration in seconds (default: 5, range: 4-15 or -1 for smart)
         - generate_audio (bool): Generate audio with video (default: False)
         - first_frame/last_frame: Optional frame images (First/Last Frame mode only, last_frame requires Seedance 2.0)
-        - reference_images/videos/audio: Optional reference media (Multimodal mode only)
+        - reference_images/reference_video_1..3/reference_audio: Optional reference media (Multimodal mode only)
 
     Outputs:
         - generation_id (str): Griptape Cloud generation id
@@ -138,17 +141,63 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
             )
         )
 
-        self.add_parameter(
-            ParameterList(
-                name="reference_videos",
-                input_types=["VideoUrlArtifact", "str"],
-                default_value=[],
-                tooltip="Optional reference videos (0-3 videos, 2-15s each, max 15s total). Seedance only accepts public URLs or asset:// IDs for videos.",
-                allowed_modes={ParameterMode.INPUT},
-                ui_options={"display_name": "Reference Videos", "expander": True},
-                max_items=3,
-            )
+        self._public_reference_video_parameter_1 = PublicArtifactUrlParameter(
+            node=self,
+            artifact_url_parameter=Parameter(
+                name="reference_video_1",
+                input_types=["VideoUrlArtifact"],
+                type="VideoUrlArtifact",
+                default_value="",
+                tooltip=(
+                    "Optional first reference video. Seedance only accepts public URLs or uploaded asset URLs "
+                    "for videos."
+                ),
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={"display_name": "Reference Video 1"},
+            ),
+            disclaimer_message="The Seedance V2 service utilizes this URL to access the reference video.",
         )
+        self._public_reference_video_parameter_1.add_input_parameters()
+
+        self._public_reference_video_parameter_2 = PublicArtifactUrlParameter(
+            node=self,
+            artifact_url_parameter=Parameter(
+                name="reference_video_2",
+                input_types=["VideoUrlArtifact"],
+                type="VideoUrlArtifact",
+                default_value="",
+                tooltip=(
+                    "Optional second reference video. Seedance only accepts public URLs or uploaded asset URLs "
+                    "for videos."
+                ),
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={"display_name": "Reference Video 2"},
+                hide=True,
+            ),
+            disclaimer_message="The Seedance V2 service utilizes this URL to access the reference video.",
+        )
+        self._public_reference_video_parameter_2.add_input_parameters()
+        self.hide_message_by_name("artifact_url_parameter_message_reference_video_2")
+
+        self._public_reference_video_parameter_3 = PublicArtifactUrlParameter(
+            node=self,
+            artifact_url_parameter=Parameter(
+                name="reference_video_3",
+                input_types=["VideoUrlArtifact"],
+                type="VideoUrlArtifact",
+                default_value="",
+                tooltip=(
+                    "Optional third reference video. Seedance only accepts public URLs or uploaded asset URLs "
+                    "for videos."
+                ),
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={"display_name": "Reference Video 3"},
+                hide=True,
+            ),
+            disclaimer_message="The Seedance V2 service utilizes this URL to access the reference video.",
+        )
+        self._public_reference_video_parameter_3.add_input_parameters()
+        self.hide_message_by_name("artifact_url_parameter_message_reference_video_3")
 
         self.add_parameter(
             ParameterList(
@@ -245,7 +294,7 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to show/hide inputs based on mode."""
-        if parameter.name in {"input_mode", "model_id"}:
+        if parameter.name in {"input_mode", "model_id", "reference_video_1", "reference_video_2", "reference_video_3"}:
             self._update_parameter_visibility()
 
         if parameter.name in {"first_frame", "last_frame"}:
@@ -258,11 +307,6 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
             updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
             if updated_list != value:
                 self.set_parameter_value("reference_images", updated_list)
-
-        if parameter.name == "reference_videos" and isinstance(value, list):
-            updated_list = normalize_artifact_list(value, VideoUrlArtifact)
-            if updated_list != value:
-                self.set_parameter_value("reference_videos", updated_list)
 
         if parameter.name == "reference_audio" and isinstance(value, list):
             updated_list = normalize_artifact_list(value, AudioUrlArtifact, accepted_types=(AudioArtifact,))
@@ -282,18 +326,47 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
             self.hide_parameter_by_name("first_frame")
             self.hide_parameter_by_name("last_frame")
             self.show_parameter_by_name("reference_images")
-            self.show_parameter_by_name("reference_videos")
             self.show_parameter_by_name("reference_audio")
+            self._update_reference_video_visibility()
         else:
             # Show first/last frame, hide multimodal inputs
             self.show_parameter_by_name("first_frame")
             self.hide_parameter_by_name("reference_images")
-            self.hide_parameter_by_name("reference_videos")
             self.hide_parameter_by_name("reference_audio")
+            self.hide_parameter_by_name(["reference_video_1", "reference_video_2", "reference_video_3"])
+            self.hide_message_by_name("artifact_url_parameter_message_reference_video_1")
+            self.hide_message_by_name("artifact_url_parameter_message_reference_video_2")
+            self.hide_message_by_name("artifact_url_parameter_message_reference_video_3")
             if self._supports_last_frame(model_id):
                 self.show_parameter_by_name("last_frame")
             else:
                 self.hide_parameter_by_name("last_frame")
+
+    def _update_reference_video_visibility(self) -> None:
+        """Progressively reveal reference video inputs in multimodal mode."""
+        reference_video_1 = self.get_parameter_value("reference_video_1")
+        reference_video_2 = self.get_parameter_value("reference_video_2")
+        reference_video_3 = self.get_parameter_value("reference_video_3")
+
+        show_video_2 = bool(reference_video_1 or reference_video_2 or reference_video_3)
+        show_video_3 = bool(reference_video_2 or reference_video_3)
+
+        self.show_parameter_by_name("reference_video_1")
+        self.show_message_by_name("artifact_url_parameter_message_reference_video_1")
+
+        if show_video_2:
+            self.show_parameter_by_name("reference_video_2")
+            self.show_message_by_name("artifact_url_parameter_message_reference_video_2")
+        else:
+            self.hide_parameter_by_name("reference_video_2")
+            self.hide_message_by_name("artifact_url_parameter_message_reference_video_2")
+
+        if show_video_3:
+            self.show_parameter_by_name("reference_video_3")
+            self.show_message_by_name("artifact_url_parameter_message_reference_video_3")
+        else:
+            self.hide_parameter_by_name("reference_video_3")
+            self.hide_message_by_name("artifact_url_parameter_message_reference_video_3")
 
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation."""
@@ -303,6 +376,14 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
     def _log(self, message: str) -> None:
         with suppress(Exception):
             logger.info(message)
+
+    async def _process_generation(self) -> None:
+        try:
+            await super()._process_generation()
+        finally:
+            self._public_reference_video_parameter_1.delete_uploaded_artifact()
+            self._public_reference_video_parameter_2.delete_uploaded_artifact()
+            self._public_reference_video_parameter_3.delete_uploaded_artifact()
 
     def validate_before_node_run(self) -> list[Exception] | None:
         """Validate parameters before execution."""
@@ -339,8 +420,6 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
             if reference_images
             else []
         )
-        reference_videos = self.get_parameter_value("reference_videos") or []
-        normalized_reference_videos = normalize_artifact_list(reference_videos, VideoUrlArtifact) if reference_videos else []
         reference_audio = self.get_parameter_value("reference_audio") or []
         normalized_reference_audio = (
             normalize_artifact_list(reference_audio, AudioUrlArtifact, accepted_types=(AudioArtifact,))
@@ -359,7 +438,9 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
             "first_frame": first_frame,
             "last_frame": last_frame,
             "reference_images": normalized_reference_images,
-            "reference_videos": normalized_reference_videos,
+            "reference_video_1": self.get_parameter_value("reference_video_1"),
+            "reference_video_2": self.get_parameter_value("reference_video_2"),
+            "reference_video_3": self.get_parameter_value("reference_video_3"),
             "reference_audio": normalized_reference_audio,
         }
 
@@ -370,7 +451,8 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
         has_first_frame = params.get("first_frame") is not None
         has_last_frame = params.get("last_frame") is not None
         has_reference_images = bool(params.get("reference_images") and len(params["reference_images"]) > 0)
-        has_reference_videos = bool(params.get("reference_videos") and len(params["reference_videos"]) > 0)
+        reference_video_inputs = self._get_reference_video_inputs(params)
+        has_reference_videos = bool(reference_video_inputs)
         has_reference_audio = bool(params.get("reference_audio") and len(params["reference_audio"]) > 0)
 
         if use_multimodal and (has_first_frame or has_last_frame):
@@ -382,7 +464,7 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
 
         if not use_multimodal and (has_reference_images or has_reference_videos or has_reference_audio):
             msg = (
-                f"{self.name}: reference_images/reference_videos/reference_audio are only used in "
+                f"{self.name}: reference_images/reference_video_1/reference_video_2/reference_video_3/reference_audio are only used in "
                 f"{INPUT_MODE_MULTIMODAL_REFERENCES} mode. Switch input_mode to {INPUT_MODE_MULTIMODAL_REFERENCES} "
                 "or clear the multimodal reference inputs."
             )
@@ -410,8 +492,12 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
                 msg = f"{self.name}: Seedance 2.0 supports up to 9 reference images, got {len(params['reference_images'])}."
                 raise ValueError(msg)
 
-            if has_reference_videos and len(params["reference_videos"]) > 3:
-                msg = f"{self.name}: Seedance 2.0 supports up to 3 reference videos, got {len(params['reference_videos'])}."
+            if params.get("reference_video_2") and not params.get("reference_video_1"):
+                msg = f"{self.name}: reference_video_2 requires reference_video_1 to be set first."
+                raise ValueError(msg)
+
+            if params.get("reference_video_3") and not params.get("reference_video_2"):
+                msg = f"{self.name}: reference_video_3 requires reference_video_2 to be set first."
                 raise ValueError(msg)
 
             if has_reference_audio and len(params["reference_audio"]) > 3:
@@ -442,7 +528,7 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
             f"last_frame_present={params['last_frame'] is not None}, "
             f"last_frame_type={type(params['last_frame']).__name__ if params['last_frame'] is not None else 'None'}, "
             f"reference_images={len(params['reference_images'])}, "
-            f"reference_videos={len(params['reference_videos'])}, "
+            f"reference_videos={len(self._get_reference_video_inputs(params))}, "
             f"reference_audio={len(params['reference_audio'])}"
         )
 
@@ -481,12 +567,12 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
                 if ref_url:
                     content_list.append({"type": "image_url", "image_url": {"url": ref_url}, "role": "reference_image"})
 
-            for ref_video in params.get("reference_videos", [])[:3]:
-                video_url = self._coerce_video_url(ref_video)
+            for ref_video in self._get_reference_video_inputs(params):
+                video_url = self._get_reference_video_url(ref_video["parameter_name"], ref_video["value"])
                 if not video_url:
                     msg = (
-                        f"{self.name}: reference_videos only support public URLs or asset:// IDs. "
-                        "Seedance 2.0 does not accept video base64 or local file paths."
+                        f"{self.name}: {ref_video['parameter_name']} only supports public URLs, uploaded asset URLs, "
+                        "or asset:// IDs. Seedance 2.0 does not accept video base64."
                     )
                     raise ValueError(msg)
                 content_list.append({"type": "video_url", "video_url": {"url": video_url}, "role": "reference_video"})
@@ -494,7 +580,9 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
             for ref_audio in params.get("reference_audio", [])[:3]:
                 audio_url = await self._prepare_audio_url_async(ref_audio, audio_label="reference_audio")
                 if audio_url:
-                    content_list.append({"type": "audio_url", "audio_url": {"url": audio_url}, "role": "reference_audio"})
+                    content_list.append(
+                        {"type": "audio_url", "audio_url": {"url": audio_url}, "role": "reference_audio"}
+                    )
         else:
             self._log(f"{self.name} building first/last-frame content")
             # First/Last Frame mode
@@ -505,7 +593,9 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
             if self._supports_last_frame(params["model_id"]):
                 last_frame_url = await self._prepare_frame_url_async(params["last_frame"], frame_label="last_frame")
                 if last_frame_url:
-                    content_list.append({"type": "image_url", "image_url": {"url": last_frame_url}, "role": "last_frame"})
+                    content_list.append(
+                        {"type": "image_url", "image_url": {"url": last_frame_url}, "role": "last_frame"}
+                    )
 
     async def _prepare_frame_url_async(self, frame_input: Any, *, frame_label: str) -> str | None:
         """Convert frame input to a usable URL."""
@@ -749,6 +839,35 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
             pass
 
         return None
+
+    def _get_reference_video_inputs(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            {"parameter_name": parameter_name, "value": params.get(parameter_name)}
+            for parameter_name in ("reference_video_1", "reference_video_2", "reference_video_3")
+            if params.get(parameter_name)
+        ]
+
+    def _get_reference_video_url(self, parameter_name: str, value: Any) -> str | None:
+        direct_url = self._coerce_video_url(value)
+        if direct_url:
+            return direct_url
+
+        helper_map = {
+            "reference_video_1": self._public_reference_video_parameter_1,
+            "reference_video_2": self._public_reference_video_parameter_2,
+            "reference_video_3": self._public_reference_video_parameter_3,
+        }
+        helper = helper_map.get(parameter_name)
+        if helper is None:
+            return None
+
+        try:
+            public_url = helper.get_public_url_for_parameter()
+        except Exception as e:
+            self._log(f"{self.name} failed to prepare public URL for {parameter_name}: {e}")
+            return None
+
+        return self._coerce_video_url(public_url)
 
     @staticmethod
     def _coerce_audio_url_or_data_uri(val: Any) -> str | None:
