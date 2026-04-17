@@ -28,7 +28,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.69.0",
+    "library_version": "0.69.1",
     "engine_version": "0.79.0",
     "tags": [
       "Griptape",
@@ -1029,6 +1029,17 @@
         "description": "Concatenate multiple videos into a single video file with configurable format and codec options",
         "display_name": "Concatenate Videos",
         "icon": "link",
+        "group": "merge"
+      }
+    },
+    {
+      "class_name": "CombineMasksVideo",
+      "file_path": "griptape_nodes_library/video/combine_masks_video.py",
+      "metadata": {
+        "category": "video",
+        "description": "Combine a list of mask videos into a single consolidated mask video using pixel-wise max operation per frame",
+        "display_name": "Combine Masks Video",
+        "icon": "layers",
         "group": "merge"
       }
     },
