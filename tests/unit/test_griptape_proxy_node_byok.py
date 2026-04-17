@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import logging
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -116,3 +117,52 @@ async def test_flux2_submission_keeps_proxy_bearer_auth_with_byok(monkeypatch: p
     assert generation_id == "gen_123"
     assert captured_request["headers"]["Authorization"] == "Bearer gt-cloud-key"
     assert captured_request["headers"]["X-GTC-PROXY-AUTH-INFO"] == "user-bfl-key"
+
+
+@pytest.mark.asyncio
+async def test_submit_generation_logs_sanitized_payload(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    captured_request: dict[str, Any] = {}
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, str]:
+            return {"generation_id": "gen_456"}
+
+    class FakeAsyncClient:
+        async def __aenter__(self) -> FakeAsyncClient:
+            return self
+
+        async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+            return None
+
+        async def post(self, url: str, json: dict[str, Any], headers: dict[str, str], timeout: int) -> FakeResponse:
+            captured_request["url"] = url
+            captured_request["json"] = json
+            captured_request["headers"] = headers
+            captured_request["timeout"] = timeout
+            return FakeResponse()
+
+    monkeypatch.setattr("griptape_nodes_library.proxy.griptape_proxy_node.httpx.AsyncClient", FakeAsyncClient)
+
+    node = Flux2ImageGeneration(name="Flux2")
+    payload = {
+        "prompt": "test",
+        "image": "data:image/png;base64,RAW_IMAGE_BASE64_PAYLOAD",
+        "nested": {"bytesBase64Encoded": "RAW_BYTES_BASE64_PAYLOAD"},
+    }
+
+    with caplog.at_level(logging.INFO, logger="griptape_nodes"):
+        generation_id = await node._submit_generation(
+            payload=payload,
+            headers={"Authorization": "Bearer gt-cloud-key", "Content-Type": "application/json"},
+            api_model_id="flux-2-pro",
+        )
+
+    assert generation_id == "gen_456"
+    assert captured_request["json"] == payload
+    assert "Request payload:" in caplog.text
+    assert "RAW_IMAGE_BASE64_PAYLOAD" not in caplog.text
+    assert "RAW_BYTES_BASE64_PAYLOAD" not in caplog.text
+    assert "<base64 elided>" in caplog.text
