@@ -114,7 +114,7 @@ _NODE_PROVIDER_CONFIGS = {
     "QwenImageGeneration": DASHSCOPE,
     "Rodin23DGeneration": RODIN,
     "SeedanceVideoGeneration": SEED,
-    "SeedanceV2VideoGeneration": SEED,
+    "Seedance20VideoGeneration": SEED,
     "SeedreamImageGeneration": SEED,
     "SeedVRImageUpscale": SEED,
     "SeedVRVideoUpscale": SEED,

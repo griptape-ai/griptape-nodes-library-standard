@@ -6,7 +6,7 @@ This test suite validates:
 - Seedance 2.0 with reference images
 - Seedance 2.0 with reference videos (if available)
 - Seedance 2.0 with reference audio (if available)
-- Parameter validation for V2 models
+- Parameter validation for 2.0 models
 """
 
 import argparse
@@ -176,7 +176,7 @@ def test_seedance_2_0_text_to_video(storage_backend="local", project_file_path=N
     logger.info("Test: Seedance 2.0 Text-to-Video")
     logger.info("=" * 60)
 
-    flow_name, gen_node = create_test_workflow("test_v2_text_to_video")
+    flow_name, gen_node = create_test_workflow("test_2_0_text_to_video")
 
     with GriptapeNodes.ContextManager().node(gen_node):
         GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="model_id", value="Seedance 2.0"))
@@ -203,7 +203,7 @@ def test_seedance_2_0_fast_text_to_video(storage_backend="local", project_file_p
     logger.info("Test: Seedance 2.0 Fast Text-to-Video")
     logger.info("=" * 60)
 
-    flow_name, gen_node = create_test_workflow("test_v2_fast_text_to_video")
+    flow_name, gen_node = create_test_workflow("test_2_0_fast_text_to_video")
 
     with GriptapeNodes.ContextManager().node(gen_node):
         GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="model_id", value="Seedance 2.0 Fast"))
@@ -230,7 +230,7 @@ def test_seedance_2_0_with_audio(storage_backend="local", project_file_path=None
     logger.info("Test: Seedance 2.0 with Audio")
     logger.info("=" * 60)
 
-    flow_name, gen_node = create_test_workflow("test_v2_with_audio")
+    flow_name, gen_node = create_test_workflow("test_2_0_with_audio")
 
     with GriptapeNodes.ContextManager().node(gen_node):
         GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="model_id", value="Seedance 2.0 Fast"))
@@ -258,7 +258,7 @@ def test_seedance_2_0_smart_duration(storage_backend="local", project_file_path=
     logger.info("Test: Seedance 2.0 Smart Duration")
     logger.info("=" * 60)
 
-    flow_name, gen_node = create_test_workflow("test_v2_smart_duration")
+    flow_name, gen_node = create_test_workflow("test_2_0_smart_duration")
 
     with GriptapeNodes.ContextManager().node(gen_node):
         GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="model_id", value="Seedance 2.0 Fast"))

@@ -27,7 +27,7 @@ from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
-__all__ = ["SeedanceV2VideoGeneration"]
+__all__ = ["Seedance20VideoGeneration"]
 
 INPUT_MODE_FIRST_LAST_FRAME = "First/Last Frame"
 INPUT_MODE_MULTIMODAL_REFERENCES = "Multimodal References"
@@ -35,7 +35,7 @@ SEEDANCE_2_0_MODEL_ID = "dreamina-seedance-2-0-260128"
 SEEDANCE_2_0_FAST_MODEL_ID = "dreamina-seedance-2-0-fast-260128"
 
 
-class SeedanceV2VideoGeneration(GriptapeProxyNode):
+class Seedance20VideoGeneration(GriptapeProxyNode):
     """Generate a video using Seedance 2.0 models via Griptape Cloud model proxy.
 
     Supports two input modes:
@@ -155,7 +155,7 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"display_name": "Reference Video 1"},
             ),
-            disclaimer_message="The Seedance V2 service utilizes this URL to access the reference video.",
+            disclaimer_message="The Seedance 2.0 service utilizes this URL to access the reference video.",
         )
         self._public_reference_video_parameter_1.add_input_parameters()
 
@@ -174,7 +174,7 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
                 ui_options={"display_name": "Reference Video 2"},
                 hide=True,
             ),
-            disclaimer_message="The Seedance V2 service utilizes this URL to access the reference video.",
+            disclaimer_message="The Seedance 2.0 service utilizes this URL to access the reference video.",
         )
         self._public_reference_video_parameter_2.add_input_parameters()
         self.hide_message_by_name("artifact_url_parameter_message_reference_video_2")
@@ -194,7 +194,7 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
                 ui_options={"display_name": "Reference Video 3"},
                 hide=True,
             ),
-            disclaimer_message="The Seedance V2 service utilizes this URL to access the reference video.",
+            disclaimer_message="The Seedance 2.0 service utilizes this URL to access the reference video.",
         )
         self._public_reference_video_parameter_3.add_input_parameters()
         self.hide_message_by_name("artifact_url_parameter_message_reference_video_3")
@@ -279,7 +279,7 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
         self._output_file = ProjectFileParameter(
             node=self,
             name="output_file",
-            default_filename="seedance_v2_video.mp4",
+            default_filename="seedance_2_0_video.mp4",
         )
         self._output_file.add_parameter()
 
@@ -510,7 +510,7 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
             msg = f"{self.name}: Seedance 2.0 supports duration between 4-15 seconds or -1 for smart selection, got {duration}."
             raise ValueError(msg)
 
-        # V2 doesn't support 1080p
+        # 2.0 doesn't support 1080p
         if params.get("resolution") == "1080p":
             msg = f"{self.name}: Seedance 2.0 models do not support 1080p resolution. Use 480p or 720p."
             raise ValueError(msg)
@@ -743,12 +743,12 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
         for key in ("result", "data", "output", "outputs", "content", "task_result"):
             nested = obj.get(key) if isinstance(obj, dict) else None
             if isinstance(nested, dict):
-                url = SeedanceV2VideoGeneration._extract_video_url(nested)
+                url = Seedance20VideoGeneration._extract_video_url(nested)
                 if url:
                     return url
             elif isinstance(nested, list):
                 for item in nested:
-                    url = SeedanceV2VideoGeneration._extract_video_url(item if isinstance(item, dict) else None)
+                    url = Seedance20VideoGeneration._extract_video_url(item if isinstance(item, dict) else None)
                     if url:
                         return url
         return None
@@ -782,7 +782,7 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
             if callable(to_dict):
                 serialized = to_dict()
                 if isinstance(serialized, dict):
-                    coerced = SeedanceV2VideoGeneration._coerce_image_url_or_data_uri(serialized)
+                    coerced = Seedance20VideoGeneration._coerce_image_url_or_data_uri(serialized)
                     if coerced:
                         return coerced
 
@@ -826,7 +826,7 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
             if callable(to_dict):
                 serialized = to_dict()
                 if isinstance(serialized, dict):
-                    coerced = SeedanceV2VideoGeneration._coerce_video_url(serialized)
+                    coerced = Seedance20VideoGeneration._coerce_video_url(serialized)
                     if coerced:
                         return coerced
 
@@ -899,7 +899,7 @@ class SeedanceV2VideoGeneration(GriptapeProxyNode):
             if callable(to_dict):
                 serialized = to_dict()
                 if isinstance(serialized, dict):
-                    coerced = SeedanceV2VideoGeneration._coerce_audio_url_or_data_uri(serialized)
+                    coerced = Seedance20VideoGeneration._coerce_audio_url_or_data_uri(serialized)
                     if coerced:
                         return coerced
 

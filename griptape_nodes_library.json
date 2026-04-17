@@ -769,12 +769,12 @@
       }
     },
     {
-      "class_name": "SeedanceV2VideoGeneration",
-      "file_path": "griptape_nodes_library/video/seedance_v2_video_generation.py",
+      "class_name": "Seedance20VideoGeneration",
+      "file_path": "griptape_nodes_library/video/seedance_2_0_video_generation.py",
       "metadata": {
         "category": "video",
         "description": "Generate a video using Seedance 2.0 models with multimodal support via Griptape Cloud model proxy.",
-        "display_name": "Seedance V2 Video Generation",
+        "display_name": "Seedance 2.0 Video Generation",
         "icon": "Sparkles",
         "group": "create"
       }

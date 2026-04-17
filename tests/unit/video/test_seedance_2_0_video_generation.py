@@ -11,11 +11,11 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
 )
 from griptape_nodes.files.file import File
 
-import griptape_nodes_library.video.seedance_v2_video_generation as seedance_v2_module
-from griptape_nodes_library.video.seedance_v2_video_generation import SeedanceV2VideoGeneration
+import griptape_nodes_library.video.seedance_2_0_video_generation as seedance_2_0_module
+from griptape_nodes_library.video.seedance_2_0_video_generation import Seedance20VideoGeneration
 
 
-def _set_parameter_list_values(node: SeedanceV2VideoGeneration, parameter_name: str, values: list[object]) -> None:
+def _set_parameter_list_values(node: Seedance20VideoGeneration, parameter_name: str, values: list[object]) -> None:
     parameter_list = next(
         parameter
         for parameter in node.parameters
@@ -27,7 +27,7 @@ def _set_parameter_list_values(node: SeedanceV2VideoGeneration, parameter_name: 
         node.set_parameter_value(child.name, value)
 
 
-def _parameter_by_name(node: SeedanceV2VideoGeneration, parameter_name: str):
+def _parameter_by_name(node: Seedance20VideoGeneration, parameter_name: str):
     return next(parameter for parameter in node.parameters if parameter.name == parameter_name)
 
 
@@ -40,7 +40,7 @@ def stub_public_artifact_bucket_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.mark.asyncio
 async def test_build_payload_normalizes_local_frame_paths(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    node = SeedanceV2VideoGeneration(name="SeedanceV2")
+    node = Seedance20VideoGeneration(name="Seedance20")
     normalization_calls: list[str] = []
     first_frame = tmp_path / "first.png"
     last_frame = tmp_path / "last.png"
@@ -53,7 +53,7 @@ async def test_build_payload_normalizes_local_frame_paths(monkeypatch: pytest.Mo
             return ImageUrlArtifact(f"https://example.com/{Path(value).name}")
         return value
 
-    monkeypatch.setattr(seedance_v2_module, "normalize_artifact_input", fake_normalize_artifact_input)
+    monkeypatch.setattr(seedance_2_0_module, "normalize_artifact_input", fake_normalize_artifact_input)
 
     node.set_parameter_value("model_id", "Seedance 2.0")
     node.set_parameter_value("prompt", "A fox runs through a forest")
@@ -78,7 +78,7 @@ async def test_build_payload_normalizes_local_frame_paths(monkeypatch: pytest.Mo
 
 
 def test_seedance_2_fast_rejects_last_frame() -> None:
-    node = SeedanceV2VideoGeneration(name="SeedanceV2")
+    node = Seedance20VideoGeneration(name="Seedance20")
     node.set_parameter_value("model_id", "Seedance 2.0 Fast")
     node.set_parameter_value("last_frame", "data:image/png;base64,AAA")
 
@@ -87,7 +87,7 @@ def test_seedance_2_fast_rejects_last_frame() -> None:
 
 
 def test_multimodal_mode_rejects_first_last_frame_inputs() -> None:
-    node = SeedanceV2VideoGeneration(name="SeedanceV2")
+    node = Seedance20VideoGeneration(name="Seedance20")
     node.set_parameter_value("input_mode", "Multimodal References")
     node.set_parameter_value("first_frame", "data:image/png;base64,AAA")
 
@@ -96,7 +96,7 @@ def test_multimodal_mode_rejects_first_last_frame_inputs() -> None:
 
 
 def test_frame_inputs_remain_input_only() -> None:
-    node = SeedanceV2VideoGeneration(name="SeedanceV2")
+    node = Seedance20VideoGeneration(name="Seedance20")
 
     first_frame_parameter = next(parameter for parameter in node.parameters if parameter.name == "first_frame")
     last_frame_parameter = next(parameter for parameter in node.parameters if parameter.name == "last_frame")
@@ -106,7 +106,7 @@ def test_frame_inputs_remain_input_only() -> None:
 
 
 def test_first_last_frame_mode_rejects_multimodal_reference_inputs() -> None:
-    node = SeedanceV2VideoGeneration(name="SeedanceV2")
+    node = Seedance20VideoGeneration(name="Seedance20")
     node.set_parameter_value("input_mode", "First/Last Frame")
     node.set_parameter_value("reference_video_1", "https://example.com/reference.mp4")
 
@@ -115,7 +115,7 @@ def test_first_last_frame_mode_rejects_multimodal_reference_inputs() -> None:
 
 
 def test_multimodal_reference_video_inputs_progressively_appear() -> None:
-    node = SeedanceV2VideoGeneration(name="SeedanceV2")
+    node = Seedance20VideoGeneration(name="Seedance20")
     node.set_parameter_value("input_mode", "Multimodal References")
 
     assert _parameter_by_name(node, "reference_video_1").hide is False
@@ -131,7 +131,7 @@ def test_multimodal_reference_video_inputs_progressively_appear() -> None:
 
 
 def test_multimodal_reference_video_inputs_require_contiguous_order() -> None:
-    node = SeedanceV2VideoGeneration(name="SeedanceV2")
+    node = Seedance20VideoGeneration(name="Seedance20")
     node.set_parameter_value("input_mode", "Multimodal References")
     node.set_parameter_value("reference_video_2", "https://example.com/reference-2.mp4")
 
@@ -141,7 +141,7 @@ def test_multimodal_reference_video_inputs_require_contiguous_order() -> None:
 
 @pytest.mark.asyncio
 async def test_build_payload_accepts_serialized_image_artifact_dict(monkeypatch: pytest.MonkeyPatch) -> None:
-    node = SeedanceV2VideoGeneration(name="SeedanceV2")
+    node = Seedance20VideoGeneration(name="Seedance20")
     node.set_parameter_value("model_id", "Seedance 2.0")
     node.set_parameter_value("prompt", "A fox runs through a forest")
     node.set_parameter_value(
@@ -170,7 +170,7 @@ async def test_build_payload_accepts_serialized_image_artifact_dict(monkeypatch:
 async def test_build_payload_accepts_image_url_artifact_with_file_path_value(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    node = SeedanceV2VideoGeneration(name="SeedanceV2")
+    node = Seedance20VideoGeneration(name="Seedance20")
     frame_path = tmp_path / "first.png"
     frame_path.write_bytes(b"frame")
 
@@ -197,7 +197,7 @@ async def test_build_payload_accepts_image_url_artifact_with_file_path_value(
 
 @pytest.mark.asyncio
 async def test_build_payload_includes_multimodal_video_url_and_audio_base64() -> None:
-    node = SeedanceV2VideoGeneration(name="SeedanceV2")
+    node = Seedance20VideoGeneration(name="Seedance20")
     node.set_parameter_value("model_id", "Seedance 2.0")
     node.set_parameter_value("input_mode", "Multimodal References")
     node.set_parameter_value("prompt", "Use the reference video motion")
@@ -227,7 +227,7 @@ async def test_build_payload_includes_multimodal_video_url_and_audio_base64() ->
 
 @pytest.mark.asyncio
 async def test_build_payload_rejects_local_reference_video_path(tmp_path) -> None:
-    node = SeedanceV2VideoGeneration(name="SeedanceV2")
+    node = Seedance20VideoGeneration(name="Seedance20")
     reference_video = tmp_path / "reference.mp4"
     reference_video.write_bytes(b"video")
 
@@ -246,7 +246,7 @@ async def test_build_payload_rejects_local_reference_video_path(tmp_path) -> Non
 async def test_build_payload_uses_public_artifact_url_parameter_for_reference_videos(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    node = SeedanceV2VideoGeneration(name="SeedanceV2")
+    node = Seedance20VideoGeneration(name="Seedance20")
     node.set_parameter_value("model_id", "Seedance 2.0")
     node.set_parameter_value("input_mode", "Multimodal References")
     node.set_parameter_value("prompt", "Use the reference video motion")
