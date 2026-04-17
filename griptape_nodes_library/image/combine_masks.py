@@ -27,9 +27,6 @@ class CombineMasks(DataNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="combined_mask.png")
-        self._output_file.add_parameter()
-
         self.add_parameter(
             ParameterList(
                 name="masks",
@@ -56,6 +53,9 @@ class CombineMasks(DataNode):
                 ui_options={"expander": True, "edit_mask": True, "edit_mask_paint_mask": True},
             )
         )
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="combined_mask.png")
+        self._output_file.add_parameter()
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions: list[Exception] = []

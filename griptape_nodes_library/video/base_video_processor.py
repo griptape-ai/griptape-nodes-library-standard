@@ -84,19 +84,12 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
         speed_param.add_trait(Options(choices=["fast", "balanced", "quality"]))
         self.add_parameter(speed_param)
 
-        self.add_parameter(
-            ParameterVideo(
-                name="output",
-                allowed_modes={ParameterMode.OUTPUT},
-                tooltip="The processed video",
-                ui_options={"pulse_on_run": True, "expander": True, "display_name": "Processed Video"},
-            )
-        )
+        self._register_primary_output_parameter()
 
         self._output_file = ProjectFileParameter(
             node=self,
             name="output_file",
-            default_filename="output.mp4",
+            default_filename=self._get_output_file_default_filename(),
         )
         self._output_file.add_parameter()
 
@@ -111,6 +104,24 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
     @abstractmethod
     def _setup_custom_parameters(self) -> None:
         """Setup custom parameters specific to this video processor. Override in subclasses."""
+
+    def _register_primary_output_parameter(self) -> None:
+        """Register the main output artifact (video, audio, image, etc.) before the project file path."""
+        self.add_parameter(
+            ParameterVideo(
+                name="output",
+                allowed_modes={ParameterMode.OUTPUT},
+                tooltip="The processed video",
+                ui_options={"pulse_on_run": True, "expander": True, "display_name": "Processed Video"},
+            )
+        )
+
+    def _get_output_file_default_filename(self) -> str:
+        """Default filename for the project file save path; subclasses may set OUTPUT_FILE_DEFAULT_FILENAME."""
+        candidate = getattr(type(self), "OUTPUT_FILE_DEFAULT_FILENAME", None)
+        if isinstance(candidate, str) and candidate:
+            return candidate
+        return "output.mp4"
 
     @abstractmethod
     def _get_processing_description(self) -> str:

@@ -50,18 +50,18 @@ class SaveImage(SuccessFailureNode):
             )
         )
 
+        # Add status parameters using the helper method
+        self._create_status_parameters(
+            result_details_tooltip="Details about the image save operation result",
+            result_details_placeholder="Details on the save attempt will be presented here.",
+        )
+
         self._output_file = ProjectFileParameter(
             node=self,
             name="output_file",
             default_filename="griptape_nodes.png",
         )
         self._output_file.add_parameter()
-
-        # Add status parameters using the helper method
-        self._create_status_parameters(
-            result_details_tooltip="Details about the image save operation result",
-            result_details_placeholder="Details on the save attempt will be presented here.",
-        )
 
     def _extract_format_from_artifact(self, image_artifact: Any) -> str | None:
         """Extract format from image artifact.

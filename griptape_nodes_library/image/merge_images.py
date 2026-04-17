@@ -26,9 +26,6 @@ class MergeImages(ControlNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="merged.png")
-        self._output_file.add_parameter()
-
         self.LAYOUT_METHODS = {
             "horizontal": self._process_horizontal_layout,
             "vertical": self._process_vertical_layout,
@@ -70,6 +67,9 @@ class MergeImages(ControlNode):
                 ui_options={"pulse_on_run": True},
             )
         )
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="merged.png")
+        self._output_file.add_parameter()
 
     def get_images(self) -> list:
         images = self.get_parameter_value("Images")

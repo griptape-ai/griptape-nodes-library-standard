@@ -44,9 +44,6 @@ class SetColorToTransparent(DataNode):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="transparent.png")
-        self._output_file.add_parameter()
-
         # Input image
         self.add_parameter(
             ParameterImage(
@@ -118,6 +115,9 @@ class SetColorToTransparent(DataNode):
                 allowed_modes={ParameterMode.OUTPUT},
             )
         )
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="transparent.png")
+        self._output_file.add_parameter()
 
     def process(self) -> None:
         """Process the image and replace the specified color with transparency."""

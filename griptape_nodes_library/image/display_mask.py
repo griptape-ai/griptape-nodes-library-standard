@@ -20,9 +20,6 @@ class DisplayMask(DataNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="display_mask.png")
-        self._output_file.add_parameter()
-
         # Default output parameter name
         self._output_param_name = "output_mask"
 
@@ -53,6 +50,9 @@ class DisplayMask(DataNode):
                 allowed_modes={ParameterMode.OUTPUT},
             )
         )
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="display_mask.png")
+        self._output_file.add_parameter()
 
     def _set_output_parameter_name(self, name: str) -> None:
         """Set the name of the output parameter. Must be called before adding the output parameter."""
