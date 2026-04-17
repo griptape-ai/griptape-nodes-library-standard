@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
 from abc import ABC, abstractmethod
 from contextlib import suppress
 from typing import Any
@@ -18,9 +17,6 @@ from griptape_nodes_library.proxy.proxy_api_key_providers import get_proxy_api_k
 from griptape_nodes_library.proxy.proxy_auth_provider_parameter import ProxyAuthProviderParameter
 
 logger = logging.getLogger("griptape_nodes")
-_SENSITIVE_LOG_RE = re.compile(
-    r"(?i)((?:authorization|api[_-]?key|token|password|secret)\s*(?:[:=]\s*|\"\s*:\s*|'\s*:\s*))(?:bearer\s+)?([^\s,\"'}]+)"
-)
 
 __all__ = ["GriptapeProxyNode"]
 
@@ -207,7 +203,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     def _log(self, message: str) -> None:
         """Log a message with error suppression."""
         with suppress(Exception):
-            logger.info("proxy event (details redacted)")
+            logger.info(message)
 
     def _log_auth_header_summary(self, context: str, headers: dict[str, str]) -> None:
         authorization = headers.get("Authorization", "")
