@@ -85,6 +85,11 @@ WORLD_LABS = ProxyApiKeyProviderConfig(
     provider_name="World Labs",
     api_key_url="https://platform.worldlabs.ai/api-keys",
 )
+RECRAFT = ProxyApiKeyProviderConfig(
+    api_key_name="RECRAFT_API_KEY",
+    provider_name="Recraft",
+    api_key_url="https://www.recraft.ai/",
+)
 
 _NODE_PROVIDER_CONFIGS = {
     "ElevenLabsMusicGeneration": ELEVENLABS,
@@ -112,6 +117,7 @@ _NODE_PROVIDER_CONFIGS = {
     "OmnihumanVideoGeneration": SEED,
     "QwenImageEdit": DASHSCOPE,
     "QwenImageGeneration": DASHSCOPE,
+    "RecraftImageGeneration": RECRAFT,
     "Rodin23DGeneration": RODIN,
     "SeedanceVideoGeneration": SEED,
     "Seedance20VideoGeneration": SEED,
