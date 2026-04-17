@@ -405,15 +405,13 @@ class AdjustMaskSize(DataNode):
             output_video = Path(temp_file.name)
         input_pattern = str(frames_dir / "frame_%06d.png")
 
-        # Increment progress to 90% before starting reassembly
-        while True:
-            try:
-                current = self.progress_component.get_progress()
-                if current >= 90:
-                    break
+        # Ensure progress is at 90% before starting reassembly
+        try:
+            current = self.progress_component.get_progress()
+            for _ in range(max(0, 90 - current)):
                 self.progress_component.increment()
-            except Exception:
-                break
+        except Exception:
+            pass
 
         cmd = [
             ffmpeg_path,
@@ -436,15 +434,12 @@ class AdjustMaskSize(DataNode):
         try:
             subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=600)  # noqa: S603
 
-            # Complete progress to 100%
-            while True:
+            # Complete progress to 100% (remaining 10%)
+            for _ in range(10):
                 try:
-                    current = self.progress_component.get_progress()
-                    if current >= 100:
-                        break
                     self.progress_component.increment()
                 except Exception:
-                    break
+                    pass
 
         except subprocess.CalledProcessError as e:
             msg = f"{self.name}: FFmpeg video reassembly failed: {e.stderr}"
