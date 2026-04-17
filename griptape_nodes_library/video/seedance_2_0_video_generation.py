@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json as _json
 import logging
-from contextlib import suppress
 from typing import Any, ClassVar
 
 from griptape.artifacts import AudioArtifact, ImageArtifact, ImageUrlArtifact
@@ -29,8 +28,11 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["Seedance20VideoGeneration"]
 
+INPUT_MODE_TEXT_ONLY = "Text Only"
 INPUT_MODE_FIRST_LAST_FRAME = "First/Last Frame"
 INPUT_MODE_MULTIMODAL_REFERENCES = "Multimodal References"
+MODEL_NAME_SEEDANCE_2_0 = "Seedance 2.0"
+MODEL_NAME_SEEDANCE_2_0_FAST = "Seedance 2.0 Fast"
 SEEDANCE_2_0_MODEL_ID = "dreamina-seedance-2-0-260128"
 SEEDANCE_2_0_FAST_MODEL_ID = "dreamina-seedance-2-0-fast-260128"
 
@@ -38,14 +40,15 @@ SEEDANCE_2_0_FAST_MODEL_ID = "dreamina-seedance-2-0-fast-260128"
 class Seedance20VideoGeneration(GriptapeProxyNode):
     """Generate a video using Seedance 2.0 models via Griptape Cloud model proxy.
 
-    Supports two input modes:
+    Supports three input modes:
+    - Text Only: Pure text-to-video generation (default)
     - First/Last Frame: Traditional i2v with first and/or last frame images
     - Multimodal References: Up to 9 images + 3 videos + 3 audio files as references
 
     Inputs:
         - prompt (str): Text prompt for the video
-        - model_id (str): Model to use (default: Seedance 2.0 Fast)
-        - input_mode (str): "First/Last Frame" or "Multimodal References" (default: First/Last Frame)
+        - model_id (str): Model to use (default: Seedance 2.0)
+        - input_mode (str): "Text Only", "First/Last Frame", or "Multimodal References" (default: Text Only)
         - resolution (str): Output resolution (default: 720p, options: 480p, 720p)
         - ratio (str): Output aspect ratio (default: adaptive)
         - duration (int): Video duration in seconds (default: 5, range: 4-15 or -1 for smart)
@@ -62,8 +65,8 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
     """
 
     MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
-        "Seedance 2.0 Fast": SEEDANCE_2_0_FAST_MODEL_ID,
-        "Seedance 2.0": SEEDANCE_2_0_MODEL_ID,
+        MODEL_NAME_SEEDANCE_2_0_FAST: SEEDANCE_2_0_FAST_MODEL_ID,
+        MODEL_NAME_SEEDANCE_2_0: SEEDANCE_2_0_MODEL_ID,
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -75,23 +78,11 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterString(
                 name="model_id",
-                default_value="Seedance 2.0 Fast",
+                default_value=MODEL_NAME_SEEDANCE_2_0,
                 tooltip="Model to use for video generation",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"display_name": "Model", "hide": False},
-                traits={Options(choices=["Seedance 2.0 Fast", "Seedance 2.0"])},
-            )
-        )
-
-        # Prompt
-        self.add_parameter(
-            ParameterString(
-                name="prompt",
-                tooltip="Text prompt for the video",
-                multiline=True,
-                placeholder_text="Describe the video...",
-                allow_output=False,
-                ui_options={"display_name": "Prompt"},
+                traits={Options(choices=[MODEL_NAME_SEEDANCE_2_0, MODEL_NAME_SEEDANCE_2_0_FAST])},
             )
         )
 
@@ -99,11 +90,23 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterString(
                 name="input_mode",
-                default_value=INPUT_MODE_FIRST_LAST_FRAME,
-                tooltip="Input mode: First/Last Frame for traditional i2v, or Multimodal References for images/videos/audio",
+                default_value=INPUT_MODE_TEXT_ONLY,
+                tooltip="Input mode: Text Only for pure text-to-video, First/Last Frame for i2v, or Multimodal References for images/videos/audio",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"display_name": "Input Mode", "hide": False},
-                traits={Options(choices=[INPUT_MODE_FIRST_LAST_FRAME, INPUT_MODE_MULTIMODAL_REFERENCES])},
+                traits={Options(choices=[INPUT_MODE_TEXT_ONLY, INPUT_MODE_FIRST_LAST_FRAME, INPUT_MODE_MULTIMODAL_REFERENCES])},
+            )
+        )
+
+        # Prompt
+        self.add_parameter(
+            ParameterString(
+                name="prompt",
+                tooltip="Text prompt for the video. In Multimodal References mode, media can be referenced in the order given (e.g., [Image 1], [Image 2], [Video 1], [Video 2], [Audio 1]).",
+                multiline=True,
+                placeholder_text="Describe the video...",
+                allow_output=False,
+                ui_options={"display_name": "Prompt"},
             )
         )
 
@@ -317,18 +320,17 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
 
     def _update_parameter_visibility(self) -> None:
         """Update parameter visibility based on selected input mode."""
-        input_mode = self.get_parameter_value("input_mode") or INPUT_MODE_FIRST_LAST_FRAME
+        input_mode = self.get_parameter_value("input_mode") or INPUT_MODE_TEXT_ONLY
         model_id = self._get_api_model_id()
-        use_multimodal = input_mode == INPUT_MODE_MULTIMODAL_REFERENCES
 
-        if use_multimodal:
+        if input_mode == INPUT_MODE_MULTIMODAL_REFERENCES:
             # Show multimodal inputs, hide first/last frame
             self.hide_parameter_by_name("first_frame")
             self.hide_parameter_by_name("last_frame")
             self.show_parameter_by_name("reference_images")
             self.show_parameter_by_name("reference_audio")
             self._update_reference_video_visibility()
-        else:
+        elif input_mode == INPUT_MODE_FIRST_LAST_FRAME:
             # Show first/last frame, hide multimodal inputs
             self.show_parameter_by_name("first_frame")
             self.hide_parameter_by_name("reference_images")
@@ -341,6 +343,16 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 self.show_parameter_by_name("last_frame")
             else:
                 self.hide_parameter_by_name("last_frame")
+        else:
+            # Text Only mode: hide all media inputs
+            self.hide_parameter_by_name("first_frame")
+            self.hide_parameter_by_name("last_frame")
+            self.hide_parameter_by_name("reference_images")
+            self.hide_parameter_by_name("reference_audio")
+            self.hide_parameter_by_name(["reference_video_1", "reference_video_2", "reference_video_3"])
+            self.hide_message_by_name("artifact_url_parameter_message_reference_video_1")
+            self.hide_message_by_name("artifact_url_parameter_message_reference_video_2")
+            self.hide_message_by_name("artifact_url_parameter_message_reference_video_3")
 
     def _update_reference_video_visibility(self) -> None:
         """Progressively reveal reference video inputs in multimodal mode."""
@@ -370,12 +382,9 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
 
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation."""
-        raw_model_id = self.get_parameter_value("model_id") or "Seedance 2.0 Fast"
+        raw_model_id = self.get_parameter_value("model_id") or MODEL_NAME_SEEDANCE_2_0
         return self.MODEL_NAME_MAP.get(raw_model_id, raw_model_id)
 
-    def _log(self, message: str) -> None:
-        with suppress(Exception):
-            logger.info("seedance event (details redacted)")
 
     async def _process_generation(self) -> None:
         try:
@@ -400,7 +409,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         return exceptions if exceptions else None
 
     def _get_parameters(self) -> dict[str, Any]:
-        raw_model_id = self.get_parameter_value("model_id") or "Seedance 2.0 Fast"
+        raw_model_id = self.get_parameter_value("model_id") or MODEL_NAME_SEEDANCE_2_0
         model_id = self.MODEL_NAME_MAP.get(raw_model_id, raw_model_id)
         first_frame = normalize_artifact_input(
             self.get_parameter_value("first_frame"),
@@ -430,7 +439,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         return {
             "prompt": self.get_parameter_value("prompt") or "",
             "model_id": model_id,
-            "input_mode": self.get_parameter_value("input_mode") or "First/Last Frame",
+            "input_mode": self.get_parameter_value("input_mode") or INPUT_MODE_TEXT_ONLY,
             "resolution": self.get_parameter_value("resolution") or "720p",
             "ratio": self.get_parameter_value("ratio") or "adaptive",
             "duration": self.get_parameter_value("duration"),
@@ -446,7 +455,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
 
     def _validate_parameters(self, params: dict[str, Any]) -> None:
         """Validate parameter combinations before submission."""
-        use_multimodal = params["input_mode"] == INPUT_MODE_MULTIMODAL_REFERENCES
+        input_mode = params["input_mode"]
 
         has_first_frame = params.get("first_frame") is not None
         has_last_frame = params.get("last_frame") is not None
@@ -454,31 +463,46 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         reference_video_inputs = self._get_reference_video_inputs(params)
         has_reference_videos = bool(reference_video_inputs)
         has_reference_audio = bool(params.get("reference_audio") and len(params["reference_audio"]) > 0)
+        has_any_media = has_first_frame or has_last_frame or has_reference_images or has_reference_videos or has_reference_audio
 
-        if use_multimodal and (has_first_frame or has_last_frame):
-            msg = (
-                f"{self.name}: first_frame/last_frame inputs are only used in {INPUT_MODE_FIRST_LAST_FRAME} mode. "
-                f"Switch input_mode to {INPUT_MODE_FIRST_LAST_FRAME} or clear the frame inputs."
-            )
-            raise ValueError(msg)
+        # Text Only mode: no media allowed
+        if input_mode == INPUT_MODE_TEXT_ONLY:
+            if has_any_media:
+                msg = (
+                    f"{self.name}: {INPUT_MODE_TEXT_ONLY} mode does not accept any media inputs. "
+                    f"Switch to {INPUT_MODE_FIRST_LAST_FRAME} or {INPUT_MODE_MULTIMODAL_REFERENCES} mode, "
+                    "or clear all media inputs."
+                )
+                raise ValueError(msg)
 
-        if not use_multimodal and (has_reference_images or has_reference_videos or has_reference_audio):
-            msg = (
-                f"{self.name}: reference_images/reference_video_1/reference_video_2/reference_video_3/reference_audio are only used in "
-                f"{INPUT_MODE_MULTIMODAL_REFERENCES} mode. Switch input_mode to {INPUT_MODE_MULTIMODAL_REFERENCES} "
-                "or clear the multimodal reference inputs."
-            )
-            raise ValueError(msg)
+        # First/Last Frame mode: only first/last frame allowed
+        elif input_mode == INPUT_MODE_FIRST_LAST_FRAME:
+            if has_reference_images or has_reference_videos or has_reference_audio:
+                msg = (
+                    f"{self.name}: reference_images/reference_video_1/reference_video_2/reference_video_3/reference_audio are only used in "
+                    f"{INPUT_MODE_MULTIMODAL_REFERENCES} mode. Switch input_mode to {INPUT_MODE_MULTIMODAL_REFERENCES} "
+                    "or clear the multimodal reference inputs."
+                )
+                raise ValueError(msg)
 
-        if not use_multimodal and params.get("last_frame") and not self._supports_last_frame(params["model_id"]):
-            msg = (
-                f"{self.name}: Seedance 2.0 Fast does not support last_frame. "
-                "Use first_frame only, or switch to Seedance 2.0 for first+last frame generation."
-            )
-            raise ValueError(msg)
+            if params.get("last_frame") and not self._supports_last_frame(params["model_id"]):
+                msg = (
+                    f"{self.name}: Seedance 2.0 Fast does not support last_frame. "
+                    "Use first_frame only, or switch to Seedance 2.0 for first+last frame generation."
+                )
+                raise ValueError(msg)
+
+        # Multimodal References mode: only reference media allowed
+        elif input_mode == INPUT_MODE_MULTIMODAL_REFERENCES:
+            if has_first_frame or has_last_frame:
+                msg = (
+                    f"{self.name}: first_frame/last_frame inputs are only used in {INPUT_MODE_FIRST_LAST_FRAME} mode. "
+                    f"Switch input_mode to {INPUT_MODE_FIRST_LAST_FRAME} or clear the frame inputs."
+                )
+                raise ValueError(msg)
 
         # Multimodal mode validation
-        if use_multimodal:
+        if input_mode == INPUT_MODE_MULTIMODAL_REFERENCES:
             # Audio requires at least one image or video
             if has_reference_audio and not (has_reference_images or has_reference_videos):
                 msg = (
@@ -557,9 +581,9 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
 
     async def _add_media_inputs_async(self, content_list: list[dict[str, Any]], params: dict[str, Any]) -> None:
         """Add media inputs to content list based on input mode."""
-        use_multimodal = params["input_mode"] == INPUT_MODE_MULTIMODAL_REFERENCES
+        input_mode = params["input_mode"]
 
-        if use_multimodal:
+        if input_mode == INPUT_MODE_MULTIMODAL_REFERENCES:
             self._log(f"{self.name} building multimodal content")
             # Multimodal mode: reference images/videos/audio
             for ref_image in params.get("reference_images", [])[:9]:
@@ -583,7 +607,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                     content_list.append(
                         {"type": "audio_url", "audio_url": {"url": audio_url}, "role": "reference_audio"}
                     )
-        else:
+        elif input_mode == INPUT_MODE_FIRST_LAST_FRAME:
             self._log(f"{self.name} building first/last-frame content")
             # First/Last Frame mode
             first_frame_url = await self._prepare_frame_url_async(params["first_frame"], frame_label="first_frame")
@@ -596,6 +620,9 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                     content_list.append(
                         {"type": "image_url", "image_url": {"url": last_frame_url}, "role": "last_frame"}
                     )
+        else:
+            # Text Only mode: no media inputs
+            self._log(f"{self.name} text-only mode, no media inputs")
 
     async def _prepare_frame_url_async(self, frame_input: Any, *, frame_label: str) -> str | None:
         """Convert frame input to a usable URL."""
