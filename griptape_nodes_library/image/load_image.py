@@ -2,7 +2,7 @@ from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import BaseNode, SuccessFailureNode
+from griptape_nodes.exe_types.node_types import BaseNode, NodeDependencies, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
@@ -124,6 +124,17 @@ class LoadImage(SuccessFailureNode):
             ui_options={"hide": True},
         )
         self._mask_output_file.add_parameter()
+
+    def get_node_dependencies(self) -> NodeDependencies | None:
+        deps = super().get_node_dependencies()
+        if deps is None:
+            deps = NodeDependencies()
+        value = self.get_parameter_value("path")
+        if not value or not isinstance(value, str):
+            return deps
+
+        deps.static_files.add(value)
+        return deps
 
     def after_incoming_connection(
         self,
