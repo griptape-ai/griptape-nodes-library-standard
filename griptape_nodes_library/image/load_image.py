@@ -4,7 +4,7 @@ from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode, NodeDependencies, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
@@ -19,7 +19,6 @@ from griptape_nodes_library.utils.image_utils import (
     extract_channel_from_image,
     image_to_bytes,
     load_pil_from_url,
-    resolve_localhost_url_to_path,
 )
 from griptape_nodes_library.utils.macro_path_utils import (
     copy_external_file_to_project,
@@ -134,18 +133,6 @@ class LoadImage(SuccessFailureNode):
         if not value or not isinstance(value, str):
             return deps
 
-        # Resolve localhost URLs to filesystem paths the packager can handle
-        resolved = resolve_localhost_url_to_path(value)
-        if resolved != value:
-            # URL was resolved to workspace-relative path — make it absolute, then macro
-            workspace = GriptapeNodes.ConfigManager().workspace_path
-            absolute = workspace / resolved
-            if absolute.exists():
-                macro_result = resolve_to_macro_path(str(absolute))
-                deps.static_files.add(macro_result.resolved_path)
-                return deps
-
-        # Already a macro path, absolute path, or non-localhost URL — pass through
         deps.static_files.add(value)
         return deps
 
