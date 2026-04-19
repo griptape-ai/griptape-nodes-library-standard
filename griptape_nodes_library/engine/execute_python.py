@@ -24,11 +24,11 @@ class ExecutePython(SuccessFailureNode):
                 name="python_code",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 type="str",
-                default_value="# Enter your Python code here. Assign the output to the variable 'result', and access input variables by passing a dict of their names and values'",
+                default_value="result = 'Hello, World!'",
                 tooltip="Python code to execute. Set the 'result' variable to specify the output value.",
                 ui_options={
                     "multiline": True,
-                    "placeholder_text": "Enter your Python code here",
+                    "placeholder_text": "# Enter your Python code here. Assign the output to the variable 'result', and access input variables by passing a dict of their names and values'",
                 },
             )
         )
@@ -48,9 +48,9 @@ class ExecutePython(SuccessFailureNode):
             Parameter(
                 name="result",
                 allowed_modes={ParameterMode.OUTPUT},
-                output_type="str",
+                output_type="any",
                 default_value="",
-                tooltip="The printed value from the executed Python code.",
+                tooltip="The value of the result variable in the executed Python code.",
             )
         )
         self._create_status_parameters(
@@ -85,7 +85,7 @@ class ExecutePython(SuccessFailureNode):
         full_code = self._assign_vars(python_code, input_variables)
 
         # Create the request
-        request = RunArbitraryPythonStringRequest(python_string=full_code)
+        request = RunArbitraryPythonStringRequest(python_string=full_code, variable_names_to_capture="result")
 
         response = GriptapeNodes.handle_request(request)
 
@@ -104,7 +104,7 @@ class ExecutePython(SuccessFailureNode):
             )
         elif isinstance(response, RunArbitraryPythonStringResultSuccess):
             output = response.python_output
-            self.set_parameter_value("result", output)
+            self.set_parameter_value("result", output["result"]) # we can guarantee the result variable exists since the request itself would have thrown an exception if it didn't
             self._set_status_results(
                 was_successful=True, result_details="The Python code executed successfully with no exceptions."
             )
