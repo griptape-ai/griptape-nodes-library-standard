@@ -48,9 +48,9 @@ class ExecutePython(SuccessFailureNode):
             Parameter(
                 name="result",
                 allowed_modes={ParameterMode.OUTPUT},
-                output_type="str",
+                output_type="any",
                 default_value="",
-                tooltip="The value of the result variable after the Python code is executed.",
+                tooltip="The value of the result variable in the executed Python code.",
             )
         )
         self._create_status_parameters(
@@ -85,7 +85,7 @@ class ExecutePython(SuccessFailureNode):
         full_code = self._assign_vars(python_code, input_variables)
 
         # Create the request
-        request = RunArbitraryPythonStringRequest(python_string=full_code, local_variable_to_capture="result")
+        request = RunArbitraryPythonStringRequest(python_string=full_code, variable_names_to_capture="result")
 
         response = GriptapeNodes.handle_request(request)
 
@@ -104,7 +104,7 @@ class ExecutePython(SuccessFailureNode):
             )
         elif isinstance(response, RunArbitraryPythonStringResultSuccess):
             output = response.python_output
-            self.set_parameter_value("result", output)
+            self.set_parameter_value("result", output["result"]) # we can guarantee the result variable exists since the request itself would have thrown an exception if it didn't
             self._set_status_results(
                 was_successful=True, result_details="The Python code executed successfully with no exceptions."
             )
