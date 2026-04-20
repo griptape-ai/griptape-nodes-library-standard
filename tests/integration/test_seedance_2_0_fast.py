@@ -1,14 +1,16 @@
 # /// script
 # dependencies = []
 # [tool.griptape-nodes]
-# name = "test_seedance_video_generation"
+# name = "test_seedance_2_0_fast"
 # schema_version = "0.16.0"
 # engine_version_created_with = "0.77.3"
 # node_libraries_referenced = [["Griptape Nodes Library", "0.67.0"], ["Griptape Nodes Testing Library", "0.1.0"]]
-# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "SeedanceVideoGeneration"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
+# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "Seedance20VideoGeneration"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
 # ///
+"""Integration test for Seedance 2.0 Fast model."""
+
 import argparse
 import asyncio
 import json
@@ -25,7 +27,7 @@ from griptape_nodes.retained_mode.events.flow_events import (
 )
 from griptape_nodes.retained_mode.events.library_events import RegisterLibraryFromFileRequest
 from griptape_nodes.retained_mode.events.node_events import CreateNodeRequest
-from griptape_nodes.retained_mode.events.parameter_events import AddParameterToNodeRequest
+from griptape_nodes.retained_mode.events.parameter_events import AddParameterToNodeRequest, SetParameterValueRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 GriptapeNodes.handle_request(
@@ -37,15 +39,15 @@ if not context_manager.has_current_workflow():
     context_manager.push_workflow(file_path=__file__)
 
 flow_name = GriptapeNodes.handle_request(
-    CreateFlowRequest(parent_flow_name=None, flow_name="ControlFlow_1", set_as_new_context=False, metadata={})
+    CreateFlowRequest(parent_flow_name=None, flow_name="main", set_as_new_context=False, metadata={})
 ).flow_name
 
 with GriptapeNodes.ContextManager().flow(flow_name):
     gen_node = GriptapeNodes.handle_request(
         CreateNodeRequest(
-            node_type="SeedanceVideoGeneration",
+            node_type="Seedance20VideoGeneration",
             specific_library_name="Griptape Nodes Library",
-            node_name="SeedanceVideoGeneration",
+            node_name="Seedance20VideoGeneration",
             metadata={},
             resolution="resolved",
             initial_setup=True,
@@ -119,6 +121,10 @@ with GriptapeNodes.ContextManager().flow(flow_name):
                 initial_setup=True,
             )
         )
+
+    # Set Seedance 2.0 Fast model
+    with GriptapeNodes.ContextManager().node(gen_node):
+        GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="model_id", value="Seedance 2.0 Fast"))
 
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
@@ -202,89 +208,23 @@ async def aexecute_workflow(
     return executor.output
 
 
-def test_seedance_model(model_name: str, prompt: str, storage_backend: str = "local", project_file_path: str = None):
-    """Test a specific Seedance model."""
-    print(f"\n{'=' * 60}")
-    print(f"Testing {model_name}")
-    print(f"{'=' * 60}")
-
-    # Set the model on the generation node
-    with GriptapeNodes.ContextManager().node(gen_node):
-        from griptape_nodes.retained_mode.events.parameter_events import SetParameterValueRequest
-
-        GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="model_id", value=model_name))
-
-    # Execute the workflow
-    flow_input = {"Start Flow": {"prompt": prompt}}
-    try:
-        workflow_output = execute_workflow(
-            input=flow_input, storage_backend=storage_backend, project_file_path=project_file_path
-        )
-        print(f"✓ {model_name} test passed")
-        print(f"Output: {workflow_output}")
-        return True
-    except Exception as e:
-        print(f"✗ {model_name} test failed: {e}")
-        return False
-
-
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Test Seedance 2.0 Fast model")
     parser.add_argument("--storage-backend", choices=["local", "gtc"], default="local")
     parser.add_argument("--project-file-path", default=None)
     parser.add_argument("--json-input", default=None)
     parser.add_argument("--prompt", default=None)
-    parser.add_argument("--model", default=None, help="Specific model to test (otherwise tests all)")
-    parser.add_argument("--test-all", action="store_true", help="Test all Seedance models")
     args = parser.parse_args()
 
-    # Default test prompt
-    test_prompt = args.prompt or "A cat walking on a sunny beach, cinematic style"
+    test_prompt = args.prompt or "Time-lapse of a flower blooming"
 
     if args.json_input is not None:
-        # Legacy behavior: run with JSON input
         flow_input = json.loads(args.json_input)
-        workflow_output = execute_workflow(
-            input=flow_input, storage_backend=args.storage_backend, project_file_path=args.project_file_path
-        )
-        print(workflow_output)
-    elif args.model:
-        # Test a specific model
-        test_seedance_model(args.model, test_prompt, args.storage_backend, args.project_file_path)
-    elif args.test_all:
-        # Test all models
-        models_to_test = [
-            "Seedance 2.0 Fast",
-            "Seedance 2.0",
-            "Seedance 1.5 Pro",
-            "Seedance 1.0 Pro",
-            "Seedance 1.0 Pro Fast",
-        ]
-        results = {}
-        for model in models_to_test:
-            results[model] = test_seedance_model(model, test_prompt, args.storage_backend, args.project_file_path)
-
-        print(f"\n{'=' * 60}")
-        print("Test Summary")
-        print(f"{'=' * 60}")
-        for model, passed in results.items():
-            status = "✓ PASS" if passed else "✗ FAIL"
-            print(f"{status}: {model}")
-
-        # Exit with error code if any test failed
-        if not all(results.values()):
-            exit(1)
     else:
-        # Default behavior: test Seedance 2.0 Fast (new default)
-        if "Start Flow" not in {}:
-            flow_input = {"Start Flow": {}}
-        if args.prompt is not None:
-            flow_input["Start Flow"]["prompt"] = args.prompt
-        else:
-            flow_input = {"Start Flow": {"prompt": test_prompt}}
+        flow_input = {"Start Flow": {"prompt": test_prompt}}
 
-        workflow_output = execute_workflow(
-            input=flow_input, storage_backend=args.storage_backend, project_file_path=args.project_file_path
-        )
-        print(workflow_output)
+    workflow_output = execute_workflow(
+        input=flow_input, storage_backend=args.storage_backend, project_file_path=args.project_file_path
+    )
+    print(workflow_output)
