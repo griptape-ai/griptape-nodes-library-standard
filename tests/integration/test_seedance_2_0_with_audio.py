@@ -10,6 +10,7 @@
 # is_template = false
 # ///
 """Integration test for Seedance 2.0 audio generation feature."""
+
 import argparse
 import asyncio
 import json
