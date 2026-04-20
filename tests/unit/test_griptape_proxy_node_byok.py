@@ -131,7 +131,9 @@ def test_elide_base64_in_payload() -> None:
     elided = node._elide_base64_in_payload(payload_with_data_uri)
     assert "data:image/png;base64,[" in elided
     assert "chars]" in elided
-    assert "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" not in elided
+    assert (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" not in elided
+    )
 
     # Test long string truncation (>100 chars)
     long_string = "a" * 150
