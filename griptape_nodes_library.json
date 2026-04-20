@@ -55,6 +55,11 @@
       "name": "KlingMultiShotEditor",
       "path": "griptape_nodes_library/video/widgets/KlingMultiShotEditor.js",
       "description": "Multi-shot editor for Kling v3 customize mode."
+    },
+    {
+      "name": "MaskAdjustmentPreview",
+      "path": "widgets/MaskAdjustmentPreview.js",
+      "description": "Interactive preview for mask adjustment with timeline scrubbing and dilation/erosion controls."
     }
   ],
   "categories": [

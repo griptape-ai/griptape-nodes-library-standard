@@ -11,10 +11,10 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, Param
 from griptape_nodes.exe_types.node_types import AsyncResult, DataNode
 from griptape_nodes.exe_types.param_components.progress_bar_component import ProgressBarComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
-from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
-from griptape_nodes.traits.slider import Slider
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.widget import Widget
 from PIL import Image, ImageFilter
 
 
@@ -32,27 +32,49 @@ class AdjustMaskSize(DataNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        # Input video parameter
+        # Original video input (for preview widget)
         self.add_parameter(
             ParameterVideo(
-                name="mask_video",
-                tooltip="Input mask video to adjust",
-                clickable_file_browser=True,
+                name="original_video",
+                tooltip="Original video for mask preview overlay (optional)",
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={
-                    "expander": True,
-                    "display_name": "Mask Video",
+                    "display_name": "Original Video",
+                    "hide_property": True,
                 },
             )
         )
 
-        # Adjustment slider parameter
-        adjustment_param = ParameterInt(
-            name="adjustment",
-            default_value=self.DEFAULT_ADJUSTMENT,
-            tooltip=f"Mask size adjustment in pixels ({self.MIN_ADJUSTMENT} to {self.MAX_ADJUSTMENT}). Positive values expand the mask (dilation), negative values shrink it (erosion).",
+        # Input mask video parameter
+        self.add_parameter(
+            ParameterVideo(
+                name="mask_video",
+                tooltip="Input mask video to adjust",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={
+                    "display_name": "Mask Video",
+                    "hide_property": True,
+                },
+            )
         )
-        adjustment_param.add_trait(Slider(min_val=self.MIN_ADJUSTMENT, max_val=self.MAX_ADJUSTMENT))
-        self.add_parameter(adjustment_param)
+
+        # Preview widget parameter
+        preview_param = Parameter(
+            name="preview",
+            type="dict",
+            default_value={
+                "original_video_url": "",
+                "mask_video_url": "",
+                "adjustment": 0,
+                "current_frame": 0,
+                "total_frames": 0,
+            },
+            tooltip="Interactive preview of mask adjustment",
+            allowed_modes={ParameterMode.PROPERTY},
+            ui_options={"display_name": "Preview"},
+        )
+        preview_param.add_trait(Widget(name="MaskAdjustmentPreview", library="Griptape Nodes Library"))
+        self.add_parameter(preview_param)
 
         # Output video parameter
         self.add_parameter(
@@ -76,6 +98,99 @@ class AdjustMaskSize(DataNode):
         # Logging group
         self._setup_logging_group()
 
+    def after_value_set(self, parameter: Parameter, value: Any) -> Any:
+        """Called after a parameter value is set.
+
+        Updates the preview widget when video inputs or adjustment changes.
+
+        Args:
+            parameter: The parameter that changed
+            value: The new value
+        """
+        # Update preview when relevant parameters change
+        if parameter.name in ["original_video", "mask_video"]:
+            self._update_preview()
+
+        return super().after_value_set(parameter, value)
+
+    def _resolve_video_url(self, video_artifact: Any) -> str:
+        """Resolve a video artifact to a browser-accessible presigned URL.
+
+        Uses the same CreateStaticFileDownloadUrlFromPathRequest that the editor
+        uses to convert file paths and macro paths to presigned HTTP URLs.
+
+        Args:
+            video_artifact: A VideoUrlArtifact or similar artifact with a .value path/URL
+
+        Returns:
+            Presigned HTTP URL string, or empty string on failure
+        """
+        if not video_artifact:
+            return ""
+
+        value = video_artifact.value
+        if not value:
+            return ""
+
+        # Already a browser-accessible URL — do not re-resolve
+        if isinstance(value, str) and value.startswith(("http://", "https://")):
+            return value
+
+        try:
+            from griptape_nodes.retained_mode.events.static_file_events import (
+                CreateStaticFileDownloadUrlFromPathRequest,
+                CreateStaticFileDownloadUrlFromPathResultSuccess,
+            )
+
+            result = GriptapeNodes.handle_request(
+                CreateStaticFileDownloadUrlFromPathRequest(file_path=value)
+            )
+            if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
+                self.append_value_to_parameter("logs", f"Resolved video URL: {result.url}\n")
+                return result.url
+
+            self.append_value_to_parameter("logs", f"Failed to resolve video URL for '{value}': {result.result_details}\n")
+        except Exception as e:
+            self.append_value_to_parameter("logs", f"Failed to resolve video URL for '{value}': {e}\n")
+
+        return ""
+
+    def _update_preview(self) -> None:
+        """Update preview widget with current video URLs, preserving widget-owned state.
+
+        Skips the update entirely when the resolved URLs haven't changed, which
+        prevents unnecessary widget rebuilds during processing (each rebuild
+        creates new <video> elements, exhausting Chrome's WebMediaPlayer limit).
+        """
+        original_video = self.get_parameter_value("original_video")
+        mask_video = self.get_parameter_value("mask_video")
+
+        original_video_url = self._resolve_video_url(original_video)
+        mask_video_url = self._resolve_video_url(mask_video)
+
+        preview = self.get_parameter_value("preview") or {}
+        current_frame = preview.get("current_frame", 0)
+        total_frames = preview.get("total_frames", 0)
+        adjustment = preview.get("adjustment", 0)
+
+        # Skip if URLs haven't changed — avoids unnecessary widget rebuild
+        if (
+            preview.get("original_video_url") == original_video_url
+            and preview.get("mask_video_url") == mask_video_url
+        ):
+            return
+
+        self.set_parameter_value(
+            "preview",
+            {
+                "original_video_url": original_video_url,
+                "mask_video_url": mask_video_url,
+                "adjustment": adjustment,
+                "current_frame": current_frame,
+                "total_frames": total_frames,
+            },
+        )
+
     def _setup_logging_group(self) -> None:
         """Setup the common logging parameter group."""
         with ParameterGroup(name="Logs") as logs_group:
@@ -98,9 +213,10 @@ class AdjustMaskSize(DataNode):
             msg = f"{self.name}: Mask video is required"
             exceptions.append(ValueError(msg))
 
-        # Validate adjustment value
-        adjustment = self.get_parameter_value("adjustment")
-        if adjustment is not None and (adjustment < self.MIN_ADJUSTMENT or adjustment > self.MAX_ADJUSTMENT):
+        # Validate adjustment value from preview widget
+        preview = self.get_parameter_value("preview") or {}
+        adjustment = preview.get("adjustment", 0)
+        if adjustment < self.MIN_ADJUSTMENT or adjustment > self.MAX_ADJUSTMENT:
             msg = f"{self.name}: Adjustment must be between {self.MIN_ADJUSTMENT} and {self.MAX_ADJUSTMENT}, got {adjustment}"
             exceptions.append(ValueError(msg))
 
@@ -114,7 +230,8 @@ class AdjustMaskSize(DataNode):
         self.append_value_to_parameter("logs", "[Starting mask adjustment..]\n")
 
         mask_video = self.get_parameter_value("mask_video")
-        adjustment = self.get_parameter_value("adjustment")
+        preview = self.get_parameter_value("preview") or {}
+        adjustment = preview.get("adjustment", 0)
 
         if not mask_video:
             return
