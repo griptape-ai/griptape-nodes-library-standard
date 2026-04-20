@@ -1,15 +1,15 @@
 # /// script
 # dependencies = []
 # [tool.griptape-nodes]
-# name = "test_seedance_2_0_with_audio"
+# name = "test_seedance_2_0_fast"
 # schema_version = "0.16.0"
 # engine_version_created_with = "0.77.3"
 # node_libraries_referenced = [["Griptape Nodes Library", "0.67.0"], ["Griptape Nodes Testing Library", "0.1.0"]]
-# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "SeedanceVideoGeneration"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
+# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "Seedance20VideoGeneration"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
 # ///
-"""Integration test for Seedance 2.0 audio generation feature."""
+"""Integration test for Seedance 2.0 Fast model."""
 
 import argparse
 import asyncio
@@ -45,9 +45,9 @@ flow_name = GriptapeNodes.handle_request(
 with GriptapeNodes.ContextManager().flow(flow_name):
     gen_node = GriptapeNodes.handle_request(
         CreateNodeRequest(
-            node_type="SeedanceVideoGeneration",
+            node_type="Seedance20VideoGeneration",
             specific_library_name="Griptape Nodes Library",
-            node_name="SeedanceVideoGeneration",
+            node_name="Seedance20VideoGeneration",
             metadata={},
             resolution="resolved",
             initial_setup=True,
@@ -122,12 +122,9 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             )
         )
 
-    # Set Seedance 2.0 Fast with audio generation enabled
+    # Set Seedance 2.0 Fast model
     with GriptapeNodes.ContextManager().node(gen_node):
         GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="model_id", value="Seedance 2.0 Fast"))
-        GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="resolution", value="720p"))
-        GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="duration", value=5))
-        GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="generate_audio", value=True))
 
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
@@ -213,14 +210,14 @@ async def aexecute_workflow(
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    parser = argparse.ArgumentParser(description="Test Seedance 2.0 audio generation feature")
+    parser = argparse.ArgumentParser(description="Test Seedance 2.0 Fast model")
     parser.add_argument("--storage-backend", choices=["local", "gtc"], default="local")
     parser.add_argument("--project-file-path", default=None)
     parser.add_argument("--json-input", default=None)
     parser.add_argument("--prompt", default=None)
     args = parser.parse_args()
 
-    test_prompt = args.prompt or "A jazz band playing in a smoky nightclub"
+    test_prompt = args.prompt or "Time-lapse of a flower blooming"
 
     if args.json_input is not None:
         flow_input = json.loads(args.json_input)
