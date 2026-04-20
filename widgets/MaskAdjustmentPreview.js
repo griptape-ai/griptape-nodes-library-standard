@@ -13,7 +13,7 @@
  * video playback position and avoids the "jump to frame 0" bug.
  */
 
-const WIDGET_VERSION = "0.5.1";
+const WIDGET_VERSION = "0.6.0";
 
 // Shared slider styling to match the editor's native Radix-style sliders
 const SLIDER_STYLE = `
@@ -96,6 +96,7 @@ export default function MaskAdjustmentPreview(container, props) {
   let isSeeking = false;
   let onChangeRef = onChange;
   let maskOnlyMode = !newOriginalUrl;
+  let detectedFps = 30;
 
   // Inject scoped slider styles
   const styleId = "mask-preview-slider-styles";
@@ -336,7 +337,7 @@ export default function MaskAdjustmentPreview(container, props) {
 
   function updateTimelineDisplay() {
     const dur = displayVideo().duration;
-    const frames = totalFrames > 0 ? totalFrames : (dur ? Math.floor(dur * 30) : 0);
+    const frames = totalFrames > 0 ? totalFrames : (dur ? Math.floor(dur * detectedFps) : 0);
     frameDisplay.textContent = `${currentFrame} / ${frames}`;
     timelineSlider.max = Math.max(0, frames - 1);
   }
@@ -391,8 +392,7 @@ export default function MaskAdjustmentPreview(container, props) {
     const primary = displayVideo();
     if (!primary.duration || isSeeking) return;
 
-    const fps = 30;
-    const frames = totalFrames > 0 ? totalFrames : Math.floor(primary.duration * fps);
+    const frames = totalFrames > 0 ? totalFrames : Math.floor(primary.duration * detectedFps);
     const time = (frameNum / frames) * primary.duration;
 
     isSeeking = true;
@@ -478,8 +478,8 @@ export default function MaskAdjustmentPreview(container, props) {
     }
   }
 
-  // Separable two-pass morphological operation (horizontal then vertical).
-  // O(w*h*r) instead of O(w*h*r^2) — drastically reduces rAF frame time.
+  // Circular-kernel morphological operation matching the Python node's elliptical kernel.
+  // Precomputes kernel offsets to avoid per-pixel distance checks.
   function applyMorphologicalOp(imageData, adj) {
     if (adj === 0) return imageData;
 
@@ -487,41 +487,40 @@ export default function MaskAdjustmentPreview(container, props) {
     const h = imageData.height;
     const src = imageData.data;
     const radius = Math.abs(adj);
+    const r2 = radius * radius;
     const isDilation = adj > 0;
     const threshold = 127;
 
-    // Extract single-channel binary mask (1 = white, 0 = black)
+    // Extract single-channel binary mask
     const mask = new Uint8Array(w * h);
     for (let i = 0; i < mask.length; i++) {
       mask[i] = src[i * 4] > threshold ? 1 : 0;
     }
 
-    // Pass 1: horizontal
-    const temp = new Uint8Array(w * h);
-    for (let y = 0; y < h; y++) {
-      const row = y * w;
-      for (let x = 0; x < w; x++) {
-        const x0 = Math.max(0, x - radius);
-        const x1 = Math.min(w - 1, x + radius);
-        let val = isDilation ? 0 : 1;
-        for (let nx = x0; nx <= x1; nx++) {
-          if (isDilation) { if (mask[row + nx]) { val = 1; break; } }
-          else { if (!mask[row + nx]) { val = 0; break; } }
+    // Precompute circular kernel offsets (dx, dy where dx^2 + dy^2 <= r^2)
+    const offsets = [];
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (dx * dx + dy * dy <= r2) {
+          offsets.push([dx, dy]);
         }
-        temp[row + x] = val;
       }
     }
 
-    // Pass 2: vertical
     const result = new Uint8Array(w * h);
-    for (let x = 0; x < w; x++) {
-      for (let y = 0; y < h; y++) {
-        const y0 = Math.max(0, y - radius);
-        const y1 = Math.min(h - 1, y + radius);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
         let val = isDilation ? 0 : 1;
-        for (let ny = y0; ny <= y1; ny++) {
-          if (isDilation) { if (temp[ny * w + x]) { val = 1; break; } }
-          else { if (!temp[ny * w + x]) { val = 0; break; } }
+        for (let k = 0; k < offsets.length; k++) {
+          const nx = x + offsets[k][0];
+          const ny = y + offsets[k][1];
+          if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+            if (isDilation) {
+              if (mask[ny * w + nx]) { val = 1; break; }
+            } else {
+              if (!mask[ny * w + nx]) { val = 0; break; }
+            }
+          }
         }
         result[y * w + x] = val;
       }
@@ -596,13 +595,36 @@ export default function MaskAdjustmentPreview(container, props) {
     }
   }
 
+  // Detect FPS using requestVideoFrameCallback when available
+  function detectFps(videoEl, onDetected) {
+    if (!videoEl.requestVideoFrameCallback) return;
+    let firstTime = null;
+    videoEl.requestVideoFrameCallback((now, metadata) => {
+      firstTime = metadata.mediaTime;
+      videoEl.requestVideoFrameCallback((now2, metadata2) => {
+        const delta = metadata2.mediaTime - firstTime;
+        if (delta > 0) {
+          const fps = Math.round(1 / delta);
+          if (fps > 0 && fps < 240) {
+            onDetected(fps);
+          }
+        }
+      });
+    });
+  }
+
   // Video event handlers
   video.addEventListener("loadedmetadata", () => {
     if (!maskOnlyMode) {
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       syncCanvasSize();
-      totalFrames = Math.floor(video.duration * 30);
+      detectFps(video, (fps) => {
+        detectedFps = fps;
+        totalFrames = Math.floor(video.duration * detectedFps);
+        updateTimelineDisplay();
+      });
+      totalFrames = Math.floor(video.duration * detectedFps);
       updateTimelineDisplay();
     }
     videoReady = true;
@@ -623,7 +645,12 @@ export default function MaskAdjustmentPreview(container, props) {
       canvas.width = maskVideo.videoWidth;
       canvas.height = maskVideo.videoHeight;
       syncCanvasSize();
-      totalFrames = Math.floor(maskVideo.duration * 30);
+      detectFps(maskVideo, (fps) => {
+        detectedFps = fps;
+        totalFrames = Math.floor(maskVideo.duration * detectedFps);
+        updateTimelineDisplay();
+      });
+      totalFrames = Math.floor(maskVideo.duration * detectedFps);
       updateTimelineDisplay();
     }
     updateStatus();
