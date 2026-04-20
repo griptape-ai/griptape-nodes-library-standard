@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import base64
 import json
 import logging
+import re
 from contextlib import suppress
 from decimal import Decimal, InvalidOperation
 from typing import Any, ClassVar
 
+from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
@@ -20,6 +21,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.widget import Widget
+from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
@@ -242,6 +244,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterImage(
                 name="image",
+                default_value=None,
                 tooltip="Start frame image (required). Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Start Frame"},
@@ -250,6 +253,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterImage(
                 name="image_tail",
+                default_value=None,
                 tooltip="End frame image (optional). Supported on kling-v2-1 and kling-v2-5-turbo with pro mode.",
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "End Frame"},
@@ -493,6 +497,42 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
     async def aprocess(self) -> None:
         await super().aprocess()
 
+    def _elide_base64_in_payload(self, payload: dict[str, Any]) -> str:
+        """Override base implementation to handle raw base64 strings (not just data URIs).
+
+        Kling API expects raw base64 strings without the data URI prefix, so we need
+        custom logic to detect and elide them in logs.
+        """
+        # Field names that are known to contain image data
+        IMAGE_FIELDS = {"image", "image_tail", "static_mask"}
+
+        def elide_value(obj: Any, key: str | None = None) -> Any:
+            if isinstance(obj, str):
+                # Check for raw base64 strings in known image fields FIRST
+                # Raw base64 strings are very long and only contain base64 chars
+                if key in IMAGE_FIELDS and len(obj) > 1000:
+                    logger.debug(f"Eliding large string in field '{key}' with length {len(obj)}")
+                    return f"[base64 string, {len(obj)} chars]"
+
+                # Check for data URIs (base class handles these but include for completeness)
+                match = re.match(r"^(data:[^;]+;base64,)(.+)$", obj)
+                if match:
+                    prefix, b64_data = match.groups()
+                    return f"{prefix}[{len(b64_data)} chars]"
+
+                return obj
+            elif isinstance(obj, dict):
+                return {k: elide_value(v, k) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [elide_value(item, key) for item in obj]
+            return obj
+
+        logger.debug(f"_elide_base64_in_payload called, payload keys: {list(payload.keys())}")
+        elided = elide_value(payload)
+        result = json.dumps(elided, indent=2)
+        logger.debug(f"_elide_base64_in_payload result length: {len(result)}")
+        return result
+
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
 
@@ -510,15 +550,33 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         """
         model_name = self.get_parameter_value("model_name") or "Kling v2.6"
         model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
-        image = await self._prepare_image_data_url_async(self.get_parameter_value("image"))
-        image_tail = await self._prepare_image_data_url_async(self.get_parameter_value("image_tail"))
+
+        # Normalize image parameters before processing
+        image_input = normalize_artifact_input(
+            self.get_parameter_value("image"),
+            ImageUrlArtifact,
+            accepted_types=(ImageArtifact,),
+        )
+        image_tail_input = normalize_artifact_input(
+            self.get_parameter_value("image_tail"),
+            ImageUrlArtifact,
+            accepted_types=(ImageArtifact,),
+        )
+        static_mask_input = normalize_artifact_input(
+            self.get_parameter_value("static_mask"),
+            ImageUrlArtifact,
+            accepted_types=(ImageArtifact,),
+        )
+
+        image = await self._prepare_image_data_url_async(image_input)
+        image_tail = await self._prepare_image_data_url_async(image_tail_input)
         prompt = self.get_parameter_value("prompt") or ""
         negative_prompt = self.get_parameter_value("negative_prompt") or ""
         cfg_scale = self.get_parameter_value("cfg_scale") or 0.5
         mode = self.get_parameter_value("mode") or "pro"
         duration = self.get_parameter_value("duration") or 5
         sound = self.get_parameter_value("sound") or "off"
-        static_mask = await self._prepare_image_data_url_async(self.get_parameter_value("static_mask"))
+        static_mask = await self._prepare_image_data_url_async(static_mask_input)
         dynamic_masks = self.get_parameter_value("dynamic_masks") or ""
 
         payload: dict[str, Any] = {
@@ -756,17 +814,26 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         if not image_url:
             return None
 
-        # If it's already a data URL, return it
+        # If it's already a data URL, strip the prefix (Kling wants raw base64)
         if image_url.startswith("data:image/"):
+            if ";base64," in image_url:
+                base64_data = image_url.split(";base64,", 1)[1]
+                return base64_data
             return image_url
 
         try:
-            image_bytes = await File(image_url).aread_bytes()
+            data_uri = await File(image_url).aread_data_uri(fallback_mime="image/png")
+
+            # Kling API expects raw base64 string, not data URI with prefix
+            # Strip "data:image/xxx;base64," prefix if present
+            if data_uri and ";base64," in data_uri:
+                base64_data = data_uri.split(";base64,", 1)[1]
+                return base64_data
+
+            return data_uri
         except FileLoadError as e:
             logger.debug("%s failed to load image from %s: %s", self.name, image_url, e)
             return None
-
-        return base64.b64encode(image_bytes).decode("utf-8")
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         """Parse the result and set output parameters.
@@ -954,10 +1021,11 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
         # Artifact-like objects
         try:
-            # ImageUrlArtifact: .value holds URL string
+            # ImageUrlArtifact: .value holds URL string or file path
             v = getattr(val, "value", None)
-            if isinstance(v, str) and v.startswith(("http://", "https://", "data:image/")):
+            if isinstance(v, str) and v:
                 return v
+
             # ImageArtifact: .base64 holds raw or data-URI
             b64 = getattr(val, "base64", None)
             if isinstance(b64, str) and b64:
