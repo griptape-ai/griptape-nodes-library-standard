@@ -180,6 +180,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterString(
                 name="prompt",
+                default_value="",
                 tooltip="Text prompt for image generation (max 600 words recommended)",
                 multiline=True,
                 placeholder_text="Describe the image you want to generate...",
