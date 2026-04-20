@@ -142,14 +142,14 @@ class AdjustMaskSize(DataNode):
                 CreateStaticFileDownloadUrlFromPathResultSuccess,
             )
 
-            result = GriptapeNodes.handle_request(
-                CreateStaticFileDownloadUrlFromPathRequest(file_path=value)
-            )
+            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=value))
             if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
                 self.append_value_to_parameter("logs", f"Resolved video URL: {result.url}\n")
                 return result.url
 
-            self.append_value_to_parameter("logs", f"Failed to resolve video URL for '{value}': {result.result_details}\n")
+            self.append_value_to_parameter(
+                "logs", f"Failed to resolve video URL for '{value}': {result.result_details}\n"
+            )
         except Exception as e:
             self.append_value_to_parameter("logs", f"Failed to resolve video URL for '{value}': {e}\n")
 
@@ -174,10 +174,7 @@ class AdjustMaskSize(DataNode):
         adjustment = preview.get("adjustment", 0)
 
         # Skip if URLs haven't changed — avoids unnecessary widget rebuild
-        if (
-            preview.get("original_video_url") == original_video_url
-            and preview.get("mask_video_url") == mask_video_url
-        ):
+        if preview.get("original_video_url") == original_video_url and preview.get("mask_video_url") == mask_video_url:
             return
 
         self.set_parameter_value(
@@ -420,11 +417,11 @@ class AdjustMaskSize(DataNode):
             adjustment: Adjustment amount (positive for dilation, negative for erosion)
 
         Returns:
-            The last progress value (should be ~90 for 90% complete after frame processing)
+            The last progress step (should be 9 after frame processing)
         """
-        # Initialize progress bar (0-90% for frame processing, 90-100% for reassembly)
-        self.progress_component.initialize(100)
-        last_progress = 0
+        # 10 steps for frame processing + 1 step for reassembly = 11 total
+        self.progress_component.initialize(11)
+        last_step = 0
 
         # Create structuring element for morphological operations
         # Use a circular/elliptical kernel for more natural-looking results
@@ -458,18 +455,16 @@ class AdjustMaskSize(DataNode):
             adjusted_img = Image.fromarray(adjusted_array, mode="L")
             adjusted_img.save(output_path, "PNG")
 
-            # Update progress (0-90% range)
-            current_progress = int((frame_idx / frame_count) * 90)
-            increments_needed = current_progress - last_progress
-            for _ in range(increments_needed):
-                self.progress_component.increment()
-            last_progress = current_progress
+            # Step progress at each 10% boundary (10 steps total for frame processing)
+            current_step = int((frame_idx / frame_count) * 10)
+            if current_step > last_step:
+                for _ in range(current_step - last_step):
+                    self.progress_component.increment()
+                last_step = current_step
+                pct = current_step * 10
+                self.append_value_to_parameter("logs", f"Adjusted {pct}% ({frame_idx}/{frame_count} frames)\n")
 
-            # Log progress every 100 frames
-            if frame_idx % 100 == 0:
-                self.append_value_to_parameter("logs", f"Adjusted {frame_idx}/{frame_count} frames\n")
-
-        return last_progress
+        return last_step
 
     def _dilate_binary(self, binary_mask: np.ndarray, kernel: np.ndarray) -> np.ndarray:
         """Perform binary dilation on a mask using a structuring element.
@@ -533,8 +528,8 @@ class AdjustMaskSize(DataNode):
             output_video = Path(temp_file.name)
         input_pattern = str(frames_dir / "frame_%06d.png")
 
-        # Ensure progress is at 90% before starting reassembly
-        while last_progress < 90:
+        # Ensure frame processing steps are complete before reassembly
+        while last_progress < 10:
             self.progress_component.increment()
             last_progress += 1
 
@@ -559,10 +554,8 @@ class AdjustMaskSize(DataNode):
         try:
             subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=600)  # noqa: S603
 
-            # Complete progress to 100% (remaining 10%)
-            while last_progress < 100:
-                self.progress_component.increment()
-                last_progress += 1
+            # Final step for reassembly complete
+            self.progress_component.increment()
 
         except subprocess.CalledProcessError as e:
             msg = f"{self.name}: FFmpeg video reassembly failed: {e.stderr}"
