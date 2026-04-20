@@ -240,6 +240,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 if match:
                     prefix, b64_data = match.groups()
                     return f"{prefix}[{len(b64_data)} chars]"
+                # Truncate any long string (>100 chars) to first 100 chars
+                if len(obj) > 100:
+                    return f"{obj[:100]}... [{len(obj)} chars total]"
                 return obj
             elif isinstance(obj, dict):
                 return {k: elide_value(v) for k, v in obj.items()}

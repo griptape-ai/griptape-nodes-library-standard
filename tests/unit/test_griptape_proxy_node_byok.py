@@ -119,6 +119,62 @@ async def test_flux2_submission_keeps_proxy_bearer_auth_with_byok(monkeypatch: p
     assert captured_request["headers"]["X-GTC-PROXY-AUTH-INFO"] == "user-bfl-key"
 
 
+def test_elide_base64_in_payload() -> None:
+    """Test that _elide_base64_in_payload elides base64 data URIs and truncates long strings."""
+    node = Flux2ImageGeneration(name="Flux2")
+
+    # Test base64 data URI elision
+    payload_with_data_uri = {
+        "prompt": "test",
+        "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    }
+    elided = node._elide_base64_in_payload(payload_with_data_uri)
+    assert "data:image/png;base64,[" in elided
+    assert "chars]" in elided
+    assert "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" not in elided
+
+    # Test long string truncation (>100 chars)
+    long_string = "a" * 150
+    payload_with_long_string = {
+        "prompt": "test",
+        "long_field": long_string,
+    }
+    elided = node._elide_base64_in_payload(payload_with_long_string)
+    assert "a" * 100 in elided
+    assert "[150 chars total]" in elided
+    assert long_string not in elided
+
+    # Test short strings are preserved
+    payload_with_short_string = {
+        "prompt": "test",
+        "short_field": "short",
+    }
+    elided = node._elide_base64_in_payload(payload_with_short_string)
+    assert '"short"' in elided
+
+    # Test nested structures
+    payload_nested = {
+        "prompt": "test",
+        "nested": {
+            "image": "data:image/jpeg;base64," + "b" * 200,
+            "long_value": "c" * 120,
+        },
+        "list": ["data:image/png;base64," + "d" * 150, "e" * 110],
+    }
+    elided = node._elide_base64_in_payload(payload_nested)
+    assert "data:image/jpeg;base64,[200 chars]" in elided
+    assert "c" * 100 in elided
+    assert "[120 chars total]" in elided
+    assert "data:image/png;base64,[150 chars]" in elided
+    assert "e" * 100 in elided
+    assert "[110 chars total]" in elided
+    # Ensure raw data is not in logs
+    assert "b" * 200 not in elided
+    assert "c" * 120 not in elided
+    assert "d" * 150 not in elided
+    assert "e" * 110 not in elided
+
+
 @pytest.mark.asyncio
 async def test_submit_generation_logs_sanitized_payload(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -167,4 +223,3 @@ async def test_submit_generation_logs_sanitized_payload(
     assert "Request payload:" in caplog.text
     assert "RAW_IMAGE_BASE64_PAYLOAD" not in caplog.text
     assert "RAW_BYTES_BASE64_PAYLOAD" not in caplog.text
-    assert "<base64 elided>" in caplog.text
