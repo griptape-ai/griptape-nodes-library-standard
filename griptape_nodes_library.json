@@ -28,7 +28,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.71.0",
+    "library_version": "0.71.1",
     "engine_version": "0.79.0",
     "tags": [
       "Griptape",
@@ -55,6 +55,11 @@
       "name": "KlingMultiShotEditor",
       "path": "griptape_nodes_library/video/widgets/KlingMultiShotEditor.js",
       "description": "Multi-shot editor for Kling v3 customize mode."
+    },
+    {
+      "name": "MaskAdjustmentPreview",
+      "path": "widgets/MaskAdjustmentPreview.js",
+      "description": "Interactive preview for mask adjustment with timeline scrubbing and dilation/erosion controls."
     }
   ],
   "categories": [
