@@ -28,7 +28,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.71.0",
+    "library_version": "0.71.1",
     "engine_version": "0.79.0",
     "tags": [
       "Griptape",
@@ -2847,6 +2847,16 @@
         "description": "Copy files and/or directories from source to destination. Supports glob patterns and multiple sources.",
         "display_name": "Copy Files",
         "icon": "Copy"
+      }
+    },
+    {
+      "class_name": "CreateFolder",
+      "file_path": "griptape_nodes_library/files/create_folder.py",
+      "metadata": {
+        "category": "files",
+        "description": "Create a folder at a specified path with optional parent directory creation.",
+        "display_name": "Create Folder",
+        "icon": "FolderPlus"
       }
     },
     {
