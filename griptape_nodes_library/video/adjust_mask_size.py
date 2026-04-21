@@ -7,14 +7,14 @@ from typing import Any
 import numpy as np
 import static_ffmpeg.run  # type: ignore[import-untyped]
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, DataNode
 from griptape_nodes.exe_types.param_components.progress_bar_component import ProgressBarComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
-from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
-from griptape_nodes.traits.slider import Slider
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.widget import Widget
 from PIL import Image, ImageFilter
 
 
@@ -32,27 +32,49 @@ class AdjustMaskSize(DataNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        # Input video parameter
+        # Original video input (for preview widget)
         self.add_parameter(
             ParameterVideo(
-                name="mask_video",
-                tooltip="Input mask video to adjust",
-                clickable_file_browser=True,
+                name="original_video",
+                tooltip="Original video for mask preview overlay (optional)",
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={
-                    "expander": True,
-                    "display_name": "Mask Video",
+                    "display_name": "Original Video",
+                    "hide_property": True,
                 },
             )
         )
 
-        # Adjustment slider parameter
-        adjustment_param = ParameterInt(
-            name="adjustment",
-            default_value=self.DEFAULT_ADJUSTMENT,
-            tooltip=f"Mask size adjustment in pixels ({self.MIN_ADJUSTMENT} to {self.MAX_ADJUSTMENT}). Positive values expand the mask (dilation), negative values shrink it (erosion).",
+        # Input mask video parameter
+        self.add_parameter(
+            ParameterVideo(
+                name="mask_video",
+                tooltip="Input mask video to adjust",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={
+                    "display_name": "Mask Video",
+                    "hide_property": True,
+                },
+            )
         )
-        adjustment_param.add_trait(Slider(min_val=self.MIN_ADJUSTMENT, max_val=self.MAX_ADJUSTMENT))
-        self.add_parameter(adjustment_param)
+
+        # Preview widget parameter
+        preview_param = Parameter(
+            name="preview",
+            type="dict",
+            default_value={
+                "original_video_url": "",
+                "mask_video_url": "",
+                "adjustment": 0,
+                "current_frame": 0,
+                "total_frames": 0,
+            },
+            tooltip="Interactive preview of mask adjustment",
+            allowed_modes={ParameterMode.PROPERTY},
+            ui_options={"display_name": "Preview"},
+        )
+        preview_param.add_trait(Widget(name="MaskAdjustmentPreview", library="Griptape Nodes Library"))
+        self.add_parameter(preview_param)
 
         # Output video parameter
         self.add_parameter(
@@ -73,21 +95,90 @@ class AdjustMaskSize(DataNode):
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="adjusted_mask.mp4")
         self._output_file.add_parameter()
 
-        # Logging group
-        self._setup_logging_group()
+    def after_value_set(self, parameter: Parameter, value: Any) -> Any:
+        """Called after a parameter value is set.
 
-    def _setup_logging_group(self) -> None:
-        """Setup the common logging parameter group."""
-        with ParameterGroup(name="Logs") as logs_group:
-            Parameter(
-                name="logs",
-                type="str",
-                tooltip="Displays processing logs and detailed events if enabled.",
-                ui_options={"multiline": True, "placeholder_text": "Logs"},
-                allowed_modes={ParameterMode.OUTPUT},
+        Updates the preview widget when video inputs or adjustment changes.
+
+        Args:
+            parameter: The parameter that changed
+            value: The new value
+        """
+        # Update preview when relevant parameters change
+        if parameter.name in ["original_video", "mask_video"]:
+            self._update_preview()
+
+        return super().after_value_set(parameter, value)
+
+    def _resolve_video_url(self, video_artifact: Any) -> str:
+        """Resolve a video artifact to a browser-accessible presigned URL.
+
+        Uses the same CreateStaticFileDownloadUrlFromPathRequest that the editor
+        uses to convert file paths and macro paths to presigned HTTP URLs.
+
+        Args:
+            video_artifact: A VideoUrlArtifact or similar artifact with a .value path/URL
+
+        Returns:
+            Presigned HTTP URL string, or empty string on failure
+        """
+        if not video_artifact:
+            return ""
+
+        value = video_artifact.value
+        if not value:
+            return ""
+
+        # Already a browser-accessible URL — do not re-resolve
+        if isinstance(value, str) and value.startswith(("http://", "https://")):
+            return value
+
+        try:
+            from griptape_nodes.retained_mode.events.static_file_events import (
+                CreateStaticFileDownloadUrlFromPathRequest,
+                CreateStaticFileDownloadUrlFromPathResultSuccess,
             )
-        logs_group.ui_options = {"hide": True}
-        self.add_node_element(logs_group)
+
+            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=value))
+            if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
+                return result.url
+        except Exception:
+            pass
+
+        return ""
+
+    def _update_preview(self) -> None:
+        """Update preview widget with current video URLs, preserving widget-owned state.
+
+        Skips the update entirely when the resolved URLs haven't changed, which
+        prevents unnecessary widget rebuilds during processing (each rebuild
+        creates new <video> elements, exhausting Chrome's WebMediaPlayer limit).
+        """
+        original_video = self.get_parameter_value("original_video")
+        mask_video = self.get_parameter_value("mask_video")
+
+        original_video_url = self._resolve_video_url(original_video)
+        mask_video_url = self._resolve_video_url(mask_video)
+
+        preview = self.get_parameter_value("preview") or {}
+        current_frame = preview.get("current_frame", 0)
+        total_frames = preview.get("total_frames", 0)
+        adjustment = preview.get("adjustment", 0)
+
+        # Skip if URLs haven't changed — avoids unnecessary widget rebuild
+        if preview.get("original_video_url") == original_video_url and preview.get("mask_video_url") == mask_video_url:
+            return
+
+        self.set_parameter_value(
+            "preview",
+            {
+                "original_video_url": original_video_url,
+                "mask_video_url": mask_video_url,
+                "adjustment": adjustment,
+                "current_frame": current_frame,
+                "total_frames": total_frames,
+            },
+        )
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions: list[Exception] = []
@@ -98,9 +189,10 @@ class AdjustMaskSize(DataNode):
             msg = f"{self.name}: Mask video is required"
             exceptions.append(ValueError(msg))
 
-        # Validate adjustment value
-        adjustment = self.get_parameter_value("adjustment")
-        if adjustment is not None and (adjustment < self.MIN_ADJUSTMENT or adjustment > self.MAX_ADJUSTMENT):
+        # Validate adjustment value from preview widget
+        preview = self.get_parameter_value("preview") or {}
+        adjustment = preview.get("adjustment", 0)
+        if adjustment < self.MIN_ADJUSTMENT or adjustment > self.MAX_ADJUSTMENT:
             msg = f"{self.name}: Adjustment must be between {self.MIN_ADJUSTMENT} and {self.MAX_ADJUSTMENT}, got {adjustment}"
             exceptions.append(ValueError(msg))
 
@@ -111,27 +203,24 @@ class AdjustMaskSize(DataNode):
         # Reset progress and output
         self.progress_component.reset()
         self.parameter_output_values["output_mask"] = None
-        self.append_value_to_parameter("logs", "[Starting mask adjustment..]\n")
 
         mask_video = self.get_parameter_value("mask_video")
-        adjustment = self.get_parameter_value("adjustment")
+        preview = self.get_parameter_value("preview") or {}
+        adjustment = preview.get("adjustment", 0)
 
         if not mask_video:
             return
 
         # If adjustment is 0, just pass through the input
         if adjustment == 0:
-            self.append_value_to_parameter("logs", "Adjustment is 0 - returning input video unchanged\n")
             self.parameter_output_values["output_mask"] = mask_video
             return
 
         try:
             yield lambda: self._process_mask_video(mask_video, adjustment)
-            self.append_value_to_parameter("logs", "[Finished mask adjustment.]\n")
         except Exception as e:
             error_message = str(e)
             msg = f"{self.name}: Error adjusting mask video: {error_message}"
-            self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
             raise ValueError(msg) from e
 
     def _process_mask_video(self, mask_video: Any, adjustment: int) -> None:
@@ -149,28 +238,18 @@ class AdjustMaskSize(DataNode):
 
             # Get video properties
             props = self._get_video_properties(video_url, ffprobe_path)
-            self.append_value_to_parameter(
-                "logs",
-                f"Video: {props['width']}x{props['height']}, {props['fps']:.2f} fps, {props['frame_count']} frames\n",
-            )
 
             # Extract frames
-            self.append_value_to_parameter("logs", "Extracting frames from video...\n")
             frames_dir = Path(tempfile.mkdtemp())
             temp_dirs.append(frames_dir)
             self._extract_frames(video_url, frames_dir, ffmpeg_path)
 
             # Adjust frames
-            self.append_value_to_parameter(
-                "logs",
-                f"Adjusting mask size by {adjustment} pixels ({'dilation' if adjustment > 0 else 'erosion'})...\n",
-            )
             adjusted_frames_dir = Path(tempfile.mkdtemp())
             temp_dirs.append(adjusted_frames_dir)
             last_progress = self._adjust_frames(frames_dir, adjusted_frames_dir, props["frame_count"], adjustment)
 
             # Reassemble video
-            self.append_value_to_parameter("logs", "Reassembling video from adjusted frames...\n")
             output_video = self._reassemble_video(adjusted_frames_dir, props, ffmpeg_path, last_progress)
             temp_files.append(output_video)
 
@@ -184,23 +263,16 @@ class AdjustMaskSize(DataNode):
             output_artifact = VideoUrlArtifact(saved.location)
 
             self.parameter_output_values["output_mask"] = output_artifact
-            self.append_value_to_parameter("logs", f"Successfully adjusted mask video: {saved.location}\n")
 
         finally:
             # Cleanup temp directories and files
             for temp_dir in temp_dirs:
-                try:
-                    import shutil
+                import shutil
 
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-                except Exception as e:
-                    self.append_value_to_parameter("logs", f"Warning: Failed to cleanup temp dir: {e}\n")
+                shutil.rmtree(temp_dir, ignore_errors=True)
 
             for temp_file in temp_files:
-                try:
-                    temp_file.unlink(missing_ok=True)
-                except Exception as e:
-                    self.append_value_to_parameter("logs", f"Warning: Failed to cleanup temp file: {e}\n")
+                temp_file.unlink(missing_ok=True)
 
     def _get_ffmpeg_paths(self) -> tuple[str, str]:
         """Get FFmpeg and FFprobe executable paths."""
@@ -303,11 +375,11 @@ class AdjustMaskSize(DataNode):
             adjustment: Adjustment amount (positive for dilation, negative for erosion)
 
         Returns:
-            The last progress value (should be ~90 for 90% complete after frame processing)
+            The last progress step (should be 9 after frame processing)
         """
-        # Initialize progress bar (0-90% for frame processing, 90-100% for reassembly)
-        self.progress_component.initialize(100)
-        last_progress = 0
+        # 10 steps for frame processing + 1 step for reassembly = 11 total
+        self.progress_component.initialize(11)
+        last_step = 0
 
         # Create structuring element for morphological operations
         # Use a circular/elliptical kernel for more natural-looking results
@@ -341,18 +413,14 @@ class AdjustMaskSize(DataNode):
             adjusted_img = Image.fromarray(adjusted_array, mode="L")
             adjusted_img.save(output_path, "PNG")
 
-            # Update progress (0-90% range)
-            current_progress = int((frame_idx / frame_count) * 90)
-            increments_needed = current_progress - last_progress
-            for _ in range(increments_needed):
-                self.progress_component.increment()
-            last_progress = current_progress
+            # Step progress at each 10% boundary (10 steps total for frame processing)
+            current_step = int((frame_idx / frame_count) * 10)
+            if current_step > last_step:
+                for _ in range(current_step - last_step):
+                    self.progress_component.increment()
+                last_step = current_step
 
-            # Log progress every 100 frames
-            if frame_idx % 100 == 0:
-                self.append_value_to_parameter("logs", f"Adjusted {frame_idx}/{frame_count} frames\n")
-
-        return last_progress
+        return last_step
 
     def _dilate_binary(self, binary_mask: np.ndarray, kernel: np.ndarray) -> np.ndarray:
         """Perform binary dilation on a mask using a structuring element.
@@ -416,8 +484,8 @@ class AdjustMaskSize(DataNode):
             output_video = Path(temp_file.name)
         input_pattern = str(frames_dir / "frame_%06d.png")
 
-        # Ensure progress is at 90% before starting reassembly
-        while last_progress < 90:
+        # Ensure frame processing steps are complete before reassembly
+        while last_progress < 10:
             self.progress_component.increment()
             last_progress += 1
 
@@ -442,10 +510,8 @@ class AdjustMaskSize(DataNode):
         try:
             subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=600)  # noqa: S603
 
-            # Complete progress to 100% (remaining 10%)
-            while last_progress < 100:
-                self.progress_component.increment()
-                last_progress += 1
+            # Final step for reassembly complete
+            self.progress_component.increment()
 
         except subprocess.CalledProcessError as e:
             msg = f"{self.name}: FFmpeg video reassembly failed: {e.stderr}"
