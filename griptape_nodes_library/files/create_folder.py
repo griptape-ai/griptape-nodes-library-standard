@@ -5,6 +5,10 @@ from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.retained_mode.events.os_events import (
+    CreateFileRequest,
+    CreateFileResultFailure,
+)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 
@@ -120,10 +124,33 @@ class CreateFolder(FileOperationBaseNode):
             )
             return
 
-        try:
-            Path(folder_path).mkdir(parents=create_parents, exist_ok=True)
-        except Exception as e:  # noqa: BLE001
-            msg = f"{self.name} failed to create folder '{folder_path}': {e}"
+        if not create_parents:
+            parent_path = self._check_path_exists(str(Path(folder_path).parent))
+            if not parent_path.exists:
+                msg = (
+                    f"{self.name} attempted to create folder but parent directory does not exist and "
+                    f"create_parents is False: {folder_path}"
+                )
+                self._set_status_results(was_successful=False, result_details=msg)
+                return
+            if not parent_path.is_directory:
+                msg = f"{self.name} attempted to create folder but parent path is not a directory: {folder_path}"
+                self._set_status_results(was_successful=False, result_details=msg)
+                return
+
+        create_result = GriptapeNodes.handle_request(
+            CreateFileRequest(
+                path=folder_path,
+                is_directory=True,
+                workspace_only=False,
+            )
+        )
+        if isinstance(create_result, CreateFileResultFailure):
+            failure_reason = (
+                create_result.failure_reason.value if hasattr(create_result.failure_reason, "value") else "Unknown error"
+            )
+            error_details = f" - {create_result.result_details}" if create_result.result_details else ""
+            msg = f"{self.name} failed to create folder '{folder_path}': {failure_reason}{error_details}"
             self._set_status_results(was_successful=False, result_details=msg)
             return
 
