@@ -147,7 +147,9 @@ class CreateFolder(FileOperationBaseNode):
         )
         if isinstance(create_result, CreateFileResultFailure):
             failure_reason = (
-                create_result.failure_reason.value if hasattr(create_result.failure_reason, "value") else "Unknown error"
+                create_result.failure_reason.value
+                if hasattr(create_result.failure_reason, "value")
+                else "Unknown error"
             )
             error_details = f" - {create_result.result_details}" if create_result.result_details else ""
             msg = f"{self.name} failed to create folder '{folder_path}': {failure_reason}{error_details}"
