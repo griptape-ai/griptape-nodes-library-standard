@@ -2866,6 +2866,16 @@
       }
     },
     {
+      "class_name": "CreateFolder",
+      "file_path": "griptape_nodes_library/files/create_folder.py",
+      "metadata": {
+        "category": "files",
+        "description": "Create a folder at a specified path with optional parent directory creation.",
+        "display_name": "Create Folder",
+        "icon": "FolderPlus"
+      }
+    },
+    {
       "class_name": "MoveFiles",
       "file_path": "griptape_nodes_library/files/move_files.py",
       "metadata": {
