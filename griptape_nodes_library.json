@@ -1733,6 +1733,17 @@
       }
     },
     {
+      "class_name": "RecraftImageGeneration",
+      "file_path": "griptape_nodes_library/image/recraft_image_generation.py",
+      "metadata": {
+        "category": "image",
+        "description": "Generate images using Recraft models via Griptape model proxy",
+        "display_name": "Recraft Image Generation",
+        "group": "create",
+        "icon": "image"
+      }
+    },
+    {
       "class_name": "QwenImageEdit",
       "file_path": "griptape_nodes_library/image/qwen_image_edit.py",
       "metadata": {
