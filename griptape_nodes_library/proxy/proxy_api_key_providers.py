@@ -110,6 +110,7 @@ _NODE_PROVIDER_CONFIGS = {
     "OmnihumanSubjectDetection": SEED,
     "OmnihumanSubjectRecognition": SEED,
     "OmnihumanVideoGeneration": SEED,
+    "OpenAiImageGeneration": OPENAI,
     "QwenImageEdit": DASHSCOPE,
     "QwenImageGeneration": DASHSCOPE,
     "Rodin23DGeneration": RODIN,
