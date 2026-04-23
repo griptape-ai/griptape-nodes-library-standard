@@ -34,6 +34,12 @@ MAX_PROMPT_LENGTH = 2500
 DEFAULT_DURATION_5S = 5
 MAX_MULTI_PROMPT_COUNT = 6
 V3_MODEL_ID = "kling-v3"
+MODE_STD = "std"
+MODE_PRO = "pro"
+MODE_4K = "4k"
+BASE_MODE_CHOICES = [MODE_STD, MODE_PRO]
+V3_MODE_CHOICES = [MODE_STD, MODE_PRO, MODE_4K]
+DEFAULT_MODE = MODE_PRO
 DEFAULT_MULTI_SHOTS = [{"name": "Shot1", "duration": 5, "description": ""}]
 
 
@@ -80,50 +86,50 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
     # Model capability definitions
     MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
         "kling-v3": {
-            "modes": ["std", "pro"],
+            "modes": V3_MODE_CHOICES,
             "durations": [5, 10],
             "supports_sound": False,
             "supports_tail_frame": False,
             "supports_multi_shot": True,
         },
         "kling-v1": {
-            "modes": ["std", "pro"],
+            "modes": BASE_MODE_CHOICES,
             "durations": [5],
             "supports_sound": False,
             "supports_tail_frame": False,
         },
         "kling-v1-5": {
-            "modes": ["pro"],
+            "modes": [MODE_PRO],
             "durations": [5, 10],
             "supports_sound": False,
             "supports_tail_frame": False,
         },
         "kling-v2-master": {
-            "modes": ["std", "pro"],
+            "modes": BASE_MODE_CHOICES,
             "durations": [5, 10],
             "supports_sound": False,
             "supports_tail_frame": False,
         },
         "kling-v2-1": {
-            "modes": ["std", "pro"],
+            "modes": BASE_MODE_CHOICES,
             "durations": [5, 10],
             "supports_sound": False,
             "supports_tail_frame": True,  # Only with pro mode
         },
         "kling-v2-1-master": {
-            "modes": ["std", "pro"],
+            "modes": BASE_MODE_CHOICES,
             "durations": [5, 10],
             "supports_sound": False,
             "supports_tail_frame": False,
         },
         "kling-v2-5-turbo": {
-            "modes": ["pro"],
+            "modes": [MODE_PRO],
             "durations": [5, 10],
             "supports_sound": False,
             "supports_tail_frame": True,  # Only with pro mode
         },
         "kling-v2-6": {
-            "modes": ["pro"],
+            "modes": [MODE_PRO],
             "durations": [5, 10],
             "supports_sound": True,
             "supports_tail_frame": False,
@@ -270,10 +276,10 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             )
             ParameterString(
                 name="mode",
-                default_value="pro",
-                tooltip="Video generation mode (std: Standard, pro: Professional)",
+                default_value=DEFAULT_MODE,
+                tooltip="Video generation mode. Supported modes vary by model; Kling v3.0 also supports 4k.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["std", "pro"])},
+                traits={Options(choices=V3_MODE_CHOICES)},
             )
             ParameterInt(
                 name="duration",
@@ -402,6 +408,9 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
     def _apply_generation_settings_visibility(self, model_id: str) -> None:
         """Apply mode/duration/sound visibility for selected model."""
+        capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
+        self._update_mode_choices(capabilities.get("modes", BASE_MODE_CHOICES))
+
         if model_id == "kling-v1":
             self.show_parameter_by_name("mode")
             self.hide_parameter_by_name(["duration", "sound"])
@@ -427,6 +436,15 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
         self.show_parameter_by_name(["mode", "duration"])
         self.hide_parameter_by_name("sound")
+
+    def _update_mode_choices(self, supported_modes: list[str]) -> None:
+        """Keep the mode dropdown aligned with the selected model."""
+        current_mode = self.get_parameter_value("mode")
+        next_mode = current_mode if current_mode in supported_modes else DEFAULT_MODE
+        if next_mode not in supported_modes:
+            next_mode = supported_modes[0]
+
+        self._update_option_choices("mode", supported_modes, next_mode)
 
     def _hide_multi_shot_inputs(self) -> None:
         """Hide multi-shot-specific UI inputs."""
@@ -573,7 +591,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         prompt = self.get_parameter_value("prompt") or ""
         negative_prompt = self.get_parameter_value("negative_prompt") or ""
         cfg_scale = self.get_parameter_value("cfg_scale") or 0.5
-        mode = self.get_parameter_value("mode") or "pro"
+        mode = self.get_parameter_value("mode") or DEFAULT_MODE
         duration = self.get_parameter_value("duration") or 5
         sound = self.get_parameter_value("sound") or "off"
         static_mask = await self._prepare_image_data_url_async(static_mask_input)
@@ -964,7 +982,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         # Validate model-specific constraints
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
 
-        if mode not in capabilities.get("modes", ["std", "pro"]):
+        if mode not in capabilities.get("modes", BASE_MODE_CHOICES):
             valid_modes = capabilities.get("modes", [])
             exceptions.append(
                 ValueError(
