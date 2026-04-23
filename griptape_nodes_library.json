@@ -2109,7 +2109,7 @@
         "display_name": "OpenAI Image Generation",
         "group": "create",
         "icon": "sparkles",
-        "tags": ["gpt-image"]
+        "tags": ["gpt-image", "gpt-image-2", "gpt-image-1", "gpt-image-1.5"]
       }
     },
     {
