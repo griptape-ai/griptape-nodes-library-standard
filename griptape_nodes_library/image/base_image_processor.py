@@ -322,6 +322,7 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
 
         dest = self._output_file.build_file()
         saved = dest.write_bytes(image_bytes)
+        logger.info("Saved processed image to: %s", saved.location)
         return ImageUrlArtifact(saved.location)
 
     def _pil_to_bytes(self, pil_image: Image.Image, format_extension: str) -> bytes:
