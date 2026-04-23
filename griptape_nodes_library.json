@@ -2108,7 +2108,8 @@
         "description": "Generate images using OpenAI GPT Image models via Griptape model proxy",
         "display_name": "OpenAI Image Generation",
         "group": "create",
-        "icon": "sparkles"
+        "icon": "sparkles",
+        "tags": ["gpt-image"]
       }
     },
     {
