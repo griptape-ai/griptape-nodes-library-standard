@@ -28,7 +28,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.71.0",
+    "library_version": "0.72.0",
     "engine_version": "0.79.0",
     "tags": [
       "Griptape",
@@ -2109,7 +2109,12 @@
         "display_name": "OpenAI Image Generation",
         "group": "create",
         "icon": "sparkles",
-        "tags": ["gpt-image", "gpt-image-2", "gpt-image-1", "gpt-image-1.5"]
+        "tags": [
+          "gpt-image",
+          "gpt-image-2",
+          "gpt-image-1",
+          "gpt-image-1.5"
+        ]
       }
     },
     {
