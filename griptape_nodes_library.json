@@ -2773,7 +2773,7 @@
       "file_path": "griptape_nodes_library/variables/set_variable.py",
       "metadata": {
         "category": "variables",
-        "description": "Set the value of an existing variable",
+        "description": "Set the value of a variable, creating it if it does not exist",
         "display_name": "Set Variable",
         "icon": "ArrowUp",
         "group": "edit"
