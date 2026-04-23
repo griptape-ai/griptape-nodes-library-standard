@@ -331,7 +331,9 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         capabilities = MODEL_CAPABILITIES.get(model_config["payload_model_name"], {"modes": BASE_MODE_CHOICES})
         supported_modes = list(capabilities.get("modes", BASE_MODE_CHOICES))
 
-        if self.get_parameter_value("reference_video") and not capabilities.get("supports_4k_with_reference_video", True):
+        if self.get_parameter_value("reference_video") and not capabilities.get(
+            "supports_4k_with_reference_video", True
+        ):
             supported_modes = [mode for mode in supported_modes if mode != MODE_4K]
 
         return supported_modes
