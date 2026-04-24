@@ -120,13 +120,20 @@ class TestSetVariableEagerRegistration:
 
         assert _has_variable("eager", flow)
 
-    def test_changing_name_renames_variable(self, set_variable_node: BaseNode, flow: str) -> None:
+    def test_changing_name_registers_new_and_leaves_old_alone(self, set_variable_node: BaseNode, flow: str) -> None:
+        """Editing ``variable_name`` always means 'point this node at a different variable'.
+
+        We intentionally do not rename the prior variable — there is no UI signal to
+        distinguish 'rename' from 'switch', and renaming would orphan any other node that
+        was pointing at the old name. Leftover variables get filtered out at save time
+        by ``NodeDependencies``-driven serialization.
+        """
         set_variable_node.set_parameter_value("variable_name", "first")
         assert _has_variable("first", flow)
 
         set_variable_node.set_parameter_value("variable_name", "second")
 
-        assert not _has_variable("first", flow)
+        assert _has_variable("first", flow)
         assert _has_variable("second", flow)
 
     def test_clearing_name_leaves_variable_alone(self, set_variable_node: BaseNode, flow: str) -> None:
@@ -138,7 +145,7 @@ class TestSetVariableEagerRegistration:
         # Clearing is a no-op: the engine-side variable persists.
         assert _has_variable("sticky", flow)
 
-    def test_rename_collision_is_silent(self, set_variable_node: BaseNode, flow: str) -> None:
+    def test_repointing_to_existing_name_does_not_clobber(self, set_variable_node: BaseNode, flow: str) -> None:
         collision_result = GriptapeNodes.handle_request(
             CreateVariableRequest(name="taken", type="str", is_global=False, value="reserved", owning_flow=flow)
         )
@@ -147,7 +154,7 @@ class TestSetVariableEagerRegistration:
         set_variable_node.set_parameter_value("variable_name", "mine")
         assert _has_variable("mine", flow)
 
-        # Attempting to rename into the taken name must not raise, and must not clobber
+        # Pointing this node at an existing name must not raise, and must not clobber
         # the existing variable's value.
         set_variable_node.set_parameter_value("variable_name", "taken")
 
@@ -164,3 +171,41 @@ class TestSetVariableEagerRegistration:
 
         # Entering an existing name must not clobber its value.
         assert _get_variable_value("shared", flow) == "keep"
+
+    def test_repointing_one_node_does_not_orphan_other_aliases(self, flow: str) -> None:
+        """Repointing one node's ``variable_name`` must never mutate another node's variable.
+
+        Scenario: node A owns ``X``, node B owns ``Y``, node C also points at ``X`` (adopted
+        silently). Re-point C from ``X`` to a brand-new name ``Z``. Node A must still see ``X``.
+        This is the aliasing bug that motivated dropping the eager-rename path.
+        """
+        create_a = GriptapeNodes.handle_request(
+            CreateNodeRequest(node_type="SetVariable", override_parent_flow_name=flow)
+        )
+        create_b = GriptapeNodes.handle_request(
+            CreateNodeRequest(node_type="SetVariable", override_parent_flow_name=flow)
+        )
+        create_c = GriptapeNodes.handle_request(
+            CreateNodeRequest(node_type="SetVariable", override_parent_flow_name=flow)
+        )
+        assert isinstance(create_a, CreateNodeResultSuccess)
+        assert isinstance(create_b, CreateNodeResultSuccess)
+        assert isinstance(create_c, CreateNodeResultSuccess)
+
+        node_a = GriptapeNodes.NodeManager().get_node_by_name(create_a.node_name)
+        node_b = GriptapeNodes.NodeManager().get_node_by_name(create_b.node_name)
+        node_c = GriptapeNodes.NodeManager().get_node_by_name(create_c.node_name)
+
+        node_a.set_parameter_value("variable_name", "X")
+        node_b.set_parameter_value("variable_name", "Y")
+        node_c.set_parameter_value("variable_name", "X")  # silently adopts existing X
+
+        assert _has_variable("X", flow)
+        assert _has_variable("Y", flow)
+
+        # Re-point C to a brand-new name. X must remain so that A still resolves.
+        node_c.set_parameter_value("variable_name", "Z")
+
+        assert _has_variable("X", flow), "Node A's variable was orphaned by Node C's edit"
+        assert _has_variable("Y", flow)
+        assert _has_variable("Z", flow)

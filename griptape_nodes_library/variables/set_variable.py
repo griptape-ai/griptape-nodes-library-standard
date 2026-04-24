@@ -19,8 +19,6 @@ from griptape_nodes.retained_mode.events.variable_events import (
     CreateVariableResultSuccess,
     HasVariableRequest,
     HasVariableResultSuccess,
-    RenameVariableRequest,
-    RenameVariableResultSuccess,
     SetVariableTypeRequest,
     SetVariableTypeResultSuccess,
     SetVariableValueRequest,
@@ -103,10 +101,16 @@ class SetVariable(ControlNode):
         # at its last inferred type is less disruptive than clobbering to 'any' on disconnect.
 
     def before_value_set(self, parameter: Parameter, value: Any) -> Any:
-        """Eagerly register/rename the variable in the engine as the user edits ``variable_name``.
+        """Eagerly ensure the variable named in ``variable_name`` exists in the engine.
 
-        This allows downstream nodes (``GetVariable``, ``HasVariable``) to see the variable
-        at graph-edit time instead of only after this node has run.
+        Letting the variable exist at graph-edit time means downstream nodes (``GetVariable``,
+        ``HasVariable``) can see it before this node has run.
+
+        We deliberately do NOT rename the prior variable when ``variable_name`` changes.
+        There is no UI signal distinguishing "rename the variable I own" from "point this node
+        at a different variable," so editing the name is always treated as the latter. Any
+        engine-side variable left behind by a re-point is filtered out at save time by
+        ``NodeDependencies``-driven serialization.
 
         If the node isn't attached to a flow yet (e.g. during deserialization), eager action
         is silently skipped; ``process()`` will create the variable when the flow runs.
@@ -114,25 +118,16 @@ class SetVariable(ControlNode):
         if parameter is not self.variable_name_param:
             return value
 
-        old_name = self.get_parameter_value(self.variable_name_param.name)
         new_name = value
-
-        # No-op transitions we can short-circuit without touching the engine.
-        if old_name == new_name:
-            return value
         if not new_name:
-            # Clearing the field: leave any existing variable alone. Users often blank the field
-            # mid-retype; auto-deleting would destroy data and confuse other nodes that reference it.
+            # Clearing the field: nothing to register yet.
             return value
 
         try:
-            if not old_name:
-                self._eager_create_variable(new_name)
-            else:
-                self._eager_rename_variable(old_name=old_name, new_name=new_name)
+            self._eager_create_variable(new_name)
         except (RuntimeError, ValueError, LookupError) as exc:
-            # Node may not be attached to a flow yet, or the engine rejected the op (e.g. rename
-            # collision). process() will reconcile on run.
+            # Node may not be attached to a flow yet, or the engine rejected the op.
+            # process() will reconcile on run.
             logger.debug("SetVariable '%s' skipped eager registration: %s", self.name, exc)
 
         return value
@@ -158,27 +153,6 @@ class SetVariable(ControlNode):
         create_result = GriptapeNodes.handle_request(create_request)
         if not isinstance(create_result, CreateVariableResultSuccess):
             msg = f"Eager create for variable '{variable_name}' failed: {create_result.result_details}"
-            raise RuntimeError(msg)  # noqa: TRY004
-
-    def _eager_rename_variable(self, old_name: str, new_name: str) -> None:
-        """Rename the variable in the engine. Skips silently if old doesn't exist; raises on collision."""
-        current_flow_name = _get_flow_for_node(self.name)
-
-        # If the old variable isn't registered (node was never eagerly registered, or user
-        # edited before the flow existed), fall through to a create for the new name.
-        if not has_variable(node_name=self.name, variable_name=old_name, scope=VariableScope.CURRENT_FLOW_ONLY):
-            self._eager_create_variable(new_name)
-            return
-
-        rename_request = RenameVariableRequest(
-            name=old_name,
-            new_name=new_name,
-            lookup_scope=VariableScope.CURRENT_FLOW_ONLY,
-            starting_flow=current_flow_name,
-        )
-        rename_result = GriptapeNodes.handle_request(rename_request)
-        if not isinstance(rename_result, RenameVariableResultSuccess):
-            msg = f"Eager rename from '{old_name}' to '{new_name}' failed: {rename_result.result_details}"
             raise RuntimeError(msg)  # noqa: TRY004
 
     def _try_sync_variable_type(self, new_type: str) -> None:
