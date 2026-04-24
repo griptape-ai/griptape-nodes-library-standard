@@ -614,15 +614,9 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         if not media_input:
             return None
 
-        # Handle artifacts with to_bytes() method
-        if hasattr(media_input, "to_bytes"):
-            try:
-                return media_input.to_bytes()
-            except Exception as e:
-                self._log(f"Failed to get bytes from artifact: {e}")
-                return None
-
-        # Extract string value from various input types
+        # Extract string value from various input types. Route through File() so
+        # path schemes like {outputs}/ resolve correctly — artifact.to_bytes()
+        # uses requests and does not understand those schemes.
         media_value: str | None = None
 
         if isinstance(media_input, str):
@@ -632,9 +626,16 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
             if isinstance(value, str):
                 media_value = value
 
-        # Convert string value to bytes
         if media_value:
             return await self._string_to_bytes(media_value)
+
+        # Fall back to artifact's own byte access if no string value is available.
+        if hasattr(media_input, "to_bytes"):
+            try:
+                return media_input.to_bytes()
+            except Exception as e:
+                self._log(f"Failed to get bytes from artifact: {e}")
+                return None
 
         return None
 
