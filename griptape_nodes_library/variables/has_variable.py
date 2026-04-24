@@ -1,7 +1,14 @@
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import ControlNode, NodeResolutionState
+from griptape_nodes.exe_types.node_types import (
+    ControlNode,
+    NodeDependencies,
+    NodeResolutionState,
+    VariableAccess,
+    VariableReference,
+)
+from griptape_nodes.retained_mode.variable_types import VariableScope
 
 from griptape_nodes_library.variables.variable_utils import (
     create_advanced_parameter_group,
@@ -55,6 +62,28 @@ class HasVariable(ControlNode):
         # Set output values.
         self.parameter_output_values[self.exists_param.name] = exists
         self.parameter_output_values[self.variable_name_param.name] = variable_name
+
+    def get_node_dependencies(self) -> NodeDependencies | None:
+        """Declare the variable this node checks so it survives serialization.
+
+        Access is READ: ``process()`` only calls ``HasVariableRequest``; the existence check
+        is a read with no side effects.
+
+        Reads the current value of ``variable_name`` via ``get_parameter_value`` — if the parameter
+        is driven by an incoming connection, this returns the last propagated value (or ``None`` if
+        nothing has propagated yet). No declaration is emitted for empty/None names.
+        """
+        deps = super().get_node_dependencies()
+        if deps is None:
+            deps = NodeDependencies()
+
+        variable_name = self.get_parameter_value(self.variable_name_param.name)
+        if isinstance(variable_name, str) and variable_name:
+            scope_str = self.get_parameter_value(self.scope_param.name)
+            scope = scope_string_to_variable_scope(scope_str) if scope_str else VariableScope.HIERARCHICAL
+            deps.variable_references.add(VariableReference(name=variable_name, scope=scope, access=VariableAccess.READ))
+
+        return deps
 
     @property
     def state(self) -> NodeResolutionState:
