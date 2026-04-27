@@ -34,6 +34,11 @@ MAX_IMAGES_WITH_VIDEO = 4
 MAX_IMAGES_WITHOUT_VIDEO = 7
 MAX_IMAGES_FOR_END_FRAME = 2
 MAX_MULTI_PROMPT_COUNT = 6
+MODE_STD = "std"
+MODE_PRO = "pro"
+MODE_4K = "4k"
+BASE_MODE_CHOICES = [MODE_STD, MODE_PRO]
+DEFAULT_MODE = MODE_PRO
 
 
 MODEL_NAME_MAP: dict[str, dict[str, str]] = {
@@ -45,6 +50,10 @@ MODEL_NAME_MAP: dict[str, dict[str, str]] = {
         "api_model_id": "kling-v3-omni:omnivideo",
         "payload_model_name": "kling-v3-omni",
     },
+}
+MODEL_CAPABILITIES: dict[str, dict[str, Any]] = {
+    "kling-video-o1": {"modes": BASE_MODE_CHOICES, "supports_4k_with_reference_video": False},
+    "kling-v3-omni": {"modes": [MODE_STD, MODE_PRO, MODE_4K], "supports_4k_with_reference_video": False},
 }
 
 
@@ -223,10 +232,10 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             )
             ParameterString(
                 name="mode",
-                default_value="pro",
-                tooltip="Video generation mode (std: Standard, pro: Professional)",
+                default_value=DEFAULT_MODE,
+                tooltip="Video generation mode. Kling v3.0 Omni also supports 4k when reference_video is not set.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["std", "pro"])},
+                traits={Options(choices=[MODE_STD, MODE_PRO, MODE_4K])},
             )
             ParameterString(
                 name="aspect_ratio",
@@ -296,11 +305,15 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             result_details_placeholder="Generation status and details will appear here.",
             parameter_group_initially_collapsed=True,
         )
+        self._update_mode_choices()
         self._update_multi_shot_parameter_visibility()
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to normalize image inputs."""
         super().after_value_set(parameter, value)
+
+        if parameter.name in {"model_name", "reference_video"}:
+            self._update_mode_choices()
 
         if parameter.name in {"multi_shot", "shot_count"}:
             self._update_multi_shot_parameter_visibility()
@@ -310,6 +323,30 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
             if updated_list != value:
                 self.set_parameter_value("reference_images", updated_list)
+
+    def _get_supported_modes(self) -> list[str]:
+        """Return the valid mode choices for the selected model and inputs."""
+        model_name = self.get_parameter_value("model_name") or "Kling v3.0 Omni"
+        model_config = MODEL_NAME_MAP.get(model_name, MODEL_NAME_MAP["Kling v3.0 Omni"])
+        capabilities = MODEL_CAPABILITIES.get(model_config["payload_model_name"], {"modes": BASE_MODE_CHOICES})
+        supported_modes = list(capabilities.get("modes", BASE_MODE_CHOICES))
+
+        if self.get_parameter_value("reference_video") and not capabilities.get(
+            "supports_4k_with_reference_video", True
+        ):
+            supported_modes = [mode for mode in supported_modes if mode != MODE_4K]
+
+        return supported_modes
+
+    def _update_mode_choices(self) -> None:
+        """Keep the mode dropdown aligned with the selected model and inputs."""
+        supported_modes = self._get_supported_modes()
+        current_mode = self.get_parameter_value("mode")
+        next_mode = current_mode if current_mode in supported_modes else DEFAULT_MODE
+        if next_mode not in supported_modes:
+            next_mode = supported_modes[0]
+
+        self._update_option_choices("mode", supported_modes, next_mode)
 
     def _update_multi_shot_parameter_visibility(self) -> None:
         """Toggle legacy prompt vs per-shot inputs based on multi-shot settings."""
@@ -471,7 +508,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             video_keep_sound = False
 
         video_refer_type = self.get_parameter_value("video_refer_type") or "base"
-        mode = self.get_parameter_value("mode") or "pro"
+        mode = self.get_parameter_value("mode") or DEFAULT_MODE
         aspect_ratio = self.get_parameter_value("aspect_ratio") or "16:9"
         duration = self.get_parameter_value("duration") or 5
 
@@ -621,6 +658,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         element_ids = (self.get_parameter_value("element_ids") or "").strip()
         reference_video_param = self.get_parameter_value("reference_video")
         duration = self.get_parameter_value("duration") or 5
+        mode = self.get_parameter_value("mode") or DEFAULT_MODE
 
         if multi_shot:
             self._validate_customize_multi_shot(exceptions, shot_count, duration)
@@ -650,6 +688,22 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
 
         # Build video list
         has_video = bool(reference_video_param)
+        supported_modes = self._get_supported_modes()
+        if mode not in supported_modes:
+            if mode == MODE_4K and has_video:
+                exceptions.append(
+                    ValueError(
+                        f"{self.name}: Model Kling v3.0 Omni does not support mode '{MODE_4K}' when reference_video is set. "
+                        f"Valid modes: {', '.join(supported_modes)}"
+                    )
+                )
+            else:
+                exceptions.append(
+                    ValueError(
+                        f"{self.name}: Selected configuration does not support mode '{mode}'. "
+                        f"Valid modes: {', '.join(supported_modes)}"
+                    )
+                )
 
         # Get reference images (already a list from ParameterList)
         ref_images_input = reference_images
