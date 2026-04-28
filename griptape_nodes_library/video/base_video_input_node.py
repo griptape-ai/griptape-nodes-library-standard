@@ -137,10 +137,13 @@ class BaseVideoInputNode(SuccessFailureNode, ABC):
         try:
             cmd = [
                 ffprobe_path,
-                "-v", "quiet",
-                "-print_format", "json",
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
                 "-show_streams",
-                "-select_streams", "v:0",
+                "-select_streams",
+                "v:0",
                 input_url,
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)  # noqa: S603
@@ -174,10 +177,14 @@ class BaseVideoInputNode(SuccessFailureNode, ABC):
         try:
             cmd = [
                 ffprobe_path,
-                "-v", "quiet",
-                "-select_streams", "a",
-                "-show_entries", "stream=codec_type",
-                "-of", "csv=p=0",
+                "-v",
+                "quiet",
+                "-select_streams",
+                "a",
+                "-show_entries",
+                "stream=codec_type",
+                "-of",
+                "csv=p=0",
                 input_url,
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)  # noqa: S603

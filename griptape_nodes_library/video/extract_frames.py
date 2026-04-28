@@ -1,4 +1,5 @@
 """Video Frame Extractor node — frame-accurate scrubbing and extraction."""
+
 import json
 import logging
 import pathlib
@@ -29,7 +30,6 @@ logger = logging.getLogger(__name__)
 # 3. Output extracted frames as ImageArtifacts with staticfiles-backed URLs and paths
 
 
-
 """
 Algo:
 - get extraction type
@@ -43,18 +43,22 @@ Algo:
 
 """
 
+
 class VideoFrameExtractor(BaseVideoInputNode):
     """Extract specific frames from a video and save them as images."""
 
     def __init__(self, name: str, metadata: dict[str, typing.Any] | None = None, **kwargs) -> None:
         node_metadata = {
             "category": "video",
-            "description": "Import video, move frame-by-frame, and extract current frame as image.",
+            "description": "Import video, inspect frame-by-frame, and extract selected frames as images.",
         }
         if metadata:
             node_metadata.update(metadata)
         super().__init__(name=name, metadata=node_metadata, **kwargs)
         self.set_initial_node_size(width=980, height=880)
+
+    def _get_output_file_default_filename(self) -> str:
+        return "output_##.png"
 
     def _register_primary_output_parameter(self) -> None:
         self.add_parameter(
@@ -70,60 +74,71 @@ class VideoFrameExtractor(BaseVideoInputNode):
     def _setup_custom_parameters(self) -> None:
         # Input parameters
 
-        self.add_parameter(core_types.Parameter(
-            name="input_video",
-            input_types=["VideoUrlArtifact", "VideoArtifact", "str"],
-            type="VideoUrlArtifact",
-            output_type="VideoUrlArtifact",
-            default_value=None,
-            allowed_modes={core_types.ParameterMode.INPUT},
-            ui_options={"display_name": "Video Input", "hide_property": True},
-            tooltip="Connect a video source here.",
-        ))
+        self.add_parameter(
+            core_types.Parameter(
+                name="input_video",
+                input_types=["VideoUrlArtifact", "VideoArtifact", "str"],
+                type="VideoUrlArtifact",
+                output_type="VideoUrlArtifact",
+                default_value=None,
+                allowed_modes={core_types.ParameterMode.INPUT},
+                ui_options={"display_name": "Video Input", "hide_property": True},
+                tooltip="Connect a video source here.",
+            )
+        )
 
-        self.add_parameter(core_types.Parameter(
-            name="video_player",
-            type="str",
-            output_type="str",
-            default_value="",
-            allowed_modes={core_types.ParameterMode.PROPERTY},
-            tooltip="Video player for precise frame selection.",
-            traits={widget.Widget(name="VideoPlayerFrameSelector", library="Griptape Nodes Library")},
-        ))
+        self.add_parameter(
+            core_types.Parameter(
+                name="video_player",
+                type="str",
+                output_type="str",
+                default_value="",
+                allowed_modes={core_types.ParameterMode.PROPERTY},
+                tooltip="Video player for precise frame selection.",
+                traits={widget.Widget(name="VideoPlayerFrameSelector", library="Griptape Nodes Library")},
+            )
+        )
 
-        self.add_parameter(core_types.Parameter(
-            name="input_frame_numbers",
-            output_type="str",
-            tooltip="Comma-separated list of frame numbers or ranges to extract from the video.",
-            allowed_modes={core_types.ParameterMode.INPUT},
-        ))
+        self.add_parameter(
+            core_types.Parameter(
+                name="input_frame_numbers",
+                output_type="str",
+                tooltip="Comma-separated list of frame numbers or ranges to extract from the video.",
+                allowed_modes={core_types.ParameterMode.INPUT},
+            )
+        )
 
         # Output parameters
 
-        self.add_parameter(core_types.Parameter(
-            name="extracted_frames",
-            output_type="list[ImageArtifact]",
-            tooltip="Extracted frame as ImageArtifact.",
-            allowed_modes={core_types.ParameterMode.OUTPUT},
-            ui_options={"hide_property": True},
-        ))
+        self.add_parameter(
+            core_types.Parameter(
+                name="extracted_frames",
+                output_type="list[ImageArtifact]",
+                tooltip="Extracted frame as ImageArtifact.",
+                allowed_modes={core_types.ParameterMode.OUTPUT},
+                ui_options={"hide_property": True},
+            )
+        )
 
-        self.add_parameter(core_types.Parameter(
-            name="extracted_frame_paths",
-            output_type="list[str]",
-            tooltip="Paths to the extracted frame images.",
-            allowed_modes={core_types.ParameterMode.OUTPUT},
-            ui_options={"hide_property": True},
-        ))
+        self.add_parameter(
+            core_types.Parameter(
+                name="extracted_frame_paths",
+                output_type="list[str]",
+                tooltip="Paths to the extracted frame images.",
+                allowed_modes={core_types.ParameterMode.OUTPUT},
+                ui_options={"hide_property": True},
+            )
+        )
 
-
-        self.add_parameter(core_types.ParameterList(
-            name="extraction_output_formats",
-            input_types=["List[str]", "str"],
-            output_type="dict",
-            tooltip="Output format options for extracted frames, including file format (png, jpg), renaming pattern, padding, and prefix.",
-            allowed_modes={core_types.ParameterMode.PROPERTY, core_types.ParameterMode.INPUT},
-        ))
+        self.add_parameter(
+            core_types.ParameterList(
+                name="extraction_output_formats",
+                input_types=["List[str]", "str"],
+                output_type="dict",
+                tooltip="Output format options for extracted frames, including file format (png, jpg), renaming pattern, padding, and prefix.",
+                allowed_modes={core_types.ParameterMode.PROPERTY, core_types.ParameterMode.INPUT},
+            )
+        )
 
         self.add_parameter(
             core_types.Parameter(
@@ -172,9 +187,12 @@ class VideoFrameExtractor(BaseVideoInputNode):
         timestamp: str = kwargs.get("timestamp", "00:00:00.000")
         return [
             ffmpeg_path,
-            "-ss", timestamp,
-            "-i", input_url,
-            "-vframes", "1",
+            "-ss",
+            timestamp,
+            "-i",
+            input_url,
+            "-vframes",
+            "1",
             "-y",
             output_path,
         ]
@@ -214,10 +232,13 @@ class VideoFrameExtractor(BaseVideoInputNode):
         _, ffprobe_path = self._get_ffmpeg_paths()
         cmd = [
             ffprobe_path,
-            "-v", "quiet",
-            "-print_format", "json",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
             "-show_streams",
-            "-select_streams", "v:0",
+            "-select_streams",
+            "v:0",
             input_url,
         ]
         try:
@@ -274,7 +295,7 @@ class VideoFrameExtractor(BaseVideoInputNode):
             self.append_value_to_parameter("logs", f"Saved frame {frame_number} → {output_path}\n")
 
         return saved_paths
-    
+
     def after_value_set(self, parameter: core_types.Parameter, value: typing.Any) -> None:
         """Automatically update video_player URL when input_video changes."""
         if parameter.name == "input_video":
@@ -288,7 +309,6 @@ class VideoFrameExtractor(BaseVideoInputNode):
             elif current_base:
                 self.set_parameter_value("video_player", "")
         return super().after_value_set(parameter, value)
-
 
     def process(self) -> node_types.AsyncResult[None]:
         self._clear_execution_status()
