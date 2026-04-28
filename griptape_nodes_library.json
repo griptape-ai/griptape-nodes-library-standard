@@ -2714,6 +2714,17 @@
       }
     },
     {
+      "class_name": "LoadSplat",
+      "file_path": "griptape_nodes_library/splat/load_splat.py",
+      "metadata": {
+        "category": "Splat",
+        "description": "Loads Gaussian splat files into your workflow",
+        "display_name": "Load Splat",
+        "icon": "file-up",
+        "group": "Input/Output"
+      }
+    },
+    {
       "class_name": "ForLoopStartNode",
       "file_path": "griptape_nodes_library/execution/for_loop_start.py",
       "metadata": {
