@@ -768,6 +768,17 @@
       }
     },
     {
+      "class_name": "VideoFrameExtractor",
+      "file_path": "griptape_nodes_library/video/extract_frames.py",
+      "metadata": {
+        "category": "video",
+        "description": "Import video, inspect frame-by-frame, and extract selected frames as images.",
+        "display_name": "Video Frame Extractor",
+        "icon": "film",
+        "group": "edit"
+      }
+    },
+    {
       "class_name": "SeedanceVideoGeneration",
       "file_path": "griptape_nodes_library/video/seedance_video_generation.py",
       "metadata": {
