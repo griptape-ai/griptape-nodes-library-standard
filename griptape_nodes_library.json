@@ -60,6 +60,11 @@
       "name": "MaskAdjustmentPreview",
       "path": "widgets/MaskAdjustmentPreview.js",
       "description": "Interactive preview for mask adjustment with timeline scrubbing and dilation/erosion controls."
+    },
+    {
+      "name": "VideoPlayerFrameSelector",
+      "path": "griptape_nodes_library/video/widgets/VideoPlayerFrameSelector.js",
+      "description": "Video player with frame selection capabilities for precise video manipulation nodes."
     }
   ],
   "categories": [
