@@ -109,11 +109,7 @@ class BaseVideoInputNode(SuccessFailureNode, ABC):
 
     @abstractmethod
     def _get_output_file_default_filename(self) -> str:
-        """Return the default filename for the output_file parameter.
-
-        Subclasses may declare OUTPUT_FILE_DEFAULT_FILENAME as a class variable
-        instead of overriding this method.
-        """
+        """Return the default filename for the output_file parameter."""
 
     def _setup_logging_group(self) -> None:
         with ParameterGroup(name="Logs") as logs_group:
