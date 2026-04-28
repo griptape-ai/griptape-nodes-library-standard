@@ -34,6 +34,7 @@ class BaseVideoInputNode(SuccessFailureNode, ABC):
     BaseVideoProcessor instead.
     """
 
+    # Default video properties constants
     DEFAULT_FRAME_RATE = 30.0
     DEFAULT_WIDTH = 1920
     DEFAULT_HEIGHT = 1080
@@ -62,13 +63,11 @@ class BaseVideoInputNode(SuccessFailureNode, ABC):
 
         self._register_primary_output_parameter()
 
-        # Separate hook so subclasses can co-locate their output file setup with
-        # _register_primary_output_parameter() if they prefer, while still keeping
-        # the two steps distinct in __init__.
         self._register_output_file_parameter()
 
         self._setup_logging_group()
 
+        # Add status parameters using the helper method
         self._create_status_parameters(
             result_details_tooltip="Details about the processing operation result",
             result_details_placeholder="Details on the processing attempt will be presented here.",
@@ -120,7 +119,7 @@ class BaseVideoInputNode(SuccessFailureNode, ABC):
                 ui_options={"multiline": True, "placeholder_text": "Logs"},
                 allowed_modes={ParameterMode.OUTPUT},
             )
-        logs_group.ui_options = {"hide": True}
+        logs_group.ui_options = {"hide": True}  # Hide the logs group by default
         self.add_node_element(logs_group)
 
     def _get_ffmpeg_paths(self) -> tuple[str, str]:
@@ -146,12 +145,14 @@ class BaseVideoInputNode(SuccessFailureNode, ABC):
                 "v:0",
                 input_url,
             ]
+            # URL is validated via _validate_url_safety() before this call
             result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)  # noqa: S603
             streams_data = json.loads(result.stdout)
 
             if streams_data.get("streams") and len(streams_data["streams"]) > 0:
                 video_stream = streams_data["streams"][0]
 
+                # Get frame rate
                 fps_str = video_stream.get("r_frame_rate", "30/1")
                 if "/" in fps_str:
                     num, den = map(int, fps_str.split("/"))
@@ -159,9 +160,11 @@ class BaseVideoInputNode(SuccessFailureNode, ABC):
                 else:
                     frame_rate = float(fps_str)
 
+                # Get resolution
                 width = int(video_stream.get("width", self.DEFAULT_WIDTH))
                 height = int(video_stream.get("height", self.DEFAULT_HEIGHT))
 
+                # Get duration
                 duration_str = video_stream.get("duration", "0")
                 duration = float(duration_str) if duration_str != "N/A" else self.DEFAULT_DURATION
 
@@ -188,30 +191,45 @@ class BaseVideoInputNode(SuccessFailureNode, ABC):
                 input_url,
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)  # noqa: S603
+            # If there are audio streams, ffprobe will return "audio" for each stream
             return "audio" in result.stdout.strip()
         except subprocess.CalledProcessError:
+            # If ffprobe fails, assume no audio
             return False
         except Exception:
+            # If any other error, assume no audio
             return False
 
     def _convert_video_input(self, value: Any) -> Any:
-        """Convert dict inputs to VideoUrlArtifact (string paths handled by ParameterVideo)."""
+        """Convert video input (dict or VideoUrlArtifact) to VideoUrlArtifact.
+
+        Note: String paths are automatically normalized to VideoUrlArtifact
+        by ParameterVideo's normalize_video_input converter (runs before this).
+        """
         if isinstance(value, dict):
             return dict_to_video_url_artifact(value)
         return value
 
     def _validate_video_input(self) -> list[Exception] | None:
+        """Common video input validation."""
         exceptions = []
+
+        # Validate that we have a video
         video = self.parameter_values.get("video")
         if not video:
             msg = f"{self.name}: Video parameter is required"
             exceptions.append(ValueError(msg))
+
+        # Make sure it's a video artifact (converter should have handled dict conversion)
         if not isinstance(video, VideoUrlArtifact):
             msg = f"{self.name}: Video parameter must be a VideoUrlArtifact"
             exceptions.append(ValueError(msg))
+
+        # Make sure it has a value
         if hasattr(video, "value") and not video.value:  # type: ignore  # noqa: PGH003
             msg = f"{self.name}: Video parameter must have a value"
             exceptions.append(ValueError(msg))
+
         return exceptions if exceptions else None
 
     def _validate_url_safety(self, url: str) -> None:
@@ -267,13 +285,19 @@ class BaseVideoInputNode(SuccessFailureNode, ABC):
         return None
 
     def validate_before_node_run(self) -> list[Exception] | None:
+        """Common video input validation."""
         exceptions = []
+
+        # Use base class validation for video input
         base_exceptions = self._validate_video_input()
         if base_exceptions:
             exceptions.extend(base_exceptions)
+
+        # Add custom validation from subclasses
         custom_exceptions = self._validate_custom_parameters()
         if custom_exceptions:
             exceptions.extend(custom_exceptions)
+
         return exceptions if exceptions else None
 
     def _generate_filename(self, suffix: str = "", extension: str = "") -> str:
