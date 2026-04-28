@@ -950,6 +950,39 @@
       }
     },
     {
+      "class_name": "CartwheelCharacterGeneration",
+      "file_path": "griptape_nodes_library/video/cartwheel_character_generation.py",
+      "metadata": {
+        "category": "video",
+        "description": "Generate Cartwheel characters from text or a Cartwheel reference image media ID via Griptape Cloud model proxy.",
+        "display_name": "Cartwheel Character Generation",
+        "icon": "Sparkles",
+        "group": "create"
+      }
+    },
+    {
+      "class_name": "CartwheelMascotGeneration",
+      "file_path": "griptape_nodes_library/video/cartwheel_mascot_generation.py",
+      "metadata": {
+        "category": "video",
+        "description": "Create mascot replacement videos with Cartwheel via Griptape Cloud model proxy.",
+        "display_name": "Cartwheel Mascot Generation",
+        "icon": "Sparkles",
+        "group": "create"
+      }
+    },
+    {
+      "class_name": "CartwheelMotionGeneration",
+      "file_path": "griptape_nodes_library/video/cartwheel_motion_generation.py",
+      "metadata": {
+        "category": "video",
+        "description": "Create motion with Cartwheel from text or reference video via Griptape Cloud model proxy.",
+        "display_name": "Cartwheel Motion Generation",
+        "icon": "Sparkles",
+        "group": "create"
+      }
+    },
+    {
       "class_name": "SoraVideoGeneration",
       "file_path": "griptape_nodes_library/video/sora_video_generation.py",
       "metadata": {
