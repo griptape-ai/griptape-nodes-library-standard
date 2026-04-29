@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json as _json
 import logging
@@ -8,15 +9,15 @@ from typing import Any
 
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterMode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,13 @@ class ElevenLabsMusicGeneration(GriptapeProxyNode):
             )
         )
 
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="music.mp3",
+        )
+        self._output_file.add_parameter()
+
         # Create status output parameters for success/failure information
         self._create_status_parameters(
             result_details_tooltip="Details about the music generation result or any errors encountered",
@@ -209,7 +217,7 @@ class ElevenLabsMusicGeneration(GriptapeProxyNode):
                 return
 
             try:
-                audio_bytes = base64.b64decode(audio_base64)
+                audio_bytes = await asyncio.to_thread(base64.b64decode, audio_base64)
                 self._log("Decoded base64 audio")
             except Exception as e:
                 self._log(f"Failed to decode base64 audio: {e}")
@@ -222,22 +230,10 @@ class ElevenLabsMusicGeneration(GriptapeProxyNode):
 
         # Save audio with appropriate file extension
         try:
-            # Determine file extension based on output format
-            output_format = self.get_parameter_value("output_format") or "mp3_44100_128"
-            if output_format.startswith("mp3_"):
-                ext = "mp3"
-            elif output_format.startswith(("pcm_", "ulaw_", "alaw_")):
-                ext = "wav"
-            elif output_format.startswith("opus_"):
-                ext = "opus"
-            else:
-                ext = "mp3"
-
-            filename = f"eleven_music_{generation_id}.{ext}"
-            static_files_manager = GriptapeNodes.StaticFilesManager()
-            saved_url = static_files_manager.save_static_file(audio_bytes, filename)
-            self.parameter_output_values["audio_url"] = AudioUrlArtifact(value=saved_url, name=filename)
-            self._log(f"Saved audio to static storage as {filename}")
+            dest = self._output_file.build_file()
+            saved = await dest.awrite_bytes(audio_bytes)
+            self.parameter_output_values["audio_url"] = AudioUrlArtifact(value=saved.location, name=saved.name)
+            self._log(f"Saved audio as {saved.name}")
         except Exception as e:
             self._log(f"Failed to save audio: {e}")
             self._set_safe_defaults()

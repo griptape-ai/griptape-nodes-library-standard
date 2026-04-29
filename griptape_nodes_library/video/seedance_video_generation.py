@@ -8,6 +8,7 @@ from typing import Any, ClassVar
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -15,11 +16,10 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -217,6 +217,13 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
                 ui_options={"pulse_on_run": True},
             )
         )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="seedance_video.mp4",
+        )
+        self._output_file.add_parameter()
 
         # Create status parameters for success/failure tracking (at the end)
         self._create_status_parameters(
@@ -525,23 +532,22 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
             self._log(f"Failed to download video: {e}")
             video_bytes = None
 
-        # Save video to static storage or use provider URL as fallback
+        # Save video or use provider URL as fallback
         if video_bytes:
             try:
-                static_files_manager = GriptapeNodes.StaticFilesManager()
-                filename = f"seedance_video_{generation_id}.mp4"
-                saved_url = static_files_manager.save_static_file(video_bytes, filename)
-                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved_url, name=filename)
-                self._log(f"Saved video to static storage as {filename}")
+                dest = self._output_file.build_file()
+                saved = await dest.awrite_bytes(video_bytes)
+                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
+                self._log(f"Saved video as {saved.name}")
                 self._set_status_results(
-                    was_successful=True, result_details=f"Video generated successfully and saved as {filename}."
+                    was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
                 )
             except Exception as e:
-                self._log(f"Failed to save to static storage: {e}, using provider URL")
+                self._log(f"Failed to save video: {e}, using provider URL")
                 self.parameter_output_values["video_url"] = VideoUrlArtifact(value=extracted_url)
                 self._set_status_results(
                     was_successful=True,
-                    result_details=f"Video generated successfully. Using provider URL (could not save to static storage: {e}).",
+                    result_details=f"Video generated successfully. Using provider URL (could not save to storage: {e}).",
                 )
         else:
             self.parameter_output_values["video_url"] = VideoUrlArtifact(value=extracted_url)

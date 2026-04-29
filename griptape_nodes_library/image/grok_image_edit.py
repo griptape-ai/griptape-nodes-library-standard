@@ -1,21 +1,20 @@
 from __future__ import annotations
 
 import logging
-import time
 from contextlib import suppress
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -83,7 +82,7 @@ class GrokImageEdit(GriptapeProxyNode):
                 name="image",
                 default_value="",
                 tooltip="Input image to edit",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Image"},
             )
         )
@@ -149,6 +148,13 @@ class GrokImageEdit(GriptapeProxyNode):
                     ui_options={"pulse_on_run": True, "hide": i > 1},
                 )
             )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="grok_image_edit.jpg",
+        )
+        self._output_file.add_parameter()
 
         self._create_status_parameters(
             result_details_tooltip="Details about the image editing result or any errors",
@@ -328,14 +334,9 @@ class GrokImageEdit(GriptapeProxyNode):
             if not image_bytes:
                 return ImageUrlArtifact(value=image_url)
 
-            filename = (
-                f"grok_image_edit_{generation_id}_{index}.jpg"
-                if generation_id
-                else f"grok_image_edit_{int(time.time())}_{index}.jpg"
-            )
-            static_files_manager = GriptapeNodes.StaticFilesManager()
-            saved_url = static_files_manager.save_static_file(image_bytes, filename)
-            return ImageUrlArtifact(value=saved_url, name=filename)
+            dest = self._output_file.build_file()
+            saved = await dest.awrite_bytes(image_bytes)
+            return ImageUrlArtifact(value=saved.location, name=saved.name)
         except Exception as e:
             with suppress(Exception):
                 logger.warning("%s failed to save image %s: %s", self.name, index, e)

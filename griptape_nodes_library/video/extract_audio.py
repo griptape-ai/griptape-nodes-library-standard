@@ -34,9 +34,8 @@ class ExtractAudio(BaseVideoProcessor):
         # Hide parameters that aren't relevant for audio extraction
         self.hide_parameter_by_name("output_frame_rate")
         self.hide_parameter_by_name("processing_speed")
-        self.hide_parameter_by_name("output")
 
-        # Add audio output parameter
+    def _register_primary_output_parameter(self) -> None:
         self.add_parameter(
             ParameterAudio(
                 name="extracted_audio",
@@ -148,16 +147,11 @@ class ExtractAudio(BaseVideoProcessor):
         audio_quality = kwargs.get("audio_quality", self.DEFAULT_AUDIO_QUALITY)
         return f"_extracted_audio_{audio_format}_{audio_quality}"
 
-    def _save_audio_artifact(self, audio_bytes: bytes, format_extension: str, suffix: str = "") -> AudioUrlArtifact:
-        """Save audio bytes to static file and return AudioUrlArtifact."""
-        import uuid
-
-        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
-        # Generate meaningful filename
-        filename = f"extracted_audio{suffix}_{uuid.uuid4().hex[:8]}.{format_extension}"
-        url = GriptapeNodes.StaticFilesManager().save_static_file(audio_bytes, filename)
-        return AudioUrlArtifact(url)
+    def _save_audio_artifact(self, audio_bytes: bytes) -> AudioUrlArtifact:
+        """Save audio bytes to project storage and return AudioUrlArtifact."""
+        dest = self._output_file.build_file()
+        saved = dest.write_bytes(audio_bytes)
+        return AudioUrlArtifact(saved.location)
 
     def process(self) -> AsyncResult[None]:
         """Extract audio from the input video and save as AudioUrlArtifact."""
@@ -244,11 +238,8 @@ class ExtractAudio(BaseVideoProcessor):
             with temp_audio_path.open("rb") as f:
                 audio_bytes = f.read()
 
-            # Get output suffix
-            suffix = self._get_output_suffix(**kwargs)
-
             # Save as AudioUrlArtifact
-            audio_artifact = self._save_audio_artifact(audio_bytes, audio_format, suffix)
+            audio_artifact = self._save_audio_artifact(audio_bytes)
 
             # Set the output parameter
             self.parameter_output_values["extracted_audio"] = audio_artifact

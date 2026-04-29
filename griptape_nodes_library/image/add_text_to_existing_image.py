@@ -10,6 +10,7 @@ from typing import Any
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
@@ -20,11 +21,9 @@ from griptape_nodes.traits.options import Options
 from PIL import Image, ImageDraw, ImageFont
 
 from griptape_nodes_library.utils.color_utils import parse_color_to_rgba
-from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     load_pil_from_url,
-    save_pil_image_with_named_filename,
 )
 
 TEXT_PREVIEW_LENGTH = 50
@@ -178,6 +177,9 @@ class AddTextToExistingImage(SuccessFailureNode):
             result_details_placeholder="Details on the text rendering will be presented here.",
             parameter_group_initially_collapsed=True,
         )
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="text_overlay.png")
+        self._output_file.add_parameter()
 
     def _expand_text_template(self, template: str, template_values: Any) -> _TextExpansionResult:
         template_value = template or ""
@@ -589,14 +591,9 @@ class AddTextToExistingImage(SuccessFailureNode):
         raise ValueError(msg)
 
     def _upload_png_bytes(self, png_bytes: bytes) -> ImageUrlArtifact:
-        pil_image = Image.open(BytesIO(png_bytes))
-
-        filename = generate_filename(
-            node_name=self.name,
-            suffix="_text_overlay",
-            extension="png",
-        )
-        return save_pil_image_with_named_filename(pil_image, filename, "PNG")
+        dest = self._output_file.build_file()
+        saved = dest.write_bytes(png_bytes)
+        return ImageUrlArtifact(saved.location)
 
     def _get_success_message(self, text: str) -> str:
         text_preview = text[:TEXT_PREVIEW_LENGTH]

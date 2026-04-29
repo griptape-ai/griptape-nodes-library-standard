@@ -6,6 +6,7 @@ from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -13,10 +14,9 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -26,6 +26,8 @@ __all__ = ["LTXImageToVideoGeneration"]
 MODEL_MAPPING = {
     "LTX 2 Pro": "ltx-2-pro",
     "LTX 2 Fast": "ltx-2-fast",
+    "LTX 2.3 Pro": "ltx-2-3-pro",
+    "LTX 2.3 Fast": "ltx-2-3-fast",
 }
 
 # Camera motion options
@@ -46,7 +48,7 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
     Inputs:
         - image (ImageArtifact|ImageUrlArtifact|str): Input image (required, base64 data URI format)
         - prompt (str): Text prompt for video generation (required)
-        - model (str): Model to use (LTX 2 Pro or LTX 2 Fast)
+        - model (str): Model to use (LTX 2 Pro, LTX 2 Fast, LTX 2.3 Pro, or LTX 2.3 Fast)
         - resolution (str): Video resolution (1920x1080, 2560x1440, or 3840x2160)
         - duration (int): Video length in seconds
         - fps (int): Frames per second (default: 25)
@@ -65,34 +67,40 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
     API_KEY_NAME = "GT_CLOUD_API_KEY"
     DEFAULT_MAX_ATTEMPTS = 240
 
+    FAST_MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
+        "resolutions": {
+            "1920x1080": {
+                "fps": {25: [6, 8, 10, 12, 14, 16, 18, 20], 50: [6, 8, 10]},
+            },
+            "2560x1440": {
+                "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "3840x2160": {
+                "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+        }
+    }
+
+    PRO_MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
+        "resolutions": {
+            "1920x1080": {
+                "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "2560x1440": {
+                "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "3840x2160": {
+                "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+        }
+    }
+
     # Model capability definitions
     MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
-        "ltx-2-fast": {
-            "resolutions": {
-                "1920x1080": {
-                    "fps": {25: [6, 8, 10, 12, 14, 16, 18, 20], 50: [6, 8, 10]},
-                },
-                "2560x1440": {
-                    "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
-                },
-                "3840x2160": {
-                    "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
-                },
-            }
-        },
-        "ltx-2-pro": {
-            "resolutions": {
-                "1920x1080": {
-                    "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
-                },
-                "2560x1440": {
-                    "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
-                },
-                "3840x2160": {
-                    "fps": {25: [6, 8, 10], 50: [6, 8, 10]},
-                },
-            }
-        },
+        "ltx-2-fast": FAST_MODEL_CAPABILITIES,
+        "ltx-2-3-fast": FAST_MODEL_CAPABILITIES,
+        "ltx-2-pro": PRO_MODEL_CAPABILITIES,
+        "ltx-2-3-pro": PRO_MODEL_CAPABILITIES,
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -105,7 +113,7 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
                 default_value="LTX 2 Fast",
                 tooltip="Model to use for video generation",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["LTX 2 Pro", "LTX 2 Fast"])},
+                traits={Options(choices=["LTX 2 Pro", "LTX 2 Fast", "LTX 2.3 Pro", "LTX 2.3 Fast"])},
             )
         )
         self.add_parameter(
@@ -200,6 +208,13 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
                 ui_options={"pulse_on_run": True},
             )
         )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="ltx_image_video.mp4",
+        )
+        self._output_file.add_parameter()
 
         # Create status parameters for success/failure tracking
         self._create_status_parameters(
@@ -421,13 +436,12 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
             return
 
         try:
-            static_files_manager = GriptapeNodes.StaticFilesManager()
-            filename = f"ltx_image_to_video_{generation_id}.mp4"
-            saved_url = static_files_manager.save_static_file(video_bytes, filename)
-            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved_url, name=filename)
-            logger.info("%s saved video to static storage as %s", self.name, filename)
+            dest = self._output_file.build_file()
+            saved = await dest.awrite_bytes(video_bytes)
+            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
+            logger.info("%s saved video as %s", self.name, saved.name)
             self._set_status_results(
-                was_successful=True, result_details=f"Video generated successfully and saved as {filename}."
+                was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
             )
         except (OSError, PermissionError) as e:
             logger.error("%s failed to save to static storage: %s", self.name, e)

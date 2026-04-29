@@ -29,7 +29,7 @@ MODEL_CHOICES = [
 ]
 DEFAULT_MODEL = MODEL_CHOICES[2]  # claude-sonnet-4-6
 
-# Models that do not support sampling parameters (temperature, top_p)
+# Models that do not support sampling parameters (temperature, top_p, top_k)
 MODELS_WITHOUT_SAMPLING_PARAMS = {"claude-opus-4-7"}
 
 # Deprecated models and their replacements

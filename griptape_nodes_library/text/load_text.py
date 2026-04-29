@@ -3,7 +3,7 @@ from typing import Any
 
 from griptape.loaders import PdfLoader
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import ControlNode
+from griptape_nodes.exe_types.node_types import ControlNode, NodeDependencies
 from griptape_nodes.files.file import File
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 
@@ -49,6 +49,15 @@ class LoadText(ControlNode):
             )
         )
 
+    def get_node_dependencies(self) -> NodeDependencies | None:
+        deps = super().get_node_dependencies()
+        if deps is None:
+            deps = NodeDependencies()
+        value = self.get_parameter_value("path")
+        if value and isinstance(value, str):
+            deps.static_files.add(value)
+        return deps
+
     def process(self) -> None:
         # Get the selected file
         text_path = self.get_parameter_value("path")
@@ -56,7 +65,8 @@ class LoadText(ControlNode):
         # Load file content based on extension
         ext = os.path.splitext(text_path)[1]  # noqa: PTH122
         if ext.lower() == ".pdf":
-            output_text = PdfLoader().load(text_path)[0].value
+            pages_artifact = PdfLoader().load(text_path)
+            output_text = "\n\n".join(page.value for page in pages_artifact)
         else:
             output_text = File(text_path).read_text()
 

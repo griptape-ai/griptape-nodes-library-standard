@@ -6,14 +6,14 @@ from typing import Any
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from PIL import Image, ImageChops
 
-from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
+    image_to_bytes,
     load_pil_from_url,
-    save_pil_image_with_named_filename,
 )
 
 
@@ -53,6 +53,9 @@ class CombineMasks(DataNode):
                 ui_options={"expander": True, "edit_mask": True, "edit_mask_paint_mask": True},
             )
         )
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="combined_mask.png")
+        self._output_file.add_parameter()
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions: list[Exception] = []
@@ -119,12 +122,10 @@ class CombineMasks(DataNode):
         if combined is None:
             return
 
-        filename = generate_filename(
-            node_name=self.name,
-            suffix="_combined_mask",
-            extension="png",
-        )
-        output_artifact = save_pil_image_with_named_filename(combined, filename, "PNG")
+        image_bytes = image_to_bytes(combined, "PNG")
+        dest = self._output_file.build_file()
+        saved = dest.write_bytes(image_bytes)
+        output_artifact = ImageUrlArtifact(saved.location)
         self.set_parameter_value("output_mask", output_artifact)
         self.publish_update_to_parameter("output_mask", output_artifact)
         self.parameter_output_values["output_mask"] = output_artifact

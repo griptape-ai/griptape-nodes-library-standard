@@ -1,27 +1,18 @@
 from io import BytesIO
 from typing import Any
 
-import httpx
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.events.static_file_events import (
-    CreateStaticFileDownloadUrlRequest,
-    CreateStaticFileDownloadUrlResultFailure,
-    CreateStaticFileDownloadUrlResultSuccess,
-    CreateStaticFileUploadUrlRequest,
-    CreateStaticFileUploadUrlResultFailure,
-    CreateStaticFileUploadUrlResultSuccess,
-)
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.color_picker import ColorPicker
 from PIL import Image, ImageDraw, ImageFont
 
 from griptape_nodes_library.utils.color_utils import parse_color_to_rgba
-from griptape_nodes_library.utils.file_utils import generate_filename
 
 # Constants
 TEXT_PREVIEW_LENGTH = 50
@@ -102,6 +93,13 @@ class AddTextToImage(SuccessFailureNode):
                 settable=False,
             )
         )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="text_image.png",
+        )
+        self._output_file.add_parameter()
 
         # Add status parameters using the helper method
         self._create_status_parameters(
@@ -267,56 +265,12 @@ class AddTextToImage(SuccessFailureNode):
         self.parameter_output_values["image"] = None
 
     def _upload_image_to_static_storage(self, image: Image.Image) -> ImageUrlArtifact:
-        """Upload PIL Image to static storage and return ImageUrlArtifact."""
+        """Save PIL Image to project file storage and return ImageUrlArtifact."""
         # Convert PIL Image to PNG bytes in memory
         img_bytes = BytesIO()
         image.save(img_bytes, format="PNG")
         img_data = img_bytes.getvalue()
 
-        # Generate filename
-        filename = generate_filename(
-            node_name=self.name,
-            suffix="_text_image",
-            extension="png",
-        )
-
-        # Create upload URL request
-        upload_request = CreateStaticFileUploadUrlRequest(file_name=filename)
-        upload_result = GriptapeNodes.handle_request(upload_request)
-
-        if isinstance(upload_result, CreateStaticFileUploadUrlResultFailure):
-            error_msg = f"Failed to create upload URL for file '{filename}': {upload_result.error}"
-            raise RuntimeError(error_msg)  # noqa: TRY004
-
-        if not isinstance(upload_result, CreateStaticFileUploadUrlResultSuccess):
-            error_msg = f"Static file API returned unexpected result type: {type(upload_result).__name__}"
-            raise RuntimeError(error_msg)  # noqa: TRY004
-
-        # Upload the PNG bytes
-        try:
-            response = httpx.request(
-                upload_result.method,
-                upload_result.url,
-                content=img_data,
-                headers=upload_result.headers,
-                timeout=60,
-            )
-            response.raise_for_status()
-        except Exception as e:
-            error_msg = f"Failed to upload image data: {e}"
-            raise RuntimeError(error_msg) from e
-
-        # Get download URL
-        download_request = CreateStaticFileDownloadUrlRequest(file_name=filename)
-        download_result = GriptapeNodes.handle_request(download_request)
-
-        if isinstance(download_result, CreateStaticFileDownloadUrlResultFailure):
-            error_msg = f"Failed to create download URL for file '{filename}': {download_result.error}"
-            raise RuntimeError(error_msg)  # noqa: TRY004
-
-        if not isinstance(download_result, CreateStaticFileDownloadUrlResultSuccess):
-            error_msg = f"Static file API returned unexpected download result type: {type(download_result).__name__}"
-            raise RuntimeError(error_msg)  # noqa: TRY004
-
-        # Create and return ImageUrlArtifact
-        return ImageUrlArtifact(value=download_result.url)
+        dest = self._output_file.build_file()
+        saved = dest.write_bytes(img_data)
+        return ImageUrlArtifact(value=saved.location)

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import suppress
-from time import time
 from typing import Any
 
 from griptape.artifacts import ImageArtifact
@@ -12,6 +11,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, Param
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -23,7 +23,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -171,6 +171,13 @@ class SeedVRImageUpscale(GriptapeProxyNode):
             )
         )
 
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="seedvr_upscale.jpg",
+        )
+        self._output_file.add_parameter()
+
         # Create status parameters for success/failure tracking (at the end)
         self._create_status_parameters(
             result_details_tooltip="Details about the image generation result or any errors",
@@ -289,18 +296,13 @@ class SeedVRImageUpscale(GriptapeProxyNode):
 
         if image_bytes:
             try:
-                filename = (
-                    f"seedvr_image_upscale_{generation_id}.{self.get_parameter_value('output_format')}"
-                    if generation_id
-                    else f"seedvr_image_upscale_{int(time())}.{self.get_parameter_value('output_format')}"
-                )
-                static_files_manager = GriptapeNodes.StaticFilesManager()
-                saved_url = static_files_manager.save_static_file(image_bytes, filename)
-                self.parameter_output_values["image"] = ImageUrlArtifact(value=saved_url, name=filename)
-                msg = f"Saved image to static storage as {filename}"
+                dest = self._output_file.build_file()
+                saved = await dest.awrite_bytes(image_bytes)
+                self.parameter_output_values["image"] = ImageUrlArtifact(value=saved.location, name=saved.name)
+                msg = f"Saved image as {saved.name}"
                 logger.info(msg)
                 self._set_status_results(
-                    was_successful=True, result_details=f"Image generated successfully and saved as {filename}."
+                    was_successful=True, result_details=f"Image generated successfully and saved as {saved.name}."
                 )
             except Exception as e:
                 msg = f"Failed to save to static storage: {e}, using provider URL"

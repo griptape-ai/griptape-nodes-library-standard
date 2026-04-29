@@ -29,14 +29,14 @@
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
     "library_version": "0.72.1",
-    "engine_version": "0.77.0",
+    "engine_version": "0.79.0",
     "tags": [
       "Griptape",
       "AI"
     ],
     "dependencies": {
       "pip_dependencies": [
-        "griptape[drivers-prompt-amazon-bedrock,drivers-prompt-anthropic,drivers-prompt-cohere,drivers-prompt-ollama,drivers-web-scraper-trafilatura,drivers-web-search-duckduckgo,drivers-web-search-exa,loaders-image,loaders-pdf]>=1.9.4",
+        "griptape[drivers-prompt-amazon-bedrock,drivers-prompt-anthropic,drivers-prompt-cohere,drivers-prompt-ollama,drivers-web-scraper-trafilatura,drivers-web-search-duckduckgo,drivers-web-search-exa,loaders-image,loaders-pdf]>=1.10.0",
         "json-repair>=0.46.1",
         "static-ffmpeg>=2.8",
         "jmespath>=1.0.1",
@@ -55,6 +55,11 @@
       "name": "KlingMultiShotEditor",
       "path": "griptape_nodes_library/video/widgets/KlingMultiShotEditor.js",
       "description": "Multi-shot editor for Kling v3 customize mode."
+    },
+    {
+      "name": "MaskAdjustmentPreview",
+      "path": "widgets/MaskAdjustmentPreview.js",
+      "description": "Interactive preview for mask adjustment with timeline scrubbing and dilation/erosion controls."
     }
   ],
   "categories": [
@@ -153,6 +158,15 @@
         "title": "3D",
         "description": "3D model related nodes",
         "icon": "Cube",
+        "group": "create"
+      }
+    },
+    {
+      "Splat": {
+        "color": "border-purple-500",
+        "title": "Splat",
+        "description": "Gaussian splatting and 3D world generation nodes",
+        "icon": "Sparkles",
         "group": "create"
       }
     },
@@ -496,6 +510,17 @@
       }
     },
     {
+      "class_name": "SortList",
+      "file_path": "griptape_nodes_library/lists/sort_list.py",
+      "metadata": {
+        "category": "lists",
+        "description": "Takes a list input and sorts it in ascending or descending order. When the list contains dictionaries, a Key dropdown appears to select which key to sort by.",
+        "display_name": "Sort List",
+        "icon": "arrow-up-down",
+        "group": "edit"
+      }
+    },
+    {
       "class_name": "SplitText",
       "file_path": "griptape_nodes_library/lists/split_text.py",
       "metadata": {
@@ -742,8 +767,19 @@
       "file_path": "griptape_nodes_library/video/seedance_video_generation.py",
       "metadata": {
         "category": "video",
-        "description": "Generate a video using the Seedance model via Griptape Cloud Forwarders.",
+        "description": "Generate a video using Seedance 1.x models via Griptape Cloud model proxy.",
         "display_name": "Seedance Video Generation",
+        "icon": "Sparkles",
+        "group": "create"
+      }
+    },
+    {
+      "class_name": "Seedance20VideoGeneration",
+      "file_path": "griptape_nodes_library/video/seedance_2_0_video_generation.py",
+      "metadata": {
+        "category": "video",
+        "description": "Generate a video using Seedance 2.0 models with multimodal support via Griptape Cloud model proxy.",
+        "display_name": "Seedance 2.0 Video Generation",
         "icon": "Sparkles",
         "group": "create"
       }
@@ -1013,6 +1049,28 @@
       }
     },
     {
+      "class_name": "CombineMasksVideo",
+      "file_path": "griptape_nodes_library/video/combine_masks_video.py",
+      "metadata": {
+        "category": "video",
+        "description": "Combine a list of mask videos into a single consolidated mask video using pixel-wise max operation per frame",
+        "display_name": "Combine Masks Video",
+        "icon": "layers",
+        "group": "merge"
+      }
+    },
+    {
+      "class_name": "AdjustMaskSize",
+      "file_path": "griptape_nodes_library/video/adjust_mask_size.py",
+      "metadata": {
+        "category": "video",
+        "description": "Adjust mask size in a video by dilating (expanding) or eroding (shrinking) the mask frame-by-frame",
+        "display_name": "Adjust Mask Size",
+        "icon": "maximize-2",
+        "group": "edit"
+      }
+    },
+    {
       "class_name": "HoldVideoFrames",
       "file_path": "griptape_nodes_library/video/hold_video_frames.py",
       "metadata": {
@@ -1075,6 +1133,17 @@
         "description": "Adjust video brightness, contrast, saturation, and gamma with precise controls",
         "display_name": "Adjust Video EQ",
         "icon": "sliders",
+        "group": "edit"
+      }
+    },
+    {
+      "class_name": "VideoColorMatch",
+      "file_path": "griptape_nodes_library/video/video_color_match.py",
+      "metadata": {
+        "category": "video",
+        "description": "Transfer color characteristics from a reference image to a video frame-by-frame using color matching algorithms",
+        "display_name": "Video Color Match",
+        "icon": "palette",
         "group": "edit"
       }
     },
@@ -1675,6 +1744,17 @@
       }
     },
     {
+      "class_name": "WanImageGeneration",
+      "file_path": "griptape_nodes_library/image/wan_image_generation.py",
+      "metadata": {
+        "category": "image",
+        "description": "Generate images using Wan 2.7 models via Griptape model proxy",
+        "display_name": "Wan Image Generation",
+        "group": "create",
+        "icon": "Sparkles"
+      }
+    },
+    {
       "class_name": "AddTextToImage",
       "file_path": "griptape_nodes_library/image/add_text_to_image.py",
       "metadata": {
@@ -1766,6 +1846,17 @@
         "category": "image",
         "description": "Calculate aspect ratios with preset selection and dimension modifiers",
         "display_name": "Aspect Ratio",
+        "icon": "ratio",
+        "group": "edit"
+      }
+    },
+    {
+      "class_name": "GetClosestAspectRatio",
+      "file_path": "griptape_nodes_library/image/get_closest_aspect_ratio.py",
+      "metadata": {
+        "category": "image",
+        "description": "Pick the candidate aspect ratio whose numeric value is nearest to the target",
+        "display_name": "Get Closest Aspect Ratio",
         "icon": "ratio",
         "group": "edit"
       }
@@ -2007,6 +2098,23 @@
         "display_name": "Google Nano Banana Image Generation",
         "group": "create",
         "icon": "sparkles"
+      }
+    },
+    {
+      "class_name": "OpenAiImageGeneration",
+      "file_path": "griptape_nodes_library/image/openai_image_generation.py",
+      "metadata": {
+        "category": "image",
+        "description": "Generate images using OpenAI GPT Image models via Griptape model proxy",
+        "display_name": "OpenAI Image Generation",
+        "group": "create",
+        "icon": "sparkles",
+        "tags": [
+          "gpt-image",
+          "gpt-image-2",
+          "gpt-image-1",
+          "gpt-image-1.5"
+        ]
       }
     },
     {
@@ -2523,6 +2631,18 @@
       }
     },
     {
+      "class_name": "RetryGroupNode",
+      "file_path": "griptape_nodes_library/execution/retry_group.py",
+      "metadata": {
+        "category": "execution_flow",
+        "description": "Group node that retries its child nodes on failure, up to a configurable number of attempts",
+        "display_name": "Retry Group",
+        "icon": "refresh-cw",
+        "group": "iteration",
+        "is_node_group": true
+      }
+    },
+    {
       "class_name": "StandardSubflowNodeGroup",
       "file_path": "griptape_nodes_library/engine/standard_subflow_node_group.py",
       "metadata": {
@@ -2531,6 +2651,16 @@
         "display_name": "Subflow Node Group",
         "icon": "Layers",
         "is_node_group": true
+      }
+    },
+    {
+      "class_name": "SubflowWorkflowNode",
+      "file_path": "griptape_nodes_library/engine/subflow_workflow_node.py",
+      "metadata": {
+        "category": "execution_flow",
+        "description": "Selects and executes a registered workflow, routing inputs and outputs via the workflow shape",
+        "display_name": "Workflow Node",
+        "icon": "Layers"
       }
     },
     {
@@ -2570,6 +2700,16 @@
         "category": "3D",
         "description": "Generate 3D models using Rodin Gen-2 via Griptape model proxy",
         "display_name": "Rodin 3D Generation",
+        "group": "create"
+      }
+    },
+    {
+      "class_name": "WorldLabsWorldGeneration",
+      "file_path": "griptape_nodes_library/splat/world_labs_world_generation.py",
+      "metadata": {
+        "category": "Splat",
+        "description": "Generate 3D worlds using World Labs Marble via Griptape model proxy",
+        "display_name": "World Labs World Generation",
         "group": "create"
       }
     },
@@ -2701,6 +2841,17 @@
       }
     },
     {
+      "class_name": "LoadPdf",
+      "file_path": "griptape_nodes_library/files/load_pdf.py",
+      "metadata": {
+        "category": "files",
+        "description": "Load a local PDF file and extract its text content, with outputs for the full joined text, a per-page list, and page count.",
+        "display_name": "Load PDF",
+        "icon": "file-text",
+        "group": "Input/Output"
+      }
+    },
+    {
       "class_name": "PathAddExtension",
       "file_path": "griptape_nodes_library/files/path_add_extension.py",
       "metadata": {
@@ -2718,6 +2869,16 @@
         "description": "Copy files and/or directories from source to destination. Supports glob patterns and multiple sources.",
         "display_name": "Copy Files",
         "icon": "Copy"
+      }
+    },
+    {
+      "class_name": "CreateFolder",
+      "file_path": "griptape_nodes_library/files/create_folder.py",
+      "metadata": {
+        "category": "files",
+        "description": "Create a folder at a specified path with optional parent directory creation.",
+        "display_name": "Create Folder",
+        "icon": "FolderPlus"
       }
     },
     {

@@ -1,28 +1,22 @@
 from enum import StrEnum, auto
 from io import BytesIO
-from pathlib import Path
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import (
-    ParameterGroup,
     ParameterMode,
 )
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
-from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
-from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
-from griptape_nodes.traits.file_system_picker import FileSystemPicker
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from PIL import Image
 
 from griptape_nodes_library.utils.image_utils import (
-    SUPPORTED_IMAGE_EXTENSIONS,
     dict_to_image_url_artifact,
     load_image_from_url_artifact,
 )
 
-DEFAULT_FILENAME = "griptape_nodes.png"
 PREVIEW_LENGTH = 50
 
 
@@ -51,53 +45,23 @@ class SaveImage(SuccessFailureNode):
         self.add_parameter(
             ParameterImage(
                 name="image",
-                allowed_modes={ParameterMode.INPUT},
+                allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
                 tooltip="The image to save to file",
             )
         )
-
-        # Add output path parameter
-        self.output_path = ParameterString(
-            name="output_path",
-            default_value=DEFAULT_FILENAME,
-            tooltip="The output filename with extension (.png, .jpg, etc.)",
-        )
-        self.output_path.add_trait(
-            FileSystemPicker(
-                allow_files=True,
-                allow_directories=False,
-                multiple=False,
-                file_extensions=list(SUPPORTED_IMAGE_EXTENSIONS),
-                allow_create=True,
-            )
-        )
-        self.add_parameter(self.output_path)
-
-        # Save options parameters in a collapsible ParameterGroup
-        with ParameterGroup(name="Save Options") as save_options_group:
-            save_options_group.ui_options = {"collapsed": True}
-
-            self.allow_creating_folders = ParameterBool(
-                name="allow_creating_folders",
-                tooltip="Allow creating parent directories if they don't exist",
-                default_value=True,
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            )
-
-            self.overwrite_existing = ParameterBool(
-                name="overwrite_existing",
-                tooltip="Allow overwriting existing files",
-                default_value=True,
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            )
-
-        self.add_node_element(save_options_group)
 
         # Add status parameters using the helper method
         self._create_status_parameters(
             result_details_tooltip="Details about the image save operation result",
             result_details_placeholder="Details on the save attempt will be presented here.",
         )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="griptape_nodes.png",
+        )
+        self._output_file.add_parameter()
 
     def _extract_format_from_artifact(self, image_artifact: Any) -> str | None:
         """Extract format from image artifact.
@@ -137,10 +101,7 @@ class SaveImage(SuccessFailureNode):
         self._clear_execution_status()
 
         image = self.get_parameter_value("image")
-        output_file = self.get_parameter_value("output_path") or DEFAULT_FILENAME
-
-        # Set output values BEFORE processing
-        self.parameter_output_values["output_path"] = output_file
+        self.parameter_output_values["image"] = image
 
         if not image:
             # Blank image is a warning, not a failure
@@ -150,7 +111,6 @@ class SaveImage(SuccessFailureNode):
                 status=SaveImageStatus.WARNING,
                 saved_path="",
                 input_info="No image input",
-                output_file=output_file,
                 details=warning_details,
             )
             return
@@ -165,7 +125,7 @@ class SaveImage(SuccessFailureNode):
                 processed_image = load_image_from_url_artifact(image)
             except Exception as e:
                 error_details = f"Failed to load image from URL: {e!s}"
-                self._handle_error_with_graceful_exit(error_details, e, input_info, output_file)
+                self._handle_error_with_graceful_exit(error_details, e, input_info)
                 return
 
         # Convert to appropriate artifact type
@@ -173,49 +133,26 @@ class SaveImage(SuccessFailureNode):
             image_artifact = to_image_artifact(processed_image)
         except Exception as e:
             error_details = f"Failed to convert image to artifact: {e!s}"
-            self._handle_error_with_graceful_exit(error_details, e, input_info, output_file)
+            self._handle_error_with_graceful_exit(error_details, e, input_info)
             return
 
-        # Extract format from artifact
-        detected_format = self._extract_format_from_artifact(image_artifact)
-
-        # Get save options
-        allow_creating_folders = self.get_parameter_value(self.allow_creating_folders.name)
-        overwrite_existing = self.get_parameter_value(self.overwrite_existing.name)
-
-        # Save image using appropriate method based on path type
+        # Convert image to bytes and save
         try:
-            output_path = Path(output_file)
-            if output_path.is_absolute():
-                # Full path: save directly to filesystem
-                saved_path = self._save_to_filesystem(
-                    image_artifact=image_artifact,
-                    output_path=output_path,
-                    allow_creating_folders=allow_creating_folders,
-                    overwrite_existing=overwrite_existing,
-                    format_hint=detected_format,
-                )
-            else:
-                # Relative path: use static file manager
-                saved_path = self._save_to_static_storage(
-                    image_artifact=image_artifact,
-                    output_file=output_file,
-                    overwrite_existing=overwrite_existing,
-                    format_hint=detected_format,
-                )
+            image_bytes = image_artifact.to_bytes()
+            dest = self._output_file.build_file()
+            saved = dest.write_bytes(image_bytes)
+            saved_path = saved.location
         except Exception as e:
             error_details = f"Failed to save image: {e!s}"
-            self._handle_error_with_graceful_exit(error_details, e, input_info, output_file)
+            self._handle_error_with_graceful_exit(error_details, e, input_info)
             return
 
-        # Success case with path method info
-        path_method = "filesystem" if output_path.is_absolute() else "static storage"
-        success_details = f"Image saved successfully via {path_method}"
+        # Success case
+        success_details = "Image saved successfully"
         self._handle_execution_result(
             status=SaveImageStatus.SUCCESS,
             saved_path=saved_path,
             input_info=input_info,
-            output_file=output_file,
             details=success_details,
         )
         logger.info(f"Saved image: {saved_path}")
@@ -243,12 +180,11 @@ class SaveImage(SuccessFailureNode):
             return f"ImageUrlArtifact with URL: {image.value}"
         return f"ImageArtifact of type: {input_type}"
 
-    def _handle_execution_result(  # noqa: PLR0913
+    def _handle_execution_result(
         self,
         status: SaveImageStatus,
         saved_path: str,
         input_info: str,
-        output_file: str,
         details: str,
         exception: Exception | None = None,
     ) -> None:
@@ -269,132 +205,21 @@ class SaveImage(SuccessFailureNode):
                 logger.error(f"Error saving image: {details}")
 
             case SaveImageStatus.WARNING:
-                result_details = (
-                    f"No image to save (warning)\n"
-                    f"Input: {input_info}\n"
-                    f"Requested filename: {output_file}\n"
-                    f"Result: No file created"
-                )
+                result_details = f"No image to save (warning)\nInput: {input_info}\nResult: No file created"
 
                 self._set_status_results(was_successful=True, result_details=f"{status}: {result_details}")
 
             case SaveImageStatus.SUCCESS:
-                result_details = (
-                    f"Image saved successfully\n"
-                    f"Input: {input_info}\n"
-                    f"Requested filename: {output_file}\n"
-                    f"Saved to: {saved_path}"
-                )
+                result_details = f"Image saved successfully\nInput: {input_info}\nSaved to: {saved_path}"
 
                 self._set_status_results(was_successful=True, result_details=f"{status}: {result_details}")
 
-    def _save_to_filesystem(
-        self,
-        image_artifact: Any,
-        output_path: Path,
-        *,
-        allow_creating_folders: bool,
-        overwrite_existing: bool,
-        format_hint: str | None = None,
-    ) -> str:
-        """Save image directly to filesystem at the specified absolute path."""
-        # Auto-determine extension with correct format if we have format hint
-        if format_hint:
-            new_extension = f".{format_hint.lstrip('.')}"
-
-            if output_path.suffix.lower() != new_extension.lower():
-                output_path = output_path.with_suffix(new_extension)
-                # Update output values to reflect the new extension
-                self.parameter_output_values["output_path"] = str(output_path)
-
-        # Check if file exists and overwrite is disabled
-        if output_path.exists() and not overwrite_existing:
-            error_details = f"File already exists and overwrite_existing is disabled: {output_path}"
-            raise RuntimeError(error_details)
-
-        # Handle parent directory creation
-        if allow_creating_folders:
-            try:
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-            except Exception as e:
-                error_details = f"Failed to create directory structure for path: {e!s}"
-                raise RuntimeError(error_details) from e
-        elif not output_path.parent.exists():
-            error_details = (
-                f"Parent directory does not exist and allow_creating_folders is disabled: {output_path.parent}"
-            )
-            raise RuntimeError(error_details)
-
-        # Convert image to bytes
-        try:
-            image_bytes = image_artifact.to_bytes()
-        except Exception as e:
-            error_details = f"Failed to convert image artifact to bytes: {e!s}"
-            raise RuntimeError(error_details) from e
-
-        # Write image bytes directly to file
-        try:
-            output_path.write_bytes(image_bytes)
-        except Exception as e:
-            error_details = f"Failed to write image file to filesystem: {e!s}"
-            raise RuntimeError(error_details) from e
-
-        return str(output_path)
-
-    def _save_to_static_storage(
-        self, image_artifact: Any, output_file: str, *, overwrite_existing: bool, format_hint: str | None = None
-    ) -> str:
-        """Save image using the static file manager."""
-        # Auto-determine filename with correct extension if we have format hint
-        if format_hint:
-            output_path = Path(output_file)
-            new_extension = f".{format_hint.lstrip('.')}"
-
-            if output_path.suffix.lower() != new_extension.lower():
-                output_file = str(output_path.with_suffix(new_extension))
-                # Update output values to reflect the new extension
-                self.parameter_output_values["output_path"] = output_file
-
-        # Check if file exists in static storage and overwrite is disabled
-        if not overwrite_existing:
-            from griptape_nodes.retained_mode.events.static_file_events import (
-                CreateStaticFileDownloadUrlRequest,
-                CreateStaticFileDownloadUrlResultFailure,
-            )
-
-            static_files_manager = GriptapeNodes.StaticFilesManager()
-            request = CreateStaticFileDownloadUrlRequest(file_name=output_file)
-            result = static_files_manager.on_handle_create_static_file_download_url_request(request)
-
-            if not isinstance(result, CreateStaticFileDownloadUrlResultFailure):
-                error_details = (
-                    f"File already exists in static storage and overwrite_existing is disabled: {output_file}"
-                )
-                raise RuntimeError(error_details)
-
-        # Convert image to bytes
-        try:
-            image_bytes = image_artifact.to_bytes()
-        except Exception as e:
-            error_details = f"Failed to convert image artifact to bytes: {e!s}"
-            raise RuntimeError(error_details) from e
-
-        # Save to static storage
-        try:
-            return GriptapeNodes.StaticFilesManager().save_static_file(image_bytes, output_file)
-        except Exception as e:
-            error_details = f"Failed to save image to static storage: {e!s}"
-            raise RuntimeError(error_details) from e
-
-    def _handle_error_with_graceful_exit(
-        self, error_details: str, exception: Exception, input_info: str, output_file: str
-    ) -> None:
+    def _handle_error_with_graceful_exit(self, error_details: str, exception: Exception, input_info: str) -> None:
         """Handle error with graceful exit if failure output is connected."""
         self._handle_execution_result(
             status=SaveImageStatus.FAILURE,
             saved_path="",
             input_info=input_info,
-            output_file=output_file,
             details=error_details,
             exception=exception,
         )

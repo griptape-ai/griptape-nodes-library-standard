@@ -16,7 +16,7 @@ dependencies = [
   "pillow>=11.2.1",
   "asteval>=1.0.8",
   "color-matcher",
-  "griptape-nodes>=0.77.0",
+  "griptape-nodes>=0.79.0",
 ]
 
 [build-system]
@@ -60,6 +60,7 @@ venv = ".venv"
 include = ["."]
 exclude = [
   "**/templates/*",
+  "tests/integration/*",
   ".venv",
   "**/node_modules",
   "**/__pycache__",

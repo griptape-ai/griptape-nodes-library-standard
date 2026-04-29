@@ -4,8 +4,8 @@ from typing import Any
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact, UrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
-from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 from PIL import Image
 
@@ -41,15 +41,6 @@ class ImagesToPdf(ControlNode):
         )
         self.add_parameter(self.images)
 
-        # Filename parameter
-        self.filename_param = ParameterString(
-            name="filename",
-            default_value="output.pdf",
-            tooltip="Output filename for the PDF file",
-            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-        )
-        self.add_parameter(self.filename_param)
-
         # Output parameter showing final path
         self.output = Parameter(
             name="output",
@@ -59,6 +50,13 @@ class ImagesToPdf(ControlNode):
             allowed_modes={ParameterMode.OUTPUT},
         )
         self.add_parameter(self.output)
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="output.pdf",
+        )
+        self._output_file.add_parameter()
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Normalize image inputs when the list is set."""
@@ -79,15 +77,6 @@ class ImagesToPdf(ControlNode):
             msg = f"{self.name}: Images parameter is required and cannot be empty"
             exceptions.append(ValueError(msg))
 
-        filename = self.get_parameter_value("filename")
-        if not filename:
-            msg = f"{self.name}: Filename parameter is required"
-            exceptions.append(ValueError(msg))
-
-        if not str(filename).lower().endswith(".pdf"):
-            msg = f"{self.name}: Filename must end with .pdf extension"
-            exceptions.append(ValueError(msg))
-
         return exceptions if exceptions else None
 
     def process(self) -> None:
@@ -97,8 +86,6 @@ class ImagesToPdf(ControlNode):
         # Normalize string paths to ImageUrlArtifact during processing
         # (handles cases where values come from connections and bypass after_value_set)
         images = normalize_artifact_list(images, ImageUrlArtifact, accepted_types=(ImageArtifact,))
-
-        filename = self.get_parameter_value("filename")
 
         logger.info(f"{self.name}: Converting {len(images)} images to PDF")
 
@@ -145,12 +132,10 @@ class ImagesToPdf(ControlNode):
         pdf_bytes = pdf_buffer.getvalue()
         pdf_buffer.close()
 
-        # Save to static files
-        static_url = GriptapeNodes.StaticFilesManager().save_static_file(
-            pdf_bytes,
-            filename,
-        )
-        logger.debug(f"{self.name}: PDF saved to static files as {static_url}")
+        # Save PDF
+        dest = self._output_file.build_file()
+        saved = dest.write_bytes(pdf_bytes)
+        logger.debug(f"{self.name}: PDF saved as {saved.location}")
 
         # Set output
-        self.parameter_output_values["output"] = UrlArtifact(static_url)
+        self.parameter_output_values["output"] = UrlArtifact(saved.location)

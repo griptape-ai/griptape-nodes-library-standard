@@ -10,8 +10,10 @@ import static_ffmpeg.run  # type: ignore[import-untyped]
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.files.file import File
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.utils.file_utils import generate_filename
@@ -82,14 +84,14 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
         speed_param.add_trait(Options(choices=["fast", "balanced", "quality"]))
         self.add_parameter(speed_param)
 
-        self.add_parameter(
-            ParameterVideo(
-                name="output",
-                allowed_modes={ParameterMode.OUTPUT},
-                tooltip="The processed video",
-                ui_options={"pulse_on_run": True, "expander": True, "display_name": "Processed Video"},
-            )
+        self._register_primary_output_parameter()
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename=self._get_output_file_default_filename(),
         )
+        self._output_file.add_parameter()
 
         self._setup_logging_group()
 
@@ -102,6 +104,24 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
     @abstractmethod
     def _setup_custom_parameters(self) -> None:
         """Setup custom parameters specific to this video processor. Override in subclasses."""
+
+    def _register_primary_output_parameter(self) -> None:
+        """Register the main output artifact (video, audio, image, etc.) before the project file path."""
+        self.add_parameter(
+            ParameterVideo(
+                name="output",
+                allowed_modes={ParameterMode.OUTPUT},
+                tooltip="The processed video",
+                ui_options={"pulse_on_run": True, "expander": True, "display_name": "Processed Video"},
+            )
+        )
+
+    def _get_output_file_default_filename(self) -> str:
+        """Default filename for the project file save path; subclasses may set OUTPUT_FILE_DEFAULT_FILENAME."""
+        candidate = getattr(type(self), "OUTPUT_FILE_DEFAULT_FILENAME", None)
+        if isinstance(candidate, str) and candidate:
+            return candidate
+        return "output.mp4"
 
     @abstractmethod
     def _get_processing_description(self) -> str:
@@ -289,7 +309,7 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
         """Get video input URL and detected format."""
         video = self.parameter_values.get("video")
         video_artifact = to_video_artifact(video)
-        input_url = video_artifact.value
+        input_url = File(video_artifact.value).resolve()
 
         detected_format = detect_video_format(video)
         if not detected_format:
@@ -304,13 +324,10 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
         return str(output_path), output_path
 
     def _save_video_artifact(self, video_bytes: bytes, format_extension: str, suffix: str = "") -> VideoUrlArtifact:
-        """Save video bytes to static file and return VideoUrlArtifact."""
-        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
-        # Generate meaningful filename based on workflow and node
-        filename = self._generate_filename(suffix, format_extension)
-        url = GriptapeNodes.StaticFilesManager().save_static_file(video_bytes, filename)
-        return VideoUrlArtifact(url)
+        """Save video bytes and return VideoUrlArtifact."""
+        dest = self._output_file.build_file()
+        saved = dest.write_bytes(video_bytes)
+        return VideoUrlArtifact(saved.location)
 
     def _run_ffmpeg_command(self, cmd: list[str], timeout: int = 300) -> None:
         """Run FFmpeg command with common error handling."""

@@ -6,17 +6,17 @@ from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.widget import Widget
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -26,6 +26,12 @@ __all__ = ["KlingTextToVideoGeneration"]
 MAX_PROMPT_LENGTH = 2500
 MAX_MULTI_PROMPT_COUNT = 6
 V3_MODEL_ID = "kling-v3"
+MODE_STD = "std"
+MODE_PRO = "pro"
+MODE_4K = "4k"
+BASE_MODE_CHOICES = [MODE_STD, MODE_PRO]
+V3_MODE_CHOICES = [MODE_STD, MODE_PRO, MODE_4K]
+DEFAULT_MODE = MODE_STD
 DEFAULT_MULTI_SHOTS = [{"name": "Shot1", "duration": 5, "description": ""}]
 
 
@@ -66,38 +72,38 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
     # Model capability definitions
     MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
         "kling-v3": {
-            "modes": ["std", "pro"],
+            "modes": V3_MODE_CHOICES,
             "durations": [5, 10],
             "aspect_ratios": ["16:9", "9:16", "1:1"],
             "supports_sound": False,
             "supports_multi_shot": True,
         },
         "kling-v1-6": {
-            "modes": ["std", "pro"],
+            "modes": BASE_MODE_CHOICES,
             "durations": [5, 10],
             "aspect_ratios": ["16:9", "9:16", "1:1"],
             "supports_sound": False,
         },
         "kling-v2-master": {
-            "modes": ["std", "pro"],
+            "modes": BASE_MODE_CHOICES,
             "durations": [5, 10],
             "aspect_ratios": ["16:9", "9:16", "1:1"],
             "supports_sound": False,
         },
         "kling-v2-1-master": {
-            "modes": ["std", "pro"],
+            "modes": BASE_MODE_CHOICES,
             "durations": [5, 10],
             "aspect_ratios": ["16:9", "9:16", "1:1"],
             "supports_sound": False,
         },
         "kling-v2-5-turbo": {
-            "modes": ["pro"],
+            "modes": [MODE_PRO],
             "durations": [5, 10],
             "aspect_ratios": ["16:9"],
             "supports_sound": False,
         },
         "kling-v2-6": {
-            "modes": ["pro"],
+            "modes": [MODE_PRO],
             "durations": [5, 10],
             "aspect_ratios": ["16:9", "9:16", "1:1"],
             "supports_sound": True,
@@ -225,10 +231,10 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
 
             ParameterString(
                 name="mode",
-                default_value="std",
-                tooltip="Video generation mode (std: Standard, pro: Professional)",
+                default_value=DEFAULT_MODE,
+                tooltip="Video generation mode. Supported modes vary by model; Kling v3.0 also supports 4k.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["std", "pro"])},
+                traits={Options(choices=V3_MODE_CHOICES)},
             )
 
             ParameterString(
@@ -297,6 +303,13 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
             )
         )
 
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="kling_text_video.mp4",
+        )
+        self._output_file.add_parameter()
+
         # Create status parameters for success/failure tracking
         self._create_status_parameters(
             result_details_tooltip="Details about the video generation result or any errors",
@@ -322,12 +335,11 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         """Update parameter visibility based on selected model."""
         # Map user-facing name to model ID
         model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
+        self._update_mode_choices(capabilities.get("modes", BASE_MODE_CHOICES))
 
         if model_id == "kling-v2-5-turbo":
             self.hide_parameter_by_name(["mode", "aspect_ratio"])
-            current_mode = self.get_parameter_value("mode")
-            if current_mode != "pro":
-                self.set_parameter_value("mode", "pro")
             current_aspect = self.get_parameter_value("aspect_ratio")
             if current_aspect != "16:9":
                 self.set_parameter_value("aspect_ratio", "16:9")
@@ -338,9 +350,6 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         elif model_id == "kling-v2-6":
             self.hide_parameter_by_name("mode")
             self.show_parameter_by_name(["aspect_ratio", "duration", "sound"])
-            current_mode = self.get_parameter_value("mode")
-            if current_mode != "pro":
-                self.set_parameter_value("mode", "pro")
             current_duration = self.get_parameter_value("duration")
             if current_duration not in [5, 10]:
                 self.set_parameter_value("duration", 5)
@@ -358,6 +367,15 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
             for shot_index in range(1, MAX_MULTI_PROMPT_COUNT + 1):
                 self.hide_parameter_by_name([f"shot_{shot_index}_prompt", f"shot_{shot_index}_duration"])
             self.show_parameter_by_name("prompt")
+
+    def _update_mode_choices(self, supported_modes: list[str]) -> None:
+        """Keep the mode dropdown aligned with the selected model."""
+        current_mode = self.get_parameter_value("mode")
+        next_mode = current_mode if current_mode in supported_modes else DEFAULT_MODE
+        if next_mode not in supported_modes:
+            next_mode = supported_modes[0]
+
+        self._update_option_choices("mode", supported_modes, next_mode)
 
     def _update_multi_shot_parameter_visibility(self) -> None:
         """Toggle prompt and shot inputs for v3 multi-shot configurations."""
@@ -599,7 +617,7 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
         negative_prompt = self.get_parameter_value("negative_prompt") or ""
         cfg_scale = self.get_parameter_value("cfg_scale")
-        mode = self.get_parameter_value("mode") or "std"
+        mode = self.get_parameter_value("mode") or DEFAULT_MODE
         aspect_ratio = self.get_parameter_value("aspect_ratio") or "16:9"
         duration = self.get_parameter_value("duration") or 5
         sound = self.get_parameter_value("sound") or "off"
@@ -690,20 +708,19 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
 
         if video_bytes:
             try:
-                static_files_manager = GriptapeNodes.StaticFilesManager()
-                filename = f"kling_text_to_video_{generation_id}.mp4"
-                saved_url = static_files_manager.save_static_file(video_bytes, filename)
-                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved_url, name=filename)
-                logger.info("%s saved video to static storage as %s", self.name, filename)
+                dest = self._output_file.build_file()
+                saved = await dest.awrite_bytes(video_bytes)
+                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
+                logger.info("%s saved video as %s", self.name, saved.name)
                 self._set_status_results(
-                    was_successful=True, result_details=f"Video generated successfully and saved as {filename}."
+                    was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
                 )
             except (OSError, PermissionError) as e:
-                logger.warning("%s failed to save to static storage: %s, using provider URL", self.name, e)
+                logger.warning("%s failed to save video: %s, using provider URL", self.name, e)
                 self.parameter_output_values["video_url"] = VideoUrlArtifact(value=download_url)
                 self._set_status_results(
                     was_successful=True,
-                    result_details=f"Video generated successfully. Using provider URL (could not save to static storage: {e}).",
+                    result_details=f"Video generated successfully. Using provider URL (could not save to storage: {e}).",
                 )
         else:
             self.parameter_output_values["video_url"] = VideoUrlArtifact(value=download_url)
@@ -760,12 +777,12 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         # Validate model-specific constraints
         model_name = self.get_parameter_value("model_name") or "Kling v2.6"
         model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
-        mode = self.get_parameter_value("mode") or "std"
+        mode = self.get_parameter_value("mode") or DEFAULT_MODE
         aspect_ratio = self.get_parameter_value("aspect_ratio") or "16:9"
 
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
 
-        if mode not in capabilities.get("modes", ["std", "pro"]):
+        if mode not in capabilities.get("modes", BASE_MODE_CHOICES):
             valid_modes = capabilities.get("modes", [])
             exceptions.append(
                 ValueError(

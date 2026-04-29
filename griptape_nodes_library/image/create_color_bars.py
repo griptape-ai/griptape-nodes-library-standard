@@ -3,16 +3,17 @@ import contextlib
 import math
 from typing import Any, ClassVar, cast
 
+from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
 from PIL import Image, ImageDraw
 
-from griptape_nodes_library.utils.file_utils import generate_filename
-from griptape_nodes_library.utils.image_utils import save_pil_image_with_named_filename
+from griptape_nodes_library.utils.image_utils import image_to_bytes
 
 
 class CreateColorBars(BaseNode):
@@ -147,6 +148,9 @@ class CreateColorBars(BaseNode):
                 ui_options={"expander": True},
             )
         )
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="color_bars.png")
+        self._output_file.add_parameter()
 
     def _generate_smpte_219_100_bars(self, width: int, height: int) -> Image.Image:
         """Generate SMPTE 219-100 Bars (HDTV Color Bars)."""
@@ -1039,12 +1043,10 @@ class CreateColorBars(BaseNode):
         image_pil = self._generate_color_bars(bar_type, width, height)
 
         # Save the image and create URL artifact
-        filename = generate_filename(
-            node_name=self.name,
-            suffix="_color_bars",
-            extension="png",
-        )
-        output_artifact = save_pil_image_with_named_filename(image_pil, filename, "PNG")
+        image_bytes = image_to_bytes(image_pil, "PNG")
+        dest = self._output_file.build_file()
+        saved = dest.write_bytes(image_bytes)
+        output_artifact = ImageUrlArtifact(saved.location)
 
         # Set output
         self.parameter_output_values["image"] = output_artifact

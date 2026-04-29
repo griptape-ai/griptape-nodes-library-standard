@@ -7,18 +7,18 @@ from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_range import ParameterRange
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 # static_ffmpeg is dynamically installed by the library loader at runtime
 from static_ffmpeg import run  # type: ignore[import-untyped]
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -27,6 +27,11 @@ MAX_PROMPT_LENGTH = 5000
 MAX_VIDEO_DURATION = 21
 MIN_RETAKE_DURATION = 2.0
 RETAKE_SEGMENT_LENGTH = 2
+
+MODEL_MAPPING = {
+    "LTX 2 Pro": "ltx-2-pro",
+    "LTX 2.3 Pro": "ltx-2-3-pro",
+}
 
 
 class LTXVideoRetake(GriptapeProxyNode):
@@ -37,7 +42,7 @@ class LTXVideoRetake(GriptapeProxyNode):
         - retake_segment (list[float]): Time range [start, end] in seconds to regenerate
         - prompt (str): Text describing what should happen in the retake segment (max 5000 chars)
         - mode (str): What to replace - audio only, video only, or both (default: both)
-        - model (str): Model to use (only LTX 2 Pro supported currently)
+        - model (str): Model to use (LTX 2 Pro or LTX 2.3 Pro)
         (Always polls for result: 5s interval, 20 min timeout)
 
     Outputs:
@@ -57,14 +62,14 @@ class LTXVideoRetake(GriptapeProxyNode):
 
         # INPUTS / PROPERTIES
 
-        # Model parameter (only ltx-2-pro supported)
+        # Model parameter (retake supports pro-tier LTX models)
         self.add_parameter(
             ParameterString(
                 name="model",
                 default_value="LTX 2 Pro",
-                tooltip="Model to use for video retake (only LTX 2 Pro supported currently)",
+                tooltip="Model to use for video retake",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["LTX 2 Pro"])},
+                traits={Options(choices=["LTX 2 Pro", "LTX 2.3 Pro"])},
             )
         )
         self.add_parameter(
@@ -153,6 +158,13 @@ class LTXVideoRetake(GriptapeProxyNode):
                 ui_options={"pulse_on_run": True},
             )
         )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="ltx_video_retake.mp4",
+        )
+        self._output_file.add_parameter()
 
         # Create status parameters for success/failure tracking
         self._create_status_parameters(
@@ -292,7 +304,9 @@ class LTXVideoRetake(GriptapeProxyNode):
         }
 
     def _get_api_model_id(self) -> str:
-        return "ltx-2-pro:retake"
+        model_name = self.get_parameter_value("model") or "LTX 2 Pro"
+        model_id = MODEL_MAPPING.get(model_name, "ltx-2-pro")
+        return f"{model_id}:retake"
 
     def _validate_video_input(self, video: Any) -> str | None:
         """Validate video is provided and doesn't exceed duration limits."""
@@ -406,7 +420,7 @@ class LTXVideoRetake(GriptapeProxyNode):
             "duration": duration,
             "prompt": params["prompt"].strip(),
             "mode": params["mode"],
-            "model": "ltx-2-pro",  # API only supports ltx-2-pro
+            "model": MODEL_MAPPING.get(params["model"], "ltx-2-pro"),
         }
 
         return payload
@@ -447,13 +461,12 @@ class LTXVideoRetake(GriptapeProxyNode):
             return
 
         try:
-            static_files_manager = GriptapeNodes.StaticFilesManager()
-            filename = f"ltx_video_retake_{generation_id}.mp4"
-            saved_url = static_files_manager.save_static_file(video_bytes, filename)
-            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved_url, name=filename)
-            logger.info("%s saved video to static storage as %s", self.name, filename)
+            dest = self._output_file.build_file()
+            saved = await dest.awrite_bytes(video_bytes)
+            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
+            logger.info("%s saved video as %s", self.name, saved.name)
             self._set_status_results(
-                was_successful=True, result_details=f"Video retake successful and saved as {filename}."
+                was_successful=True, result_details=f"Video retake successful and saved as {saved.name}."
             )
         except (OSError, PermissionError) as e:
             logger.error("%s failed to save to static storage: %s", self.name, e)

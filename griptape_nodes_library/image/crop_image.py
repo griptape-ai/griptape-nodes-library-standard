@@ -11,12 +11,13 @@ from griptape_nodes.exe_types.core_types import (
     ParameterMode,
 )
 from griptape_nodes.exe_types.node_types import ControlNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
@@ -170,6 +171,13 @@ class CropImage(ControlNode):
             )
         )
 
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="crop.png",
+        )
+        self._output_file.add_parameter()
+
     def _open_crop_modal(self, _button: Button, _details: ButtonDetailsMessagePayload) -> NodeMessageResult:
         """Open the crop modal in the frontend."""
         # Create the open_modal payload structure
@@ -316,10 +324,9 @@ class CropImage(ControlNode):
             logger.error(msg)
             return
 
-        # Generate meaningful filename based on workflow and node
-        filename = self._generate_filename(save_format.lower())
-        static_url = GriptapeNodes.StaticFilesManager().save_static_file(img_data, filename)
-        self.parameter_output_values["output"] = ImageUrlArtifact(value=static_url)
+        dest = self._output_file.build_file()
+        saved = dest.write_bytes(img_data)
+        self.parameter_output_values["output"] = ImageUrlArtifact(value=saved.location)
 
     def _get_output_suffix(self, **kwargs) -> str:  # noqa: ARG002
         """Get output filename suffix."""

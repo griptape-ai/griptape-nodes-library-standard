@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
-from time import time
 from typing import Any, ClassVar
 from urllib.parse import urljoin
 
@@ -11,6 +11,7 @@ import httpx
 from griptape.artifacts import ImageArtifact
 from griptape.artifacts.image_url_artifact import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -21,7 +22,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.image_utils import shrink_image_to_size
 
 logger = logging.getLogger("griptape_nodes")
@@ -195,6 +196,17 @@ class GoogleImageGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
 
+            ParameterFloat(
+                name="top_p",
+                tooltip="Top-p nucleus sampling (0.0-1.0)",
+                default_value=0.95,
+                slider=True,
+                min_val=0.0,
+                max_val=1.0,
+                step=0.05,
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            )
+
             ParameterBool(
                 name="use_google_search",
                 default_value=False,
@@ -266,6 +278,13 @@ class GoogleImageGeneration(GriptapeProxyNode):
             )
         )
 
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="google_image.png",
+        )
+        self._output_file.add_parameter()
+
         # Create status parameters for success/failure tracking
         self._create_status_parameters(
             result_details_tooltip="Details about the image generation result or any errors",
@@ -330,6 +349,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
         aspect_ratio = self.get_parameter_value("aspect_ratio")
         image_size = self.get_parameter_value("image_size")
         temperature = self.get_parameter_value("temperature")
+        top_p = self.get_parameter_value("top_p")
         use_google_search = self.get_parameter_value("use_google_search")
         use_google_image_search = self.get_parameter_value("use_google_image_search")
         auto_image_resize = self.get_parameter_value("auto_image_resize")
@@ -352,7 +372,8 @@ class GoogleImageGeneration(GriptapeProxyNode):
 
         # Add prompt first
         if prompt:
-            parts.append({"text": prompt})
+            # Explicitly instruct the model to return generated images.
+            parts.append({"text": f"Generate the following image(s): {prompt}"})
 
         # Add all input images
         for img in all_images:
@@ -372,6 +393,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
             "generationConfig": {
                 "responseModalities": ["TEXT", "IMAGE"],
                 "temperature": temperature,
+                "topP": top_p,
                 "imageConfig": {"aspectRatio": aspect_ratio, "imageSize": image_size},
             },
         }
@@ -504,7 +526,6 @@ class GoogleImageGeneration(GriptapeProxyNode):
         image_artifacts: list[ImageUrlArtifact],
     ) -> None:
         """Process inline image data and save to static storage."""
-        mime_type = inline_data.get("mimeType", "image/png")
         base64_data = inline_data.get("data", "")
 
         if not base64_data:
@@ -512,13 +533,9 @@ class GoogleImageGeneration(GriptapeProxyNode):
 
         try:
             image_bytes = base64.b64decode(base64_data)
-            timestamp = int(time())
-            ext = "png" if "png" in mime_type else "jpg"
-            filename = f"google_image_{timestamp}_{candidate_idx}_{part_idx}.{ext}"
-
-            static_files_manager = GriptapeNodes.StaticFilesManager()
-            saved_url = static_files_manager.save_static_file(image_bytes, filename)
-            image_artifacts.append(ImageUrlArtifact(value=saved_url, name=filename))
+            dest = self._output_file.build_file()
+            saved = dest.write_bytes(image_bytes)
+            image_artifacts.append(ImageUrlArtifact(value=saved.location, name=saved.name))
 
             msg = f"{self.name} saved image from candidate {candidate_idx + 1}, part {part_idx + 1}"
             logger.info(msg)
@@ -658,7 +675,11 @@ class GoogleImageGeneration(GriptapeProxyNode):
             logger.debug("%s failed to load image value: %s", self.name, image_value)
             return None
 
-        return self._extract_mime_and_base64_from_data_uri(data_uri, auto_image_resize=auto_image_resize)
+        # Run CPU-bound base64 decode + PIL image resizing in a thread pool
+        # to avoid blocking the event loop for large images.
+        return await asyncio.to_thread(
+            self._extract_mime_and_base64_from_data_uri, data_uri, auto_image_resize=auto_image_resize
+        )
 
     def _extract_mime_and_base64_from_data_uri(
         self, data_uri: str, *, auto_image_resize: bool = True

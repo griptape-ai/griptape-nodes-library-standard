@@ -5,6 +5,7 @@ import numpy as np
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, DataNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -16,8 +17,8 @@ from PIL import Image, ImageFilter
 
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
+    image_to_bytes,
     load_pil_from_url,
-    save_pil_image_to_static_file,
 )
 
 
@@ -140,6 +141,9 @@ class GaussianEdgeFade(DataNode):
                 allowed_modes={ParameterMode.OUTPUT},
             )
         )
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="edge_fade.png")
+        self._output_file.add_parameter()
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Update UI when fade_mode changes."""
@@ -309,7 +313,10 @@ class GaussianEdgeFade(DataNode):
         original_image.putalpha(alpha_mask)
 
         # Save and return result
-        result_artifact = save_pil_image_to_static_file(original_image)
+        image_bytes = image_to_bytes(original_image, "PNG")
+        dest = self._output_file.build_file()
+        saved = dest.write_bytes(image_bytes)
+        result_artifact = ImageUrlArtifact(saved.location)
         return result_artifact
 
     def _create_rounded_mask(  # noqa: PLR0912, PLR0915, C901

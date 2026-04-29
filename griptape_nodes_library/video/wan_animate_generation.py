@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import time
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
@@ -11,6 +10,7 @@ from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -19,7 +19,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.video_utils import get_video_duration
 
 logger = logging.getLogger("griptape_nodes")
@@ -119,7 +119,7 @@ class WanAnimateGeneration(GriptapeProxyNode):
                 name="image_url",
                 default_value="",
                 tooltip="Source image to animate",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Image URL"},
             ),
             disclaimer_message="The WAN Animate service utilizes this URL to access the image for animation.",
@@ -170,6 +170,13 @@ class WanAnimateGeneration(GriptapeProxyNode):
                 ui_options={"pulse_on_run": True},
             )
         )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="wan_animate.mp4",
+        )
+        self._output_file.add_parameter()
 
         # Create status parameters for success/failure tracking
         self._create_status_parameters(
@@ -364,22 +371,19 @@ class WanAnimateGeneration(GriptapeProxyNode):
 
         if video_bytes:
             try:
-                filename = (
-                    f"wan_animate_{generation_id}.mp4" if generation_id else f"wan_animate_{int(time.time())}.mp4"
-                )
-                static_files_manager = GriptapeNodes.StaticFilesManager()
-                saved_url = static_files_manager.save_static_file(video_bytes, filename)
-                self.parameter_output_values["video"] = VideoUrlArtifact(value=saved_url, name=filename)
-                logger.debug("Saved video to static storage as %s", filename)
+                dest = self._output_file.build_file()
+                saved = await dest.awrite_bytes(video_bytes)
+                self.parameter_output_values["video"] = VideoUrlArtifact(value=saved.location, name=saved.name)
+                logger.debug("Saved video as %s", saved.name)
                 self._set_status_results(
-                    was_successful=True, result_details=f"Video generated successfully and saved as {filename}."
+                    was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
                 )
             except Exception as e:
-                logger.debug("Failed to save to static storage: %s, using provider URL", e)
+                logger.debug("Failed to save video: %s, using provider URL", e)
                 self.parameter_output_values["video"] = VideoUrlArtifact(value=extracted_url)
                 self._set_status_results(
                     was_successful=True,
-                    result_details=f"Video generated successfully. Using provider URL (could not save to static storage: {e}).",
+                    result_details=f"Video generated successfully. Using provider URL (could not save: {e}).",
                 )
         else:
             self.parameter_output_values["video"] = VideoUrlArtifact(value=extracted_url)

@@ -21,7 +21,7 @@ from griptape_nodes.exe_types.param_types.parameter_button import ParameterButto
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import FileDestination
 from griptape_nodes.files.path_utils import FilenameParts
-from griptape_nodes.files.project_file import FALLBACK_MACRO_TEMPLATE, SITUATION_TO_FILE_POLICY
+from griptape_nodes.files.project_file import FALLBACK_MACRO_TEMPLATE, SITUATION_TO_FILE_POLICY, ProjectFileDestination
 from griptape_nodes.retained_mode.events.connection_events import (
     ListConnectionsForNodeRequest,
     ListConnectionsForNodeResultSuccess,
@@ -85,17 +85,17 @@ class ClassifiedPath:
 class FileOutputSettings(BaseNode):
     """Configure file save paths using situation templates and macro expansion.
 
-    Stores a FileDestination internally (accessible via the file_destination property)
-    and outputs a resolved path string on the file_destination parameter for display.
-    Downstream nodes retrieve the FileDestination directly via the FileDestinationProvider
-    protocol rather than deserializing it from the wire.
+    Exposes a FileDestination via the file_destination property (computed on
+    demand from current parameter values) and outputs a resolved path string
+    on the file_destination parameter for display. Downstream nodes retrieve
+    the FileDestination directly via the FileDestinationProvider protocol
+    rather than deserializing it from the wire.
     """
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
         self._updating_lock = False
-        self._file_destination: FileDestination | None = None
 
         self._available_situations = self._fetch_available_situations()
         self._create_parameters()
@@ -103,8 +103,37 @@ class FileOutputSettings(BaseNode):
 
     @property
     def file_destination(self) -> FileDestination | None:
-        """The FileDestination built from the current path configuration."""
-        return self._file_destination
+        """Build a FileDestination from current parameter values.
+
+        Computed fresh on every access rather than cached so consumers always
+        see the latest configuration without depending on this node having
+        been processed in the current session (a cached attribute would be
+        None until `process()` ran, which breaks downstream reads on a
+        freshly loaded workflow).
+        """
+        file_name_value = self.get_parameter_value(self.filename.name)
+        if not file_name_value:
+            return None
+
+        classified = self._classify_path(file_name_value)
+        if isinstance(classified, str):
+            return None
+
+        if classified.scenario == PathResolutionScenario.RELATIVE_PATH:
+            macro_template = self.get_parameter_value(self.macro.name)
+            if not macro_template:
+                return None
+            return self._build_file_from_template(macro_template, self._build_relative_variables(classified))
+
+        if classified.scenario == PathResolutionScenario.ABSOLUTE_PATH_INSIDE_PROJECT:
+            return self._build_file_from_template(classified.normalized_path, {})
+
+        create_dirs = bool(self.get_parameter_value(self.auto_create_path.name))
+        return FileDestination(
+            classified.normalized_path,
+            existing_file_policy=self._get_file_policy(),
+            create_parents=create_dirs,
+        )
 
     def _fetch_available_situations(self) -> list[str]:
         """Fetch available situations from the project manager."""
@@ -293,19 +322,31 @@ class FileOutputSettings(BaseNode):
         else:
             self.if_file_exists.clear_badge()
 
-    def _build_file_from_template(self, macro_template: str, variables: dict[str, str | int]) -> FileDestination:
-        """Build a FileDestination with a MacroPath from a template and variables.
+    def _build_file_from_template(self, macro_template: str, variables: dict[str, str | int]) -> ProjectFileDestination:
+        """Build a ProjectFileDestination with a MacroPath from a template and variables.
 
         Args:
             macro_template: The macro template string
             variables: Variable values for macro substitution
 
         Returns:
-            FileDestination with an unresolved MacroPath and baked-in write policy
+            ProjectFileDestination with an unresolved MacroPath and baked-in write policy
         """
         macro_path = MacroPath(ParsedMacro(macro_template), variables)
         create_dirs = bool(self.get_parameter_value(self.auto_create_path.name))
-        return FileDestination(macro_path, existing_file_policy=self._get_file_policy(), create_parents=create_dirs)
+        return ProjectFileDestination(
+            macro_path, existing_file_policy=self._get_file_policy(), create_parents=create_dirs
+        )
+
+    def _build_relative_variables(self, classified: ClassifiedPath) -> dict[str, str | int]:
+        """Build the macro variable dict used for the relative-path scenario."""
+        filename_path = Path(classified.normalized_path)
+        parts = FilenameParts.from_filename(filename_path.name)
+        return {
+            "file_name_base": parts.stem,
+            "file_extension": parts.extension,
+            "node_name": self._get_target_node_name(),
+        }
 
     def _handle_relative_path(self, classified: ClassifiedPath) -> None:
         """Handle relative path: apply situation template macro."""
@@ -314,14 +355,7 @@ class FileOutputSettings(BaseNode):
             logger.error("%s: No macro template available", self.name)
             return
 
-        filename_path = Path(classified.normalized_path)
-        parts = FilenameParts.from_filename(filename_path.name)
-
-        variables: dict[str, str | int] = {
-            "file_name_base": parts.stem,
-            "file_extension": parts.extension,
-            "node_name": self._get_target_node_name(),
-        }
+        variables = self._build_relative_variables(classified)
 
         parsed_macro = ParsedMacro(macro_template)
         resolve_result = GriptapeNodes.handle_request(
@@ -333,7 +367,6 @@ class FileOutputSettings(BaseNode):
             return
 
         resolved_path_str = str(resolve_result.absolute_path)
-        self._file_destination = self._build_file_from_template(macro_template, variables)
         self.set_parameter_value(self.file_destination_parameter.name, resolved_path_str)
         self.absolute_path_warning.ui_options = {"hide": True}
 
@@ -349,19 +382,12 @@ class FileOutputSettings(BaseNode):
             return
 
         resolved_path_str = str(resolve_result.absolute_path)
-        self._file_destination = self._build_file_from_template(macro_template, {})
         self.set_parameter_value(self.file_destination_parameter.name, resolved_path_str)
         self.absolute_path_warning.ui_options = {"hide": True}
 
     def _handle_absolute_path_outside_project(self, classified: ClassifiedPath) -> None:
         """Handle absolute path outside project: use directly as a literal path."""
         absolute_path = classified.normalized_path
-        create_dirs = bool(self.get_parameter_value(self.auto_create_path.name))
-        self._file_destination = FileDestination(
-            absolute_path,
-            existing_file_policy=self._get_file_policy(),
-            create_parents=create_dirs,
-        )
         self.set_parameter_value(self.file_destination_parameter.name, absolute_path)
         self.absolute_path_warning.ui_options = {"hide": False}
 

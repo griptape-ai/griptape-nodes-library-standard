@@ -1,9 +1,11 @@
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import BaseNode, SuccessFailureNode
+from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
+from griptape_nodes.exe_types.node_types import BaseNode, NodeDependencies, SuccessFailureNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.retained_mode.griptape_nodes import logger
+from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.utils.artifact_path_tethering import (
@@ -11,13 +13,18 @@ from griptape_nodes_library.utils.artifact_path_tethering import (
     ArtifactTetheringConfig,
     default_extract_url_from_artifact_value,
 )
-from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
     SUPPORTED_IMAGE_EXTENSIONS,
     dict_to_image_url_artifact,
     extract_channel_from_image,
+    image_to_bytes,
     load_pil_from_url,
-    save_pil_image_with_named_filename,
+)
+from griptape_nodes_library.utils.macro_path_utils import (
+    copy_external_file_to_project,
+    create_external_file_controls,
+    resolve_to_macro_path,
+    update_external_file_controls,
 )
 
 CHANNEL_NONE = "none"
@@ -99,11 +106,35 @@ class LoadImage(SuccessFailureNode):
             )
         )
 
+        # Warning and button shown when file is outside the project (initially hidden)
+        self._external_warning, self._copy_button = create_external_file_controls(self._on_copy_to_project_clicked)
+        self.add_node_element(self._external_warning)
+        self.add_parameter(self._copy_button)
+
         # Add status parameters using the helper method
         self._create_status_parameters(
             result_details_tooltip="Details about the image loading operation result",
             result_details_placeholder="Details on the load attempt will be presented here.",
         )
+
+        self._mask_output_file = ProjectFileParameter(
+            node=self,
+            name="mask_output_file",
+            default_filename="mask.png",
+            ui_options={"hide": True},
+        )
+        self._mask_output_file.add_parameter()
+
+    def get_node_dependencies(self) -> NodeDependencies | None:
+        deps = super().get_node_dependencies()
+        if deps is None:
+            deps = NodeDependencies()
+        value = self.get_parameter_value("path")
+        if not value or not isinstance(value, str):
+            return deps
+
+        deps.static_files.add(value)
+        return deps
 
     def after_incoming_connection(
         self,
@@ -113,6 +144,8 @@ class LoadImage(SuccessFailureNode):
     ) -> None:
         # Delegate to tethering helper - only artifact parameter can receive connections
         self._tethering.on_incoming_connection(target_parameter)
+        if target_parameter == self.image_parameter:
+            self._update_image_controls(source_node.get_parameter_value(source_parameter.name))
         return super().after_incoming_connection(source_node, source_parameter, target_parameter)
 
     def after_incoming_connection_removed(
@@ -123,6 +156,8 @@ class LoadImage(SuccessFailureNode):
     ) -> None:
         # Delegate to tethering helper - only artifact parameter can have connections removed
         self._tethering.on_incoming_connection_removed(target_parameter)
+        if target_parameter == self.image_parameter:
+            self._update_image_controls(self.get_parameter_value("image"))
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
     def before_value_set(self, parameter: Parameter, value: Any) -> Any:
@@ -137,7 +172,30 @@ class LoadImage(SuccessFailureNode):
         if parameter.name in ["image", "mask_channel"] and value is not None:
             self._extract_mask_if_possible()
 
+        if parameter == self.image_parameter:
+            self._update_image_controls(value)
+        elif parameter == self.path_parameter and value:
+            result = resolve_to_macro_path(value)
+            if not result.is_external and result.resolved_path != value:
+                self.set_parameter_value("path", result.resolved_path)
+            else:
+                self._update_image_controls(ImageUrlArtifact(value))
+
         return super().after_value_set(parameter, value)
+
+    def _update_image_controls(self, value: Any) -> None:
+        if isinstance(value, ImageUrlArtifact) and value.value:
+            result = resolve_to_macro_path(value.value)  # pyright: ignore[reportAttributeAccessIssue]
+            update_external_file_controls(result, self._external_warning, self._copy_button, self.name, "image")
+            if not result.is_external and result.resolved_path != value.value:
+                resolved = ImageUrlArtifact(result.resolved_path)
+                self.parameter_output_values["image"] = resolved
+                self.parameter_output_values["path"] = result.resolved_path
+                self.publish_update_to_parameter("image", resolved)
+                self.publish_update_to_parameter("path", result.resolved_path)
+        else:
+            self._external_warning.hide = True
+            self._copy_button.hide = True
 
     def process(self) -> None:
         # Reset execution state and result details at the start of each run
@@ -182,6 +240,13 @@ class LoadImage(SuccessFailureNode):
             # Verify image can be loaded (we know it's not None at this point)
             if isinstance(image_artifact, ImageUrlArtifact):
                 self._verify_image_loadable(image_artifact)
+                macro_result = resolve_to_macro_path(image_artifact.value)  # pyright: ignore[reportAttributeAccessIssue]
+                update_external_file_controls(
+                    macro_result, self._external_warning, self._copy_button, self.name, "image"
+                )
+                if not macro_result.is_external:
+                    image_artifact = ImageUrlArtifact(macro_result.resolved_path)
+                    path_value = image_artifact.value
 
             # Set output values on success
             self.parameter_output_values["image"] = image_artifact
@@ -204,6 +269,39 @@ class LoadImage(SuccessFailureNode):
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
             logger.error(f"LoadImage '{self.name}': {error_details}")
             self._handle_failure_exception(e)
+
+    def _on_copy_to_project_clicked(
+        self,
+        button: Button,  # noqa: ARG002
+        button_details: ButtonDetailsMessagePayload,
+    ) -> NodeMessageResult:
+        """Copy the external file into the project's inputs folder."""
+        path = self.parameter_output_values.get("path")
+        if not path:
+            return NodeMessageResult(success=False, details="No external path to copy", response=button_details)
+
+        try:
+            new_artifact, macro_path = copy_external_file_to_project(
+                path=path,
+                artifact_class=ImageUrlArtifact,
+                default_filename="image.png",
+                node_name=self.name,
+                parameter_name="image",
+            )
+            self.set_parameter_value("image", new_artifact)
+            self.publish_update_to_parameter("image", new_artifact)
+            self.publish_update_to_parameter("path", macro_path)
+            return NodeMessageResult(
+                success=True,
+                details=f"Copied '{path}' to project: {macro_path}",
+                response=button_details,
+                altered_workflow_state=True,
+            )
+        except Exception as e:
+            logger.error(f"LoadImage '{self.name}': failed to copy to project: {e}")
+            return NodeMessageResult(
+                success=False, details=f"Failed to copy '{path}' to project: {e}", response=button_details
+            )
 
     def _load_image_from_path(self, path_value: str | None) -> ImageUrlArtifact | None:
         """Load image artifact from a path value."""
@@ -245,13 +343,11 @@ class LoadImage(SuccessFailureNode):
             # Extract the specified channel as mask
             mask = extract_channel_from_image(image_pil, channel, "image")
 
-            # Save output mask and create URL artifact with proper filename
-            filename = generate_filename(
-                node_name=self.name,
-                suffix="_load_mask",
-                extension="png",
-            )
-            output_artifact = save_pil_image_with_named_filename(mask, filename, "PNG")
+            # Save output mask and create URL artifact
+            image_bytes = image_to_bytes(mask, "PNG")
+            dest = self._mask_output_file.build_file()
+            saved = dest.write_bytes(image_bytes)
+            output_artifact = ImageUrlArtifact(saved.location)
             self.set_parameter_value("output_mask", output_artifact)
             self.publish_update_to_parameter("output_mask", output_artifact)
 
