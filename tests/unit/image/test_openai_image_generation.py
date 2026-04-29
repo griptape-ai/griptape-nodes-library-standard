@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from griptape.artifacts import ImageArtifact
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.image.openai_image_generation import OpenAiImageGeneration
@@ -42,6 +43,27 @@ async def test_build_payload_for_jpeg_includes_output_compression(node: OpenAiIm
     }
 
 
+@pytest.mark.asyncio
+async def test_build_payload_includes_input_images_as_data_urls(
+    node: OpenAiImageGeneration, tmp_path: Path
+) -> None:
+    input_image_path = tmp_path / "source.png"
+    input_image_bytes = b"image-input"
+    input_image_path.write_bytes(input_image_bytes)
+
+    node.set_parameter_value("model", "GPT Image 2")
+    node.set_parameter_value("prompt", "Use the reference image")
+    node.set_parameter_value("size", "1024x1024")
+    node.set_parameter_value("input_images", [str(input_image_path)])
+
+    payload = await node._build_payload()
+
+    assert payload["model"] == "gpt-image-2"
+    assert payload["images"] == [
+        {"image_url": f"data:image/png;base64,{base64.b64encode(input_image_bytes).decode('utf-8')}"}
+    ]
+
+
 def test_validate_rejects_invalid_gpt_image_1_size(node: OpenAiImageGeneration) -> None:
     node.set_parameter_value("model", "GPT Image 1")
     node.set_parameter_value("prompt", "A red circle")
@@ -62,6 +84,79 @@ def test_validate_rejects_transparent_jpeg(node: OpenAiImageGeneration) -> None:
 
     assert exceptions is not None
     assert any("Transparent backgrounds require output_format" in str(exception) for exception in exceptions)
+
+
+@pytest.mark.parametrize("model_name", ["GPT Image 1", "GPT Image 1.5", "GPT Image 2"])
+def test_validate_rejects_too_many_reference_images(node: OpenAiImageGeneration, model_name: str) -> None:
+    node.set_parameter_value("model", model_name)
+    node.set_parameter_value("prompt", "Use the reference images")
+    node.set_parameter_value("size", "1024x1024")
+    node.set_parameter_value("input_images", [f"image_{index}.png" for index in range(17)])
+
+    exceptions = node.validate_before_node_run()
+
+    assert exceptions is not None
+    assert any("supports up to 16 reference images" in str(exception) for exception in exceptions)
+
+
+@pytest.mark.parametrize(
+    ("size", "message_fragment"),
+    [
+        ("3856x1024", "edge lengths must be 3840px or less"),
+        ("1025x1024", "must both be multiples of 16px"),
+        ("3840x1024", "aspect ratio cannot exceed 3:1"),
+        ("512x1024", "total pixels must be between 655,360 and 8,294,400"),
+    ],
+)
+def test_validate_rejects_invalid_gpt_image_2_custom_sizes(
+    node: OpenAiImageGeneration, size: str, message_fragment: str
+) -> None:
+    node.set_parameter_value("model", "GPT Image 2")
+    node.set_parameter_value("prompt", "A red circle")
+    node.parameter_values["size"] = size
+
+    exceptions = node.validate_before_node_run()
+
+    assert exceptions is not None
+    assert any(message_fragment in str(exception) for exception in exceptions)
+
+
+def test_validate_accepts_valid_gpt_image_2_custom_size(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", "GPT Image 2")
+    node.set_parameter_value("prompt", "A red circle")
+    node.parameter_values["size"] = "2048x1152"
+
+    exceptions = node.validate_before_node_run()
+
+    assert exceptions is None
+
+
+@pytest.mark.asyncio
+async def test_build_payload_uses_base64_from_image_artifact(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", "GPT Image 1")
+    node.set_parameter_value("prompt", "Use the artifact image")
+    node.set_parameter_value("size", "1024x1024")
+    node.set_parameter_value(
+        "input_images",
+        [ImageArtifact(value=b"artifact-image-bytes", format="png", width=1, height=1)],
+    )
+
+    payload = await node._build_payload()
+
+    assert payload["images"] == [
+        {"image_url": f"data:image/png;base64,{base64.b64encode(b'artifact-image-bytes').decode('utf-8')}"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_build_payload_raises_for_invalid_input_image(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", "GPT Image 1.5")
+    node.set_parameter_value("prompt", "Use the reference image")
+    node.set_parameter_value("size", "1024x1024")
+    node.set_parameter_value("input_images", ["/definitely/missing/image.png"])
+
+    with pytest.raises(ValueError, match="Failed to read input image"):
+        await node._build_payload()
 
 
 @pytest.mark.asyncio
