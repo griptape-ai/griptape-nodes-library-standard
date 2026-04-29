@@ -7,8 +7,12 @@ Anthropic specific model options, requires an Anthropic API key via
 node configuration, and instantiates the `GtAnthropicPromptDriver`.
 """
 
+from typing import Any
+
 from griptape.drivers.prompt.anthropic import AnthropicPromptDriver as GtAnthropicPromptDriver
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.button import Button
 
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
 
@@ -18,12 +22,31 @@ SERVICE = "Anthropic"
 API_KEY_URL = "https://console.anthropic.com/settings/keys"
 API_KEY_ENV_VAR = "ANTHROPIC_API_KEY"
 MODEL_CHOICES = [
-    "claude-3-7-sonnet-latest",
-    "claude-3-5-sonnet-latest",
-    "claude-3-5-opus-latest",
-    "claude-3-5-haiku-latest",
+    "claude-opus-4-7",
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5-20251001",
 ]
-DEFAULT_MODEL = MODEL_CHOICES[0]
+DEFAULT_MODEL = MODEL_CHOICES[2]  # claude-sonnet-4-6
+
+# Models that do not support sampling parameters (temperature, top_p)
+MODELS_WITHOUT_SAMPLING_PARAMS = {"claude-opus-4-7"}
+
+# Deprecated models and their replacements
+DEPRECATED_MODELS = {
+    # Dated model versions
+    "claude-3-5-sonnet-20241022": "claude-sonnet-4-6",
+    "claude-3-5-sonnet-20240620": "claude-sonnet-4-6",
+    "claude-3-5-haiku-20241022": "claude-haiku-4-5-20251001",
+    "claude-3-opus-20240229": "claude-opus-4-6",
+    "claude-3-sonnet-20240229": "claude-sonnet-4-6",
+    "claude-3-haiku-20240307": "claude-haiku-4-5-20251001",
+    # -latest variants
+    "claude-3-7-sonnet-latest": "claude-sonnet-4-6",
+    "claude-3-5-sonnet-latest": "claude-sonnet-4-6",
+    "claude-3-5-opus-latest": "claude-opus-4-6",
+    "claude-3-5-haiku-latest": "claude-haiku-4-5-20251001",
+}
 
 
 class AnthropicPrompt(BasePrompt):
@@ -53,13 +76,63 @@ class AnthropicPrompt(BasePrompt):
         # Update the 'model' parameter for Anthropic specifics.
         self._update_option_choices(param="model", choices=MODEL_CHOICES, default=DEFAULT_MODEL)
 
+        # Add deprecation notice message element right after model parameter
+        self.add_node_element(
+            ParameterMessage(
+                name="model_deprecation_notice",
+                title="Model Deprecation Notice",
+                variant="info",
+                value="",
+                traits={
+                    Button(
+                        full_width=True,
+                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
+                    )
+                },
+                button_text="Dismiss",
+                hide=True,
+            )
+        )
+
         # Replace `min_p` with `top_p` for Anthropic.
         self._replace_param_by_name(
             param_name="min_p", new_param_name="top_p", tooltip=None, default_value=0.9, ui_options=None
         )
 
-        # Remove the 'seed' parameter as it's not directly used by GriptapeCloudPromptDriver.
+        # Remove the 'seed' parameter as it's not directly used by AnthropicPromptDriver.
         self.remove_parameter_element_by_name("seed")
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter.name == "model" and isinstance(value, str):
+            if value in MODELS_WITHOUT_SAMPLING_PARAMS:
+                self.hide_parameter_by_name("top_p")
+                self.hide_parameter_by_name("temperature")
+                self.hide_parameter_by_name("top_k")
+            else:
+                self.show_parameter_by_name("top_p")
+                self.show_parameter_by_name("temperature")
+                self.show_parameter_by_name("top_k")
+
+        super().after_value_set(parameter, value)
+
+    def before_value_set(
+        self,
+        parameter: Parameter,
+        value: Any,
+    ) -> Any:
+        if parameter.name == "model":
+            if isinstance(value, str) and value in DEPRECATED_MODELS:
+                replacement = DEPRECATED_MODELS[value]
+                message = self.get_message_by_name_or_element_id("model_deprecation_notice")
+                if message is None:
+                    raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
+                message.value = f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. Please save your workflow to apply this change."
+                self.show_message_by_name("model_deprecation_notice")
+                value = replacement
+            else:
+                self.hide_message_by_name("model_deprecation_notice")
+
+        return super().before_value_set(parameter, value)
 
     def process(self) -> None:
         """Processes the node configuration to create an AnthropicPromptDriver.
@@ -90,9 +163,15 @@ class AnthropicPrompt(BasePrompt):
         # Get the selected model.
         specific_args["model"] = self.get_parameter_value("model")
 
-        # Handle specific parameter conversions/logic for Anthropic driver
-        # Anthropic uses 'top_p' and 'top_k' directly as kwargs.
-        specific_args["top_p"] = self.get_parameter_value("top_p")
+        # temperature and top_p are deprecated for some models (e.g. claude-opus-4-7)
+        model = self.get_parameter_value("model")
+        if model in MODELS_WITHOUT_SAMPLING_PARAMS:
+            common_args.pop("temperature", None)
+            common_args.pop("top_k", None)
+        else:
+            top_p = self.get_parameter_value("top_p")
+            if top_p is not None:
+                specific_args["top_p"] = top_p
 
         response_format = self.get_parameter_value("response_format")
         if response_format == "json_object":
