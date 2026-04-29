@@ -631,22 +631,27 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
 
     @staticmethod
     def _coerce_image_url_or_data_uri(val: Any) -> str | None:
+        """Extract a usable string from various image input types.
+
+        Returns an HTTP(S) URL, a ``data:image/...`` URI, a project macro path
+        like ``{inputs}/foo.png``, or a plain filesystem path. All of these are
+        resolvable by ``File`` downstream; non-URI strings are NOT wrapped as
+        base64.
+        """
         if val is None:
             return None
 
-        # String handling
+        # Plain string: return stripped value; File() handles URLs, macro paths, and file paths.
         if isinstance(val, str):
             v = val.strip()
-            if not v:
-                return None
-            return v if v.startswith(("http://", "https://", "data:image/")) else f"data:image/png;base64,{v}"
+            return v or None
 
         # Artifact-like objects
         try:
-            # ImageUrlArtifact: .value holds URL string
+            # ImageUrlArtifact: .value holds URL/path string — return as-is for File() to resolve.
             v = getattr(val, "value", None)
-            if isinstance(v, str) and v.startswith(("http://", "https://", "data:image/")):
-                return v
+            if isinstance(v, str) and v.strip():
+                return v.strip()
             # ImageArtifact: .base64 holds raw or data-URI
             b64 = getattr(val, "base64", None)
             if isinstance(b64, str) and b64:
