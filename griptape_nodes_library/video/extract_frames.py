@@ -13,8 +13,11 @@ from griptape_nodes_library.video.base_video_input_node import BaseVideoInputNod
 
 import griptape_nodes.exe_types.core_types as core_types
 import griptape_nodes.exe_types.node_types as node_types
+
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.traits.file_system_picker import FileSystemPicker
 import griptape_nodes.traits.widget as widget
+from griptape_nodes.traits import options
 from griptape_nodes.retained_mode import griptape_nodes
 from griptape_nodes.retained_mode.events.static_file_events import (
     CreateStaticFileDownloadUrlFromPathRequest,
@@ -24,24 +27,36 @@ from griptape_nodes.retained_mode.events.static_file_events import (
 logger = logging.getLogger(__name__)
 
 
-# TODO:
-# 1. Display selected frames in widget
-# 2. Frame extraction
-# 3. Output extracted frames as ImageArtifacts with staticfiles-backed URLs and paths
+def parse_frame_string(frame_str: str) -> list[int]:
+    """Parse a comma-separated frame specification into a sorted, deduplicated list.
 
-
-"""
-Algo:
-- get extraction type
-- get output formats
-    - file format (png, jpg)
-    - rename?
-    - padding
-    - prefix
-- if a list, iterate over this list, if every Nth, iterate over generator
-- for each frame to extract, seek to frame, read frame, convert to image artifact, save to staticfiles dir, output path/url/artifact
-
-"""
+    Supports individual frames and inclusive ranges: ``"1,4,5-9,11"`` → ``[1, 4, 5, 6, 7, 8, 9, 11]``.
+    Values < 1 are silently discarded.
+    """
+    if not frame_str or not frame_str.strip():
+        return []
+    result: set[int] = set()
+    for token in frame_str.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if "-" in token:
+            parts = token.split("-", 1)
+            try:
+                start, end = int(parts[0]), int(parts[1])
+            except ValueError:
+                continue
+            if start > end or start < 1:
+                continue
+            result.update(range(start, end + 1))
+        else:
+            try:
+                n = int(token)
+            except ValueError:
+                continue
+            if n >= 1:
+                result.add(n)
+    return sorted(result)
 
 
 class VideoFrameExtractor(BaseVideoInputNode):
@@ -55,61 +70,23 @@ class VideoFrameExtractor(BaseVideoInputNode):
         if metadata:
             node_metadata.update(metadata)
         super().__init__(name=name, metadata=node_metadata, **kwargs)
-        self.set_initial_node_size(width=980, height=880)
+        self.remove_parameter_element_by_name("video")  # Remove the default video output param from BaseVideoInputNode
+        self.set_initial_node_size(width=980, height=480)
+        self.hide_parameter_by_name("every_n")
 
     def _get_output_file_default_filename(self) -> str:
-        return "output_##.png"
+        return "output.####.png"
 
     def _register_primary_output_parameter(self) -> None:
         self.add_parameter(
             core_types.Parameter(
                 name="output_paths",
-                type="list[ImageArtifact]|list[str|pathlib.Path]",
+                type="list[str]",
                 allowed_modes={core_types.ParameterMode.OUTPUT},
                 tooltip="Paths to the extracted frame images",
                 ui_options={"pulse_on_run": True},
             )
         )
-
-    def _setup_custom_parameters(self) -> None:
-        # Input parameters
-
-        self.add_parameter(
-            core_types.Parameter(
-                name="input_video",
-                input_types=["VideoUrlArtifact", "VideoArtifact", "str"],
-                type="VideoUrlArtifact",
-                output_type="VideoUrlArtifact",
-                default_value=None,
-                allowed_modes={core_types.ParameterMode.INPUT},
-                ui_options={"display_name": "Video Input", "hide_property": True},
-                tooltip="Connect a video source here.",
-            )
-        )
-
-        self.add_parameter(
-            core_types.Parameter(
-                name="video_player",
-                type="str",
-                output_type="str",
-                default_value="",
-                allowed_modes={core_types.ParameterMode.PROPERTY},
-                tooltip="Video player for precise frame selection.",
-                traits={widget.Widget(name="VideoPlayerFrameSelector", library="Griptape Nodes Library")},
-            )
-        )
-
-        self.add_parameter(
-            core_types.Parameter(
-                name="input_frame_numbers",
-                output_type="str",
-                tooltip="Comma-separated list of frame numbers or ranges to extract from the video.",
-                allowed_modes={core_types.ParameterMode.INPUT},
-            )
-        )
-
-        # Output parameters
-
         self.add_parameter(
             core_types.Parameter(
                 name="extracted_frames",
@@ -120,63 +97,91 @@ class VideoFrameExtractor(BaseVideoInputNode):
             )
         )
 
+    def _setup_custom_parameters(self) -> None:
+        """Set up parameters specific to frame extraction, such as frame selection"""
+
+        # Input video and widget for frame selection
         self.add_parameter(
             core_types.Parameter(
-                name="extracted_frame_paths",
-                output_type="list[str]",
-                tooltip="Paths to the extracted frame images.",
-                allowed_modes={core_types.ParameterMode.OUTPUT},
-                ui_options={"hide_property": True},
+                name="input_video",
+                type="str",
+                output_type="str",
+                input_types=["VideoUrlArtifact", "VideoArtifact", "str"],
+                default_value="",
+                allowed_modes={core_types.ParameterMode.INPUT},
+                tooltip="Video player for precise frame selection. Connect a video source here.",
+                ui_options={"display_name": "Video Input"},
+                traits={widget.Widget(name="VideoPlayerFrameSelector", library="Griptape Nodes Library")},
+            )
+        )
+        self.add_parameter(
+            core_types.Parameter(
+                name="frame_selection_mode",
+                type="str",
+                default_value="list",
+                allowed_modes={core_types.ParameterMode.INPUT, core_types.ParameterMode.PROPERTY},
+                traits={options.Options(choices=["list", "every_Nth"])},
+                tooltip="Mode for selecting frames to extract. 'list' for specific frame numbers, 'every_Nth' for regular intervals. For list, use comma-separated integers and ranges: `1,4,5-9,11`",
+            )
+        )
+        self.add_parameter(
+            core_types.Parameter(
+                name="input_frame_numbers",
+                output_type="str",
+                tooltip="Comma-separated list of frame numbers or ranges to extract from the video.",
+                allowed_modes={core_types.ParameterMode.INPUT, core_types.ParameterMode.PROPERTY},
+            )
+        )
+        self.add_parameter(
+            core_types.Parameter(
+                name="every_n",
+                type="int",
+                default_value=1,
+                tooltip="Interval for extracting frames when 'every_Nth' mode is selected.",
+                allowed_modes={core_types.ParameterMode.INPUT, core_types.ParameterMode.PROPERTY},
             )
         )
 
-        self.add_parameter(
-            core_types.ParameterList(
-                name="extraction_output_formats",
+        with core_types.ParameterGroup(
+            name="settings", ui_options={"collapsed": True, "display_name": "Output format settings"}
+        ) as settings_group:
+            ParameterString(
+                name="output_format",
+                default_value="png",
                 input_types=["List[str]", "str"],
-                output_type="dict",
-                tooltip="Output format options for extracted frames, including file format (png, jpg), renaming pattern, padding, and prefix.",
-                allowed_modes={core_types.ParameterMode.PROPERTY, core_types.ParameterMode.INPUT},
+                output_type="str",
+                tooltip="Processing mode",
+                allowed_modes={core_types.ParameterMode.INPUT, core_types.ParameterMode.PROPERTY},
+                traits={options.Options(choices=["png", "jpg", "exr"])},
             )
-        )
 
-        self.add_parameter(
-            core_types.Parameter(
-                name="frames",
-                type="list",
-                tooltip="1-based frame numbers to extract (e.g. [1, 10, 50])",
-                ui_options={"placeholder_text": "[1, 10, 50]"},
-            )
-        )
-        self.add_parameter(
             ParameterString(
                 name="output_dir",
                 default_value="",
                 tooltip="Directory to save extracted frames. Defaults to a temp directory.",
+                allowed_modes={core_types.ParameterMode.INPUT, core_types.ParameterMode.PROPERTY},
+                traits={
+                    FileSystemPicker(
+                        allow_files=False,
+                        allow_directories=True,
+                        multiple=False,
+                    )
+                },
             )
-        )
-        self.add_parameter(
             ParameterString(
                 name="output_prefix",
                 default_value="frame",
                 tooltip="Filename prefix for each saved frame (e.g. 'frame' → 'frame000001.png')",
+                allowed_modes={core_types.ParameterMode.INPUT, core_types.ParameterMode.PROPERTY},
             )
-        )
-        self.add_parameter(
             core_types.Parameter(
                 name="frame_padding",
                 type="int",
                 default_value=6,
                 tooltip="Zero-padding width for the frame number in the output filename",
+                allowed_modes={core_types.ParameterMode.INPUT, core_types.ParameterMode.PROPERTY},
             )
-        )
-        self.add_parameter(
-            ParameterString(
-                name="output_format",
-                default_value="png",
-                tooltip="Image format for extracted frames: png, jpg, or webp",
-            )
-        )
+        self.add_node_element(settings_group)
 
     def _get_processing_description(self) -> str:
         return "extracting frames from video"
@@ -220,11 +225,18 @@ class VideoFrameExtractor(BaseVideoInputNode):
         return f"_{str(frame_number).zfill(frame_padding)}"
 
     def _validate_custom_parameters(self) -> list[Exception] | None:
-        frames = self.get_parameter_value("frames")
-        if not frames:
-            return [ValueError(f"{self.name}: 'frames' must be a non-empty list of frame numbers")]
-        if not all(isinstance(f, int) and f >= 1 for f in frames):
-            return [ValueError(f"{self.name}: all frame numbers must be integers >= 1")]
+        mode = self.get_parameter_value("frame_selection_mode") or "list"
+        if mode == "list":
+            frame_str = self.get_parameter_value("input_frame_numbers") or ""
+            frames = parse_frame_string(frame_str)
+            if not frames:
+                return [
+                    ValueError(f"{self.name}: 'input_frame_numbers' must specify at least one frame (e.g. '1,4,5-9')")
+                ]
+        elif mode == "every_Nth":
+            every_n = self.get_parameter_value("every_n") or 1
+            if every_n < 1:
+                return [ValueError(f"{self.name}: 'every_n' must be >= 1")]
         return None
 
     def _detect_frame_rate(self, input_url: str) -> float:
@@ -255,7 +267,6 @@ class VideoFrameExtractor(BaseVideoInputNode):
         """Extract each requested frame and return their saved paths."""
         self._validate_url_safety(input_url)
 
-        frames: list[int] = self.get_parameter_value("frames")
         output_format: str = self.get_parameter_value("output_format") or "png"
         output_prefix: str = self.get_parameter_value("output_prefix") or "frame"
         frame_padding: int = self.get_parameter_value("frame_padding") or 6
@@ -266,6 +277,17 @@ class VideoFrameExtractor(BaseVideoInputNode):
 
         frame_rate = self._detect_frame_rate(input_url)
         self.append_value_to_parameter("logs", f"Detected frame rate: {frame_rate:.3f} fps\n")
+
+        mode = self.get_parameter_value("frame_selection_mode") or "list"
+        if mode == "every_Nth":
+            every_n = max(1, self.get_parameter_value("every_n") or 1)
+            _, ffprobe_path = self._get_ffmpeg_paths()
+            _, _, vid_duration = self._detect_video_properties(input_url, ffprobe_path)
+            total_frames = max(1, round(vid_duration * frame_rate))
+            frames = list(range(1, total_frames + 1, every_n))
+        else:
+            frame_str = self.get_parameter_value("input_frame_numbers") or ""
+            frames = parse_frame_string(frame_str)
 
         saved_paths: list[pathlib.Path] = []
         for frame_number in frames:
@@ -300,14 +322,24 @@ class VideoFrameExtractor(BaseVideoInputNode):
         """Automatically update video_player URL when input_video changes."""
         if parameter.name == "input_video":
             url = self._resolve_video_url(value)
-            current = self.parameter_values.get("video_player", "")
+            current = self.parameter_values.get("input_video", "")
             current_base = str(current).split("?")[0] if current else ""
             if url:
                 new_base = url.split("?")[0]
                 if new_base != current_base:
-                    self.set_parameter_value("video_player", url)
+                    self.set_parameter_value("input_video", url)
             elif current_base:
-                self.set_parameter_value("video_player", "")
+                self.set_parameter_value("input_video", "")
+
+        if parameter.name == "frame_selection_mode":
+            mode = self.parameter_values.get("frame_selection_mode")
+            if mode == "every_Nth":
+                self.hide_parameter_by_name("input_frame_numbers")
+                self.show_parameter_by_name("every_n")
+            elif mode == "list":
+                self.show_parameter_by_name("input_frame_numbers")
+                self.hide_parameter_by_name("every_n")
+
         return super().after_value_set(parameter, value)
 
     def process(self) -> node_types.AsyncResult[None]:
