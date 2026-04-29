@@ -22,11 +22,15 @@ SERVICE = "Anthropic"
 API_KEY_URL = "https://console.anthropic.com/settings/keys"
 API_KEY_ENV_VAR = "ANTHROPIC_API_KEY"
 MODEL_CHOICES = [
+    "claude-opus-4-7",
     "claude-opus-4-6",
     "claude-sonnet-4-6",
     "claude-haiku-4-5-20251001",
 ]
-DEFAULT_MODEL = MODEL_CHOICES[1]  # claude-sonnet-4-6
+DEFAULT_MODEL = MODEL_CHOICES[2]  # claude-sonnet-4-6
+
+# Models that do not support sampling parameters (temperature, top_p, top_k)
+MODELS_WITHOUT_SAMPLING_PARAMS = {"claude-opus-4-7"}
 
 # Deprecated models and their replacements
 DEPRECATED_MODELS = {
@@ -98,6 +102,19 @@ class AnthropicPrompt(BasePrompt):
         # Remove the 'seed' parameter as it's not directly used by AnthropicPromptDriver.
         self.remove_parameter_element_by_name("seed")
 
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter.name == "model" and isinstance(value, str):
+            if value in MODELS_WITHOUT_SAMPLING_PARAMS:
+                self.hide_parameter_by_name("top_p")
+                self.hide_parameter_by_name("temperature")
+                self.hide_parameter_by_name("top_k")
+            else:
+                self.show_parameter_by_name("top_p")
+                self.show_parameter_by_name("temperature")
+                self.show_parameter_by_name("top_k")
+
+        super().after_value_set(parameter, value)
+
     def before_value_set(
         self,
         parameter: Parameter,
@@ -146,12 +163,15 @@ class AnthropicPrompt(BasePrompt):
         # Get the selected model.
         specific_args["model"] = self.get_parameter_value("model")
 
-        # Handle specific parameter conversions/logic for Anthropic driver
-        # Anthropic uses 'top_p' and 'top_k' directly as kwargs.
-        # Only set top_p if it's not None (otherwise the driver will use temperature).
-        top_p = self.get_parameter_value("top_p")
-        if top_p is not None:
-            specific_args["top_p"] = top_p
+        # temperature and top_p are deprecated for some models (e.g. claude-opus-4-7)
+        model = self.get_parameter_value("model")
+        if model in MODELS_WITHOUT_SAMPLING_PARAMS:
+            common_args.pop("temperature", None)
+            common_args.pop("top_k", None)
+        else:
+            top_p = self.get_parameter_value("top_p")
+            if top_p is not None:
+                specific_args["top_p"] = top_p
 
         response_format = self.get_parameter_value("response_format")
         if response_format == "json_object":
