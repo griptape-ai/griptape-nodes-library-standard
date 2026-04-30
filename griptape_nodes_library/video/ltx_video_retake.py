@@ -211,10 +211,38 @@ class LTXVideoRetake(GriptapeProxyNode):
             retake_segment_param.max_val = float(MAX_VIDEO_DURATION)
 
     def _extract_video_url(self, video_input: Any) -> str | None:
-        """Extract video URL from video input."""
-        if isinstance(video_input, VideoUrlArtifact):
-            return video_input.value
-        return str(video_input) if video_input else None
+        """Extract a usable video URL/path string from various input types."""
+        return self._coerce_video_url_or_data_uri(video_input)
+
+    @staticmethod
+    def _coerce_video_url_or_data_uri(val: Any) -> str | None:
+        """Extract a usable string from various video input types.
+
+        Returns an HTTP(S) URL, a ``data:video/...`` URI, a project macro path
+        like ``{inputs}/foo.mp4``, or a plain filesystem path. All of these are
+        resolvable by ``File`` downstream; non-URI strings are NOT wrapped as
+        base64.
+        """
+        if val is None:
+            return None
+
+        if isinstance(val, str):
+            v = val.strip()
+            return v or None
+
+        try:
+            # VideoUrlArtifact / any artifact with .value holding a URL/path string.
+            v = getattr(val, "value", None)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+            # VideoArtifact: .base64 holds raw or data-URI video bytes.
+            b64 = getattr(val, "base64", None)
+            if isinstance(b64, str) and b64:
+                return b64 if b64.startswith("data:video/") else f"data:video/mp4;base64,{b64}"
+        except AttributeError:
+            pass
+
+        return None
 
     def _update_segment_range_max(self, max_duration: float, actual_duration: float) -> None:
         """Update retake_segment max value and adjust current segment if needed."""
@@ -365,8 +393,7 @@ class LTXVideoRetake(GriptapeProxyNode):
         if not video_input:
             return None
 
-        # Get the video URL from VideoUrlArtifact
-        video_url = video_input.value if isinstance(video_input, VideoUrlArtifact) else str(video_input)
+        video_url = self._coerce_video_url_or_data_uri(video_input)
         if not video_url:
             return None
 

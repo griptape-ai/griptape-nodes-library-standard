@@ -538,19 +538,22 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
 
     @staticmethod
     def _coerce_video_url_or_data_uri(val: Any) -> str | None:
+        """Extract a usable string from various video input types.
+
+        Returns an HTTP(S) URL, a ``data:video/...`` URI, a project macro path,
+        or a plain filesystem path. Non-URI strings are NOT wrapped as base64.
+        """
         if val is None:
             return None
 
         if isinstance(val, str):
             v = val.strip()
-            if not v:
-                return None
-            return v if v.startswith(("http://", "https://", "data:video/")) else f"data:video/mp4;base64,{v}"
+            return v or None
 
         try:
             v = getattr(val, "value", None)
-            if isinstance(v, str) and v.startswith(("http://", "https://", "data:video/")):
-                return v
+            if isinstance(v, str) and v.strip():
+                return v.strip()
             b64 = getattr(val, "base64", None)
             if isinstance(b64, str) and b64:
                 return b64 if b64.startswith("data:video/") else f"data:video/mp4;base64,{b64}"
@@ -561,19 +564,22 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
 
     @staticmethod
     def _coerce_audio_url_or_data_uri(val: Any) -> str | None:
+        """Extract a usable string from various audio input types.
+
+        Returns an HTTP(S) URL, a ``data:audio/...`` URI, a project macro path,
+        or a plain filesystem path. Non-URI strings are NOT wrapped as base64.
+        """
         if val is None:
             return None
 
         if isinstance(val, str):
             v = val.strip()
-            if not v:
-                return None
-            return v if v.startswith(("http://", "https://", "data:audio/")) else f"data:audio/mpeg;base64,{v}"
+            return v or None
 
         try:
             v = getattr(val, "value", None)
-            if isinstance(v, str) and v.startswith(("http://", "https://", "data:audio/")):
-                return v
+            if isinstance(v, str) and v.strip():
+                return v.strip()
             b64 = getattr(val, "base64", None)
             if isinstance(b64, str) and b64:
                 return b64 if b64.startswith("data:audio/") else f"data:audio/mpeg;base64,{b64}"
