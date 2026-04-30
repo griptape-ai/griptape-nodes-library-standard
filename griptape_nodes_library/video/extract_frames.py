@@ -2,16 +2,25 @@
 
 import logging
 import pathlib
+import re
 import tempfile
 import typing
+from urllib.parse import urlparse
 
 from griptape.artifacts import ImageArtifact
 from PIL import Image
 
 import griptape_nodes.exe_types.core_types as core_types
 import griptape_nodes.exe_types.node_types as node_types
+from griptape_nodes.common.macro_parser import ParsedMacro
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode import griptape_nodes
+from griptape_nodes.retained_mode.events.project_events import (
+    AttemptMapAbsolutePathToProjectRequest,
+    AttemptMapAbsolutePathToProjectResultSuccess,
+    GetPathForMacroRequest,
+    GetPathForMacroResultSuccess,
+)
 from griptape_nodes.retained_mode.events.static_file_events import (
     CreateStaticFileDownloadUrlFromPathRequest,
     CreateStaticFileDownloadUrlFromPathResultSuccess,
@@ -240,6 +249,27 @@ class VideoFrameExtractor(BaseVideoInputNode):
             logger.warning("Failed to resolve video URL for: %s", file_path, exc_info=True)
         return None
 
+    def _resolve_output_dir(self, video_url: str) -> pathlib.Path:
+        """Resolve the project output directory: outputs/{NodeName}/{VideoStem}/.
+
+        Falls back to a temp directory when no project is loaded.
+        """
+        video_stem = pathlib.Path(urlparse(video_url).path).stem or "video"
+        video_stem = re.sub(r"[^\w-]", "_", video_stem)
+        sub_dirs = f"{self.name}/{video_stem}"
+
+        result = griptape_nodes.GriptapeNodes.handle_request(
+            GetPathForMacroRequest(
+                parsed_macro=ParsedMacro("{outputs}/{sub_dirs}"),
+                variables={"sub_dirs": sub_dirs},
+            )
+        )
+        if isinstance(result, GetPathForMacroResultSuccess):
+            return pathlib.Path(result.absolute_path)
+
+        logger.warning("Could not resolve project output directory; falling back to temp dir")
+        return pathlib.Path(tempfile.mkdtemp())
+
     def _get_video_input_data(self) -> tuple[str, str]:
         """Return (resolved_url, format) for the video input.
 
@@ -317,7 +347,21 @@ class VideoFrameExtractor(BaseVideoInputNode):
     def _run_extraction(self, input_url: str, output_format: str) -> None:
         saved_paths = self._extract_all_frames(input_url, output_format)
 
-        self.parameter_output_values["output_paths"] = [str(p) for p in saved_paths]
+        # Map absolute paths to portable project macro paths (e.g. "{outputs}/NodeName/video/frame.png")
+        output_paths: list[str] = []
+        for p in saved_paths:
+            map_result = griptape_nodes.GriptapeNodes.handle_request(
+                AttemptMapAbsolutePathToProjectRequest(absolute_path=p)
+            )
+            if (
+                isinstance(map_result, AttemptMapAbsolutePathToProjectResultSuccess)
+                and map_result.mapped_path is not None
+            ):
+                output_paths.append(map_result.mapped_path)
+            else:
+                output_paths.append(str(p))
+
+        self.parameter_output_values["output_paths"] = output_paths
         self.parameter_output_values["extracted_frames"] = [
             self._path_to_image_artifact(p, output_format) for p in saved_paths
         ]
@@ -330,7 +374,7 @@ class VideoFrameExtractor(BaseVideoInputNode):
         frame_padding = self.get_parameter_value("frame_padding") or self.DEFAULT_FRAME_PADDING
         output_dir_str = self.get_parameter_value("output_dir") or ""
 
-        output_dir = pathlib.Path(output_dir_str) if output_dir_str else pathlib.Path(tempfile.mkdtemp())
+        output_dir = pathlib.Path(output_dir_str) if output_dir_str else self._resolve_output_dir(input_url)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         ffmpeg_path, ffprobe_path = self._get_ffmpeg_paths()
