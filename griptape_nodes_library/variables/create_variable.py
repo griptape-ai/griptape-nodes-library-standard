@@ -2,7 +2,14 @@ import logging
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
-from griptape_nodes.exe_types.node_types import BaseNode, ControlNode
+from griptape_nodes.exe_types.node_types import (
+    BaseNode,
+    ControlNode,
+    NodeDependencies,
+    VariableAccess,
+    VariableReference,
+)
+from griptape_nodes.retained_mode.variable_types import VariableScope
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -317,6 +324,36 @@ class CreateVariable(ControlNode):
         self.parameter_output_values["variable_name"] = variable_name
         self.parameter_output_values["variable_type"] = variable_type
         self.parameter_output_values["value"] = value
+
+    def get_node_dependencies(self) -> NodeDependencies | None:
+        """Declare the variable this node creates or updates so it survives serialization.
+
+        Access is READ_WRITE: ``process()`` calls ``HasVariableRequest`` + ``GetVariableDetailsRequest``
+        to decide whether to update an existing variable or create a new one, so the node both
+        reads and writes the variable's state.
+
+        The node has no ``scope`` parameter — it unconditionally creates flow-scoped variables,
+        so the reference is declared at ``CURRENT_FLOW_ONLY``.
+
+        Reads the current value of ``variable_name`` via ``get_parameter_value`` — if the parameter
+        is driven by an incoming connection, this returns the last propagated value (or ``None`` if
+        nothing has propagated yet). No declaration is emitted for empty/None names.
+        """
+        deps = super().get_node_dependencies()
+        if deps is None:
+            deps = NodeDependencies()
+
+        variable_name = self.get_parameter_value(self.variable_name_param.name)
+        if isinstance(variable_name, str) and variable_name:
+            deps.variable_references.add(
+                VariableReference(
+                    name=variable_name,
+                    scope=VariableScope.CURRENT_FLOW_ONLY,
+                    access=VariableAccess.READ_WRITE,
+                )
+            )
+
+        return deps
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
         """Variable nodes have side effects and need to execute every workflow run."""

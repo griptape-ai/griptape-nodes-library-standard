@@ -54,6 +54,9 @@ line-ending = "auto"
 [dependency-groups]
 dev = ["pyright>=1.1.396", "pytest-asyncio>=0.21.0", "ruff>=0.8.0", "pytest"]
 
+[tool.uv.sources]
+griptape-nodes = { git = "https://github.com/griptape-ai/griptape-nodes.git", branch = "main" }
+
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
