@@ -453,8 +453,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         if match is None:
             return [
                 ValueError(
-                    f"{self.name}: GPT Image 2 size must be 'auto' or formatted as WIDTHxHEIGHT, "
-                    "for example 2048x1152."
+                    f"{self.name}: GPT Image 2 size must be 'auto' or formatted as WIDTHxHEIGHT, for example 2048x1152."
                 )
             ]
 
@@ -465,8 +464,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         if max(width, height) > self.GPT_IMAGE_2_MAX_EDGE_LENGTH:
             exceptions.append(
                 ValueError(
-                    f"{self.name}: GPT Image 2 size edge lengths must be "
-                    f"{self.GPT_IMAGE_2_MAX_EDGE_LENGTH}px or less."
+                    f"{self.name}: GPT Image 2 size edge lengths must be {self.GPT_IMAGE_2_MAX_EDGE_LENGTH}px or less."
                 )
             )
 
@@ -483,8 +481,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         if short_edge == 0 or long_edge > short_edge * self.GPT_IMAGE_2_MAX_ASPECT_RATIO:
             exceptions.append(
                 ValueError(
-                    f"{self.name}: GPT Image 2 size aspect ratio cannot exceed "
-                    f"{self.GPT_IMAGE_2_MAX_ASPECT_RATIO}:1."
+                    f"{self.name}: GPT Image 2 size aspect ratio cannot exceed {self.GPT_IMAGE_2_MAX_ASPECT_RATIO}:1."
                 )
             )
 

@@ -44,9 +44,7 @@ async def test_build_payload_for_jpeg_includes_output_compression(node: OpenAiIm
 
 
 @pytest.mark.asyncio
-async def test_build_payload_includes_input_images_as_data_urls(
-    node: OpenAiImageGeneration, tmp_path: Path
-) -> None:
+async def test_build_payload_includes_input_images_as_data_urls(node: OpenAiImageGeneration, tmp_path: Path) -> None:
     input_image_path = tmp_path / "source.png"
     input_image_bytes = b"image-input"
     input_image_path.write_bytes(input_image_bytes)
