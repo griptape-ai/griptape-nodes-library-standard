@@ -101,13 +101,13 @@ const CSS = `
   /* ── Played fill (medium gray) ───────────────────────────────────────── */
   .vpw-tl-fill {
     position:absolute; bottom:0; left:0; height:10px;
-    background:#666; border-radius:3px;
+    background:#666; border-radius:3px 0 0 3px;
     pointer-events:none; z-index:2;
   }
 
-  /* ── Seeker (thin red vertical line, no triangles, no transform) ──────── */
+  /* ── Seeker (thin red vertical line confined to the track bar) ───────── */
   .vpw-tl-seeker {
-    position:absolute; bottom:0; width:1px; height:100%;
+    position:absolute; bottom:0; width:1px; height:10px;
     background:#cc3333;
     pointer-events:none; z-index:5;
   }
@@ -171,10 +171,11 @@ const CSS = `
   }
   .vpw-marker-range-bar:hover { background:rgba(212,160,48,0.15); }
 
-  /* JS-applied class when hovering the range bar — highlights both markers */
+  /* JS-applied class when hovering the range bar — highlights markers and track fill */
   .vpw-marker.vpw-range-hover .vpw-marker-line { background:#d4a030; }
   .vpw-marker.vpw-range-hover .vpw-marker-tri-start { border-right-color:#d4a030; }
   .vpw-marker.vpw-range-hover .vpw-marker-tri-end { border-left-color:#d4a030; }
+  .vpw-range-fill.vpw-range-hover { background:rgba(212,160,48,0.25); }
 
   /* Range fill on track (purely visual, non-interactive — track handles seeking) */
   .vpw-range-fill {
@@ -348,7 +349,8 @@ function controlsHtml(pfx) {
 function timelineHtml(id) {
   return `
     <div class="vpw-timeline nowheel" data-tl="${id}">
-      <div class="vpw-tl-marker-zone" data-tl-mzone="${id}"></div>
+      <div class="vpw-tl-marker-zone" data-tl-mzone="${id}"
+        title="Double-click to add a marker&#10;Double-click &amp; drag to create a range&#10;Drag a triangle to move it&#10;Alt+click to remove"></div>
       <div class="vpw-tl-track" data-tl-track="${id}"></div>
       <div class="vpw-tl-fill" data-tl-fill="${id}"></div>
       <div class="vpw-tl-seeker" data-tl-seeker="${id}"></div>
@@ -713,8 +715,8 @@ export default function VideoPlayerWidget(container, props) {
         bar.className = 'vpw-marker-range-bar';
         bar.style.left = snap(startPct);
         bar.style.width = w > 0 ? `${snapNum(endPct) - snapNum(startPct)}px` : `${endPct - startPct}%`;
-        bar.addEventListener('mouseenter', () => { startEl.classList.add('vpw-range-hover'); endEl.classList.add('vpw-range-hover'); });
-        bar.addEventListener('mouseleave', () => { startEl.classList.remove('vpw-range-hover'); endEl.classList.remove('vpw-range-hover'); });
+        bar.addEventListener('mouseenter', () => { startEl.classList.add('vpw-range-hover'); endEl.classList.add('vpw-range-hover'); fill.classList.add('vpw-range-hover'); });
+        bar.addEventListener('mouseleave', () => { startEl.classList.remove('vpw-range-hover'); endEl.classList.remove('vpw-range-hover'); fill.classList.remove('vpw-range-hover'); });
         if (mzone) mzone.appendChild(bar); else tlEl.appendChild(bar);
       }
     }
@@ -739,10 +741,13 @@ export default function VideoPlayerWidget(container, props) {
   /** Update only the seeker position and fill width — cheap, called on every frame. */
   function syncSeeker() {
     const pct = totalFrames > 1 ? (frameIndex / (totalFrames - 1)) * 100 : 0;
-    tlFill.style.width   = `${pct}%`;
-    tlSeeker.style.left  = `${pct}%`;
-    dtlFill.style.width  = `${pct}%`;
-    dtlSeeker.style.left = `${pct}%`;
+    const fillRadius = pct >= 99.9 ? '3px' : '3px 0 0 3px';
+    tlFill.style.width        = `${pct}%`;
+    tlFill.style.borderRadius = fillRadius;
+    tlSeeker.style.left       = `${pct}%`;
+    dtlFill.style.width        = `${pct}%`;
+    dtlFill.style.borderRadius = fillRadius;
+    dtlSeeker.style.left       = `${pct}%`;
     updateFrameHighlight();
   }
 
