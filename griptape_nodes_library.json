@@ -60,6 +60,11 @@
       "name": "MaskAdjustmentPreview",
       "path": "widgets/MaskAdjustmentPreview.js",
       "description": "Interactive preview for mask adjustment with timeline scrubbing and dilation/erosion controls."
+    },
+    {
+      "name": "VideoPlayerFrameSelector",
+      "path": "griptape_nodes_library/video/widgets/VideoPlayerFrameSelector.js",
+      "description": "Video player with frame selection capabilities for precise video manipulation nodes."
     }
   ],
   "categories": [
@@ -760,6 +765,17 @@
         "display_name": "Get Video Metadata",
         "icon": "info",
         "group": "describe"
+      }
+    },
+    {
+      "class_name": "VideoFrameExtractor",
+      "file_path": "griptape_nodes_library/video/extract_frames.py",
+      "metadata": {
+        "category": "video",
+        "description": "Import video, inspect frame-by-frame, and extract selected frames as images.",
+        "display_name": "Video Frame Extractor",
+        "icon": "film",
+        "group": "edit"
       }
     },
     {
