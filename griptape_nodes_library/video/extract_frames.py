@@ -186,6 +186,27 @@ class VideoFrameExtractor(BaseVideoInputNode):
     def _get_processing_description(self) -> str:
         return "extracting frames from video"
 
+    def _get_video_input_data(self) -> tuple[str, str]:
+        url = self.get_parameter_value("input_video") or ""
+        if not url:
+            raise ValueError(f"{self.name}: No video loaded in 'input_video'")
+        if not str(url).startswith(("http://", "https://", "blob:", "data:")):
+            resolved = self._resolve_video_url(url)
+            if not resolved:
+                raise ValueError(f"{self.name}: Could not resolve video URL: {url}")
+            url = resolved
+        return url, "mp4"
+
+    def validate_before_node_run(self) -> list[Exception] | None:
+        exceptions = []
+        raw = self.get_parameter_value("input_video") or ""
+        if not str(raw).strip():
+            exceptions.append(ValueError(f"{self.name}: 'input_video' is required"))
+        custom = self._validate_custom_parameters()
+        if custom:
+            exceptions.extend(custom)
+        return exceptions if exceptions else None
+
     def _build_ffmpeg_command(self, input_url: str, output_path: str, input_frame_rate: float, **kwargs) -> list[str]:
         # Single-frame extraction; timestamp is passed via kwargs
         ffmpeg_path, _ = self._get_ffmpeg_paths()
@@ -203,17 +224,26 @@ class VideoFrameExtractor(BaseVideoInputNode):
         ]
 
     def _resolve_video_url(self, raw_value: typing.Any) -> str | None:
-        file_path = str(raw_value) if raw_value is not None else ""
+        """Resolve a video artifact or path to a browser-accessible presigned URL.
+
+        Follows the same pattern as AdjustMaskSize._resolve_video_url — accesses
+        .value from artifacts, then resolves via CreateStaticFileDownloadUrlFromPathRequest.
+        """
+        if not raw_value:
+            return None
+
+        file_path = raw_value.value if hasattr(raw_value, "value") else str(raw_value)
         if not file_path:
             return None
-        if file_path.startswith(("http://", "https://", "blob:", "data:")):
+
+        if isinstance(file_path, str) and file_path.startswith(("http://", "https://")):
             return file_path
+
         try:
             result = griptape_nodes.GriptapeNodes.handle_request(
                 CreateStaticFileDownloadUrlFromPathRequest(file_path=file_path)
             )
             if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
-                logger.info("Resolved video URL: %s → %s", file_path, result.url)
                 return result.url
         except Exception:
             logger.warning("Failed to resolve video URL for: %s", file_path, exc_info=True)
@@ -319,7 +349,6 @@ class VideoFrameExtractor(BaseVideoInputNode):
         return saved_paths
 
     def after_value_set(self, parameter: core_types.Parameter, value: typing.Any) -> None:
-        """Automatically update video_player URL when input_video changes."""
         if parameter.name == "input_video":
             url = self._resolve_video_url(value)
             current = self.parameter_values.get("input_video", "")

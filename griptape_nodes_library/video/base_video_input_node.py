@@ -98,6 +98,7 @@ class BaseVideoInputNode(SuccessFailureNode, ABC):
         self._output_file = ProjectFileParameter(
             node=self,
             name="output_file",
+            allowed_modes={ParameterMode.OUTPUT},
             default_filename=self._get_output_file_default_filename(),
         )
         self._output_file.add_parameter()
