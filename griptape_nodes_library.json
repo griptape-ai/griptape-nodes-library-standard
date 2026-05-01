@@ -917,6 +917,17 @@
       }
     },
     {
+      "class_name": "LTXVideoExtend",
+      "file_path": "griptape_nodes_library/video/ltx_video_extend.py",
+      "metadata": {
+        "category": "video",
+        "description": "Extend an existing video by 2-20 seconds on the start or end using LTX AI models via Griptape Cloud model proxy.",
+        "display_name": "LTX Video Extend",
+        "icon": "Sparkles",
+        "group": "edit"
+      }
+    },
+    {
       "class_name": "KlingVideoExtension",
       "file_path": "griptape_nodes_library/video/kling_video_extension.py",
       "metadata": {
