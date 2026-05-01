@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
@@ -25,10 +25,8 @@ MAX_PROMPT_LENGTH = 5000
 MIN_EXTEND_DURATION = 2
 MAX_EXTEND_DURATION = 20
 MIN_CONTEXT_DURATION = 0
+DEFAULT_CONTEXT_DURATION = 1
 MAX_CONTEXT_DURATION = 20
-# The API allows up to 505 frames (~21s at 24fps) across the combined
-# context + duration window. Using seconds is a safe client-side proxy.
-MAX_CONTEXT_PLUS_DURATION = 21
 
 MODEL_MAPPING = {
     "LTX 2 Pro": "ltx-2-pro",
@@ -45,9 +43,11 @@ class LTXVideoExtend(GriptapeProxyNode):
         - prompt (str): Optional description of what should happen in the extended portion
         - mode (str): Whether to extend off the "start" or "end" of the source (default: "end")
         - duration (int): How many seconds of new footage to generate (2-20).
-          Integer-only: the proxy bills via ceil(duration), so non-integer requests round up.
-        - context (int): Optional seconds of source to use as context (0-20).
-          context + duration must not exceed ~21s (505 frames at 24fps).
+          Integer-only: the proxy bills via ceil(context + duration), capped by the
+          API's per-request frame limit (which depends on input FPS).
+        - context (int): Seconds of source to use as context (0-20, default 1).
+          Set to 0 to omit from the request; when omitted, LTX picks the maximum
+          context available and billing uses the full frame cap.
         - model (str): Model to use (LTX 2 Pro or LTX 2.3 Pro)
 
     Outputs:
@@ -107,33 +107,34 @@ class LTXVideoExtend(GriptapeProxyNode):
             )
         )
 
-        self.add_parameter(
-            ParameterInt(
-                name="duration",
-                default_value=MIN_EXTEND_DURATION,
-                tooltip=(
-                    f"Seconds of new footage to generate ({MIN_EXTEND_DURATION}-{MAX_EXTEND_DURATION}). "
-                    "Integer seconds only: the proxy bills via ceil(duration), so a fractional request "
-                    "would round up (e.g. 2.5s would bill as 3s)."
-                ),
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Slider(min_val=MIN_EXTEND_DURATION, max_val=MAX_EXTEND_DURATION)},
-            )
+        duration_param = ParameterInt(
+            name="duration",
+            default_value=MIN_EXTEND_DURATION,
+            tooltip=f"Seconds of new footage to generate ({MIN_EXTEND_DURATION}-{MAX_EXTEND_DURATION}).",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            traits={Slider(min_val=MIN_EXTEND_DURATION, max_val=MAX_EXTEND_DURATION)},
         )
+        duration_param.set_badge(
+            variant="info",
+            message=(
+                "Billed as ceil(context + duration) seconds, capped by the API's per-request "
+                "frame limit (which depends on input FPS). Requests above the cap are rejected."
+            ),
+        )
+        self.add_parameter(duration_param)
 
-        self.add_parameter(
-            ParameterInt(
-                name="context",
-                default_value=MIN_CONTEXT_DURATION,
-                tooltip=(
-                    f"Optional seconds of source video to use as context ({MIN_CONTEXT_DURATION}-"
-                    f"{MAX_CONTEXT_DURATION}). context + duration must be at most "
-                    f"{MAX_CONTEXT_PLUS_DURATION}s (505 frames at 24fps). Set to 0 to omit."
-                ),
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Slider(min_val=MIN_CONTEXT_DURATION, max_val=MAX_CONTEXT_DURATION)},
-            )
+        context_param = ParameterInt(
+            name="context",
+            default_value=DEFAULT_CONTEXT_DURATION,
+            tooltip=(
+                f"Seconds of source video to use as context ({MIN_CONTEXT_DURATION}-"
+                f"{MAX_CONTEXT_DURATION}). Set to 0 to let LTX pick the maximum automatically."
+            ),
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            traits={Slider(min_val=MIN_CONTEXT_DURATION, max_val=MAX_CONTEXT_DURATION)},
         )
+        self.add_parameter(context_param)
+        self._update_context_badge(DEFAULT_CONTEXT_DURATION)
 
         # OUTPUTS
         self.add_parameter(
@@ -186,6 +187,27 @@ class LTXVideoExtend(GriptapeProxyNode):
             "duration": self.get_parameter_value("duration"),
             "context": self.get_parameter_value("context"),
         }
+
+    def _update_context_badge(self, context_value: Any) -> None:
+        """Show a warning badge when context=0 (omitted) so the billing footgun is obvious."""
+        context_param = self.get_parameter_by_name("context")
+        if context_param is None:
+            return
+        if context_value == 0:
+            context_param.set_badge(
+                variant="warning",
+                message=(
+                    "Context will be omitted from the request. LTX will pick the maximum "
+                    "context available and billing will use the full per-request frame cap."
+                ),
+            )
+        else:
+            context_param.clear_badge()
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        super().after_value_set(parameter, value)
+        if parameter.name == "context":
+            self._update_context_badge(value)
 
     def _get_api_model_id(self) -> str:
         model_name = self.get_parameter_value("model") or DEFAULT_MODEL
@@ -264,13 +286,6 @@ class LTXVideoExtend(GriptapeProxyNode):
 
         duration = int(params["duration"])
         context = int(params["context"]) if params["context"] is not None else 0
-
-        if context + duration > MAX_CONTEXT_PLUS_DURATION:
-            msg = (
-                f"{self.name}: context ({context}s) + duration ({duration}s) must be at most "
-                f"{MAX_CONTEXT_PLUS_DURATION}s (API limit is 505 frames at 24fps)."
-            )
-            raise ValueError(msg)
 
         payload: dict[str, Any] = {
             "video_uri": video_data_uri,
