@@ -21,4 +21,5 @@ FLOW_INPUTS: dict[str, dict] = {
     "test_elevenlabs_text_to_speech_generation.py": {"Start Flow": {"prompt": "Hello world"}},
     "test_elevenlabs_sound_effect_generation.py": {"Start Flow": {"prompt": "Thunder clap"}},
     "test_elevenlabs_music_generation.py": {"Start Flow": {"prompt": "Upbeat jazz"}},
+    "test_runway_ml_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
 }
