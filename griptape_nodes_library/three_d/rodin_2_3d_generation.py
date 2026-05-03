@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import suppress
+from pathlib import Path
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
@@ -11,6 +12,7 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
+from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_three_d import Parameter3D
@@ -304,6 +306,19 @@ class Rodin23DGeneration(GriptapeProxyNode):
             )
         )
 
+        # Preview image is shown in place of the 3D viewer for formats the viewer
+        # cannot render (anything other than GLB). Hidden by default; toggled in
+        # after_value_set whenever geometry_file_format changes.
+        self.add_parameter(
+            ParameterImage(
+                name="preview_image",
+                tooltip="Preview image of the generated 3D model (shown when the selected format is not renderable in the 3D viewer).",
+                allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
+                settable=False,
+                ui_options={"pulse_on_run": True, "display_name": "Preview", "hide": True},
+            )
+        )
+
         self.add_parameter(
             Parameter(
                 name="all_files",
@@ -318,7 +333,7 @@ class Rodin23DGeneration(GriptapeProxyNode):
         self._output_file = ProjectFileParameter(
             node=self,
             name="output_file",
-            default_filename="model.glb",
+            default_filename="preview.webp",
         )
         self._output_file.add_parameter()
 
@@ -337,19 +352,19 @@ class Rodin23DGeneration(GriptapeProxyNode):
         super().after_value_set(parameter, value)
         self._seed_parameter.after_value_set(parameter, value)
 
-        # Keep output_file's extension in sync with the selected geometry_file_format
+        # The 3D viewer only renders GLB. For other formats, swap the model_url
+        # display for the preview_image so the user still sees the generated result.
+        # output_file is the preview (.webp) and stays constant across format changes;
+        # all model files are saved next to it.
         if parameter.name == "geometry_file_format" and isinstance(value, str) and value:
-            current = self.get_parameter_value("output_file") or "model"
-            base = current.rsplit(".", 1)[0] if "." in current else current
-            new_output_file = f"{base}.{value}"
-            if new_output_file != current:
-                self.set_parameter_value("output_file", new_output_file)
-                self.publish_update_to_parameter("output_file", new_output_file)
-
             if value.lower() != GLB_FORMAT:
                 self.show_message_by_name("non_glb_viewer_warning")
+                self.hide_parameter_by_name("model_url")
+                self.show_parameter_by_name("preview_image")
             else:
                 self.hide_message_by_name("non_glb_viewer_warning")
+                self.show_parameter_by_name("model_url")
+                self.hide_parameter_by_name("preview_image")
 
         # Convert string paths to ImageUrlArtifact by uploading to static storage
         # Handle both the list parameter itself and individual child parameters
@@ -566,11 +581,14 @@ class Rodin23DGeneration(GriptapeProxyNode):
         await self._save_model_files(files, params)
 
     async def _save_model_files(self, files: list[dict[str, Any]], params: dict[str, Any]) -> None:
-        """Download and save the generated 3D model files."""
+        """Download and save the generated 3D model files.
+
+        The preview (.webp) is saved to the user-configured `output_file` path; all
+        other files (mesh, textures, materials) are saved alongside it in the same
+        directory, preserving their original Rodin-assigned filenames and extensions.
+        """
         requested_format = params["geometry_file_format"]
 
-        # Identify the primary file by requested format before downloading anything,
-        # so a non-matching file returned first doesn't win by default.
         received_names = [f.get("name", "") for f in files]
         primary_name = next(
             (name for name in received_names if name.lower().endswith(f".{requested_format}")),
@@ -592,9 +610,22 @@ class Rodin23DGeneration(GriptapeProxyNode):
             )
             return
 
+        preview_name = next(
+            (name for name in received_names if name.lower().endswith(".webp")),
+            None,
+        )
+
+        # Derive the shared sub-directory from the user's output_file so every
+        # companion file lands next to the preview.
+        output_file_value = self.get_parameter_value("output_file") or "preview.webp"
+        sub_dir = str(Path(output_file_value).parent)
+        sub_dir_prefix = "" if sub_dir in ("", ".") else sub_dir
+
         all_file_urls: list[str] = []
         primary_url: str | None = None
         primary_filename: str | None = None
+        preview_url: str | None = None
+        preview_saved_name: str | None = None
 
         for idx, file_info in enumerate(files):
             file_url = file_info.get("url")
@@ -608,29 +639,40 @@ class Rodin23DGeneration(GriptapeProxyNode):
                 file_bytes = await self._download_bytes_from_url(file_url)
 
                 if file_bytes:
-                    is_primary = file_name == primary_name
-                    if is_primary:
-                        # Primary honors the user-configured output_file parameter.
+                    is_preview = file_name == preview_name
+                    if is_preview:
+                        # Preview honors the user-configured output_file parameter.
                         dest = self._output_file.build_file()
                     else:
-                        # Companion files (textures/materials/preview) keep their
-                        # original filename so their extension is preserved.
+                        # All other files keep their Rodin-assigned names but share
+                        # the preview's parent directory.
+                        companion_filename = (
+                            str(Path(sub_dir_prefix) / file_name) if sub_dir_prefix else file_name
+                        )
                         dest = ProjectFileDestination.from_situation(
-                            filename=file_name, situation="save_node_output"
+                            filename=companion_filename, situation="save_node_output"
                         )
                     saved = await dest.awrite_bytes(file_bytes)
                     all_file_urls.append(saved.location)
                     self._log(f"Saved file: {saved.name}")
 
-                    if is_primary:
+                    if file_name == primary_name:
                         primary_url = saved.location
                         primary_filename = saved.name
+                    if is_preview:
+                        preview_url = saved.location
+                        preview_saved_name = saved.name
 
             except Exception as e:
                 self._log(f"Failed to save file {file_name}: {e}")
 
-        # Set outputs
         self.parameter_output_values["all_files"] = all_file_urls
+
+        if preview_url:
+            self.parameter_output_values["preview_image"] = ImageUrlArtifact(
+                value=preview_url,
+                meta={"filename": preview_saved_name},
+            )
 
         if primary_url:
             self.parameter_output_values["model_url"] = ThreeDUrlArtifact(
@@ -715,6 +757,7 @@ class Rodin23DGeneration(GriptapeProxyNode):
         self.parameter_output_values["generation_id"] = ""
         self.parameter_output_values["provider_response"] = None
         self.parameter_output_values["model_url"] = None
+        self.parameter_output_values["preview_image"] = None
         self.parameter_output_values["all_files"] = []
 
     def _handle_payload_build_error(self, e: Exception) -> None:
