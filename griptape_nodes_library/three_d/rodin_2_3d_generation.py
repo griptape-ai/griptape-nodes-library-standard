@@ -31,8 +31,9 @@ __all__ = ["Rodin23DGeneration"]
 MAX_INPUT_IMAGES = 5
 
 # Output format options
-GEOMETRY_FORMAT_OPTIONS = ["glb", "usdz", "fbx", "obj", "stl"]
-DEFAULT_GEOMETRY_FORMAT = "glb"
+GLB_FORMAT = "glb"
+GEOMETRY_FORMAT_OPTIONS = [GLB_FORMAT, "usdz", "fbx", "obj", "stl"]
+DEFAULT_GEOMETRY_FORMAT = "GLB_FORMAT"
 
 # Material options
 MATERIAL_OPTIONS = ["PBR", "Shaded", "All"]
@@ -345,10 +346,10 @@ class Rodin23DGeneration(GriptapeProxyNode):
                 self.set_parameter_value("output_file", new_output_file)
                 self.publish_update_to_parameter("output_file", new_output_file)
 
-            if value.lower() == "usdz":
-                self.show_message_by_name("usdz_viewer_warning")
+            if value.lower() != GLB_FORMAT:
+                self.show_message_by_name("non_glb_viewer_warning")
             else:
-                self.hide_message_by_name("usdz_viewer_warning")
+                self.hide_message_by_name("non_glb_viewer_warning")
 
         # Convert string paths to ImageUrlArtifact by uploading to static storage
         # Handle both the list parameter itself and individual child parameters
