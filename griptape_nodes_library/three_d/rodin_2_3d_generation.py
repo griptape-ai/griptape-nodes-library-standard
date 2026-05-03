@@ -3,18 +3,21 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import suppress
+from pathlib import Path
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
+from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_three_d import Parameter3D
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
@@ -30,8 +33,9 @@ __all__ = ["Rodin23DGeneration"]
 MAX_INPUT_IMAGES = 5
 
 # Output format options
-GEOMETRY_FORMAT_OPTIONS = ["glb", "usdz", "fbx", "obj", "stl"]
-DEFAULT_GEOMETRY_FORMAT = "glb"
+GLB_FORMAT = "glb"
+GEOMETRY_FORMAT_OPTIONS = [GLB_FORMAT, "usdz", "fbx", "obj", "stl"]
+DEFAULT_GEOMETRY_FORMAT = GLB_FORMAT
 
 # Material options
 MATERIAL_OPTIONS = ["PBR", "Shaded", "All"]
@@ -143,6 +147,21 @@ class Rodin23DGeneration(GriptapeProxyNode):
                 ui_options={"display_name": "File Format"},
             )
         )
+
+        # Only GLB renders in the built-in 3D viewer; warn users when they pick anything else.
+        self.add_node_element(
+            ParameterMessage(
+                name="non_glb_viewer_warning",
+                title="Preview not supported",
+                variant="warning",
+                value=(
+                    "The 3D viewer only renders GLB. Files in the selected format will still "
+                    "be saved to disk, but no in-app preview will appear. Use GLB if you need "
+                    "an in-app preview."
+                ),
+            )
+        )
+        self.hide_message_by_name("non_glb_viewer_warning")
 
         # Material parameter
         self.add_parameter(
@@ -287,6 +306,19 @@ class Rodin23DGeneration(GriptapeProxyNode):
             )
         )
 
+        # Preview image is shown in place of the 3D viewer for formats the viewer
+        # cannot render (anything other than GLB). Hidden by default; toggled in
+        # after_value_set whenever geometry_file_format changes.
+        self.add_parameter(
+            ParameterImage(
+                name="preview_image",
+                tooltip="Preview image of the generated 3D model (shown when the selected format is not renderable in the 3D viewer).",
+                allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
+                settable=False,
+                ui_options={"pulse_on_run": True, "display_name": "Preview", "hide": True},
+            )
+        )
+
         self.add_parameter(
             Parameter(
                 name="all_files",
@@ -301,7 +333,7 @@ class Rodin23DGeneration(GriptapeProxyNode):
         self._output_file = ProjectFileParameter(
             node=self,
             name="output_file",
-            default_filename="model.glb",
+            default_filename="preview.webp",
         )
         self._output_file.add_parameter()
 
@@ -319,6 +351,20 @@ class Rodin23DGeneration(GriptapeProxyNode):
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
         self._seed_parameter.after_value_set(parameter, value)
+
+        # The 3D viewer only renders GLB. For other formats, swap the model_url
+        # display for the preview_image so the user still sees the generated result.
+        # output_file is the preview (.webp) and stays constant across format changes;
+        # all model files are saved next to it.
+        if parameter.name == "geometry_file_format" and isinstance(value, str) and value:
+            if value.lower() != GLB_FORMAT:
+                self.show_message_by_name("non_glb_viewer_warning")
+                self.hide_parameter_by_name("model_url")
+                self.show_parameter_by_name("preview_image")
+            else:
+                self.hide_message_by_name("non_glb_viewer_warning")
+                self.show_parameter_by_name("model_url")
+                self.hide_parameter_by_name("preview_image")
 
         # Convert string paths to ImageUrlArtifact by uploading to static storage
         # Handle both the list parameter itself and individual child parameters
@@ -535,44 +581,141 @@ class Rodin23DGeneration(GriptapeProxyNode):
         await self._save_model_files(files, params)
 
     async def _save_model_files(self, files: list[dict[str, Any]], params: dict[str, Any]) -> None:
-        """Download and save the generated 3D model files."""
+        """Download and save the generated 3D model files.
+
+        The preview (.webp) is saved to the user-configured `output_file` path; all
+        other files (mesh, textures, materials) are saved alongside it in the same
+        directory, preserving their original Rodin-assigned filenames and extensions.
+
+        When Rodin returns multiple files with the requested extension (common for
+        PBR + glb, where you get a base mesh plus a texture-baked variant), the
+        largest by byte size is treated as the primary. Rodin's API does not
+        document a canonical primary field, so size is the most reliable heuristic
+        -- the "full" file with embedded textures is always biggest.
+        """
         requested_format = params["geometry_file_format"]
+
+        received_names = [f.get("name", "") for f in files]
+        if not any(name.lower().endswith(f".{requested_format}") for name in received_names):
+            logger.warning(
+                "Rodin did not return a .%s file in the response; received: %s",
+                requested_format,
+                received_names,
+            )
+            self._set_safe_defaults()
+            self._set_status_results(
+                was_successful=False,
+                result_details=(
+                    f"Rodin did not return a .{requested_format} file in the response; "
+                    f"received: {received_names}"
+                ),
+            )
+            return
+
+        preview_name = next(
+            (name for name in received_names if name.lower().endswith(".webp")),
+            None,
+        )
+
+        # Download everything up front so we can pick the primary by byte size
+        # before saving (largest file matching the requested extension wins).
+        downloaded: list[tuple[str, bytes]] = []
+        for idx, file_info in enumerate(files):
+            file_url = file_info.get("url")
+            file_name = file_info.get("name", f"model_{idx}.{requested_format}")
+            if not file_url:
+                continue
+            try:
+                self._log(f"Downloading file: {file_name}")
+                file_bytes = await self._download_bytes_from_url(file_url)
+                if file_bytes:
+                    downloaded.append((file_name, file_bytes))
+            except Exception as e:
+                self._log(f"Failed to download file {file_name}: {e}")
+
+        primary_candidates = [
+            (name, data)
+            for name, data in downloaded
+            if name.lower().endswith(f".{requested_format}")
+        ]
+        if not primary_candidates:
+            logger.warning(
+                "Rodin response listed a .%s file but none downloaded successfully; received: %s",
+                requested_format,
+                received_names,
+            )
+            self._set_safe_defaults()
+            self._set_status_results(
+                was_successful=False,
+                result_details=(
+                    f"Rodin response listed a .{requested_format} file but none downloaded successfully."
+                ),
+            )
+            return
+
+        primary_name, _ = max(primary_candidates, key=lambda item: len(item[1]))
+        self._log(f"Selected primary .{requested_format}: {primary_name} (largest by size)")
+
+        # Derive the preview's target path from the user's output_file, but always
+        # force the .webp extension since Rodin's preview is always a webp regardless
+        # of the selected geometry_file_format. Companion files land in the same
+        # directory, keeping their Rodin-assigned names and extensions.
+        output_file_value = self.get_parameter_value("output_file") or "preview.webp"
+        output_path = Path(output_file_value)
+        preview_filename = str(output_path.with_suffix(".webp"))
+        sub_dir = str(output_path.parent)
+        sub_dir_prefix = "" if sub_dir in ("", ".") else sub_dir
+
+        # Clear prior run state so repeated executions don't accumulate outputs.
+        self.parameter_output_values["all_files"] = []
+        self.parameter_output_values["preview_image"] = None
+        self.parameter_output_values["model_url"] = None
 
         all_file_urls: list[str] = []
         primary_url: str | None = None
         primary_filename: str | None = None
+        preview_url: str | None = None
+        preview_saved_name: str | None = None
 
-        for idx, file_info in enumerate(files):
-            file_url = file_info.get("url")
-            file_name = file_info.get("name", f"model_{idx}.{requested_format}")
-
-            if not file_url:
-                continue
-
+        for file_name, file_bytes in downloaded:
             try:
-                self._log(f"Downloading file: {file_name}")
-                file_bytes = await self._download_bytes_from_url(file_url)
+                is_preview = file_name == preview_name
+                if is_preview:
+                    # Preview follows the user's output_file directory + stem but is
+                    # always saved as .webp.
+                    dest = ProjectFileDestination.from_situation(
+                        filename=preview_filename, situation="save_node_output"
+                    )
+                else:
+                    # All other files keep their Rodin-assigned names but share
+                    # the preview's parent directory.
+                    companion_filename = (
+                        str(Path(sub_dir_prefix) / file_name) if sub_dir_prefix else file_name
+                    )
+                    dest = ProjectFileDestination.from_situation(
+                        filename=companion_filename, situation="save_node_output"
+                    )
+                saved = await dest.awrite_bytes(file_bytes)
+                all_file_urls.append(saved.location)
+                self._log(f"Saved file: {saved.name}")
 
-                if file_bytes:
-                    dest = self._output_file.build_file()
-                    saved = await dest.awrite_bytes(file_bytes)
-                    all_file_urls.append(saved.location)
-                    self._log(f"Saved file: {saved.name}")
-
-                    # Track primary model file
-                    if file_name.lower().endswith(f".{requested_format}") and primary_url is None:
-                        primary_url = saved.location
-                        primary_filename = saved.name
-                    elif primary_url is None:
-                        # Use first file as fallback
-                        primary_url = saved.location
-                        primary_filename = saved.name
+                if file_name == primary_name:
+                    primary_url = saved.location
+                    primary_filename = saved.name
+                if is_preview:
+                    preview_url = saved.location
+                    preview_saved_name = saved.name
 
             except Exception as e:
                 self._log(f"Failed to save file {file_name}: {e}")
 
-        # Set outputs
         self.parameter_output_values["all_files"] = all_file_urls
+
+        if preview_url:
+            self.parameter_output_values["preview_image"] = ImageUrlArtifact(
+                value=preview_url,
+                meta={"filename": preview_saved_name},
+            )
 
         if primary_url:
             self.parameter_output_values["model_url"] = ThreeDUrlArtifact(
@@ -657,6 +800,7 @@ class Rodin23DGeneration(GriptapeProxyNode):
         self.parameter_output_values["generation_id"] = ""
         self.parameter_output_values["provider_response"] = None
         self.parameter_output_values["model_url"] = None
+        self.parameter_output_values["preview_image"] = None
         self.parameter_output_values["all_files"] = []
 
     def _handle_payload_build_error(self, e: Exception) -> None:
