@@ -538,6 +538,29 @@ class Rodin23DGeneration(GriptapeProxyNode):
         """Download and save the generated 3D model files."""
         requested_format = params["geometry_file_format"]
 
+        # Identify the primary file by requested format before downloading anything,
+        # so a non-matching file returned first doesn't win by default.
+        received_names = [f.get("name", "") for f in files]
+        primary_name = next(
+            (name for name in received_names if name.lower().endswith(f".{requested_format}")),
+            None,
+        )
+        if primary_name is None:
+            logger.warning(
+                "Rodin did not return a .%s file in the response; received: %s",
+                requested_format,
+                received_names,
+            )
+            self._set_safe_defaults()
+            self._set_status_results(
+                was_successful=False,
+                result_details=(
+                    f"Rodin did not return a .{requested_format} file in the response; "
+                    f"received: {received_names}"
+                ),
+            )
+            return
+
         all_file_urls: list[str] = []
         primary_url: str | None = None
         primary_filename: str | None = None
@@ -559,12 +582,7 @@ class Rodin23DGeneration(GriptapeProxyNode):
                     all_file_urls.append(saved.location)
                     self._log(f"Saved file: {saved.name}")
 
-                    # Track primary model file
-                    if file_name.lower().endswith(f".{requested_format}") and primary_url is None:
-                        primary_url = saved.location
-                        primary_filename = saved.name
-                    elif primary_url is None:
-                        # Use first file as fallback
+                    if file_name == primary_name:
                         primary_url = saved.location
                         primary_filename = saved.name
 
