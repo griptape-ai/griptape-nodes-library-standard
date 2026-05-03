@@ -35,7 +35,7 @@ MAX_INPUT_IMAGES = 5
 # Output format options
 GLB_FORMAT = "glb"
 GEOMETRY_FORMAT_OPTIONS = [GLB_FORMAT, "usdz", "fbx", "obj", "stl"]
-DEFAULT_GEOMETRY_FORMAT = "GLB_FORMAT"
+DEFAULT_GEOMETRY_FORMAT = GLB_FORMAT
 
 # Material options
 MATERIAL_OPTIONS = ["PBR", "Shaded", "All"]
@@ -656,11 +656,20 @@ class Rodin23DGeneration(GriptapeProxyNode):
         primary_name, _ = max(primary_candidates, key=lambda item: len(item[1]))
         self._log(f"Selected primary .{requested_format}: {primary_name} (largest by size)")
 
-        # Derive the shared sub-directory from the user's output_file so every
-        # companion file lands next to the preview.
+        # Derive the preview's target path from the user's output_file, but always
+        # force the .webp extension since Rodin's preview is always a webp regardless
+        # of the selected geometry_file_format. Companion files land in the same
+        # directory, keeping their Rodin-assigned names and extensions.
         output_file_value = self.get_parameter_value("output_file") or "preview.webp"
-        sub_dir = str(Path(output_file_value).parent)
+        output_path = Path(output_file_value)
+        preview_filename = str(output_path.with_suffix(".webp"))
+        sub_dir = str(output_path.parent)
         sub_dir_prefix = "" if sub_dir in ("", ".") else sub_dir
+
+        # Clear prior run state so repeated executions don't accumulate outputs.
+        self.parameter_output_values["all_files"] = []
+        self.parameter_output_values["preview_image"] = None
+        self.parameter_output_values["model_url"] = None
 
         all_file_urls: list[str] = []
         primary_url: str | None = None
@@ -672,8 +681,11 @@ class Rodin23DGeneration(GriptapeProxyNode):
             try:
                 is_preview = file_name == preview_name
                 if is_preview:
-                    # Preview honors the user-configured output_file parameter.
-                    dest = self._output_file.build_file()
+                    # Preview follows the user's output_file directory + stem but is
+                    # always saved as .webp.
+                    dest = ProjectFileDestination.from_situation(
+                        filename=preview_filename, situation="save_node_output"
+                    )
                 else:
                     # All other files keep their Rodin-assigned names but share
                     # the preview's parent directory.
