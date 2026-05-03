@@ -586,15 +586,17 @@ class Rodin23DGeneration(GriptapeProxyNode):
         The preview (.webp) is saved to the user-configured `output_file` path; all
         other files (mesh, textures, materials) are saved alongside it in the same
         directory, preserving their original Rodin-assigned filenames and extensions.
+
+        When Rodin returns multiple files with the requested extension (common for
+        PBR + glb, where you get a base mesh plus a texture-baked variant), the
+        largest by byte size is treated as the primary. Rodin's API does not
+        document a canonical primary field, so size is the most reliable heuristic
+        -- the "full" file with embedded textures is always biggest.
         """
         requested_format = params["geometry_file_format"]
 
         received_names = [f.get("name", "") for f in files]
-        primary_name = next(
-            (name for name in received_names if name.lower().endswith(f".{requested_format}")),
-            None,
-        )
-        if primary_name is None:
+        if not any(name.lower().endswith(f".{requested_format}") for name in received_names):
             logger.warning(
                 "Rodin did not return a .%s file in the response; received: %s",
                 requested_format,
@@ -615,6 +617,45 @@ class Rodin23DGeneration(GriptapeProxyNode):
             None,
         )
 
+        # Download everything up front so we can pick the primary by byte size
+        # before saving (largest file matching the requested extension wins).
+        downloaded: list[tuple[str, bytes]] = []
+        for idx, file_info in enumerate(files):
+            file_url = file_info.get("url")
+            file_name = file_info.get("name", f"model_{idx}.{requested_format}")
+            if not file_url:
+                continue
+            try:
+                self._log(f"Downloading file: {file_name}")
+                file_bytes = await self._download_bytes_from_url(file_url)
+                if file_bytes:
+                    downloaded.append((file_name, file_bytes))
+            except Exception as e:
+                self._log(f"Failed to download file {file_name}: {e}")
+
+        primary_candidates = [
+            (name, data)
+            for name, data in downloaded
+            if name.lower().endswith(f".{requested_format}")
+        ]
+        if not primary_candidates:
+            logger.warning(
+                "Rodin response listed a .%s file but none downloaded successfully; received: %s",
+                requested_format,
+                received_names,
+            )
+            self._set_safe_defaults()
+            self._set_status_results(
+                was_successful=False,
+                result_details=(
+                    f"Rodin response listed a .{requested_format} file but none downloaded successfully."
+                ),
+            )
+            return
+
+        primary_name, _ = max(primary_candidates, key=lambda item: len(item[1]))
+        self._log(f"Selected primary .{requested_format}: {primary_name} (largest by size)")
+
         # Derive the shared sub-directory from the user's output_file so every
         # companion file lands next to the preview.
         output_file_value = self.get_parameter_value("output_file") or "preview.webp"
@@ -627,41 +668,31 @@ class Rodin23DGeneration(GriptapeProxyNode):
         preview_url: str | None = None
         preview_saved_name: str | None = None
 
-        for idx, file_info in enumerate(files):
-            file_url = file_info.get("url")
-            file_name = file_info.get("name", f"model_{idx}.{requested_format}")
-
-            if not file_url:
-                continue
-
+        for file_name, file_bytes in downloaded:
             try:
-                self._log(f"Downloading file: {file_name}")
-                file_bytes = await self._download_bytes_from_url(file_url)
+                is_preview = file_name == preview_name
+                if is_preview:
+                    # Preview honors the user-configured output_file parameter.
+                    dest = self._output_file.build_file()
+                else:
+                    # All other files keep their Rodin-assigned names but share
+                    # the preview's parent directory.
+                    companion_filename = (
+                        str(Path(sub_dir_prefix) / file_name) if sub_dir_prefix else file_name
+                    )
+                    dest = ProjectFileDestination.from_situation(
+                        filename=companion_filename, situation="save_node_output"
+                    )
+                saved = await dest.awrite_bytes(file_bytes)
+                all_file_urls.append(saved.location)
+                self._log(f"Saved file: {saved.name}")
 
-                if file_bytes:
-                    is_preview = file_name == preview_name
-                    if is_preview:
-                        # Preview honors the user-configured output_file parameter.
-                        dest = self._output_file.build_file()
-                    else:
-                        # All other files keep their Rodin-assigned names but share
-                        # the preview's parent directory.
-                        companion_filename = (
-                            str(Path(sub_dir_prefix) / file_name) if sub_dir_prefix else file_name
-                        )
-                        dest = ProjectFileDestination.from_situation(
-                            filename=companion_filename, situation="save_node_output"
-                        )
-                    saved = await dest.awrite_bytes(file_bytes)
-                    all_file_urls.append(saved.location)
-                    self._log(f"Saved file: {saved.name}")
-
-                    if file_name == primary_name:
-                        primary_url = saved.location
-                        primary_filename = saved.name
-                    if is_preview:
-                        preview_url = saved.location
-                        preview_saved_name = saved.name
+                if file_name == primary_name:
+                    primary_url = saved.location
+                    primary_filename = saved.name
+                if is_preview:
+                    preview_url = saved.location
+                    preview_saved_name = saved.name
 
             except Exception as e:
                 self._log(f"Failed to save file {file_name}: {e}")
