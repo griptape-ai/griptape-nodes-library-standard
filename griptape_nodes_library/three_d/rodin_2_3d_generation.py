@@ -15,6 +15,7 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_three_d import Parameter3D
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
@@ -320,6 +321,15 @@ class Rodin23DGeneration(GriptapeProxyNode):
         super().after_value_set(parameter, value)
         self._seed_parameter.after_value_set(parameter, value)
 
+        # Keep output_file's extension in sync with the selected geometry_file_format
+        if parameter.name == "geometry_file_format" and isinstance(value, str) and value:
+            current = self.get_parameter_value("output_file") or "model"
+            base = current.rsplit(".", 1)[0] if "." in current else current
+            new_output_file = f"{base}.{value}"
+            if new_output_file != current:
+                self.set_parameter_value("output_file", new_output_file)
+                self.publish_update_to_parameter("output_file", new_output_file)
+
         # Convert string paths to ImageUrlArtifact by uploading to static storage
         # Handle both the list parameter itself and individual child parameters
         is_input_images = parameter.name == "input_images"
@@ -577,12 +587,21 @@ class Rodin23DGeneration(GriptapeProxyNode):
                 file_bytes = await self._download_bytes_from_url(file_url)
 
                 if file_bytes:
-                    dest = self._output_file.build_file()
+                    is_primary = file_name == primary_name
+                    if is_primary:
+                        # Primary honors the user-configured output_file parameter.
+                        dest = self._output_file.build_file()
+                    else:
+                        # Companion files (textures/materials/preview) keep their
+                        # original filename so their extension is preserved.
+                        dest = ProjectFileDestination.from_situation(
+                            filename=file_name, situation="save_node_output"
+                        )
                     saved = await dest.awrite_bytes(file_bytes)
                     all_file_urls.append(saved.location)
                     self._log(f"Saved file: {saved.name}")
 
-                    if file_name == primary_name:
+                    if is_primary:
                         primary_url = saved.location
                         primary_filename = saved.name
 
