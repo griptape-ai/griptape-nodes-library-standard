@@ -6,7 +6,7 @@ from contextlib import suppress
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -144,6 +144,21 @@ class Rodin23DGeneration(GriptapeProxyNode):
                 ui_options={"display_name": "File Format"},
             )
         )
+
+        # Only GLB renders in the built-in 3D viewer; warn users when they pick anything else.
+        self.add_node_element(
+            ParameterMessage(
+                name="non_glb_viewer_warning",
+                title="Preview not supported",
+                variant="warning",
+                value=(
+                    "The 3D viewer only renders GLB. Files in the selected format will still "
+                    "be saved to disk, but no in-app preview will appear. Use GLB if you need "
+                    "an in-app preview."
+                ),
+            )
+        )
+        self.hide_message_by_name("non_glb_viewer_warning")
 
         # Material parameter
         self.add_parameter(
@@ -329,6 +344,11 @@ class Rodin23DGeneration(GriptapeProxyNode):
             if new_output_file != current:
                 self.set_parameter_value("output_file", new_output_file)
                 self.publish_update_to_parameter("output_file", new_output_file)
+
+            if value.lower() == "usdz":
+                self.show_message_by_name("usdz_viewer_warning")
+            else:
+                self.hide_message_by_name("usdz_viewer_warning")
 
         # Convert string paths to ImageUrlArtifact by uploading to static storage
         # Handle both the list parameter itself and individual child parameters
