@@ -928,6 +928,17 @@
       }
     },
     {
+      "class_name": "LTXVideoToVideoHDR",
+      "file_path": "griptape_nodes_library/video/ltx_video_to_video_hdr.py",
+      "metadata": {
+        "category": "video",
+        "description": "Upgrade an SDR video to HDR using LTX AI via Griptape Cloud model proxy; returns a ZIP of per-frame EXR images.",
+        "display_name": "LTX Video to Video HDR",
+        "icon": "Sparkles",
+        "group": "edit"
+      }
+    },
+    {
       "class_name": "KlingVideoExtension",
       "file_path": "griptape_nodes_library/video/kling_video_extension.py",
       "metadata": {
