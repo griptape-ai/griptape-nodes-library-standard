@@ -53,7 +53,6 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
 
     SERVICE_NAME = "Griptape"
     API_KEY_NAME = "GT_CLOUD_API_KEY"
-    DEFAULT_MAX_ATTEMPTS = 240
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
