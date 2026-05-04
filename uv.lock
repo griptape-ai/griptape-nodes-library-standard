@@ -555,7 +555,7 @@ loaders-pdf = [
 [[package]]
 name = "griptape-nodes"
 version = "0.82.0"
-source = { git = "https://github.com/griptape-ai/griptape-nodes.git?branch=main#dd70b6e790d473f4b6151cfe90e63b5eae15ac2a" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "asyncio-thread-runner" },
@@ -588,6 +588,10 @@ dependencies = [
     { name = "watchfiles" },
     { name = "websockets" },
     { name = "xdg-base-dirs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/75/c5/5c4b04f2178288227bd99d07a1aab748a3f5522f22b2e524b23720a1aaf2/griptape_nodes-0.82.0.tar.gz", hash = "sha256:956b4c39868d1682b6058f16b08234ba72523496b74b088cd8c2e1e3b656c71a", size = 743745, upload-time = "2026-04-29T16:23:47.474Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6d/ae/26917005879cf06851794dd02174d037059c99317d6ed406bbd2c4b401dc/griptape_nodes-0.82.0-py3-none-any.whl", hash = "sha256:31dfc4ee5b598df8bb26686a102ddd69c6818666cb1ef2398a7e2afb51868d54", size = 952156, upload-time = "2026-04-29T16:23:49.216Z" },
 ]
 
 [[package]]
@@ -622,7 +626,7 @@ requires-dist = [
     { name = "asteval", specifier = ">=1.0.8" },
     { name = "color-matcher" },
     { name = "griptape", extras = ["drivers-prompt-amazon-bedrock", "drivers-prompt-anthropic", "drivers-prompt-cohere", "drivers-prompt-ollama", "drivers-web-scraper-trafilatura", "drivers-web-search-duckduckgo", "drivers-web-search-exa", "loaders-image", "loaders-pdf"], specifier = ">=1.9.4" },
-    { name = "griptape-nodes", git = "https://github.com/griptape-ai/griptape-nodes.git?branch=main" },
+    { name = "griptape-nodes", specifier = ">=0.82.0" },
     { name = "jmespath", specifier = ">=1.0.1" },
     { name = "json-repair", specifier = ">=0.46.1" },
     { name = "json-schema-to-pydantic", specifier = ">=0.4.6" },
