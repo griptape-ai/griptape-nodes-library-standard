@@ -614,27 +614,23 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         if not media_input:
             return None
 
-        # Handle artifacts with to_bytes() method
+        # Prefer string-value path: File() resolves project macros like "{inputs}/...",
+        # local paths, URLs, and data URIs uniformly. UrlArtifact.to_bytes() calls
+        # requests.get() directly and would fail on unresolved macro paths.
+        if isinstance(media_input, str):
+            return await self._string_to_bytes(media_input)
+
+        value = getattr(media_input, "value", None)
+        if isinstance(value, str) and value:
+            return await self._string_to_bytes(value)
+
+        # Fall back to to_bytes() for artifacts whose value is binary (e.g. ImageArtifact).
         if hasattr(media_input, "to_bytes"):
             try:
                 return media_input.to_bytes()
             except Exception as e:
                 self._log(f"Failed to get bytes from artifact: {e}")
                 return None
-
-        # Extract string value from various input types
-        media_value: str | None = None
-
-        if isinstance(media_input, str):
-            media_value = media_input
-        elif hasattr(media_input, "value"):
-            value = getattr(media_input, "value", None)
-            if isinstance(value, str):
-                media_value = value
-
-        # Convert string value to bytes
-        if media_value:
-            return await self._string_to_bytes(media_value)
 
         return None
 
