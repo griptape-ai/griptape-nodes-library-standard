@@ -606,8 +606,7 @@ class Rodin23DGeneration(GriptapeProxyNode):
             self._set_status_results(
                 was_successful=False,
                 result_details=(
-                    f"Rodin did not return a .{requested_format} file in the response; "
-                    f"received: {received_names}"
+                    f"Rodin did not return a .{requested_format} file in the response; received: {received_names}"
                 ),
             )
             return
@@ -634,9 +633,7 @@ class Rodin23DGeneration(GriptapeProxyNode):
                 self._log(f"Failed to download file {file_name}: {e}")
 
         primary_candidates = [
-            (name, data)
-            for name, data in downloaded
-            if name.lower().endswith(f".{requested_format}")
+            (name, data) for name, data in downloaded if name.lower().endswith(f".{requested_format}")
         ]
         if not primary_candidates:
             logger.warning(
@@ -647,9 +644,7 @@ class Rodin23DGeneration(GriptapeProxyNode):
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=(
-                    f"Rodin response listed a .{requested_format} file but none downloaded successfully."
-                ),
+                result_details=(f"Rodin response listed a .{requested_format} file but none downloaded successfully."),
             )
             return
 
@@ -689,9 +684,7 @@ class Rodin23DGeneration(GriptapeProxyNode):
                 else:
                     # All other files keep their Rodin-assigned names but share
                     # the preview's parent directory.
-                    companion_filename = (
-                        str(Path(sub_dir_prefix) / file_name) if sub_dir_prefix else file_name
-                    )
+                    companion_filename = str(Path(sub_dir_prefix) / file_name) if sub_dir_prefix else file_name
                     dest = ProjectFileDestination.from_situation(
                         filename=companion_filename, situation="save_node_output"
                     )
