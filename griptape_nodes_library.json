@@ -2728,6 +2728,26 @@
       }
     },
     {
+      "class_name": "TripoTextTo3DGeneration",
+      "file_path": "griptape_nodes_library/three_d/tripo_text_to_3d_generation.py",
+      "metadata": {
+        "category": "3D",
+        "description": "Generate 3D models from a text prompt using Tripo via Griptape model proxy",
+        "display_name": "Tripo Text to 3D",
+        "group": "create"
+      }
+    },
+    {
+      "class_name": "TripoImageTo3DGeneration",
+      "file_path": "griptape_nodes_library/three_d/tripo_image_to_3d_generation.py",
+      "metadata": {
+        "category": "3D",
+        "description": "Generate 3D models from a reference image using Tripo via Griptape model proxy",
+        "display_name": "Tripo Image to 3D",
+        "group": "create"
+      }
+    },
+    {
       "class_name": "WorldLabsWorldGeneration",
       "file_path": "griptape_nodes_library/splat/world_labs_world_generation.py",
       "metadata": {
