@@ -8,6 +8,7 @@ from griptape.artifacts import AudioArtifact, ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
@@ -298,6 +299,21 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
 
         # Set initial visibility
         self._update_parameter_visibility()
+
+    def after_incoming_connection_removed(
+        self,
+        source_node: BaseNode,
+        source_parameter: Parameter,
+        target_parameter: Parameter,
+    ) -> None:
+        # reference_video_1/2/3 have PROPERTY mode, so the framework does not auto-clear
+        # their value when an incoming connection is removed. Clear it manually so the
+        # previously-connected video does not linger on the node.
+        if target_parameter.name in {"reference_video_1", "reference_video_2", "reference_video_3"}:
+            if target_parameter.name in self.parameter_values:
+                self.remove_parameter_value(target_parameter.name)
+            self._update_parameter_visibility()
+        return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to show/hide inputs based on mode."""

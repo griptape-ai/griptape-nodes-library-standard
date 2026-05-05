@@ -28,15 +28,15 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.72.0",
-    "engine_version": "0.79.0",
+    "library_version": "0.73.0",
+    "engine_version": "0.82.0",
     "tags": [
       "Griptape",
       "AI"
     ],
     "dependencies": {
       "pip_dependencies": [
-        "griptape[drivers-prompt-amazon-bedrock,drivers-prompt-anthropic,drivers-prompt-cohere,drivers-prompt-ollama,drivers-web-scraper-trafilatura,drivers-web-search-duckduckgo,drivers-web-search-exa,loaders-image,loaders-pdf]>=1.10.0",
+        "griptape[drivers-prompt-amazon-bedrock,drivers-prompt-anthropic,drivers-prompt-cohere,drivers-prompt-ollama,drivers-web-scraper-trafilatura,drivers-web-search-duckduckgo,drivers-web-search-exa,loaders-image,loaders-pdf]>=1.9.4",
         "json-repair>=0.46.1",
         "static-ffmpeg>=2.8",
         "jmespath>=1.0.1",
@@ -928,6 +928,17 @@
         "category": "video",
         "description": "Regenerate a segment of an existing video using LTX AI models via Griptape Cloud model proxy.",
         "display_name": "LTX Video Retake",
+        "icon": "Sparkles",
+        "group": "edit"
+      }
+    },
+    {
+      "class_name": "LTXVideoExtend",
+      "file_path": "griptape_nodes_library/video/ltx_video_extend.py",
+      "metadata": {
+        "category": "video",
+        "description": "Extend an existing video by 2-20 seconds on the start or end using LTX AI models via Griptape Cloud model proxy.",
+        "display_name": "LTX Video Extend",
         "icon": "Sparkles",
         "group": "edit"
       }
@@ -2789,7 +2800,7 @@
       "file_path": "griptape_nodes_library/variables/set_variable.py",
       "metadata": {
         "category": "variables",
-        "description": "Set the value of an existing variable",
+        "description": "Set the value of a variable, creating it if it does not exist",
         "display_name": "Set Variable",
         "icon": "ArrowUp",
         "group": "edit"

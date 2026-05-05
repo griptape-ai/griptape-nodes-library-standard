@@ -3,7 +3,6 @@
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 from typing import Any
 
 from griptape_nodes.common.macro_parser import ParsedMacro
@@ -340,13 +339,20 @@ class FileOutputSettings(BaseNode):
 
     def _build_relative_variables(self, classified: ClassifiedPath) -> dict[str, str | int]:
         """Build the macro variable dict used for the relative-path scenario."""
-        filename_path = Path(classified.normalized_path)
-        parts = FilenameParts.from_filename(filename_path.name)
-        return {
+        parts = FilenameParts.from_filename(classified.normalized_path)
+        variables: dict[str, str | int] = {
             "file_name_base": parts.stem,
             "file_extension": parts.extension,
             "node_name": self._get_target_node_name(),
         }
+        # When the filename carries a relative directory component (e.g.
+        # "foo/image.png"), populate sub_dirs so situations with {sub_dirs?:/}
+        # route the file into that sub-directory. Matches the behavior of
+        # ProjectFileDestination.from_situation in the engine.
+        directory_str = str(parts.directory)
+        if directory_str and directory_str != "." and not parts.directory.is_absolute():
+            variables["sub_dirs"] = directory_str
+        return variables
 
     def _handle_relative_path(self, classified: ClassifiedPath) -> None:
         """Handle relative path: apply situation template macro."""
