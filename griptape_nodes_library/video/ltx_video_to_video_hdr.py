@@ -29,7 +29,7 @@ MODEL_MAPPING = {
 
 # Input frame-count limits per LTX HDR upscale docs, keyed by billing tier.
 # https://docs.ltx.video/api-documentation/api-reference/async-video-generation/submit-video-to-video-hdr
-# (bucket, max_long_side, max_short_side, max_frames)
+# (bucket, max_long_side, max_short_side, max_frames)  # noqa: ERA001
 _LTX_HDR_INPUT_TIERS: tuple[tuple[str, int, int, int], ...] = (
     ("1080p", 1920, 1080, 181),
     ("1440p", 2560, 1440, 101),
@@ -47,6 +47,7 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         - generation_id (str): Griptape Cloud generation id
         - provider_response (dict): Response from API (latest polling response)
         - output_file (str): Path to the saved ZIP of per-frame EXR images
+        - project_path (str): Project macro path of the saved ZIP
         - was_successful (bool): Whether the generation succeeded
         - result_details (str): Details about the generation result or error
     """
@@ -105,6 +106,14 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
             default_filename="ltx_video_to_video_hdr.zip",
         )
         self._output_file.add_parameter()
+
+        self.add_parameter(
+            ParameterString(
+                name="project_path",
+                tooltip="Project macro path of the saved EXR-frames ZIP.",
+                allowed_modes={ParameterMode.OUTPUT},
+            )
+        )
 
         self._create_status_parameters(
             result_details_tooltip="Details about the HDR upscale result or any errors",
@@ -275,6 +284,7 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         try:
             dest = self._output_file.build_file()
             saved = await dest.awrite_bytes(zip_bytes)
+            self.parameter_output_values["project_path"] = saved.location
             logger.info("%s saved EXR-frames ZIP as %s", self.name, saved.name)
             self._set_status_results(
                 was_successful=True,
@@ -288,7 +298,7 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
                 result_details=f"HDR upscale completed but failed to save ZIP to storage: {e}",
             )
 
-    def _extract_error_message(self, response_json: dict[str, Any]) -> str:
+    def _extract_error_message(self, response_json: dict[str, Any]) -> str:  # noqa: C901, PLR0912
         if not response_json:
             return f"{self.name} generation failed with no error details provided by API."
 
@@ -347,3 +357,4 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
     def _set_safe_defaults(self) -> None:
         self.parameter_output_values["generation_id"] = ""
         self.parameter_output_values["provider_response"] = None
+        self.parameter_output_values["project_path"] = ""
