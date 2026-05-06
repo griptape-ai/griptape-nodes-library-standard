@@ -7,14 +7,19 @@ import tempfile
 import typing
 from urllib.parse import urlparse
 
-from griptape.artifacts import ImageArtifact
-from PIL import Image
+from griptape.artifacts import ImageUrlArtifact
 
 import griptape_nodes.exe_types.core_types as core_types
 import griptape_nodes.exe_types.node_types as node_types
 from griptape_nodes.common.macro_parser import ParsedMacro
+from griptape_nodes.exe_types.core_types import NodeMessageResult
+from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode import griptape_nodes
+from griptape_nodes.retained_mode.events.os_events import (
+    OpenAssociatedFileRequest,
+    OpenAssociatedFileResultSuccess,
+)
 from griptape_nodes.retained_mode.events.project_events import (
     AttemptMapAbsolutePathToProjectRequest,
     AttemptMapAbsolutePathToProjectResultSuccess,
@@ -26,6 +31,7 @@ from griptape_nodes.retained_mode.events.static_file_events import (
     CreateStaticFileDownloadUrlFromPathResultSuccess,
 )
 from griptape_nodes.traits import options
+from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 import griptape_nodes.traits.widget as widget
 
@@ -85,6 +91,7 @@ class VideoFrameExtractor(BaseVideoInputNode):
         self.remove_parameter_element_by_name("video")
         # self.set_initial_node_size(width=980, height=480)
         self.hide_parameter_by_name("every_n")
+        self._last_output_dir: pathlib.Path | None = None
 
     # ── Parameter setup ────────────────────────────────────────────────────────
 
@@ -107,10 +114,20 @@ class VideoFrameExtractor(BaseVideoInputNode):
         self.add_parameter(
             core_types.Parameter(
                 name="extracted_frames",
-                output_type="list[ImageArtifact]",
-                tooltip="Extracted frames as ImageArtifacts.",
+                output_type="list[ImageUrlArtifact]",
+                tooltip="Extracted frames as ImageUrlArtifacts.",
                 allowed_modes={core_types.ParameterMode.OUTPUT},
                 ui_options={"hide_property": True},
+            )
+        )
+        self.add_parameter(
+            ParameterButton(
+                name="open_output_folder",
+                label="Open Output Folder",
+                variant="secondary",
+                icon="folder-open",
+                on_click=self._on_open_output_folder,
+                ui_options={"disabled": True},
             )
         )
 
@@ -122,7 +139,7 @@ class VideoFrameExtractor(BaseVideoInputNode):
                 output_type="str",
                 input_types=["VideoUrlArtifact", "VideoArtifact", "str"],
                 default_value="",
-                allowed_modes={core_types.ParameterMode.INPUT},
+                allowed_modes={core_types.ParameterMode.INPUT, core_types.ParameterMode.PROPERTY},
                 tooltip="Video player for precise frame selection. Connect a video source here.",
                 ui_options={"display_name": "Video Input"},
                 traits={widget.Widget(name="VideoPlayerFrameSelector", library="Griptape Nodes Library")},
@@ -363,8 +380,38 @@ class VideoFrameExtractor(BaseVideoInputNode):
 
         self.parameter_output_values["output_paths"] = output_paths
         self.parameter_output_values["extracted_frames"] = [
-            self._path_to_image_artifact(p, output_format) for p in saved_paths
+            self._path_to_image_url_artifact(p) for p in saved_paths
         ]
+
+        # Store the output directory and enable the "Open Output Folder" button
+        if saved_paths:
+            self._last_output_dir = saved_paths[0].parent
+            self.set_parameter_value("open_output_folder", {"disabled": False})
+            self.publish_update_to_parameter("open_output_folder", {"disabled": False})
+
+    def _on_open_output_folder(
+        self,
+        _button: Button,
+        button_details: ButtonDetailsMessagePayload,
+    ) -> NodeMessageResult:
+        """Open the last output folder in the OS file manager."""
+        if not self._last_output_dir or not self._last_output_dir.exists():
+            return NodeMessageResult(
+                success=False,
+                details="No output folder available yet — run the node first.",
+                response=button_details,
+                altered_workflow_state=False,
+            )
+        result = griptape_nodes.GriptapeNodes.handle_request(
+            OpenAssociatedFileRequest(path_to_file=str(self._last_output_dir))
+        )
+        success = isinstance(result, OpenAssociatedFileResultSuccess)
+        return NodeMessageResult(
+            success=success,
+            details=str(self._last_output_dir) if success else f"Could not open folder: {result}",
+            response=button_details,
+            altered_workflow_state=False,
+        )
 
     def _extract_all_frames(self, input_url: str, output_format: str) -> list[pathlib.Path]:
         """Extract each requested frame via ffmpeg and return the saved paths."""
@@ -417,9 +464,14 @@ class VideoFrameExtractor(BaseVideoInputNode):
         """Build the ffmpeg command to extract a single frame at the given timestamp."""
         return [ffmpeg_path, "-ss", timestamp, "-i", input_url, "-vframes", "1", "-y", output_path]
 
-    @staticmethod
-    def _path_to_image_artifact(path: pathlib.Path, fmt: str) -> ImageArtifact:
-        """Read a saved frame file and wrap it as an ImageArtifact."""
-        with Image.open(path) as img:
-            w, h = img.size
-        return ImageArtifact(value=path.read_bytes(), format=fmt, width=w, height=h)
+    def _path_to_image_url_artifact(self, path: pathlib.Path) -> ImageUrlArtifact:
+        """Resolve a saved frame path to an ImageUrlArtifact (no binary payload)."""
+        try:
+            result = griptape_nodes.GriptapeNodes.handle_request(
+                CreateStaticFileDownloadUrlFromPathRequest(file_path=str(path))
+            )
+            if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
+                return ImageUrlArtifact(result.url)
+        except Exception:
+            logger.warning("Failed to resolve URL for frame: %s", path, exc_info=True)
+        return ImageUrlArtifact(str(path))
