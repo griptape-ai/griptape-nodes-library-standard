@@ -1,7 +1,7 @@
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_three_d import Parameter3D
@@ -17,19 +17,15 @@ class LoadGLTF(DataNode):
         gltf_parameter = Parameter3D(
             name="gltf",
             default_value=None,
-            ui_options={"clickable_file_browser": True, "expander": True},
+            ui_options={
+                "clickable_file_browser": True,
+                "expander": True,
+                "show_snapshot_button": True,
+            },
             tooltip="The GLTF file that has been loaded.",
         )
         self.add_parameter(gltf_parameter)
 
-        self.add_node_element(
-            ParameterMessage(
-                variant="none",
-                name="help_message",
-                value='To output an image of the model, click "Save Snapshot".',
-                ui_options={"text_align": "text-center"},
-            )
-        )
         image_parameter = ParameterImage(
             name="image",
             default_value=None,
@@ -49,9 +45,6 @@ class LoadGLTF(DataNode):
                 image_artifact = ImageUrlArtifact(value=image_url)
                 self.set_parameter_value("image", image_artifact)
                 self.parameter_output_values["image"] = image_artifact
-                self.hide_message_by_name("help_message")
-            else:
-                self.show_message_by_name("help_message")
 
         return super().after_value_set(parameter, value)
 
