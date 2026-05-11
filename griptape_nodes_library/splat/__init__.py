@@ -1,7 +1,6 @@
 """Splat (Gaussian Splatting) Nodes package."""
 
 from griptape_nodes_library.splat.convert_spz_to_ply import ConvertSpzToPly
-from griptape_nodes_library.splat.load_splat import LoadSplat
 from griptape_nodes_library.splat.world_labs_world_generation import WorldLabsWorldGeneration
 
-__all__ = ["ConvertSpzToPly", "LoadSplat", "WorldLabsWorldGeneration"]
+__all__ = ["ConvertSpzToPly", "WorldLabsWorldGeneration"]

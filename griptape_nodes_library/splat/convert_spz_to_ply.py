@@ -314,7 +314,7 @@ class ConvertSpzToPly(DataNode):
     Reads any SPZ artifact or URL (e.g. from WorldLabsWorldGeneration), converts
     the compressed splat data to the standard inria/gaussian-splatting PLY format,
     and saves it to disk. The output SplatUrlArtifact can be wired downstream to
-    LoadSplat, or opened in Blender, Unreal, or any PLY-compatible viewer.
+    any splat-consuming node, or opened in Blender, Unreal, or any PLY viewer.
     """
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
