@@ -37,7 +37,6 @@ MODEL_CHOICES_ARGS = [
     {"name": "gemini-2.5-pro", "icon": "logos/google.svg", "args": _GEMINI_ARGS},
     {"name": "gemini-2.5-flash", "icon": "logos/google.svg", "args": _GEMINI_ARGS},
     {"name": "gemini-2.5-flash-lite", "icon": "logos/google.svg", "args": _GEMINI_ARGS},
-    {"name": "gemini-2.0-flash", "icon": "logos/google.svg", "args": _GEMINI_ARGS},
     # Azure OpenAI
     {"name": "gpt-5.2", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
     {"name": "gpt-5.2-chat", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
