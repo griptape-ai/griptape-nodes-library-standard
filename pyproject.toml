@@ -16,6 +16,7 @@ dependencies = [
   "pillow>=11.2.1",
   "asteval>=1.0.8",
   "color-matcher",
+  "zstandard>=0.22.0",
   "griptape-nodes>=0.82.0",
 ]
 

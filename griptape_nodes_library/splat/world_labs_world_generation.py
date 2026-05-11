@@ -272,7 +272,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterSplat(
                 name="splat_100k",
-                tooltip="100k resolution Gaussian splat file (.spz format)",
+                tooltip="100k resolution Gaussian splat file",
                 allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
                 settable=False,
                 pulse_on_run=True,
@@ -283,7 +283,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterSplat(
                 name="splat_500k",
-                tooltip="500k resolution Gaussian splat file (.spz format)",
+                tooltip="500k resolution Gaussian splat file",
                 allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
                 settable=False,
                 pulse_on_run=True,
@@ -294,7 +294,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterSplat(
                 name="splat_full_res",
-                tooltip="Full resolution Gaussian splat file (.spz format)",
+                tooltip="Full resolution Gaussian splat file",
                 allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
                 settable=False,
                 pulse_on_run=True,
@@ -763,7 +763,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
             url = spz_urls.get(resolution)
             if url:
                 if resolution == "full_res":
-                    dest = self._output_file.build_file()
+                    dest = _splat_dest(output_path.name)
                 else:
                     dest = _splat_dest(f"splat_{resolution}.spz")
                 splat_jobs.append((f"splat_{resolution}", url, dest))
@@ -781,7 +781,8 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
                     continue
                 resolution = output_key.removeprefix("splat_")
                 self.parameter_output_values[output_key] = SplatUrlArtifact(
-                    value=result, meta={"resolution": resolution, "world_id": world_id}
+                    value=result,
+                    meta={"resolution": resolution, "world_id": world_id, "format": "spz"},
                 )
 
         # Parse mesh
