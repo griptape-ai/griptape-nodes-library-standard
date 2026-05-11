@@ -10,7 +10,6 @@ import struct
 from typing import Any
 
 import numpy as np
-
 from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
@@ -136,9 +135,7 @@ def _parse_legacy_spz(raw_bytes: bytes) -> dict[str, Any]:
     if len(blob) < _LEGACY_HEADER_SIZE:
         raise ValueError("Gunzipped SPZ too small for legacy header")
 
-    magic, version, num_points, sh_degree, frac_bits, flags, _reserved = struct.unpack_from(
-        "<IIIBBBB", blob, 0
-    )
+    magic, version, num_points, sh_degree, frac_bits, flags, _reserved = struct.unpack_from("<IIIBBBB", blob, 0)
     if magic != _NGSP_MAGIC:
         raise ValueError(f"Not an SPZ file (magic={magic:#010x})")
     if version < 1 or version > 3:
@@ -243,17 +240,28 @@ def _cloud_to_ply_bytes(cloud: dict[str, Any]) -> bytes:
     sh_coeffs = cloud["sh_coeffs"]
 
     dtype_fields: list[tuple[str, str]] = [
-        ("x", "f4"), ("y", "f4"), ("z", "f4"),
-        ("nx", "f4"), ("ny", "f4"), ("nz", "f4"),
-        ("f_dc_0", "f4"), ("f_dc_1", "f4"), ("f_dc_2", "f4"),
+        ("x", "f4"),
+        ("y", "f4"),
+        ("z", "f4"),
+        ("nx", "f4"),
+        ("ny", "f4"),
+        ("nz", "f4"),
+        ("f_dc_0", "f4"),
+        ("f_dc_1", "f4"),
+        ("f_dc_2", "f4"),
     ]
     if sh_coeffs is not None:
         for i in range(sh_dim * 3):
             dtype_fields.append((f"f_rest_{i}", "f4"))
     dtype_fields += [
         ("opacity", "f4"),
-        ("scale_0", "f4"), ("scale_1", "f4"), ("scale_2", "f4"),
-        ("rot_0", "f4"), ("rot_1", "f4"), ("rot_2", "f4"), ("rot_3", "f4"),
+        ("scale_0", "f4"),
+        ("scale_1", "f4"),
+        ("scale_2", "f4"),
+        ("rot_0", "f4"),
+        ("rot_1", "f4"),
+        ("rot_2", "f4"),
+        ("rot_3", "f4"),
     ]
 
     vertex = np.zeros(N, dtype=dtype_fields)
@@ -280,9 +288,7 @@ def _cloud_to_ply_bytes(cloud: dict[str, Any]) -> bytes:
     header = (
         "ply\n"
         "format binary_little_endian 1.0\n"
-        f"element vertex {N}\n"
-        + "\n".join(f"property float {name}" for name in prop_names)
-        + "\nend_header\n"
+        f"element vertex {N}\n" + "\n".join(f"property float {name}" for name in prop_names) + "\nend_header\n"
     )
     buf = io.BytesIO()
     buf.write(header.encode("ascii"))
