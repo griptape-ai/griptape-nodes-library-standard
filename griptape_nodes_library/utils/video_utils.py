@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 import httpx
 import static_ffmpeg.run  # type: ignore[import-untyped]  # static_ffmpeg is dynamically installed by the library loader at runtime
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
+from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.utils.async_utils import subprocess_run
 
@@ -207,6 +208,12 @@ async def get_video_duration(video_url: str) -> float:
         msg = f"FFprobe not available: {e}"
         raise ValueError(msg) from e
 
+    try:
+        resolved_path = File(video_url).resolve()
+    except FileLoadError as e:
+        msg = f"Could not resolve video path {video_url!r}: {e}"
+        raise ValueError(msg) from e
+
     cmd = [
         ffprobe_path,
         "-v",
@@ -216,7 +223,7 @@ async def get_video_duration(video_url: str) -> float:
         "-show_streams",
         "-select_streams",
         "v:0",
-        video_url,
+        resolved_path,
     ]
 
     try:
