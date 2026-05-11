@@ -566,7 +566,7 @@ class TestLTXVideoRetakePrepareDataUriAsync:
         node.name = "LTXVideoRetake"
 
         from griptape_nodes.files import file as file_module
-        from griptape_nodes.files.file import FileIOFailureReason
+        from griptape_nodes.retained_mode.events.os_events import FileIOFailureReason
 
         async def fail_aread(self: file_module.File, fallback_mime: str = "application/octet-stream") -> str:
             raise file_module.FileLoadError(FileIOFailureReason.FILE_NOT_FOUND, "nope")
