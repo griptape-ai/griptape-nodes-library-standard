@@ -33,6 +33,9 @@ MODEL_MAPPING = {
     "LTX 2.3 Pro": "ltx-2-3-pro",
 }
 
+SUPPORTED_RESOLUTIONS = ("1920x1080", "2560x1440", "3840x2160")
+DEFAULT_RESOLUTION = "1920x1080"
+
 
 class LTXVideoRetake(GriptapeProxyNode):
     """Regenerate a segment of an existing video using LTX AI via Griptape Cloud model proxy.
@@ -41,6 +44,7 @@ class LTXVideoRetake(GriptapeProxyNode):
         - video (VideoUrlArtifact): Input video to edit (required, max 21s, max resolution 3840x2160, sent as base64)
         - retake_segment (list[float]): Time range [start, end] in seconds to regenerate
         - prompt (str): Text describing what should happen in the retake segment (max 5000 chars)
+        - resolution (str): Output resolution (1920x1080, 2560x1440, or 3840x2160); auto-detected from input video
         - mode (str): What to replace - audio only, video only, or both (default: both)
         - model (str): Model to use (LTX 2 Pro or LTX 2.3 Pro)
         (Always polls for result: 5s interval, 20 min timeout)
@@ -91,6 +95,18 @@ class LTXVideoRetake(GriptapeProxyNode):
                 tooltip="Input video to edit (max 21 seconds, max resolution 3840x2160)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"display_name": "input video"},
+            )
+        )
+
+        # Resolution parameter (required by the LTX retake API).
+        # Auto-populated from the connected video when possible.
+        self.add_parameter(
+            ParameterString(
+                name="resolution",
+                default_value=DEFAULT_RESOLUTION,
+                tooltip="Output video resolution. Auto-detected from the input video when possible.",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Options(choices=list(SUPPORTED_RESOLUTIONS))},
             )
         )
 
@@ -182,7 +198,7 @@ class LTXVideoRetake(GriptapeProxyNode):
             self._update_segment_range_from_video(value)
 
     def _update_segment_range_from_video(self, video_input: Any) -> None:
-        """Update the retake_segment parameter's max value based on video duration."""
+        """Update the retake_segment and resolution parameters from the input video."""
         if not video_input:
             self._reset_segment_range_to_default()
             return
@@ -192,17 +208,32 @@ class LTXVideoRetake(GriptapeProxyNode):
             if not video_url:
                 return
 
-            duration = self._get_video_duration(video_url)
-            if duration is None:
-                logger.warning("%s could not determine video duration, using default max", self.name)
+            stream_info = self._get_video_stream_info(video_url)
+            if stream_info is None:
+                logger.warning("%s could not read video stream info, using default values", self.name)
                 return
 
-            # Cap at MAX_VIDEO_DURATION (21s) as per API limits
-            max_duration = min(duration, float(MAX_VIDEO_DURATION))
-            self._update_segment_range_max(max_duration, duration)
+            duration = stream_info.get("duration")
+            if duration is not None:
+                # Cap at MAX_VIDEO_DURATION (21s) as per API limits
+                max_duration = min(duration, float(MAX_VIDEO_DURATION))
+                self._update_segment_range_max(max_duration, duration)
+
+            width = stream_info.get("width")
+            height = stream_info.get("height")
+            if width and height:
+                detected = self._snap_to_supported_resolution(int(width), int(height))
+                self.set_parameter_value("resolution", detected)
+                logger.info(
+                    "%s detected video resolution %sx%s, snapped to %s",
+                    self.name,
+                    width,
+                    height,
+                    detected,
+                )
 
         except Exception as e:
-            logger.warning("%s failed to update segment range from video: %s", self.name, e)
+            logger.warning("%s failed to update parameters from video: %s", self.name, e)
 
     def _reset_segment_range_to_default(self) -> None:
         """Reset retake_segment parameter to default max value."""
@@ -251,6 +282,11 @@ class LTXVideoRetake(GriptapeProxyNode):
 
     def _get_video_duration(self, video_url: str) -> float | None:
         """Extract video duration in seconds using ffprobe."""
+        info = self._get_video_stream_info(video_url)
+        return info.get("duration") if info else None
+
+    def _get_video_stream_info(self, video_url: str) -> dict[str, Any] | None:
+        """Return ``duration``, ``width``, and ``height`` for the first video stream."""
         try:
             _, ffprobe_path = run.get_or_fetch_platform_executables_else_raise()
 
@@ -277,10 +313,18 @@ class LTXVideoRetake(GriptapeProxyNode):
 
             video_stream = streams[0]
             duration_str = video_stream.get("duration")
-            if not duration_str:
-                return None
-
-            return float(duration_str)
+            info: dict[str, Any] = {}
+            if duration_str:
+                try:
+                    info["duration"] = float(duration_str)
+                except (TypeError, ValueError):
+                    pass
+            width = video_stream.get("width")
+            height = video_stream.get("height")
+            if isinstance(width, int) and isinstance(height, int):
+                info["width"] = width
+                info["height"] = height
+            return info or None
 
         except (
             subprocess.TimeoutExpired,
@@ -289,8 +333,27 @@ class LTXVideoRetake(GriptapeProxyNode):
             ValueError,
             KeyError,
         ) as e:
-            logger.debug("%s ffprobe failed to extract duration: %s", self.name, e)
+            logger.debug("%s ffprobe failed to read stream info: %s", self.name, e)
             return None
+
+    @staticmethod
+    def _snap_to_supported_resolution(width: int, height: int) -> str:
+        """Pick the closest supported resolution by total pixel count.
+
+        The API only accepts the fixed set ``SUPPORTED_RESOLUTIONS``, so we
+        match on pixel-area proximity. Orientation is preserved by the API
+        internally; we always report ``WIDTHxHEIGHT`` from the supported list.
+        """
+        target_pixels = max(width, 1) * max(height, 1)
+
+        def _pixels(res: str) -> int:
+            w, _, h = res.partition("x")
+            try:
+                return int(w) * int(h)
+            except ValueError:
+                return 0
+
+        return min(SUPPORTED_RESOLUTIONS, key=lambda r: abs(_pixels(r) - target_pixels))
 
     async def _process_generation(self) -> None:
         await super()._process_generation()
@@ -301,6 +364,7 @@ class LTXVideoRetake(GriptapeProxyNode):
             "model": self.get_parameter_value("model") or "LTX 2 Pro",
             "retake_segment": self.get_parameter_value("retake_segment") or [0.0, 2.0],
             "mode": self.get_parameter_value("mode") or "replace_audio_and_video",
+            "resolution": self.get_parameter_value("resolution") or DEFAULT_RESOLUTION,
         }
 
     def _get_api_model_id(self) -> str:
@@ -414,6 +478,14 @@ class LTXVideoRetake(GriptapeProxyNode):
         end_time = float(segment[1])
         duration = end_time - start_time
 
+        resolution = params["resolution"]
+        if resolution not in SUPPORTED_RESOLUTIONS:
+            msg = (
+                f"{self.name}: Unsupported resolution '{resolution}'. "
+                f"Valid resolutions: {', '.join(SUPPORTED_RESOLUTIONS)}"
+            )
+            raise ValueError(msg)
+
         payload: dict[str, Any] = {
             "video_uri": video_data_uri,
             "start_time": start_time,
@@ -421,6 +493,7 @@ class LTXVideoRetake(GriptapeProxyNode):
             "prompt": params["prompt"].strip(),
             "mode": params["mode"],
             "model": MODEL_MAPPING.get(params["model"], "ltx-2-pro"),
+            "resolution": resolution,
         }
 
         return payload
