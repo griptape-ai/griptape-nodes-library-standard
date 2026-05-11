@@ -45,7 +45,7 @@ from griptape_nodes_library.utils.error_utils import try_throw_error
 # --- Constants ---
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
-DEFAULT_MODEL = "gpt-4o"
+DEFAULT_MODEL = "claude-sonnet-4-6"
 
 
 class Agent(ControlNode):
