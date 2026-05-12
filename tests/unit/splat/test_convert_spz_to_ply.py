@@ -17,7 +17,6 @@ import numpy as np
 import pytest
 
 from griptape_nodes_library.splat.convert_spz_to_ply import (
-    _GZIP_MAGIC,
     _LEGACY_HEADER_SIZE,
     _NGSP_MAGIC,
     _cloud_to_ply_bytes,
@@ -96,7 +95,7 @@ class TestDecodePositions24bit:
             v = v & 0xFFFFFF
             return bytes([v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF])
 
-        p0 = encode24(4096) * 3   # (1.0, 1.0, 1.0)
+        p0 = encode24(4096) * 3  # (1.0, 1.0, 1.0)
         p1 = encode24(-4096 & 0xFFFFFF) * 3  # (-1.0, -1.0, -1.0)
         result = _decode_positions_24bit(p0 + p1, 2, frac_bits=12)
         np.testing.assert_allclose(result[0], [1.0, 1.0, 1.0], atol=1e-5)
@@ -127,7 +126,7 @@ class TestDecodeRotationsLegacy3byte:
     def test_output_is_unit_quaternion(self) -> None:
         buf = bytes([100, 150, 200])
         result = _decode_rotations_legacy_3byte(buf, 1)
-        norm = np.sqrt(np.sum(result ** 2))
+        norm = np.sqrt(np.sum(result**2))
         np.testing.assert_allclose(norm, 1.0, atol=1e-5)
 
     def test_ply_order_is_wxyz(self) -> None:
@@ -172,7 +171,7 @@ class TestDecodeRotationsSmallestThree:
     def test_output_is_unit_quaternion(self) -> None:
         buf = self._encode_smallest_three(0.5, 0.5, 0.5, 0.5)
         result = _decode_rotations_smallest_three(buf, 1)
-        norm = np.sqrt(np.sum(result ** 2))
+        norm = np.sqrt(np.sum(result**2))
         np.testing.assert_allclose(norm, 1.0, atol=1e-5)
 
     def test_round_trip_various_quaternions(self) -> None:
@@ -185,17 +184,14 @@ class TestDecodeRotationsSmallestThree:
             (0.5, 0.5, 0.5, 0.5),
         ]
         for w, x, y, z in test_quats:
-            norm = math.sqrt(w*w + x*x + y*y + z*z)
-            w, x, y, z = w/norm, x/norm, y/norm, z/norm
+            norm = math.sqrt(w * w + x * x + y * y + z * z)
+            w, x, y, z = w / norm, x / norm, y / norm, z / norm
             buf = self._encode_smallest_three(w, x, y, z)
             result = _decode_rotations_smallest_three(buf, 1)
             # PLY [w, x, y, z] — allow sign flip (q == -q for rotation)
             decoded = result[0]
             expected = np.array([w, x, y, z])
-            ok = (
-                np.allclose(decoded, expected, atol=0.005)
-                or np.allclose(decoded, -expected, atol=0.005)
-            )
+            ok = np.allclose(decoded, expected, atol=0.005) or np.allclose(decoded, -expected, atol=0.005)
             assert ok, f"Round-trip failed for q=({w},{x},{y},{z}): got {decoded}"
 
 
@@ -206,7 +202,7 @@ class TestDecodeAlphas:
     def test_mid_value(self) -> None:
         # byte=127 → p ≈ 0.498 → logit ≈ -0.00784
         result = _decode_alphas(bytes([127]))
-        expected = math.log(127/255 / (1 - 127/255))
+        expected = math.log(127 / 255 / (1 - 127 / 255))
         assert abs(result[0] - expected) < 1e-4
 
     def test_fully_opaque_is_inf(self) -> None:
@@ -228,8 +224,8 @@ class TestDecodeColors:
         # byte=127 → (127/255 - 0.5) / 0.15 ≈ -0.0131
         buf = bytes([127, 127, 127])
         result = _decode_colors(buf, 1)
-        expected = (127/255 - 0.5) / 0.15
-        np.testing.assert_allclose(result[0], [expected]*3, atol=1e-4)
+        expected = (127 / 255 - 0.5) / 0.15
+        np.testing.assert_allclose(result[0], [expected] * 3, atol=1e-4)
 
     def test_byte_255_encodes_positive_sh(self) -> None:
         buf = bytes([255, 255, 255])
@@ -257,7 +253,7 @@ class TestDecodeScales:
     def test_byte_255_gives_near_six(self) -> None:
         buf = bytes([255, 255, 255])
         result = _decode_scales(buf, 1)
-        np.testing.assert_allclose(result[0], [255/16 - 10]*3, atol=1e-4)
+        np.testing.assert_allclose(result[0], [255 / 16 - 10] * 3, atol=1e-4)
 
 
 # ---------------------------------------------------------------------------
@@ -326,21 +322,21 @@ class TestParseLegacySpz:
         header = struct.pack(
             "<IIIBBBB",
             _NGSP_MAGIC,
-            2,           # version
+            2,  # version
             num_points,
             sh_degree,
             frac_bits,
-            0,           # flags
-            0,           # reserved
+            0,  # flags
+            0,  # reserved
         )
         assert len(header) == _LEGACY_HEADER_SIZE
         # streams: positions(9B each), alphas(1B), colors(3B), scales(3B), rotations(3B)
         # Use zeroed buffers — byte=0 decodes to valid (but extreme) values
         pos = bytes(9 * num_points)
-        alpha = bytes([128] * num_points)   # ≈ logit(0) = 0
+        alpha = bytes([128] * num_points)  # ≈ logit(0) = 0
         color = bytes([128] * 3 * num_points)
         scale = bytes([160] * 3 * num_points)  # log_scale=0
-        rot = bytes([127] * 3 * num_points)    # near-identity
+        rot = bytes([127] * 3 * num_points)  # near-identity
         blob = header + pos + alpha + color + scale + rot
         return gzip.compress(blob)
 
@@ -406,8 +402,9 @@ class TestRoundTripVsReference:
         ply_bytes = _spz_bytes_to_ply_bytes(_REF_SPZ.read_bytes())
         ours = _read_ply_arrays(ply_bytes)
         ref = _read_ply_arrays(_REF_PLY.read_bytes())
-        np.testing.assert_allclose(ours[field], ref[field], atol=1e-4,
-                                   err_msg=f"Field '{field}' does not match reference")
+        np.testing.assert_allclose(
+            ours[field], ref[field], atol=1e-4, err_msg=f"Field '{field}' does not match reference"
+        )
 
     @_have_ref
     def test_opacity_matches_reference_including_inf(self) -> None:

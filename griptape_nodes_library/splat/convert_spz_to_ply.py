@@ -285,8 +285,8 @@ def _cloud_to_ply_bytes(cloud: dict[str, Any]) -> bytes:
     vertex["scale_0"] = cloud["scales"][:, 0]
     vertex["scale_1"] = cloud["scales"][:, 1]
     vertex["scale_2"] = cloud["scales"][:, 2]
-    vertex["rot_0"] = cloud["rotations"][:, 0]   # w — unchanged
-    vertex["rot_1"] = cloud["rotations"][:, 1]   # x — unchanged
+    vertex["rot_0"] = cloud["rotations"][:, 0]  # w — unchanged
+    vertex["rot_1"] = cloud["rotations"][:, 1]  # x — unchanged
     vertex["rot_2"] = -cloud["rotations"][:, 2]  # y — negated for RUB→RDF
     vertex["rot_3"] = -cloud["rotations"][:, 3]  # z — negated for RUB→RDF
 
@@ -404,4 +404,3 @@ class ConvertSpzToPly(DataNode):
             value=saved.location,
             meta=upstream_meta,
         )
-
