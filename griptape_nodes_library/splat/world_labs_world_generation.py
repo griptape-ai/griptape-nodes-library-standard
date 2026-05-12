@@ -620,21 +620,27 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         }
 
     async def _get_media_bytes(self, media_input: Any) -> bytes | None:
-        """Get raw bytes from a media input (image or video)."""
+        """Get raw bytes from a media input (image or video).
+
+        URL-bearing artifacts (``ImageUrlArtifact``, ``VideoUrlArtifact``) hold a
+        URL/path string in ``.value`` and their ``to_bytes()`` issues an HTTP GET
+        against that string — which fails for project macro paths. Resolve string
+        ``.value`` payloads via ``File`` first; only fall back to ``to_bytes()``
+        for raw-bytes artifacts (``ImageArtifact``, ``VideoArtifact``).
+        """
         if not media_input:
             return None
 
-        # Prefer string-value path: File() resolves project macros like "{inputs}/...",
-        # local paths, URLs, and data URIs uniformly. UrlArtifact.to_bytes() calls
-        # requests.get() directly and would fail on unresolved macro paths.
+        # Plain string input: treat as URL / macro path / file path.
         if isinstance(media_input, str):
             return await self._string_to_bytes(media_input)
 
+        # Artifact-like with a string ``.value`` (URL / macro path / file path).
         value = getattr(media_input, "value", None)
         if isinstance(value, str) and value:
             return await self._string_to_bytes(value)
 
-        # Fall back to to_bytes() for artifacts whose value is binary (e.g. ImageArtifact).
+        # Raw-bytes artifacts: ``to_bytes()`` returns the in-memory payload.
         if hasattr(media_input, "to_bytes"):
             try:
                 return media_input.to_bytes()
