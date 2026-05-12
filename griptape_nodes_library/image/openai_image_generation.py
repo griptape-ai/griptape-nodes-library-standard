@@ -32,6 +32,13 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         "GPT Image 2": "gpt-image-2",
     }
     GPT_IMAGE_SIZE_OPTIONS: ClassVar[list[str]] = ["1024x1024", "1024x1536", "1536x1024"]
+    GPT_IMAGE_2_SIZE_OPTIONS: ClassVar[list[str]] = [
+        "1024x1024",
+        "1536x1024",
+        "1024x1536",
+        "1792x1024",
+        "1024x1792",
+    ]
     GPT_IMAGE_2_SIZE_PATTERN: ClassVar[re.Pattern[str]] = re.compile(r"^(?P<width>\d+)x(?P<height>\d+)$")
     QUALITY_OPTIONS: ClassVar[list[str]] = ["low", "medium", "high"]
     BACKGROUND_OPTIONS: ClassVar[list[str]] = ["auto", "opaque", "transparent"]
@@ -82,13 +89,14 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             )
         )
 
+        initial_size_choices = self._size_choices_for_model(self.DEFAULT_MODEL)
         self.add_parameter(
             ParameterString(
                 name="size",
-                default_value=self.GPT_IMAGE_SIZE_OPTIONS[0],
+                default_value=initial_size_choices[0],
                 tooltip="Output image size. GPT Image 2 also accepts custom sizes when provided via an input connection.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=self.GPT_IMAGE_SIZE_OPTIONS)},
+                traits={Options(choices=initial_size_choices)},
             )
         )
 
@@ -210,6 +218,12 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         extension = "jpg" if output_format == "jpeg" else output_format
         return f"{cls.DEFAULT_OUTPUT_FILENAME_BASE}.{extension}"
 
+    @classmethod
+    def _size_choices_for_model(cls, model_name: str) -> list[str]:
+        if model_name == "GPT Image 2":
+            return list(cls.GPT_IMAGE_2_SIZE_OPTIONS)
+        return list(cls.GPT_IMAGE_SIZE_OPTIONS)
+
     def _get_payload_model_id(self) -> str:
         model_name = self.get_parameter_value("model") or self.DEFAULT_MODEL
         return self.MODEL_NAME_MAP.get(model_name, model_name)
@@ -224,6 +238,31 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                 self.show_parameter_by_name(param_name)
             else:
                 self.hide_parameter_by_name(param_name)
+
+    def _sync_size_options_for_model(self, model_name: str) -> None:
+        size_param = self.get_parameter_by_name("size")
+        if size_param is None:
+            return
+
+        choices = self._size_choices_for_model(model_name)
+
+        existing_traits = size_param.find_elements_by_type(Options)
+        if existing_traits:
+            size_param.remove_trait(trait_type=existing_traits[0])
+        size_param.add_trait(Options(choices=choices))
+
+        current_size = self.get_parameter_value("size")
+        if current_size in choices:
+            return
+
+        # GPT Image 2 accepts any in-range WIDTHxHEIGHT, so don't clobber a custom size.
+        if model_name == "GPT Image 2" and isinstance(current_size, str):
+            match = self.GPT_IMAGE_2_SIZE_PATTERN.fullmatch(current_size.strip())
+            if match is not None and not self._validate_gpt_image_2_size(current_size.strip()):
+                return
+
+        self.set_parameter_value("size", choices[0])
+        self.publish_update_to_parameter("size", choices[0])
 
     def _sync_output_format_visibility(self, output_format: str) -> None:
         if output_format in {"jpeg", "webp"}:
@@ -249,6 +288,9 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
             if updated_list != value:
                 self.set_parameter_value("input_images", updated_list)
+
+        if parameter.name == "model" and isinstance(value, str):
+            self._sync_size_options_for_model(value)
 
         if parameter.name == "output_format" and isinstance(value, str):
             self._sync_output_format_visibility(value)

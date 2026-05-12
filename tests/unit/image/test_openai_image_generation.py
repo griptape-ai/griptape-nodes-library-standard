@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 from griptape.artifacts import ImageArtifact
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.image.openai_image_generation import OpenAiImageGeneration
 
@@ -127,6 +128,73 @@ def test_validate_accepts_valid_gpt_image_2_custom_size(node: OpenAiImageGenerat
     exceptions = node.validate_before_node_run()
 
     assert exceptions is None
+
+
+def _size_choices(node: OpenAiImageGeneration) -> list[str]:
+    size_param = node.get_parameter_by_name("size")
+    assert size_param is not None
+    options_traits = size_param.find_elements_by_type(Options)
+    assert options_traits, "size parameter is missing an Options trait"
+    return list(options_traits[0].choices)
+
+
+def test_default_model_exposes_gpt_image_2_aspect_ratios(node: OpenAiImageGeneration) -> None:
+    assert _size_choices(node) == OpenAiImageGeneration.GPT_IMAGE_2_SIZE_OPTIONS
+
+
+@pytest.mark.parametrize(
+    ("model_name", "expected_choices"),
+    [
+        ("GPT Image 1", OpenAiImageGeneration.GPT_IMAGE_SIZE_OPTIONS),
+        ("GPT Image 1.5", OpenAiImageGeneration.GPT_IMAGE_SIZE_OPTIONS),
+        ("GPT Image 2", OpenAiImageGeneration.GPT_IMAGE_2_SIZE_OPTIONS),
+    ],
+)
+def test_size_options_update_when_model_changes(
+    node: OpenAiImageGeneration, model_name: str, expected_choices: list[str]
+) -> None:
+    node.set_parameter_value("model", model_name)
+
+    assert _size_choices(node) == expected_choices
+
+
+def test_size_resets_to_first_choice_when_switching_to_legacy_model(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", "GPT Image 2")
+    node.set_parameter_value("size", "1792x1024")
+
+    node.set_parameter_value("model", "GPT Image 1")
+
+    assert node.get_parameter_value("size") == OpenAiImageGeneration.GPT_IMAGE_SIZE_OPTIONS[0]
+
+
+def test_switching_to_gpt_image_2_preserves_valid_custom_size(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", "GPT Image 1")
+    node.parameter_values["size"] = "2048x1152"
+
+    node.set_parameter_value("model", "GPT Image 2")
+
+    assert node.get_parameter_value("size") == "2048x1152"
+
+
+@pytest.mark.parametrize("size", OpenAiImageGeneration.GPT_IMAGE_2_SIZE_OPTIONS)
+def test_validate_accepts_all_listed_gpt_image_2_aspect_ratios(node: OpenAiImageGeneration, size: str) -> None:
+    node.set_parameter_value("model", "GPT Image 2")
+    node.set_parameter_value("prompt", "A red circle")
+    node.parameter_values["size"] = size
+
+    assert node.validate_before_node_run() is None
+
+
+@pytest.mark.asyncio
+async def test_build_payload_sends_new_aspect_ratio_to_api(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", "GPT Image 2")
+    node.set_parameter_value("prompt", "A wide landscape")
+    node.set_parameter_value("size", "1792x1024")
+
+    payload = await node._build_payload()
+
+    assert payload["model"] == "gpt-image-2"
+    assert payload["size"] == "1792x1024"
 
 
 @pytest.mark.asyncio
