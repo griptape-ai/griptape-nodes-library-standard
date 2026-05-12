@@ -2,29 +2,20 @@
 
 import logging
 import pathlib
-import re
-import tempfile
 import typing
-from urllib.parse import urlparse
 
 from griptape.artifacts import ImageUrlArtifact
 
 import griptape_nodes.exe_types.core_types as core_types
 import griptape_nodes.exe_types.node_types as node_types
-from griptape_nodes.common.macro_parser import ParsedMacro
 from griptape_nodes.exe_types.core_types import NodeMessageResult
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.retained_mode import griptape_nodes
 from griptape_nodes.retained_mode.events.os_events import (
     OpenAssociatedFileRequest,
     OpenAssociatedFileResultSuccess,
-)
-from griptape_nodes.retained_mode.events.project_events import (
-    AttemptMapAbsolutePathToProjectRequest,
-    AttemptMapAbsolutePathToProjectResultSuccess,
-    GetPathForMacroRequest,
-    GetPathForMacroResultSuccess,
 )
 from griptape_nodes.retained_mode.events.static_file_events import (
     CreateStaticFileDownloadUrlFromPathRequest,
@@ -106,6 +97,7 @@ class VideoFrameExtractor(BaseVideoInputNode):
             core_types.Parameter(
                 name="output_paths",
                 type="list[str]",
+                output_type="list[str]",
                 allowed_modes={core_types.ParameterMode.OUTPUT},
                 tooltip="Paths to the extracted frame images",
                 ui_options={"pulse_on_run": True},
@@ -114,6 +106,7 @@ class VideoFrameExtractor(BaseVideoInputNode):
         self.add_parameter(
             core_types.Parameter(
                 name="extracted_frames",
+                type="list[ImageUrlArtifact]",
                 output_type="list[ImageUrlArtifact]",
                 tooltip="Extracted frames as ImageUrlArtifacts.",
                 allowed_modes={core_types.ParameterMode.OUTPUT},
@@ -233,9 +226,9 @@ class VideoFrameExtractor(BaseVideoInputNode):
         mode = self.get_parameter_value("frame_selection_mode") or "list"
         if mode == "list":
             if not parse_frame_string(self.get_parameter_value("input_frame_numbers") or ""):
-                return [ValueError(
-                    f"{self.name}: 'input_frame_numbers' must specify at least one frame (e.g. '1,4,5-9')"
-                )]
+                return [
+                    ValueError(f"{self.name}: 'input_frame_numbers' must specify at least one frame (e.g. '1,4,5-9')")
+                ]
         elif mode == "every_Nth":
             if (self.get_parameter_value("every_n") or 1) < 1:
                 return [ValueError(f"{self.name}: 'every_n' must be >= 1")]
@@ -265,27 +258,6 @@ class VideoFrameExtractor(BaseVideoInputNode):
         except Exception:
             logger.warning("Failed to resolve video URL for: %s", file_path, exc_info=True)
         return None
-
-    def _resolve_output_dir(self, video_url: str) -> pathlib.Path:
-        """Resolve the project output directory: outputs/{NodeName}/{VideoStem}/.
-
-        Falls back to a temp directory when no project is loaded.
-        """
-        video_stem = pathlib.Path(urlparse(video_url).path).stem or "video"
-        video_stem = re.sub(r"[^\w-]", "_", video_stem)
-        sub_dirs = f"{self.name}/{video_stem}"
-
-        result = griptape_nodes.GriptapeNodes.handle_request(
-            GetPathForMacroRequest(
-                parsed_macro=ParsedMacro("{outputs}/{sub_dirs}"),
-                variables={"sub_dirs": sub_dirs},
-            )
-        )
-        if isinstance(result, GetPathForMacroResultSuccess):
-            return pathlib.Path(result.absolute_path)
-
-        logger.warning("Could not resolve project output directory; falling back to temp dir")
-        return pathlib.Path(tempfile.mkdtemp())
 
     def _get_video_input_data(self) -> tuple[str, str]:
         """Return (resolved_url, format) for the video input.
@@ -348,37 +320,28 @@ class VideoFrameExtractor(BaseVideoInputNode):
 
     def process(self) -> node_types.AsyncResult[None]:
         self._clear_execution_status()
-        input_url, output_format = self._get_video_input_data()
-        self._log_format_detection(output_format)
         self.append_value_to_parameter("logs", "[Started frame extraction]\n")
         try:
+            input_url, output_format = self._get_video_input_data()
+            self._log_format_detection(output_format)
             yield lambda: self._run_extraction(input_url, output_format)
             self.append_value_to_parameter("logs", "[Finished frame extraction]\n")
-            self._set_status_results(was_successful=True, result_details="Frames extracted successfully")
+            n = len(self.parameter_output_values.get("output_paths") or [])
+            out_dir = str(self._last_output_dir) if self._last_output_dir else "unknown"
+            self._set_status_results(
+                was_successful=True,
+                result_details=f"SUCCESS: Extracted {n} frame(s) to {out_dir}",
+            )
         except Exception as e:
             msg = f"{self.name}: Error extracting frames: {e}"
             self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
-            self._set_status_results(was_successful=False, result_details=str(e))
+            self._set_status_results(was_successful=False, result_details=f"FAILURE: {msg}")
             self._handle_failure_exception(ValueError(msg))
 
     def _run_extraction(self, input_url: str, output_format: str) -> None:
         saved_paths = self._extract_all_frames(input_url, output_format)
 
-        # Map absolute paths to portable project macro paths (e.g. "{outputs}/NodeName/video/frame.png")
-        output_paths: list[str] = []
-        for p in saved_paths:
-            map_result = griptape_nodes.GriptapeNodes.handle_request(
-                AttemptMapAbsolutePathToProjectRequest(absolute_path=p)
-            )
-            if (
-                isinstance(map_result, AttemptMapAbsolutePathToProjectResultSuccess)
-                and map_result.mapped_path is not None
-            ):
-                output_paths.append(map_result.mapped_path)
-            else:
-                output_paths.append(str(p))
-
-        self.parameter_output_values["output_paths"] = output_paths
+        self.parameter_output_values["output_paths"] = [str(p) for p in saved_paths]
         self.parameter_output_values["extracted_frames"] = [
             self._path_to_image_url_artifact(p) for p in saved_paths
         ]
@@ -414,15 +377,12 @@ class VideoFrameExtractor(BaseVideoInputNode):
         )
 
     def _extract_all_frames(self, input_url: str, output_format: str) -> list[pathlib.Path]:
-        """Extract each requested frame via ffmpeg and return the saved paths."""
+        """Extract each requested frame via ffmpeg and return the saved absolute paths."""
         self._validate_url_safety(input_url)
 
         output_prefix = self.get_parameter_value("output_prefix") or self.DEFAULT_OUTPUT_PREFIX
         frame_padding = self.get_parameter_value("frame_padding") or self.DEFAULT_FRAME_PADDING
         output_dir_str = self.get_parameter_value("output_dir") or ""
-
-        output_dir = pathlib.Path(output_dir_str) if output_dir_str else self._resolve_output_dir(input_url)
-        output_dir.mkdir(parents=True, exist_ok=True)
 
         ffmpeg_path, ffprobe_path = self._get_ffmpeg_paths()
         frame_rate, _, vid_duration = self._detect_video_properties(input_url, ffprobe_path)
@@ -434,7 +394,19 @@ class VideoFrameExtractor(BaseVideoInputNode):
         saved_paths: list[pathlib.Path] = []
         for frame_number in frames:
             timestamp = seconds_to_ts(max(frame_number - 1, 0) / frame_rate)
-            output_path = output_dir / f"{output_prefix}{str(frame_number).zfill(frame_padding)}.{output_format}"
+            filename = f"{output_prefix}.{str(frame_number).zfill(frame_padding)}.{output_format}"
+
+            if output_dir_str:
+                output_path = pathlib.Path(output_dir_str) / filename
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                dest = ProjectFileDestination.from_situation(
+                    filename,
+                    "save_node_output",
+                    sub_dirs=self.name,
+                )
+                output_path = pathlib.Path(dest.resolve())
+                output_path.parent.mkdir(parents=True, exist_ok=True)
 
             cmd = self._build_ffmpeg_command(ffmpeg_path, input_url, str(output_path), timestamp)
             self.append_value_to_parameter("logs", f"Extracting frame {frame_number} at {timestamp}...\n")
@@ -458,9 +430,7 @@ class VideoFrameExtractor(BaseVideoInputNode):
         frame_str = self.get_parameter_value("input_frame_numbers") or ""
         return parse_frame_string(frame_str)
 
-    def _build_ffmpeg_command(
-        self, ffmpeg_path: str, input_url: str, output_path: str, timestamp: str
-    ) -> list[str]:
+    def _build_ffmpeg_command(self, ffmpeg_path: str, input_url: str, output_path: str, timestamp: str) -> list[str]:
         """Build the ffmpeg command to extract a single frame at the given timestamp."""
         return [ffmpeg_path, "-ss", timestamp, "-i", input_url, "-vframes", "1", "-y", output_path]
 
