@@ -100,9 +100,13 @@ def _decode_rotations_smallest_three(buf: bytes, num_points: int) -> np.ndarray:
 
 
 def _decode_alphas(buf: bytes) -> np.ndarray:
-    """Dequantize alphas: byte → pre-sigmoid logit for PLY."""
+    """Dequantize alphas: byte → pre-sigmoid logit for PLY.
+
+    byte=255 → p=1.0 → +inf (fully opaque); byte=0 → -inf (fully transparent).
+    No clamping — matches the reference C++ implementation.
+    """
     raw = np.frombuffer(buf, dtype=np.uint8).astype(np.float32)
-    p = np.clip(raw / 255.0, 1e-6, 1.0 - 1e-6)
+    p = raw / 255.0
     return np.log(p / (1.0 - p)).astype(np.float32)
 
 
@@ -264,10 +268,12 @@ def _cloud_to_ply_bytes(cloud: dict[str, Any]) -> bytes:
         ("rot_3", "f4"),
     ]
 
+    # SPZ stores positions in RUB (Y-up, right-handed); 3DGS PLY expects RDF (Y-down).
+    # Conversion: flip Y and Z on both positions and quaternion Y/Z components.
     vertex = np.zeros(N, dtype=dtype_fields)
     vertex["x"] = cloud["positions"][:, 0]
-    vertex["y"] = cloud["positions"][:, 1]
-    vertex["z"] = cloud["positions"][:, 2]
+    vertex["y"] = -cloud["positions"][:, 1]
+    vertex["z"] = -cloud["positions"][:, 2]
     vertex["f_dc_0"] = cloud["f_dc"][:, 0]
     vertex["f_dc_1"] = cloud["f_dc"][:, 1]
     vertex["f_dc_2"] = cloud["f_dc"][:, 2]
@@ -279,10 +285,10 @@ def _cloud_to_ply_bytes(cloud: dict[str, Any]) -> bytes:
     vertex["scale_0"] = cloud["scales"][:, 0]
     vertex["scale_1"] = cloud["scales"][:, 1]
     vertex["scale_2"] = cloud["scales"][:, 2]
-    vertex["rot_0"] = cloud["rotations"][:, 0]
-    vertex["rot_1"] = cloud["rotations"][:, 1]
-    vertex["rot_2"] = cloud["rotations"][:, 2]
-    vertex["rot_3"] = cloud["rotations"][:, 3]
+    vertex["rot_0"] = cloud["rotations"][:, 0]   # w — unchanged
+    vertex["rot_1"] = cloud["rotations"][:, 1]   # x — unchanged
+    vertex["rot_2"] = -cloud["rotations"][:, 2]  # y — negated for RUB→RDF
+    vertex["rot_3"] = -cloud["rotations"][:, 3]  # z — negated for RUB→RDF
 
     prop_names = [name for name, _ in dtype_fields]
     header = (
