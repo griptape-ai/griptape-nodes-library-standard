@@ -41,7 +41,10 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
-        run: uv pip install --system griptape-nodes pytest pytest-asyncio python-dotenv
+        run: uv pip install --system griptape-nodes pytest pytest-asyncio pytest-timeout python-dotenv
 
       - name: Run workflow tests
-        run: pytest -s tests/workflows/test_integration_workflows.py
+        # --timeout-method=signal so a single hung provider fails one test
+        # rather than killing the whole pytest run; --timeout-method=thread
+        # cannot preempt the asyncio event loop.
+        run: pytest -v --timeout=600 --timeout-method=signal tests/workflows/test_integration_workflows.py
