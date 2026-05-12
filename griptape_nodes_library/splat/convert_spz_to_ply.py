@@ -308,6 +308,22 @@ def _spz_bytes_to_ply_bytes(spz_bytes: bytes) -> bytes:
     return _cloud_to_ply_bytes(cloud)
 
 
+def _extract_splat_url(raw: Any) -> str | None:
+    if not raw:
+        return None
+    if isinstance(raw, SplatUrlArtifact):
+        return raw.value if raw.value else None
+    if isinstance(raw, str):
+        return raw.strip() or None
+    url = getattr(raw, "value", None)
+    if isinstance(url, str) and url:
+        return url
+    if isinstance(raw, dict):
+        url = raw.get("value") or raw.get("url")
+        return url if isinstance(url, str) and url else None
+    return None
+
+
 class ConvertSpzToPly(DataNode):
     """Convert an SPZ Gaussian splat to PLY for broader software compatibility.
 
@@ -327,7 +343,7 @@ class ConvertSpzToPly(DataNode):
                 name="splat_in",
                 tooltip="Wire an SPZ splat (e.g. from WorldLabsWorldGeneration) or pick a local .spz file.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                accept_any=True,
+                accept_any=False,
                 clickable_file_browser=True,
                 ui_options={"display_name": "Splat In (SPZ)"},
             )
@@ -353,10 +369,9 @@ class ConvertSpzToPly(DataNode):
 
     async def aprocess(self) -> None:
         raw = self.get_parameter_value("splat_in")
-        url = self._extract_splat_url(raw)
+        url = _extract_splat_url(raw)
         if not url:
-            self.parameter_output_values["splat_out"] = None
-            return
+            raise RuntimeError("No SPZ URL found in the input — connect a SplatUrlArtifact or enter a file path.")
 
         upstream_meta = dict(getattr(raw, "meta", {}) or {})
         if upstream_meta.get("format") == "ply":
@@ -384,16 +399,3 @@ class ConvertSpzToPly(DataNode):
             meta=upstream_meta,
         )
 
-    @staticmethod
-    def _extract_splat_url(raw: Any) -> str | None:
-        if not raw:
-            return None
-        if isinstance(raw, str):
-            return raw.strip() or None
-        url = getattr(raw, "value", None)
-        if isinstance(url, str) and url:
-            return url
-        if isinstance(raw, dict):
-            url = raw.get("value") or raw.get("url")
-            return url if isinstance(url, str) and url else None
-        return None
