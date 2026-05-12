@@ -2,7 +2,7 @@
  * VideoPlayerFrameSelector — vanilla JS widget for frame-accurate video scrubbing.
  *
  * Layout:
- *   - Marker zone (upper 7px): double-click to add marker, drag to move, alt+click to remove
+ *   - Marker zone (upper 7px): click to add marker, drag to move, alt+click to remove
  *   - Track bar  (lower 10px): click/drag to seek
  *
  * Visual:
@@ -28,6 +28,8 @@ const ICONS = {
   playFwd:   _svg('M8 5v14l11-7z'),
   stepFwd:   _svg('M4 5v14 M9 5l12 7-12 7z'),
   enlarge:   `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>`,
+  plus:      `<svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+  trash:     `<svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/><path d="M9 6V4h6v2"/></svg>`,
 };
 
 /* ─── CSS ────────────────────────────────────────────────────────────────── */
@@ -79,16 +81,52 @@ const CSS = `
     font-family:'SF Mono','Monaco','Menlo',monospace;
   }
 
-  /* ── Timeline container (17px: 7px marker zone + 10px track) ──────── */
+  /* ── Timeline container (33px: 16px add-zone + 7px marker zone + 10px track) */
   .vpw-timeline {
-    position:relative; height:17px;
+    position:relative; height:33px;
     user-select:none; touch-action:none;
   }
 
-  /* ── Marker interaction zone (top 7px, same height as triangles) ─────── */
+  /* ── Add / delete icon strip (top 16px) ─────────────────────────────────── */
+  .vpw-tl-add-zone {
+    position:absolute; top:0; left:0; right:0; height:16px;
+    cursor:pointer; z-index:6;
+  }
+
+  /* "+" button — floats at cursor X, shown by JS */
+  .vpw-add-btn {
+    position:absolute; top:1px; width:14px; height:14px;
+    background:#222; border:1px solid #888; border-radius:3px;
+    color:#aaa; display:none; align-items:center; justify-content:center;
+    cursor:pointer; pointer-events:auto;
+    transform:translateX(-50%); z-index:7;
+    transition:background .1s, border-color .1s, color .1s;
+  }
+  .vpw-add-btn:hover { background:#2d2d2d; border-color:#aaa; color:#ccc; }
+
+  /* Per-marker trash button — shown on marker hover */
+  .vpw-trash-btn {
+    position:absolute; top:1px; width:20px; height:14px;
+    background:#222; border:1px solid #888; border-radius:3px;
+    color:#aaa; display:flex; align-items:center; justify-content:center;
+    cursor:pointer; pointer-events:none;
+    transform:translateX(-50%); z-index:7;
+    opacity:0; transition:opacity .1s, background .1s, border-color .1s, color .1s;
+  }
+  .vpw-trash-btn:hover { background:#2d1a1a; border-color:#aa4444; color:#cc6666; }
+
+  /* Transparent bridge that extends from the add-zone into the marker zone,
+     creating a continuous hover column between the trash button and the marker
+     triangle. pointer-events toggled by JS — none by default so drags work. */
+  .vpw-marker-hover-bridge {
+    position:absolute; top:13px; height:16px; width:22px;
+    transform:translateX(-50%); pointer-events:none; z-index:7; cursor:pointer;
+  }
+
+  /* ── Marker interaction zone (7px, sits below add-zone) ─────────────────── */
   .vpw-tl-marker-zone {
-    position:absolute; top:0; left:0; right:0; bottom:10px;
-    cursor:crosshair; z-index:4;
+    position:absolute; top:16px; left:0; right:0; bottom:10px;
+    cursor:pointer; z-index:4;
   }
 
   /* ── Track bar (dark gray, 10px) ─────────────────────────────────────── */
@@ -349,8 +387,11 @@ function controlsHtml(pfx) {
 function timelineHtml(id) {
   return `
     <div class="vpw-timeline nowheel" data-tl="${id}">
+      <div class="vpw-tl-add-zone" data-tl-addzone="${id}">
+        <div class="vpw-add-btn" data-tl-addbtn="${id}" title="Click to add marker&#10;Drag to create range">${ICONS.plus}</div>
+      </div>
       <div class="vpw-tl-marker-zone" data-tl-mzone="${id}"
-        title="Double-click to add a marker&#10;Double-click &amp; drag to create a range&#10;Drag a triangle to move it&#10;Alt+click to remove"></div>
+        title="Drag to move marker"></div>
       <div class="vpw-tl-track" data-tl-track="${id}"></div>
       <div class="vpw-tl-fill" data-tl-fill="${id}"></div>
       <div class="vpw-tl-seeker" data-tl-seeker="${id}"></div>
@@ -385,7 +426,7 @@ export default function VideoPlayerWidget(container, props) {
   const session = SESSIONS.get(sessionKey) || {
     fps: null, nativeFps: null, frameIndex: 0, currentTime: 0,
     markers: [], selectedFramesStr: '', selectionMode: 'list', everyN: 1,
-    videoSrc: null,
+    videoSrc: null, videoWidth: null, videoHeight: null,
   };
   SESSIONS.set(sessionKey, session);
 
@@ -413,7 +454,7 @@ export default function VideoPlayerWidget(container, props) {
         </button>
       </div>
 
-      <div style="position:relative;background:#000;border-radius:8px;overflow:hidden;height:${vpH}px;">
+      <div class="vpw-video-container" style="position:relative;background:#000;border-radius:8px;overflow:hidden;height:${vpH}px;">
         <video class="vpw-video" style="width:100%;height:100%;object-fit:contain;" playsinline preload="metadata"></video>
         <div class="vpw-overlay" style="position:absolute;inset:0;display:${session.videoSrc ? 'none' : 'flex'};align-items:center;justify-content:center;color:#3a3a3a;font-size:13px;pointer-events:none;">
           No video loaded
@@ -449,16 +490,18 @@ export default function VideoPlayerWidget(container, props) {
   const q  = (sel) => container.querySelector(sel);
   const qd = (sel) => backdrop.querySelector(sel);
 
-  const widgetRoot = q('.vpw-root');
-  const enlargeBtn = q('.vpw-enlarge');
-  const video      = q('.vpw-video');
-  const overlay    = q('.vpw-overlay');
+  const widgetRoot      = q('.vpw-root');
+  const enlargeBtn      = q('.vpw-enlarge');
+  const video           = q('.vpw-video');
+  const overlay         = q('.vpw-overlay');
+  const videoContainerEl = q('.vpw-video-container');
 
-  if (session.videoSrc) video.src = session.videoSrc;
+  // Video src is restored conditionally in initFromProps (requires prop value to match)
 
   const tl         = q('[data-tl="main"]');
   const tlTrack    = q('[data-tl-track="main"]');
   const tlMzone    = q('[data-tl-mzone="main"]');
+  const tlAddZone  = q('[data-tl-addzone="main"]');
   const tlFill     = q('[data-tl-fill="main"]');
   const tlSeeker   = q('[data-tl-seeker="main"]');
 
@@ -481,6 +524,7 @@ export default function VideoPlayerWidget(container, props) {
   const dtl        = qd('[data-tl="dialog"]');
   const dtlTrack   = qd('[data-tl-track="dialog"]');
   const dtlMzone   = qd('[data-tl-mzone="dialog"]');
+  const dtlAddZone = qd('[data-tl-addzone="dialog"]');
   const dtlFill    = qd('[data-tl-fill="dialog"]');
   const dtlSeeker  = qd('[data-tl-seeker="dialog"]');
 
@@ -517,6 +561,10 @@ export default function VideoPlayerWidget(container, props) {
   let currentSrc   = null;
   let pollId       = null;
   let hasError     = false;
+  // Timestamp until which the poll should ignore incoming input_frame_numbers updates.
+  // Set after commitMarkers() to prevent the poll from reverting local marker state
+  // before React has propagated the write back through the fiber tree.
+  let ignoreFrameUpdateUntil = 0;
 
   /* ── React fiber helpers ────────────────────────────────────────────────── */
   // These walk up the React component tree from this container's fiber node
@@ -623,6 +671,20 @@ export default function VideoPlayerWidget(container, props) {
     session.selectedFramesStr = selectedFramesStr;
     session.selectionMode   = selectionMode;
     session.everyN          = everyN;
+    if (video.videoWidth)  session.videoWidth  = video.videoWidth;
+    if (video.videoHeight) session.videoHeight = video.videoHeight;
+  }
+
+  /** Apply the video's natural aspect ratio to the container so height scales with width. */
+  function applyAspectRatio(w, h) {
+    if (!w || !h) return;
+    videoContainerEl.style.aspectRatio = `${w} / ${h}`;
+    videoContainerEl.style.height = '';
+  }
+
+  function resetAspectRatio() {
+    videoContainerEl.style.aspectRatio = '';
+    videoContainerEl.style.height = `${vpH}px`;
   }
 
   /* ── Error state ───────────────────────────────────────────────────────── */
@@ -638,6 +700,66 @@ export default function VideoPlayerWidget(container, props) {
   }
 
   /* ── Marker rendering ──────────────────────────────────────────────────── */
+
+  /** Create a trash button in the add zone for marker at index idx. */
+  function createTrashBtn(leftPx, idx, addZoneEl) {
+    const btn = document.createElement('button');
+    btn.className = 'vpw-trash-btn';
+    btn.style.left = leftPx;
+    btn.dataset.markerIndex = String(idx);
+    btn.title = 'Remove marker';
+    btn.innerHTML = ICONS.trash;
+    addZoneEl.appendChild(btn);
+
+    btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      markers.splice(idx, 1);
+      commitMarkers();
+    });
+    return btn;
+  }
+
+  /** Transparent div that bridges the gap between the trash button (add-zone) and
+   *  the marker triangle (marker-zone), giving the mouse a continuous hover path. */
+  function createMarkerHoverBridge(leftPx, addZoneEl) {
+    const bridge = document.createElement('div');
+    bridge.className = 'vpw-marker-hover-bridge';
+    bridge.style.left = leftPx;
+    addZoneEl.appendChild(bridge);
+    return bridge;
+  }
+
+  /** Wire mutual hover between a trash button, marker elements, and an optional bridge element. */
+  function wireTrashHover(trashBtn, markerEls, bridgeEl) {
+    let timeout = null;
+    const show = () => {
+      clearTimeout(timeout);
+      trashBtn.style.opacity = '1';
+      trashBtn.style.pointerEvents = 'auto';
+      // Enable the bridge so it can relay hover while the mouse travels
+      // from the marker triangle up to the trash button.
+      if (bridgeEl) bridgeEl.style.pointerEvents = 'auto';
+    };
+    const hide = () => {
+      timeout = setTimeout(() => {
+        trashBtn.style.opacity = '0';
+        trashBtn.style.pointerEvents = 'none';
+        // Disable the bridge again so it doesn't block marker drag interactions.
+        if (bridgeEl) bridgeEl.style.pointerEvents = 'none';
+      }, 200);
+    };
+    for (const el of markerEls) {
+      el.addEventListener('mouseenter', show);
+      el.addEventListener('mouseleave', hide);
+    }
+    trashBtn.addEventListener('mouseenter', show);
+    trashBtn.addEventListener('mouseleave', hide);
+    if (bridgeEl) {
+      bridgeEl.addEventListener('mouseenter', show);
+      bridgeEl.addEventListener('mouseleave', hide);
+    }
+  }
 
   /** Create a marker DOM element with a triangle cap and vertical dash line. */
   function createMarkerEl(leftPx, idx, triClass) {
@@ -663,6 +785,9 @@ export default function VideoPlayerWidget(container, props) {
    */
   function renderMarkers(tlEl) {
     tlEl.querySelectorAll('.vpw-marker, .vpw-range-fill, .vpw-marker-range-bar, .vpw-nth-tick').forEach(m => m.remove());
+
+    const addZone = tlEl.querySelector('[data-tl-addzone]');
+    if (addZone) addZone.querySelectorAll('.vpw-trash-btn, .vpw-marker-hover-bridge').forEach(t => t.remove());
 
     if (totalFrames <= 1) return;
     const max = totalFrames - 1;
@@ -691,6 +816,12 @@ export default function VideoPlayerWidget(container, props) {
         const el = createMarkerEl(snap(pct), i, 'vpw-marker-tri-full');
         el.dataset.markerEdge = 'single';
         if (mzone) mzone.appendChild(el); else tlEl.appendChild(el);
+
+        if (addZone) {
+          const trash = createTrashBtn(snap(pct), i, addZone);
+          const bridge = createMarkerHoverBridge(snap(pct), addZone);
+          wireTrashHover(trash, [el], bridge);
+        }
       } else {
         const startPct = ((m.start - 1) / max) * 100;
         const endPct   = ((m.end - 1) / max) * 100;
@@ -718,6 +849,13 @@ export default function VideoPlayerWidget(container, props) {
         bar.addEventListener('mouseenter', () => { startEl.classList.add('vpw-range-hover'); endEl.classList.add('vpw-range-hover'); fill.classList.add('vpw-range-hover'); });
         bar.addEventListener('mouseleave', () => { startEl.classList.remove('vpw-range-hover'); endEl.classList.remove('vpw-range-hover'); fill.classList.remove('vpw-range-hover'); });
         if (mzone) mzone.appendChild(bar); else tlEl.appendChild(bar);
+
+        if (addZone) {
+          const centerPct = (startPct + endPct) / 2;
+          const trash = createTrashBtn(snap(centerPct), i, addZone);
+          const bridge = createMarkerHoverBridge(snap(centerPct), addZone);
+          wireTrashHover(trash, [startEl, endEl, bar], bridge);
+        }
       }
     }
   }
@@ -903,22 +1041,36 @@ export default function VideoPlayerWidget(container, props) {
     selectionMode     = session.selectionMode || 'list';
     everyN            = session.everyN || 1;
 
-    if (session.videoSrc && urlBase(session.videoSrc) === urlBase(video.src)) {
+    let url = extractUrl(value);
+    // The prop value may not have propagated yet when the widget first mounts
+    // (e.g. after_value_set resolves the URL and sets the parameter, but React
+    // hasn't re-rendered with the new value). Read directly from the fiber tree
+    // so the video loads immediately rather than waiting for the 500ms poll.
+    if (!url) url = extractUrl(readSiblingParamValue('input_video'));
+
+    // Only restore session video if the prop value has a matching URL.
+    // Without this check, nodes that share a session key (e.g. 'vpw-default') would
+    // inherit another node's loaded video when created with an empty input_video.
+    if (url && session.videoSrc && urlBase(session.videoSrc) === urlBase(url)) {
       currentSrc = session.videoSrc;
+      video.src  = session.videoSrc;
+      video.load(); // ensure loadedmetadata fires on this new element so isLoaded is set
       videoName  = session.videoSrc.split('/').pop()?.split('?')[0] || 'video';
+      // Apply saved aspect ratio immediately so the container doesn't flash to default height
+      applyAspectRatio(session.videoWidth, session.videoHeight);
       if (session.currentTime > 0) video.addEventListener('loadedmetadata', () => { video.currentTime = session.currentTime; }, { once: true });
       return;
     }
-    const url = extractUrl(value);
     if (url) loadUrl(url, session.currentTime || 0);
   }
 
   function clearVideo() {
     pause(); video.removeAttribute('src'); video.load();
-    currentSrc = null; session.videoSrc = null; isLoaded = false;
+    currentSrc = null; session.videoSrc = null; session.videoWidth = null; session.videoHeight = null; isLoaded = false;
     videoName = ''; duration = 0; totalFrames = 0; frameIndex = 0;
     markers = []; selectedFramesStr = '';
     overlay.textContent = 'No video loaded'; overlay.style.display = 'flex';
+    resetAspectRatio();
     updateUi();
   }
 
@@ -947,7 +1099,7 @@ export default function VideoPlayerWidget(container, props) {
       let needsSync = false;
 
       const latestFrames = readSiblingParamValue('input_frame_numbers');
-      if (latestFrames !== undefined) {
+      if (latestFrames !== undefined && Date.now() > ignoreFrameUpdateUntil) {
         const str = String(latestFrames || '');
         updateErrorState(str);
         if (str !== selectedFramesStr) {
@@ -976,6 +1128,9 @@ export default function VideoPlayerWidget(container, props) {
   function commitMarkers() {
     selectedFramesStr = markersToFrameString(markers);
     setSiblingParamValue('input_frame_numbers', selectedFramesStr);
+    // Suppress poll reads for slightly longer than one poll cycle so the stale fiber
+    // value (pre-React-update) doesn't overwrite local marker state mid-flight.
+    ignoreFrameUpdateUntil = Date.now() + 600;
     syncTimeline();
     saveSession();
   }
@@ -1003,7 +1158,6 @@ export default function VideoPlayerWidget(container, props) {
 
   /* ── Marker zone interaction (above track) ─────────────────────────────── */
 
-  const DBLCLICK_MS = 350;
   const HIT_TOLERANCE_PX = 8;
 
   /** Hit-test a pointer event against all markers. Returns {markerIndex, edge} or null. */
@@ -1029,19 +1183,10 @@ export default function VideoPlayerWidget(container, props) {
     return null;
   }
 
-  /**
-   * Attach pointer handlers to the marker zone above the track.
-   * Double-click: add marker. Drag existing: move. Alt+click: remove.
-   * Drag from double-click: create range.
-   */
+  /** Attach drag handlers to the marker zone — move existing markers only. */
   function attachMarkerZone(mzoneEl) {
     let isDragging = false;
     let dragInfo = null;
-    let isCreatingRange = false;
-    let rangeAnchorFrame = null;
-    let rangeAnchorIndex = null;
-    let lastClickTime = 0;
-    let lastClickFrame = -1;
 
     function frameFromMzone(e) {
       const r = mzoneEl.getBoundingClientRect();
@@ -1050,98 +1195,137 @@ export default function VideoPlayerWidget(container, props) {
 
     mzoneEl.addEventListener('pointerdown', (e) => {
       if (selectionMode !== 'list') return;
-      const f = frameFromMzone(e);
-      const now = Date.now();
       const hit = hitTestMarker(e, mzoneEl);
+      if (!hit) return;
 
-      // Alt+click: remove marker
-      if (e.altKey) {
-        if (hit) { markers.splice(hit.markerIndex, 1); commitMarkers(); }
-        return;
-      }
-
-      // Click on existing marker: start drag
-      if (hit) {
-        mzoneEl.setPointerCapture(e.pointerId);
-        isDragging = true;
-        dragInfo = { ...hit, dragStartFrame: f + 1 };
-        return;
-      }
-
-      // Double-click detection
-      const isDblClick = (now - lastClickTime < DBLCLICK_MS) && (Math.abs(f - lastClickFrame) <= 2);
-
-      if (isDblClick) {
-        lastClickTime = 0; lastClickFrame = -1;
-        mzoneEl.setPointerCapture(e.pointerId);
-        isDragging = true;
-        isCreatingRange = true;
-        rangeAnchorFrame = f + 1;
-        markers.push({ type: 'single', frame: rangeAnchorFrame });
-        rangeAnchorIndex = markers.length - 1;
-        syncTimeline();
-        return;
-      }
-
-      lastClickTime = now;
-      lastClickFrame = f;
+      mzoneEl.setPointerCapture(e.pointerId);
+      isDragging = true;
+      dragInfo = { ...hit, dragStartFrame: frameFromMzone(e) + 1 };
     });
 
     mzoneEl.addEventListener('pointermove', (e) => {
-      if (!isDragging) return;
+      if (!isDragging || !dragInfo) return;
       const f = frameFromMzone(e);
+      const m = markers[dragInfo.markerIndex];
+      if (!m) return;
+      const newFrame = clamp(f + 1, 1, totalFrames);
 
-      if (dragInfo) {
-        const m = markers[dragInfo.markerIndex];
-        if (!m) return;
-        const newFrame = clamp(f + 1, 1, totalFrames);
-
-        if (dragInfo.edge === 'fill' && m.type === 'range') {
-          const delta = newFrame - dragInfo.dragStartFrame;
-          const rangeLen = m.end - m.start;
-          let newStart = m.start + delta, newEnd = m.end + delta;
-          if (newStart < 1) { newStart = 1; newEnd = 1 + rangeLen; }
-          if (newEnd > totalFrames) { newEnd = totalFrames; newStart = totalFrames - rangeLen; }
-          m.start = newStart; m.end = newEnd;
-          dragInfo.dragStartFrame = newFrame;
-        } else if (m.type === 'single') {
-          m.frame = newFrame;
-        } else if (dragInfo.edge === 'start') {
-          m.start = Math.min(newFrame, m.end);
-        } else if (dragInfo.edge === 'end') {
-          m.end = Math.max(newFrame, m.start);
-        }
-        if (m.type === 'range' && m.start === m.end) markers[dragInfo.markerIndex] = { type: 'single', frame: m.start };
-        syncTimeline();
-        return;
+      if (dragInfo.edge === 'fill' && m.type === 'range') {
+        const delta = newFrame - dragInfo.dragStartFrame;
+        const rangeLen = m.end - m.start;
+        let newStart = m.start + delta, newEnd = m.end + delta;
+        if (newStart < 1) { newStart = 1; newEnd = 1 + rangeLen; }
+        if (newEnd > totalFrames) { newEnd = totalFrames; newStart = totalFrames - rangeLen; }
+        m.start = newStart; m.end = newEnd;
+        dragInfo.dragStartFrame = newFrame;
+      } else if (m.type === 'single') {
+        m.frame = newFrame;
+      } else if (dragInfo.edge === 'start') {
+        m.start = Math.min(newFrame, m.end);
+      } else if (dragInfo.edge === 'end') {
+        m.end = Math.max(newFrame, m.start);
       }
+      if (m.type === 'range' && m.start === m.end) markers[dragInfo.markerIndex] = { type: 'single', frame: m.start };
+      syncTimeline();
+    });
 
-      if (isCreatingRange && rangeAnchorIndex !== null) {
-        const currentFrame = clamp(f + 1, 1, totalFrames);
-        const s = Math.min(rangeAnchorFrame, currentFrame);
-        const en = Math.max(rangeAnchorFrame, currentFrame);
-        markers[rangeAnchorIndex] = s === en ? { type: 'single', frame: s } : { type: 'range', start: s, end: en };
-        syncTimeline();
+    function endDrag() {
+      if (isDragging && dragInfo) { markers = mergeOverlapping(markers); commitMarkers(); }
+      isDragging = false; dragInfo = null;
+    }
+
+    mzoneEl.addEventListener('pointerup',     endDrag);
+    mzoneEl.addEventListener('pointercancel', endDrag);
+  }
+
+  /**
+   * Attach handlers to the add zone strip above the marker area.
+   * Mousemove: show "+" button at cursor, hide near existing markers.
+   * Click/drag on "+": add single marker or create range.
+   */
+  function attachAddZone(addZoneEl) {
+    const addBtn = addZoneEl.querySelector('.vpw-add-btn');
+    let isCreating = false;
+    let rangeAnchorFrame = null;
+    let rangeAnchorIndex = null;
+
+    function frameFromX(clientX) {
+      const r = addZoneEl.getBoundingClientRect();
+      return Math.round(clamp((clientX - r.left) / r.width, 0, 1) * Math.max(0, totalFrames - 1));
+    }
+
+    function isNearMarker(clientX) {
+      const r = addZoneEl.getBoundingClientRect();
+      const curX = clientX - r.left;
+      const maxFrame = Math.max(0, totalFrames - 1);
+      if (maxFrame === 0) return false;
+      for (const m of markers) {
+        if (m.type === 'single') {
+          const mx = ((m.frame - 1) / maxFrame) * r.width;
+          if (Math.abs(curX - mx) <= HIT_TOLERANCE_PX) return true;
+        } else {
+          const sx = ((m.start - 1) / maxFrame) * r.width;
+          const ex = ((m.end - 1) / maxFrame) * r.width;
+          if (curX >= sx - HIT_TOLERANCE_PX && curX <= ex + HIT_TOLERANCE_PX) return true;
+        }
+      }
+      return false;
+    }
+
+    addZoneEl.addEventListener('mousemove', (e) => {
+      if (selectionMode !== 'list' || !isLoaded || isCreating) return;
+      const r = addZoneEl.getBoundingClientRect();
+      if (isNearMarker(e.clientX)) {
+        addBtn.style.display = 'none';
+      } else {
+        const fraction = clamp((e.clientX - r.left) / r.width, 0, 1);
+        addBtn.style.display = 'flex';
+        addBtn.style.left = `${fraction * (addZoneEl.offsetWidth || r.width)}px`;
       }
     });
 
-    function endInteraction() {
-      if (isDragging && (dragInfo || isCreatingRange)) {
-        markers = mergeOverlapping(markers);
-        commitMarkers();
-      }
-      isDragging = false; dragInfo = null;
-      isCreatingRange = false; rangeAnchorFrame = null; rangeAnchorIndex = null;
+    addZoneEl.addEventListener('mouseleave', () => {
+      if (!isCreating) addBtn.style.display = 'none';
+    });
+
+    addBtn.addEventListener('pointerdown', (e) => {
+      if (selectionMode !== 'list') return;
+      e.stopPropagation();
+      addBtn.setPointerCapture(e.pointerId);
+      isCreating = true;
+      rangeAnchorFrame = clamp(frameFromX(e.clientX) + 1, 1, totalFrames);
+      markers.push({ type: 'single', frame: rangeAnchorFrame });
+      rangeAnchorIndex = markers.length - 1;
+      syncTimeline();
+    });
+
+    addBtn.addEventListener('pointermove', (e) => {
+      if (!isCreating || rangeAnchorIndex === null) return;
+      const currentFrame = clamp(frameFromX(e.clientX) + 1, 1, totalFrames);
+      const s = Math.min(rangeAnchorFrame, currentFrame);
+      const en = Math.max(rangeAnchorFrame, currentFrame);
+      markers[rangeAnchorIndex] = s === en
+        ? { type: 'single', frame: s }
+        : { type: 'range', start: s, end: en };
+      syncTimeline();
+    });
+
+    function endCreate() {
+      if (isCreating) { markers = mergeOverlapping(markers); commitMarkers(); }
+      isCreating = false; rangeAnchorFrame = null; rangeAnchorIndex = null;
+      addBtn.style.display = 'none';
     }
 
-    mzoneEl.addEventListener('pointerup',     endInteraction);
-    mzoneEl.addEventListener('pointercancel', endInteraction);
+    addBtn.addEventListener('pointerup',     endCreate);
+    addBtn.addEventListener('pointercancel', endCreate);
   }
 
   attachSeekZone(tlTrack);
   attachSeekZone(dtlTrack);
   attachMarkerZone(tlMzone);
   attachMarkerZone(dtlMzone);
+  attachAddZone(tlAddZone);
+  attachAddZone(dtlAddZone);
 
   /* ── Video events ───────────────────────────────────────────────────────── */
 
@@ -1149,7 +1333,9 @@ export default function VideoPlayerWidget(container, props) {
     const d = video.duration;
     if (!Number.isFinite(d) || d <= 0) return;
     duration = d; totalFrames = computeTotal(); isLoaded = true;
-    overlay.style.display = 'none'; updateUi();
+    overlay.style.display = 'none';
+    applyAspectRatio(video.videoWidth, video.videoHeight);
+    updateUi();
   });
 
   video.addEventListener('durationchange', () => {
