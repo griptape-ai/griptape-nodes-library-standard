@@ -359,9 +359,7 @@ class ExtractFrames(BaseVideoInputNode):
         saved_paths = self._extract_all_frames(input_url, output_format)
 
         self.parameter_output_values["output_paths"] = [str(p) for p in saved_paths]
-        self.parameter_output_values["extracted_frames"] = [
-            self._path_to_image_url_artifact(p) for p in saved_paths
-        ]
+        self.parameter_output_values["extracted_frames"] = [self._path_to_image_url_artifact(p) for p in saved_paths]
 
         # Store the output directory and enable the "Open Output Folder" button
         if saved_paths:
