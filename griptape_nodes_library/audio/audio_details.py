@@ -12,6 +12,7 @@ from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import logger
 
 
@@ -171,7 +172,15 @@ class AudioDetails(DataNode):
             return None
 
         if isinstance(audio, AudioUrlArtifact):
-            return audio.value
+            # ``audio.value`` may be an HTTP URL, a project macro path
+            # (``{outputs}/clip.mp3``), or a plain filesystem path. ffprobe
+            # cannot resolve macro paths, so route through ``File`` first;
+            # for HTTP URLs ``File.resolve()`` is a no-op pass-through.
+            try:
+                return File(audio.value).resolve()
+            except FileLoadError as e:
+                logger.error(f"{self.name}: Failed to resolve audio path {audio.value}: {e}")
+                return None
 
         if isinstance(audio, AudioArtifact):
             # For AudioArtifact with bytes, save to temp file and return path

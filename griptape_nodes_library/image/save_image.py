@@ -10,6 +10,7 @@ from griptape_nodes.exe_types.core_types import (
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
+from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from PIL import Image
 
@@ -153,7 +154,13 @@ class SaveImage(SuccessFailureNode):
 
         # Re-encode image bytes to the target format and write to disk
         try:
-            image_bytes = image_artifact.to_bytes()
+            if isinstance(image_artifact, ImageUrlArtifact):
+                # ``ImageUrlArtifact.to_bytes()`` issues an HTTP GET against ``self.value``,
+                # which fails when the value is a project macro path emitted by an upstream
+                # node that wrote through ``ProjectFileParameter`` (e.g. ``CreateColorBars``).
+                image_bytes = File(image_artifact.value).read_bytes()
+            else:
+                image_bytes = image_artifact.to_bytes()
             pil_image = Image.open(BytesIO(image_bytes))
             if target_format == "JPEG" and pil_image.mode in ("RGBA", "LA", "P"):
                 pil_image = pil_image.convert("RGB")

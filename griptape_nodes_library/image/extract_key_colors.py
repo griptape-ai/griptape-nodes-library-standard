@@ -9,6 +9,7 @@ from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.file import File
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
@@ -181,15 +182,19 @@ class ExtractKeyColors(SuccessFailureNode):
             raise ValueError(msg)
 
         try:
-            # Handle dictionary format (serialized artifacts)
+            # Handle dictionary format (serialized artifacts).
             if isinstance(image_artifact, dict):
-                # Convert dict to ImageUrlArtifact first
-                image_url_artifact = dict_to_image_url_artifact(image_artifact)
-                return image_url_artifact.to_bytes()
-            # Handle artifact objects directly
-            if isinstance(image_artifact, (ImageArtifact, ImageUrlArtifact)):
+                image_artifact = dict_to_image_url_artifact(image_artifact)
+
+            # ``ImageUrlArtifact.to_bytes()`` issues an HTTP GET against ``self.value``,
+            # which fails when the value is a project macro path emitted by upstream
+            # nodes that wrote through ``ProjectFileParameter``. Read via ``File`` instead
+            # so macro paths and plain filesystem paths resolve correctly.
+            if isinstance(image_artifact, ImageUrlArtifact):
+                return File(image_artifact.value).read_bytes()
+            if isinstance(image_artifact, ImageArtifact):
                 return image_artifact.to_bytes()
-            # Try to convert to bytes if it's a different artifact type
+            # Other artifact types: best-effort fall through.
             return image_artifact.to_bytes()
 
         except Exception as e:
