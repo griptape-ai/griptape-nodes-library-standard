@@ -2,16 +2,17 @@
  * VideoPlayerFrameSelector — vanilla JS widget for frame-accurate video scrubbing.
  *
  * Layout:
- *   - Marker zone (upper 7px): click to add marker, drag to move, alt+click to remove
- *   - Track bar  (lower 10px): click/drag to seek
+ *   - Add zone (top 16px): hover to show "+", click to add marker, drag to create range
+ *   - Marker zone (7px): drag to move existing markers; trash icon on hover to delete
+ *   - Track bar (bottom 10px): click/drag to seek
  *
  * Visual:
  *   - Seeker: thin 1px red vertical line, no decorations
  *   - Markers: equilateral/right-triangle caps above track, gray dashes through track
  *   - Playback buttons: borderless; text buttons (Enlarge, Clear): outlined
  *
- * Reads sibling parameters (input_frame_numbers, frame_selection_mode, every_n)
- * via React fiber tree traversal. Writes back via handleParamChange.
+ * Reads sibling parameters (input_frame_numbers, frame_selection_mode, every_n,
+ * _video_fps) via React fiber tree traversal. Writes back via handleParamChange.
  */
 
 const SESSIONS = new Map();
@@ -791,7 +792,7 @@ export default function VideoPlayerWidget(container, props) {
 
     if (totalFrames <= 1) return;
     const max = totalFrames - 1;
-    const mzone = tlEl.querySelector('[class*="vpw-tl-marker-zone"]');
+    const mzone = tlEl.querySelector('.vpw-tl-marker-zone');
     const w = tlEl.offsetWidth || 0;
     const dpr = window.devicePixelRatio || 1;
     const snap = (pct) => w > 0 ? `${Math.round(pct / 100 * w * dpr) / dpr}px` : `${pct}%`;
@@ -1041,6 +1042,13 @@ export default function VideoPlayerWidget(container, props) {
     selectionMode     = session.selectionMode || 'list';
     everyN            = session.everyN || 1;
 
+    // Pick up native FPS detected by the node (via ffprobe) if available
+    const detectedFps = Number(readSiblingParamValue('_video_fps'));
+    if (Number.isFinite(detectedFps) && detectedFps > 0) {
+      nativeFps = detectedFps;
+      fps = detectedFps;
+    }
+
     let url = extractUrl(value);
     // The prop value may not have propagated yet when the widget first mounts
     // (e.g. after_value_set resolves the URL and sets the parameter, but React
@@ -1069,6 +1077,9 @@ export default function VideoPlayerWidget(container, props) {
     currentSrc = null; session.videoSrc = null; session.videoWidth = null; session.videoHeight = null; isLoaded = false;
     videoName = ''; duration = 0; totalFrames = 0; frameIndex = 0;
     markers = []; selectedFramesStr = '';
+    setSiblingParamValue('input_frame_numbers', '');
+    ignoreFrameUpdateUntil = Date.now() + 600;
+    nativeFps = DEFAULT_FPS; fps = DEFAULT_FPS;
     overlay.textContent = 'No video loaded'; overlay.style.display = 'flex';
     resetAspectRatio();
     updateUi();
@@ -1116,6 +1127,17 @@ export default function VideoPlayerWidget(container, props) {
       if (latestEveryN !== undefined) {
         const n = Number(latestEveryN);
         if (Number.isFinite(n) && n !== everyN) { everyN = n; needsSync = true; }
+      }
+
+      const latestFps = readSiblingParamValue('_video_fps');
+      if (latestFps !== undefined) {
+        const detectedFps = Number(latestFps);
+        if (Number.isFinite(detectedFps) && detectedFps > 0 && detectedFps !== nativeFps) {
+          nativeFps = detectedFps;
+          fps = detectedFps;
+          mFpsInput.value = dFpsInput.value = String(fps);
+          needsSync = true;
+        }
       }
 
       if (needsSync) { syncTimeline(); saveSession(); }

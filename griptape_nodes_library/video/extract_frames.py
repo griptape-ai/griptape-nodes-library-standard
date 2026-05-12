@@ -140,6 +140,16 @@ class ExtractFrames(BaseVideoInputNode):
         )
         self.add_parameter(
             core_types.Parameter(
+                name="_video_fps",
+                type="float",
+                default_value=0.0,
+                allowed_modes={core_types.ParameterMode.PROPERTY},
+                ui_options={"hide_property": True},
+                tooltip="Native frame rate detected from the video (set automatically).",
+            )
+        )
+        self.add_parameter(
+            core_types.Parameter(
                 name="frame_selection_mode",
                 type="str",
                 default_value="list",
@@ -159,10 +169,10 @@ class ExtractFrames(BaseVideoInputNode):
                 tooltip=(
                     "Frames to extract, as a comma-separated list of numbers or ranges (e.g. 1,4,5-9,11).\n\n"
                     "In the video player above:\n"
-                    "• Double-click the marker zone to add a single-frame marker\n"
-                    "• Double-click and drag to create a range\n"
+                    "• Hover the area above the timeline to reveal +, click to add a marker\n"
+                    "• Click and drag the + to create a range\n"
                     "• Drag an existing marker triangle to move it\n"
-                    "• Alt+click a marker to remove it"
+                    "• Hover a marker and click the trash icon to remove it"
                 ),
                 allowed_modes={core_types.ParameterMode.INPUT, core_types.ParameterMode.PROPERTY},
             )
@@ -299,6 +309,13 @@ class ExtractFrames(BaseVideoInputNode):
             if url:
                 if url.split("?")[0] != current_base:
                     self.set_parameter_value("input_video", url)
+                    try:
+                        _, ffprobe_path = self._get_ffmpeg_paths()
+                        frame_rate, _, _ = self._detect_video_properties(url, ffprobe_path)
+                        self.set_parameter_value("_video_fps", frame_rate)
+                        self.publish_update_to_parameter("_video_fps", frame_rate)
+                    except Exception:
+                        logger.warning("Could not detect video FPS", exc_info=True)
             elif current_base:
                 self.set_parameter_value("input_video", "")
 
