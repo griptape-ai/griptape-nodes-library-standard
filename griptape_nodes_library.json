@@ -47,7 +47,8 @@
         "threadpoolctl>=3.0.0",
         "pillow>=11.2.1",
         "asteval>=1.0.8",
-        "color-matcher"
+        "color-matcher",
+        "zstandard>=0.22.0"
       ]
     }
   },
@@ -2734,6 +2735,17 @@
         "description": "Generate 3D worlds using World Labs Marble via Griptape model proxy",
         "display_name": "World Labs World Generation",
         "group": "create"
+      }
+    },
+    {
+      "class_name": "ConvertSpzToPly",
+      "file_path": "griptape_nodes_library/splat/convert_spz_to_ply.py",
+      "metadata": {
+        "category": "Splat",
+        "description": "Convert an SPZ Gaussian splat to PLY format for use in Blender, Unreal, and other 3D tools",
+        "display_name": "Convert SPZ to PLY",
+        "icon": "box",
+        "group": "Transform"
       }
     },
     {
