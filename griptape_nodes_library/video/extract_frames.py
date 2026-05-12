@@ -1,5 +1,6 @@
 """Video Frame Extractor node — frame-accurate scrubbing and extraction."""
 
+import asyncio
 import logging
 import pathlib
 import typing
@@ -7,7 +8,6 @@ import typing
 from griptape.artifacts import ImageUrlArtifact
 
 import griptape_nodes.exe_types.core_types as core_types
-import griptape_nodes.exe_types.node_types as node_types
 from griptape_nodes.exe_types.core_types import NodeMessageResult
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -318,13 +318,13 @@ class VideoFrameExtractor(BaseVideoInputNode):
 
     # ── Execution ──────────────────────────────────────────────────────────────
 
-    def process(self) -> node_types.AsyncResult[None]:
+    async def aprocess(self) -> None:
         self._clear_execution_status()
         self.append_value_to_parameter("logs", "[Started frame extraction]\n")
         try:
             input_url, output_format = self._get_video_input_data()
             self._log_format_detection(output_format)
-            yield lambda: self._run_extraction(input_url, output_format)
+            await asyncio.to_thread(self._run_extraction, input_url, output_format)
             self.append_value_to_parameter("logs", "[Finished frame extraction]\n")
             n = len(self.parameter_output_values.get("output_paths") or [])
             out_dir = str(self._last_output_dir) if self._last_output_dir else "unknown"
