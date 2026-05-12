@@ -379,13 +379,13 @@ if __name__ == "__main__":
 _CREATE_NODE = """\
     {var} = GriptapeNodes.handle_request(CreateNodeRequest(
         node_type="{node_type}", specific_library_name="Griptape Nodes Library",
-        node_name="{node_name}", metadata={{}}, resolution="resolved", initial_setup=True,
+        node_name="{node_name}", metadata={{}}, initial_setup=True,
     )).node_name"""
 
 _CREATE_NODE_TESTING = """\
     {var} = GriptapeNodes.handle_request(CreateNodeRequest(
         node_type="{node_type}", specific_library_name="Griptape Nodes Testing Library",
-        node_name="{node_name}", metadata={{}}, resolution="resolved", initial_setup=True,
+        node_name="{node_name}", metadata={{}}, initial_setup=True,
     )).node_name"""
 
 _ADD_END_FLOW_PARAM = """\
@@ -637,19 +637,19 @@ flow_name = GriptapeNodes.handle_request(
 with GriptapeNodes.ContextManager().flow(flow_name):
     gen_node = GriptapeNodes.handle_request(CreateNodeRequest(
         node_type="{NodeType}", specific_library_name="Griptape Nodes Library",
-        node_name="{NodeType}", metadata={}, resolution="resolved", initial_setup=True,
+        node_name="{NodeType}", metadata={}, initial_setup=True,
     )).node_name
     to_text_node = GriptapeNodes.handle_request(CreateNodeRequest(
         node_type="ToText", specific_library_name="Griptape Nodes Library",
-        node_name="To Text", metadata={}, resolution="resolved", initial_setup=True,
+        node_name="To Text", metadata={}, initial_setup=True,
     )).node_name
     assert_node = GriptapeNodes.handle_request(CreateNodeRequest(
         node_type="AssertFileExists", specific_library_name="Griptape Nodes Testing Library",
-        node_name="Assert File Exists", metadata={}, resolution="resolved", initial_setup=True,
+        node_name="Assert File Exists", metadata={}, initial_setup=True,
     )).node_name
     start_node = GriptapeNodes.handle_request(CreateNodeRequest(
         node_type="StartFlow", specific_library_name="Griptape Nodes Library",
-        node_name="Start Flow", metadata={}, resolution="resolved", initial_setup=True,
+        node_name="Start Flow", metadata={}, initial_setup=True,
     )).node_name
     with GriptapeNodes.ContextManager().node(start_node):
         GriptapeNodes.handle_request(AddParameterToNodeRequest(
@@ -660,7 +660,7 @@ with GriptapeNodes.ContextManager().flow(flow_name):
         ))
     end_node = GriptapeNodes.handle_request(CreateNodeRequest(
         node_type="EndFlow", specific_library_name="Griptape Nodes Library",
-        node_name="End Flow", metadata={}, resolution="resolved", initial_setup=True,
+        node_name="End Flow", metadata={}, initial_setup=True,
     )).node_name
     with GriptapeNodes.ContextManager().node(end_node):
         GriptapeNodes.handle_request(AddParameterToNodeRequest(
@@ -786,7 +786,7 @@ def generate_flow_inputs(text_prompt_configs: list) -> str:
 
 
 def main() -> None:
-    output_dir = Path(__file__).parents[1] / "tests" / "workflows" / "integration_tests"
+    output_dir = Path(__file__).parents[1] / "tests" / "integration"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     generated = []
