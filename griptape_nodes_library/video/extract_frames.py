@@ -64,7 +64,7 @@ def parse_frame_string(frame_str: str) -> list[int]:
     return sorted(result)
 
 
-class VideoFrameExtractor(BaseVideoInputNode):
+class ExtractFrames(BaseVideoInputNode):
     """Extract specific frames from a video and save them as images."""
 
     DEFAULT_OUTPUT_PREFIX = "frame"

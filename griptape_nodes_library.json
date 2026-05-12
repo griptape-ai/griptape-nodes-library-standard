@@ -768,7 +768,7 @@
       }
     },
     {
-      "class_name": "VideoFrameExtractor",
+      "class_name": "ExtractFrames",
       "file_path": "griptape_nodes_library/video/extract_frames.py",
       "metadata": {
         "category": "video",
