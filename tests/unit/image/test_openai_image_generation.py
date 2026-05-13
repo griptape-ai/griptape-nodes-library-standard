@@ -10,7 +10,6 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.image.openai_image_generation import (
-    GPT_IMAGE_1_MODEL_ID,
     GPT_IMAGE_1_MODEL_NAME,
     GPT_IMAGE_2_MODEL_ID,
     GPT_IMAGE_2_MODEL_NAME,
