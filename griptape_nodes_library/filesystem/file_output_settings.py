@@ -95,6 +95,7 @@ class FileOutputSettings(BaseNode):
         super().__init__(**kwargs)
 
         self._updating_lock = False
+        self._previous_situation: str | None = None
 
         self._available_situations = self._fetch_available_situations()
         self._create_parameters()
@@ -433,6 +434,12 @@ class FileOutputSettings(BaseNode):
         if source_parameter.name == self.file_destination_parameter.name:
             self._resolve_and_update_path()
 
+    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
+        """Capture the previous situation value so after_value_set can detect real changes."""
+        if parameter.name == self.situation.name:
+            self._previous_situation = self.get_parameter_value(self.situation.name)
+        return value
+
     def after_value_set(self, parameter: Parameter, value: Any, *, initial_setup: bool = False) -> None:  # noqa: ARG002
         """React to parameter changes by re-resolving the path."""
         if initial_setup or self._updating_lock:
@@ -448,11 +455,22 @@ class FileOutputSettings(BaseNode):
             self._updating_lock = True
             try:
                 if parameter.name == self.situation.name:
-                    self._load_project_situation()
-                    self.publish_update_to_parameter(self.macro.name, self.get_parameter_value(self.macro.name))
-                    self.publish_update_to_parameter(
-                        self.if_file_exists.name, self.get_parameter_value(self.if_file_exists.name)
-                    )
+                    # Only reload the situation's defaults when the situation
+                    # actually changes. Re-emitting `situation = current_value`
+                    # (which the UI does on some lifecycle events) would
+                    # otherwise clobber the user's edits to macro /
+                    # if_file_exists / auto_create_path.
+                    if value != self._previous_situation:
+                        self._load_project_situation()
+                        self.publish_update_to_parameter(self.macro.name, self.get_parameter_value(self.macro.name))
+                        self.publish_update_to_parameter(
+                            self.if_file_exists.name, self.get_parameter_value(self.if_file_exists.name)
+                        )
+                        self.publish_update_to_parameter(
+                            self.auto_create_path.name, self.get_parameter_value(self.auto_create_path.name)
+                        )
+                    else:
+                        self._resolve_and_update_path()
                 else:
                     self._resolve_and_update_path()
                     if parameter.name == self.if_file_exists.name:
