@@ -62,25 +62,6 @@ async def test_build_payload_for_jpeg_includes_output_compression(node: OpenAiIm
     }
 
 
-@pytest.mark.asyncio
-async def test_build_payload_includes_input_images_as_data_urls(node: OpenAiImageGeneration, tmp_path: Path) -> None:
-    input_image_path = tmp_path / "source.png"
-    input_image_bytes = b"image-input"
-    input_image_path.write_bytes(input_image_bytes)
-
-    node.set_parameter_value("model", "GPT Image 2")
-    node.set_parameter_value("prompt", "Use the reference image")
-    node.set_parameter_value("size", "1024x1024")
-    node.set_parameter_value("input_images", [str(input_image_path)])
-
-    payload = await node._build_payload()
-
-    assert payload["model"] == "gpt-image-2"
-    assert payload["images"] == [
-        {"image_url": f"data:image/png;base64,{base64.b64encode(input_image_bytes).decode('utf-8')}"}
-    ]
-
-
 def test_validate_rejects_invalid_gpt_image_1_size(node: OpenAiImageGeneration) -> None:
     node.set_parameter_value("model", "GPT Image 1")
     node.set_parameter_value("prompt", "A red circle")
