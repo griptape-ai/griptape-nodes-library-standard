@@ -58,9 +58,9 @@ class OpenAiImageGeneration(GriptapeProxyNode):
     OUTPUT_FORMAT_OPTIONS: ClassVar[list[str]] = ["png", "jpeg", "webp"]
     MAX_REFERENCE_IMAGES: ClassVar[int] = 16
     MAX_REFERENCE_IMAGES_BY_MODEL: ClassVar[dict[str, int]] = {
-        GPT_IMAGE_1_MODEL_ID: MAX_REFERENCE_IMAGES,
-        GPT_IMAGE_1_5_MODEL_ID: MAX_REFERENCE_IMAGES,
-        GPT_IMAGE_2_MODEL_ID: MAX_REFERENCE_IMAGES,
+        GPT_IMAGE_1_MODEL_NAME: MAX_REFERENCE_IMAGES,
+        GPT_IMAGE_1_5_MODEL_NAME: MAX_REFERENCE_IMAGES,
+        GPT_IMAGE_2_MODEL_NAME: MAX_REFERENCE_IMAGES,
     }
     MIN_IMAGES: ClassVar[int] = 1
     MAX_IMAGES: ClassVar[int] = 10
@@ -130,7 +130,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 min_val=self.GPT_IMAGE_2_EDGE_MULTIPLE,
                 max_val=self.GPT_IMAGE_2_MAX_EDGE_LENGTH,
-                ui_options={"hide": not is_initial_custom},
+                hide=not is_initial_custom,
             )
         )
         self.add_parameter(
@@ -141,7 +141,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 min_val=self.GPT_IMAGE_2_EDGE_MULTIPLE,
                 max_val=self.GPT_IMAGE_2_MAX_EDGE_LENGTH,
-                ui_options={"hide": not is_initial_custom},
+                hide=not is_initial_custom,
             )
         )
 
@@ -283,17 +283,13 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
     @classmethod
     def _size_choices_for_model(cls, model_name: str) -> list[str]:
-        if cls._resolve_model_id(model_name) == GPT_IMAGE_2_MODEL_ID:
+        if model_name == GPT_IMAGE_2_MODEL_NAME:
             return list(cls.GPT_IMAGE_2_SIZE_OPTIONS)
         return list(cls.GPT_IMAGE_SIZE_OPTIONS)
 
-    @classmethod
-    def _resolve_model_id(cls, model_name: str) -> str:
-        return cls.MODEL_NAME_MAP.get(model_name, model_name)
-
     def _get_payload_model_id(self) -> str:
         model_name = self.get_parameter_value("model") or self.DEFAULT_MODEL
-        return self._resolve_model_id(model_name)
+        return self.MODEL_NAME_MAP[model_name]
 
     def _get_api_model_id(self) -> str:
         return self._get_payload_model_id()
@@ -311,8 +307,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         if size_param is None:
             return
 
-        model_id = self._resolve_model_id(model_name)
-        choices = self._size_choices_for_model(model_id)
+        choices = self._size_choices_for_model(model_name)
 
         existing_traits = size_param.find_elements_by_type(Options)
         if existing_traits:
@@ -321,22 +316,22 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
         current_size = self.get_parameter_value("size")
         if current_size in choices:
-            self._sync_custom_size_visibility(model_id, current_size)
+            self._sync_custom_size_visibility(model_name, current_size)
             return
 
         # GPT Image 2 accepts any in-range WIDTHxHEIGHT, so don't clobber a custom size.
-        if model_id == GPT_IMAGE_2_MODEL_ID and isinstance(current_size, str):
+        if model_name == GPT_IMAGE_2_MODEL_NAME and isinstance(current_size, str):
             match = self.GPT_IMAGE_2_SIZE_PATTERN.fullmatch(current_size.strip())
             if match is not None and not self._validate_gpt_image_2_size(current_size.strip()):
-                self._sync_custom_size_visibility(model_id, current_size)
+                self._sync_custom_size_visibility(model_name, current_size)
                 return
 
         self.set_parameter_value("size", choices[0])
         self.publish_update_to_parameter("size", choices[0])
-        self._sync_custom_size_visibility(model_id, choices[0])
+        self._sync_custom_size_visibility(model_name, choices[0])
 
-    def _sync_custom_size_visibility(self, model_id: str, size_value: Any) -> None:
-        show_custom = model_id == GPT_IMAGE_2_MODEL_ID and size_value == self.GPT_IMAGE_2_CUSTOM_SIZE
+    def _sync_custom_size_visibility(self, model_name: str, size_value: Any) -> None:
+        show_custom = model_name == GPT_IMAGE_2_MODEL_NAME and size_value == self.GPT_IMAGE_2_CUSTOM_SIZE
         for param_name in ("custom_width", "custom_height"):
             if show_custom:
                 self.show_parameter_by_name(param_name)
@@ -399,7 +394,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
         if param_name == "size" and isinstance(value, str):
             current_model = self.get_parameter_value("model") or self.DEFAULT_MODEL
-            self._sync_custom_size_visibility(self._resolve_model_id(current_model), value)
+            self._sync_custom_size_visibility(current_model, value)
 
         if not sync_only and param_name in {"custom_width", "custom_height"}:
             self._snap_custom_dimension(param_name, value)
@@ -439,18 +434,20 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             )
 
         model_name = self.get_parameter_value("model") or self.DEFAULT_MODEL
-        model_id = self._resolve_model_id(model_name)
         size = self._resolve_effective_size()
         if not size:
             exceptions.append(ValueError(f"{self.name}: Size is required for image generation."))
-        elif model_id in {GPT_IMAGE_1_MODEL_ID, GPT_IMAGE_1_5_MODEL_ID} and size not in self.GPT_IMAGE_SIZE_OPTIONS:
+        elif (
+            model_name in {GPT_IMAGE_1_MODEL_NAME, GPT_IMAGE_1_5_MODEL_NAME}
+            and size not in self.GPT_IMAGE_SIZE_OPTIONS
+        ):
             valid_sizes = ", ".join(self.GPT_IMAGE_SIZE_OPTIONS)
             exceptions.append(ValueError(f"{self.name}: {model_name} size must be one of: {valid_sizes}."))
-        elif model_id == GPT_IMAGE_2_MODEL_ID:
+        elif model_name == GPT_IMAGE_2_MODEL_NAME:
             exceptions.extend(self._validate_gpt_image_2_size(size))
 
         input_images = self._get_input_images_value()
-        max_reference_images = self.MAX_REFERENCE_IMAGES_BY_MODEL.get(model_id, self.MAX_REFERENCE_IMAGES)
+        max_reference_images = self.MAX_REFERENCE_IMAGES_BY_MODEL.get(model_name, self.MAX_REFERENCE_IMAGES)
         if len(input_images) > max_reference_images:
             exceptions.append(
                 ValueError(

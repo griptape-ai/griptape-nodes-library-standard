@@ -285,9 +285,10 @@ def test_default_model_uses_display_name(node: OpenAiImageGeneration) -> None:
     assert node.get_parameter_value("model") == GPT_IMAGE_2_MODEL_NAME
 
 
-def test_resolve_model_id_accepts_display_name_and_id() -> None:
-    assert OpenAiImageGeneration._resolve_model_id(GPT_IMAGE_2_MODEL_NAME) == GPT_IMAGE_2_MODEL_ID
-    assert OpenAiImageGeneration._resolve_model_id(GPT_IMAGE_2_MODEL_ID) == GPT_IMAGE_2_MODEL_ID
+def test_payload_model_id_translates_display_name(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_MODEL_NAME)
+
+    assert node._get_payload_model_id() == GPT_IMAGE_2_MODEL_ID
 
 
 def test_size_choices_include_custom_for_gpt_image_2(node: OpenAiImageGeneration) -> None:
