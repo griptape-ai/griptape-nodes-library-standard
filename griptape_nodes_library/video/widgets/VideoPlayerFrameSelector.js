@@ -88,38 +88,37 @@ const CSS = `
     user-select:none; touch-action:none;
   }
 
-  /* ── Add / delete icon strip (top 16px) ─────────────────────────────────── */
+  /* ── Add zone (top 16px): pointer-events:none so markers underneath receive hover ── */
   .vpw-tl-add-zone {
     position:absolute; top:0; left:0; right:0; height:16px;
-    cursor:pointer; z-index:6;
+    pointer-events:none; z-index:6;
   }
 
-  /* "+" button — floats at cursor X, shown by JS */
+  /* "+" button — floats at cursor X, shown by JS on timeline mousemove */
   .vpw-add-btn {
     position:absolute; top:1px; width:14px; height:14px;
     background:#222; border:1px solid #888; border-radius:3px;
     color:#aaa; display:none; align-items:center; justify-content:center;
-    cursor:pointer; pointer-events:auto;
+    cursor:crosshair; pointer-events:auto;
     transform:translateX(-50%); z-index:7;
     transition:background .1s, border-color .1s, color .1s;
   }
   .vpw-add-btn:hover { background:#2d2d2d; border-color:#aaa; color:#ccc; }
 
-  /* Per-marker trash button — shown on marker hover.
-     ::after pseudo-element extends the hoverable area down to bridge the gap
-     to the marker triangle without blocking marker drag interactions. */
+  /* Trash button — lives inside .vpw-marker or .vpw-marker-range-bar;
+     shown via CSS :hover on the parent, no JS required */
   .vpw-trash-btn {
-    position:absolute; top:1px; width:20px; height:14px;
+    position:absolute; top:1px; left:50%; width:14px; height:14px;
     background:#222; border:1px solid #888; border-radius:3px;
     color:#aaa; display:flex; align-items:center; justify-content:center;
     cursor:pointer; pointer-events:none;
     transform:translateX(-50%); z-index:7;
     opacity:0; transition:opacity .1s, background .1s, border-color .1s, color .1s;
   }
-  .vpw-trash-btn::after {
-    content:''; position:absolute; top:100%; left:-4px; right:-4px; height:10px;
-  }
   .vpw-trash-btn:hover { background:#2d1a1a; border-color:#aa4444; color:#cc6666; }
+
+  /* Trash visibility is driven by JS (coordinate-based) not CSS :hover,
+     because :hover doesn't cross the marker-zone / add-zone stacking-context boundary. */
 
   /* ── Marker interaction zone (7px, sits below add-zone) ─────────────────── */
   .vpw-tl-marker-zone {
@@ -149,21 +148,24 @@ const CSS = `
   }
 
   /* ── Frame selection markers ─────────────────────────────────────────── */
+  /* top:-16px extends the marker up into the add-zone, placing the trash btn there.
+     bottom:-10px extends down through the track bar. */
   .vpw-marker {
-    position:absolute; top:0; bottom:-10px; z-index:3; /* bottom:-10px = track height, extends marker to timeline bottom */
+    position:absolute; top:-16px; bottom:-10px; z-index:5;
     pointer-events:auto; cursor:grab;
   }
   .vpw-marker:active { cursor:grabbing; }
 
-  /* Vertical dash: starts at triangle bottom, extends to timeline bottom */
+  /* Vertical dash: starts at triangle bottom (16px add-zone + 7px marker-zone = 23px),
+     extends to bottom of marker element */
   .vpw-marker-line {
-    position:absolute; top:7px; bottom:0; left:0; width:1px;
+    position:absolute; top:23px; bottom:0; left:0; width:1px;
     background:#aaa; pointer-events:none;
   }
 
-  /* Triangle base (shared): sits in marker zone, receives hover for highlight */
+  /* Triangle base (shared): at top:16px (just below add-zone within marker) */
   .vpw-marker-tri {
-    position:absolute; top:0; pointer-events:auto; cursor:grab;
+    position:absolute; top:16px; pointer-events:auto; cursor:grab;
     width:0; height:0;
   }
 
@@ -199,13 +201,15 @@ const CSS = `
   .vpw-marker:active .vpw-marker-tri-start { border-right-color:#e0a830; }
   .vpw-marker:active .vpw-marker-tri-end { border-left-color:#e0a830; }
 
-  /* Range bar in marker zone (visual fill + hover target between start/end triangles) */
+  /* Range bar — extends from add-zone top through marker zone (16px + 7px = 23px).
+     The upper 16px is the hover area for the trash button; lower 7px is the drag strip. */
   .vpw-marker-range-bar {
-    position:absolute; top:0; height:7px;
-    background:rgba(170,170,170,0.08);
-    pointer-events:auto; cursor:grab; z-index:2;
+    position:absolute; top:-16px; height:23px;
+    background:transparent;
+    pointer-events:auto; cursor:grab; z-index:5;
   }
-  .vpw-marker-range-bar:hover { background:rgba(212,160,48,0.15); }
+  /* Only color the lower (marker zone) portion on hover */
+  .vpw-marker-range-bar:hover { background:linear-gradient(to bottom, transparent 16px, rgba(212,160,48,0.15) 16px); }
 
   /* JS-applied class when hovering the range bar — highlights markers and track fill */
   .vpw-marker.vpw-range-hover .vpw-marker-line { background:#d4a030; }
@@ -699,53 +703,32 @@ export default function VideoPlayerWidget(container, props) {
 
   /* ── Marker rendering ──────────────────────────────────────────────────── */
 
-  /** Create a trash button in the add zone for marker at index idx. */
-  function createTrashBtn(leftPx, idx, addZoneEl) {
-    const btn = document.createElement('button');
-    btn.className = 'vpw-trash-btn';
-    btn.style.left = leftPx;
-    btn.dataset.markerIndex = String(idx);
-    btn.title = 'Remove marker';
-    btn.innerHTML = ICONS.trash;
-    addZoneEl.appendChild(btn);
-
-    btn.addEventListener('pointerdown', (e) => e.stopPropagation());
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      markers.splice(idx, 1);
-      commitMarkers();
-    });
-    return btn;
-  }
-
-  /** Wire mutual hover between a trash button and marker elements (show/hide with debounce). */
-  function wireTrashHover(trashBtn, markerEls) {
-    let timeout = null;
-    const show = () => {
-      clearTimeout(timeout);
-      trashBtn.style.opacity = '1';
-      trashBtn.style.pointerEvents = 'auto';
-    };
-    const hide = () => {
-      timeout = setTimeout(() => {
-        trashBtn.style.opacity = '0';
-        trashBtn.style.pointerEvents = 'none';
-      }, 200);
-    };
-    for (const el of markerEls) {
-      el.addEventListener('mouseenter', show);
-      el.addEventListener('mouseleave', hide);
-    }
-    trashBtn.addEventListener('mouseenter', show);
-    trashBtn.addEventListener('mouseleave', hide);
-  }
-
-  /** Create a marker DOM element with a triangle cap and vertical dash line. */
-  function createMarkerEl(leftPx, idx, triClass) {
+  /**
+   * Create a marker DOM element.
+   * Top 16px (add-zone area): optional trash button, shown via CSS :hover.
+   * Next 7px (marker-zone area): triangle cap.
+   * Bottom (track area): vertical dash line.
+   * withTrash=false for range start/end endpoints (range bar holds the shared trash).
+   */
+  function createMarkerEl(leftPx, idx, triClass, withTrash = false) {
     const el = document.createElement('div');
     el.className = 'vpw-marker';
     el.style.left = leftPx;
     el.dataset.markerIndex = String(idx);
+
+    if (withTrash) {
+      const trash = document.createElement('button');
+      trash.className = 'vpw-trash-btn';
+      trash.title = 'Remove marker';
+      trash.innerHTML = ICONS.trash;
+      trash.addEventListener('pointerdown', (e) => e.stopPropagation());
+      trash.addEventListener('click', (e) => {
+        e.stopPropagation();
+        markers.splice(idx, 1);
+        commitMarkers();
+      });
+      el.appendChild(trash);
+    }
 
     const line = document.createElement('div');
     line.className = 'vpw-marker-line';
@@ -764,9 +747,6 @@ export default function VideoPlayerWidget(container, props) {
    */
   function renderMarkers(tlEl) {
     tlEl.querySelectorAll('.vpw-marker, .vpw-range-fill, .vpw-marker-range-bar, .vpw-nth-tick').forEach(m => m.remove());
-
-    const addZone = tlEl.querySelector('[data-tl-addzone]');
-    if (addZone) addZone.querySelectorAll('.vpw-trash-btn').forEach(t => t.remove());
 
     if (totalFrames <= 1) return;
     const max = totalFrames - 1;
@@ -792,14 +772,9 @@ export default function VideoPlayerWidget(container, props) {
       const m = markers[i];
       if (m.type === 'single') {
         const pct = ((m.frame - 1) / max) * 100;
-        const el = createMarkerEl(snap(pct), i, 'vpw-marker-tri-full');
+        const el = createMarkerEl(snap(pct), i, 'vpw-marker-tri-full', true);
         el.dataset.markerEdge = 'single';
         if (mzone) mzone.appendChild(el); else tlEl.appendChild(el);
-
-        if (addZone) {
-          const trash = createTrashBtn(snap(pct), i, addZone);
-          wireTrashHover(trash, [el]);
-        }
       } else {
         const startPct = ((m.start - 1) / max) * 100;
         const endPct   = ((m.end - 1) / max) * 100;
@@ -812,27 +787,32 @@ export default function VideoPlayerWidget(container, props) {
         fill.dataset.markerEdge = 'fill';
         tlEl.appendChild(fill);
 
-        const startEl = createMarkerEl(snap(startPct), i, 'vpw-marker-tri-start');
+        const startEl = createMarkerEl(snap(startPct), i, 'vpw-marker-tri-start', false);
         startEl.dataset.markerEdge = 'start';
         if (mzone) mzone.appendChild(startEl); else tlEl.appendChild(startEl);
 
-        const endEl = createMarkerEl(snap(endPct), i, 'vpw-marker-tri-end');
+        const endEl = createMarkerEl(snap(endPct), i, 'vpw-marker-tri-end', false);
         endEl.dataset.markerEdge = 'end';
         if (mzone) mzone.appendChild(endEl); else tlEl.appendChild(endEl);
 
+        // Range bar: extends into add-zone (top:-16px) for hover area + trash button.
         const bar = document.createElement('div');
         bar.className = 'vpw-marker-range-bar';
+        bar.dataset.markerIndex = String(i);
         bar.style.left = snap(startPct);
         bar.style.width = w > 0 ? `${snapNum(endPct) - snapNum(startPct)}px` : `${endPct - startPct}%`;
         bar.addEventListener('mouseenter', () => { startEl.classList.add('vpw-range-hover'); endEl.classList.add('vpw-range-hover'); fill.classList.add('vpw-range-hover'); });
         bar.addEventListener('mouseleave', () => { startEl.classList.remove('vpw-range-hover'); endEl.classList.remove('vpw-range-hover'); fill.classList.remove('vpw-range-hover'); });
-        if (mzone) mzone.appendChild(bar); else tlEl.appendChild(bar);
 
-        if (addZone) {
-          const centerPct = (startPct + endPct) / 2;
-          const trash = createTrashBtn(snap(centerPct), i, addZone);
-          wireTrashHover(trash, [startEl, endEl, bar]);
-        }
+        const rangeTrash = document.createElement('button');
+        rangeTrash.className = 'vpw-trash-btn';
+        rangeTrash.title = 'Remove range';
+        rangeTrash.innerHTML = ICONS.trash;
+        rangeTrash.addEventListener('pointerdown', (e) => e.stopPropagation());
+        rangeTrash.addEventListener('click', (e) => { e.stopPropagation(); markers.splice(i, 1); commitMarkers(); });
+        bar.appendChild(rangeTrash);
+
+        if (mzone) mzone.appendChild(bar); else tlEl.appendChild(bar);
       }
     }
   }
@@ -1193,6 +1173,10 @@ export default function VideoPlayerWidget(container, props) {
 
     mzoneEl.addEventListener('pointerdown', (e) => {
       if (selectionMode !== 'list') return;
+      // Reject clicks in the add-zone area (top 16px of the extended marker)
+      const mzoneRect = mzoneEl.getBoundingClientRect();
+      if (e.clientY < mzoneRect.top) return;
+
       const hit = hitTestMarker(e, mzoneEl);
       if (!hit) return;
 
@@ -1243,47 +1227,98 @@ export default function VideoPlayerWidget(container, props) {
    */
   function attachAddZone(addZoneEl) {
     const addBtn = addZoneEl.querySelector('.vpw-add-btn');
+    // Use the timeline parent so mousemove fires even when cursor is over extended markers
+    // and so positioning uses the same offsetWidth that renderMarkers uses for snap().
+    const tlEl = addZoneEl.parentElement;
+    const ADD_ZONE_H = 16; // px — height of the add zone strip
+
     let isCreating = false;
     let rangeAnchorFrame = null;
     let rangeAnchorIndex = null;
 
-    function frameFromX(clientX) {
-      const r = addZoneEl.getBoundingClientRect();
+    function frameFromClientX(clientX) {
+      const r = tlEl.getBoundingClientRect();
       return Math.round(clamp((clientX - r.left) / r.width, 0, 1) * Math.max(0, totalFrames - 1));
     }
 
-    function isNearMarker(clientX) {
-      const r = addZoneEl.getBoundingClientRect();
+    // Returns the index of the first marker whose position is within HIT_TOLERANCE_PX
+    // of clientX (viewport px), or -1 if none. All arithmetic in viewport space.
+    function nearMarkerIndex(clientX) {
+      const r = tlEl.getBoundingClientRect();
       const curX = clientX - r.left;
       const maxFrame = Math.max(0, totalFrames - 1);
-      if (maxFrame === 0) return false;
-      for (const m of markers) {
+      if (maxFrame === 0) return -1;
+      for (let i = 0; i < markers.length; i++) {
+        const m = markers[i];
         if (m.type === 'single') {
-          const mx = ((m.frame - 1) / maxFrame) * r.width;
-          if (Math.abs(curX - mx) <= HIT_TOLERANCE_PX) return true;
+          if (Math.abs(curX - ((m.frame - 1) / maxFrame) * r.width) <= HIT_TOLERANCE_PX) return i;
         } else {
           const sx = ((m.start - 1) / maxFrame) * r.width;
-          const ex = ((m.end - 1) / maxFrame) * r.width;
-          if (curX >= sx - HIT_TOLERANCE_PX && curX <= ex + HIT_TOLERANCE_PX) return true;
+          const ex = ((m.end   - 1) / maxFrame) * r.width;
+          if (curX >= sx - HIT_TOLERANCE_PX && curX <= ex + HIT_TOLERANCE_PX) return i;
         }
       }
-      return false;
+      return -1;
     }
 
-    addZoneEl.addEventListener('mousemove', (e) => {
-      if (selectionMode !== 'list' || !isLoaded || isCreating) return;
-      const r = addZoneEl.getBoundingClientRect();
-      if (isNearMarker(e.clientX)) {
-        addBtn.style.display = 'none';
-      } else {
+    // JS-driven trash visibility — CSS :hover can't cross the marker-zone / add-zone
+    // stacking-context boundary, so we drive it from tlEl.mousemove instead.
+    let activeTrash = null;
+    let hideTimer   = null;
+
+    function trashBtnEl(idx) {
+      return (
+        tlEl.querySelector(`.vpw-marker[data-marker-index="${idx}"] .vpw-trash-btn`) ||
+        tlEl.querySelector(`.vpw-marker-range-bar[data-marker-index="${idx}"] .vpw-trash-btn`)
+      );
+    }
+
+    function showTrashAt(idx) {
+      clearTimeout(hideTimer);
+      const btn = trashBtnEl(idx);
+      if (btn === activeTrash) return;
+      if (activeTrash) { activeTrash.style.opacity = '0'; activeTrash.style.pointerEvents = 'none'; }
+      activeTrash = btn;
+      if (btn) { btn.style.opacity = '1'; btn.style.pointerEvents = 'auto'; }
+    }
+
+    function scheduleHide() {
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => {
+        if (activeTrash) { activeTrash.style.opacity = '0'; activeTrash.style.pointerEvents = 'none'; activeTrash = null; }
+      }, 150);
+    }
+
+    // Single mousemove on the whole timeline drives both "+" and trash.
+    tlEl.addEventListener('mousemove', (e) => {
+      if (selectionMode !== 'list' || !isLoaded) return;
+      const r = tlEl.getBoundingClientRect();
+      const localY = e.clientY - r.top;
+
+      // Show trash when cursor is in the add-zone+marker-zone strip and near a marker.
+      if (localY >= 0 && localY < ADD_ZONE_H + 7) {
+        const idx = nearMarkerIndex(e.clientX);
+        if (idx >= 0) {
+          showTrashAt(idx);
+          addBtn.style.display = 'none';
+          return;
+        }
+      }
+
+      scheduleHide();
+
+      if (!isCreating && localY >= 0 && localY < ADD_ZONE_H) {
         const fraction = clamp((e.clientX - r.left) / r.width, 0, 1);
         addBtn.style.display = 'flex';
-        addBtn.style.left = `${fraction * (addZoneEl.offsetWidth || r.width)}px`;
+        addBtn.style.left = `${fraction * tlEl.offsetWidth}px`;
+      } else {
+        addBtn.style.display = 'none';
       }
     });
 
-    addZoneEl.addEventListener('mouseleave', () => {
+    tlEl.addEventListener('mouseleave', () => {
       if (!isCreating) addBtn.style.display = 'none';
+      scheduleHide();
     });
 
     addBtn.addEventListener('pointerdown', (e) => {
@@ -1291,7 +1326,7 @@ export default function VideoPlayerWidget(container, props) {
       e.stopPropagation();
       addBtn.setPointerCapture(e.pointerId);
       isCreating = true;
-      rangeAnchorFrame = clamp(frameFromX(e.clientX) + 1, 1, totalFrames);
+      rangeAnchorFrame = clamp(frameFromClientX(e.clientX) + 1, 1, totalFrames);
       markers.push({ type: 'single', frame: rangeAnchorFrame });
       rangeAnchorIndex = markers.length - 1;
       syncTimeline();
@@ -1299,7 +1334,7 @@ export default function VideoPlayerWidget(container, props) {
 
     addBtn.addEventListener('pointermove', (e) => {
       if (!isCreating || rangeAnchorIndex === null) return;
-      const currentFrame = clamp(frameFromX(e.clientX) + 1, 1, totalFrames);
+      const currentFrame = clamp(frameFromClientX(e.clientX) + 1, 1, totalFrames);
       const s = Math.min(rangeAnchorFrame, currentFrame);
       const en = Math.max(rangeAnchorFrame, currentFrame);
       markers[rangeAnchorIndex] = s === en
