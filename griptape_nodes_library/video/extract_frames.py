@@ -10,6 +10,7 @@ import griptape_nodes.traits.widget as widget
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeMessageResult
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
+from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.retained_mode import griptape_nodes
@@ -177,9 +178,8 @@ class ExtractFrames(BaseVideoInputNode):
             )
         )
         self.add_parameter(
-            core_types.Parameter(
+            ParameterInt(
                 name="every_n",
-                type="int",
                 default_value=1,
                 tooltip="Interval for extracting frames when 'every_Nth' mode is selected.",
                 allowed_modes={core_types.ParameterMode.INPUT, core_types.ParameterMode.PROPERTY},
