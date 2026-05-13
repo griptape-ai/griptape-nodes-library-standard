@@ -85,6 +85,11 @@ WORLD_LABS = ProxyApiKeyProviderConfig(
     provider_name="World Labs",
     api_key_url="https://platform.worldlabs.ai/api-keys",
 )
+TRIPO = ProxyApiKeyProviderConfig(
+    api_key_name="TRIPO_API_KEY",
+    provider_name="Tripo 3D",
+    api_key_url="https://platform.tripo3d.ai/api-keys",
+)
 
 _NODE_PROVIDER_CONFIGS = {
     "ElevenLabsMusicGeneration": ELEVENLABS,
@@ -121,6 +126,8 @@ _NODE_PROVIDER_CONFIGS = {
     "SeedVRVideoUpscale": SEED,
     "SoraVideoGeneration": OPENAI,
     "TopazImageEnhance": TOPAZ,
+    "TripoImageTo3DGeneration": TRIPO,
+    "TripoTextTo3DGeneration": TRIPO,
     "Veo3VideoGeneration": GOOGLE,
     "WanAnimateGeneration": DASHSCOPE,
     "WanImageGeneration": DASHSCOPE,

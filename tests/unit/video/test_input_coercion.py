@@ -18,6 +18,7 @@ import pytest
 from griptape.artifacts import ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 
+from griptape_nodes_library.three_d.tripo_image_to_3d_generation import TripoImageTo3DGeneration
 from griptape_nodes_library.video.kling_image_to_video_generation import KlingImageToVideoGeneration
 from griptape_nodes_library.video.kling_omni_video_generation import KlingOmniVideoGeneration
 from griptape_nodes_library.video.ltx_audio_to_video_generation import LTXAudioToVideoGeneration
@@ -51,6 +52,7 @@ IMAGE_HELPERS_GENERIC: list[tuple[str, Callable[[Any], str | None]]] = [
     ("OmnihumanSubjectRecognition", OmnihumanSubjectRecognition._coerce_image_url_or_data_uri),
     ("OmnihumanVideoGeneration", OmnihumanVideoGeneration._coerce_image_url_or_data_uri),
     ("SeedanceVideoGeneration", SeedanceVideoGeneration._coerce_image_url_or_data_uri),
+    ("TripoImageTo3DGeneration", TripoImageTo3DGeneration._coerce_image_url_or_data_uri),
     ("WanAnimateGeneration", WanAnimateGeneration._coerce_image_url_or_data_uri),
 ]
 
