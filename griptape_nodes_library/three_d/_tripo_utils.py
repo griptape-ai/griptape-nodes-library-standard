@@ -83,7 +83,11 @@ async def parse_tripo_task_result(node: GriptapeProxyNode, result_json: dict[str
     model_path = Path(output_file_value)
     if model_path.suffix.lower() != ".glb":
         model_path = model_path.with_suffix(".glb")
-    model_dest = ProjectFileDestination.from_situation(filename=str(model_path), situation="save_node_output")
+    model_dest = ProjectFileDestination.from_situation(
+        filename=str(model_path),
+        situation="save_node_output",
+        node_name=node.name,
+    )
     saved_model = await model_dest.awrite_bytes(model_bytes)
     node.parameter_output_values["model_url"] = ThreeDUrlArtifact(
         value=saved_model.location,
@@ -96,7 +100,9 @@ async def parse_tripo_task_result(node: GriptapeProxyNode, result_json: dict[str
         if preview_bytes:
             preview_path = model_path.with_suffix(".webp")
             preview_dest = ProjectFileDestination.from_situation(
-                filename=str(preview_path), situation="save_node_output"
+                filename=str(preview_path),
+                situation="save_node_output",
+                node_name=node.name,
             )
             saved_preview = await preview_dest.awrite_bytes(preview_bytes)
             node.parameter_output_values["preview_image"] = ImageUrlArtifact(

@@ -25,6 +25,8 @@ TEXT_PROMPT_CONFIGS = [
     ("WanTextToVideoGeneration", "prompt", "video_url", "A ball bouncing", "wan_text_to_video_generation"),
     ("MinimaxHailuoVideoGeneration", "prompt", "video_url", "A ball bouncing", "minimax_hailuo_video_generation"),
     ("SeedanceVideoGeneration", "prompt", "video_url", "A ball bouncing", "seedance_video_generation"),
+    # 3D generation
+    ("TripoTextTo3DGeneration", "prompt", "model_url", "A simple chair", "tripo_text_to_3d_generation"),
     # Audio generation
     ("ElevenLabsTextToSpeechGeneration", "text", "audio_url", "Hello world", "elevenlabs_text_to_speech_generation"),
     ("ElevenLabsSoundEffectGeneration", "text", "audio_url", "Thunder clap", "elevenlabs_sound_effect_generation"),
@@ -168,6 +170,13 @@ ADVANCED_CONFIGS = [
         "image_in": "image_input",
         "output_param": "image_output",
         "suffix": "topaz_image_enhance",
+    },
+    {
+        "template": "single_image",
+        "node_type": "TripoImageTo3DGeneration",
+        "image_in": "image",
+        "output_param": "model_url",
+        "suffix": "tripo_image_to_3d_generation",
     },
     # dual_image — two CreateColorBars instances feed two image inputs
     {

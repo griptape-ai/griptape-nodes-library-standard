@@ -4,7 +4,6 @@ import logging
 from contextlib import suppress
 from typing import Any
 
-from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -260,29 +259,30 @@ class TripoImageTo3DGeneration(GriptapeProxyNode):
 
     @staticmethod
     def _coerce_image_url_or_data_uri(val: Any) -> str | None:
-        """Coerce various image input types into a URL or data URI."""
+        """Extract a usable string from various image input types.
+
+        Returns an HTTP(S) URL, a ``data:image/...`` URI, a project macro path
+        like ``{inputs}/foo.png``, or a plain filesystem path. All of these are
+        resolvable by ``File`` downstream; non-URI strings are NOT wrapped as
+        base64.
+        """
         if val is None:
             return None
 
         if isinstance(val, str):
             v = val.strip()
-            if not v:
-                return None
-            return v if v.startswith(("http://", "https://", "data:image/")) else f"data:image/png;base64,{v}"
+            return v or None
 
         try:
             v = getattr(val, "value", None)
-            if isinstance(v, str) and v:
-                return v
+            if isinstance(v, str) and v.strip():
+                return v.strip()
 
             b64 = getattr(val, "base64", None)
             if isinstance(b64, str) and b64:
                 return b64 if b64.startswith("data:image/") else f"data:image/png;base64,{b64}"
         except AttributeError:
             pass
-
-        if isinstance(val, (ImageArtifact, ImageUrlArtifact)):
-            return getattr(val, "value", None)
 
         return None
 
