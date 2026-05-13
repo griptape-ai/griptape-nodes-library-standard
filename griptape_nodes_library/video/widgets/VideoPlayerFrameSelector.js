@@ -410,7 +410,7 @@ function bottomHtml(pfx, initFps) {
         Frame <input class="${pfx}frame vpw-num" type="number" min="0" value="0" style="width:72px;">
       </label>
       <span class="${pfx}total vpw-total">/ 0</span>
-      <button class="${pfx}clear-markers vpw-btn-text" title="Clear all markers">&#x2715; Markers</button>
+      <button class="${pfx}clear-markers vpw-btn-text" title="Clear all markers">${ICONS.trash} Markers</button>
     </div>`;
 }
 
