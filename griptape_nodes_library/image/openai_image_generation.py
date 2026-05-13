@@ -438,8 +438,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         if not size:
             exceptions.append(ValueError(f"{self.name}: Size is required for image generation."))
         elif (
-            model_name in {GPT_IMAGE_1_MODEL_NAME, GPT_IMAGE_1_5_MODEL_NAME}
-            and size not in self.GPT_IMAGE_SIZE_OPTIONS
+            model_name in {GPT_IMAGE_1_MODEL_NAME, GPT_IMAGE_1_5_MODEL_NAME} and size not in self.GPT_IMAGE_SIZE_OPTIONS
         ):
             valid_sizes = ", ".join(self.GPT_IMAGE_SIZE_OPTIONS)
             exceptions.append(ValueError(f"{self.name}: {model_name} size must be one of: {valid_sizes}."))
