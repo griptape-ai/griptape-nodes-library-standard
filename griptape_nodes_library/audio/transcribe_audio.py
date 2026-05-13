@@ -8,6 +8,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, Par
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
@@ -175,7 +176,15 @@ class TranscribeAudio(ControlNode):
             audio_artifact = audio
 
         if isinstance(audio_artifact, AudioUrlArtifact):
-            audio_artifact = AudioLoader().parse(audio_artifact.to_bytes())
+            # ``AudioUrlArtifact.to_bytes()`` issues an HTTP GET against ``self.value``,
+            # which fails when the value is a project macro path (e.g. ``{outputs}/clip.mp3``)
+            # emitted by upstream nodes that write through ``ProjectFileParameter``.
+            try:
+                audio_bytes = File(audio_artifact.value).read_bytes()
+            except FileLoadError as e:
+                msg = f"{self.name}: Failed to read audio from {audio_artifact.value}: {e}"
+                raise ValueError(msg) from e
+            audio_artifact = AudioLoader().parse(audio_bytes)
         task = AudioTranscriptionTask(audio_artifact, audio_transcription_driver=driver)
 
         # Set the new audio transcription task

@@ -1,6 +1,7 @@
 {
   "name": "Griptape Nodes Library",
   "library_schema_version": "0.6.0",
+  "advanced_library_path": "griptape_nodes_library/griptape_nodes_library_advanced.py",
   "settings": [
     {
       "description": "API keys required by nodes in this library",
@@ -28,7 +29,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.73.0",
+    "library_version": "0.74.0",
     "engine_version": "0.82.0",
     "tags": [
       "Griptape",
@@ -46,7 +47,8 @@
         "threadpoolctl>=3.0.0",
         "pillow>=11.2.1",
         "asteval>=1.0.8",
-        "color-matcher"
+        "color-matcher",
+        "zstandard>=0.22.0"
       ]
     }
   },
@@ -939,6 +941,17 @@
         "category": "video",
         "description": "Extend an existing video by 2-20 seconds on the start or end using LTX AI models via Griptape Cloud model proxy.",
         "display_name": "LTX Video Extend",
+        "icon": "Sparkles",
+        "group": "edit"
+      }
+    },
+    {
+      "class_name": "LTXVideoToVideoHDR",
+      "file_path": "griptape_nodes_library/video/ltx_video_to_video_hdr.py",
+      "metadata": {
+        "category": "video",
+        "description": "Upgrade an SDR video to HDR using LTX AI via Griptape Cloud model proxy; returns a ZIP of per-frame EXR images.",
+        "display_name": "LTX Video to Video HDR",
         "icon": "Sparkles",
         "group": "edit"
       }
@@ -2738,6 +2751,17 @@
         "description": "Generate 3D worlds using World Labs Marble via Griptape model proxy",
         "display_name": "World Labs World Generation",
         "group": "create"
+      }
+    },
+    {
+      "class_name": "ConvertSpzToPly",
+      "file_path": "griptape_nodes_library/splat/convert_spz_to_ply.py",
+      "metadata": {
+        "category": "Splat",
+        "description": "Convert an SPZ Gaussian splat to PLY format for use in Blender, Unreal, and other 3D tools",
+        "display_name": "Convert SPZ to PLY",
+        "icon": "box",
+        "group": "Transform"
       }
     },
     {

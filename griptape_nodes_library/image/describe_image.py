@@ -25,14 +25,20 @@ API_KEY_URL = "https://cloud.griptape.ai/configuration/api-keys"
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 MODEL_CHOICES = [
     "gpt-5.2",
+    "gpt-5.1",
+    "gpt-5",
+    "gpt-5-mini",
     "gpt-4.1",
     "gpt-4.1-mini",
     "gpt-4.1-nano",
-    "gpt-5",
-    "o1",
-    "o1-mini",
-    "o3-mini",
-    "gemini-3-pro",
+    "gpt-4o",
+    "o4-mini",
+    "o3",
+    "claude-opus-4-7",
+    "claude-sonnet-4-6",
+    "claude-4-5-sonnet",
+    "gemini-3.1-pro",
+    "gemini-2.5-pro",
 ]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 

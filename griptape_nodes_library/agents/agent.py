@@ -35,75 +35,17 @@ from jinja2 import Template
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
+from griptape_nodes_library.config.prompt.cloud_models import (
+    DEPRECATED_MODELS,
+    MODEL_CHOICES,
+    MODEL_CHOICES_ARGS,
+)
 from griptape_nodes_library.utils.error_utils import try_throw_error
 
 # --- Constants ---
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
-MODEL_CHOICES_ARGS = [
-    {
-        "name": "claude-sonnet-4-20250514",
-        "icon": "logos/anthropic.svg",
-        "args": {"stream": True, "structured_output_strategy": "tool", "max_tokens": 64000},
-    },
-    {
-        "name": "claude-3-7-sonnet",
-        "icon": "logos/anthropic.svg",
-        "args": {"stream": True, "structured_output_strategy": "tool", "max_tokens": 64000},
-    },
-    {
-        "name": "deepseek.r1-v1",
-        "icon": "logos/deepseek.svg",
-        "args": {"stream": False, "structured_output_strategy": "tool", "top_p": None},
-    },
-    {
-        "name": "gemini-2.5-flash",
-        "icon": "logos/google.svg",
-        "args": {"stream": True},
-    },
-    {
-        "name": "gemini-2.5-flash-lite",
-        "icon": "logos/google.svg",
-        "args": {"stream": True},
-    },
-    {
-        "name": "gemini-2.5-pro",
-        "icon": "logos/google.svg",
-        "args": {"stream": True},
-    },
-    {
-        "name": "gemini-3-pro",
-        "icon": "logos/google.svg",
-        "args": {"stream": True},
-    },
-    {
-        "name": "llama3-3-70b-instruct-v1",
-        "icon": "logos/meta.svg",
-        "args": {"stream": True, "structured_output_strategy": "tool"},
-    },
-    {
-        "name": "llama3-1-70b-instruct-v1",
-        "icon": "logos/meta.svg",
-        "args": {"stream": True, "structured_output_strategy": "tool"},
-    },
-    {"name": "gpt-4.1", "icon": "logos/openai.svg", "args": {"stream": True}},
-    {"name": "gpt-4o", "icon": "logos/openai.svg", "args": {"stream": True}},
-    {"name": "gpt-4.1-mini", "icon": "logos/openai.svg", "args": {"stream": True}},
-    {"name": "gpt-4.1-nano", "icon": "logos/openai.svg", "args": {"stream": True}},
-    {"name": "gpt-5", "icon": "logos/openai.svg", "args": {"stream": True}},
-    {"name": "o1", "icon": "logos/openai.svg", "args": {"stream": True}},
-    {"name": "o1-mini", "icon": "logos/openai.svg", "args": {"stream": True}},
-    {"name": "o3-mini", "icon": "logos/openai.svg", "args": {"stream": True}},
-]
-
-MODEL_CHOICES = [model["name"] for model in MODEL_CHOICES_ARGS]
-DEFAULT_MODEL = "gpt-4o"
-
-# Deprecated models and their replacements
-DEPRECATED_MODELS = {
-    "gemini-2.5-flash-preview-05-20": "gemini-2.5-flash",
-    "gemini-2.0-flash": "gemini-2.5-flash",
-}
+DEFAULT_MODEL = "claude-sonnet-4-6"
 
 
 class Agent(ControlNode):
