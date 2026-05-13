@@ -416,7 +416,9 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             return
 
         multiple = self.GPT_IMAGE_2_EDGE_MULTIPLE
-        snapped = max(multiple, min(self.GPT_IMAGE_2_MAX_EDGE_LENGTH, round(current / multiple) * multiple))
+        # Use halves-round-up (not Python's banker's rounding) so 1000 → 1008, not 992.
+        snapped = (current + multiple // 2) // multiple * multiple
+        snapped = max(multiple, min(self.GPT_IMAGE_2_MAX_EDGE_LENGTH, snapped))
         if snapped == current:
             return
 
