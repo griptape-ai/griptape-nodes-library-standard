@@ -202,10 +202,27 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             raise ValueError(msg)
         return api_key
 
+    @staticmethod
+    def _sanitize_log_message(message: str) -> str:
+        sanitized = str(message)
+        sanitized = re.sub(r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,;]+", r"\1[REDACTED]", sanitized)
+        sanitized = re.sub(
+            r"(?i)\b(api[_-]?key|token|password|secret|authorization)\b\s*[:=]\s*([\"'])?[^\"'\s,;]+([\"'])?",
+            r"\1=[REDACTED]",
+            sanitized,
+        )
+        sanitized = re.sub(r"(?i)\bGT_CLOUD_API_KEY\b\s*[:=]\s*[^\s,;]+", "GT_CLOUD_API_KEY=[REDACTED]", sanitized)
+        sanitized = re.sub(
+            r"(?i)\bGT_CLOUD_PROXY_API_KEY\b\s*[:=]\s*[^\s,;]+",
+            "GT_CLOUD_PROXY_API_KEY=[REDACTED]",
+            sanitized,
+        )
+        return sanitized
+
     def _log(self, message: str) -> None:
         """Log a message with error suppression."""
         with suppress(Exception):
-            logger.info(message)
+            logger.info(self._sanitize_log_message(message))
 
     def _log_auth_header_summary(self, context: str, headers: dict[str, str]) -> None:
         authorization = headers.get("Authorization", "")

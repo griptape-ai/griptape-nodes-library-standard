@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 import logging
+import re
 from typing import Any, ClassVar
 from urllib.parse import urljoin
 
@@ -419,6 +420,23 @@ class GoogleImageGeneration(GriptapeProxyNode):
     async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
         await self._handle_response(result_json)
 
+    @staticmethod
+    def _sanitize_log_message(message: str) -> str:
+        sanitized = str(message)
+        sanitized = re.sub(r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,;]+", r"\1[REDACTED]", sanitized)
+        sanitized = re.sub(
+            r"(?i)\b(api[_-]?key|token|password|secret|authorization)\b\s*[:=]\s*([\"'])?[^\"'\s,;]+([\"'])?",
+            r"\1=[REDACTED]",
+            sanitized,
+        )
+        sanitized = re.sub(r"(?i)\bGT_CLOUD_API_KEY\b\s*[:=]\s*[^\s,;]+", "GT_CLOUD_API_KEY=[REDACTED]", sanitized)
+        sanitized = re.sub(
+            r"(?i)\bGT_CLOUD_PROXY_API_KEY\b\s*[:=]\s*[^\s,;]+",
+            "GT_CLOUD_PROXY_API_KEY=[REDACTED]",
+            sanitized,
+        )
+        return sanitized
+
     def _validate_api_key(self) -> str:
         api_key = GriptapeNodes.SecretsManager().get_secret(self.API_KEY_NAME)
         if not api_key:
@@ -431,7 +449,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
         payload = params
 
         msg = f"{self.name} submitting request to proxy model={params['model']}"
-        logger.info(msg)
+        logger.info(self._sanitize_log_message(msg))
 
         try:
             async with httpx.AsyncClient() as client:
@@ -441,7 +459,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
         except httpx.HTTPStatusError as e:
             self._set_safe_defaults()
             msg = f"{self.name} proxy POST error status={e.response.status_code} headers={dict(e.response.headers)} body={e.response.text}"
-            logger.info(msg)
+            logger.info(self._sanitize_log_message(msg))
             try:
                 error_json = e.response.json()
                 error_details = self._extract_error_details(error_json)
@@ -452,11 +470,11 @@ class GoogleImageGeneration(GriptapeProxyNode):
         except Exception as e:
             self._set_safe_defaults()
             msg = f"{self.name} proxy POST request failed: {e}"
-            logger.info(msg)
+            logger.info(self._sanitize_log_message(msg))
             raise RuntimeError(msg) from e
 
         msg = f"{self.name} received response from API"
-        logger.info(msg)
+        logger.info(self._sanitize_log_message(msg))
 
         # Process the response immediately
         await self._handle_response(response_json)
