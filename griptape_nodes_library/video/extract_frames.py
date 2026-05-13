@@ -5,9 +5,9 @@ import logging
 import pathlib
 import typing
 
-from griptape.artifacts import ImageUrlArtifact
-
 import griptape_nodes.exe_types.core_types as core_types
+import griptape_nodes.traits.widget as widget
+from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeMessageResult
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -24,7 +24,6 @@ from griptape_nodes.retained_mode.events.static_file_events import (
 from griptape_nodes.traits import options
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
-import griptape_nodes.traits.widget as widget
 
 from griptape_nodes_library.utils.video_utils import seconds_to_ts
 from griptape_nodes_library.video.base_video_input_node import BaseVideoInputNode
