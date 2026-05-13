@@ -105,7 +105,9 @@ const CSS = `
   }
   .vpw-add-btn:hover { background:#2d2d2d; border-color:#aaa; color:#ccc; }
 
-  /* Per-marker trash button — shown on marker hover */
+  /* Per-marker trash button — shown on marker hover.
+     ::after pseudo-element extends the hoverable area down to bridge the gap
+     to the marker triangle without blocking marker drag interactions. */
   .vpw-trash-btn {
     position:absolute; top:1px; width:20px; height:14px;
     background:#222; border:1px solid #888; border-radius:3px;
@@ -114,15 +116,10 @@ const CSS = `
     transform:translateX(-50%); z-index:7;
     opacity:0; transition:opacity .1s, background .1s, border-color .1s, color .1s;
   }
-  .vpw-trash-btn:hover { background:#2d1a1a; border-color:#aa4444; color:#cc6666; }
-
-  /* Transparent bridge that extends from the add-zone into the marker zone,
-     creating a continuous hover column between the trash button and the marker
-     triangle. pointer-events toggled by JS — none by default so drags work. */
-  .vpw-marker-hover-bridge {
-    position:absolute; top:13px; height:16px; width:22px;
-    transform:translateX(-50%); pointer-events:none; z-index:7; cursor:pointer;
+  .vpw-trash-btn::after {
+    content:''; position:absolute; top:100%; left:-4px; right:-4px; height:10px;
   }
+  .vpw-trash-btn:hover { background:#2d1a1a; border-color:#aa4444; color:#cc6666; }
 
   /* ── Marker interaction zone (7px, sits below add-zone) ─────────────────── */
   .vpw-tl-marker-zone {
@@ -721,33 +718,18 @@ export default function VideoPlayerWidget(container, props) {
     return btn;
   }
 
-  /** Transparent div that bridges the gap between the trash button (add-zone) and
-   *  the marker triangle (marker-zone), giving the mouse a continuous hover path. */
-  function createMarkerHoverBridge(leftPx, addZoneEl) {
-    const bridge = document.createElement('div');
-    bridge.className = 'vpw-marker-hover-bridge';
-    bridge.style.left = leftPx;
-    addZoneEl.appendChild(bridge);
-    return bridge;
-  }
-
-  /** Wire mutual hover between a trash button, marker elements, and an optional bridge element. */
-  function wireTrashHover(trashBtn, markerEls, bridgeEl) {
+  /** Wire mutual hover between a trash button and marker elements (show/hide with debounce). */
+  function wireTrashHover(trashBtn, markerEls) {
     let timeout = null;
     const show = () => {
       clearTimeout(timeout);
       trashBtn.style.opacity = '1';
       trashBtn.style.pointerEvents = 'auto';
-      // Enable the bridge so it can relay hover while the mouse travels
-      // from the marker triangle up to the trash button.
-      if (bridgeEl) bridgeEl.style.pointerEvents = 'auto';
     };
     const hide = () => {
       timeout = setTimeout(() => {
         trashBtn.style.opacity = '0';
         trashBtn.style.pointerEvents = 'none';
-        // Disable the bridge again so it doesn't block marker drag interactions.
-        if (bridgeEl) bridgeEl.style.pointerEvents = 'none';
       }, 200);
     };
     for (const el of markerEls) {
@@ -756,10 +738,6 @@ export default function VideoPlayerWidget(container, props) {
     }
     trashBtn.addEventListener('mouseenter', show);
     trashBtn.addEventListener('mouseleave', hide);
-    if (bridgeEl) {
-      bridgeEl.addEventListener('mouseenter', show);
-      bridgeEl.addEventListener('mouseleave', hide);
-    }
   }
 
   /** Create a marker DOM element with a triangle cap and vertical dash line. */
@@ -788,7 +766,7 @@ export default function VideoPlayerWidget(container, props) {
     tlEl.querySelectorAll('.vpw-marker, .vpw-range-fill, .vpw-marker-range-bar, .vpw-nth-tick').forEach(m => m.remove());
 
     const addZone = tlEl.querySelector('[data-tl-addzone]');
-    if (addZone) addZone.querySelectorAll('.vpw-trash-btn, .vpw-marker-hover-bridge').forEach(t => t.remove());
+    if (addZone) addZone.querySelectorAll('.vpw-trash-btn').forEach(t => t.remove());
 
     if (totalFrames <= 1) return;
     const max = totalFrames - 1;
@@ -820,8 +798,7 @@ export default function VideoPlayerWidget(container, props) {
 
         if (addZone) {
           const trash = createTrashBtn(snap(pct), i, addZone);
-          const bridge = createMarkerHoverBridge(snap(pct), addZone);
-          wireTrashHover(trash, [el], bridge);
+          wireTrashHover(trash, [el]);
         }
       } else {
         const startPct = ((m.start - 1) / max) * 100;
@@ -854,8 +831,7 @@ export default function VideoPlayerWidget(container, props) {
         if (addZone) {
           const centerPct = (startPct + endPct) / 2;
           const trash = createTrashBtn(snap(centerPct), i, addZone);
-          const bridge = createMarkerHoverBridge(snap(centerPct), addZone);
-          wireTrashHover(trash, [startEl, endEl, bar], bridge);
+          wireTrashHover(trash, [startEl, endEl, bar]);
         }
       }
     }
