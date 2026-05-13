@@ -224,9 +224,20 @@ ADVANCED_CONFIGS = [
         "suffix": "grok_image_edit",
     },
     {
-        "template": "image_and_text",
+        "template": "image_and_text_list",
         "node_type": "Rodin23DGeneration",
         "image_in": "input_images",
+        "image_in_input_types": [
+            "ImageArtifact",
+            "ImageUrlArtifact",
+            "str",
+            "list",
+            "list[ImageArtifact]",
+            "list[ImageUrlArtifact]",
+        ],
+        "image_in_type": "ImageArtifact",
+        "image_in_output_type": "ImageArtifact",
+        "image_in_tooltip": "Optional input images for Image-to-3D generation (up to 5 images)",
         "text_param": "prompt",
         "text_value": "A simple chair",
         "output_param": "model_url",
@@ -406,6 +417,16 @@ _ADD_END_FLOW_PARAM = """\
             ui_options={}, parent_container_name="", initial_setup=True,
         ))"""
 
+_ADD_PARAM_LIST_CHILD = """\
+    with GriptapeNodes.ContextManager().node({node_var}):
+        GriptapeNodes.handle_request(AddParameterToNodeRequest(
+            parameter_name="{child_name}",
+            default_value=[], tooltip="{tooltip}",
+            type="{type}", input_types={input_types}, output_type="{output_type}",
+            ui_options={{}}, parent_container_name="{list_name}",
+            initial_setup=True,
+        ))"""
+
 _CONNECT = """\
     GriptapeNodes.handle_request(CreateConnectionRequest(
         source_node_name={src}, source_parameter_name="{src_param}",
@@ -453,6 +474,26 @@ def _tail_connections(output_param: str) -> str:
 
 def _set_param(node_var: str, param: str, value: str) -> str:
     return _SET_PARAM.format(node_var=node_var, param=param, value=value)
+
+
+def _add_param_list_child(
+    node_var: str,
+    list_name: str,
+    child_name: str,
+    type_: str,
+    input_types: list[str],
+    output_type: str,
+    tooltip: str,
+) -> str:
+    return _ADD_PARAM_LIST_CHILD.format(
+        node_var=node_var,
+        child_name=child_name,
+        list_name=list_name,
+        type=type_,
+        input_types=repr(input_types),
+        output_type=output_type,
+        tooltip=tooltip,
+    )
 
 
 def _connect(src: str, src_param: str, tgt: str, tgt_param: str) -> str:
@@ -527,6 +568,42 @@ def _body_image_and_text(cfg: dict) -> str:
     return "\n".join(parts)
 
 
+def _body_image_and_text_list(cfg: dict) -> str:
+    """Like image_and_text but the image input is a ParameterList.
+
+    A single child parameter is added under the list so the source image has a
+    real, named connection point. Without this, connecting CreateColorBars.image
+    directly to the ParameterList leaves it empty and the gen node sees None.
+    """
+    node_type = cfg["node_type"]
+    image_in = cfg["image_in"]
+    text_param = cfg["text_param"]
+    text_value = cfg["text_value"]
+    output_param = cfg["output_param"]
+    # Engine convention for ParameterList children: "<list>_ParameterListUniqueParamID_<32-hex>".
+    # Use a stable id so regenerated workflows produce identical files.
+    child_name = f"{image_in}_ParameterListUniqueParamID_00000000000000000000000000000001"
+    parts = [
+        "with GriptapeNodes.ContextManager().flow(flow_name):",
+        _create_node("source_node", "CreateColorBars", "Create Color Bars"),
+        _create_node("gen_node", node_type, node_type),
+        _common_utility_nodes(),
+        _add_param_list_child(
+            "gen_node",
+            image_in,
+            child_name,
+            cfg["image_in_type"],
+            cfg["image_in_input_types"],
+            cfg["image_in_output_type"],
+            cfg["image_in_tooltip"],
+        ),
+        _connect("source_node", "image", "gen_node", child_name),
+        _set_param("gen_node", text_param, text_value),
+        _tail_connections(output_param),
+    ]
+    return "\n".join(parts)
+
+
 def _body_video_input(cfg: dict) -> str:
     node_type = cfg["node_type"]
     video_in = cfg["video_in"]
@@ -585,6 +662,7 @@ _BODY_BUILDERS = {
     "single_image": _body_single_image,
     "dual_image": _body_dual_image,
     "image_and_text": _body_image_and_text,
+    "image_and_text_list": _body_image_and_text_list,
     "video_input": _body_video_input,
     "video_and_prompt": _body_video_and_prompt,
     "image_to_video": _body_image_to_video,
@@ -599,6 +677,7 @@ _NODE_TYPES_USED = {
     "single_image": '["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
     "dual_image": '["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
     "image_and_text": '["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
+    "image_and_text_list": '["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
     "video_input": '["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "LTXTextToVideoGeneration"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
     "video_and_prompt": '["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "LTXTextToVideoGeneration"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
     "image_to_video": '["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',

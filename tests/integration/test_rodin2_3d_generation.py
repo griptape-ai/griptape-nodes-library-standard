@@ -98,12 +98,33 @@ with GriptapeNodes.ContextManager().flow(flow_name):
                 initial_setup=True,
             )
         )
+    with GriptapeNodes.ContextManager().node(gen_node):
+        GriptapeNodes.handle_request(
+            AddParameterToNodeRequest(
+                parameter_name="input_images_ParameterListUniqueParamID_00000000000000000000000000000001",
+                default_value=[],
+                tooltip="Optional input images for Image-to-3D generation (up to 5 images)",
+                type="ImageArtifact",
+                input_types=[
+                    "ImageArtifact",
+                    "ImageUrlArtifact",
+                    "str",
+                    "list",
+                    "list[ImageArtifact]",
+                    "list[ImageUrlArtifact]",
+                ],
+                output_type="ImageArtifact",
+                ui_options={},
+                parent_container_name="input_images",
+                initial_setup=True,
+            )
+        )
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
             source_node_name=source_node,
             source_parameter_name="image",
             target_node_name=gen_node,
-            target_parameter_name="input_images",
+            target_parameter_name="input_images_ParameterListUniqueParamID_00000000000000000000000000000001",
             initial_setup=True,
         )
     )
