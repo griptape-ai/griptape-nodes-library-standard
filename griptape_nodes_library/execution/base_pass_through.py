@@ -1,7 +1,7 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterTypeBuiltin
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
 from griptape_nodes.exe_types.node_types import BaseNode, DataNode
 
 
@@ -33,15 +33,28 @@ def has_control_type(param: Parameter) -> bool:
 
 
 class BasePassThroughNode(DataNode, ABC):
+    pass_thru_parameter_name: str
+    pass_thru_parameter_tooltip = ""
+
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
 
         self.incoming_source_parameter: Parameter | None = None
         self.outgoing_target_parameters: dict[str, Parameter] = {}
 
-    @abstractmethod
+        self.pass_thru_parameter = Parameter(
+            name=self.pass_thru_parameter_name,
+            input_types=[ParameterTypeBuiltin.ANY.value],
+            output_type=ParameterTypeBuiltin.ALL.value,
+            default_value=None,
+            tooltip=self.pass_thru_parameter_tooltip,
+            allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
+            hide_property=True,
+        )
+        self.add_parameter(self.pass_thru_parameter)
+
     def get_pass_thru_parameter(self) -> Parameter:
-        pass
+        return self.pass_thru_parameter
 
     def after_incoming_connection(
         self,
