@@ -246,6 +246,27 @@ class TestVideoHelpers:
     def test_artifact_with_no_known_attrs_returns_none(self, _name: str, helper: Callable[[Any], str | None]) -> None:
         assert helper(SimpleNamespace()) is None
 
+    def test_dict_with_value_key(self, _name: str, helper: Callable[[Any], str | None]) -> None:
+        # Serialized VideoUrlArtifact (dict form) arrives when a video is
+        # uploaded directly to the node rather than fed via Load Video.
+        assert helper({"value": "https://example.com/foo.mp4"}) == "https://example.com/foo.mp4"
+
+    def test_dict_with_value_key_is_stripped(self, _name: str, helper: Callable[[Any], str | None]) -> None:
+        assert helper({"value": "  https://example.com/foo.mp4  "}) == "https://example.com/foo.mp4"
+
+    def test_dict_with_url_key_only(self, _name: str, helper: Callable[[Any], str | None]) -> None:
+        assert helper({"url": "https://example.com/foo.mp4"}) == "https://example.com/foo.mp4"
+
+    def test_dict_value_takes_precedence_over_url(self, _name: str, helper: Callable[[Any], str | None]) -> None:
+        result = helper({"value": "https://example.com/value.mp4", "url": "https://example.com/url.mp4"})
+        assert result == "https://example.com/value.mp4"
+
+    def test_dict_with_neither_key_returns_none(self, _name: str, helper: Callable[[Any], str | None]) -> None:
+        assert helper({"type": "VideoUrlArtifact"}) is None
+
+    def test_dict_with_empty_value_and_url_returns_none(self, _name: str, helper: Callable[[Any], str | None]) -> None:
+        assert helper({"value": "", "url": "   "}) is None
+
 
 # ---------------------------------------------------------------------------
 # AUDIO helpers
@@ -576,3 +597,105 @@ class TestLTXVideoRetakePrepareDataUriAsync:
         monkeypatch.setattr(file_module.File, "aread_data_uri", fail_aread)
 
         assert await node._prepare_video_data_uri_async("{inputs}/missing.mp4") is None
+
+
+# ---------------------------------------------------------------------------
+# WAN response: _extract_result_video_url / _extract_video_url
+# ---------------------------------------------------------------------------
+
+
+class TestWanReferenceExtractResultVideoUrl:
+    """The WAN proxy nests successful generations under ``output.video_url``;
+    older or flatter responses may put the URL at the top level. The helper
+    must check the nested location first and fall back to the top-level key,
+    or successful generations silently produce no output (charging credits
+    for videos the user cannot see).
+    """
+
+    helper = staticmethod(WanReferenceToVideoGeneration._extract_result_video_url)
+
+    def test_extracts_nested_output_video_url(self) -> None:
+        result = self.helper({"output": {"video_url": "https://example.com/foo.mp4"}})
+        assert result == "https://example.com/foo.mp4"
+
+    def test_extracts_top_level_video_url(self) -> None:
+        result = self.helper({"video_url": "https://example.com/foo.mp4"})
+        assert result == "https://example.com/foo.mp4"
+
+    def test_nested_takes_precedence_over_top_level(self) -> None:
+        result = self.helper(
+            {
+                "output": {"video_url": "https://example.com/nested.mp4"},
+                "video_url": "https://example.com/top.mp4",
+            }
+        )
+        assert result == "https://example.com/nested.mp4"
+
+    def test_falls_back_to_top_level_when_nested_missing(self) -> None:
+        result = self.helper({"output": {}, "video_url": "https://example.com/top.mp4"})
+        assert result == "https://example.com/top.mp4"
+
+    def test_falls_back_to_top_level_when_nested_value_invalid(self) -> None:
+        # Non-http nested value should not be returned; the helper should keep
+        # looking and use the valid top-level URL instead.
+        result = self.helper(
+            {
+                "output": {"video_url": "not-a-url"},
+                "video_url": "https://example.com/top.mp4",
+            }
+        )
+        assert result == "https://example.com/top.mp4"
+
+    def test_returns_none_for_none(self) -> None:
+        assert self.helper(None) is None
+
+    def test_returns_none_for_empty_dict(self) -> None:
+        assert self.helper({}) is None
+
+    def test_returns_none_when_neither_present(self) -> None:
+        assert self.helper({"task_status": "SUCCEEDED"}) is None
+
+    def test_returns_none_when_output_is_not_dict(self) -> None:
+        assert self.helper({"output": "https://example.com/foo.mp4"}) is None
+
+    def test_returns_none_when_url_is_non_http(self) -> None:
+        assert self.helper({"output": {"video_url": "ftp://example.com/foo.mp4"}}) is None
+        assert self.helper({"video_url": "ftp://example.com/foo.mp4"}) is None
+
+
+class TestWanAnimateExtractVideoUrl:
+    """``WanAnimateGeneration`` calls the same WAN proxy as the reference node,
+    so it must also handle ``output.video_url``. The historical
+    ``results.video_url`` shape and a plain top-level ``video_url`` are kept
+    as fallbacks so existing responses continue to work.
+    """
+
+    helper = staticmethod(WanAnimateGeneration._extract_video_url)
+
+    def test_extracts_nested_output_video_url(self) -> None:
+        result = self.helper({"output": {"video_url": "https://example.com/foo.mp4"}})
+        assert result == "https://example.com/foo.mp4"
+
+    def test_extracts_results_video_url(self) -> None:
+        result = self.helper({"results": {"video_url": "https://example.com/foo.mp4"}})
+        assert result == "https://example.com/foo.mp4"
+
+    def test_extracts_top_level_video_url(self) -> None:
+        result = self.helper({"video_url": "https://example.com/foo.mp4"})
+        assert result == "https://example.com/foo.mp4"
+
+    def test_output_takes_precedence_over_results_and_top_level(self) -> None:
+        result = self.helper(
+            {
+                "output": {"video_url": "https://example.com/output.mp4"},
+                "results": {"video_url": "https://example.com/results.mp4"},
+                "video_url": "https://example.com/top.mp4",
+            }
+        )
+        assert result == "https://example.com/output.mp4"
+
+    def test_returns_none_for_none(self) -> None:
+        assert self.helper(None) is None
+
+    def test_returns_none_when_nothing_present(self) -> None:
+        assert self.helper({"task_status": "SUCCEEDED"}) is None
