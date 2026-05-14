@@ -32,7 +32,7 @@ logger = logging.getLogger("griptape_nodes")
 
 MediaKind = Literal["image", "video", "audio"]
 
-_DEFAULT_EXTENSION: dict[MediaKind, str] = {
+_DEFAULT_MIME_SUBTYPE: dict[MediaKind, str] = {
     "image": "png",
     "video": "mp4",
     "audio": "mpeg",
@@ -69,14 +69,14 @@ def coerce_media_url_or_data_uri(val: Any, *, kind: MediaKind) -> str | None:
         return None
 
     mime_prefix = f"data:{kind}/"
-    default_ext = _DEFAULT_EXTENSION[kind]
+    default_subtype = _DEFAULT_MIME_SUBTYPE[kind]
     raw_artifact_type = f"{_ARTIFACT_NAME[kind]}Artifact"
 
     if isinstance(val, dict):
         return _coerce_from_dict(
             val,
             mime_prefix=mime_prefix,
-            default_ext=default_ext,
+            default_subtype=default_subtype,
             raw_artifact_type=raw_artifact_type,
         )
 
@@ -99,7 +99,7 @@ def coerce_media_url_or_data_uri(val: Any, *, kind: MediaKind) -> str | None:
 
         b64 = getattr(val, "base64", None)
         if isinstance(b64, str) and b64:
-            return b64 if b64.startswith(mime_prefix) else f"{mime_prefix}{default_ext};base64,{b64}"
+            return b64 if b64.startswith(mime_prefix) else f"{mime_prefix}{default_subtype};base64,{b64}"
     except Exception:  # noqa: BLE001 - unknown artifact shapes raise arbitrary errors; treat as unresolvable
         return None
 
@@ -110,7 +110,7 @@ def _coerce_from_dict(
     val: dict[str, Any],
     *,
     mime_prefix: str,
-    default_ext: str,
+    default_subtype: str,
     raw_artifact_type: str,
 ) -> str | None:
     value = val.get("value")
@@ -126,10 +126,11 @@ def _coerce_from_dict(
     if stripped.startswith(("http://", "https://", mime_prefix)):
         return stripped
 
-    # Raw <Kind>Artifact: the value is base64 bytes, optionally with a "format" hint.
+    # Raw <Kind>Artifact: the value is base64 bytes, optionally with a "format"
+    # hint that names the MIME subtype.
     if val.get("type") == raw_artifact_type:
-        media_format = str(val.get("format") or default_ext).lower()
-        return f"{mime_prefix}{media_format};base64,{stripped}"
+        subtype = str(val.get("format") or default_subtype).lower()
+        return f"{mime_prefix}{subtype};base64,{stripped}"
 
     # Anything else (macro paths, filesystem paths, unknown artifact shapes)
     # passes through; File() resolves it downstream.
