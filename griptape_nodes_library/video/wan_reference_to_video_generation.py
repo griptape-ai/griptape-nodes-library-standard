@@ -550,6 +550,15 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
             v = val.strip()
             return v or None
 
+        if isinstance(val, dict):
+            v = val.get("value")
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+            url = val.get("url")
+            if isinstance(url, str) and url.strip():
+                return url.strip()
+            return None
+
         try:
             v = getattr(val, "value", None)
             if isinstance(v, str) and v.strip():
@@ -711,9 +720,19 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
 
     @staticmethod
     def _extract_result_video_url(obj: dict[str, Any] | None) -> str | None:
-        """Extract video URL from response."""
+        """Extract video URL from response.
+
+        The WAN proxy nests the result under ``output.video_url``; older or
+        flatter responses may put it at the top level. Check the nested
+        location first and fall back to the top-level key.
+        """
         if not obj:
             return None
+        output = obj.get("output")
+        if isinstance(output, dict):
+            nested = output.get("video_url")
+            if isinstance(nested, str) and nested.startswith("http"):
+                return nested
         video_url = obj.get("video_url")
         if isinstance(video_url, str) and video_url.startswith("http"):
             return video_url

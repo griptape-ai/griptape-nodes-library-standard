@@ -261,6 +261,16 @@ class LTXVideoRetake(GriptapeProxyNode):
             v = val.strip()
             return v or None
 
+        if isinstance(val, dict):
+            # Serialized VideoUrlArtifact: {"value": "...", "url": "..."}.
+            v = val.get("value")
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+            url = val.get("url")
+            if isinstance(url, str) and url.strip():
+                return url.strip()
+            return None
+
         try:
             # VideoUrlArtifact / any artifact with .value holding a URL/path string.
             v = getattr(val, "value", None)
