@@ -17,10 +17,10 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -526,48 +526,7 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
             )
 
     async def _prepare_audio_data_url_async(self, audio_input: Any) -> str | None:
-        if not audio_input:
-            return None
-
-        audio_url = self._coerce_audio_url_or_data_uri(audio_input)
-        if not audio_url:
-            return None
-
-        # Already a data URI — return as-is
-        if audio_url.startswith("data:audio/"):
-            return audio_url
-
-        try:
-            return await File(audio_url).aread_data_uri(fallback_mime="audio/mpeg")
-        except FileLoadError as e:
-            logger.debug("%s failed to load audio from %s: %s", self.name, audio_url, e)
-            return None
-
-    @staticmethod
-    def _coerce_audio_url_or_data_uri(val: Any) -> str | None:
-        """Extract a usable string from various audio input types.
-
-        Returns an HTTP(S) URL, a ``data:audio/...`` URI, a project macro path,
-        or a plain filesystem path. Non-URI strings are NOT wrapped as base64.
-        """
-        if val is None:
-            return None
-
-        if isinstance(val, str):
-            v = val.strip()
-            return v or None
-
-        try:
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:audio/") else f"data:audio/mpeg;base64,{b64}"
-        except AttributeError:
-            pass
-
-        return None
+        return await prepare_media_data_uri(audio_input, kind="audio", node_name=self.name)
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
         """Extract error details from API response.

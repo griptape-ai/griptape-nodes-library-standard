@@ -18,6 +18,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.ffmpeg_utils import get_ffmpeg_path
 
@@ -200,7 +201,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
         if not audio_input:
             return None
 
-        audio_url = self._coerce_audio_url_or_data_uri(audio_input)
+        audio_url = coerce_media_url_or_data_uri(audio_input, kind="audio")
         if not audio_url:
             return None
 
@@ -391,84 +392,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
 
     async def _prepare_image_data_url_async(self, image_input: Any) -> str | None:
         """Convert image input to a base64 data URL."""
-        if not image_input:
-            return None
-
-        image_url = self._coerce_image_url_or_data_uri(image_input)
-        if not image_url:
-            return None
-
-        # Already a data URI — return as-is
-        if image_url.startswith("data:image/"):
-            return image_url
-
-        try:
-            return await File(image_url).aread_data_uri(fallback_mime="image/jpeg")
-        except FileLoadError as e:
-            logger.debug("%s failed to load image from %s: %s", self.name, image_url, e)
-            return None
-
-    @staticmethod
-    def _coerce_audio_url_or_data_uri(val: Any) -> str | None:
-        """Extract a usable string from various audio input types.
-
-        Returns an HTTP(S) URL, a ``data:audio/...`` URI, a project macro path,
-        or a plain filesystem path. Non-URI strings are NOT wrapped as base64.
-        """
-        if val is None:
-            return None
-
-        # Plain string: return stripped value; File() handles URLs, macro paths, and file paths.
-        if isinstance(val, str):
-            v = val.strip()
-            return v or None
-
-        # Artifact-like objects
-        try:
-            # AudioUrlArtifact: .value holds URL/path string — return as-is for File() to resolve.
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-            # AudioArtifact: .base64 holds raw or data-URI
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:audio/") else f"data:audio/mpeg;base64,{b64}"
-        except AttributeError:
-            pass
-
-        return None
-
-    @staticmethod
-    def _coerce_image_url_or_data_uri(val: Any) -> str | None:
-        """Extract a usable string from various image input types.
-
-        Returns an HTTP(S) URL, a ``data:image/...`` URI, a project macro path
-        like ``{inputs}/foo.png``, or a plain filesystem path. All of these are
-        resolvable by ``File`` downstream; non-URI strings are NOT wrapped as
-        base64.
-        """
-        if val is None:
-            return None
-
-        # Plain string: return stripped value; File() handles URLs, macro paths, and file paths.
-        if isinstance(val, str):
-            v = val.strip()
-            return v or None
-
-        # Artifact-like objects
-        try:
-            # ImageUrlArtifact: .value holds URL/path string — return as-is for File() to resolve.
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-            # ImageArtifact: .base64 holds raw or data-URI
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:image/") else f"data:image/png;base64,{b64}"
-        except AttributeError:
-            pass
-
-        return None
+        return await prepare_media_data_uri(image_input, kind="image", node_name=self.name, fallback_mime="image/jpeg")
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for LTX API."""

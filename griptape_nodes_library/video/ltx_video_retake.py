@@ -12,12 +12,12 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_range import ParameterRange
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
 # static_ffmpeg is dynamically installed by the library loader at runtime
 from static_ffmpeg import run  # type: ignore[import-untyped]
 
+from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -204,7 +204,7 @@ class LTXVideoRetake(GriptapeProxyNode):
             return
 
         try:
-            video_url = self._extract_video_url(video_input)
+            video_url = self._extract_input_video_url(video_input)
             if not video_url:
                 return
 
@@ -241,49 +241,9 @@ class LTXVideoRetake(GriptapeProxyNode):
         if retake_segment_param and isinstance(retake_segment_param, ParameterRange):
             retake_segment_param.max_val = float(MAX_VIDEO_DURATION)
 
-    def _extract_video_url(self, video_input: Any) -> str | None:
+    def _extract_input_video_url(self, video_input: Any) -> str | None:
         """Extract a usable video URL/path string from various input types."""
-        return self._coerce_video_url_or_data_uri(video_input)
-
-    @staticmethod
-    def _coerce_video_url_or_data_uri(val: Any) -> str | None:
-        """Extract a usable string from various video input types.
-
-        Returns an HTTP(S) URL, a ``data:video/...`` URI, a project macro path
-        like ``{inputs}/foo.mp4``, or a plain filesystem path. All of these are
-        resolvable by ``File`` downstream; non-URI strings are NOT wrapped as
-        base64.
-        """
-        if val is None:
-            return None
-
-        if isinstance(val, str):
-            v = val.strip()
-            return v or None
-
-        if isinstance(val, dict):
-            # Serialized VideoUrlArtifact: {"value": "...", "url": "..."}.
-            v = val.get("value")
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-            url = val.get("url")
-            if isinstance(url, str) and url.strip():
-                return url.strip()
-            return None
-
-        try:
-            # VideoUrlArtifact / any artifact with .value holding a URL/path string.
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-            # VideoArtifact: .base64 holds raw or data-URI video bytes.
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:video/") else f"data:video/mp4;base64,{b64}"
-        except AttributeError:
-            pass
-
-        return None
+        return coerce_media_url_or_data_uri(video_input, kind="video")
 
     def _update_segment_range_max(self, max_duration: float, actual_duration: float) -> None:
         """Update retake_segment max value and adjust current segment if needed."""
@@ -415,7 +375,7 @@ class LTXVideoRetake(GriptapeProxyNode):
         if not video:
             return f"{self.name} requires an input video for retake generation."
 
-        video_url = self._extract_video_url(video)
+        video_url = self._extract_input_video_url(video)
         if not video_url:
             return None
 
@@ -464,21 +424,7 @@ class LTXVideoRetake(GriptapeProxyNode):
 
     async def _prepare_video_data_uri_async(self, video_input: Any) -> str | None:
         """Convert video input to a base64 data URI."""
-        if not video_input:
-            return None
-
-        video_url = self._coerce_video_url_or_data_uri(video_input)
-        if not video_url:
-            return None
-
-        if video_url.startswith("data:video/"):
-            return video_url
-
-        try:
-            return await File(video_url).aread_data_uri(fallback_mime="video/mp4")
-        except FileLoadError:
-            logger.debug("%s failed to load video value: %s", self.name, video_url)
-            return None
+        return await prepare_media_data_uri(video_input, kind="video", node_name=self.name)
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for LTX Retake API."""

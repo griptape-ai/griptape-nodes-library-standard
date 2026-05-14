@@ -19,6 +19,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
+from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -493,7 +494,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         if not frame_input:
             return None
 
-        frame_url = self._coerce_image_url_or_data_uri(frame_input)
+        frame_url = coerce_media_url_or_data_uri(frame_input, kind="image")
         if not frame_url:
             return None
 
@@ -627,36 +628,4 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
                     url = SeedanceVideoGeneration._extract_video_url(item if isinstance(item, dict) else None)
                     if url:
                         return url
-        return None
-
-    @staticmethod
-    def _coerce_image_url_or_data_uri(val: Any) -> str | None:
-        """Extract a usable string from various image input types.
-
-        Returns an HTTP(S) URL, a ``data:image/...`` URI, a project macro path
-        like ``{inputs}/foo.png``, or a plain filesystem path. All of these are
-        resolvable by ``File`` downstream; non-URI strings are NOT wrapped as
-        base64.
-        """
-        if val is None:
-            return None
-
-        # Plain string: return stripped value; File() handles URLs, macro paths, and file paths.
-        if isinstance(val, str):
-            v = val.strip()
-            return v or None
-
-        # Artifact-like objects
-        try:
-            # ImageUrlArtifact: .value holds URL/path string — return as-is for File() to resolve.
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-            # ImageArtifact: .base64 holds raw or data-URI
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:image/") else f"data:image/png;base64,{b64}"
-        except Exception:  # noqa: S110
-            pass
-
         return None

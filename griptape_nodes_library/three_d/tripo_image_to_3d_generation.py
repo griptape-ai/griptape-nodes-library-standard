@@ -11,9 +11,9 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_three_d import Parameter3D
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.three_d._tripo_utils import parse_tripo_task_result
 
@@ -222,7 +222,7 @@ class TripoImageTo3DGeneration(GriptapeProxyNode):
 
     async def _build_payload(self) -> dict[str, Any]:
         image_value = self.get_parameter_value("image")
-        data_uri = await self._prepare_image_data_uri(image_value)
+        data_uri = await prepare_media_data_uri(image_value, kind="image", node_name=self.name)
         if not data_uri:
             msg = "A reference image is required for Tripo image-to-3D generation."
             raise ValueError(msg)
@@ -239,52 +239,6 @@ class TripoImageTo3DGeneration(GriptapeProxyNode):
         }
 
         return payload
-
-    async def _prepare_image_data_uri(self, image_input: Any) -> str | None:
-        if not image_input:
-            return None
-
-        image_value = self._coerce_image_url_or_data_uri(image_input)
-        if not image_value:
-            return None
-
-        if image_value.startswith("data:image/"):
-            return image_value
-
-        try:
-            return await File(image_value).aread_data_uri(fallback_mime="image/png")
-        except FileLoadError as e:
-            logger.debug("%s failed to load image from %s: %s", self.name, image_value, e)
-            return None
-
-    @staticmethod
-    def _coerce_image_url_or_data_uri(val: Any) -> str | None:
-        """Extract a usable string from various image input types.
-
-        Returns an HTTP(S) URL, a ``data:image/...`` URI, a project macro path
-        like ``{inputs}/foo.png``, or a plain filesystem path. All of these are
-        resolvable by ``File`` downstream; non-URI strings are NOT wrapped as
-        base64.
-        """
-        if val is None:
-            return None
-
-        if isinstance(val, str):
-            v = val.strip()
-            return v or None
-
-        try:
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:image/") else f"data:image/png;base64,{b64}"
-        except AttributeError:
-            pass
-
-        return None
 
     async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
         await parse_tripo_task_result(self, result_json)

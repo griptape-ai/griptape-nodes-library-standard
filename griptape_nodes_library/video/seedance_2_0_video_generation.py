@@ -23,6 +23,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
+from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -651,7 +652,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             self._log(f"{self.name} {frame_label} not provided")
             return None
 
-        frame_url = self._coerce_image_url_or_data_uri(frame_input)
+        frame_url = coerce_media_url_or_data_uri(frame_input, kind="image")
         if not frame_url:
             self._log(
                 f"{self.name} {frame_label} could not be converted to an image URL or data URI. "
@@ -678,7 +679,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             self._log(f"{self.name} {audio_label} not provided")
             return None
 
-        audio_url = self._coerce_audio_url_or_data_uri(audio_input)
+        audio_url = coerce_media_url_or_data_uri(audio_input, kind="audio")
         if not audio_url:
             self._log(
                 f"{self.name} {audio_label} could not be converted to an audio URL or data URI. "
@@ -802,64 +803,6 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         return None
 
     @staticmethod
-    def _coerce_image_url_or_data_uri(val: Any) -> str | None:
-        """Extract a usable string from various image input types.
-
-        Returns an HTTP(S) URL, a ``data:image/...`` URI, a project macro path
-        like ``{inputs}/foo.png``, or a plain filesystem path. All of these are
-        resolvable by ``File`` downstream; non-URI strings are NOT wrapped as
-        base64.
-        """
-        if val is None:
-            return None
-
-        if isinstance(val, dict):
-            value = val.get("value")
-            artifact_type = val.get("type")
-            if isinstance(value, str):
-                stripped = value.strip()
-                if not stripped:
-                    return None
-                if artifact_type == "ImageUrlArtifact":
-                    return stripped
-                if stripped.startswith(("http://", "https://", "data:image/")):
-                    return stripped
-                if artifact_type == "ImageArtifact":
-                    image_format = str(val.get("format") or "png").lower()
-                    return f"data:image/{image_format};base64,{stripped}"
-                # Unknown artifact shape — return raw string and let File() resolve it.
-                return stripped
-            return None
-
-        # Plain string: return stripped value; File() handles URLs, macro paths, and file paths.
-        if isinstance(val, str):
-            v = val.strip()
-            return v or None
-
-        try:
-            to_dict = getattr(val, "to_dict", None)
-            if callable(to_dict):
-                serialized = to_dict()
-                if isinstance(serialized, dict):
-                    coerced = Seedance20VideoGeneration._coerce_image_url_or_data_uri(serialized)
-                    if coerced:
-                        return coerced
-
-            # ImageUrlArtifact: .value holds URL/path string — return as-is for File() to resolve.
-            v = getattr(val, "value", None)
-            if isinstance(v, str):
-                stripped = v.strip()
-                if stripped:
-                    return stripped
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:image/") else f"data:image/png;base64,{b64}"
-        except Exception:  # noqa: S110
-            pass
-
-        return None
-
-    @staticmethod
     def _coerce_video_url(val: Any) -> str | None:
         """Convert video input to a Seedance-supported public URL or asset ID."""
         if val is None:
@@ -926,53 +869,6 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             return None
 
         return self._coerce_video_url(public_url)
-
-    @staticmethod
-    def _coerce_audio_url_or_data_uri(val: Any) -> str | None:
-        """Convert audio input to a Seedance-supported audio URL, asset ID, or data URI."""
-        if val is None:
-            return None
-
-        if isinstance(val, dict):
-            value = val.get("value")
-            artifact_type = val.get("type")
-            if isinstance(value, str):
-                stripped = value.strip()
-                if artifact_type == "AudioArtifact":
-                    audio_format = str(val.get("format") or "wav").lower()
-                    return f"data:audio/{audio_format};base64,{value}"
-                if stripped.startswith(("http://", "https://", "data:audio/", "asset://")):
-                    return stripped
-                return stripped
-            return None
-
-        if isinstance(val, str):
-            v = val.strip()
-            if not v:
-                return None
-            return v
-
-        try:
-            to_dict = getattr(val, "to_dict", None)
-            if callable(to_dict):
-                serialized = to_dict()
-                if isinstance(serialized, dict):
-                    coerced = Seedance20VideoGeneration._coerce_audio_url_or_data_uri(serialized)
-                    if coerced:
-                        return coerced
-
-            v = getattr(val, "value", None)
-            if isinstance(v, str):
-                stripped = v.strip()
-                if stripped:
-                    return stripped
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:audio/") else f"data:audio/wav;base64,{b64}"
-        except Exception:  # noqa: S110
-            pass
-
-        return None
 
     @staticmethod
     def _supports_last_frame(model_id: str) -> bool:
