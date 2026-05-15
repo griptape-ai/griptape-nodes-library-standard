@@ -18,6 +18,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.video_utils import get_video_duration
 
@@ -210,10 +211,20 @@ class WanAnimateGeneration(GriptapeProxyNode):
         # from the original local input here so that ffprobe works against a
         # resolvable filesystem path (macro paths included) rather than an
         # uploaded asset URL we'd otherwise have to download again.
-        video_param = self.get_parameter_value("video_url")
-        original_video_url = video_param.value if hasattr(video_param, "value") else str(video_param)
+        #
+        # Direct uploads via the node's media badge land as serialized
+        # ``VideoUrlArtifact`` dicts (``{"value": "<path>", "type": "VideoUrlArtifact", ...}``)
+        # rather than artifact instances. ``PublicArtifactUrlParameter`` and
+        # ``File()`` both expect strings/artifacts, so we normalize the
+        # parameter value first; the same call also covers ``image_url`` so
+        # the upload step in ``_build_payload`` doesn't trip on dict inputs.
+        self._normalize_artifact_url_parameter("image_url", "image")
+        video_url = self._normalize_artifact_url_parameter("video_url", "video")
+        if not video_url:
+            msg = "Video URL must be provided"
+            raise ValueError(msg)
 
-        duration = math.ceil(await get_video_duration(original_video_url))
+        duration = math.ceil(await get_video_duration(video_url))
         logger.debug("Detected video duration: %ss", duration)
 
         return {
@@ -221,6 +232,37 @@ class WanAnimateGeneration(GriptapeProxyNode):
             "mode": self.get_parameter_value("mode"),
             "duration": duration,
         }
+
+    def _normalize_artifact_url_parameter(self, parameter_name: str, kind: str) -> str | None:
+        """Coerce a media-input parameter into a string URL/path.
+
+        Direct uploads through the media-upload badge serialize the artifact
+        as a dict (``{"value": "<path>", "type": "<Kind>UrlArtifact", ...}``).
+        Both ``PublicArtifactUrlParameter.get_public_url_for_parameter`` and
+        ``File(...)`` only accept strings or artifact instances, so a dict in
+        the parameter slot crashes the upload path and produces a misleading
+        "missing required variables" macro error from ``File`` when the
+        repr-string is parsed as a macro.
+
+        Coerce the dict to its inner string via the shared media helpers and
+        write that back to the parameter so downstream callers see a value
+        they can consume. String / artifact inputs are returned as-is.
+        """
+        raw = self.get_parameter_value(parameter_name)
+        if not raw:
+            return None
+        if isinstance(raw, dict):
+            coerced = coerce_media_url_or_data_uri(raw, kind=kind)  # type: ignore[arg-type]
+            if not coerced:
+                return None
+            self.set_parameter_value(parameter_name, coerced)
+            return coerced
+        value = getattr(raw, "value", None)
+        if isinstance(value, str) and value:
+            return value
+        if isinstance(raw, str):
+            return raw
+        return None
 
     def _validate_api_key(self) -> str:
         api_key = GriptapeNodes.SecretsManager().get_secret(self.API_KEY_NAME)

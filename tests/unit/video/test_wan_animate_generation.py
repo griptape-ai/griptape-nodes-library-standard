@@ -158,6 +158,88 @@ async def test_build_payload_passes_through_existing_public_urls(monkeypatch: py
     assert payload["parameters"]["duration"] == 10
 
 
+@pytest.mark.asyncio
+async def test_build_payload_normalizes_serialized_artifact_dicts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Direct uploads through the media-upload badge land as serialized
+    ``VideoUrlArtifact`` dicts rather than artifact instances. The node must
+    coerce the dict to its inner ``value`` so ``File()`` and the upload
+    helper can consume it; otherwise ``File`` parses the dict's repr as a
+    macro path and reports "missing required variables".
+    """
+    node = WanAnimateGeneration(name="WanAnimate")
+    node.set_parameter_value(
+        "image_url",
+        {
+            "value": "/abs/path/source.png",
+            "name": "source.png",
+            "type": "ImageUrlArtifact",
+        },
+    )
+    node.set_parameter_value(
+        "video_url",
+        {
+            "value": "/abs/path/reference.mp4",
+            "width": 1280,
+            "height": 720,
+            "duration": 6.041992,
+            "name": "reference.mp4",
+            "type": "VideoUrlArtifact",
+        },
+    )
+
+    seen_duration_url: list[str] = []
+
+    async def fake_get_video_duration(url: str) -> float:
+        seen_duration_url.append(url)
+        return 6.041992
+
+    monkeypatch.setattr(wan_animate_module, "get_video_duration", fake_get_video_duration)
+    monkeypatch.setattr(
+        node._public_image_url_parameter,
+        "get_public_url_for_parameter",
+        lambda: "https://public.example/source.png",
+    )
+    monkeypatch.setattr(
+        node._public_video_url_parameter,
+        "get_public_url_for_parameter",
+        lambda: "https://public.example/reference.mp4",
+    )
+
+    payload = await node._build_payload()
+
+    # The dict was unwrapped to its inner string before duration probing.
+    assert seen_duration_url == ["/abs/path/reference.mp4"]
+    # Both parameters are now plain strings the upload helpers can consume.
+    assert node.get_parameter_value("image_url") == "/abs/path/source.png"
+    assert node.get_parameter_value("video_url") == "/abs/path/reference.mp4"
+    assert payload["input"] == {
+        "image_url": "https://public.example/source.png",
+        "video_url": "https://public.example/reference.mp4",
+    }
+    assert payload["parameters"]["duration"] == 7  # math.ceil(6.041992)
+
+
+@pytest.mark.asyncio
+async def test_build_payload_raises_when_video_dict_has_no_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A serialized-dict shape with no usable inner string should fail with
+    a clear "Video URL must be provided" error rather than a misleading
+    macro-resolution error from ``File()``.
+    """
+    node = WanAnimateGeneration(name="WanAnimate")
+    node.set_parameter_value("image_url", "https://public.example/source.png")
+    node.set_parameter_value("video_url", {"type": "VideoUrlArtifact"})
+    _stub_video_duration(monkeypatch)
+
+    monkeypatch.setattr(
+        node._public_image_url_parameter,
+        "get_public_url_for_parameter",
+        lambda: "https://public.example/source.png",
+    )
+
+    with pytest.raises(ValueError, match="Video URL must be provided"):
+        await node._build_payload()
+
+
 class TestExtractVideoUrl:
     """DashScope's documented WAN Animate response nests the result URL under
     ``output.results.video_url``. Older/sibling response shapes expose it at
