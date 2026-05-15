@@ -16,9 +16,8 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.utils.image_utils import shrink_image_to_size
-
 from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.utils.image_utils import shrink_image_to_size
 
 logger = logging.getLogger("griptape_nodes")
 
