@@ -50,7 +50,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Library",
             node_name="RunwayMLVideoGeneration",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -60,7 +59,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Library",
             node_name="To Text",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -70,7 +68,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Testing Library",
             node_name="Assert File Exists",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -80,7 +77,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Library",
             node_name="Start Flow",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -104,7 +100,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Library",
             node_name="End Flow",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name

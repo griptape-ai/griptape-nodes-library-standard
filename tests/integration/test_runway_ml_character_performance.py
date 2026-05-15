@@ -1,11 +1,11 @@
 # /// script
 # dependencies = []
 # [tool.griptape-nodes]
-# name = "test_runway_ml_image_generation"
+# name = "test_runway_ml_character_performance"
 # schema_version = "0.16.0"
 # engine_version_created_with = "0.77.3"
 # node_libraries_referenced = [["Griptape Nodes Library", "0.68.0"], ["Griptape Nodes Testing Library", "0.1.0"]]
-# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "RunwayMLImageGeneration"], ["Griptape Nodes Library", "ToText"]]
+# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "RunwayMLCharacterPerformance"], ["Griptape Nodes Library", "RunwayMLImageGeneration"], ["Griptape Nodes Library", "RunwayMLVideoGeneration"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
 # ///
@@ -39,7 +39,7 @@ flow_name = GriptapeNodes.handle_request(
 ).flow_name
 
 with GriptapeNodes.ContextManager().flow(flow_name):
-    source_node = GriptapeNodes.handle_request(
+    color_bars_node = GriptapeNodes.handle_request(
         CreateNodeRequest(
             node_type="CreateColorBars",
             specific_library_name="Griptape Nodes Library",
@@ -48,11 +48,29 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             initial_setup=True,
         )
     ).node_name
-    gen_node = GriptapeNodes.handle_request(
+    portrait_node = GriptapeNodes.handle_request(
         CreateNodeRequest(
             node_type="RunwayMLImageGeneration",
             specific_library_name="Griptape Nodes Library",
-            node_name="RunwayMLImageGeneration",
+            node_name="Portrait",
+            metadata={},
+            initial_setup=True,
+        )
+    ).node_name
+    reference_video_node = GriptapeNodes.handle_request(
+        CreateNodeRequest(
+            node_type="RunwayMLVideoGeneration",
+            specific_library_name="Griptape Nodes Library",
+            node_name="Reference Video",
+            metadata={},
+            initial_setup=True,
+        )
+    ).node_name
+    act_two_node = GriptapeNodes.handle_request(
+        CreateNodeRequest(
+            node_type="RunwayMLCharacterPerformance",
+            specific_library_name="Griptape Nodes Library",
+            node_name="RunwayMLCharacterPerformance",
             metadata={},
             initial_setup=True,
         )
@@ -75,6 +93,29 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             initial_setup=True,
         )
     ).node_name
+    start_node = GriptapeNodes.handle_request(
+        CreateNodeRequest(
+            node_type="StartFlow",
+            specific_library_name="Griptape Nodes Library",
+            node_name="Start Flow",
+            metadata={},
+            initial_setup=True,
+        )
+    ).node_name
+    with GriptapeNodes.ContextManager().node(start_node):
+        GriptapeNodes.handle_request(
+            AddParameterToNodeRequest(
+                parameter_name="prompt",
+                default_value="",
+                tooltip="Prompt",
+                type="str",
+                input_types=["any"],
+                output_type="str",
+                ui_options={"display_name": "Prompt", "multiline": True},
+                parent_container_name="",
+                initial_setup=True,
+            )
+        )
     end_node = GriptapeNodes.handle_request(
         CreateNodeRequest(
             node_type="EndFlow",
@@ -98,29 +139,62 @@ with GriptapeNodes.ContextManager().flow(flow_name):
                 initial_setup=True,
             )
         )
+
+    # Color bars feeds the portrait gen as a reference image.
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
-            source_node_name=source_node,
+            source_node_name=color_bars_node,
             source_parameter_name="image",
-            target_node_name=gen_node,
+            target_node_name=portrait_node,
             target_parameter_name="reference_image",
             initial_setup=True,
         )
     )
-    with GriptapeNodes.ContextManager().node(gen_node):
+    with GriptapeNodes.ContextManager().node(portrait_node):
         GriptapeNodes.handle_request(
             SetParameterValueRequest(
                 parameter_name="prompt_text",
-                node_name=gen_node,
-                value="A serene mountain landscape at sunrise",
+                node_name=portrait_node,
+                value="A close-up portrait of a person facing the camera with a neutral expression",
                 initial_setup=True,
                 is_output=False,
             )
         )
+
+    # Start Flow's prompt feeds the reference video gen.
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
-            source_node_name=gen_node,
+            source_node_name=start_node,
+            source_parameter_name="prompt",
+            target_node_name=reference_video_node,
+            target_parameter_name="prompt_text",
+            initial_setup=True,
+        )
+    )
+
+    # Wire the portrait and reference video into act_two.
+    GriptapeNodes.handle_request(
+        CreateConnectionRequest(
+            source_node_name=portrait_node,
             source_parameter_name="image_url",
+            target_node_name=act_two_node,
+            target_parameter_name="character_image",
+            initial_setup=True,
+        )
+    )
+    GriptapeNodes.handle_request(
+        CreateConnectionRequest(
+            source_node_name=reference_video_node,
+            source_parameter_name="video_url",
+            target_node_name=act_two_node,
+            target_parameter_name="reference_video",
+            initial_setup=True,
+        )
+    )
+    GriptapeNodes.handle_request(
+        CreateConnectionRequest(
+            source_node_name=act_two_node,
+            source_parameter_name="video_url",
             target_node_name=to_text_node,
             target_parameter_name="from",
             initial_setup=True,

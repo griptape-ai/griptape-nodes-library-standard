@@ -1,11 +1,11 @@
 # /// script
 # dependencies = []
 # [tool.griptape-nodes]
-# name = "test_runway_ml_image_generation"
+# name = "test_runway_ml_video_to_video_generation"
 # schema_version = "0.16.0"
 # engine_version_created_with = "0.77.3"
 # node_libraries_referenced = [["Griptape Nodes Library", "0.68.0"], ["Griptape Nodes Testing Library", "0.1.0"]]
-# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "RunwayMLImageGeneration"], ["Griptape Nodes Library", "ToText"]]
+# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "RunwayMLVideoGeneration"], ["Griptape Nodes Library", "RunwayMLVideoToVideoGeneration"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
 # ///
@@ -39,20 +39,20 @@ flow_name = GriptapeNodes.handle_request(
 ).flow_name
 
 with GriptapeNodes.ContextManager().flow(flow_name):
-    source_node = GriptapeNodes.handle_request(
+    source_video_node = GriptapeNodes.handle_request(
         CreateNodeRequest(
-            node_type="CreateColorBars",
+            node_type="RunwayMLVideoGeneration",
             specific_library_name="Griptape Nodes Library",
-            node_name="Create Color Bars",
+            node_name="Source Video",
             metadata={},
             initial_setup=True,
         )
     ).node_name
-    gen_node = GriptapeNodes.handle_request(
+    aleph_node = GriptapeNodes.handle_request(
         CreateNodeRequest(
-            node_type="RunwayMLImageGeneration",
+            node_type="RunwayMLVideoToVideoGeneration",
             specific_library_name="Griptape Nodes Library",
-            node_name="RunwayMLImageGeneration",
+            node_name="RunwayMLVideoToVideoGeneration",
             metadata={},
             initial_setup=True,
         )
@@ -75,6 +75,29 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             initial_setup=True,
         )
     ).node_name
+    start_node = GriptapeNodes.handle_request(
+        CreateNodeRequest(
+            node_type="StartFlow",
+            specific_library_name="Griptape Nodes Library",
+            node_name="Start Flow",
+            metadata={},
+            initial_setup=True,
+        )
+    ).node_name
+    with GriptapeNodes.ContextManager().node(start_node):
+        GriptapeNodes.handle_request(
+            AddParameterToNodeRequest(
+                parameter_name="prompt",
+                default_value="",
+                tooltip="Prompt",
+                type="str",
+                input_types=["any"],
+                output_type="str",
+                ui_options={"display_name": "Prompt", "multiline": True},
+                parent_container_name="",
+                initial_setup=True,
+            )
+        )
     end_node = GriptapeNodes.handle_request(
         CreateNodeRequest(
             node_type="EndFlow",
@@ -98,29 +121,39 @@ with GriptapeNodes.ContextManager().flow(flow_name):
                 initial_setup=True,
             )
         )
+
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
-            source_node_name=source_node,
-            source_parameter_name="image",
-            target_node_name=gen_node,
-            target_parameter_name="reference_image",
+            source_node_name=start_node,
+            source_parameter_name="prompt",
+            target_node_name=source_video_node,
+            target_parameter_name="prompt_text",
             initial_setup=True,
         )
     )
-    with GriptapeNodes.ContextManager().node(gen_node):
+    with GriptapeNodes.ContextManager().node(aleph_node):
         GriptapeNodes.handle_request(
             SetParameterValueRequest(
                 parameter_name="prompt_text",
-                node_name=gen_node,
-                value="A serene mountain landscape at sunrise",
+                node_name=aleph_node,
+                value="Make the scene look like a watercolor painting",
                 initial_setup=True,
                 is_output=False,
             )
         )
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
-            source_node_name=gen_node,
-            source_parameter_name="image_url",
+            source_node_name=source_video_node,
+            source_parameter_name="video_url",
+            target_node_name=aleph_node,
+            target_parameter_name="video",
+            initial_setup=True,
+        )
+    )
+    GriptapeNodes.handle_request(
+        CreateConnectionRequest(
+            source_node_name=aleph_node,
+            source_parameter_name="video_url",
             target_node_name=to_text_node,
             target_parameter_name="from",
             initial_setup=True,
