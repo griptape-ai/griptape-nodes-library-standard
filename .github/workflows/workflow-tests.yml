@@ -2,7 +2,11 @@ name: Workflow Tests
 
 on:
   push:
-    branches: ["main"]
+    # TEMP: feat/runwayml-proxy-node added to validate the new RunwayML nodes
+    # against the Cloud proxy via real workflow tests. Remove before merge.
+    branches: ["main", "feat/runwayml-proxy-node"]
+  pull_request:
+    branches: ["feat/runwayml-proxy-node"]
   merge_group:
     types: [checks_requested]
 
