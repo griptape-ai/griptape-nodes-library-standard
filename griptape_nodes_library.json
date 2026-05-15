@@ -2655,6 +2655,18 @@
       }
     },
     {
+      "class_name": "ForLoopGroupNode",
+      "file_path": "griptape_nodes_library/execution/for_loop_group.py",
+      "metadata": {
+        "category": "execution_flow",
+        "description": "Group node that iterates over a numeric range, executing child nodes for each iteration",
+        "display_name": "For Loop Group",
+        "icon": "repeat",
+        "group": "iteration",
+        "is_node_group": true
+      }
+    },
+    {
       "class_name": "RetryGroupNode",
       "file_path": "griptape_nodes_library/execution/retry_group.py",
       "metadata": {
