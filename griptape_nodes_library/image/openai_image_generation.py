@@ -6,7 +6,7 @@ import re
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, ParameterMessage, ParameterMode
+from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -141,24 +141,6 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 min_val=self.GPT_IMAGE_2_EDGE_MULTIPLE,
                 max_val=self.GPT_IMAGE_2_MAX_EDGE_LENGTH,
-                hide=not is_initial_custom,
-            )
-        )
-
-        self.add_node_element(
-            ParameterMessage(
-                name="custom_size_help",
-                title="GPT Image 2 custom width and height rules",
-                variant="info",
-                value=(
-                    f"* Multiples of {self.GPT_IMAGE_2_EDGE_MULTIPLE}px\n"
-                    f"* Max edge length of {self.GPT_IMAGE_2_MAX_EDGE_LENGTH}px\n"
-                    f"* Aspect ratio ≤ {self.GPT_IMAGE_2_MAX_ASPECT_RATIO}:1\n"
-                    f"* Total pixels between {self.GPT_IMAGE_2_MIN_PIXELS:,} and "
-                    f"{self.GPT_IMAGE_2_MAX_PIXELS:,}.\n"
-                    "\nThe aspect-ratio and total-pixel rules are checked at execution time and will list every rule that fails."
-                ),
-                ui_options={"markdown": True},
                 hide=not is_initial_custom,
             )
         )
@@ -337,10 +319,22 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                 self.show_parameter_by_name(param_name)
             else:
                 self.hide_parameter_by_name(param_name)
-        if show_custom:
-            self.show_message_by_name("custom_size_help")
-        else:
-            self.hide_message_by_name("custom_size_help")
+        size_param = self.get_parameter_by_name("size")
+        if size_param is not None:
+            if show_custom:
+                size_param.set_badge(
+                    "help",
+                    title="Custom size rules",
+                    message=(
+                        f"- Multiples of `{self.GPT_IMAGE_2_EDGE_MULTIPLE}px`\n"
+                        f"- Max edge length: `{self.GPT_IMAGE_2_MAX_EDGE_LENGTH}px`\n"
+                        f"- Aspect ratio ≤ `{self.GPT_IMAGE_2_MAX_ASPECT_RATIO}:1`\n"
+                        f"- Total pixels: `{self.GPT_IMAGE_2_MIN_PIXELS:,}` – `{self.GPT_IMAGE_2_MAX_PIXELS:,}`\n\n"
+                        "*Aspect-ratio and pixel rules are validated at run time.*"
+                    ),
+                )
+            else:
+                size_param.clear_badge()
 
     def _resolve_effective_size(self) -> str:
         size_value = (self.get_parameter_value("size") or "").strip()
