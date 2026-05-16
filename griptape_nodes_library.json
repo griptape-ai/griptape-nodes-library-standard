@@ -48,7 +48,8 @@
         "pillow>=11.2.1",
         "asteval>=1.0.8",
         "color-matcher",
-        "zstandard>=0.22.0"
+        "zstandard>=0.22.0",
+        "lxml>=5.0.0"
       ]
     }
   },
@@ -250,6 +251,33 @@
         "title": "JSON",
         "description": "JSON data manipulation nodes",
         "icon": "Braces",
+        "group": "create"
+      }
+    },
+    {
+      "yaml": {
+        "color": "border-yellow-500",
+        "title": "YAML",
+        "description": "YAML data manipulation nodes",
+        "icon": "indent",
+        "group": "create"
+      }
+    },
+    {
+      "xml": {
+        "color": "border-orange-500",
+        "title": "XML",
+        "description": "XML data manipulation nodes",
+        "icon": "code-xml",
+        "group": "create"
+      }
+    },
+    {
+      "html": {
+        "color": "border-teal-500",
+        "title": "HTML",
+        "description": "HTML data manipulation nodes",
+        "icon": "globe",
         "group": "create"
       }
     },
@@ -1329,6 +1357,127 @@
         "category": "json",
         "description": "Find items in JSON arrays based on search criteria",
         "display_name": "JSON Find",
+        "icon": "search",
+        "group": "describe"
+      }
+    },
+    {
+      "class_name": "YamlInput",
+      "file_path": "griptape_nodes_library/yaml/yaml_input.py",
+      "metadata": {
+        "category": "yaml",
+        "description": "Create a YAML node from input data",
+        "display_name": "YAML Input",
+        "icon": "file-code",
+        "group": "create"
+      }
+    },
+    {
+      "class_name": "DisplayYaml",
+      "file_path": "griptape_nodes_library/yaml/display_yaml.py",
+      "metadata": {
+        "category": "yaml",
+        "description": "Display YAML data with formatting",
+        "display_name": "Display YAML",
+        "icon": "eye",
+        "group": "display"
+      }
+    },
+    {
+      "class_name": "YamlExtractValue",
+      "file_path": "griptape_nodes_library/yaml/yaml_extract_value.py",
+      "metadata": {
+        "category": "yaml",
+        "description": "Extract values from YAML using JMESPath expressions (e.g., '[*].name' for all names)",
+        "display_name": "YAML Extract Value",
+        "icon": "search",
+        "group": "describe"
+      }
+    },
+    {
+      "class_name": "YamlReplace",
+      "file_path": "griptape_nodes_library/yaml/yaml_replace.py",
+      "metadata": {
+        "category": "yaml",
+        "description": "Replace values in YAML using dot notation paths",
+        "display_name": "YAML Replace",
+        "icon": "pencil",
+        "group": "edit"
+      }
+    },
+    {
+      "class_name": "XmlInput",
+      "file_path": "griptape_nodes_library/xml/xml_input.py",
+      "metadata": {
+        "category": "xml",
+        "description": "Create an XML node from input data",
+        "display_name": "XML Input",
+        "icon": "file-code",
+        "group": "create"
+      }
+    },
+    {
+      "class_name": "DisplayXml",
+      "file_path": "griptape_nodes_library/xml/display_xml.py",
+      "metadata": {
+        "category": "xml",
+        "description": "Display XML data with formatting",
+        "display_name": "Display XML",
+        "icon": "eye",
+        "group": "display"
+      }
+    },
+    {
+      "class_name": "XmlExtractValue",
+      "file_path": "griptape_nodes_library/xml/xml_extract_value.py",
+      "metadata": {
+        "category": "xml",
+        "description": "Extract values from XML using XPath expressions (e.g., '//book/title', '//item/@id')",
+        "display_name": "XML Extract Value",
+        "icon": "search",
+        "group": "describe"
+      }
+    },
+    {
+      "class_name": "XmlReplace",
+      "file_path": "griptape_nodes_library/xml/xml_replace.py",
+      "metadata": {
+        "category": "xml",
+        "description": "Replace values in XML using XPath expressions",
+        "display_name": "XML Replace",
+        "icon": "pencil",
+        "group": "edit"
+      }
+    },
+    {
+      "class_name": "HtmlInput",
+      "file_path": "griptape_nodes_library/html/html_input.py",
+      "metadata": {
+        "category": "html",
+        "description": "Create an HTML node from input data",
+        "display_name": "HTML Input",
+        "icon": "file-code",
+        "group": "create"
+      }
+    },
+    {
+      "class_name": "DisplayHtml",
+      "file_path": "griptape_nodes_library/html/display_html.py",
+      "metadata": {
+        "category": "html",
+        "description": "Display HTML data with formatting",
+        "display_name": "Display HTML",
+        "icon": "eye",
+        "group": "display"
+      }
+    },
+    {
+      "class_name": "HtmlExtractValue",
+      "file_path": "griptape_nodes_library/html/html_extract_value.py",
+      "metadata": {
+        "category": "html",
+        "description": "Extract values from HTML using XPath expressions (e.g., '//h1', '//a/@href', '//div[@class=\"main\"]')",
+        "display_name": "HTML Extract Value",
         "icon": "search",
         "group": "describe"
       }

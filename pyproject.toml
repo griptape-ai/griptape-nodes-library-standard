@@ -18,6 +18,7 @@ dependencies = [
   "color-matcher",
   "zstandard>=0.22.0",
   "griptape-nodes>=0.82.0",
+  "lxml>=5.0.0",
 ]
 
 [build-system]
