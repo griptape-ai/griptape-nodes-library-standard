@@ -9,7 +9,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from lxml import etree
 
 
-class XmlExtractValue(DataNode):                                                                                                                                                                                                                    
+class XmlExtractValue(DataNode):
     """Extract values from XML using XPath expressions."""
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:

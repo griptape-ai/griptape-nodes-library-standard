@@ -1,4 +1,3 @@
-
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import (

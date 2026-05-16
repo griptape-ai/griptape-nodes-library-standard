@@ -26,7 +26,7 @@ class ExecutePython(SuccessFailureNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 placeholder_text="# Enter your Python code here. Assign the output to the variable 'result', and access input variables by passing a dict of their names and values'",
                 tooltip="Python code to execute. Set the 'result' variable to specify the output value.",
-                )
+            )
         )
 
         self.add_parameter(

@@ -28,7 +28,7 @@ class HtmlExtractValue(DataNode):
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             default_value="",
             tooltip="XPath expression to extract data (e.g., '//h1', '//a/@href', '//div[@class=\"main\"]')",
-            placeholder_text="ex: //h1, //a/@href, //div[@class=\"main\"]",
+            placeholder_text='ex: //h1, //a/@href, //div[@class="main"]',
         )
         path_param.set_badge(
             variant="help",

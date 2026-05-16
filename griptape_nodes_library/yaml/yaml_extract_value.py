@@ -45,10 +45,7 @@ class YamlExtractValue(DataNode):
 
         self.add_parameter(
             ParameterString(
-                name="output",
-                tooltip="The extracted value(s)",
-                allowed_modes={ParameterMode.OUTPUT},
-                multiline=True
+                name="output", tooltip="The extracted value(s)", allowed_modes={ParameterMode.OUTPUT}, multiline=True
             )
         )
 
