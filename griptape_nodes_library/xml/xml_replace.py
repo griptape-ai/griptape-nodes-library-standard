@@ -1,10 +1,10 @@
 from typing import Any
 
-from lxml import etree
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_xml import ParameterXml
+from lxml import etree
 
 
 class XmlReplace(ControlNode):
