@@ -12,10 +12,10 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.image_utils import extract_image_url
 
@@ -151,52 +151,7 @@ class OmnihumanSubjectDetection(GriptapeProxyNode):
         self._process_response(result_json)
 
     async def _prepare_image_data_url_async(self, image_input: Any) -> str | None:
-        if not image_input:
-            return None
-
-        image_url = self._coerce_image_url_or_data_uri(image_input)
-        if not image_url:
-            return None
-
-        # Already a data URI — return as-is
-        if image_url.startswith("data:image/"):
-            return image_url
-
-        try:
-            return await File(image_url).aread_data_uri(fallback_mime="image/jpeg")
-        except FileLoadError as e:
-            logger.debug("%s failed to load image from %s: %s", self.name, image_url, e)
-            return None
-
-    @staticmethod
-    def _coerce_image_url_or_data_uri(val: Any) -> str | None:
-        """Extract a usable string from various image input types.
-
-        Returns an HTTP(S) URL, a ``data:image/...`` URI, a project macro path
-        like ``{inputs}/foo.png``, or a plain filesystem path. All of these are
-        resolvable by ``File`` downstream; non-URI strings are NOT wrapped as
-        base64.
-        """
-        if val is None:
-            return None
-
-        # Plain string: return stripped value; File() handles URLs, macro paths, and file paths.
-        if isinstance(val, str):
-            v = val.strip()
-            return v or None
-
-        try:
-            # ImageUrlArtifact: .value holds URL/path string — return as-is for File() to resolve.
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:image/") else f"data:image/png;base64,{b64}"
-        except AttributeError:
-            pass
-
-        return None
+        return await prepare_media_data_uri(image_input, kind="image", node_name=self.name, fallback_mime="image/jpeg")
 
     def _get_req_key(self, model_id: str) -> str:
         """Get the request key based on model_id."""

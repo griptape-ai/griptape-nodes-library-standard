@@ -15,10 +15,10 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.video_utils import get_video_duration
 
@@ -206,21 +206,63 @@ class WanAnimateGeneration(GriptapeProxyNode):
             self._public_video_url_parameter.delete_uploaded_artifact()
 
     async def _get_parameters(self) -> dict[str, Any]:
-        # Get the original video URL before uploading to calculate duration
-        video_param = self.get_parameter_value("video_url")
-        original_video_url = video_param.value if hasattr(video_param, "value") else str(video_param)
+        # The DashScope Animate endpoint requires a real video URL, so the
+        # public-URL upload happens in ``_build_payload``. Duration is probed
+        # from the original local input here so that ffprobe works against a
+        # resolvable filesystem path (macro paths included) rather than an
+        # uploaded asset URL we'd otherwise have to download again.
+        #
+        # Direct uploads via the node's media badge land as serialized
+        # ``VideoUrlArtifact`` dicts (``{"value": "<path>", "type": "VideoUrlArtifact", ...}``)
+        # rather than artifact instances. ``PublicArtifactUrlParameter`` and
+        # ``File()`` both expect strings/artifacts, so we normalize the
+        # parameter value first; the same call also covers ``image_url`` so
+        # the upload step in ``_build_payload`` doesn't trip on dict inputs.
+        self._normalize_artifact_url_parameter("image_url", "image")
+        video_url = self._normalize_artifact_url_parameter("video_url", "video")
+        if not video_url:
+            msg = "Video URL must be provided"
+            raise ValueError(msg)
 
-        # Calculate duration from the original video (ceiling to int)
-        duration = math.ceil(await get_video_duration(original_video_url))
+        duration = math.ceil(await get_video_duration(video_url))
         logger.debug("Detected video duration: %ss", duration)
 
         return {
             "model": self.get_parameter_value("model"),
             "mode": self.get_parameter_value("mode"),
-            "image_input": self.get_parameter_value("image_url"),
-            "video_input": self.get_parameter_value("video_url"),
             "duration": duration,
         }
+
+    def _normalize_artifact_url_parameter(self, parameter_name: str, kind: str) -> str | None:
+        """Coerce a media-input parameter into a string URL/path.
+
+        Direct uploads through the media-upload badge serialize the artifact
+        as a dict (``{"value": "<path>", "type": "<Kind>UrlArtifact", ...}``).
+        Both ``PublicArtifactUrlParameter.get_public_url_for_parameter`` and
+        ``File(...)`` only accept strings or artifact instances, so a dict in
+        the parameter slot crashes the upload path and produces a misleading
+        "missing required variables" macro error from ``File`` when the
+        repr-string is parsed as a macro.
+
+        Coerce the dict to its inner string via the shared media helpers and
+        write that back to the parameter so downstream callers see a value
+        they can consume. String / artifact inputs are returned as-is.
+        """
+        raw = self.get_parameter_value(parameter_name)
+        if not raw:
+            return None
+        if isinstance(raw, dict):
+            coerced = coerce_media_url_or_data_uri(raw, kind=kind)  # type: ignore[arg-type]
+            if not coerced:
+                return None
+            self.set_parameter_value(parameter_name, coerced)
+            return coerced
+        value = getattr(raw, "value", None)
+        if isinstance(value, str) and value:
+            return value
+        if isinstance(raw, str):
+            return raw
+        return None
 
     def _validate_api_key(self) -> str:
         api_key = GriptapeNodes.SecretsManager().get_secret(self.API_KEY_NAME)
@@ -236,18 +278,23 @@ class WanAnimateGeneration(GriptapeProxyNode):
     async def _build_payload(self) -> dict[str, Any]:
         params = await self._get_parameters()
 
-        image_url = await self._prepare_image_data_url_async(params["image_input"])
+        # The DashScope Animate endpoint (``services/aigc/image2video/video-synthesis``)
+        # is called via raw POST in the cloud proxy and forwards ``image_url``
+        # and ``video_url`` straight through. DashScope only accepts public
+        # HTTP URLs there; ``data:`` URIs come back as ``InvalidVideo.FileFormat``.
+        # Upload via ``PublicArtifactUrlParameter`` so the request carries a
+        # short-lived public URL the provider can fetch.
+        image_url = self._public_image_url_parameter.get_public_url_for_parameter()
         if not image_url:
-            msg = "Failed to process input image"
+            msg = "Failed to upload input image"
             raise ValueError(msg)
 
-        video_url = await self._prepare_video_data_url_async(params["video_input"])
+        video_url = self._public_video_url_parameter.get_public_url_for_parameter()
         if not video_url:
-            msg = "Failed to process input video"
+            msg = "Failed to upload input video"
             raise ValueError(msg)
 
-        # Build payload matching proxy expected format
-        payload = {
+        return {
             "input": {
                 "image_url": image_url,
                 "video_url": video_url,
@@ -258,8 +305,6 @@ class WanAnimateGeneration(GriptapeProxyNode):
             },
         }
 
-        return payload
-
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         status = self._extract_status(result_json) or STATUS_UNKNOWN
         if status in {STATUS_FAILED, STATUS_CANCELED}:
@@ -269,96 +314,6 @@ class WanAnimateGeneration(GriptapeProxyNode):
             return
 
         await self._handle_completion(result_json, generation_id)
-
-    async def _prepare_image_data_url_async(self, image_input: Any) -> str | None:
-        if not image_input:
-            return None
-
-        image_url = self._coerce_image_url_or_data_uri(image_input)
-        if not image_url:
-            return None
-
-        # Already a data URI — return as-is
-        if image_url.startswith("data:image/"):
-            return image_url
-
-        try:
-            return await File(image_url).aread_data_uri(fallback_mime="image/jpeg")
-        except FileLoadError as e:
-            logger.debug("%s failed to load image from %s: %s", self.name, image_url, e)
-            return None
-
-    async def _prepare_video_data_url_async(self, video_input: Any) -> str | None:
-        if not video_input:
-            return None
-
-        video_url = self._coerce_video_url_or_data_uri(video_input)
-        if not video_url:
-            return None
-
-        # Already a data URI — return as-is
-        if video_url.startswith("data:video/"):
-            return video_url
-
-        try:
-            return await File(video_url).aread_data_uri(fallback_mime="video/mp4")
-        except FileLoadError as e:
-            logger.debug("%s failed to load video from %s: %s", self.name, video_url, e)
-            return None
-
-    @staticmethod
-    def _coerce_image_url_or_data_uri(val: Any) -> str | None:
-        """Extract a usable string from various image input types.
-
-        Returns an HTTP(S) URL, a ``data:image/...`` URI, a project macro path
-        like ``{inputs}/foo.png``, or a plain filesystem path. All of these are
-        resolvable by ``File`` downstream; non-URI strings are NOT wrapped as
-        base64.
-        """
-        if val is None:
-            return None
-
-        if isinstance(val, str):
-            v = val.strip()
-            return v or None
-
-        try:
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:image/") else f"data:image/png;base64,{b64}"
-        except AttributeError:
-            pass
-
-        return None
-
-    @staticmethod
-    def _coerce_video_url_or_data_uri(val: Any) -> str | None:
-        """Extract a usable string from various video input types.
-
-        Returns an HTTP(S) URL, a ``data:video/...`` URI, a project macro path,
-        or a plain filesystem path. Non-URI strings are NOT wrapped as base64.
-        """
-        if val is None:
-            return None
-
-        if isinstance(val, str):
-            v = val.strip()
-            return v or None
-
-        try:
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:video/") else f"data:video/mp4;base64,{b64}"
-        except AttributeError:
-            pass
-
-        return None
 
     async def _handle_completion(self, last_json: dict[str, Any] | None, generation_id: str | None = None) -> None:
         extracted_url = self._extract_video_url(last_json)
@@ -474,6 +429,13 @@ class WanAnimateGeneration(GriptapeProxyNode):
     def _extract_status(response_json: dict[str, Any] | None) -> str | None:
         if not response_json:
             return None
+        # DashScope wraps the live status under ``output.task_status``; older
+        # / pre-v2 responses surfaced it at the top level.
+        output = response_json.get("output")
+        if isinstance(output, dict):
+            task_status = output.get("task_status")
+            if isinstance(task_status, str):
+                return task_status
         task_status = response_json.get("task_status")
         if isinstance(task_status, str):
             return task_status
@@ -481,11 +443,43 @@ class WanAnimateGeneration(GriptapeProxyNode):
 
     @staticmethod
     def _extract_video_url(obj: dict[str, Any] | None) -> str | None:
+        """Extract the generated video URL from a WAN Animate response.
+
+        DashScope's documented shape (``wan2.2-animate-mix`` / ``-move``) is::
+
+            {
+              "request_id": "...",
+              "output": {
+                "task_status": "SUCCEEDED",
+                "results": {"video_url": "https://..."}
+              },
+              "usage": {...}
+            }
+
+        Older / sibling WAN endpoints have used ``output.video_url`` directly,
+        a top-level ``results.video_url`` (shape kept for backwards compat),
+        and a top-level ``video_url``. We probe each location in turn so a
+        documented response shift across model versions keeps working.
+        """
         if not obj:
             return None
+
+        def _is_http_url(value: Any) -> bool:
+            return isinstance(value, str) and value.startswith("http")
+
+        output = obj.get("output")
+        if isinstance(output, dict):
+            results = output.get("results")
+            if isinstance(results, dict) and _is_http_url(results.get("video_url")):
+                return results["video_url"]
+            if _is_http_url(output.get("video_url")):
+                return output["video_url"]
+
         results = obj.get("results")
-        if isinstance(results, dict):
-            video_url = results.get("video_url")
-            if isinstance(video_url, str) and video_url.startswith("http"):
-                return video_url
+        if isinstance(results, dict) and _is_http_url(results.get("video_url")):
+            return results["video_url"]
+
+        if _is_http_url(obj.get("video_url")):
+            return obj["video_url"]
+
         return None

@@ -5,18 +5,17 @@ import logging
 import subprocess
 from typing import Any
 
-from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
 # static_ffmpeg is dynamically installed by the library loader at runtime
 from static_ffmpeg import run  # type: ignore[import-untyped]
 
+from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -127,10 +126,8 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         return f"{model_id}:video-to-video-hdr"
 
     @staticmethod
-    def _extract_video_url(video_input: Any) -> str | None:
-        if isinstance(video_input, VideoUrlArtifact):
-            return video_input.value
-        return str(video_input) if video_input else None
+    def _extract_input_video_url(video_input: Any) -> str | None:
+        return coerce_media_url_or_data_uri(video_input, kind="video")
 
     def _probe_video(self, video_url: str) -> tuple[int, int, int] | None:
         """Probe a video URL/data-URI with ffprobe. Returns (width, height, frames) or None."""
@@ -199,7 +196,7 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         if not video:
             return f"{self.name} requires an input video for HDR upscale."
 
-        video_url = self._extract_video_url(video)
+        video_url = self._extract_input_video_url(video)
         if not video_url:
             return None
 
@@ -228,21 +225,7 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
 
     async def _prepare_video_data_uri_async(self, video_input: Any) -> str | None:
         """Convert video input to a base64 data URI."""
-        if not video_input:
-            return None
-
-        video_url = self._extract_video_url(video_input)
-        if not video_url:
-            return None
-
-        if video_url.startswith("data:video/"):
-            return video_url
-
-        try:
-            return await File(video_url).aread_data_uri(fallback_mime="video/mp4")
-        except FileLoadError:
-            logger.debug("%s failed to load video value: %s", self.name, video_url)
-            return None
+        return await prepare_media_data_uri(video_input, kind="video", node_name=self.name)
 
     async def _build_payload(self) -> dict[str, Any]:
         video = self.get_parameter_value("video")

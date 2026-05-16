@@ -17,10 +17,10 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -501,92 +501,10 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
         await self._handle_completion(result_json, generation_id)
 
     async def _prepare_video_data_url_async(self, video_input: Any) -> str | None:
-        if not video_input:
-            return None
-
-        video_url = self._coerce_video_url_or_data_uri(video_input)
-        if not video_url:
-            return None
-
-        # Already a data URI — return as-is
-        if video_url.startswith("data:video/"):
-            return video_url
-
-        try:
-            return await File(video_url).aread_data_uri(fallback_mime="video/mp4")
-        except FileLoadError as e:
-            logger.debug("%s failed to load video from %s: %s", self.name, video_url, e)
-            return None
+        return await prepare_media_data_uri(video_input, kind="video", node_name=self.name)
 
     async def _prepare_audio_data_url_async(self, audio_input: Any) -> str | None:
-        if not audio_input:
-            return None
-
-        audio_url = self._coerce_audio_url_or_data_uri(audio_input)
-        if not audio_url:
-            return None
-
-        # Already a data URI — return as-is
-        if audio_url.startswith("data:audio/"):
-            return audio_url
-
-        try:
-            return await File(audio_url).aread_data_uri(fallback_mime="audio/mpeg")
-        except FileLoadError as e:
-            logger.debug("%s failed to load audio from %s: %s", self.name, audio_url, e)
-            return None
-
-    @staticmethod
-    def _coerce_video_url_or_data_uri(val: Any) -> str | None:
-        """Extract a usable string from various video input types.
-
-        Returns an HTTP(S) URL, a ``data:video/...`` URI, a project macro path,
-        or a plain filesystem path. Non-URI strings are NOT wrapped as base64.
-        """
-        if val is None:
-            return None
-
-        if isinstance(val, str):
-            v = val.strip()
-            return v or None
-
-        try:
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:video/") else f"data:video/mp4;base64,{b64}"
-        except AttributeError:
-            pass
-
-        return None
-
-    @staticmethod
-    def _coerce_audio_url_or_data_uri(val: Any) -> str | None:
-        """Extract a usable string from various audio input types.
-
-        Returns an HTTP(S) URL, a ``data:audio/...`` URI, a project macro path,
-        or a plain filesystem path. Non-URI strings are NOT wrapped as base64.
-        """
-        if val is None:
-            return None
-
-        if isinstance(val, str):
-            v = val.strip()
-            return v or None
-
-        try:
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:audio/") else f"data:audio/mpeg;base64,{b64}"
-        except AttributeError:
-            pass
-
-        return None
+        return await prepare_media_data_uri(audio_input, kind="audio", node_name=self.name)
 
     async def _handle_completion(self, last_json: dict[str, Any] | None, generation_id: str | None = None) -> None:
         """Handle successful generation completion."""
@@ -711,9 +629,19 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
 
     @staticmethod
     def _extract_result_video_url(obj: dict[str, Any] | None) -> str | None:
-        """Extract video URL from response."""
+        """Extract video URL from response.
+
+        The WAN proxy nests the result under ``output.video_url``; older or
+        flatter responses may put it at the top level. Check the nested
+        location first and fall back to the top-level key.
+        """
         if not obj:
             return None
+        output = obj.get("output")
+        if isinstance(output, dict):
+            nested = output.get("video_url")
+            if isinstance(nested, str) and nested.startswith("http"):
+                return nested
         video_url = obj.get("video_url")
         if isinstance(video_url, str) and video_url.startswith("http"):
             return video_url

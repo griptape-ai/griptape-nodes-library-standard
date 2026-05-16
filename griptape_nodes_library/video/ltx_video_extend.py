@@ -11,10 +11,10 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
+from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -215,21 +215,7 @@ class LTXVideoExtend(GriptapeProxyNode):
 
     async def _prepare_video_data_uri_async(self, video_input: Any) -> str | None:
         """Convert video input to a base64 data URI."""
-        if not video_input:
-            return None
-
-        video_url = video_input.value if isinstance(video_input, VideoUrlArtifact) else str(video_input)
-        if not video_url:
-            return None
-
-        if video_url.startswith("data:video/"):
-            return video_url
-
-        try:
-            return await File(video_url).aread_data_uri(fallback_mime="video/mp4")
-        except FileLoadError:
-            logger.debug("%s failed to load video value: %s", self.name, video_url)
-            return None
+        return await prepare_media_data_uri(video_input, kind="video", node_name=self.name)
 
     def _validate_duration(self, duration: Any) -> str | None:
         if not isinstance(duration, int) or isinstance(duration, bool):
