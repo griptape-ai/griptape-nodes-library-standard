@@ -2,6 +2,7 @@ from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.exe_types.param_types.parameter_python import ParameterPython
 from griptape_nodes.retained_mode.events.arbitrary_python_events import (
     RunArbitraryPythonStringRequest,
     RunArbitraryPythonStringResultFailure,
@@ -20,17 +21,12 @@ class ExecutePython(SuccessFailureNode):
 
         # Add input parameters
         self.add_parameter(
-            Parameter(
+            ParameterPython(
                 name="python_code",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                type="str",
-                default_value="# Enter your Python code here. Assign the output to the variable 'result', and access input variables by passing a dict of their names and values'",
+                placeholder_text="# Enter your Python code here. Assign the output to the variable 'result', and access input variables by passing a dict of their names and values'",
                 tooltip="Python code to execute. Set the 'result' variable to specify the output value.",
-                ui_options={
-                    "multiline": True,
-                    "placeholder_text": "Enter your Python code here",
-                },
-            )
+                )
         )
 
         self.add_parameter(
