@@ -11,8 +11,9 @@ from typing import Any
 from urllib.parse import urljoin
 
 import httpx
-from griptape_nodes.exe_types.core_types import Parameter
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.proxy.proxy_api_key_providers import get_proxy_api_key_provider_config
@@ -66,6 +67,18 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._user_auth_info: str | None = None
         self._api_key_provider: ProxyAuthProviderParameter | None = None
         self._initialize_api_key_provider()
+
+        default_timeout = self.DEFAULT_MAX_ATTEMPTS * self.DEFAULT_POLL_INTERVAL
+        with ParameterGroup(name="Generation Settings", ui_options={"collapsed": True}) as _timeout_group:
+            ParameterInt(
+                name="timeout",
+                default_value=default_timeout,
+                tooltip="Polling timeout in seconds. Set to 0 for no timeout.",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                min_val=0,
+                max_val=86400,
+            )
+        self.add_node_element(_timeout_group)
 
     def _initialize_api_key_provider(self) -> None:
         provider_config = get_proxy_api_key_provider_config(type(self).__name__)
@@ -356,6 +369,15 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         return False, None
 
+    def _resolve_timeout_seconds(self) -> int:
+        try:
+            value = self.get_parameter_value("timeout")
+        except Exception:
+            value = None
+        if value is None:
+            return self.DEFAULT_MAX_ATTEMPTS * self.DEFAULT_POLL_INTERVAL
+        return max(0, int(value))
+
     async def _poll_generation_status(self, generation_id: str, headers: dict[str, str]) -> dict[str, Any] | None:
         """Poll generation status until terminal state is reached.
 
@@ -367,11 +389,18 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             dict | None: The final status response, or None if polling failed
         """
         get_url = urljoin(self._proxy_base, f"generations/{generation_id}")
-        max_attempts = self.DEFAULT_MAX_ATTEMPTS
         poll_interval = self.DEFAULT_POLL_INTERVAL
+        timeout_s = self._resolve_timeout_seconds()
+        # None means unbounded (timeout=0 set by user)
+        max_attempts = (
+            max(1, (timeout_s + poll_interval - 1) // poll_interval)
+            if timeout_s > 0
+            else None
+        )
 
+        attempt = 0
         async with httpx.AsyncClient() as client:
-            for attempt in range(max_attempts):
+            while True:
                 try:
                     self._log(f"Polling attempt #{attempt + 1} for generation {generation_id}")
 
@@ -386,31 +415,40 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                     if is_terminal:
                         return terminal_result
 
+                    attempt += 1
+
+                    # Timeout reached (only when max_attempts is set)
+                    if max_attempts is not None and attempt >= max_attempts:
+                        break
+
                     # Still processing (QUEUED or RUNNING), wait before next poll
-                    if attempt < max_attempts - 1:
-                        await asyncio.sleep(poll_interval)
+                    await asyncio.sleep(poll_interval)
 
                 except httpx.HTTPStatusError as e:
                     self._log(f"HTTP error while polling: {e.response.status_code} - {e.response.text}")
-                    if attempt == max_attempts - 1:
+                    attempt += 1
+                    if max_attempts is not None and attempt >= max_attempts:
                         self._set_safe_defaults()
                         error_msg = f"Failed to poll generation status: HTTP {e.response.status_code}"
                         self._set_status_results(was_successful=False, result_details=error_msg)
                         return None
+                    await asyncio.sleep(poll_interval)
                 except Exception as e:
                     self._log(f"Error while polling: {e}")
-                    if attempt == max_attempts - 1:
+                    attempt += 1
+                    if max_attempts is not None and attempt >= max_attempts:
                         self._set_safe_defaults()
                         error_msg = f"Failed to poll generation status: {e}"
                         self._set_status_results(was_successful=False, result_details=error_msg)
                         return None
+                    await asyncio.sleep(poll_interval)
 
         # Timeout reached
         self._log("Polling timed out waiting for result")
         self._set_safe_defaults()
         self._set_status_results(
             was_successful=False,
-            result_details=f"Generation timed out after {max_attempts * poll_interval} seconds waiting for result.",
+            result_details=f"Generation timed out after {timeout_s} seconds waiting for result.",
         )
         return None
 
