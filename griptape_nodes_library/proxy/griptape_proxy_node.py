@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import urljoin
 
 import httpx
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
@@ -69,7 +69,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._initialize_api_key_provider()
 
         default_timeout = self.DEFAULT_MAX_ATTEMPTS * self.DEFAULT_POLL_INTERVAL
-        with ParameterGroup(name="Generation Settings", ui_options={"collapsed": True}) as _timeout_group:
+        self.add_parameter(
             ParameterInt(
                 name="timeout",
                 default_value=default_timeout,
@@ -78,7 +78,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 min_val=0,
                 max_val=86400,
             )
-        self.add_node_element(_timeout_group)
+        )
 
     def _initialize_api_key_provider(self) -> None:
         provider_config = get_proxy_api_key_provider_config(type(self).__name__)
@@ -392,11 +392,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         poll_interval = self.DEFAULT_POLL_INTERVAL
         timeout_s = self._resolve_timeout_seconds()
         # None means unbounded (timeout=0 set by user)
-        max_attempts = (
-            max(1, (timeout_s + poll_interval - 1) // poll_interval)
-            if timeout_s > 0
-            else None
-        )
+        max_attempts = max(1, (timeout_s + poll_interval - 1) // poll_interval) if timeout_s > 0 else None
 
         attempt = 0
         async with httpx.AsyncClient() as client:

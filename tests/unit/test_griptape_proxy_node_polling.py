@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import ast
 import asyncio
 import importlib
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
-import ast
 
 import pytest
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
@@ -13,7 +13,6 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
 )
 
 from griptape_nodes_library.image.flux_2_image_generation import Flux2ImageGeneration
-from griptape_nodes_library.proxy.griptape_proxy_node import GriptapeProxyNode
 
 
 def _iter_proxy_node_classes() -> Iterator[tuple[str, str]]:
@@ -80,6 +79,7 @@ async def test_timeout_parameter_limits_poll_attempts(monkeypatch: pytest.Monkey
             return AlwaysRunningResponse()
 
     monkeypatch.setattr("griptape_nodes_library.proxy.griptape_proxy_node.httpx.AsyncClient", FakeAsyncClient)
+
     async def noop_sleep(_: float) -> None:
         pass
 
@@ -137,6 +137,7 @@ async def test_zero_timeout_polls_until_completion(monkeypatch: pytest.MonkeyPat
             return EventuallyCompletedResponse(poll_count)
 
     monkeypatch.setattr("griptape_nodes_library.proxy.griptape_proxy_node.httpx.AsyncClient", FakeAsyncClient)
+
     async def noop_sleep(_: float) -> None:
         pass
 
