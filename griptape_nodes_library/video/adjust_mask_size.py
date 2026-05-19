@@ -54,10 +54,6 @@ class AdjustMaskSize(DataNode):
             )
         )
 
-        # Preview widget parameter.
-        # Must include ParameterMode.INPUT so the framework initializes the widget
-        # on first node creation (PROPERTY-only parameters don't trigger widget
-        # rendering until a browser refresh).
         preview_param = ParameterDict(
             name="preview",
             default_value={
@@ -93,11 +89,6 @@ class AdjustMaskSize(DataNode):
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="adjusted_mask.mp4")
         self._output_file.add_parameter()
 
-        # Ensure the preview widget renders on first node creation.
-        # The framework only calls the widget function when set_parameter_value is
-        # invoked; calling _update_preview() here fires that on every init.
-        self._update_preview()
-
     def after_value_set(self, parameter: Parameter, value: Any) -> Any:
         """Called after a parameter value is set.
 
@@ -109,7 +100,6 @@ class AdjustMaskSize(DataNode):
         """
         # Update preview when relevant parameters change
         if parameter.name in ["original_video", "mask_video"]:
-            print("Video input changed, updating preview...")
             self._update_preview()
 
         return super().after_value_set(parameter, value)

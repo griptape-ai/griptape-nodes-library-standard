@@ -22,7 +22,7 @@
  *   captured and displayed as soon as the browser has decoded it.
  */
 
-const WIDGET_VERSION = "0.7.0";
+const WIDGET_VERSION = "0.8.0";
 
 // Shared slider styling to match the editor's native Radix-style sliders
 const SLIDER_STYLE = `
@@ -85,11 +85,15 @@ export default function MaskAdjustmentPreview(container, props) {
   const newMaskUrl = value?.mask_video_url || "";
   const newAdjustment = value?.adjustment ?? 0;
 
-  // If the widget was already built, just update what changed
+  // If the widget was already built and its DOM is still attached, just update
   if (container._maskPreview) {
     const inst = container._maskPreview;
-    inst.update(newOriginalUrl, newMaskUrl, newAdjustment, onChange);
-    return inst.cleanup;
+    if (inst.wrapper && inst.wrapper.isConnected) {
+      inst.update(newOriginalUrl, newMaskUrl, newAdjustment, onChange);
+      return inst.cleanup;
+    }
+    // DOM was detached (framework called cleanup between renders) — full rebuild
+    delete container._maskPreview;
   }
 
   // --- First-time build ---
@@ -812,7 +816,10 @@ export default function MaskAdjustmentPreview(container, props) {
     }
   }
 
-  // Cleanup function — fully release video resources to avoid WebMediaPlayer exhaustion
+  // Cleanup function — fully release video resources to avoid WebMediaPlayer exhaustion.
+  // IMPORTANT: must remove the wrapper from the container and delete container._maskPreview
+  // so the next widget call (after framework cleanup+re-render) does a full rebuild
+  // rather than calling update() on detached DOM elements.
   function cleanup() {
     video.pause();
     maskVideo.pause();
@@ -822,10 +829,12 @@ export default function MaskAdjustmentPreview(container, props) {
     maskVideo.load();
     video.remove();
     maskVideo.remove();
+    wrapper.remove();
+    delete container._maskPreview;
   }
 
-  // Store instance on container for re-invocations
-  container._maskPreview = { update, cleanup };
+  // Store instance on container for re-invocations (includes wrapper for isConnected check)
+  container._maskPreview = { update, cleanup, wrapper };
 
   return cleanup;
 }
