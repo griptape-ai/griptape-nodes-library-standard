@@ -245,13 +245,20 @@ class AdjustMaskSize(DataNode):
 
             cmd = [
                 ffmpeg_path,
-                "-i", video_url,
-                "-vf", vf,
-                "-c:v", "libx264",
-                "-pix_fmt", "yuv420p",
-                "-preset", "medium",
-                "-crf", "18",
-                "-y", str(output_video),
+                "-i",
+                video_url,
+                "-vf",
+                vf,
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-preset",
+                "medium",
+                "-crf",
+                "18",
+                "-y",
+                str(output_video),
             ]
 
             try:
@@ -294,4 +301,3 @@ class AdjustMaskSize(DataNode):
         if not validate_url(url):
             msg = f"{self.name}: Invalid or unsafe URL provided: {url}"
             raise ValueError(msg)
-
