@@ -22,7 +22,7 @@
  *   captured and displayed as soon as the browser has decoded it.
  */
 
-const WIDGET_VERSION = "0.8.0";
+const WIDGET_VERSION = "0.9.0";
 
 // Shared slider styling to match the editor's native Radix-style sliders
 const SLIDER_STYLE = `
@@ -89,8 +89,8 @@ export default function MaskAdjustmentPreview(container, props) {
   if (container._maskPreview) {
     const inst = container._maskPreview;
     if (inst.wrapper && inst.wrapper.isConnected) {
-      inst.update(newOriginalUrl, newMaskUrl, newAdjustment, onChange);
-      return inst.cleanup;
+      inst.handleUpdate(props);
+      return { cleanup: inst.cleanup, update: inst.handleUpdate };
     }
     // DOM was detached (framework called cleanup between renders) — full rebuild
     delete container._maskPreview;
@@ -833,8 +833,15 @@ export default function MaskAdjustmentPreview(container, props) {
     delete container._maskPreview;
   }
 
-  // Store instance on container for re-invocations (includes wrapper for isConnected check)
-  container._maskPreview = { update, cleanup, wrapper };
+  // Adapter: maps ParameterComponentProps → internal update signature so the
+  // WidgetLoader framework can forward value changes via handleRef.current.update().
+  function handleUpdate(newProps) {
+    const v = newProps.value;
+    update(v?.original_video_url || "", v?.mask_video_url || "", v?.adjustment ?? 0, newProps.onChange);
+  }
 
-  return cleanup;
+  // Store instance on container for re-invocations (includes wrapper for isConnected check)
+  container._maskPreview = { handleUpdate, cleanup, wrapper };
+
+  return { cleanup, update: handleUpdate };
 }

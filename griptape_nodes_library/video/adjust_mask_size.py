@@ -128,12 +128,17 @@ class AdjustMaskSize(DataNode):
             return value
 
         try:
+            resolved_path = File(value).resolve()
+        except Exception:
+            resolved_path = str(value)
+
+        try:
             from griptape_nodes.retained_mode.events.static_file_events import (
                 CreateStaticFileDownloadUrlFromPathRequest,
                 CreateStaticFileDownloadUrlFromPathResultSuccess,
             )
 
-            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=value))
+            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved_path))
             if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
                 return result.url
         except Exception:
