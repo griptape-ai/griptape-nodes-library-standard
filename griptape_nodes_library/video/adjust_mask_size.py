@@ -119,7 +119,7 @@ class AdjustMaskSize(DataNode):
         if not video_artifact:
             return ""
 
-        value = video_artifact.value
+        value = video_artifact.value if hasattr(video_artifact, "value") else str(video_artifact)
         if not value:
             return ""
 
@@ -226,6 +226,8 @@ class AdjustMaskSize(DataNode):
 
         # If adjustment is 0, just pass through the input
         if adjustment == 0:
+            if not hasattr(mask_video, "value"):
+                mask_video = VideoUrlArtifact(File(str(mask_video)).resolve())
             self.parameter_output_values["output_mask"] = mask_video
             return
 
@@ -246,7 +248,8 @@ class AdjustMaskSize(DataNode):
         output_video: Path | None = None
         try:
             ffmpeg_path, _ = self._get_ffmpeg_paths()
-            video_url = File(mask_video.value).resolve()
+            raw_path = mask_video.value if hasattr(mask_video, "value") else str(mask_video)
+            video_url = File(raw_path).resolve()
             self._validate_url_safety(video_url)
 
             # Chain dilation or erosion N times for N-pixel radius effect
