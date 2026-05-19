@@ -55,23 +55,27 @@ class AdjustMaskSize(DataNode):
             )
         )
 
-        # Preview widget parameter
-        preview_param = Parameter(
-            name="preview",
-            type="dict",
-            default_value={
-                "original_video_url": "",
-                "mask_video_url": "",
-                "adjustment": 0,
-                "current_frame": 0,
-                "total_frames": 0,
-            },
-            tooltip="Interactive preview of mask adjustment",
-            allowed_modes={ParameterMode.PROPERTY},
-            ui_options={"display_name": "Preview"},
+        # Preview widget parameter.
+        # Must include ParameterMode.INPUT so the framework initializes the widget
+        # on first node creation (PROPERTY-only parameters don't trigger widget
+        # rendering until a browser refresh).
+        self.add_parameter(
+            Parameter(
+                name="preview",
+                type="dict",
+                default_value={
+                    "original_video_url": "",
+                    "mask_video_url": "",
+                    "adjustment": 0,
+                    "current_frame": 0,
+                    "total_frames": 0,
+                },
+                tooltip="Interactive preview of mask adjustment",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Widget(name="MaskAdjustmentPreview", library="Griptape Nodes Library")},
+                ui_options={"display_name": "Preview"},
+            )
         )
-        preview_param.add_trait(Widget(name="MaskAdjustmentPreview", library="Griptape Nodes Library"))
-        self.add_parameter(preview_param)
 
         # Output video parameter
         self.add_parameter(
@@ -91,6 +95,11 @@ class AdjustMaskSize(DataNode):
         # Output file parameter (controls save location)
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="adjusted_mask.mp4")
         self._output_file.add_parameter()
+
+        # Ensure the preview widget renders on first node creation.
+        # The framework only calls the widget function when set_parameter_value is
+        # invoked; calling _update_preview() here fires that on every init.
+        self._update_preview()
 
     def after_value_set(self, parameter: Parameter, value: Any) -> Any:
         """Called after a parameter value is set.
@@ -162,8 +171,22 @@ class AdjustMaskSize(DataNode):
         total_frames = preview.get("total_frames", 0)
         adjustment = preview.get("adjustment", 0)
 
-        # Skip if URLs haven't changed — avoids unnecessary widget rebuild
-        if preview.get("original_video_url") == original_video_url and preview.get("mask_video_url") == mask_video_url:
+        # Skip if URLs haven't changed — avoids unnecessary widget rebuilds.
+        # Strip query params (presigned-URL timestamps change each call) before comparing.
+        # Exception: when both old and new URLs are empty (initial state, no videos
+        # connected yet), always call set_parameter_value so the framework invokes
+        # the widget function and the widget renders on first node creation.
+        def _url_base(u: str) -> str:
+            return u.split("?")[0] if u else ""
+
+        stored_orig = _url_base(preview.get("original_video_url", ""))
+        stored_mask = _url_base(preview.get("mask_video_url", ""))
+        new_orig = _url_base(original_video_url)
+        new_mask = _url_base(mask_video_url)
+
+        urls_unchanged = stored_orig == new_orig and stored_mask == new_mask
+        any_url_set = stored_orig or stored_mask or new_orig or new_mask
+        if urls_unchanged and any_url_set:
             return
 
         self.set_parameter_value(
