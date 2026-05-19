@@ -1,38 +1,46 @@
 /**
- * MaskAdjustmentPreview Widget — Compact Slider + Floating Preview Tooltip
+ * MaskAdjustmentPreview Widget
  *
- * Renders as a normal integer slider (-25 to +25) inside the node.
- * When the user starts dragging, a floating tooltip appears showing:
- *   - A canvas preview of the mask frame with the morphological
- *     adjustment applied in real-time (O(W·H) prefix-sum box morphology)
- *   - A timeline scrubber to pick any frame to preview
+ * Provides interactive preview of mask adjustments on video frames.
+ * Features:
+ * - Timeline scrubbing to view different frames
+ * - Adjustment slider to preview dilation/erosion
+ * - Semi-transparent yellow mask overlay on original video
  *
- * Video elements are created once and kept alive across tooltip open/close
- * cycles so the frame doesn't have to reload on every drag.
- * Overlay mode (yellow mask on original video) activates automatically when
- * original_video_url is present in the value dict.
+ * The widget caches its instance on the container element so that
+ * framework re-invocations (triggered by value changes) update the
+ * existing DOM instead of rebuilding from scratch. This preserves
+ * video playback position and avoids the "jump to frame 0" bug.
  *
- * Parameter value shape:
- *   { value: number, mask_video_url: string, original_video_url: string }
+ * Performance design:
+ * - applyMorphologicalOp is O(W·H) via 2D prefix-sum box morphology,
+ *   regardless of radius. ~1000× faster than the previous O(W·H·r²) loop.
+ * - cachedMaskData stores the ImageData of the current frame so that
+ *   adjustment-slider changes never re-draw from the video element.
+ * - tmpCvs / tmpCtx are created once at closure scope and reused.
+ * - loadeddata + requestVideoFrameCallback ensure the first frame is
+ *   captured and displayed as soon as the browser has decoded it.
  */
 
-const WIDGET_VERSION = "2.0.0";
+const WIDGET_VERSION = "0.7.0";
 
-const STYLE_ID = "mask-adj-preview-styles";
-const SLIDER_BASE = `
+// Shared slider styling to match the editor's native Radix-style sliders
+const SLIDER_STYLE = `
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
   height: 6px;
-  background: rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.25);
   border-radius: 9999px;
   outline: none;
   cursor: pointer;
 `;
-const INJECTED_CSS = `
-  .map-slider::-webkit-slider-thumb {
+const SLIDER_THUMB_CSS = `
+  input[type=range]::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 16px; height: 16px;
+    appearance: none;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
     background: #7c3aed;
     border: 2px solid #7c3aed;
@@ -40,105 +48,285 @@ const INJECTED_CSS = `
     cursor: pointer;
     transition: box-shadow 0.15s;
   }
-  .map-slider::-webkit-slider-thumb:hover {
+  input[type=range]::-webkit-slider-thumb:hover {
     box-shadow: 0 0 0 4px rgba(124,58,237,0.3);
   }
-  .map-slider::-moz-range-thumb {
-    width: 16px; height: 16px;
+  input[type=range]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
     background: #7c3aed;
     border: 2px solid #7c3aed;
     box-shadow: 0 1px 3px rgba(0,0,0,0.3);
     cursor: pointer;
+    transition: box-shadow 0.15s;
   }
-  .map-slider:disabled { opacity: 0.5; cursor: not-allowed; }
-  .map-frame-slider::-webkit-slider-thumb {
+  input[type=range]::-moz-range-thumb:hover {
+    box-shadow: 0 0 0 4px rgba(124,58,237,0.3);
+  }
+  input[type=range]:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  input[type=range]:disabled::-webkit-slider-thumb {
+    cursor: not-allowed;
+  }
+  .mask-adjustment-preview input[type=number]::-webkit-outer-spin-button,
+  .mask-adjustment-preview input[type=number]::-webkit-inner-spin-button {
     -webkit-appearance: none;
-    width: 12px; height: 12px;
-    border-radius: 50%;
-    background: #4a9eff;
-    border: 2px solid #4a9eff;
-    cursor: pointer;
-  }
-  .map-frame-slider::-moz-range-thumb {
-    width: 12px; height: 12px;
-    border-radius: 50%;
-    background: #4a9eff;
-    border: 2px solid #4a9eff;
-    cursor: pointer;
+    margin: 0;
   }
 `;
 
 export default function MaskAdjustmentPreview(container, props) {
   const { value, disabled, onChange } = props;
 
-  // Parse value — accept plain int for pipeline connections
-  const parseValue = (v) => ({
-    adjValue: typeof v === "number" ? v : (v?.value ?? 0),
-    maskUrl: v?.mask_video_url ?? "",
-    origUrl: v?.original_video_url ?? "",
-  });
+  const newOriginalUrl = value?.original_video_url || "";
+  const newMaskUrl = value?.mask_video_url || "";
+  const newAdjustment = value?.adjustment ?? 0;
 
-  let { adjValue, maskUrl, origUrl } = parseValue(value);
+  // If the widget was already built, just update what changed
+  if (container._maskPreview) {
+    const inst = container._maskPreview;
+    inst.update(newOriginalUrl, newMaskUrl, newAdjustment, onChange);
+    return inst.cleanup;
+  }
+
+  // --- First-time build ---
+
+  // Mutable state held in closure
+  let originalVideoUrl = newOriginalUrl;
+  let maskVideoUrl = newMaskUrl;
+  let adjustment = newAdjustment;
+  let currentFrame = value?.current_frame ?? 0;
+  let totalFrames = value?.total_frames ?? 0;
+  let videoReady = false;
+  let maskReady = false;
+  let isSeeking = false;
   let onChangeRef = onChange;
+  let maskOnlyMode = !newOriginalUrl;
+  let detectedFps = 30;
 
-  // Re-use cached instance on subsequent framework calls
-  if (container._mapInst) {
-    container._mapInst.update(adjValue, maskUrl, origUrl, onChange);
-    return container._mapInst.cleanup;
-  }
-
-  // ── Inject styles once ──────────────────────────────────────────────────
-  if (!document.getElementById(STYLE_ID)) {
-    const s = document.createElement("style");
-    s.id = STYLE_ID;
-    s.textContent = INJECTED_CSS;
-    document.head.appendChild(s);
-  }
-
-  // ── Persistent video/canvas state (survives tooltip cycles) ─────────────
-  // Video elements live in a hidden off-screen div so they stay loaded
-  // even when the tooltip is closed.
-  const hiddenHost = document.createElement("div");
-  hiddenHost.style.cssText = "position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;";
-  document.body.appendChild(hiddenHost);
-
-  const maskVideo = document.createElement("video");
-  maskVideo.preload = "auto";
-  maskVideo.crossOrigin = "anonymous";
-
-  const origVideo = document.createElement("video");
-  origVideo.preload = "auto";
-  origVideo.crossOrigin = "anonymous";
-
-  hiddenHost.appendChild(maskVideo);
-  hiddenHost.appendChild(origVideo);
-
-  // Reusable temp canvas for pixel operations
+  // Reusable temp canvas — created once, resized as needed, never recreated
   const tmpCvs = document.createElement("canvas");
   const tmpCtx = tmpCvs.getContext("2d", { willReadFrequently: true });
+  // Cached ImageData of the current mask frame — updated only on seek or new video
+  let cachedMaskData = null;
 
-  let cachedMaskData = null;  // ImageData of current mask frame
-  let maskReady = false;
-  let origReady = false;
-  let currentFrame = 0;
-  let totalFrames = 0;
-  let detectedFps = 30;
-  let isSeeking = false;
+  // Inject scoped slider styles
+  const styleId = "mask-preview-slider-styles";
+  if (!document.getElementById(styleId)) {
+    const styleEl = document.createElement("style");
+    styleEl.id = styleId;
+    styleEl.textContent = SLIDER_THUMB_CSS;
+    document.head.appendChild(styleEl);
+  }
 
-  // ── Compact slider UI (always visible in node) ──────────────────────────
+  // Create wrapper
   const wrapper = document.createElement("div");
-  wrapper.className = "nodrag nowheel";
+  wrapper.className = "mask-adjustment-preview nodrag nowheel";
   wrapper.style.cssText = `
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 4px 0;
-    user-select: none;
+    gap: 12px;
+    padding: 12px;
+    background: #1a1a1a;
+    border-radius: 8px;
+    min-height: 400px;
   `;
 
-  const labelRow = document.createElement("div");
-  labelRow.style.cssText = `
+  // Video preview container with overlay
+  const previewContainer = document.createElement("div");
+  previewContainer.style.cssText = `
+    position: relative;
+    width: 100%;
+    background: #000;
+    border-radius: 4px;
+    overflow: hidden;
+  `;
+
+  // Original video element
+  const video = document.createElement("video");
+  video.style.cssText = `
+    width: 100%;
+    display: ${maskOnlyMode ? "none" : "block"};
+  `;
+  video.preload = "auto";
+  video.crossOrigin = "anonymous";
+
+  // Mask video element (hidden when original video is present, visible otherwise)
+  const maskVideo = document.createElement("video");
+  maskVideo.style.cssText = maskOnlyMode
+    ? "width: 100%; display: block;"
+    : "display: none;";
+  maskVideo.preload = "auto";
+  maskVideo.crossOrigin = "anonymous";
+
+  // Canvas for mask overlay — sized to match the video element exactly
+  const canvas = document.createElement("canvas");
+  canvas.style.cssText = `
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+  `;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+  // The display video is whichever element is currently visible
+  function displayVideo() {
+    return maskOnlyMode ? maskVideo : video;
+  }
+
+  // Keep canvas CSS size in sync with the visible video element's rendered size
+  function syncCanvasSize() {
+    const el = displayVideo();
+    const w = el.clientWidth;
+    const h = el.clientHeight;
+    if (w && h) {
+      canvas.style.width = w + "px";
+      canvas.style.height = h + "px";
+    }
+  }
+
+  previewContainer.appendChild(video);
+  previewContainer.appendChild(maskVideo);
+  previewContainer.appendChild(canvas);
+
+  // Prevent drag interference
+  previewContainer.addEventListener("pointerdown", (e) => e.stopPropagation());
+  previewContainer.addEventListener("mousedown", (e) => e.stopPropagation());
+
+  // Controls container
+  const controlsContainer = document.createElement("div");
+  controlsContainer.style.cssText = `
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 12px;
+    background: #252525;
+    border-radius: 4px;
+  `;
+
+  // Adjustment slider control
+  const adjustmentControl = document.createElement("div");
+  adjustmentControl.style.cssText = `
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  `;
+
+  const adjustmentLabelText = document.createElement("span");
+  adjustmentLabelText.style.cssText = `
+    font-size: 12px;
+    color: #ccc;
+    flex-shrink: 0;
+  `;
+  adjustmentLabelText.textContent = "Mask Adjustment";
+
+  // Slider + number input row (matches editor layout)
+  const sliderRow = document.createElement("div");
+  sliderRow.style.cssText = `
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+  `;
+
+  const adjustmentSlider = document.createElement("input");
+  adjustmentSlider.type = "range";
+  adjustmentSlider.min = "-25";
+  adjustmentSlider.max = "25";
+  adjustmentSlider.value = adjustment;
+  adjustmentSlider.disabled = disabled;
+  adjustmentSlider.style.cssText = SLIDER_STYLE + "flex: 1; min-width: 0;";
+
+  const adjustmentInput = document.createElement("input");
+  adjustmentInput.type = "number";
+  adjustmentInput.min = "-25";
+  adjustmentInput.max = "25";
+  adjustmentInput.step = "1";
+  adjustmentInput.value = adjustment;
+  adjustmentInput.disabled = disabled;
+  adjustmentInput.style.cssText = `
+    width: 52px;
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    color: #fff;
+    font-size: 12px;
+    text-align: right;
+    outline: none;
+    -moz-appearance: textfield;
+    padding: 2px 0;
+  `;
+
+  adjustmentSlider.addEventListener("pointerdown", (e) => e.stopPropagation());
+  adjustmentSlider.addEventListener("mousedown", (e) => e.stopPropagation());
+  adjustmentInput.addEventListener("pointerdown", (e) => e.stopPropagation());
+  adjustmentInput.addEventListener("mousedown", (e) => e.stopPropagation());
+
+  function commitAdjustment(val) {
+    val = Math.max(-25, Math.min(25, val));
+    adjustment = val;
+    adjustmentSlider.value = val;
+    adjustmentInput.value = val;
+    scheduleRender();
+    if (typeof onChangeRef === "function") {
+      onChangeRef({
+        original_video_url: originalVideoUrl,
+        mask_video_url: maskVideoUrl,
+        adjustment: val,
+        current_frame: currentFrame,
+        total_frames: totalFrames,
+      });
+    }
+  }
+
+  // Live preview on every drag tick — re-renders from cache, no video re-draw
+  adjustmentSlider.addEventListener("input", (e) => {
+    const val = parseInt(e.target.value, 10);
+    adjustment = val;
+    adjustmentInput.value = val;
+    scheduleRender();
+  });
+
+  // Persist only on commit (mouseup / end of drag)
+  adjustmentSlider.addEventListener("change", (e) => {
+    commitAdjustment(parseInt(e.target.value, 10));
+  });
+
+  // Number input commits on blur or Enter
+  adjustmentInput.addEventListener("blur", () => {
+    const val = parseInt(adjustmentInput.value, 10);
+    if (!isNaN(val)) {
+      commitAdjustment(val);
+    } else {
+      adjustmentInput.value = adjustment;
+    }
+  });
+  adjustmentInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      adjustmentInput.blur();
+    }
+  });
+
+  sliderRow.appendChild(adjustmentSlider);
+  sliderRow.appendChild(adjustmentInput);
+
+  adjustmentControl.appendChild(adjustmentLabelText);
+  adjustmentControl.appendChild(sliderRow);
+
+  // Timeline scrubber control
+  const timelineControl = document.createElement("div");
+  timelineControl.style.cssText = `
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  `;
+
+  const timelineLabel = document.createElement("div");
+  timelineLabel.style.cssText = `
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -146,239 +334,95 @@ export default function MaskAdjustmentPreview(container, props) {
     color: #ccc;
   `;
 
-  const labelText = document.createElement("span");
-  labelText.textContent = "Mask Adjustment";
+  const timelineLabelText = document.createElement("span");
+  timelineLabelText.textContent = "Frame";
 
-  const valueDisplay = document.createElement("span");
-  valueDisplay.style.cssText = `font-weight: 600; color: #fff; font-size: 12px;`;
-  valueDisplay.textContent = String(adjValue);
+  const frameDisplay = document.createElement("span");
+  frameDisplay.style.cssText = `
+    font-weight: 600;
+    color: #fff;
+  `;
 
-  labelRow.appendChild(labelText);
-  labelRow.appendChild(valueDisplay);
+  const timelineSlider = document.createElement("input");
+  timelineSlider.type = "range";
+  timelineSlider.min = "0";
+  timelineSlider.max = "100";
+  timelineSlider.value = "0";
+  timelineSlider.style.cssText = SLIDER_STYLE;
 
-  const slider = document.createElement("input");
-  slider.type = "range";
-  slider.className = "map-slider";
-  slider.min = "-25";
-  slider.max = "25";
-  slider.step = "1";
-  slider.value = adjValue;
-  slider.disabled = !!disabled;
-  slider.style.cssText = SLIDER_BASE;
+  function updateTimelineDisplay() {
+    const dur = displayVideo().duration;
+    const frames = totalFrames > 0 ? totalFrames : (dur ? Math.floor(dur * detectedFps) : 0);
+    frameDisplay.textContent = `${currentFrame} / ${frames}`;
+    timelineSlider.max = Math.max(0, frames - 1);
+  }
 
-  const hintText = document.createElement("div");
-  hintText.style.cssText = `font-size: 10px; color: #555; margin-top: 2px;`;
-  hintText.textContent = "Drag to preview adjustment";
+  timelineSlider.addEventListener("pointerdown", (e) => e.stopPropagation());
+  timelineSlider.addEventListener("mousedown", (e) => e.stopPropagation());
 
-  wrapper.appendChild(labelRow);
-  wrapper.appendChild(slider);
-  wrapper.appendChild(hintText);
-  container.appendChild(wrapper);
-
-  // Block drag propagation to node graph
-  [slider, wrapper].forEach((el) => {
-    el.addEventListener("pointerdown", (e) => e.stopPropagation());
-    el.addEventListener("mousedown", (e) => e.stopPropagation());
+  timelineSlider.addEventListener("input", (e) => {
+    const frameNum = parseInt(e.target.value, 10);
+    currentFrame = frameNum;
+    updateTimelineDisplay();
+    seekToFrame(frameNum);
   });
 
-  // ── Tooltip state ───────────────────────────────────────────────────────
-  let tooltipEl = null;
-  let tooltipCanvas = null;
-  let tooltipCtx = null;
-  let tooltipFrameSlider = null;
-  let tooltipFrameDisplay = null;
-  let tooltipAdjDisplay = null;
-  let tooltipStatusText = null;
-  let isDragging = false;
-  let renderPending = false;
-  let hideTimer = null;
+  timelineLabel.appendChild(timelineLabelText);
+  timelineLabel.appendChild(frameDisplay);
+  timelineControl.appendChild(timelineLabel);
+  timelineControl.appendChild(timelineSlider);
 
-  function formatAdj(v) {
-    if (v > 0) return `+${v}px  (dilate)`;
-    if (v < 0) return `${v}px  (erode)`;
-    return `±0  (no change)`;
-  }
+  controlsContainer.appendChild(adjustmentControl);
+  controlsContainer.appendChild(timelineControl);
 
-  function buildTooltip() {
-    const el = document.createElement("div");
-    el.className = "nodrag nowheel";
-    el.style.cssText = `
-      position: fixed;
-      z-index: 99999;
-      background: #1a1a1a;
-      border: 1px solid #3a3a3a;
-      border-radius: 10px;
-      padding: 12px;
-      box-shadow: 0 12px 40px rgba(0,0,0,0.75);
-      min-width: 300px;
-      max-width: 520px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      pointer-events: auto;
-    `;
+  // Info text with version number
+  const infoContainer = document.createElement("div");
+  infoContainer.style.cssText = `
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    color: #888;
+    padding: 8px;
+    background: #1f1f1f;
+    border-radius: 4px;
+  `;
 
-    // Header row
-    const header = document.createElement("div");
-    header.style.cssText = `
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 11px;
-      color: #aaa;
-    `;
-    const headerLabel = document.createElement("span");
-    headerLabel.textContent = "Mask Preview";
+  const infoText = document.createElement("span");
+  infoText.textContent = "Waiting for video inputs...";
 
-    tooltipAdjDisplay = document.createElement("span");
-    tooltipAdjDisplay.style.cssText = `font-weight: 700; color: #fff; font-size: 12px;`;
-    tooltipAdjDisplay.textContent = formatAdj(adjValue);
+  const versionText = document.createElement("span");
+  versionText.style.cssText = `
+    font-size: 10px;
+    color: #666;
+    font-family: monospace;
+  `;
+  versionText.textContent = `v${WIDGET_VERSION}`;
 
-    header.appendChild(headerLabel);
-    header.appendChild(tooltipAdjDisplay);
+  infoContainer.appendChild(infoText);
+  infoContainer.appendChild(versionText);
 
-    // Status / loading line
-    tooltipStatusText = document.createElement("div");
-    tooltipStatusText.style.cssText = `
-      font-size: 11px;
-      color: #666;
-      min-height: 14px;
-    `;
-    tooltipStatusText.textContent = maskUrl ? "Loading video…" : "No mask video connected";
+  // Helper function to seek to a specific frame
+  function seekToFrame(frameNum) {
+    const primary = displayVideo();
+    if (!primary.duration || isSeeking) return;
 
-    // Preview canvas (hidden until frame ready)
-    const cvs = document.createElement("canvas");
-    cvs.style.cssText = `
-      display: none;
-      width: 100%;
-      border-radius: 6px;
-      background: #000;
-    `;
-    tooltipCanvas = cvs;
-    tooltipCtx = cvs.getContext("2d");
+    const frames = totalFrames > 0 ? totalFrames : Math.floor(primary.duration * detectedFps);
+    const time = (frameNum / frames) * primary.duration;
 
-    // Timeline scrubber section (hidden until video loads)
-    const frameSection = document.createElement("div");
-    frameSection.id = "map-frame-section";
-    frameSection.style.cssText = `display: none; flex-direction: column; gap: 4px;`;
-
-    const frameHeader = document.createElement("div");
-    frameHeader.style.cssText = `
-      display: flex;
-      justify-content: space-between;
-      font-size: 10px;
-      color: #777;
-    `;
-    const frameHeaderLabel = document.createElement("span");
-    frameHeaderLabel.textContent = "Frame";
-    tooltipFrameDisplay = document.createElement("span");
-    tooltipFrameDisplay.textContent = `${currentFrame} / ${totalFrames}`;
-    frameHeader.appendChild(frameHeaderLabel);
-    frameHeader.appendChild(tooltipFrameDisplay);
-
-    tooltipFrameSlider = document.createElement("input");
-    tooltipFrameSlider.type = "range";
-    tooltipFrameSlider.className = "map-frame-slider";
-    tooltipFrameSlider.min = "0";
-    tooltipFrameSlider.max = Math.max(0, totalFrames - 1);
-    tooltipFrameSlider.value = currentFrame;
-    tooltipFrameSlider.style.cssText = SLIDER_BASE.replace("#7c3aed", "#4a9eff");
-
-    tooltipFrameSlider.addEventListener("pointerdown", (e) => e.stopPropagation());
-    tooltipFrameSlider.addEventListener("mousedown", (e) => e.stopPropagation());
-
-    tooltipFrameSlider.addEventListener("input", (e) => {
-      currentFrame = parseInt(e.target.value, 10);
-      if (tooltipFrameDisplay) {
-        tooltipFrameDisplay.textContent = `${currentFrame} / ${totalFrames}`;
-      }
-      seekToFrame(currentFrame);
-    });
-
-    frameSection.appendChild(frameHeader);
-    frameSection.appendChild(tooltipFrameSlider);
-
-    // Version tag
-    const ver = document.createElement("div");
-    ver.style.cssText = `font-size: 9px; color: #444; text-align: right; font-family: monospace;`;
-    ver.textContent = `v${WIDGET_VERSION}`;
-
-    el.appendChild(header);
-    el.appendChild(tooltipStatusText);
-    el.appendChild(cvs);
-    el.appendChild(frameSection);
-    el.appendChild(ver);
-
-    document.body.appendChild(el);
-    return el;
-  }
-
-  function positionTooltip() {
-    if (!tooltipEl) return;
-    const rect = container.getBoundingClientRect();
-    const th = tooltipEl.offsetHeight || 280;
-    const tw = tooltipEl.offsetWidth || 320;
-    const margin = 12;
-
-    let top = rect.top - th - margin;
-    let left = rect.left;
-
-    // Flip below if not enough room above
-    if (top < margin) top = rect.bottom + margin;
-    // Clamp horizontally
-    if (left + tw > window.innerWidth - margin) left = window.innerWidth - tw - margin;
-    if (left < margin) left = margin;
-    // Clamp vertically
-    if (top + th > window.innerHeight - margin) top = window.innerHeight - th - margin;
-    if (top < margin) top = margin;
-
-    tooltipEl.style.left = left + "px";
-    tooltipEl.style.top = top + "px";
-  }
-
-  function showTooltip() {
-    if (tooltipEl) return;
-    tooltipEl = buildTooltip();
-    // Position after one frame so offsetHeight is computed
-    requestAnimationFrame(() => {
-      positionTooltip();
-      loadVideosIfNeeded();
-      // If already have a cached frame, render immediately
-      if (cachedMaskData) scheduleRender();
-    });
-  }
-
-  function hideTooltip() {
-    clearTimeout(hideTimer);
-    if (tooltipEl) {
-      tooltipEl.remove();
-      tooltipEl = null;
-      tooltipCanvas = null;
-      tooltipCtx = null;
-      tooltipFrameSlider = null;
-      tooltipFrameDisplay = null;
-      tooltipAdjDisplay = null;
-      tooltipStatusText = null;
+    isSeeking = true;
+    primary.currentTime = time;
+    // Also seek the hidden video to keep them in sync
+    if (!maskOnlyMode && maskVideo.duration) {
+      maskVideo.currentTime = time;
+    }
+    if (maskOnlyMode && video.duration) {
+      video.currentTime = time;
     }
   }
 
-  // ── Video loading ───────────────────────────────────────────────────────
-  function urlBase(u) {
-    return u ? u.split("?")[0] : "";
-  }
-
-  function loadVideosIfNeeded() {
-    if (maskUrl && urlBase(maskVideo.src) !== urlBase(maskUrl)) {
-      maskReady = false;
-      cachedMaskData = null;
-      maskVideo.src = maskUrl;
-    }
-    if (origUrl && urlBase(origVideo.src) !== urlBase(origUrl)) {
-      origReady = false;
-      origVideo.src = origUrl;
-    }
-  }
-
+  // Capture the current mask video frame into cachedMaskData.
+  // Call this after any seek or on initial frame load — NOT on adjustment changes.
   function captureFrame() {
     if (!maskVideo.videoWidth) return false;
     const mw = maskVideo.videoWidth;
@@ -396,180 +440,119 @@ export default function MaskAdjustmentPreview(container, props) {
     }
   }
 
-  function seekToFrame(frameNum) {
-    if (!maskVideo.duration || isSeeking) return;
-    const frames = totalFrames || Math.floor(maskVideo.duration * detectedFps);
-    if (frames <= 0) return;
-    isSeeking = true;
-    maskVideo.currentTime = (frameNum / frames) * maskVideo.duration;
-    if (origUrl && origVideo.duration) {
-      origVideo.currentTime = maskVideo.currentTime;
-    }
-  }
-
-  function detectFps(videoEl, cb) {
-    if (!videoEl.requestVideoFrameCallback) return;
-    let t0 = null;
-    videoEl.requestVideoFrameCallback((_, m) => {
-      t0 = m.mediaTime;
-      videoEl.requestVideoFrameCallback((__, m2) => {
-        const d = m2.mediaTime - t0;
-        if (d > 0) {
-          const fps = Math.round(1 / d);
-          if (fps > 0 && fps < 240) cb(fps);
-        }
-      });
-    });
-  }
-
-  function onFirstFrame() {
-    maskReady = true;
-    if (!tooltipEl) return;
-
-    if (tooltipStatusText) tooltipStatusText.textContent = origUrl ? "Overlay mode" : "Mask-only mode";
-    if (tooltipCanvas) tooltipCanvas.style.display = "block";
-
-    // Show frame section
-    const sec = tooltipEl.querySelector("#map-frame-section");
-    if (sec) sec.style.display = "flex";
-
-    // Size canvas proportionally, capped at tooltip width
-    if (cachedMaskData) {
-      const aspect = cachedMaskData.width / cachedMaskData.height;
-      const maxPx = Math.min(520, window.innerWidth * 0.35);
-      const displayW = Math.max(300, Math.min(maxPx, cachedMaskData.width));
-      const displayH = Math.round(displayW / aspect);
-      if (tooltipCanvas) {
-        tooltipCanvas.width = cachedMaskData.width;
-        tooltipCanvas.height = cachedMaskData.height;
-        tooltipCanvas.style.width = displayW + "px";
-        tooltipCanvas.style.height = displayH + "px";
-      }
-    }
-
-    positionTooltip();
-    scheduleRender();
-  }
-
-  function updateFrameUI() {
-    if (tooltipFrameSlider) {
-      tooltipFrameSlider.max = Math.max(0, totalFrames - 1);
-      tooltipFrameSlider.value = currentFrame;
-    }
-    if (tooltipFrameDisplay) {
-      tooltipFrameDisplay.textContent = `${currentFrame} / ${totalFrames}`;
-    }
-  }
-
-  // ── Video event handlers ────────────────────────────────────────────────
-  maskVideo.addEventListener("loadedmetadata", () => {
-    detectFps(maskVideo, (fps) => {
-      detectedFps = fps;
-      totalFrames = Math.floor(maskVideo.duration * fps);
-      updateFrameUI();
-    });
-    totalFrames = Math.floor(maskVideo.duration * detectedFps);
-    updateFrameUI();
-
-    // Use requestVideoFrameCallback when available for accurate first-frame capture
-    if (maskVideo.requestVideoFrameCallback) {
-      maskVideo.requestVideoFrameCallback(() => {
-        if (captureFrame()) onFirstFrame();
-      });
-    }
-    // Restore frame position if we had one
-    if (currentFrame > 0) seekToFrame(currentFrame);
-  });
-
-  maskVideo.addEventListener("loadeddata", () => {
-    if (!cachedMaskData && captureFrame()) onFirstFrame();
-  });
-
-  maskVideo.addEventListener("seeked", () => {
-    isSeeking = false;
-    if (captureFrame()) scheduleRender();
-  });
-
-  maskVideo.addEventListener("error", () => {
-    if (tooltipStatusText) {
-      tooltipStatusText.textContent = `Video error: ${maskVideo.error?.message || "unknown"}`;
-    }
-  });
-
-  origVideo.addEventListener("loadeddata", () => {
-    origReady = true;
-    if (tooltipStatusText && maskReady) tooltipStatusText.textContent = "Overlay mode";
-    scheduleRender();
-  });
-
-  // ── Rendering ───────────────────────────────────────────────────────────
+  // Coalesce rapid render requests into one rAF
+  let renderPending = false;
   function scheduleRender() {
-    if (renderPending || !tooltipCanvas) return;
+    if (renderPending) return;
     renderPending = true;
     requestAnimationFrame(() => {
       renderPending = false;
-      renderPreview();
+      renderMaskOverlay();
     });
   }
 
-  function renderPreview() {
-    if (!tooltipCtx || !cachedMaskData) return;
+  // Render mask overlay on canvas.
+  // Uses cachedMaskData — never re-draws from the video element directly.
+  function renderMaskOverlay() {
+    if (!maskReady) return;
 
-    const mw = cachedMaskData.width;
-    const mh = cachedMaskData.height;
+    // Ensure we have a cached frame (capture on first render after load)
+    if (!cachedMaskData && !captureFrame()) return;
 
-    if (tooltipCanvas.width !== mw || tooltipCanvas.height !== mh) {
-      tooltipCanvas.width = mw;
-      tooltipCanvas.height = mh;
+    // In overlay mode we also need the original video to be ready
+    if (!maskOnlyMode && (!videoReady || !video.videoWidth)) return;
+
+    const refVideo = displayVideo();
+
+    // Sync canvas pixel dimensions to the reference video resolution
+    if (canvas.width !== refVideo.videoWidth || canvas.height !== refVideo.videoHeight) {
+      canvas.width = refVideo.videoWidth;
+      canvas.height = refVideo.videoHeight;
     }
+    syncCanvasSize();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const processed = adjValue !== 0
-      ? applyMorphologicalOp(cachedMaskData, adjValue)
-      : cachedMaskData;
+    try {
+      const processedData = adjustment !== 0
+        ? applyMorphologicalOp(cachedMaskData, adjustment)
+        : cachedMaskData;
 
-    if (origReady && origVideo.videoWidth) {
-      // Overlay mode: draw original video frame, then semi-transparent yellow mask
-      tooltipCtx.drawImage(origVideo, 0, 0, mw, mh);
-
-      const overlayBuf = new Uint8ClampedArray(mw * mh * 4);
-      const srcData = processed.data;
-      for (let i = 0; i < srcData.length; i += 4) {
-        if (srcData[i] > 127) {
-          overlayBuf[i] = 255;
-          overlayBuf[i + 1] = 255;
-          overlayBuf[i + 2] = 0;
-          overlayBuf[i + 3] = 128;
+      if (maskOnlyMode) {
+        // Mask-only mode: draw the adjusted B&W mask on the canvas.
+        // When adjustment is 0, canvas stays clear and the raw video shows through.
+        if (adjustment !== 0) {
+          const mw = cachedMaskData.width;
+          const mh = cachedMaskData.height;
+          if (tmpCvs.width !== mw || tmpCvs.height !== mh) {
+            tmpCvs.width = mw;
+            tmpCvs.height = mh;
+          }
+          tmpCtx.putImageData(processedData, 0, 0);
+          ctx.drawImage(tmpCvs, 0, 0, canvas.width, canvas.height);
         }
-      }
-      if (tmpCvs.width !== mw || tmpCvs.height !== mh) { tmpCvs.width = mw; tmpCvs.height = mh; }
-      tmpCtx.putImageData(new ImageData(overlayBuf, mw, mh), 0, 0);
-      tooltipCtx.drawImage(tmpCvs, 0, 0);
-    } else {
-      // Mask-only mode: draw the B&W mask (adjusted or raw)
-      if (tmpCvs.width !== mw || tmpCvs.height !== mh) { tmpCvs.width = mw; tmpCvs.height = mh; }
-      tmpCtx.putImageData(processed, 0, 0);
-      tooltipCtx.drawImage(tmpCvs, 0, 0);
-    }
+        infoText.textContent = `Mask: OK | ${adjustment !== 0 ? `Adjusted preview (${adjustment}px)` : "No adjustment"}`;
+      } else {
+        // Overlay mode: semi-transparent yellow mask on top of original video
+        const sw = cachedMaskData.width;
+        const sh = cachedMaskData.height;
+        const srcData = processedData.data;
+        const overlayBuf = new Uint8ClampedArray(sw * sh * 4);
 
-    if (tooltipAdjDisplay) tooltipAdjDisplay.textContent = formatAdj(adjValue);
+        for (let i = 0; i < srcData.length; i += 4) {
+          if (srcData[i] > 127) {
+            overlayBuf[i] = 255;     // R
+            overlayBuf[i + 1] = 255; // G
+            overlayBuf[i + 2] = 0;   // B
+            overlayBuf[i + 3] = 128; // A (50% opacity)
+          }
+          // else stays 0 (transparent)
+        }
+
+        if (tmpCvs.width !== sw || tmpCvs.height !== sh) {
+          tmpCvs.width = sw;
+          tmpCvs.height = sh;
+        }
+        tmpCtx.putImageData(new ImageData(overlayBuf, sw, sh), 0, 0);
+        ctx.drawImage(tmpCvs, 0, 0, canvas.width, canvas.height);
+        infoText.textContent = `Video: OK | Mask: OK | Overlay active (adj: ${adjustment}px)`;
+      }
+    } catch (error) {
+      infoText.textContent = `Overlay error: ${error.message}`;
+      console.error("Error rendering mask overlay:", error);
+    }
   }
 
-  // O(W·H) 2D prefix-sum box morphology — ~1000× faster than O(W·H·r²) loop.
-  // Box kernel (square) is an acceptable approximation for the live preview;
-  // the server-side FFmpeg processing uses the exact morphological filter.
+  // O(W·H) 2D prefix-sum box morphology.
+  //
+  // Replaces the previous O(W·H·r²) circular-kernel loop. The kernel is now a
+  // square (box) rather than a circle, which is an acceptable approximation for
+  // the live preview — the server-side FFmpeg processing uses the true filter.
+  //
+  // Algorithm:
+  //   1. Extract binary mask → Uint8Array                         O(W·H)
+  //   2. Build 2D prefix-sum table (Int32Array, 1-indexed)         O(W·H)
+  //   3. For each pixel, query neighbourhood sum in O(1)           O(W·H)
+  //   4. Dilation: sum > 0 → white; Erosion: sum == area → white   O(W·H)
+  //
+  // At r=25 on 1920×1080 this is ~4M operations vs ~4B previously (~1000× faster).
   function applyMorphologicalOp(imageData, adj) {
     if (adj === 0) return imageData;
+
     const w = imageData.width;
     const h = imageData.height;
     const src = imageData.data;
     const radius = Math.abs(adj);
     const isDilation = adj > 0;
+    const threshold = 127;
 
+    // Extract single-channel binary mask
     const mask = new Uint8Array(w * h);
     for (let i = 0; i < mask.length; i++) {
-      mask[i] = src[i * 4] > 127 ? 1 : 0;
+      mask[i] = src[i * 4] > threshold ? 1 : 0;
     }
 
+    // Build 2D prefix-sum table.
+    // prefix[(y+1)*stride + (x+1)] = sum of mask[0..y][0..x]
     const stride = w + 1;
     const prefix = new Int32Array((h + 1) * stride);
     for (let y = 0; y < h; y++) {
@@ -582,6 +565,7 @@ export default function MaskAdjustmentPreview(container, props) {
       }
     }
 
+    // Apply box erosion/dilation using O(1) neighbourhood sum queries
     const result = new Uint8Array(w * h);
     for (let y = 0; y < h; y++) {
       const r1 = Math.max(0, y - radius);
@@ -595,12 +579,15 @@ export default function MaskAdjustmentPreview(container, props) {
           prefix[r1 * stride + (c2 + 1)] -
           prefix[(r2 + 1) * stride + c1] +
           prefix[r1 * stride + c1];
-        result[y * w + x] = isDilation
-          ? (sum > 0 ? 1 : 0)
-          : (sum === rowLen * (c2 - c1 + 1) ? 1 : 0);
+        if (isDilation) {
+          result[y * w + x] = sum > 0 ? 1 : 0;
+        } else {
+          result[y * w + x] = sum === rowLen * (c2 - c1 + 1) ? 1 : 0;
+        }
       }
     }
 
+    // Write back to RGBA
     const output = new Uint8ClampedArray(src.length);
     for (let i = 0; i < result.length; i++) {
       const v = result[i] ? 255 : 0;
@@ -608,82 +595,237 @@ export default function MaskAdjustmentPreview(container, props) {
       output[j] = output[j + 1] = output[j + 2] = v;
       output[j + 3] = 255;
     }
+
     return new ImageData(output, w, h);
   }
 
-  // ── Slider interactions ─────────────────────────────────────────────────
-  slider.addEventListener("mousedown", () => {
-    clearTimeout(hideTimer);
-    isDragging = true;
-    showTooltip();
+  function updateStatus() {
+    const parts = [];
+    if (!maskOnlyMode) {
+      if (!originalVideoUrl) {
+        parts.push("No original video");
+      } else if (!videoReady) {
+        parts.push("Loading video...");
+      } else {
+        parts.push("Video: OK");
+      }
+    }
+    if (!maskVideoUrl) {
+      parts.push("No mask video");
+    } else if (!maskReady) {
+      parts.push("Loading mask...");
+    } else {
+      parts.push("Mask: OK");
+    }
+    if (maskOnlyMode) {
+      parts.push("Mask-only preview");
+    }
+    infoText.textContent = parts.join(" | ");
+  }
+
+  // --- Load a video source only if the URL actually changed ---
+  // Note: video.src returns the fully resolved URL, so strip query params
+  // (cache buster ?t=...) for comparison since the timestamp changes each call.
+  function urlBase(u) {
+    return u ? u.split("?")[0] : "";
+  }
+
+  function loadOriginalVideo(url) {
+    if (!url) return;
+    if (urlBase(video.src) === urlBase(url)) return;
+    videoReady = false;
+    updateStatus();
+    video.src = url;
+  }
+
+  function loadMaskVideo(url) {
+    if (!url) return;
+    if (urlBase(maskVideo.src) === urlBase(url)) return;
+    maskReady = false;
+    cachedMaskData = null; // Stale frame data must not survive a source change
+    updateStatus();
+    maskVideo.src = url;
+  }
+
+  // Restore frame position after video metadata loads
+  function restoreFramePosition() {
+    if (currentFrame > 0) {
+      timelineSlider.value = currentFrame;
+      seekToFrame(currentFrame);
+    }
+  }
+
+  // Detect FPS using requestVideoFrameCallback when available
+  function detectFps(videoEl, onDetected) {
+    if (!videoEl.requestVideoFrameCallback) return;
+    let firstTime = null;
+    videoEl.requestVideoFrameCallback((now, metadata) => {
+      firstTime = metadata.mediaTime;
+      videoEl.requestVideoFrameCallback((now2, metadata2) => {
+        const delta = metadata2.mediaTime - firstTime;
+        if (delta > 0) {
+          const fps = Math.round(1 / delta);
+          if (fps > 0 && fps < 240) {
+            onDetected(fps);
+          }
+        }
+      });
+    });
+  }
+
+  // --- Video event handlers ---
+
+  video.addEventListener("loadedmetadata", () => {
+    if (!maskOnlyMode) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      syncCanvasSize();
+      detectFps(video, (fps) => {
+        detectedFps = fps;
+        totalFrames = Math.floor(video.duration * detectedFps);
+        updateTimelineDisplay();
+      });
+      totalFrames = Math.floor(video.duration * detectedFps);
+      updateTimelineDisplay();
+    }
+    videoReady = true;
+    updateStatus();
+    if (maskReady) {
+      restoreFramePosition();
+      scheduleRender();
+    }
   });
 
-  slider.addEventListener("input", (e) => {
-    adjValue = parseInt(e.target.value, 10);
-    valueDisplay.textContent = String(adjValue);
-    if (tooltipAdjDisplay) tooltipAdjDisplay.textContent = formatAdj(adjValue);
+  // loadeddata fires when the first frame is available for drawing.
+  // This is more reliable than loadedmetadata for initial canvas render.
+  video.addEventListener("loadeddata", () => {
+    if (!maskOnlyMode && maskReady && cachedMaskData) {
+      scheduleRender();
+    }
+  });
+
+  // Re-sync canvas when the visible video element resizes
+  video.addEventListener("resize", syncCanvasSize);
+  maskVideo.addEventListener("resize", () => { if (maskOnlyMode) syncCanvasSize(); });
+
+  maskVideo.addEventListener("loadedmetadata", () => {
+    maskReady = true;
+    if (maskOnlyMode) {
+      canvas.width = maskVideo.videoWidth;
+      canvas.height = maskVideo.videoHeight;
+      syncCanvasSize();
+      detectFps(maskVideo, (fps) => {
+        detectedFps = fps;
+        totalFrames = Math.floor(maskVideo.duration * detectedFps);
+        updateTimelineDisplay();
+      });
+      totalFrames = Math.floor(maskVideo.duration * detectedFps);
+      updateTimelineDisplay();
+    }
+    updateStatus();
+
+    // Use requestVideoFrameCallback when available for accurate first-frame capture.
+    // Falls back to loadeddata below.
+    if (maskVideo.requestVideoFrameCallback) {
+      maskVideo.requestVideoFrameCallback(() => {
+        if (captureFrame()) scheduleRender();
+      });
+    }
+
+    if (maskOnlyMode || videoReady) {
+      restoreFramePosition();
+    }
+  });
+
+  // loadeddata fires when the first frame is decoded — reliable fallback for
+  // browsers that don't support requestVideoFrameCallback.
+  maskVideo.addEventListener("loadeddata", () => {
+    if (maskReady && (maskOnlyMode || videoReady)) {
+      if (!cachedMaskData) captureFrame();
+      scheduleRender();
+    }
+  });
+
+  maskVideo.addEventListener("error", (e) => {
+    infoText.textContent = `Mask video error: ${maskVideo.error?.message || "unknown"}`;
+    console.error("Mask video error:", e, maskVideo.error);
+  });
+
+  video.addEventListener("error", (e) => {
+    infoText.textContent = `Video error: ${video.error?.message || "unknown"}`;
+    console.error("Original video error:", e, video.error);
+  });
+
+  // After a seek completes, capture the new frame then re-render.
+  // This replaces the previous 50ms setTimeout hack.
+  video.addEventListener("seeked", () => {
+    isSeeking = false;
+    if (!maskOnlyMode) scheduleRender();
+  });
+
+  maskVideo.addEventListener("seeked", () => {
+    isSeeking = false;
+    captureFrame(); // Update the cache with the newly seeked frame
     scheduleRender();
   });
 
-  slider.addEventListener("change", (e) => {
-    adjValue = parseInt(e.target.value, 10);
-    commitValue();
-  });
+  // Initial video load
+  loadOriginalVideo(originalVideoUrl);
+  loadMaskVideo(maskVideoUrl);
+  updateTimelineDisplay();
 
-  function commitValue() {
-    if (typeof onChangeRef === "function") {
-      onChangeRef({ value: adjValue, mask_video_url: maskUrl, original_video_url: origUrl });
-    }
-  }
+  // Assemble widget
+  wrapper.appendChild(previewContainer);
+  wrapper.appendChild(controlsContainer);
+  wrapper.appendChild(infoContainer);
+  container.appendChild(wrapper);
 
-  function handlePointerUp() {
-    if (!isDragging) return;
-    isDragging = false;
-    // Keep tooltip visible briefly so user can read the result
-    hideTimer = setTimeout(hideTooltip, 600);
-  }
-
-  document.addEventListener("pointerup", handlePointerUp);
-
-  // ── Update function for subsequent framework calls ──────────────────────
-  function update(newAdj, newMaskUrl, newOrigUrl, newOnChange) {
+  // --- Update function for re-invocations ---
+  function update(newOrigUrl, newMaskUrl, newAdj, newOnChange) {
+    // Keep callback reference fresh
     if (newOnChange) onChangeRef = newOnChange;
 
-    if (newAdj !== adjValue) {
-      adjValue = newAdj;
-      slider.value = newAdj;
-      valueDisplay.textContent = String(newAdj);
-      scheduleRender();
+    // Detect mode change
+    const newMaskOnly = !newOrigUrl;
+    if (newMaskOnly !== maskOnlyMode) {
+      maskOnlyMode = newMaskOnly;
+      video.style.display = maskOnlyMode ? "none" : "block";
+      maskVideo.style.cssText = maskOnlyMode
+        ? "width: 100%; display: block;"
+        : "display: none;";
     }
 
-    if (urlBase(newMaskUrl) !== urlBase(maskUrl)) {
-      maskUrl = newMaskUrl;
-      maskReady = false;
-      cachedMaskData = null;
-      if (tooltipEl) loadVideosIfNeeded();
+    if (newOrigUrl && newOrigUrl !== originalVideoUrl) {
+      originalVideoUrl = newOrigUrl;
+      loadOriginalVideo(newOrigUrl);
     }
-
-    if (urlBase(newOrigUrl) !== urlBase(origUrl)) {
-      origUrl = newOrigUrl;
-      origReady = false;
-      if (tooltipEl) loadVideosIfNeeded();
+    if (newMaskUrl && newMaskUrl !== maskVideoUrl) {
+      maskVideoUrl = newMaskUrl;
+      // loadMaskVideo already resets cachedMaskData
+      loadMaskVideo(newMaskUrl);
+    }
+    if (newAdj !== adjustment) {
+      adjustment = newAdj;
+      adjustmentSlider.value = newAdj;
+      adjustmentInput.value = newAdj;
+      scheduleRender(); // Uses cached frame — instant re-render
     }
   }
 
-  // ── Cleanup ─────────────────────────────────────────────────────────────
+  // Cleanup function — fully release video resources to avoid WebMediaPlayer exhaustion
   function cleanup() {
-    document.removeEventListener("pointerup", handlePointerUp);
-    clearTimeout(hideTimer);
+    video.pause();
     maskVideo.pause();
+    video.removeAttribute("src");
     maskVideo.removeAttribute("src");
+    video.load();
     maskVideo.load();
-    origVideo.pause();
-    origVideo.removeAttribute("src");
-    origVideo.load();
-    hiddenHost.remove();
-    hideTooltip();
+    video.remove();
+    maskVideo.remove();
   }
 
-  container._mapInst = { update, cleanup };
+  // Store instance on container for re-invocations
+  container._maskPreview = { update, cleanup };
+
   return cleanup;
 }
