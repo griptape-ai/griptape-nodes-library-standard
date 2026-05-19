@@ -10,6 +10,7 @@ from griptape_nodes.exe_types.node_types import AsyncResult, DataNode
 from griptape_nodes.exe_types.param_components.progress_bar_component import ProgressBarComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.widget import Widget
@@ -48,29 +49,29 @@ class AdjustMaskSize(DataNode):
                 name="mask_video",
                 tooltip="Input mask video to adjust",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={
-                    "display_name": "Mask Video",
-                    "hide_property": True,
-                },
+                hide_property=True,
+                display_name="Mask Video",
             )
         )
 
-        # Preview widget parameter
-        preview_param = Parameter(
+        # Preview widget parameter.
+        # Must include ParameterMode.INPUT so the framework initializes the widget
+        # on first node creation (PROPERTY-only parameters don't trigger widget
+        # rendering until a browser refresh).
+        preview_param = ParameterDict(
             name="preview",
-            type="dict",
             default_value={
                 "original_video_url": "",
                 "mask_video_url": "",
                 "adjustment": 0,
                 "current_frame": 0,
-                "total_frames": 0,
+                "total_frames": 100,
             },
             tooltip="Interactive preview of mask adjustment",
+            display_name="Preview",
             allowed_modes={ParameterMode.PROPERTY},
-            ui_options={"display_name": "Preview"},
+            traits={Widget(name="MaskAdjustmentPreview", library="Griptape Nodes Library")},
         )
-        preview_param.add_trait(Widget(name="MaskAdjustmentPreview", library="Griptape Nodes Library"))
         self.add_parameter(preview_param)
 
         # Output video parameter
@@ -92,6 +93,11 @@ class AdjustMaskSize(DataNode):
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="adjusted_mask.mp4")
         self._output_file.add_parameter()
 
+        # Ensure the preview widget renders on first node creation.
+        # The framework only calls the widget function when set_parameter_value is
+        # invoked; calling _update_preview() here fires that on every init.
+        self._update_preview()
+
     def after_value_set(self, parameter: Parameter, value: Any) -> Any:
         """Called after a parameter value is set.
 
@@ -103,6 +109,7 @@ class AdjustMaskSize(DataNode):
         """
         # Update preview when relevant parameters change
         if parameter.name in ["original_video", "mask_video"]:
+            print("Video input changed, updating preview...")
             self._update_preview()
 
         return super().after_value_set(parameter, value)
@@ -164,10 +171,20 @@ class AdjustMaskSize(DataNode):
 
         # Skip if URLs haven't changed — avoids unnecessary widget rebuild.
         # Strip query params (presigned-URL timestamps change each call) before comparing.
+        # Exception: when both old and new URLs are empty (initial state, no videos
+        # connected yet), always call set_parameter_value so the framework invokes
+        # the widget function and the widget renders on first node creation.
         def _url_base(u: str) -> str:
             return u.split("?")[0] if u else ""
 
-        if _url_base(preview.get("original_video_url", "")) == _url_base(original_video_url) and _url_base(preview.get("mask_video_url", "")) == _url_base(mask_video_url):
+        stored_orig = _url_base(preview.get("original_video_url", ""))
+        stored_mask = _url_base(preview.get("mask_video_url", ""))
+        new_orig = _url_base(original_video_url)
+        new_mask = _url_base(mask_video_url)
+
+        urls_unchanged = stored_orig == new_orig and stored_mask == new_mask
+        any_url_set = stored_orig or stored_mask or new_orig or new_mask
+        if urls_unchanged and any_url_set:
             return
 
         self.set_parameter_value(
