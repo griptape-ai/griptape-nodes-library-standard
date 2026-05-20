@@ -38,6 +38,7 @@ const ICON_PATHS = {
   trash:   `<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>`,
   plus:    `<path d="M5 12h14"/><path d="M12 5v14"/>`,
   image:   `<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>`,
+  grip:    `<circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>`,
 };
 
 function icon(name, size = 14) {
@@ -126,7 +127,16 @@ export default function AnnotateImage(container, props) {
   let currentStroke = null;
   let currentArrow = null;
   let dragState = null;
+  let dragLayerId = null;     // layer being reordered in the panel
+  let renderGen = 0;          // cancels stale renders when a newer one starts
   const imageCache = {};
+
+  // Velocity tracking for pressure-like stroke width
+  let lastPtTime = 0, lastPtX = 0, lastPtY = 0, velSmoothed = 0;
+
+  // When painting on a transformed paint layer, points are stored in local space.
+  let currentStrokeIsLocal = false;
+  let currentStrokePivot = { cx: 0, cy: 0 };
 
   function normalizeValue(v) {
     const base = {
@@ -303,7 +313,8 @@ export default function AnnotateImage(container, props) {
     });
   }
 
-  function renderCanvas() {
+  async function renderCanvas() {
+    const gen = ++renderGen;
     const cw = currentValue.canvas_width || 1920;
     const ch = currentValue.canvas_height || 1080;
     ctx.clearRect(0, 0, cw, ch);
@@ -314,17 +325,21 @@ export default function AnnotateImage(container, props) {
       (a, b) => (a.order ?? 0) - (b.order ?? 0)
     );
 
-    const renderPromises = layers
-      .filter((l) => l.visible !== false)
-      .map((layer) => renderLayer(layer));
+    // Sequential await so lower-order layers always finish before higher-order
+    // ones start. Promise.all lets synchronous layers (paint/text/arrow) draw
+    // ahead of async image layers, silently inverting the z-order.
+    for (const layer of layers) {
+      if (gen !== renderGen) return;
+      if (layer.visible === false) continue;
+      await renderLayer(layer);
+    }
 
-    Promise.all(renderPromises).then(() => {
-      renderInProgress();
-      if (activeTool === "select" && currentValue.selected_layer_id) {
-        const sel = layers.find((l) => l.id === currentValue.selected_layer_id);
-        if (sel) renderSelectionHandles(sel);
-      }
-    });
+    if (gen !== renderGen) return;
+    renderInProgress();
+    if (activeTool === "select" && currentValue.selected_layer_id) {
+      const sel = layers.find((l) => l.id === currentValue.selected_layer_id);
+      if (sel) renderSelectionHandles(sel);
+    }
   }
 
   async function renderLayer(layer) {
@@ -361,34 +376,105 @@ export default function AnnotateImage(container, props) {
         // skip failed image
       }
     } else if (layer.type === "paint") {
-      renderStrokes(layer.strokes || [], layer.x ?? 0, layer.y ?? 0);
+      const bounds = getStrokesBounds(layer.strokes || []);
+      const pivX = layer.pivot_x ?? bounds.cx;
+      const pivY = layer.pivot_y ?? bounds.cy;
+      applyLayerTransform(layer, pivX, pivY);
+      renderStrokes(layer.strokes || []);
     } else if (layer.type === "text") {
+      applyLayerTransform(layer);
       renderText(layer);
     } else if (layer.type === "arrow") {
+      const pivX = ((layer.x1 ?? 0) + (layer.x2 ?? 0)) / 2;
+      const pivY = ((layer.y1 ?? 0) + (layer.y2 ?? 0)) / 2;
+      applyLayerTransform(layer, pivX, pivY);
       renderArrow(layer.x1, layer.y1, layer.x2, layer.y2, layer.color || "#ff0000", layer.width || 3);
     }
 
     ctx.restore();
   }
 
-  function renderStrokes(strokes, ox = 0, oy = 0) {
+  // Apply x/y translation + scaleX/scaleY + rotation for non-image layers.
+  // pivotX/pivotY are the rotation/scale pivot in local (pre-offset) coords.
+  // Rotation and scale happen around the pivot, then the whole thing is
+  // shifted by (layer.x, layer.y).
+  function applyLayerTransform(layer, pivotX = 0, pivotY = 0) {
+    const ox = layer.x ?? 0;
+    const oy = layer.y ?? 0;
+    const sx = layer.scaleX ?? 1;
+    const sy = layer.scaleY ?? 1;
+    const rot = layer.rotation ?? 0;
+    ctx.translate(ox + pivotX, oy + pivotY);
+    if (rot) ctx.rotate((rot * Math.PI) / 180);
+    if (sx !== 1 || sy !== 1) ctx.scale(sx, sy);
+    if (pivotX || pivotY) ctx.translate(-pivotX, -pivotY);
+  }
+
+  function hasTransform(layer) {
+    return (layer.rotation ?? 0) !== 0
+      || (layer.scaleX ?? 1) !== 1
+      || (layer.scaleY ?? 1) !== 1
+      || (layer.x ?? 0) !== 0
+      || (layer.y ?? 0) !== 0;
+  }
+
+  // Inverse-transform a canvas-space point into a paint layer's local space.
+  // Reverses: translate(ox+pivX, oy+pivY) → rotate(θ) → scale(sx,sy) → translate(-pivX,-pivY)
+  function canvasToLayerLocal(cx, cy, layer, pivX, pivY) {
+    const ox = layer.x ?? 0, oy = layer.y ?? 0;
+    const sx = layer.scaleX ?? 1, sy = layer.scaleY ?? 1;
+    const θ = (layer.rotation ?? 0) * Math.PI / 180;
+    const cosT = Math.cos(θ), sinT = Math.sin(θ);
+    const dx = cx - ox - pivX, dy = cy - oy - pivY;
+    const rx = dx * cosT + dy * sinT;   // inverse rotate
+    const ry = -dx * sinT + dy * cosT;
+    return [rx / sx + pivX, ry / sy + pivY];
+  }
+
+  // Returns the center of a set of stroke points for use as a transform pivot.
+  function getStrokesBounds(strokes) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let hasPoints = false;
+    for (const stroke of strokes || []) {
+      for (const [px, py] of stroke.points || []) {
+        if (px < minX) minX = px;
+        if (py < minY) minY = py;
+        if (px > maxX) maxX = px;
+        if (py > maxY) maxY = py;
+        hasPoints = true;
+      }
+    }
+    if (!hasPoints) return { cx: 0, cy: 0 };
+    return { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
+  }
+
+  function renderStrokes(strokes) {
     strokes.forEach((stroke) => {
       const pts = stroke.points || [];
       if (pts.length < 1) return;
-      ctx.beginPath();
-      ctx.strokeStyle = stroke.color || "#ff0000";
-      ctx.lineWidth = stroke.size || 10;
+      const defaultSize = stroke.size || 10;
+      const color = stroke.color || "#ff0000";
+
+      if (pts.length === 1) {
+        const r = (pts[0][2] ?? defaultSize) / 2;
+        ctx.beginPath();
+        ctx.fillStyle = color;
+        ctx.arc(pts[0][0], pts[0][1], r, 0, Math.PI * 2);
+        ctx.fill();
+        return;
+      }
+
+      // Draw each segment at its own width so velocity-varied sizes look smooth.
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
-      if (pts.length === 1) {
-        ctx.arc(pts[0][0] + ox, pts[0][1] + oy, (stroke.size || 10) / 2, 0, Math.PI * 2);
-        ctx.fillStyle = stroke.color || "#ff0000";
-        ctx.fill();
-      } else {
-        ctx.moveTo(pts[0][0] + ox, pts[0][1] + oy);
-        for (let i = 1; i < pts.length; i++) {
-          ctx.lineTo(pts[i][0] + ox, pts[i][1] + oy);
-        }
+      ctx.strokeStyle = color;
+      for (let i = 1; i < pts.length; i++) {
+        const p0 = pts[i - 1], p1 = pts[i];
+        const w = ((p0[2] ?? defaultSize) + (p1[2] ?? defaultSize)) / 2;
+        ctx.beginPath();
+        ctx.lineWidth = w;
+        ctx.moveTo(p0[0], p0[1]);
+        ctx.lineTo(p1[0], p1[1]);
         ctx.stroke();
       }
     });
@@ -399,7 +485,8 @@ export default function AnnotateImage(container, props) {
     const font = layer.font || "Arial";
     ctx.fillStyle = layer.color || "#000000";
     ctx.font = `${size}px "${font}", sans-serif`;
-    ctx.fillText(layer.text || "", layer.x || 0, layer.y || 0);
+    // applyLayerTransform already translated to (layer.x, layer.y); draw at origin.
+    ctx.fillText(layer.text || "", 0, 0);
   }
 
   function renderArrow(x1, y1, x2, y2, color, width) {
@@ -433,6 +520,12 @@ export default function AnnotateImage(container, props) {
     if (currentStroke && currentStroke.points.length >= 1) {
       ctx.save();
       ctx.globalAlpha = 1;
+      if (currentStrokeIsLocal) {
+        // Points are in layer-local space — apply the layer's transform so the
+        // in-progress stroke appears in the same position as the committed stroke will.
+        const sel = (currentValue.layers || []).find((l) => l.id === currentValue.selected_layer_id);
+        if (sel) applyLayerTransform(sel, currentStrokePivot.cx, currentStrokePivot.cy);
+      }
       renderStrokes([currentStroke]);
       ctx.restore();
     }
@@ -505,11 +598,34 @@ export default function AnnotateImage(container, props) {
       updateToolSettingsPanel();
 
     } else if (activeTool === "paint") {
+      const baseSize = currentValue.tool_settings?.paint?.size || 10;
+
+      // Detect whether we're painting on a transformed paint layer.
+      // If so, inverse-transform pointer coords into the layer's local space
+      // so the stroke renders where the user draws it after the layer transform.
+      const selPaint = (currentValue.layers || []).find(
+        (l) => l.id === currentValue.selected_layer_id && l.type === "paint"
+      );
+      currentStrokeIsLocal = false;
+      let firstX = cx, firstY = cy;
+      if (selPaint && hasTransform(selPaint)) {
+        const bounds = getStrokesBounds(selPaint.strokes || []);
+        const pivX = selPaint.pivot_x ?? bounds.cx;
+        const pivY = selPaint.pivot_y ?? bounds.cy;
+        currentStrokePivot = { cx: pivX, cy: pivY };
+        currentStrokeIsLocal = true;
+        [firstX, firstY] = canvasToLayerLocal(cx, cy, selPaint, pivX, pivY);
+      }
+
       currentStroke = {
         color: currentValue.tool_settings?.paint?.color || "#ff0000",
-        size: currentValue.tool_settings?.paint?.size || 10,
-        points: [[cx, cy]],
+        size: baseSize,
+        points: [[firstX, firstY, baseSize]],
       };
+      lastPtTime = performance.now();
+      lastPtX = cx;
+      lastPtY = cy;
+      velSmoothed = 0;
 
     } else if (activeTool === "arrow") {
       currentArrow = { x1: cx, y1: cy, x2: cx, y2: cy };
@@ -522,7 +638,24 @@ export default function AnnotateImage(container, props) {
     const [cx, cy] = screenToCanvas(e);
 
     if (activeTool === "paint" && currentStroke) {
-      currentStroke.points.push([cx, cy]);
+      const now = performance.now();
+      const dt = Math.max(1, now - lastPtTime);
+      const dist = Math.hypot(cx - lastPtX, cy - lastPtY);
+      const vel = dist / dt;                       // canvas px / ms
+      velSmoothed = velSmoothed * 0.5 + vel * 0.5; // exponential smoothing
+      const baseSize = currentStroke.size;
+      const pointSize = Math.max(baseSize * 0.15, baseSize / (1 + velSmoothed * 0.5));
+      lastPtTime = now;
+      lastPtX = cx;
+      lastPtY = cy;
+
+      // Store in local space if painting on a transformed layer.
+      let ptX = cx, ptY = cy;
+      if (currentStrokeIsLocal) {
+        const sel = (currentValue.layers || []).find((l) => l.id === currentValue.selected_layer_id);
+        if (sel) [ptX, ptY] = canvasToLayerLocal(cx, cy, sel, currentStrokePivot.cx, currentStrokePivot.cy);
+      }
+      currentStroke.points.push([ptX, ptY, pointSize]);
       renderCanvas();
     } else if (activeTool === "arrow" && currentArrow) {
       currentArrow = { ...currentArrow, x2: cx, y2: cy };
@@ -604,11 +737,16 @@ export default function AnnotateImage(container, props) {
         const ly = (layer.y ?? 0) - h / 2;
         if (cx >= lx && cx <= lx + w && cy >= ly && cy <= ly + h) return layer;
       } else if (layer.type === "paint") {
-        const ox = layer.x ?? 0, oy = layer.y ?? 0;
+        const bounds = getStrokesBounds(layer.strokes || []);
+        const pivX = layer.pivot_x ?? bounds.cx;
+        const pivY = layer.pivot_y ?? bounds.cy;
+        // Inverse-transform the click into local space so hit-testing is
+        // rotation-aware without needing to forward-transform every stroke point.
+        const [lx, ly] = canvasToLayerLocal(cx, cy, layer, pivX, pivY);
         for (const stroke of (layer.strokes || [])) {
           const r = (stroke.size || 10) / 2 + 4;
           for (const [px, py] of (stroke.points || [])) {
-            if (Math.hypot(cx - (px + ox), cy - (py + oy)) <= r) return layer;
+            if (Math.hypot(lx - px, ly - py) <= r) return layer;
           }
         }
       } else if (layer.type === "text") {
@@ -756,7 +894,7 @@ export default function AnnotateImage(container, props) {
   function buildSidePanelEl() {
     const panel = document.createElement("div");
     // flex-direction:column so tsHeader/tsBody/divider/lHeader/lBody stack vertically
-    panel.style.cssText = "flex-direction:column;flex:0 1 200px;min-width:140px;box-sizing:border-box;background:var(--card);border-left:1px solid var(--border);overflow-y:auto;max-height:600px;";
+    panel.style.cssText = "flex-direction:column;flex:0 1 200px;min-width:140px;box-sizing:border-box;background:var(--card);border-left:1px solid var(--border);overflow:hidden;max-height:600px;";
     panel.addEventListener("pointerdown", (e) => e.stopPropagation());
     panel.addEventListener("wheel", (e) => e.stopPropagation());
 
@@ -786,9 +924,10 @@ export default function AnnotateImage(container, props) {
     lHeader.appendChild(lTitle);
     lHeader.appendChild(addBtn);
 
-    // Layers list body
+    // Layers list body — scrollable so many layers don't overflow the panel
     const lBody = document.createElement("div");
     lBody.className = "ai-layers-list";
+    lBody.style.cssText = "overflow-y:auto;flex:1 1 auto;";
 
     panel.appendChild(tsHeader);
     panel.appendChild(tsBody);
@@ -814,9 +953,59 @@ export default function AnnotateImage(container, props) {
       const isSelected = layer.id === currentValue.selected_layer_id;
       const row = document.createElement("div");
       row.className = "ai-layer-row" + (isSelected ? " selected" : "");
+      row.draggable = true;
+      row.dataset.layerId = layer.id;
 
+      // ── drag-and-drop handlers ────────────────────────────────────────────
+      row.addEventListener("dragstart", (e) => {
+        // Don't start a row-drag when clicking on buttons
+        if (e.target.closest("button")) { e.preventDefault(); return; }
+        dragLayerId = layer.id;
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", layer.id);
+        setTimeout(() => { row.style.opacity = "0.4"; }, 0);
+      });
+
+      row.addEventListener("dragend", () => {
+        dragLayerId = null;
+        row.style.opacity = "";
+        body.querySelectorAll(".ai-layer-row").forEach((r) => {
+          r.style.borderTop = "";
+        });
+      });
+
+      row.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        body.querySelectorAll(".ai-layer-row").forEach((r) => {
+          r.style.borderTop = "";
+        });
+        if (dragLayerId && dragLayerId !== layer.id) {
+          row.style.borderTop = "2px solid var(--sidebar-primary)";
+        }
+      });
+
+      row.addEventListener("dragleave", (e) => {
+        if (!row.contains(e.relatedTarget)) {
+          row.style.borderTop = "";
+        }
+      });
+
+      row.addEventListener("drop", (e) => {
+        e.preventDefault();
+        row.style.borderTop = "";
+        if (dragLayerId && dragLayerId !== layer.id) {
+          reorderLayers(dragLayerId, layer.id);
+        }
+      });
+
+      // ── row content ───────────────────────────────────────────────────────
       const rowTop = document.createElement("div");
       rowTop.className = "ai-layer-top";
+
+      const gripHandle = document.createElement("span");
+      gripHandle.style.cssText = "display:flex;align-items:center;color:var(--muted-foreground);opacity:0.35;cursor:grab;flex-shrink:0;";
+      gripHandle.appendChild(icon("grip", 11));
 
       const visBtn = document.createElement("button");
       visBtn.className = "ai-icon-btn";
@@ -836,6 +1025,7 @@ export default function AnnotateImage(container, props) {
       name.className = "ai-layer-name";
       name.textContent = layer.name || "Layer";
 
+      rowTop.appendChild(gripHandle);
       rowTop.appendChild(visBtn);
       rowTop.appendChild(typeIconEl);
       rowTop.appendChild(name);
@@ -854,39 +1044,42 @@ export default function AnnotateImage(container, props) {
 
       row.addEventListener("pointerdown", (e) => {
         e.stopPropagation();
+        if (currentValue.selected_layer_id === layer.id) return;
         currentValue = { ...currentValue, selected_layer_id: layer.id };
-        rebuildLayersPanel();
+        // Update highlight in-place — do NOT call rebuildLayersPanel() here,
+        // because that destroys the row before the browser can fire dragstart.
+        sidePanel._lBody.querySelectorAll(".ai-layer-row").forEach((r) => {
+          r.className = "ai-layer-row" + (r.dataset.layerId === layer.id ? " selected" : "");
+        });
         updateToolSettingsPanel();
         renderCanvas();
       });
 
       row.appendChild(rowTop);
-
-      const opRow = document.createElement("div");
-      opRow.className = "ai-opacity-row";
-      const opLabel = document.createElement("span");
-      opLabel.className = "ai-opacity-label";
-      opLabel.textContent = "Opacity";
-      const opSlider = document.createElement("input");
-      opSlider.type = "range";
-      opSlider.className = "ai-opacity-slider";
-      opSlider.min = 0; opSlider.max = 100; opSlider.step = 1;
-      opSlider.value = Math.round((layer.opacity ?? 1) * 100);
-      opSlider.addEventListener("pointerdown", (e) => e.stopPropagation());
-      opSlider.addEventListener("input", (e) => {
-        const layers = (currentValue.layers || []).map((l) =>
-          l.id === layer.id ? { ...l, opacity: e.target.value / 100 } : l
-        );
-        currentValue = { ...currentValue, layers };
-        renderCanvas();
-      });
-      opSlider.addEventListener("change", () => emitChange());
-      opRow.appendChild(opLabel);
-      opRow.appendChild(opSlider);
-      row.appendChild(opRow);
-
       body.appendChild(row);
     });
+  }
+
+  function reorderLayers(fromId, toId) {
+    const sorted = [...(currentValue.layers || [])].sort(
+      (a, b) => (b.order ?? 0) - (a.order ?? 0)
+    );
+    const fromIdx = sorted.findIndex((l) => l.id === fromId);
+    const toIdx   = sorted.findIndex((l) => l.id === toId);
+    if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return;
+
+    const moved = sorted.splice(fromIdx, 1)[0];
+    sorted.splice(toIdx, 0, moved);
+
+    // Reassign order: panel top (index 0) = highest canvas z-order
+    const n = sorted.length;
+    const layerMap = Object.fromEntries(sorted.map((l, i) => [l.id, n - 1 - i]));
+    const layers = (currentValue.layers || []).map((l) => ({ ...l, order: layerMap[l.id] ?? l.order }));
+
+    currentValue = { ...currentValue, layers };
+    emitChange();
+    renderCanvas();
+    rebuildLayersPanel();
   }
 
   function updateToolSettingsPanel() {
@@ -901,24 +1094,19 @@ export default function AnnotateImage(container, props) {
     if (activeTool === "select") {
       const sel = (currentValue.layers || []).find((l) => l.id === currentValue.selected_layer_id);
       if (sel) {
-        const info = document.createElement("div");
-        info.className = "ai-select-info";
-        const rows = [
-          ["X", Math.round(sel.x ?? 0)],
-          ["Y", Math.round(sel.y ?? 0)],
-        ];
-        if (sel.type === "image") {
-          rows.push(["Scale X", ((sel.scaleX ?? 1)).toFixed(2)]);
-          rows.push(["Scale Y", ((sel.scaleY ?? 1)).toFixed(2)]);
-          rows.push(["Rotation", `${Math.round(sel.rotation ?? 0)}°`]);
-        }
-        rows.forEach(([label, val]) => {
-          const r = document.createElement("div");
-          r.className = "ai-select-info-row";
-          r.innerHTML = `<span>${label}</span><span style="color:var(--foreground)">${val}</span>`;
-          info.appendChild(r);
-        });
-        body.appendChild(info);
+        body.appendChild(makeScrubNumber("X", sel.x ?? 0,
+          { step: 1, decimals: 0, onChange: (v, c) => updateSelectedLayer({ x: v }, c) }));
+        body.appendChild(makeScrubNumber("Y", sel.y ?? 0,
+          { step: 1, decimals: 0, onChange: (v, c) => updateSelectedLayer({ y: v }, c) }));
+        body.appendChild(makeScrubNumber("Scale X", sel.scaleX ?? 1,
+          { step: 0.005, decimals: 2, min: 0.01, onChange: (v, c) => updateSelectedLayer({ scaleX: v }, c) }));
+        body.appendChild(makeScrubNumber("Scale Y", sel.scaleY ?? 1,
+          { step: 0.005, decimals: 2, min: 0.01, onChange: (v, c) => updateSelectedLayer({ scaleY: v }, c) }));
+        body.appendChild(makeScrubNumber("Rotation", sel.rotation ?? 0,
+          { step: 0.5, decimals: 1, suffix: "°", onChange: (v, c) => updateSelectedLayer({ rotation: v }, c) }));
+        body.appendChild(makeScrubNumber("Opacity", (sel.opacity ?? 1) * 100,
+          { step: 0.5, decimals: 0, min: 0, max: 100, suffix: "%",
+            onChange: (v, c) => updateSelectedLayer({ opacity: v / 100 }, c) }));
       } else {
         const hint = document.createElement("div");
         hint.className = "ai-select-hint";
@@ -930,29 +1118,144 @@ export default function AnnotateImage(container, props) {
       body.appendChild(makeColorRow("Color", ts.paint?.color || "#ff0000", (v) => {
         updateToolSetting("paint", "color", v);
       }));
-      body.appendChild(makeSizeRow("Size", ts.paint?.size || 10, 1, 100, (v) => {
-        updateToolSetting("paint", "size", v);
-      }));
+      body.appendChild(makeScrubNumber("Size", ts.paint?.size || 10,
+        { step: 0.5, decimals: 0, min: 1, max: 200,
+          onChange: (v, c) => { updateToolSetting("paint", "size", Math.round(v)); if (c) emitChange(); } }));
 
     } else if (activeTool === "text") {
       body.appendChild(makeColorRow("Color", ts.text?.color || "#000000", (v) => {
         updateToolSetting("text", "color", v);
       }));
-      body.appendChild(makeSizeRow("Font Size", ts.text?.font_size || 24, 8, 200, (v) => {
-        updateToolSetting("text", "font_size", v);
-      }));
+      body.appendChild(makeScrubNumber("Font Size", ts.text?.font_size || 24,
+        { step: 0.5, decimals: 0, min: 4, max: 400,
+          onChange: (v, c) => { updateToolSetting("text", "font_size", Math.round(v)); if (c) emitChange(); } }));
 
     } else if (activeTool === "arrow") {
       body.appendChild(makeColorRow("Color", ts.arrow?.color || "#ff0000", (v) => {
         updateToolSetting("arrow", "color", v);
       }));
-      body.appendChild(makeSizeRow("Width", ts.arrow?.width || 3, 1, 20, (v) => {
-        updateToolSetting("arrow", "width", v);
-      }));
+      body.appendChild(makeScrubNumber("Width", ts.arrow?.width || 3,
+        { step: 0.1, decimals: 1, min: 0.5, max: 50,
+          onChange: (v, c) => { updateToolSetting("arrow", "width", v); if (c) emitChange(); } }));
     }
   }
 
   // ── panel control helpers ─────────────────────────────────────────────────
+
+  // Scrubable number field: drag horizontally to change, click to type.
+  function makeScrubNumber(label, initialValue, opts = {}) {
+    const { min = -Infinity, max = Infinity, step = 1, decimals = 0, suffix = "", onChange } = opts;
+    let currentVal = initialValue;
+
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:5px;";
+
+    const lbl = document.createElement("span");
+    lbl.style.cssText = "font-size:11px;color:var(--muted-foreground);flex:1;";
+    lbl.textContent = label;
+
+    const numEl = document.createElement("div");
+    numEl.style.cssText = "font-size:11px;color:var(--foreground);min-width:52px;text-align:right;" +
+      "cursor:ew-resize;padding:2px 5px;border-radius:3px;border:1px solid transparent;" +
+      "background:var(--muted);user-select:none;flex-shrink:0;";
+    numEl.title = "Drag to scrub · Click to type";
+
+    function fmt(v) { return v.toFixed(decimals) + suffix; }
+    numEl.textContent = fmt(currentVal);
+
+    let dragStartX = null, dragStartVal = null, didDrag = false;
+
+    numEl.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      dragStartX = e.clientX;
+      dragStartVal = currentVal;
+      didDrag = false;
+      numEl.setPointerCapture(e.pointerId);
+      numEl.style.borderColor = "var(--sidebar-primary)";
+    });
+
+    numEl.addEventListener("pointermove", (e) => {
+      if (dragStartX === null) return;
+      const dx = e.clientX - dragStartX;
+      if (Math.abs(dx) > 2) didDrag = true;
+      if (!didDrag) return;
+      let v = dragStartVal + dx * step;
+      if (min !== -Infinity) v = Math.max(min, v);
+      if (max !== Infinity)  v = Math.min(max, v);
+      currentVal = v;
+      numEl.textContent = fmt(currentVal);
+      onChange?.(currentVal, false);
+    });
+
+    numEl.addEventListener("pointerup", (e) => {
+      e.stopPropagation();
+      numEl.style.borderColor = "transparent";
+      if (didDrag) {
+        onChange?.(currentVal, true);
+      } else {
+        activateInput();
+      }
+      dragStartX = null;
+      didDrag = false;
+    });
+
+    function activateInput() {
+      const inp = document.createElement("input");
+      inp.type = "text";
+      inp.value = currentVal.toFixed(decimals);
+      inp.style.cssText = numEl.style.cssText + ";cursor:text;outline:none;" +
+        "border-color:var(--sidebar-primary);width:52px;box-sizing:border-box;";
+      numEl.replaceWith(inp);
+      inp.focus();
+      inp.select();
+
+      let committed = false;
+      function commit() {
+        if (committed) return;
+        committed = true;
+        const parsed = parseFloat(inp.value);
+        if (!isNaN(parsed)) {
+          let v = parsed;
+          if (min !== -Infinity) v = Math.max(min, v);
+          if (max !== Infinity)  v = Math.min(max, v);
+          currentVal = v;
+          onChange?.(currentVal, true);
+        }
+        numEl.textContent = fmt(currentVal);
+        inp.replaceWith(numEl);
+      }
+      inp.addEventListener("keydown", (ke) => {
+        ke.stopPropagation();
+        if (ke.key === "Enter") commit();
+        if (ke.key === "Escape") { committed = true; inp.replaceWith(numEl); }
+      });
+      inp.addEventListener("blur", commit);
+      inp.addEventListener("pointerdown", (e) => e.stopPropagation());
+    }
+
+    row.appendChild(lbl);
+    row.appendChild(numEl);
+    return row;
+  }
+
+  function updateSelectedLayer(props, commit) {
+    const layers = (currentValue.layers || []).map((l) => {
+      if (l.id !== currentValue.selected_layer_id) return l;
+      const updated = { ...l, ...props };
+      // Freeze the pivot the first time rotation/scale is applied to a paint layer,
+      // so that drawing more strokes later doesn't shift the rotation center.
+      if (l.type === "paint" && updated.pivot_x == null && hasTransform(updated)) {
+        const { cx, cy } = getStrokesBounds(l.strokes || []);
+        updated.pivot_x = cx;
+        updated.pivot_y = cy;
+      }
+      return updated;
+    });
+    currentValue = { ...currentValue, layers };
+    renderCanvas();
+    if (commit) emitChange();
+  }
 
   function makeColorRow(label, value, onInput) {
     const row = document.createElement("div");
@@ -970,34 +1273,6 @@ export default function AnnotateImage(container, props) {
     row.appendChild(lbl);
     row.appendChild(picker);
     return row;
-  }
-
-  function makeSizeRow(label, value, min, max, onInput) {
-    const col = document.createElement("div");
-    col.className = "ai-size-col";
-    const hdr = document.createElement("div");
-    hdr.className = "ai-size-header";
-    const lbl = document.createElement("span");
-    lbl.className = "ai-setting-label";
-    lbl.textContent = label;
-    const val = document.createElement("span");
-    val.className = "ai-size-value";
-    val.textContent = value;
-    hdr.appendChild(lbl);
-    hdr.appendChild(val);
-    const slider = document.createElement("input");
-    slider.type = "range";
-    slider.className = "ai-size-slider";
-    slider.min = min; slider.max = max; slider.step = 1; slider.value = value;
-    slider.addEventListener("pointerdown", (e) => e.stopPropagation());
-    slider.addEventListener("input", (e) => {
-      val.textContent = e.target.value;
-      onInput(parseInt(e.target.value, 10));
-    });
-    slider.addEventListener("change", () => emitChange());
-    col.appendChild(hdr);
-    col.appendChild(slider);
-    return col;
   }
 
   function updateToolSetting(tool, key, value) {
