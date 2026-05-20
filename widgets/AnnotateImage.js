@@ -13,10 +13,10 @@
  */
 
 const TOOLS = [
-  { id: "select", label: "↖", title: "Select & Move" },
-  { id: "paint",  label: "✏", title: "Paint" },
-  { id: "text",   label: "T",  title: "Text" },
-  { id: "arrow",  label: "→",  title: "Arrow" },
+  { id: "select", icon: "select", title: "Select & Move" },
+  { id: "paint",  icon: "paint",  title: "Paint" },
+  { id: "text",   icon: "text",   title: "Text" },
+  { id: "arrow",  icon: "arrow",  title: "Arrow" },
 ];
 
 const DEFAULT_TOOL_SETTINGS = {
@@ -24,6 +24,36 @@ const DEFAULT_TOOL_SETTINGS = {
   text:  { color: "#000000", font_size: 24, font: "Arial" },
   arrow: { color: "#ff0000", width: 3 },
 };
+
+// ── Lucide SVG icons (inlined paths, MIT licensed) ────────────────────────────
+
+const ICON_PATHS = {
+  select:  `<path d="m4 4 7.07 17 2.51-7.39L21 11.07z"/>`,
+  paint:   `<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>`,
+  text:    `<polyline points="4 7 4 4 20 4 20 7"/><line x1="9" x2="15" y1="20" y2="20"/><line x1="12" x2="12" y1="4" y2="20"/>`,
+  arrow:   `<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>`,
+  layers:  `<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>`,
+  eye:     `<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>`,
+  eyeOff:  `<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/>`,
+  trash:   `<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>`,
+  plus:    `<path d="M5 12h14"/><path d="M12 5v14"/>`,
+  image:   `<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>`,
+};
+
+function icon(name, size = 14) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", size);
+  svg.setAttribute("height", size);
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.style.cssText = "display:block;flex-shrink:0;pointer-events:none;";
+  svg.innerHTML = ICON_PATHS[name] || "";
+  return svg;
+}
 
 // ── style injection ───────────────────────────────────────────────────────────
 
@@ -35,39 +65,40 @@ function injectGlobalStyles() {
     style.id = "annotate-image-styles";
     document.head.appendChild(style);
   }
+  // Colors pull from the app's CSS custom properties so the widget matches the theme.
   style.textContent = `
-    .ai-tool-btn { background:rgba(255,255,255,0.1); border:none; border-radius:4px; color:#ddd; cursor:pointer; width:28px; height:28px; font-size:14px; display:flex; align-items:center; justify-content:center; transition:background 0.15s; flex-shrink:0; }
-    .ai-tool-btn:hover { background:rgba(255,255,255,0.2); }
-    .ai-tool-btn.active { background:#7c3aed; color:#fff; }
-    .ai-layers-btn { margin-left:auto; background:rgba(255,255,255,0.1); border:none; border-radius:4px; color:#ddd; cursor:pointer; padding:0 10px; height:28px; font-size:12px; white-space:nowrap; transition:background 0.15s; flex-shrink:0; }
-    .ai-layers-btn:hover { background:rgba(255,255,255,0.2); }
-    .ai-layers-btn.active { background:#7c3aed; color:#fff; }
+    .ai-tool-btn { background:transparent; border:none; border-radius:4px; color:var(--muted-foreground); cursor:pointer; width:28px; height:28px; display:flex; align-items:center; justify-content:center; transition:background 0.15s,color 0.15s; flex-shrink:0; padding:0; }
+    .ai-tool-btn:hover { background:var(--muted); color:var(--foreground); }
+    .ai-tool-btn.active { background:var(--sidebar-primary); color:var(--sidebar-primary-foreground); }
+    .ai-layers-btn { margin-left:auto; background:transparent; border:1px solid var(--border); border-radius:4px; color:var(--muted-foreground); cursor:pointer; padding:0 8px; height:26px; font-size:11px; white-space:nowrap; display:flex; align-items:center; gap:5px; transition:background 0.15s,color 0.15s; flex-shrink:0; }
+    .ai-layers-btn:hover { background:var(--muted); color:var(--foreground); }
+    .ai-layers-btn.active { background:var(--sidebar-primary); border-color:var(--sidebar-primary); color:var(--sidebar-primary-foreground); }
     .ai-canvas { display:block; transform-origin:top left; cursor:crosshair; }
     .ai-canvas.select-cursor { cursor:default; }
-    .ai-text-input { position:absolute; background:rgba(0,0,20,0.85); border:1.5px solid #00aaff; outline:none; padding:2px 4px; border-radius:3px; min-width:100px; color:inherit; }
-    .ai-panel-header { display:flex; align-items:center; justify-content:space-between; padding:8px 12px; background:#16213e; border-bottom:1px solid #334; font-size:12px; font-weight:600; color:#ccc; }
-    .ai-panel-body { padding:8px 12px; }
-    .ai-layer-row { display:flex; flex-direction:column; padding:6px 8px; margin-bottom:3px; border-radius:6px; cursor:pointer; border:1px solid transparent; }
-    .ai-layer-row.selected { background:rgba(124,58,237,0.25); border-color:#7c3aed; }
-    .ai-layer-row:not(.selected):hover { background:rgba(255,255,255,0.05); }
-    .ai-layer-top { display:flex; align-items:center; gap:6px; }
-    .ai-layer-name { flex:1; font-size:12px; color:#ddd; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .ai-layer-icon { font-size:11px; color:#888; flex-shrink:0; }
-    .ai-icon-btn { background:none; border:none; cursor:pointer; padding:0; font-size:12px; opacity:0.7; flex-shrink:0; }
-    .ai-icon-btn:hover { opacity:1; }
-    .ai-opacity-row { display:flex; align-items:center; gap:6px; margin-top:4px; }
-    .ai-opacity-label { font-size:10px; color:#888; min-width:44px; }
-    .ai-opacity-slider { flex:1; height:4px; accent-color:#7c3aed; cursor:pointer; }
+    .ai-text-input { position:absolute; background:var(--popover); border:1.5px solid var(--sidebar-primary); outline:none; padding:2px 6px; border-radius:3px; min-width:100px; color:var(--foreground); font-size:14px; }
+    .ai-panel-header { display:flex; align-items:center; justify-content:space-between; padding:6px 10px; background:var(--card); border-bottom:1px solid var(--border); font-size:11px; font-weight:600; color:var(--muted-foreground); text-transform:uppercase; letter-spacing:0.04em; }
+    .ai-panel-body { padding:8px 10px; }
+    .ai-layer-row { display:flex; flex-direction:column; padding:5px 6px; margin-bottom:2px; border-radius:4px; cursor:pointer; border:1px solid transparent; }
+    .ai-layer-row.selected { background:color-mix(in srgb, var(--sidebar-primary) 15%, transparent); border-color:color-mix(in srgb, var(--sidebar-primary) 50%, transparent); }
+    .ai-layer-row:not(.selected):hover { background:var(--muted); }
+    .ai-layer-top { display:flex; align-items:center; gap:5px; }
+    .ai-layer-name { flex:1; font-size:11px; color:var(--foreground); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .ai-layer-type-icon { color:var(--muted-foreground); flex-shrink:0; display:flex; }
+    .ai-icon-btn { background:none; border:none; cursor:pointer; padding:2px; color:var(--muted-foreground); display:flex; align-items:center; flex-shrink:0; border-radius:3px; opacity:0.6; }
+    .ai-icon-btn:hover { opacity:1; color:var(--foreground); }
+    .ai-opacity-row { display:flex; align-items:center; gap:6px; margin-top:4px; padding:0 2px; }
+    .ai-opacity-label { font-size:10px; color:var(--muted-foreground); min-width:40px; }
+    .ai-opacity-slider { flex:1; height:3px; accent-color:var(--sidebar-primary); cursor:pointer; }
     .ai-setting-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-    .ai-setting-label { font-size:12px; color:#aaa; }
-    .ai-color-input { width:32px; height:24px; border:none; background:none; cursor:pointer; border-radius:3px; overflow:hidden; }
+    .ai-setting-label { font-size:11px; color:var(--muted-foreground); }
+    .ai-color-input { width:28px; height:20px; border:none; background:none; cursor:pointer; border-radius:3px; overflow:hidden; padding:0; }
     .ai-size-col { display:flex; flex-direction:column; gap:4px; margin-bottom:8px; }
-    .ai-size-header { display:flex; justify-content:space-between; }
-    .ai-size-value { font-size:12px; color:#ddd; }
-    .ai-size-slider { width:100%; accent-color:#7c3aed; cursor:pointer; }
-    .ai-select-info { font-size:11px; color:#aaa; display:flex; flex-direction:column; gap:4px; }
+    .ai-size-header { display:flex; justify-content:space-between; align-items:baseline; }
+    .ai-size-value { font-size:11px; color:var(--foreground); }
+    .ai-size-slider { width:100%; accent-color:var(--sidebar-primary); cursor:pointer; }
+    .ai-select-info { font-size:11px; color:var(--muted-foreground); display:flex; flex-direction:column; gap:3px; }
     .ai-select-info-row { display:flex; justify-content:space-between; }
-    .ai-select-hint { font-size:11px; color:#555; }
+    .ai-select-hint { font-size:11px; color:var(--muted-foreground); opacity:0.6; }
   `;
 }
 
@@ -119,18 +150,18 @@ export default function AnnotateImage(container, props) {
 
   const wrapper = document.createElement("div");
   wrapper.className = "nodrag nowheel";
-  wrapper.style.cssText = "display:flex;flex-direction:column;width:100%;background:#1a1a2e;border-radius:6px;font-family:sans-serif;box-sizing:border-box;overflow:hidden;";
+  wrapper.style.cssText = "display:flex;flex-direction:column;width:100%;background:var(--background);border-radius:6px;font-family:sans-serif;box-sizing:border-box;overflow:hidden;";
 
   // Toolbar
   const toolbar = document.createElement("div");
-  toolbar.style.cssText = "display:flex;align-items:center;gap:4px;padding:6px 8px;background:#16213e;border-bottom:1px solid #334;flex-shrink:0;";
+  toolbar.style.cssText = "display:flex;align-items:center;gap:3px;padding:5px 8px;background:var(--card);border-bottom:1px solid var(--border);flex-shrink:0;";
 
   const toolButtons = {};
-  TOOLS.forEach(({ id, label, title }) => {
+  TOOLS.forEach(({ id, icon: iconName, title }) => {
     const btn = document.createElement("button");
     btn.className = "ai-tool-btn" + (id === activeTool ? " active" : "");
-    btn.textContent = label;
     btn.title = title;
+    btn.appendChild(icon(iconName, 15));
     btn.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
       setActiveTool(id);
@@ -141,7 +172,10 @@ export default function AnnotateImage(container, props) {
 
   const layersToggle = document.createElement("button");
   layersToggle.className = "ai-layers-btn" + (currentValue.layers_panel_open ? " active" : "");
-  layersToggle.textContent = "☰ Layers";
+  layersToggle.appendChild(icon("layers", 13));
+  const layersToggleLabel = document.createElement("span");
+  layersToggleLabel.textContent = "Layers";
+  layersToggle.appendChild(layersToggleLabel);
   layersToggle.addEventListener("pointerdown", (e) => {
     e.stopPropagation();
     currentValue = { ...currentValue, layers_panel_open: !currentValue.layers_panel_open };
@@ -327,7 +361,7 @@ export default function AnnotateImage(container, props) {
         // skip failed image
       }
     } else if (layer.type === "paint") {
-      renderStrokes(layer.strokes || []);
+      renderStrokes(layer.strokes || [], layer.x ?? 0, layer.y ?? 0);
     } else if (layer.type === "text") {
       renderText(layer);
     } else if (layer.type === "arrow") {
@@ -337,7 +371,7 @@ export default function AnnotateImage(container, props) {
     ctx.restore();
   }
 
-  function renderStrokes(strokes) {
+  function renderStrokes(strokes, ox = 0, oy = 0) {
     strokes.forEach((stroke) => {
       const pts = stroke.points || [];
       if (pts.length < 1) return;
@@ -347,13 +381,13 @@ export default function AnnotateImage(container, props) {
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       if (pts.length === 1) {
-        ctx.arc(pts[0][0], pts[0][1], (stroke.size || 10) / 2, 0, Math.PI * 2);
+        ctx.arc(pts[0][0] + ox, pts[0][1] + oy, (stroke.size || 10) / 2, 0, Math.PI * 2);
         ctx.fillStyle = stroke.color || "#ff0000";
         ctx.fill();
       } else {
-        ctx.moveTo(pts[0][0], pts[0][1]);
+        ctx.moveTo(pts[0][0] + ox, pts[0][1] + oy);
         for (let i = 1; i < pts.length; i++) {
-          ctx.lineTo(pts[i][0], pts[i][1]);
+          ctx.lineTo(pts[i][0] + ox, pts[i][1] + oy);
         }
         ctx.stroke();
       }
@@ -455,7 +489,13 @@ export default function AnnotateImage(container, props) {
       const hit = hitTestLayer(cx, cy);
       if (hit) {
         currentValue = { ...currentValue, selected_layer_id: hit.id };
-        dragState = { layerId: hit.id, startCx: cx, startCy: cy, origX: hit.x ?? 0, origY: hit.y ?? 0 };
+        if (hit.type === "arrow") {
+          dragState = { layerId: hit.id, startCx: cx, startCy: cy,
+            origX1: hit.x1, origY1: hit.y1, origX2: hit.x2, origY2: hit.y2 };
+        } else {
+          dragState = { layerId: hit.id, startCx: cx, startCy: cy,
+            origX: hit.x ?? 0, origY: hit.y ?? 0 };
+        }
       } else {
         currentValue = { ...currentValue, selected_layer_id: null };
         dragState = null;
@@ -490,9 +530,16 @@ export default function AnnotateImage(container, props) {
     } else if (activeTool === "select" && dragState) {
       const dx = cx - dragState.startCx;
       const dy = cy - dragState.startCy;
-      const layers = (currentValue.layers || []).map((l) =>
-        l.id === dragState.layerId ? { ...l, x: dragState.origX + dx, y: dragState.origY + dy } : l
-      );
+      const layers = (currentValue.layers || []).map((l) => {
+        if (l.id !== dragState.layerId) return l;
+        if (l.type === "arrow") {
+          return { ...l,
+            x1: dragState.origX1 + dx, y1: dragState.origY1 + dy,
+            x2: dragState.origX2 + dx, y2: dragState.origY2 + dy };
+        }
+        // image, paint, text all translate via x/y
+        return { ...l, x: dragState.origX + dx, y: dragState.origY + dy };
+      });
       currentValue = { ...currentValue, layers };
       renderCanvas();
     }
@@ -536,6 +583,14 @@ export default function AnnotateImage(container, props) {
 
   // ── tool actions ──────────────────────────────────────────────────────────
 
+  function pointToSegmentDist(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) return Math.hypot(px - x1, py - y1);
+    const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lenSq));
+    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+  }
+
   function hitTestLayer(cx, cy) {
     const layers = [...(currentValue.layers || [])].sort(
       (a, b) => (b.order ?? 0) - (a.order ?? 0)
@@ -548,6 +603,22 @@ export default function AnnotateImage(container, props) {
         const lx = (layer.x ?? 0) - w / 2;
         const ly = (layer.y ?? 0) - h / 2;
         if (cx >= lx && cx <= lx + w && cy >= ly && cy <= ly + h) return layer;
+      } else if (layer.type === "paint") {
+        const ox = layer.x ?? 0, oy = layer.y ?? 0;
+        for (const stroke of (layer.strokes || [])) {
+          const r = (stroke.size || 10) / 2 + 4;
+          for (const [px, py] of (stroke.points || [])) {
+            if (Math.hypot(cx - (px + ox), cy - (py + oy)) <= r) return layer;
+          }
+        }
+      } else if (layer.type === "text") {
+        const size = layer.font_size || 24;
+        const textW = (layer.text || "").length * size * 0.6;
+        const lx = layer.x ?? 0, ly = layer.y ?? 0;
+        if (cx >= lx && cx <= lx + textW && cy >= ly - size && cy <= ly + 4) return layer;
+      } else if (layer.type === "arrow") {
+        const dist = pointToSegmentDist(cx, cy, layer.x1, layer.y1, layer.x2, layer.y2);
+        if (dist <= 10) return layer;
       }
     }
     return null;
@@ -685,7 +756,7 @@ export default function AnnotateImage(container, props) {
   function buildSidePanelEl() {
     const panel = document.createElement("div");
     // flex-direction:column so tsHeader/tsBody/divider/lHeader/lBody stack vertically
-    panel.style.cssText = "flex-direction:column;flex:0 200px;min-width:110px;box-sizing:border-box;background:#16213e;border-left:1px solid #334;overflow-y:auto;max-height:600px;";
+    panel.style.cssText = "flex-direction:column;flex:0 1 200px;min-width:140px;box-sizing:border-box;background:var(--card);border-left:1px solid var(--border);overflow-y:auto;max-height:600px;";
     panel.addEventListener("pointerdown", (e) => e.stopPropagation());
     panel.addEventListener("wheel", (e) => e.stopPropagation());
 
@@ -699,7 +770,7 @@ export default function AnnotateImage(container, props) {
 
     // Divider
     const divider = document.createElement("div");
-    divider.style.cssText = "border-top:1px solid #334;";
+    divider.style.cssText = "border-top:1px solid var(--border);";
 
     // Layers section header
     const lHeader = document.createElement("div");
@@ -707,9 +778,10 @@ export default function AnnotateImage(container, props) {
     const lTitle = document.createElement("span");
     lTitle.textContent = "Layers";
     const addBtn = document.createElement("button");
-    addBtn.textContent = "+ Paint";
     addBtn.title = "Add new paint layer";
-    addBtn.style.cssText = "font-size:11px;color:#7c3aed;cursor:pointer;background:none;border:none;";
+    addBtn.style.cssText = "display:flex;align-items:center;gap:3px;font-size:11px;color:var(--muted-foreground);cursor:pointer;background:none;border:none;padding:0;border-radius:3px;";
+    addBtn.appendChild(icon("plus", 11));
+    addBtn.appendChild(Object.assign(document.createElement("span"), { textContent: "Paint" }));
     addBtn.addEventListener("pointerdown", (e) => { e.stopPropagation(); addPaintLayer(); });
     lHeader.appendChild(lTitle);
     lHeader.appendChild(addBtn);
@@ -748,30 +820,31 @@ export default function AnnotateImage(container, props) {
 
       const visBtn = document.createElement("button");
       visBtn.className = "ai-icon-btn";
-      visBtn.textContent = layer.visible !== false ? "👁" : "🚫";
       visBtn.title = "Toggle visibility";
+      visBtn.appendChild(icon(layer.visible !== false ? "eye" : "eyeOff", 12));
       visBtn.addEventListener("pointerdown", (e) => {
         e.stopPropagation();
         toggleLayerVisibility(layer.id);
       });
 
-      const typeIcon = document.createElement("span");
-      typeIcon.className = "ai-layer-icon";
-      typeIcon.textContent = { image: "🖼", paint: "✏", text: "T", arrow: "→" }[layer.type] || "?";
+      const typeIconEl = document.createElement("span");
+      typeIconEl.className = "ai-layer-type-icon";
+      const typeIconName = { image: "image", paint: "paint", text: "text", arrow: "arrow" }[layer.type] || "image";
+      typeIconEl.appendChild(icon(typeIconName, 11));
 
       const name = document.createElement("span");
       name.className = "ai-layer-name";
       name.textContent = layer.name || "Layer";
 
       rowTop.appendChild(visBtn);
-      rowTop.appendChild(typeIcon);
+      rowTop.appendChild(typeIconEl);
       rowTop.appendChild(name);
 
       if (layer.type !== "image") {
         const delBtn = document.createElement("button");
         delBtn.className = "ai-icon-btn";
-        delBtn.textContent = "🗑";
         delBtn.title = "Remove layer";
+        delBtn.appendChild(icon("trash", 12));
         delBtn.addEventListener("pointerdown", (e) => {
           e.stopPropagation();
           deleteLayer(layer.id);
@@ -842,7 +915,7 @@ export default function AnnotateImage(container, props) {
         rows.forEach(([label, val]) => {
           const r = document.createElement("div");
           r.className = "ai-select-info-row";
-          r.innerHTML = `<span>${label}</span><span style="color:#ddd">${val}</span>`;
+          r.innerHTML = `<span>${label}</span><span style="color:var(--foreground)">${val}</span>`;
           info.appendChild(r);
         });
         body.appendChild(info);
