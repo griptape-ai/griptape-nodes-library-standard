@@ -62,6 +62,11 @@
       "name": "MaskAdjustmentPreview",
       "path": "widgets/MaskAdjustmentPreview.js",
       "description": "Interactive preview for mask adjustment with timeline scrubbing and dilation/erosion controls."
+    },
+    {
+      "name": "AnnotateImage",
+      "path": "widgets/AnnotateImage.js",
+      "description": "In-node canvas editor for annotating images with paint, text, and arrows."
     }
   ],
   "categories": [
@@ -1905,6 +1910,17 @@
         "display_name": "Crop Image",
         "icon": "crop",
         "group": "edit"
+      }
+    },
+    {
+      "class_name": "AnnotateImage",
+      "file_path": "griptape_nodes_library/image/annotate_image.py",
+      "metadata": {
+        "category": "image",
+        "description": "Annotate images with paint, text, and arrows directly in the node canvas",
+        "display_name": "Annotate Image",
+        "icon": "pencil",
+        "group": "annotate"
       }
     },
     {
