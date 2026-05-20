@@ -11,9 +11,18 @@
  * framework re-invocations (triggered by value changes) update the
  * existing DOM instead of rebuilding from scratch. This preserves
  * video playback position and avoids the "jump to frame 0" bug.
+ *
+ * Performance design:
+ * - applyMorphologicalOp is O(W·H) via 2D prefix-sum box morphology,
+ *   regardless of radius. ~1000× faster than the previous O(W·H·r²) loop.
+ * - cachedMaskData stores the ImageData of the current frame so that
+ *   adjustment-slider changes never re-draw from the video element.
+ * - tmpCvs / tmpCtx are created once at closure scope and reused.
+ * - loadeddata + requestVideoFrameCallback ensure the first frame is
+ *   captured and displayed as soon as the browser has decoded it.
  */
 
-const WIDGET_VERSION = "0.6.0";
+const WIDGET_VERSION = "0.9.0";
 
 // Shared slider styling to match the editor's native Radix-style sliders
 const SLIDER_STYLE = `
@@ -74,13 +83,17 @@ export default function MaskAdjustmentPreview(container, props) {
 
   const newOriginalUrl = value?.original_video_url || "";
   const newMaskUrl = value?.mask_video_url || "";
-  const newAdjustment = value?.adjustment || 0;
+  const newAdjustment = value?.adjustment ?? 0;
 
-  // If the widget was already built, just update what changed
+  // If the widget was already built and its DOM is still attached, just update
   if (container._maskPreview) {
     const inst = container._maskPreview;
-    inst.update(newOriginalUrl, newMaskUrl, newAdjustment, onChange);
-    return inst.cleanup;
+    if (inst.wrapper && inst.wrapper.isConnected) {
+      inst.handleUpdate(props);
+      return { cleanup: inst.cleanup, update: inst.handleUpdate };
+    }
+    // DOM was detached (framework called cleanup between renders) — full rebuild
+    delete container._maskPreview;
   }
 
   // --- First-time build ---
@@ -89,14 +102,20 @@ export default function MaskAdjustmentPreview(container, props) {
   let originalVideoUrl = newOriginalUrl;
   let maskVideoUrl = newMaskUrl;
   let adjustment = newAdjustment;
-  let currentFrame = value?.current_frame || 0;
-  let totalFrames = value?.total_frames || 0;
+  let currentFrame = value?.current_frame ?? 0;
+  let totalFrames = value?.total_frames ?? 0;
   let videoReady = false;
   let maskReady = false;
   let isSeeking = false;
   let onChangeRef = onChange;
   let maskOnlyMode = !newOriginalUrl;
   let detectedFps = 30;
+
+  // Reusable temp canvas — created once, resized as needed, never recreated
+  const tmpCvs = document.createElement("canvas");
+  const tmpCtx = tmpCvs.getContext("2d", { willReadFrequently: true });
+  // Cached ImageData of the current mask frame — updated only on seek or new video
+  let cachedMaskData = null;
 
   // Inject scoped slider styles
   const styleId = "mask-preview-slider-styles";
@@ -267,7 +286,7 @@ export default function MaskAdjustmentPreview(container, props) {
     }
   }
 
-  // Live preview on every drag tick — no persistence yet
+  // Live preview on every drag tick — re-renders from cache, no video re-draw
   adjustmentSlider.addEventListener("input", (e) => {
     const val = parseInt(e.target.value, 10);
     adjustment = val;
@@ -397,7 +416,7 @@ export default function MaskAdjustmentPreview(container, props) {
 
     isSeeking = true;
     primary.currentTime = time;
-    // Also seek the other video if it's loaded
+    // Also seek the hidden video to keep them in sync
     if (!maskOnlyMode && maskVideo.duration) {
       maskVideo.currentTime = time;
     }
@@ -406,7 +425,26 @@ export default function MaskAdjustmentPreview(container, props) {
     }
   }
 
-  // Coalesce rapid render requests
+  // Capture the current mask video frame into cachedMaskData.
+  // Call this after any seek or on initial frame load — NOT on adjustment changes.
+  function captureFrame() {
+    if (!maskVideo.videoWidth) return false;
+    const mw = maskVideo.videoWidth;
+    const mh = maskVideo.videoHeight;
+    if (tmpCvs.width !== mw || tmpCvs.height !== mh) {
+      tmpCvs.width = mw;
+      tmpCvs.height = mh;
+    }
+    try {
+      tmpCtx.drawImage(maskVideo, 0, 0);
+      cachedMaskData = tmpCtx.getImageData(0, 0, mw, mh);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Coalesce rapid render requests into one rAF
   let renderPending = false;
   function scheduleRender() {
     if (renderPending) return;
@@ -417,15 +455,20 @@ export default function MaskAdjustmentPreview(container, props) {
     });
   }
 
-  // Render mask overlay on canvas
+  // Render mask overlay on canvas.
+  // Uses cachedMaskData — never re-draws from the video element directly.
   function renderMaskOverlay() {
     if (!maskReady) return;
-    if (!maskVideo.videoWidth) return;
+
+    // Ensure we have a cached frame (capture on first render after load)
+    if (!cachedMaskData && !captureFrame()) return;
+
+    // In overlay mode we also need the original video to be ready
     if (!maskOnlyMode && (!videoReady || !video.videoWidth)) return;
 
     const refVideo = displayVideo();
 
-    // Set canvas pixel dimensions to match the reference video resolution
+    // Sync canvas pixel dimensions to the reference video resolution
     if (canvas.width !== refVideo.videoWidth || canvas.height !== refVideo.videoHeight) {
       canvas.width = refVideo.videoWidth;
       canvas.height = refVideo.videoHeight;
@@ -433,43 +476,48 @@ export default function MaskAdjustmentPreview(container, props) {
     syncCanvasSize();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const tempCanvas = document.createElement("canvas");
-    tempCanvas.width = maskVideo.videoWidth;
-    tempCanvas.height = maskVideo.videoHeight;
-    const tempCtx = tempCanvas.getContext("2d", { willReadFrequently: true });
-
     try {
-      tempCtx.drawImage(maskVideo, 0, 0);
-      const maskData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-      const processedData = adjustment !== 0 ? applyMorphologicalOp(maskData, adjustment) : maskData;
+      const processedData = adjustment !== 0
+        ? applyMorphologicalOp(cachedMaskData, adjustment)
+        : cachedMaskData;
 
       if (maskOnlyMode) {
-        // Mask-only mode: draw the adjusted B&W mask directly on the canvas
-        // When adjustment is 0 the canvas stays clear so the raw mask video shows through
+        // Mask-only mode: draw the adjusted B&W mask on the canvas.
+        // When adjustment is 0, canvas stays clear and the raw video shows through.
         if (adjustment !== 0) {
-          tempCtx.putImageData(processedData, 0, 0);
-          ctx.drawImage(tempCanvas, 0, 0, canvas.width, canvas.height);
+          const mw = cachedMaskData.width;
+          const mh = cachedMaskData.height;
+          if (tmpCvs.width !== mw || tmpCvs.height !== mh) {
+            tmpCvs.width = mw;
+            tmpCvs.height = mh;
+          }
+          tmpCtx.putImageData(processedData, 0, 0);
+          ctx.drawImage(tmpCvs, 0, 0, canvas.width, canvas.height);
         }
         infoText.textContent = `Mask: OK | ${adjustment !== 0 ? `Adjusted preview (${adjustment}px)` : "No adjustment"}`;
       } else {
         // Overlay mode: semi-transparent yellow mask on top of original video
-        const overlayData = tempCtx.createImageData(tempCanvas.width, tempCanvas.height);
+        const sw = cachedMaskData.width;
+        const sh = cachedMaskData.height;
         const srcData = processedData.data;
-        const dstData = overlayData.data;
+        const overlayBuf = new Uint8ClampedArray(sw * sh * 4);
 
         for (let i = 0; i < srcData.length; i += 4) {
           if (srcData[i] > 127) {
-            dstData[i] = 255;     // R
-            dstData[i + 1] = 255; // G
-            dstData[i + 2] = 0;   // B
-            dstData[i + 3] = 128; // A (50% opacity)
-          } else {
-            dstData[i + 3] = 0;
+            overlayBuf[i] = 255;     // R
+            overlayBuf[i + 1] = 255; // G
+            overlayBuf[i + 2] = 0;   // B
+            overlayBuf[i + 3] = 128; // A (50% opacity)
           }
+          // else stays 0 (transparent)
         }
 
-        tempCtx.putImageData(overlayData, 0, 0);
-        ctx.drawImage(tempCanvas, 0, 0, canvas.width, canvas.height);
+        if (tmpCvs.width !== sw || tmpCvs.height !== sh) {
+          tmpCvs.width = sw;
+          tmpCvs.height = sh;
+        }
+        tmpCtx.putImageData(new ImageData(overlayBuf, sw, sh), 0, 0);
+        ctx.drawImage(tmpCvs, 0, 0, canvas.width, canvas.height);
         infoText.textContent = `Video: OK | Mask: OK | Overlay active (adj: ${adjustment}px)`;
       }
     } catch (error) {
@@ -478,8 +526,19 @@ export default function MaskAdjustmentPreview(container, props) {
     }
   }
 
-  // Circular-kernel morphological operation matching the Python node's elliptical kernel.
-  // Precomputes kernel offsets to avoid per-pixel distance checks.
+  // O(W·H) 2D prefix-sum box morphology.
+  //
+  // Replaces the previous O(W·H·r²) circular-kernel loop. The kernel is now a
+  // square (box) rather than a circle, which is an acceptable approximation for
+  // the live preview — the server-side FFmpeg processing uses the true filter.
+  //
+  // Algorithm:
+  //   1. Extract binary mask → Uint8Array                         O(W·H)
+  //   2. Build 2D prefix-sum table (Int32Array, 1-indexed)         O(W·H)
+  //   3. For each pixel, query neighbourhood sum in O(1)           O(W·H)
+  //   4. Dilation: sum > 0 → white; Erosion: sum == area → white   O(W·H)
+  //
+  // At r=25 on 1920×1080 this is ~4M operations vs ~4B previously (~1000× faster).
   function applyMorphologicalOp(imageData, adj) {
     if (adj === 0) return imageData;
 
@@ -487,7 +546,6 @@ export default function MaskAdjustmentPreview(container, props) {
     const h = imageData.height;
     const src = imageData.data;
     const radius = Math.abs(adj);
-    const r2 = radius * radius;
     const isDilation = adj > 0;
     const threshold = 127;
 
@@ -497,32 +555,39 @@ export default function MaskAdjustmentPreview(container, props) {
       mask[i] = src[i * 4] > threshold ? 1 : 0;
     }
 
-    // Precompute circular kernel offsets (dx, dy where dx^2 + dy^2 <= r^2)
-    const offsets = [];
-    for (let dy = -radius; dy <= radius; dy++) {
-      for (let dx = -radius; dx <= radius; dx++) {
-        if (dx * dx + dy * dy <= r2) {
-          offsets.push([dx, dy]);
-        }
+    // Build 2D prefix-sum table.
+    // prefix[(y+1)*stride + (x+1)] = sum of mask[0..y][0..x]
+    const stride = w + 1;
+    const prefix = new Int32Array((h + 1) * stride);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        prefix[(y + 1) * stride + (x + 1)] =
+          mask[y * w + x] +
+          prefix[y * stride + (x + 1)] +
+          prefix[(y + 1) * stride + x] -
+          prefix[y * stride + x];
       }
     }
 
+    // Apply box erosion/dilation using O(1) neighbourhood sum queries
     const result = new Uint8Array(w * h);
     for (let y = 0; y < h; y++) {
+      const r1 = Math.max(0, y - radius);
+      const r2 = Math.min(h - 1, y + radius);
+      const rowLen = r2 - r1 + 1;
       for (let x = 0; x < w; x++) {
-        let val = isDilation ? 0 : 1;
-        for (let k = 0; k < offsets.length; k++) {
-          const nx = x + offsets[k][0];
-          const ny = y + offsets[k][1];
-          if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-            if (isDilation) {
-              if (mask[ny * w + nx]) { val = 1; break; }
-            } else {
-              if (!mask[ny * w + nx]) { val = 0; break; }
-            }
-          }
+        const c1 = Math.max(0, x - radius);
+        const c2 = Math.min(w - 1, x + radius);
+        const sum =
+          prefix[(r2 + 1) * stride + (c2 + 1)] -
+          prefix[r1 * stride + (c2 + 1)] -
+          prefix[(r2 + 1) * stride + c1] +
+          prefix[r1 * stride + c1];
+        if (isDilation) {
+          result[y * w + x] = sum > 0 ? 1 : 0;
+        } else {
+          result[y * w + x] = sum === rowLen * (c2 - c1 + 1) ? 1 : 0;
         }
-        result[y * w + x] = val;
       }
     }
 
@@ -531,9 +596,7 @@ export default function MaskAdjustmentPreview(container, props) {
     for (let i = 0; i < result.length; i++) {
       const v = result[i] ? 255 : 0;
       const j = i * 4;
-      output[j] = v;
-      output[j + 1] = v;
-      output[j + 2] = v;
+      output[j] = output[j + 1] = output[j + 2] = v;
       output[j + 3] = 255;
     }
 
@@ -583,6 +646,7 @@ export default function MaskAdjustmentPreview(container, props) {
     if (!url) return;
     if (urlBase(maskVideo.src) === urlBase(url)) return;
     maskReady = false;
+    cachedMaskData = null; // Stale frame data must not survive a source change
     updateStatus();
     maskVideo.src = url;
   }
@@ -613,7 +677,8 @@ export default function MaskAdjustmentPreview(container, props) {
     });
   }
 
-  // Video event handlers
+  // --- Video event handlers ---
+
   video.addEventListener("loadedmetadata", () => {
     if (!maskOnlyMode) {
       canvas.width = video.videoWidth;
@@ -631,6 +696,14 @@ export default function MaskAdjustmentPreview(container, props) {
     updateStatus();
     if (maskReady) {
       restoreFramePosition();
+      scheduleRender();
+    }
+  });
+
+  // loadeddata fires when the first frame is available for drawing.
+  // This is more reliable than loadedmetadata for initial canvas render.
+  video.addEventListener("loadeddata", () => {
+    if (!maskOnlyMode && maskReady && cachedMaskData) {
       scheduleRender();
     }
   });
@@ -654,8 +727,25 @@ export default function MaskAdjustmentPreview(container, props) {
       updateTimelineDisplay();
     }
     updateStatus();
+
+    // Use requestVideoFrameCallback when available for accurate first-frame capture.
+    // Falls back to loadeddata below.
+    if (maskVideo.requestVideoFrameCallback) {
+      maskVideo.requestVideoFrameCallback(() => {
+        if (captureFrame()) scheduleRender();
+      });
+    }
+
     if (maskOnlyMode || videoReady) {
       restoreFramePosition();
+    }
+  });
+
+  // loadeddata fires when the first frame is decoded — reliable fallback for
+  // browsers that don't support requestVideoFrameCallback.
+  maskVideo.addEventListener("loadeddata", () => {
+    if (maskReady && (maskOnlyMode || videoReady)) {
+      if (!cachedMaskData) captureFrame();
       scheduleRender();
     }
   });
@@ -670,15 +760,16 @@ export default function MaskAdjustmentPreview(container, props) {
     console.error("Original video error:", e, video.error);
   });
 
+  // After a seek completes, capture the new frame then re-render.
+  // This replaces the previous 50ms setTimeout hack.
   video.addEventListener("seeked", () => {
     isSeeking = false;
-    if (!maskOnlyMode) {
-      setTimeout(() => renderMaskOverlay(), 50);
-    }
+    if (!maskOnlyMode) scheduleRender();
   });
 
   maskVideo.addEventListener("seeked", () => {
     isSeeking = false;
+    captureFrame(); // Update the cache with the newly seeked frame
     scheduleRender();
   });
 
@@ -714,17 +805,21 @@ export default function MaskAdjustmentPreview(container, props) {
     }
     if (newMaskUrl && newMaskUrl !== maskVideoUrl) {
       maskVideoUrl = newMaskUrl;
+      // loadMaskVideo already resets cachedMaskData
       loadMaskVideo(newMaskUrl);
     }
     if (newAdj !== adjustment) {
       adjustment = newAdj;
       adjustmentSlider.value = newAdj;
       adjustmentInput.value = newAdj;
-      scheduleRender();
+      scheduleRender(); // Uses cached frame — instant re-render
     }
   }
 
-  // Cleanup function — fully release video resources to avoid WebMediaPlayer exhaustion
+  // Cleanup function — fully release video resources to avoid WebMediaPlayer exhaustion.
+  // IMPORTANT: must remove the wrapper from the container and delete container._maskPreview
+  // so the next widget call (after framework cleanup+re-render) does a full rebuild
+  // rather than calling update() on detached DOM elements.
   function cleanup() {
     video.pause();
     maskVideo.pause();
@@ -734,10 +829,19 @@ export default function MaskAdjustmentPreview(container, props) {
     maskVideo.load();
     video.remove();
     maskVideo.remove();
+    wrapper.remove();
+    delete container._maskPreview;
   }
 
-  // Store instance on container for re-invocations
-  container._maskPreview = { update, cleanup };
+  // Adapter: maps ParameterComponentProps → internal update signature so the
+  // WidgetLoader framework can forward value changes via handleRef.current.update().
+  function handleUpdate(newProps) {
+    const v = newProps.value;
+    update(v?.original_video_url || "", v?.mask_video_url || "", v?.adjustment ?? 0, newProps.onChange);
+  }
 
-  return cleanup;
+  // Store instance on container for re-invocations (includes wrapper for isConnected check)
+  container._maskPreview = { handleUpdate, cleanup, wrapper };
+
+  return { cleanup, update: handleUpdate };
 }

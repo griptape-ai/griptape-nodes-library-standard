@@ -9,6 +9,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, DataNode
 from griptape_nodes.exe_types.param_components.progress_bar_component import ProgressBarComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
@@ -48,29 +49,25 @@ class AdjustMaskSize(DataNode):
                 name="mask_video",
                 tooltip="Input mask video to adjust",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={
-                    "display_name": "Mask Video",
-                    "hide_property": True,
-                },
+                hide_property=True,
+                display_name="Mask Video",
             )
         )
 
-        # Preview widget parameter
-        preview_param = Parameter(
+        preview_param = ParameterDict(
             name="preview",
-            type="dict",
             default_value={
                 "original_video_url": "",
                 "mask_video_url": "",
                 "adjustment": 0,
                 "current_frame": 0,
-                "total_frames": 0,
+                "total_frames": 100,
             },
             tooltip="Interactive preview of mask adjustment",
+            display_name="Preview",
             allowed_modes={ParameterMode.PROPERTY},
-            ui_options={"display_name": "Preview"},
+            traits={Widget(name="MaskAdjustmentPreview", library="Griptape Nodes Library")},
         )
-        preview_param.add_trait(Widget(name="MaskAdjustmentPreview", library="Griptape Nodes Library"))
         self.add_parameter(preview_param)
 
         # Output video parameter
@@ -122,7 +119,7 @@ class AdjustMaskSize(DataNode):
         if not video_artifact:
             return ""
 
-        value = video_artifact.value
+        value = video_artifact.value if hasattr(video_artifact, "value") else str(video_artifact)
         if not value:
             return ""
 
@@ -131,12 +128,17 @@ class AdjustMaskSize(DataNode):
             return value
 
         try:
+            resolved_path = File(value).resolve()
+        except Exception:
+            resolved_path = str(value)
+
+        try:
             from griptape_nodes.retained_mode.events.static_file_events import (
                 CreateStaticFileDownloadUrlFromPathRequest,
                 CreateStaticFileDownloadUrlFromPathResultSuccess,
             )
 
-            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=value))
+            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved_path))
             if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
                 return result.url
         except Exception:
@@ -162,8 +164,22 @@ class AdjustMaskSize(DataNode):
         total_frames = preview.get("total_frames", 0)
         adjustment = preview.get("adjustment", 0)
 
-        # Skip if URLs haven't changed — avoids unnecessary widget rebuild
-        if preview.get("original_video_url") == original_video_url and preview.get("mask_video_url") == mask_video_url:
+        # Skip if URLs haven't changed — avoids unnecessary widget rebuild.
+        # Strip query params (presigned-URL timestamps change each call) before comparing.
+        # Exception: when both old and new URLs are empty (initial state, no videos
+        # connected yet), always call set_parameter_value so the framework invokes
+        # the widget function and the widget renders on first node creation.
+        def _url_base(u: str) -> str:
+            return u.split("?")[0] if u else ""
+
+        stored_orig = _url_base(preview.get("original_video_url", ""))
+        stored_mask = _url_base(preview.get("mask_video_url", ""))
+        new_orig = _url_base(original_video_url)
+        new_mask = _url_base(mask_video_url)
+
+        urls_unchanged = stored_orig == new_orig and stored_mask == new_mask
+        any_url_set = stored_orig or stored_mask or new_orig or new_mask
+        if urls_unchanged and any_url_set:
             return
 
         self.set_parameter_value(
@@ -210,6 +226,8 @@ class AdjustMaskSize(DataNode):
 
         # If adjustment is 0, just pass through the input
         if adjustment == 0:
+            if not hasattr(mask_video, "value"):
+                mask_video = VideoUrlArtifact(File(str(mask_video)).resolve())
             self.parameter_output_values["output_mask"] = mask_video
             return
 
@@ -230,7 +248,8 @@ class AdjustMaskSize(DataNode):
         output_video: Path | None = None
         try:
             ffmpeg_path, _ = self._get_ffmpeg_paths()
-            video_url = File(mask_video.value).resolve()
+            raw_path = mask_video.value if hasattr(mask_video, "value") else str(mask_video)
+            video_url = File(raw_path).resolve()
             self._validate_url_safety(video_url)
 
             # Chain dilation or erosion N times for N-pixel radius effect
