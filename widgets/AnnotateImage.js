@@ -379,8 +379,32 @@ export default function AnnotateImage(container, props) {
       const bounds = getStrokesBounds(layer.strokes || []);
       const pivX = layer.pivot_x ?? bounds.cx;
       const pivY = layer.pivot_y ?? bounds.cy;
-      applyLayerTransform(layer, pivX, pivY);
-      renderStrokes(layer.strokes || []);
+      const opacity = layer.opacity ?? 1;
+
+      if (opacity >= 1) {
+        applyLayerTransform(layer, pivX, pivY);
+        renderStrokes(layer.strokes || []);
+      } else {
+        // Render all strokes to an offscreen canvas at full opacity first, then
+        // composite the whole thing at layer opacity. This prevents the alpha from
+        // accumulating at segment overlaps, which makes individual dots visible.
+        const off = document.createElement("canvas");
+        off.width = canvas.width;
+        off.height = canvas.height;
+        const offCtx = off.getContext("2d");
+        offCtx.save();
+        const ox = layer.x ?? 0, oy = layer.y ?? 0;
+        const sx = layer.scaleX ?? 1, sy = layer.scaleY ?? 1;
+        const rot = (layer.rotation ?? 0) * Math.PI / 180;
+        offCtx.translate(ox + pivX, oy + pivY);
+        if (rot) offCtx.rotate(rot);
+        if (sx !== 1 || sy !== 1) offCtx.scale(sx, sy);
+        if (pivX || pivY) offCtx.translate(-pivX, -pivY);
+        renderStrokes(layer.strokes || [], offCtx);
+        offCtx.restore();
+        // The outer renderLayer already set ctx.globalAlpha = opacity; use it.
+        ctx.drawImage(off, 0, 0);
+      }
     } else if (layer.type === "text") {
       applyLayerTransform(layer);
       renderText(layer);
@@ -448,7 +472,7 @@ export default function AnnotateImage(container, props) {
     return { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
   }
 
-  function renderStrokes(strokes) {
+  function renderStrokes(strokes, c = ctx) {
     strokes.forEach((stroke) => {
       const pts = stroke.points || [];
       if (pts.length < 1) return;
@@ -457,25 +481,25 @@ export default function AnnotateImage(container, props) {
 
       if (pts.length === 1) {
         const r = (pts[0][2] ?? defaultSize) / 2;
-        ctx.beginPath();
-        ctx.fillStyle = color;
-        ctx.arc(pts[0][0], pts[0][1], r, 0, Math.PI * 2);
-        ctx.fill();
+        c.beginPath();
+        c.fillStyle = color;
+        c.arc(pts[0][0], pts[0][1], r, 0, Math.PI * 2);
+        c.fill();
         return;
       }
 
       // Draw each segment at its own width so velocity-varied sizes look smooth.
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.strokeStyle = color;
+      c.lineCap = "round";
+      c.lineJoin = "round";
+      c.strokeStyle = color;
       for (let i = 1; i < pts.length; i++) {
         const p0 = pts[i - 1], p1 = pts[i];
         const w = ((p0[2] ?? defaultSize) + (p1[2] ?? defaultSize)) / 2;
-        ctx.beginPath();
-        ctx.lineWidth = w;
-        ctx.moveTo(p0[0], p0[1]);
-        ctx.lineTo(p1[0], p1[1]);
-        ctx.stroke();
+        c.beginPath();
+        c.lineWidth = w;
+        c.moveTo(p0[0], p0[1]);
+        c.lineTo(p1[0], p1[1]);
+        c.stroke();
       }
     });
   }
