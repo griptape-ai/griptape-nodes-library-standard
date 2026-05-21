@@ -67,6 +67,11 @@
       "name": "AnnotateImage",
       "path": "widgets/AnnotateImage.js",
       "description": "In-node canvas editor for annotating images with paint, text, and arrows."
+    },
+    {
+      "name": "AnnotateImageSimple",
+      "path": "widgets/AnnotateImageSimple.js",
+      "description": "Simple single-image annotation canvas with toolbar and inline tool settings."
     }
   ],
   "categories": [
@@ -1917,9 +1922,20 @@
       "file_path": "griptape_nodes_library/image/annotate_image.py",
       "metadata": {
         "category": "image",
-        "description": "Annotate images with paint, text, and arrows directly in the node canvas",
+        "description": "Annotate a single image with paint, text, and arrows",
         "display_name": "Annotate Image",
         "icon": "pencil",
+        "group": "annotate"
+      }
+    },
+    {
+      "class_name": "AnnotateImageBash",
+      "file_path": "griptape_nodes_library/image/annotate_image_bash.py",
+      "metadata": {
+        "category": "image",
+        "description": "Annotate images with multiple layers, paint, text, and arrows",
+        "display_name": "Annotate Image (Multi-Layer)",
+        "icon": "layers",
         "group": "annotate"
       }
     },

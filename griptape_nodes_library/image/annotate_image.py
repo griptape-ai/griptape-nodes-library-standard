@@ -1,37 +1,34 @@
 import math
 from io import BytesIO
 from typing import Any
-from urllib.parse import unquote, urlparse
 
-from griptape.artifacts import ImageUrlArtifact, JsonArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
-from griptape_nodes.exe_types.node_types import BaseNode, DataNode
+from griptape.artifacts import ImageUrlArtifact
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
-from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
-from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.widget import Widget
-from PIL import Image, ImageDraw, ImageEnhance, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 from griptape_nodes_library.utils.color_utils import parse_color_to_rgba
-from griptape_nodes_library.utils.image_utils import load_pil_from_url
 
 
 def _default_annotation_data() -> dict:
     return {
-        "canvas_width": 1920,
-        "canvas_height": 1080,
-        "layers": [],
+        "image_url": "",
+        "raw_url": "",
+        "canvas_width": 0,
+        "canvas_height": 0,
+        "annotations": [],
         "active_tool": "select",
         "tool_settings": {
-            "paint": {"color": "#ff0000", "size": 10},
-            "text": {"color": "#000000", "font_size": 24, "font": "Arial"},
+            "paint": {"color": "#ff0000", "size": 8},
+            "text": {"color": "#ffffff", "font_size": 48},
             "arrow": {"color": "#ff0000", "width": 3},
         },
-        "selected_layer_id": None,
-        "layers_panel_open": True,
+        "selected_id": None,
     }
 
 
@@ -40,12 +37,11 @@ class AnnotateImage(DataNode):
         super().__init__(**kwargs)
 
         self.add_parameter(
-            ParameterList(
-                name="input_images",
+            Parameter(
+                name="image",
+                input_types=["ImageUrlArtifact", "ImageArtifact"],
                 default_value=None,
-                input_types=["ImageArtifact", "ImageUrlArtifact"],
-                type="ImageArtifact",
-                tooltip="Images to use as layers in the canvas editor",
+                tooltip="Input image to annotate",
                 allowed_modes={ParameterMode.INPUT},
             )
         )
@@ -54,28 +50,10 @@ class AnnotateImage(DataNode):
             ParameterDict(
                 name="annotation_data",
                 default_value=_default_annotation_data(),
-                tooltip="Canvas editor with layers, paint, text, and arrow annotations",
-                display_name="Canvas Editor",
+                tooltip="Canvas annotations (paint, text, arrows)",
+                display_name="Canvas",
                 allowed_modes={ParameterMode.PROPERTY},
-                traits={Widget(name="AnnotateImage", library="Griptape Nodes Library")},
-            )
-        )
-
-        self.add_parameter(
-            ParameterInt(
-                name="canvas_width",
-                default_value=1920,
-                tooltip="Canvas width (auto-set from first connected image)",
-                allowed_modes={ParameterMode.OUTPUT},
-            )
-        )
-
-        self.add_parameter(
-            ParameterInt(
-                name="canvas_height",
-                default_value=1080,
-                tooltip="Canvas height (auto-set from first connected image)",
-                allowed_modes={ParameterMode.OUTPUT},
+                traits={Widget(name="AnnotateImageSimple", library="Griptape Nodes Library")},
             )
         )
 
@@ -84,387 +62,168 @@ class AnnotateImage(DataNode):
                 name="output_image",
                 input_types=["ImageArtifact", "ImageUrlArtifact"],
                 type="ImageUrlArtifact",
-                tooltip="Flattened composite of all layers and annotations",
+                tooltip="Image with annotations composited",
                 ui_options={"expander": True},
                 allowed_modes={ParameterMode.OUTPUT},
             )
         )
 
-        self.add_parameter(
-            ParameterJson(
-                name="output_annotations",
-                tooltip="Raw annotation data (layers, strokes, text, arrows) as JSON",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide_property=True,
-            )
-        )
-
         self._output_file = ProjectFileParameter(
-            node=self,
-            name="output_file",
-            default_filename="annotate_image.png",
+            node=self, name="output_file", default_filename="annotated.png"
         )
         self._output_file.add_parameter()
 
-    # ─── helpers ──────────────────────────────────────────────────────────────
+    # ── helpers ───────────────────────────────────────────────────────────────
 
-    def _get_raw_value(self, artifact: Any) -> str:
-        """Extract the raw path/URL string from an artifact or dict."""
-        if isinstance(artifact, dict):
-            return artifact.get("value", "")
-        return getattr(artifact, "value", "") or ""
-
-    def _resolve_image_url(self, raw_value: str) -> str:
-        """Convert a raw file path / macro path to a browser-accessible HTTP URL."""
+    def _resolve_url(self, artifact: Any) -> tuple[str, str]:
+        """Return (raw_path, browser_url) for an image artifact."""
         from griptape_nodes.retained_mode.events.static_file_events import (
             CreateStaticFileDownloadUrlFromPathRequest,
             CreateStaticFileDownloadUrlFromPathResultSuccess,
         )
 
-        if not raw_value:
-            return ""
-        if raw_value.startswith(("http://", "https://", "data:")):
-            return raw_value
+        raw = getattr(artifact, "value", "") or ""
+        if not raw:
+            return "", ""
+        if raw.startswith(("http://", "https://", "data:")):
+            return raw, raw
         try:
-            resolved_path = File(raw_value).resolve()
+            resolved = File(raw).resolve()
         except Exception:
-            resolved_path = str(raw_value)
+            resolved = str(raw)
         try:
             result = GriptapeNodes.handle_request(
-                CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved_path)
+                CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved)
             )
             if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
-                return result.url
+                return resolved, result.url
         except Exception:
             pass
-        return raw_value
+        return resolved, raw
 
-    def _get_image_dimensions(self, raw_path: str) -> tuple[int, int]:
-        """Get image dimensions using the raw file path (not the HTTP URL)."""
+    def _get_dimensions(self, raw_path: str) -> tuple[int, int]:
         try:
-            image_bytes = File(raw_path).read_bytes()
-            with Image.open(BytesIO(image_bytes)) as img:
-                return img.size
+            data = File(raw_path).read_bytes()
+            with Image.open(BytesIO(data)) as img:
+                return img.size  # (width, height)
         except Exception:
-            return (400, 300)
+            return 0, 0
 
-    def _get_image_name(self, url: str, index: int) -> str:
-        try:
-            parsed = urlparse(url)
-            filename = unquote(parsed.path.split("/")[-1])
-            if filename and "." in filename:
-                return filename.split(".")[0].split("?")[0]
-        except Exception:
-            pass
-        return f"Image {index + 1}"
-
-    def _find_existing_image_layer(self, layers: list[dict], raw_path: str) -> dict | None:
-        for layer in layers:
-            if layer.get("type") == "image" and layer.get("raw_url") == raw_path:
-                return layer
-        return None
-
-    # ─── layer sync ───────────────────────────────────────────────────────────
-
-    def _sync_image_layers(self, images: list | None) -> None:
-        annotation_data = self.get_parameter_value("annotation_data") or _default_annotation_data()
-        if not isinstance(annotation_data, dict):
-            annotation_data = _default_annotation_data()
-
-        existing_layers = annotation_data.get("layers", [])
-        canvas_width = annotation_data.get("canvas_width", 0)
-        canvas_height = annotation_data.get("canvas_height", 0)
-
-        # Build (raw_path, browser_url) pairs — no PIL reads, JS handles dimensions
-        new_pairs: list[tuple[str, str]] = []
-        for img in (images or []):
-            raw = self._get_raw_value(img)
-            if raw:
-                browser_url = self._resolve_image_url(raw)
-                if browser_url:
-                    new_pairs.append((raw, browser_url))
-
-        # Keep non-image layers (paint, text, arrow) unchanged
-        non_image_layers = [l for l in existing_layers if l.get("type") != "image"]
-
-        # Build new image layers, preserving existing data for known URLs
-        new_image_layers: list[dict] = []
-        existing_image_layers = [l for l in existing_layers if l.get("type") == "image"]
-
-        for i, (raw, browser_url) in enumerate(new_pairs):
-            existing = self._find_existing_image_layer(existing_image_layers, raw)
-            if existing:
-                # Preserve all user edits (position, scale, rotation, opacity) but
-                # refresh the presigned URL, which changes on every resolve call.
-                new_image_layers.append({**existing, "url": browser_url, "raw_url": raw})
-            else:
-                # New image — store URL only; JS widget fills in width/height/scale on first render
-                new_image_layers.append({
-                    "id": f"img-{i + 1}",
-                    "type": "image",
-                    "name": self._get_image_name(browser_url, i),
-                    "url": browser_url,   # browser-accessible for JS widget
-                    "raw_url": raw,       # file path for Python PIL compositing
-                    "visible": True,
-                    "opacity": 1.0,
-                    "x": None,   # JS will center after it knows image dimensions
-                    "y": None,
-                    "width": None,
-                    "height": None,
-                    "scaleX": None,
-                    "scaleY": None,
-                    "rotation": 0,
-                    "order": i,
-                })
-
-        # Rebuild layer list: image layers first, then non-image layers with updated order
-        all_layers = new_image_layers[:]
-        for j, layer in enumerate(non_image_layers):
-            all_layers.append({**layer, "order": len(new_image_layers) + j})
-
-        annotation_data = {
-            **annotation_data,
-            "canvas_width": canvas_width,
-            "canvas_height": canvas_height,
-            "layers": all_layers,
-        }
-
-        self.set_parameter_value("annotation_data", annotation_data)
-        self.publish_update_to_parameter("annotation_data", annotation_data)
-        self.publish_update_to_parameter("canvas_width", canvas_width)
-        self.publish_update_to_parameter("canvas_height", canvas_height)
-
-    def _handle_images_removed(self) -> None:
-        annotation_data = self.get_parameter_value("annotation_data") or _default_annotation_data()
-        if not isinstance(annotation_data, dict):
-            annotation_data = _default_annotation_data()
-
-        non_image_layers = [l for l in annotation_data.get("layers", []) if l.get("type") != "image"]
-        annotation_data = {**annotation_data, "layers": non_image_layers}
-
-        self.set_parameter_value("annotation_data", annotation_data)
-        self.publish_update_to_parameter("annotation_data", annotation_data)
-
-    # ─── lifecycle hooks ──────────────────────────────────────────────────────
+    # ── lifecycle ─────────────────────────────────────────────────────────────
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        if "input_images" in parameter.name:
-            # Always read the full list — after_value_set may receive a single item
-            current = self.get_parameter_value("input_images") or []
-            if len(current) == 0:
-                self._handle_images_removed()
-            else:
-                self._sync_image_layers(current)
-        elif parameter.name == "annotation_data" and isinstance(value, dict):
-            cw = value.get("canvas_width")
-            ch = value.get("canvas_height")
-            if cw:
-                self.publish_update_to_parameter("canvas_width", cw)
-            if ch:
-                self.publish_update_to_parameter("canvas_height", ch)
+        if parameter.name == "image" and value:
+            raw, browser_url = self._resolve_url(value)
+            if not browser_url:
+                return super().after_value_set(parameter, value)
+            w, h = self._get_dimensions(raw)
+            data = self.get_parameter_value("annotation_data") or _default_annotation_data()
+            if not isinstance(data, dict):
+                data = _default_annotation_data()
+            # Preserve all annotations; only refresh image/canvas fields.
+            new_data = {
+                **data,
+                "image_url": browser_url,
+                "raw_url": raw,
+                "canvas_width": w or data.get("canvas_width", 0),
+                "canvas_height": h or data.get("canvas_height", 0),
+            }
+            self.set_parameter_value("annotation_data", new_data)
+            self.publish_update_to_parameter("annotation_data", new_data)
         return super().after_value_set(parameter, value)
 
-    def after_incoming_connection_removed(
-        self,
-        source_node: BaseNode,
-        source_parameter: Parameter,
-        target_parameter: Parameter,
-    ) -> None:
-        if "input_images" in target_parameter.name:
-            current = self.get_parameter_value("input_images") or []
-            if len(current) == 0:
-                self._handle_images_removed()
-            else:
-                self._sync_image_layers(current)
-        return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
+    # ── compositing ───────────────────────────────────────────────────────────
 
-    # ─── compositing ─────────────────────────────────────────────────────────
-
-    def _draw_paint_layer(self, draw: ImageDraw.ImageDraw, layer: dict) -> None:
-        for stroke in layer.get("strokes", []):
-            points = stroke.get("points", [])
-            if not points:
-                continue
-            color_str = stroke.get("color", "#ff0000")
-            try:
-                r, g, b, _ = parse_color_to_rgba(color_str)
-            except Exception:
-                r, g, b = 255, 0, 0
-            size = max(1, int(stroke.get("size", 10)))
-            opacity = layer.get("opacity", 1.0)
-            a = int(255 * opacity)
-            color = (r, g, b, a)
-
-            # Draw circles at each point for round caps
-            # Points may be [x, y] or [x, y, size] (velocity-based width from JS)
-            for pt in points:
-                px, py = pt[0], pt[1]
-                pt_size = max(1, int(pt[2])) if len(pt) > 2 else size
-                draw.ellipse(
-                    [px - pt_size / 2, py - pt_size / 2, px + pt_size / 2, py + pt_size / 2],
-                    fill=color,
-                )
-            # Connect points with lines
-            for i in range(len(points) - 1):
-                x0, y0 = points[i][0], points[i][1]
-                x1, y1 = points[i + 1][0], points[i + 1][1]
-                seg_size = max(1, int((points[i][2] + points[i + 1][2]) / 2)) if len(points[i]) > 2 else size
-                draw.line([x0, y0, x1, y1], fill=color, width=seg_size)
-
-    def _draw_text_layer(self, draw: ImageDraw.ImageDraw, layer: dict) -> None:
-        text = layer.get("text", "")
-        if not text:
-            return
-        x = float(layer.get("x", 0))
-        y = float(layer.get("y", 0))
-        font_size = max(8, int(layer.get("font_size", 24)))
-        color_str = layer.get("color", "#000000")
-        try:
-            r, g, b, _ = parse_color_to_rgba(color_str)
-        except Exception:
-            r, g, b = 0, 0, 0
-        opacity = layer.get("opacity", 1.0)
-        a = int(255 * opacity)
-        color = (r, g, b, a)
-
-        try:
-            font = ImageFont.load_default(size=font_size)
-        except TypeError:
-            font = ImageFont.load_default()
-
-        draw.text((x, y), text, font=font, fill=color)
-
-    def _draw_arrow_layer(self, draw: ImageDraw.ImageDraw, layer: dict) -> None:
-        x1 = float(layer.get("x1", 0))
-        y1 = float(layer.get("y1", 0))
-        x2 = float(layer.get("x2", 0))
-        y2 = float(layer.get("y2", 0))
-        color_str = layer.get("color", "#ff0000")
+    def _parse_color(self, color_str: str, opacity: float = 1.0) -> tuple[int, int, int, int]:
         try:
             r, g, b, _ = parse_color_to_rgba(color_str)
         except Exception:
             r, g, b = 255, 0, 0
-        opacity = layer.get("opacity", 1.0)
-        a = int(255 * opacity)
-        color = (r, g, b, a)
-        width = max(1, int(layer.get("width", 3)))
+        return (r, g, b, int(255 * opacity))
 
+    def _draw_paint(self, draw: ImageDraw.ImageDraw, ann: dict) -> None:
+        for stroke in ann.get("strokes", []):
+            points = stroke.get("points", [])
+            if not points:
+                continue
+            color = self._parse_color(stroke.get("color", "#ff0000"))
+            base_size = max(1, int(stroke.get("size", 8)))
+            for pt in points:
+                px, py = pt[0], pt[1]
+                sz = max(1, int(pt[2])) if len(pt) > 2 else base_size
+                draw.ellipse([px - sz / 2, py - sz / 2, px + sz / 2, py + sz / 2], fill=color)
+            for i in range(len(points) - 1):
+                x0, y0 = points[i][0], points[i][1]
+                x1, y1 = points[i + 1][0], points[i + 1][1]
+                sz = max(1, int((points[i][2] + points[i + 1][2]) / 2)) if len(points[i]) > 2 else base_size
+                draw.line([x0, y0, x1, y1], fill=color, width=sz)
+
+    def _draw_text(self, draw: ImageDraw.ImageDraw, ann: dict) -> None:
+        text = ann.get("text", "")
+        if not text:
+            return
+        x = float(ann.get("x", 0))
+        y = float(ann.get("y", 0))
+        font_size = max(8, int(ann.get("font_size", 48)))
+        color = self._parse_color(ann.get("color", "#ffffff"))
+        try:
+            font = ImageFont.load_default(size=font_size)
+        except TypeError:
+            font = ImageFont.load_default()
+        draw.text((x, y), text, font=font, fill=color)
+
+    def _draw_arrow(self, draw: ImageDraw.ImageDraw, ann: dict) -> None:
+        x1, y1 = float(ann.get("x1", 0)), float(ann.get("y1", 0))
+        x2, y2 = float(ann.get("x2", 0)), float(ann.get("y2", 0))
+        color = self._parse_color(ann.get("color", "#ff0000"))
+        width = max(1, int(ann.get("width", 3)))
         draw.line([x1, y1, x2, y2], fill=color, width=width)
-
-        # Arrowhead
         angle = math.atan2(y2 - y1, x2 - x1)
-        head_len = max(15, width * 4)
+        head = max(15, width * 4)
         tip = (x2, y2)
-        left = (
-            x2 - head_len * math.cos(angle - math.pi / 6),
-            y2 - head_len * math.sin(angle - math.pi / 6),
-        )
-        right = (
-            x2 - head_len * math.cos(angle + math.pi / 6),
-            y2 - head_len * math.sin(angle + math.pi / 6),
-        )
+        left = (x2 - head * math.cos(angle - math.pi / 6), y2 - head * math.sin(angle - math.pi / 6))
+        right = (x2 - head * math.cos(angle + math.pi / 6), y2 - head * math.sin(angle + math.pi / 6))
         draw.polygon([tip, left, right], fill=color)
 
-    def _composite_image_layer(self, canvas: Image.Image, layer: dict) -> None:
-        # Prefer raw_url (file path) for PIL loading; fall back to browser url
-        load_url = layer.get("raw_url") or layer.get("url")
-        if not load_url:
-            return
-        try:
-            img = load_pil_from_url(load_url)
-        except Exception as e:
-            logger.warning(f"{self.name}: Could not load image layer '{layer.get('name')}': {e}")
-            return
-
-        if img.mode != "RGBA":
-            img = img.convert("RGBA")
-
-        base_w = layer.get("width", img.width) or img.width
-        base_h = layer.get("height", img.height) or img.height
-        scale_x = float(layer.get("scaleX", 1.0) or 1.0)
-        scale_y = float(layer.get("scaleY", 1.0) or 1.0)
-        target_w = max(1, round(base_w * scale_x))
-        target_h = max(1, round(base_h * scale_y))
-
-        if img.size != (target_w, target_h):
-            img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
-
-        rotation = float(layer.get("rotation", 0) or 0)
-        if rotation != 0:
-            img = img.rotate(-rotation, expand=True, resample=Image.Resampling.BICUBIC)
-
-        opacity = float(layer.get("opacity", 1.0) or 1.0)
-        if opacity < 1.0:
-            alpha = img.getchannel("A")
-            alpha = ImageEnhance.Brightness(alpha).enhance(opacity)
-            img.putalpha(alpha)
-
-        cx = float(layer.get("x") or canvas.width / 2)
-        cy = float(layer.get("y") or canvas.height / 2)
-        paste_x = round(cx - img.width / 2)
-        paste_y = round(cy - img.height / 2)
-        canvas.paste(img, (paste_x, paste_y), img)
-
     def process(self) -> None:
+        image_artifact = self.get_parameter_value("image")
+        if not image_artifact:
+            msg = f"{self.name}: No input image provided"
+            raise ValueError(msg)
+
         annotation_data = self.get_parameter_value("annotation_data") or _default_annotation_data()
         if not isinstance(annotation_data, dict):
             annotation_data = _default_annotation_data()
 
-        canvas_width = int(annotation_data.get("canvas_width") or 1920)
-        canvas_height = int(annotation_data.get("canvas_height") or 1080)
+        raw_url = annotation_data.get("raw_url") or getattr(image_artifact, "value", "")
+        try:
+            img_data = File(raw_url).read_bytes()
+            bg = Image.open(BytesIO(img_data)).convert("RGBA")
+        except Exception as e:
+            msg = f"{self.name}: Could not load image: {e}"
+            raise ValueError(msg) from e
 
-        canvas = Image.new("RGBA", (canvas_width, canvas_height), (255, 255, 255, 255))
+        overlay = Image.new("RGBA", bg.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
 
-        layers = sorted(annotation_data.get("layers", []), key=lambda l: l.get("order", 0))
+        for ann in annotation_data.get("annotations", []):
+            ann_type = ann.get("type")
+            if ann_type == "paint":
+                self._draw_paint(draw, ann)
+            elif ann_type == "text":
+                self._draw_text(draw, ann)
+            elif ann_type == "arrow":
+                self._draw_arrow(draw, ann)
 
-        for layer in layers:
-            if not layer.get("visible", True):
-                continue
-
-            layer_type = layer.get("type", "image")
-
-            if layer_type == "image":
-                self._composite_image_layer(canvas, layer)
-
-            elif layer_type in ("paint", "text", "arrow"):
-                # Render annotation onto a transparent overlay, then composite
-                overlay = Image.new("RGBA", (canvas_width, canvas_height), (0, 0, 0, 0))
-                draw = ImageDraw.Draw(overlay)
-
-                if layer_type == "paint":
-                    self._draw_paint_layer(draw, layer)
-                elif layer_type == "text":
-                    self._draw_text_layer(draw, layer)
-                elif layer_type == "arrow":
-                    self._draw_arrow_layer(draw, layer)
-
-                canvas = Image.alpha_composite(canvas, overlay)
+        canvas = Image.alpha_composite(bg, overlay)
 
         dest = self._output_file.build_file()
-        img_bytes = self._pil_to_bytes(canvas.convert("RGB"), "PNG")
-        saved = dest.write_bytes(img_bytes)
+        buf = BytesIO()
+        canvas.convert("RGB").save(buf, format="PNG")
+        saved = dest.write_bytes(buf.getvalue())
 
-        output_artifact = ImageUrlArtifact(value=saved.location)
-        self.set_parameter_value("output_image", output_artifact)
-        self.parameter_output_values["output_image"] = output_artifact
-        self.publish_update_to_parameter("output_image", output_artifact)
-
-        annotations_artifact = JsonArtifact(annotation_data)
-        self.set_parameter_value("output_annotations", annotations_artifact)
-        self.parameter_output_values["output_annotations"] = annotations_artifact
-        self.publish_update_to_parameter("output_annotations", annotations_artifact)
-
-        logger.debug(f"{self.name}: Output image saved to {output_artifact.value}")
-
-    def _pil_to_bytes(self, img: Image.Image, img_format: str) -> bytes:
-        import io
-
-        with io.BytesIO() as buf:
-            img.save(buf, format=img_format)
-            buf.seek(0)
-            data = buf.getvalue()
-
-        if not data:
-            msg = f"{self.name}: Failed to convert image to bytes"
-            raise ValueError(msg)
-        return data
+        artifact = ImageUrlArtifact(value=saved.location)
+        self.set_parameter_value("output_image", artifact)
+        self.parameter_output_values["output_image"] = artifact
+        self.publish_update_to_parameter("output_image", artifact)
+        logger.debug(f"{self.name}: Output saved to {artifact.value}")
