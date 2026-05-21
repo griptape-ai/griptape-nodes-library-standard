@@ -8,6 +8,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterList, Parame
 from griptape_nodes.exe_types.node_types import BaseNode, DataNode
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
+from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
@@ -90,11 +91,11 @@ class AnnotateImage(DataNode):
         )
 
         self.add_parameter(
-            Parameter(
+            ParameterJson(
                 name="output_annotations",
-                type="JsonArtifact",
                 tooltip="Raw annotation data (layers, strokes, text, arrows) as JSON",
                 allowed_modes={ParameterMode.OUTPUT},
+                hide_property=True,
             )
         )
 
@@ -157,9 +158,9 @@ class AnnotateImage(DataNode):
             pass
         return f"Image {index + 1}"
 
-    def _find_existing_image_layer(self, layers: list[dict], url: str) -> dict | None:
+    def _find_existing_image_layer(self, layers: list[dict], raw_path: str) -> dict | None:
         for layer in layers:
-            if layer.get("type") == "image" and layer.get("url") == url:
+            if layer.get("type") == "image" and layer.get("raw_url") == raw_path:
                 return layer
         return None
 
@@ -191,9 +192,11 @@ class AnnotateImage(DataNode):
         existing_image_layers = [l for l in existing_layers if l.get("type") == "image"]
 
         for i, (raw, browser_url) in enumerate(new_pairs):
-            existing = self._find_existing_image_layer(existing_image_layers, browser_url)
+            existing = self._find_existing_image_layer(existing_image_layers, raw)
             if existing:
-                new_image_layers.append(existing)
+                # Preserve all user edits (position, scale, rotation, opacity) but
+                # refresh the presigned URL, which changes on every resolve call.
+                new_image_layers.append({**existing, "url": browser_url, "raw_url": raw})
             else:
                 # New image — store URL only; JS widget fills in width/height/scale on first render
                 new_image_layers.append({
@@ -293,16 +296,20 @@ class AnnotateImage(DataNode):
             color = (r, g, b, a)
 
             # Draw circles at each point for round caps
-            for px, py in points:
+            # Points may be [x, y] or [x, y, size] (velocity-based width from JS)
+            for pt in points:
+                px, py = pt[0], pt[1]
+                pt_size = max(1, int(pt[2])) if len(pt) > 2 else size
                 draw.ellipse(
-                    [px - size / 2, py - size / 2, px + size / 2, py + size / 2],
+                    [px - pt_size / 2, py - pt_size / 2, px + pt_size / 2, py + pt_size / 2],
                     fill=color,
                 )
             # Connect points with lines
             for i in range(len(points) - 1):
-                x0, y0 = points[i]
-                x1, y1 = points[i + 1]
-                draw.line([x0, y0, x1, y1], fill=color, width=size)
+                x0, y0 = points[i][0], points[i][1]
+                x1, y1 = points[i + 1][0], points[i + 1][1]
+                seg_size = max(1, int((points[i][2] + points[i + 1][2]) / 2)) if len(points[i]) > 2 else size
+                draw.line([x0, y0, x1, y1], fill=color, width=seg_size)
 
     def _draw_text_layer(self, draw: ImageDraw.ImageDraw, layer: dict) -> None:
         text = layer.get("text", "")

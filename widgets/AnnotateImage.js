@@ -278,10 +278,11 @@ export default function AnnotateImage(container, props) {
       ...layer,
       width: nw,
       height: nh,
-      scaleX: fitScale,
-      scaleY: fitScale,
-      x: cw / 2,
-      y: ch / 2,
+      // Only initialize position/scale on first load; preserve user edits after that.
+      scaleX: layer.scaleX ?? fitScale,
+      scaleY: layer.scaleY ?? fitScale,
+      x: layer.x ?? cw / 2,
+      y: layer.y ?? ch / 2,
     };
 
     const layers = (currentValue.layers || []).map((l) =>
@@ -304,12 +305,16 @@ export default function AnnotateImage(container, props) {
     rebuildLayersPanel();
   }
 
+  // Strip presigned query string so a refreshed URL still hits the cache.
+  function urlCacheKey(url) { return url ? url.split("?")[0] : url; }
+
   function loadImage(url) {
+    const key = urlCacheKey(url);
     return new Promise((resolve, reject) => {
-      if (imageCache[url]) { resolve(imageCache[url]); return; }
+      if (imageCache[key]) { resolve(imageCache[key]); return; }
       const img = new window.Image();
       img.crossOrigin = "anonymous";
-      img.onload = () => { imageCache[url] = img; resolve(img); };
+      img.onload = () => { imageCache[key] = img; resolve(img); };
       img.onerror = reject;
       img.src = url;
     });
@@ -350,7 +355,7 @@ export default function AnnotateImage(container, props) {
 
     if (layer.type === "image") {
       try {
-        const alreadyCached = !!imageCache[layer.url];
+        const alreadyCached = !!imageCache[urlCacheKey(layer.url)];
         const img = await loadImage(layer.url);
 
         if (!alreadyCached) {
