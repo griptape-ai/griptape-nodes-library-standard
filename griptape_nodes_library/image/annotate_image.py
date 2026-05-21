@@ -56,7 +56,7 @@ class AnnotateImage(DataNode):
                 default_value=_default_annotation_data(),
                 tooltip="Canvas annotations (paint, text, arrows)",
                 display_name="Canvas",
-                allowed_modes={ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT, ParameterMode.INPUT},
                 traits={Widget(name="AnnotateImageSimple", library="Griptape Nodes Library")},
                 
             )
@@ -67,7 +67,6 @@ class AnnotateImage(DataNode):
                 name="output_image",
                 tooltip="Image with annotations composited",
                 allowed_modes={ParameterMode.OUTPUT},
-                ui_options={"expander": True, "pulse_on_run": True},
                 hide_property=True
             )
         )
