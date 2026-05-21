@@ -689,24 +689,51 @@ export default function AnnotateImageSimple(container, props) {
   }
 
   function drawArrowAnnotation(ann, selected) {
-    drawArrowLine(ann.x1, ann.y1, ann.x2, ann.y2, ann.color || "#ff0000", ann.width || 3);
+    const { cp1x, cp1y, cp2x, cp2y } = _defaultCps(ann);
+    drawArrowLine(ann.x1, ann.y1, ann.x2, ann.y2, ann.color || "#ff0000", ann.width || 3, cp1x, cp1y, cp2x, cp2y);
     if (selected) {
       const r = 5 / displayScale;
+      const cpR = 4 / displayScale;
+      ctx.save();
+      // Endpoint handles
       ctx.fillStyle = "rgba(79,142,247,0.9)";
       ctx.beginPath(); ctx.arc(ann.x1, ann.y1, r, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.arc(ann.x2, ann.y2, r, 0, Math.PI * 2); ctx.fill();
+      // Control point arms (dashed)
+      ctx.strokeStyle = "rgba(79,142,247,0.5)";
+      ctx.lineWidth = 1 / displayScale;
+      ctx.setLineDash([3 / displayScale, 2 / displayScale]);
+      ctx.beginPath(); ctx.moveTo(ann.x1, ann.y1); ctx.lineTo(cp1x, cp1y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ann.x2, ann.y2); ctx.lineTo(cp2x, cp2y); ctx.stroke();
+      ctx.setLineDash([]);
+      // Control point handles (hollow circles)
+      ctx.fillStyle = "white";
+      ctx.strokeStyle = "rgba(79,142,247,0.9)";
+      ctx.lineWidth = 1.5 / displayScale;
+      ctx.beginPath(); ctx.arc(cp1x, cp1y, cpR, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cp1x, cp1y, cpR, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = "white";
+      ctx.beginPath(); ctx.arc(cp2x, cp2y, cpR, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cp2x, cp2y, cpR, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
     }
   }
 
-  function drawArrowLine(x1, y1, x2, y2, color, width) {
+  function drawArrowLine(x1, y1, x2, y2, color, width, cp1x, cp1y, cp2x, cp2y) {
+    if (cp1x == null) cp1x = x1 + (x2 - x1) / 3;
+    if (cp1y == null) cp1y = y1 + (y2 - y1) / 3;
+    if (cp2x == null) cp2x = x1 + (x2 - x1) * 2 / 3;
+    if (cp2y == null) cp2y = y1 + (y2 - y1) * 2 / 3;
     const w = Math.max(1, width);
     ctx.save();
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
     ctx.lineWidth = w;
     ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-    const angle = Math.atan2(y2 - y1, x2 - x1);
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2); ctx.stroke();
+    const angle = Math.hypot(x2 - cp2x, y2 - cp2y) < 0.1
+      ? Math.atan2(y2 - y1, x2 - x1)
+      : Math.atan2(y2 - cp2y, x2 - cp2x);
     const head = Math.max(15, w * 4);
     ctx.beginPath();
     ctx.moveTo(x2, y2);
@@ -728,14 +755,15 @@ export default function AnnotateImageSimple(container, props) {
         const ax = (ann.x || 0) - 4, ay = (ann.y || 0) - 4;
         if (cx >= ax && cx <= ax + w + 8 && cy >= ay && cy <= ay + h + 8) return ann;
       } else if (ann.type === "arrow") {
-        const dx = ann.x2 - ann.x1, dy = ann.y2 - ann.y1;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        if (len < 1) continue;
-        const t = Math.max(0, Math.min(1, ((cx - ann.x1) * dx + (cy - ann.y1) * dy) / (len * len)));
-        const px = ann.x1 + t * dx, py = ann.y1 + t * dy;
-        // 12 screen-pixel minimum tolerance so thin arrows stay clickable at small display sizes
+        const { cp1x, cp1y, cp2x, cp2y } = _defaultCps(ann);
         const tol = Math.max(12 / displayScale, (ann.width || 3) + 6);
-        if (Math.sqrt((cx - px) ** 2 + (cy - py) ** 2) <= tol) return ann;
+        const N = 20;
+        for (let i = 0; i <= N; i++) {
+          const t = i / N, mt = 1 - t;
+          const bx = mt**3*ann.x1 + 3*mt**2*t*cp1x + 3*mt*t**2*cp2x + t**3*ann.x2;
+          const by = mt**3*ann.y1 + 3*mt**2*t*cp1y + 3*mt*t**2*cp2y + t**3*ann.y2;
+          if (Math.hypot(cx - bx, cy - by) <= tol) return ann;
+        }
       } else if (ann.type === "paint") {
         const [lx, ly] = _paintInvTransformPt(ann, cx, cy);
         for (const stroke of (ann.strokes || [])) {
@@ -759,10 +787,12 @@ export default function AnnotateImageSimple(container, props) {
       const ax = ann.x || 0, ay = ann.y || 0;
       return { minX: ax - 4, minY: ay - 4, maxX: ax + w + 8, maxY: ay + h + 8 };
     } else if (ann.type === "arrow") {
+      const { cp1x, cp1y, cp2x, cp2y } = _defaultCps(ann);
       const pad = Math.max(8, (ann.width || 3) / 2 + 4);
+      const xs = [ann.x1, ann.x2, cp1x, cp2x], ys = [ann.y1, ann.y2, cp1y, cp2y];
       return {
-        minX: Math.min(ann.x1, ann.x2) - pad, minY: Math.min(ann.y1, ann.y2) - pad,
-        maxX: Math.max(ann.x1, ann.x2) + pad, maxY: Math.max(ann.y1, ann.y2) + pad,
+        minX: Math.min(...xs) - pad, minY: Math.min(...ys) - pad,
+        maxX: Math.max(...xs) + pad, maxY: Math.max(...ys) + pad,
       };
     } else if (ann.type === "paint") {
       const corners = _getTransformedCorners(ann, 10);
@@ -794,16 +824,26 @@ export default function AnnotateImageSimple(container, props) {
 
   function _snapshotAnn(ann) {
     const [cx, cy] = _paintCenter(ann);
+    const cps = _defaultCps(ann);
     return {
       cx, cy,
       x: ann.x ?? 0, y: ann.y ?? 0,
       scaleX: ann.scaleX ?? 1, scaleY: ann.scaleY ?? 1,
       rotation: ann.rotation ?? 0,
       x1: ann.x1 ?? 0, y1: ann.y1 ?? 0, x2: ann.x2 ?? 0, y2: ann.y2 ?? 0,
+      cp1x: cps.cp1x, cp1y: cps.cp1y, cp2x: cps.cp2x, cp2y: cps.cp2y,
       font_size: ann.font_size ?? 48,
       width: ann.width ?? 3,
       sizeScale: ann.sizeScale ?? 1,
     };
+  }
+
+  function _defaultCps(ann) {
+    const cp1x = ann.cp1x ?? (ann.x1 + ((ann.x2 ?? 0) - (ann.x1 ?? 0)) / 3);
+    const cp1y = ann.cp1y ?? (ann.y1 + ((ann.y2 ?? 0) - (ann.y1 ?? 0)) / 3);
+    const cp2x = ann.cp2x ?? (ann.x1 + ((ann.x2 ?? 0) - (ann.x1 ?? 0)) * 2 / 3);
+    const cp2y = ann.cp2y ?? (ann.y1 + ((ann.y2 ?? 0) - (ann.y1 ?? 0)) * 2 / 3);
+    return { cp1x, cp1y, cp2x, cp2y };
   }
 
   // ── unified transform frame (OBB) ────────────────────────────────────────────
@@ -879,10 +919,15 @@ export default function AnnotateImageSimple(container, props) {
       const ax = ann.x || 0, ay = ann.y || 0;
       return !(ax + w < x1 || ax > x2 || ay + h < y1 || ay > y2);
     } else if (ann.type === "arrow") {
-      if (ann.x1 >= x1 && ann.x1 <= x2 && ann.y1 >= y1 && ann.y1 <= y2) return true;
-      if (ann.x2 >= x1 && ann.x2 <= x2 && ann.y2 >= y1 && ann.y2 <= y2) return true;
-      const mx = (ann.x1 + ann.x2) / 2, my = (ann.y1 + ann.y2) / 2;
-      return mx >= x1 && mx <= x2 && my >= y1 && my <= y2;
+      const { cp1x, cp1y, cp2x, cp2y } = _defaultCps(ann);
+      const N = 12;
+      for (let i = 0; i <= N; i++) {
+        const t = i / N, mt = 1 - t;
+        const bx = mt**3*ann.x1 + 3*mt**2*t*cp1x + 3*mt*t**2*cp2x + t**3*ann.x2;
+        const by = mt**3*ann.y1 + 3*mt**2*t*cp1y + 3*mt*t**2*cp2y + t**3*ann.y2;
+        if (bx >= x1 && bx <= x2 && by >= y1 && by <= y2) return true;
+      }
+      return false;
     } else if (ann.type === "paint") {
       for (const stroke of (ann.strokes || [])) {
         for (const pt of (stroke.points || [])) {
@@ -1126,6 +1171,22 @@ export default function AnnotateImageSimple(container, props) {
         }
       }
 
+      // Control point handle detection: only when single arrow already selected
+      if (selIds.length === 1) {
+        const selAnn = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
+        if (selAnn?.type === "arrow") {
+          const cps = _defaultCps(selAnn);
+          const cpR = Math.max(8 / displayScale, 5);
+          for (const [which, hx, hy] of [["cp1", cps.cp1x, cps.cp1y], ["cp2", cps.cp2x, cps.cp2y]]) {
+            if (Math.hypot(cx - hx, cy - hy) <= cpR) {
+              dragState = { type: "arrowCp", id: selAnn.id, which, startCx: cx, startCy: cy,
+                origCp1x: cps.cp1x, origCp1y: cps.cp1y, origCp2x: cps.cp2x, origCp2y: cps.cp2y };
+              renderCanvas(); return;
+            }
+          }
+        }
+      }
+
       const hit = hitTest(cx, cy);
       if (hit) {
         let newSelIds;
@@ -1149,10 +1210,12 @@ export default function AnnotateImageSimple(container, props) {
           const nearStart = Math.hypot(cx - hit.x1, cy - hit.y1) <= arrowHandleR;
           const nearEnd   = Math.hypot(cx - hit.x2, cy - hit.y2) <= arrowHandleR;
           if (nearStart || nearEnd) {
+            const hitCps = _defaultCps(hit);
             dragState = { type: "arrowHandle", id: hit.id,
               arrowHandle: nearStart ? "start" : "end",
               startCx: cx, startCy: cy,
-              origX1: hit.x1, origY1: hit.y1, origX2: hit.x2, origY2: hit.y2 };
+              origX1: hit.x1, origY1: hit.y1, origX2: hit.x2, origY2: hit.y2,
+              origCp1x: hitCps.cp1x, origCp1y: hitCps.cp1y, origCp2x: hitCps.cp2x, origCp2y: hitCps.cp2y };
             rebuildSettings(); renderCanvas(); return;
           }
         }
@@ -1162,8 +1225,11 @@ export default function AnnotateImageSimple(container, props) {
         for (const id of newSelIds) {
           const a = (currentValue.annotations || []).find((ann) => ann.id === id);
           if (!a) continue;
-          if (a.type === "arrow") origPositions[id] = { x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2 };
-          else origPositions[id] = { x: a.x ?? 0, y: a.y ?? 0 };
+          if (a.type === "arrow") {
+            const cps = _defaultCps(a);
+            origPositions[id] = { x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2,
+              cp1x: cps.cp1x, cp1y: cps.cp1y, cp2x: cps.cp2x, cp2y: cps.cp2y };
+          } else origPositions[id] = { x: a.x ?? 0, y: a.y ?? 0 };
         }
         dragState = { type: "translate", startCx: cx, startCy: cy, origPositions,
           origPivotX: txFrame?.pivotX, origPivotY: txFrame?.pivotY };
@@ -1264,9 +1330,13 @@ export default function AnnotateImageSimple(container, props) {
             } else if (a.type === "arrow") {
               const d1x = snap.x1 - pivot.x, d1y = snap.y1 - pivot.y;
               const d2x = snap.x2 - pivot.x, d2y = snap.y2 - pivot.y;
+              const dc1x = snap.cp1x - pivot.x, dc1y = snap.cp1y - pivot.y;
+              const dc2x = snap.cp2x - pivot.x, dc2y = snap.cp2y - pivot.y;
               return { ...a,
                 x1: d1x*cos - d1y*sin + pivot.x, y1: d1x*sin + d1y*cos + pivot.y,
-                x2: d2x*cos - d2y*sin + pivot.x, y2: d2x*sin + d2y*cos + pivot.y };
+                x2: d2x*cos - d2y*sin + pivot.x, y2: d2x*sin + d2y*cos + pivot.y,
+                cp1x: dc1x*cos - dc1y*sin + pivot.x, cp1y: dc1x*sin + dc1y*cos + pivot.y,
+                cp2x: dc2x*cos - dc2y*sin + pivot.x, cp2y: dc2x*sin + dc2y*cos + pivot.y };
             }
             return a;
           }),
@@ -1310,9 +1380,22 @@ export default function AnnotateImageSimple(container, props) {
             } else if (a.type === "arrow") {
               const [nx1, ny1] = scaleAnchor(snap.x1, snap.y1);
               const [nx2, ny2] = scaleAnchor(snap.x2, snap.y2);
-              return { ...a, x1: nx1, y1: ny1, x2: nx2, y2: ny2 };
+              const [nc1x, nc1y] = scaleAnchor(snap.cp1x, snap.cp1y);
+              const [nc2x, nc2y] = scaleAnchor(snap.cp2x, snap.cp2y);
+              return { ...a, x1: nx1, y1: ny1, x2: nx2, y2: ny2, cp1x: nc1x, cp1y: nc1y, cp2x: nc2x, cp2y: nc2y };
             }
             return a;
+          }),
+        };
+      } else if (dragState.type === "arrowCp") {
+        const dx = cx - dragState.startCx, dy = cy - dragState.startCy;
+        currentValue = {
+          ...currentValue,
+          annotations: currentValue.annotations.map((a) => {
+            if (a.id !== dragState.id) return a;
+            if (dragState.which === "cp1")
+              return { ...a, cp1x: dragState.origCp1x + dx, cp1y: dragState.origCp1y + dy };
+            return { ...a, cp2x: dragState.origCp2x + dx, cp2y: dragState.origCp2y + dy };
           }),
         };
       } else if (dragState.type === "arrowHandle") {
@@ -1322,8 +1405,10 @@ export default function AnnotateImageSimple(container, props) {
           annotations: currentValue.annotations.map((a) => {
             if (a.id !== dragState.id) return a;
             if (dragState.arrowHandle === "start")
-              return { ...a, x1: dragState.origX1 + dx, y1: dragState.origY1 + dy };
-            return { ...a, x2: dragState.origX2 + dx, y2: dragState.origY2 + dy };
+              return { ...a, x1: dragState.origX1 + dx, y1: dragState.origY1 + dy,
+                cp1x: dragState.origCp1x + dx, cp1y: dragState.origCp1y + dy };
+            return { ...a, x2: dragState.origX2 + dx, y2: dragState.origY2 + dy,
+              cp2x: dragState.origCp2x + dx, cp2y: dragState.origCp2y + dy };
           }),
         };
       } else if (dragState.type === "translate") {
@@ -1334,7 +1419,8 @@ export default function AnnotateImageSimple(container, props) {
             const orig = dragState.origPositions[a.id];
             if (!orig) return a;
             if (a.type === "arrow")
-              return { ...a, x1: orig.x1 + dx, y1: orig.y1 + dy, x2: orig.x2 + dx, y2: orig.y2 + dy };
+              return { ...a, x1: orig.x1 + dx, y1: orig.y1 + dy, x2: orig.x2 + dx, y2: orig.y2 + dy,
+                cp1x: orig.cp1x + dx, cp1y: orig.cp1y + dy, cp2x: orig.cp2x + dx, cp2y: orig.cp2y + dy };
             return { ...a, x: orig.x + dx, y: orig.y + dy };
           }),
         };
@@ -1385,6 +1471,8 @@ export default function AnnotateImageSimple(container, props) {
         const ann = {
           id: _uid("arrow"), type: "arrow",
           x1: arr.x1, y1: arr.y1, x2: cx, y2: cy,
+          cp1x: arr.x1 + (cx - arr.x1) / 3, cp1y: arr.y1 + (cy - arr.y1) / 3,
+          cp2x: arr.x1 + (cx - arr.x1) * 2 / 3, cp2y: arr.y1 + (cy - arr.y1) * 2 / 3,
           color: toolSettings.arrow.color,
           width: toolSettings.arrow.width,
         };

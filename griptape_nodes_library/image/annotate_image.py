@@ -194,10 +194,24 @@ class AnnotateImage(DataNode):
     def _draw_arrow(self, draw: ImageDraw.ImageDraw, ann: dict) -> None:
         x1, y1 = float(ann.get("x1", 0)), float(ann.get("y1", 0))
         x2, y2 = float(ann.get("x2", 0)), float(ann.get("y2", 0))
+        cp1x = float(ann.get("cp1x", x1 + (x2 - x1) / 3))
+        cp1y = float(ann.get("cp1y", y1 + (y2 - y1) / 3))
+        cp2x = float(ann.get("cp2x", x1 + (x2 - x1) * 2 / 3))
+        cp2y = float(ann.get("cp2y", y1 + (y2 - y1) * 2 / 3))
         color = self._parse_color(ann.get("color", "#ff0000"))
         width = max(1, int(ann.get("width", 3)))
-        draw.line([x1, y1, x2, y2], fill=color, width=width)
-        angle = math.atan2(y2 - y1, x2 - x1)
+        n = 30
+        pts = []
+        for i in range(n + 1):
+            t = i / n
+            mt = 1 - t
+            bx = mt**3 * x1 + 3 * mt**2 * t * cp1x + 3 * mt * t**2 * cp2x + t**3 * x2
+            by = mt**3 * y1 + 3 * mt**2 * t * cp1y + 3 * mt * t**2 * cp2y + t**3 * y2
+            pts.append((bx, by))
+        for i in range(len(pts) - 1):
+            draw.line([pts[i], pts[i + 1]], fill=color, width=width)
+        dx, dy = x2 - cp2x, y2 - cp2y
+        angle = math.atan2(dy, dx) if math.hypot(dx, dy) > 0.1 else math.atan2(y2 - y1, x2 - x1)
         head = max(15, width * 4)
         tip = (x2, y2)
         left = (x2 - head * math.cos(angle - math.pi / 6), y2 - head * math.sin(angle - math.pi / 6))
