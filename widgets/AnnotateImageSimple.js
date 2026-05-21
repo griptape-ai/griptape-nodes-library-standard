@@ -267,6 +267,34 @@ export default function AnnotateImageSimple(container, props) {
   divider2.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
   toolbar.appendChild(divider2);
 
+  // Clear annotations button
+  const clearBtn = document.createElement("button");
+  clearBtn.className = "ais-tool-btn";
+  clearBtn.title = "Clear all annotations";
+  clearBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="1,3.5 2.5,3.5 13,3.5"/>
+    <path d="M4.5 3.5V2.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1"/>
+    <path d="M11.5 3.5l-.6 8a1 1 0 0 1-1 0.9H4.1a1 1 0 0 1-1-0.9l-.6-8"/>
+    <line x1="5.5" y1="6" x2="5.5" y2="10"/>
+    <line x1="8.5" y1="6" x2="8.5" y2="10"/>
+  </svg>`;
+  clearBtn.addEventListener("pointerdown", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (textEditId) commitTextEdit();
+    const importedIds = (currentValue.imported_annotations || []).map((a) => a.id);
+    const newOverrides = { ...(currentValue.overrides || {}) };
+    for (const id of importedIds) {
+      newOverrides[id] = { ...(newOverrides[id] || {}), deleted: true };
+    }
+    currentValue = { ...currentValue, annotations: [], overrides: newOverrides, selected_ids: [] };
+    _emit();
+    rebuildSettings();
+    renderCanvas();
+    clearBtn.blur();
+  });
+  toolbar.appendChild(clearBtn);
+
   // Settings area (right of divider, grows to fill)
   const settingsArea = document.createElement("div");
   settingsArea.style.cssText = "display:flex;align-items:center;gap:6px;flex:1;min-width:0;overflow:hidden;justify-content:flex-end;";
@@ -413,7 +441,10 @@ export default function AnnotateImageSimple(container, props) {
       }
       if (selIds.length === 1) {
         const selAnn = _effectiveAnnotations().find((a) => a.id === selIds[0]);
-        if (selAnn) _buildAnnotationSettings(selAnn);
+        if (selAnn) {
+          _buildAnnotationSettings(selAnn);
+          if (_isImported(selAnn.id)) _buildResetOverrideButton(selAnn.id);
+        }
       } else if (selIds.length > 1) {
         _buildMultiSettings(selIds);
       } else {
@@ -433,6 +464,7 @@ export default function AnnotateImageSimple(container, props) {
         const selAnn = _effectiveAnnotations().find((a) => a.id === selIds[0]);
         if (selAnn?.type === activeTool) {
           _buildAnnotationSettings(selAnn);
+          if (_isImported(selAnn.id)) _buildResetOverrideButton(selAnn.id);
           return;
         }
       }
@@ -770,6 +802,37 @@ export default function AnnotateImageSimple(container, props) {
   function _dismissLayerPopup() {
     const p = document.getElementById("ais-layer-popup");
     if (p) p.remove();
+  }
+
+  function _buildResetOverrideButton(id) {
+    const overrides = currentValue.overrides || {};
+    const hasOverrides = overrides[id] && Object.keys(overrides[id]).length > 0;
+    if (!hasOverrides) return;
+
+    const sep = document.createElement("div");
+    sep.style.cssText = "width:1px;height:16px;background:var(--border);flex-shrink:0;";
+    settingsArea.appendChild(sep);
+
+    const btn = document.createElement("button");
+    btn.className = "ais-tool-btn";
+    btn.title = "Reset overrides — restore to original imported values";
+    btn.style.color = "#c9830a";
+    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+      <path d="M3 3v5h5"/>
+    </svg>`;
+    settingsArea.appendChild(btn);
+
+    btn.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const newOverrides = { ...(currentValue.overrides || {}) };
+      delete newOverrides[id];
+      currentValue = { ...currentValue, overrides: newOverrides };
+      _emit();
+      rebuildSettings();
+      renderCanvas();
+    });
   }
 
   function _buildLayerOrderButton(selIds) {
