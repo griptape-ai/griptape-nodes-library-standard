@@ -94,6 +94,7 @@ class BlurVideo(BaseVideoProcessor):
                 self.hide_parameter_by_name("power")
                 self.hide_parameter_by_name("sigma")
         return super().after_value_set(parameter, value)
+
     def _get_processing_description(self) -> str:
         """Get description of what this processor does."""
         return "video blur"
