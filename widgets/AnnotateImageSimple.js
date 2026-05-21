@@ -58,7 +58,7 @@ function defaultData() {
     tool_settings: {
       paint: { color: "#ff0000", size: 8 },
       text:  { color: "#ffffff", font_size: 48 },
-      arrow: { color: "#ff0000", width: 3 },
+      arrow: { color: "#ff0000", width: 3, has_start_arrow: false, has_end_arrow: true, is_bezier: false },
     },
     selected_ids: [],
   };
@@ -269,6 +269,34 @@ export default function AnnotateImageSimple(container, props) {
       return;
     }
 
+    // Arrow tool with a single selected arrow: show that arrow's settings
+    if (activeTool === "arrow") {
+      const selIds = currentValue.selected_ids || [];
+      if (selIds.length === 1) {
+        const selAnn = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
+        if (selAnn?.type === "arrow") {
+          _buildAnnotationSettings(selAnn);
+          const sep = document.createElement("div");
+          sep.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
+          settingsArea.appendChild(sep);
+          const trashBtn = document.createElement("button");
+          trashBtn.className = "ais-tool-btn";
+          trashBtn.title = "Delete selected (Delete)";
+          trashBtn.style.color = "var(--destructive, #ef4444)";
+          trashBtn.appendChild(mkIcon("trash", 15));
+          trashBtn.addEventListener("pointerdown", (e) => {
+            e.stopPropagation();
+            currentValue = { ...currentValue,
+              annotations: currentValue.annotations.filter((a) => a.id !== selAnn.id),
+              selected_ids: [] };
+            _emit(); rebuildSettings(); renderCanvas();
+          });
+          settingsArea.appendChild(trashBtn);
+          return;
+        }
+      }
+    }
+
     // All other tools: always show tool settings (brush size, color, etc.)
     _buildToolSettings();
   }
@@ -310,6 +338,33 @@ export default function AnnotateImageSimple(container, props) {
     settingsArea.appendChild(wrap);
   }
 
+  function _buildArrowToggles(source, onToggle) {
+    const makeToggleBtn = (label, title, active, onClick) => {
+      const btn = document.createElement("button");
+      btn.className = "ais-tool-btn" + (active ? " active" : "");
+      btn.title = title;
+      btn.style.cssText = "font-size:14px;font-weight:bold;width:26px;height:26px;line-height:1;";
+      btn.textContent = label;
+      btn.addEventListener("pointerdown", (e) => { e.stopPropagation(); onClick(); });
+      return btn;
+    };
+    const lbl = document.createElement("span");
+    lbl.className = "ais-setting-label"; lbl.textContent = "Style";
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;align-items:center;gap:2px;";
+    row.appendChild(makeToggleBtn("←", "Start arrowhead", source.has_start_arrow ?? false, () => {
+      onToggle({ has_start_arrow: !(source.has_start_arrow ?? false) });
+    }));
+    row.appendChild(makeToggleBtn("→", "End arrowhead", source.has_end_arrow ?? true, () => {
+      onToggle({ has_end_arrow: !(source.has_end_arrow ?? true) });
+    }));
+    row.appendChild(makeToggleBtn("⌒", "Bezier curve", source.is_bezier ?? false, () => {
+      onToggle({ is_bezier: !(source.is_bezier ?? false) });
+    }));
+    settingsArea.appendChild(lbl);
+    settingsArea.appendChild(row);
+  }
+
   function _buildToolSettings() {
     const ts = toolSettings[activeTool] || {};
     const sizeKey = activeTool === "text" ? "font_size" : activeTool === "arrow" ? "width" : "size";
@@ -329,6 +384,15 @@ export default function AnnotateImageSimple(container, props) {
       currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
       if (emit) _emit();
     });
+    if (activeTool === "arrow") {
+      _buildArrowToggles(toolSettings.arrow, (changes) => {
+        toolSettings.arrow = { ...toolSettings.arrow, ...changes };
+        currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
+        rebuildSettings();
+        renderCanvas();
+        _emit();
+      });
+    }
   }
 
   function _buildAnnotationSettings(ann) {
@@ -391,6 +455,17 @@ export default function AnnotateImageSimple(container, props) {
       if (emit) _emit();
     });
 
+    if (ann.type === "arrow") {
+      _buildArrowToggles(ann, (changes) => {
+        currentValue = {
+          ...currentValue,
+          annotations: currentValue.annotations.map((a) => a.id === ann.id ? { ...a, ...changes } : a),
+        };
+        renderCanvas();
+        rebuildSettings();
+        _emit();
+      });
+    }
   }
 
   function _buildMultiSettings(selIds) {
@@ -532,11 +607,12 @@ export default function AnnotateImageSimple(container, props) {
 
     // In-progress arrow
     if (currentArrow) {
+      const ts = toolSettings.arrow;
       drawArrowLine(
-        currentArrow.x1, currentArrow.y1,
-        currentArrow.x2, currentArrow.y2,
-        toolSettings.arrow.color || "#ff0000",
-        toolSettings.arrow.width || 3
+        currentArrow.x1, currentArrow.y1, currentArrow.x2, currentArrow.y2,
+        ts.color || "#ff0000", ts.width || 3,
+        null, null, null, null,
+        ts.has_start_arrow ?? false, ts.has_end_arrow ?? true
       );
     }
 
@@ -689,41 +765,50 @@ export default function AnnotateImageSimple(container, props) {
   }
 
   function drawArrowAnnotation(ann, selected) {
-    const { cp1x, cp1y, cp2x, cp2y } = _defaultCps(ann);
-    drawArrowLine(ann.x1, ann.y1, ann.x2, ann.y2, ann.color || "#ff0000", ann.width || 3, cp1x, cp1y, cp2x, cp2y);
+    const isBezier = ann.is_bezier ?? false;
+    const cps = _defaultCps(ann);
+    const cp1x = isBezier ? cps.cp1x : null;
+    const cp1y = isBezier ? cps.cp1y : null;
+    const cp2x = isBezier ? cps.cp2x : null;
+    const cp2y = isBezier ? cps.cp2y : null;
+    drawArrowLine(ann.x1, ann.y1, ann.x2, ann.y2, ann.color || "#ff0000", ann.width || 3,
+      cp1x, cp1y, cp2x, cp2y, ann.has_start_arrow ?? false, ann.has_end_arrow ?? true);
     if (selected) {
       const r = 5 / displayScale;
-      const cpR = 4 / displayScale;
       ctx.save();
       // Endpoint handles
       ctx.fillStyle = "rgba(79,142,247,0.9)";
       ctx.beginPath(); ctx.arc(ann.x1, ann.y1, r, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.arc(ann.x2, ann.y2, r, 0, Math.PI * 2); ctx.fill();
-      // Control point arms (dashed)
-      ctx.strokeStyle = "rgba(79,142,247,0.5)";
-      ctx.lineWidth = 1 / displayScale;
-      ctx.setLineDash([3 / displayScale, 2 / displayScale]);
-      ctx.beginPath(); ctx.moveTo(ann.x1, ann.y1); ctx.lineTo(cp1x, cp1y); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(ann.x2, ann.y2); ctx.lineTo(cp2x, cp2y); ctx.stroke();
-      ctx.setLineDash([]);
-      // Control point handles (hollow circles)
-      ctx.fillStyle = "white";
-      ctx.strokeStyle = "rgba(79,142,247,0.9)";
-      ctx.lineWidth = 1.5 / displayScale;
-      ctx.beginPath(); ctx.arc(cp1x, cp1y, cpR, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(cp1x, cp1y, cpR, 0, Math.PI * 2); ctx.stroke();
-      ctx.fillStyle = "white";
-      ctx.beginPath(); ctx.arc(cp2x, cp2y, cpR, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(cp2x, cp2y, cpR, 0, Math.PI * 2); ctx.stroke();
+      if (isBezier) {
+        const cpR = 4 / displayScale;
+        // Control point arms (dashed)
+        ctx.strokeStyle = "rgba(79,142,247,0.5)";
+        ctx.lineWidth = 1 / displayScale;
+        ctx.setLineDash([3 / displayScale, 2 / displayScale]);
+        ctx.beginPath(); ctx.moveTo(ann.x1, ann.y1); ctx.lineTo(cps.cp1x, cps.cp1y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(ann.x2, ann.y2); ctx.lineTo(cps.cp2x, cps.cp2y); ctx.stroke();
+        ctx.setLineDash([]);
+        // Control point handles (hollow circles)
+        ctx.fillStyle = "white";
+        ctx.strokeStyle = "rgba(79,142,247,0.9)";
+        ctx.lineWidth = 1.5 / displayScale;
+        ctx.beginPath(); ctx.arc(cps.cp1x, cps.cp1y, cpR, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(cps.cp1x, cps.cp1y, cpR, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = "white";
+        ctx.beginPath(); ctx.arc(cps.cp2x, cps.cp2y, cpR, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(cps.cp2x, cps.cp2y, cpR, 0, Math.PI * 2); ctx.stroke();
+      }
       ctx.restore();
     }
   }
 
-  function drawArrowLine(x1, y1, x2, y2, color, width, cp1x, cp1y, cp2x, cp2y) {
+  function drawArrowLine(x1, y1, x2, y2, color, width, cp1x, cp1y, cp2x, cp2y, hasStartArrow, hasEndArrow) {
     if (cp1x == null) cp1x = x1 + (x2 - x1) / 3;
     if (cp1y == null) cp1y = y1 + (y2 - y1) / 3;
     if (cp2x == null) cp2x = x1 + (x2 - x1) * 2 / 3;
     if (cp2y == null) cp2y = y1 + (y2 - y1) * 2 / 3;
+    if (hasEndArrow == null) hasEndArrow = true;
     const w = Math.max(1, width);
     ctx.save();
     ctx.strokeStyle = color;
@@ -731,15 +816,27 @@ export default function AnnotateImageSimple(container, props) {
     ctx.lineWidth = w;
     ctx.lineCap = "round";
     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2); ctx.stroke();
-    const angle = Math.hypot(x2 - cp2x, y2 - cp2y) < 0.1
-      ? Math.atan2(y2 - y1, x2 - x1)
-      : Math.atan2(y2 - cp2y, x2 - cp2x);
     const head = Math.max(15, w * 4);
-    ctx.beginPath();
-    ctx.moveTo(x2, y2);
-    ctx.lineTo(x2 - head * Math.cos(angle - Math.PI / 6), y2 - head * Math.sin(angle - Math.PI / 6));
-    ctx.lineTo(x2 - head * Math.cos(angle + Math.PI / 6), y2 - head * Math.sin(angle + Math.PI / 6));
-    ctx.closePath(); ctx.fill();
+    if (hasEndArrow) {
+      const endAngle = Math.hypot(x2 - cp2x, y2 - cp2y) < 0.1
+        ? Math.atan2(y2 - y1, x2 - x1)
+        : Math.atan2(y2 - cp2y, x2 - cp2x);
+      ctx.beginPath();
+      ctx.moveTo(x2, y2);
+      ctx.lineTo(x2 - head * Math.cos(endAngle - Math.PI / 6), y2 - head * Math.sin(endAngle - Math.PI / 6));
+      ctx.lineTo(x2 - head * Math.cos(endAngle + Math.PI / 6), y2 - head * Math.sin(endAngle + Math.PI / 6));
+      ctx.closePath(); ctx.fill();
+    }
+    if (hasStartArrow) {
+      const startAngle = Math.hypot(cp1x - x1, cp1y - y1) < 0.1
+        ? Math.atan2(y1 - y2, x1 - x2)
+        : Math.atan2(y1 - cp1y, x1 - cp1x);
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x1 - head * Math.cos(startAngle - Math.PI / 6), y1 - head * Math.sin(startAngle - Math.PI / 6));
+      ctx.lineTo(x1 - head * Math.cos(startAngle + Math.PI / 6), y1 - head * Math.sin(startAngle + Math.PI / 6));
+      ctx.closePath(); ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -1076,7 +1173,7 @@ export default function AnnotateImageSimple(container, props) {
     if (e.key !== "Delete" && e.key !== "Backspace") return;
     if (!(currentValue.selected_ids || []).length) return;
     if (textEditId) return;
-    if (activeTool !== "select") return;
+    if (activeTool !== "select" && activeTool !== "arrow") return;
     // Don't steal Delete from text inputs elsewhere on the page
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
@@ -1259,6 +1356,39 @@ export default function AnnotateImageSimple(container, props) {
     }
 
     if (activeTool === "arrow") {
+      // If a single arrow is already selected, check its handles first
+      const selIds = currentValue.selected_ids || [];
+      if (selIds.length === 1) {
+        const selAnn = (currentValue.annotations || []).find((a) => a.id === selIds[0] && a.type === "arrow");
+        if (selAnn) {
+          const handleR = Math.max(10 / displayScale, 8);
+          const nearStart = Math.hypot(cx - selAnn.x1, cy - selAnn.y1) <= handleR;
+          const nearEnd   = Math.hypot(cx - selAnn.x2, cy - selAnn.y2) <= handleR;
+          if (nearStart || nearEnd) {
+            const hitCps = _defaultCps(selAnn);
+            dragState = { type: "arrowHandle", id: selAnn.id,
+              arrowHandle: nearStart ? "start" : "end",
+              startCx: cx, startCy: cy,
+              origX1: selAnn.x1, origY1: selAnn.y1, origX2: selAnn.x2, origY2: selAnn.y2,
+              origCp1x: hitCps.cp1x, origCp1y: hitCps.cp1y, origCp2x: hitCps.cp2x, origCp2y: hitCps.cp2y };
+            return;
+          }
+          if (selAnn.is_bezier) {
+            const cps = _defaultCps(selAnn);
+            const cpR = Math.max(8 / displayScale, 5);
+            for (const [which, hx, hy] of [["cp1", cps.cp1x, cps.cp1y], ["cp2", cps.cp2x, cps.cp2y]]) {
+              if (Math.hypot(cx - hx, cy - hy) <= cpR) {
+                dragState = { type: "arrowCp", id: selAnn.id, which, startCx: cx, startCy: cy,
+                  origCp1x: cps.cp1x, origCp1y: cps.cp1y, origCp2x: cps.cp2x, origCp2y: cps.cp2y };
+                return;
+              }
+            }
+          }
+        }
+      }
+      // No handle hit — start drawing a new arrow (deselect first)
+      currentValue = { ...currentValue, selected_ids: [] };
+      rebuildSettings();
       currentArrow = { x1: cx, y1: cy, x2: cx, y2: cy };
     }
   }
@@ -1303,7 +1433,7 @@ export default function AnnotateImageSimple(container, props) {
       currentArrow = { ...currentArrow, x2: cx, y2: cy };
       renderCanvas();
 
-    } else if (dragState && (activeTool === "select" || activeTool === "text")) {
+    } else if (dragState && (activeTool === "select" || activeTool === "text" || activeTool === "arrow")) {
       if (dragState.type === "txRotate") {
         const pivot = dragState.pivot;
         const angle = Math.atan2(cy - pivot.y, cx - pivot.x);
@@ -1468,13 +1598,17 @@ export default function AnnotateImageSimple(container, props) {
       const arr = currentArrow;
       currentArrow = null;
       if (Math.hypot(arr.x2 - arr.x1, arr.y2 - arr.y1) > 5) {
+        const ts = toolSettings.arrow;
         const ann = {
           id: _uid("arrow"), type: "arrow",
           x1: arr.x1, y1: arr.y1, x2: cx, y2: cy,
           cp1x: arr.x1 + (cx - arr.x1) / 3, cp1y: arr.y1 + (cy - arr.y1) / 3,
           cp2x: arr.x1 + (cx - arr.x1) * 2 / 3, cp2y: arr.y1 + (cy - arr.y1) * 2 / 3,
-          color: toolSettings.arrow.color,
-          width: toolSettings.arrow.width,
+          color: ts.color,
+          width: ts.width,
+          has_start_arrow: ts.has_start_arrow ?? false,
+          has_end_arrow: ts.has_end_arrow ?? true,
+          is_bezier: ts.is_bezier ?? false,
         };
         currentValue = {
           ...currentValue,
@@ -1486,7 +1620,7 @@ export default function AnnotateImageSimple(container, props) {
       }
       renderCanvas();
 
-    } else if (dragState && (activeTool === "select" || activeTool === "text")) {
+    } else if (dragState && (activeTool === "select" || activeTool === "text" || activeTool === "arrow")) {
       if (dragState.type === "marquee") {
         const x1 = Math.min(dragState.startCx, dragState.x2);
         const y1 = Math.min(dragState.startCy, dragState.y2);

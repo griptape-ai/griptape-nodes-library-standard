@@ -194,12 +194,15 @@ class AnnotateImage(DataNode):
     def _draw_arrow(self, draw: ImageDraw.ImageDraw, ann: dict) -> None:
         x1, y1 = float(ann.get("x1", 0)), float(ann.get("y1", 0))
         x2, y2 = float(ann.get("x2", 0)), float(ann.get("y2", 0))
-        cp1x = float(ann.get("cp1x", x1 + (x2 - x1) / 3))
-        cp1y = float(ann.get("cp1y", y1 + (y2 - y1) / 3))
-        cp2x = float(ann.get("cp2x", x1 + (x2 - x1) * 2 / 3))
-        cp2y = float(ann.get("cp2y", y1 + (y2 - y1) * 2 / 3))
+        is_bezier = bool(ann.get("is_bezier", False))
+        cp1x = float(ann.get("cp1x", x1 + (x2 - x1) / 3)) if is_bezier else x1 + (x2 - x1) / 3
+        cp1y = float(ann.get("cp1y", y1 + (y2 - y1) / 3)) if is_bezier else y1 + (y2 - y1) / 3
+        cp2x = float(ann.get("cp2x", x1 + (x2 - x1) * 2 / 3)) if is_bezier else x1 + (x2 - x1) * 2 / 3
+        cp2y = float(ann.get("cp2y", y1 + (y2 - y1) * 2 / 3)) if is_bezier else y1 + (y2 - y1) * 2 / 3
         color = self._parse_color(ann.get("color", "#ff0000"))
         width = max(1, int(ann.get("width", 3)))
+        has_end_arrow = ann.get("has_end_arrow", True)
+        has_start_arrow = bool(ann.get("has_start_arrow", False))
         n = 30
         pts = []
         for i in range(n + 1):
@@ -210,13 +213,21 @@ class AnnotateImage(DataNode):
             pts.append((bx, by))
         for i in range(len(pts) - 1):
             draw.line([pts[i], pts[i + 1]], fill=color, width=width)
-        dx, dy = x2 - cp2x, y2 - cp2y
-        angle = math.atan2(dy, dx) if math.hypot(dx, dy) > 0.1 else math.atan2(y2 - y1, x2 - x1)
         head = max(15, width * 4)
-        tip = (x2, y2)
-        left = (x2 - head * math.cos(angle - math.pi / 6), y2 - head * math.sin(angle - math.pi / 6))
-        right = (x2 - head * math.cos(angle + math.pi / 6), y2 - head * math.sin(angle + math.pi / 6))
-        draw.polygon([tip, left, right], fill=color)
+        if has_end_arrow:
+            dx, dy = x2 - cp2x, y2 - cp2y
+            angle = math.atan2(dy, dx) if math.hypot(dx, dy) > 0.1 else math.atan2(y2 - y1, x2 - x1)
+            tip = (x2, y2)
+            left = (x2 - head * math.cos(angle - math.pi / 6), y2 - head * math.sin(angle - math.pi / 6))
+            right = (x2 - head * math.cos(angle + math.pi / 6), y2 - head * math.sin(angle + math.pi / 6))
+            draw.polygon([tip, left, right], fill=color)
+        if has_start_arrow:
+            dx, dy = x1 - cp1x, y1 - cp1y
+            angle = math.atan2(dy, dx) if math.hypot(dx, dy) > 0.1 else math.atan2(y1 - y2, x1 - x2)
+            tip = (x1, y1)
+            left = (x1 - head * math.cos(angle - math.pi / 6), y1 - head * math.sin(angle - math.pi / 6))
+            right = (x1 - head * math.cos(angle + math.pi / 6), y1 - head * math.sin(angle + math.pi / 6))
+            draw.polygon([tip, left, right], fill=color)
 
     def process(self) -> None:
         image_artifact = self.get_parameter_value("image")
