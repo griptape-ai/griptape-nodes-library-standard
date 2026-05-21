@@ -47,6 +47,9 @@ function injectStyles() {
   `;
 }
 
+const DEFAULT_CANVAS_WIDTH = 1920;
+const DEFAULT_CANVAS_HEIGHT = 1080;
+
 // ── default data ──────────────────────────────────────────────────────────────
 
 function defaultData() {
@@ -218,10 +221,10 @@ export default function AnnotateImageSimple(container, props) {
   canvas.style.cssText = "display:block;transform-origin:top left;cursor:crosshair;outline:none;" +
     "box-shadow:0 0 0 1px rgba(122,157,184,0.35);";
   canvas.tabIndex = 0; // focusable so keyboard events naturally target canvas
-  canvas.width = 800;
-  canvas.height = 600;
-  canvas.style.width = "800px";
-  canvas.style.height = "600px";
+  canvas.width = DEFAULT_CANVAS_WIDTH;
+  canvas.height = DEFAULT_CANVAS_HEIGHT;
+  canvas.style.width = `${DEFAULT_CANVAS_WIDTH}px`;
+  canvas.style.height = `${DEFAULT_CANVAS_HEIGHT}px`;
 
   canvasWrap.appendChild(canvas);
   wrapper.appendChild(toolbar);
@@ -289,14 +292,14 @@ export default function AnnotateImageSimple(container, props) {
 
   function _applyViewTransform() {
     const totalScale = displayScale * viewScale;
-    const ch = currentValue.canvas_height || 600;
+    const ch = currentValue.canvas_height || DEFAULT_CANVAS_HEIGHT;
     canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${totalScale})`;
     canvasWrap.style.height = ch * displayScale + "px";
   }
 
   function applyCanvasScale() {
-    const cw = currentValue.canvas_width || 800;
-    const ch = currentValue.canvas_height || 600;
+    const cw = currentValue.canvas_width || DEFAULT_CANVAS_WIDTH;
+    const ch = currentValue.canvas_height || DEFAULT_CANVAS_HEIGHT;
     const areaW = canvasWrap.clientWidth || 300;
     const newScale = areaW / cw;
 

@@ -15,6 +15,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 from griptape_nodes_library.utils.color_utils import parse_color_to_rgba
 
+DEFAULT_CANVAS_WIDTH = 1920
+DEFAULT_CANVAS_HEIGHT = 1080
+
 
 def _default_annotation_data() -> dict:
     return {
@@ -287,8 +290,8 @@ class AnnotateImage(DataNode):
                 bg = None
 
         if bg is None:
-            w = annotation_data.get("canvas_width") or 800
-            h = annotation_data.get("canvas_height") or 600
+            w = annotation_data.get("canvas_width") or DEFAULT_CANVAS_WIDTH
+            h = annotation_data.get("canvas_height") or DEFAULT_CANVAS_HEIGHT
             bg = Image.new("RGBA", (int(w), int(h)), (0, 0, 0, 0))
 
         overlay = Image.new("RGBA", bg.size, (0, 0, 0, 0))
