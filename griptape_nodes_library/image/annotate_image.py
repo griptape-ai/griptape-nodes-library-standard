@@ -38,12 +38,12 @@ class AnnotateImage(DataNode):
         super().__init__(**kwargs)
 
         self.add_parameter(
-            Parameter(
+            ParameterImage(
                 name="image",
-                input_types=["ImageUrlArtifact", "ImageArtifact"],
                 default_value=None,
                 tooltip="Input image to annotate",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True
             )
         )
 
@@ -65,6 +65,7 @@ class AnnotateImage(DataNode):
                 tooltip="Image with annotations composited",
                 allowed_modes={ParameterMode.OUTPUT},
                 ui_options={"expander": True, "pulse_on_run": True},
+                hide_property=True
             )
         )
 
