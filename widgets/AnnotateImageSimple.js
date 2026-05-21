@@ -9,6 +9,7 @@ const ICON_PATHS = {
   paint:  `<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>`,
   text:   `<polyline points="4 7 4 4 20 4 20 7"/><line x1="9" x2="15" y1="20" y2="20"/><line x1="12" x2="12" y1="4" y2="20"/>`,
   arrow:  `<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>`,
+  trash:  `<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>`,
 };
 
 function mkIcon(name, size = 15) {
@@ -59,7 +60,7 @@ function defaultData() {
       text:  { color: "#ffffff", font_size: 48 },
       arrow: { color: "#ff0000", width: 3 },
     },
-    selected_id: null,
+    selected_ids: [],
   };
 }
 
@@ -74,13 +75,21 @@ export default function AnnotateImageSimple(container, props) {
   injectStyles();
 
   const { onChange } = props;
-  let currentValue = (props.value && typeof props.value === "object")
-    ? { ...defaultData(), ...props.value, tool_settings: { ...defaultData().tool_settings, ...(props.value.tool_settings || {}) } }
-    : defaultData();
+  const rawValue = (props.value && typeof props.value === "object") ? props.value : {};
+  let currentValue = { ...defaultData(), ...rawValue, tool_settings: { ...defaultData().tool_settings, ...(rawValue.tool_settings || {}) } };
+  // Migrate old selected_id (single string) to selected_ids (array)
+  if (rawValue.selected_id && !rawValue.selected_ids) {
+    currentValue.selected_ids = [rawValue.selected_id];
+  } else if (!Array.isArray(currentValue.selected_ids)) {
+    currentValue.selected_ids = [];
+  }
 
   let activeTool = currentValue.active_tool || "select";
   let toolSettings = { ...currentValue.tool_settings };
   let displayScale = 1;
+
+  // unified transform frame (OBB)
+  let txFrame = null; // { pivotX, pivotY, rotation, halfW, halfH }
 
   // pointer state
   let isPointerDown = false;
@@ -214,23 +223,53 @@ export default function AnnotateImageSimple(container, props) {
   let colorPickerEl = null;
 
   function rebuildSettings() {
+    _buildTxFrame();
     settingsArea.innerHTML = "";
     colorPickerEl = null;
 
-    // If an annotation is selected, show its properties (takes priority over tool defaults)
-    const selId = currentValue.selected_id;
-    const selAnn = selId ? (currentValue.annotations || []).find((a) => a.id === selId) : null;
-    if (selAnn) { _buildAnnotationSettings(selAnn); return; }
-
     if (activeTool === "select") {
-      const hint = document.createElement("span");
-      hint.className = "ais-setting-label";
-      hint.textContent = "Click to select · Drag to move · Dbl-click text to edit";
-      hint.style.opacity = "0.5";
-      settingsArea.appendChild(hint);
+      const selIds = currentValue.selected_ids || [];
+      if (selIds.length === 1) {
+        const selAnn = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
+        if (selAnn) _buildAnnotationSettings(selAnn);
+      } else if (selIds.length > 1) {
+        _buildMultiSettings(selIds);
+      } else {
+        const hint = document.createElement("span");
+        hint.className = "ais-setting-label";
+        hint.textContent = "Click to select · Shift+click to add · Drag to select area";
+        hint.style.opacity = "0.5";
+        settingsArea.appendChild(hint);
+      }
+      if (selIds.length > 0) {
+        // Separator
+        const sep = document.createElement("div");
+        sep.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
+        settingsArea.appendChild(sep);
+        // Trash button
+        const trashBtn = document.createElement("button");
+        trashBtn.className = "ais-tool-btn";
+        trashBtn.title = "Delete selected (Delete)";
+        trashBtn.style.color = "var(--destructive, #ef4444)";
+        trashBtn.appendChild(mkIcon("trash", 15));
+        trashBtn.addEventListener("pointerdown", (e) => {
+          e.stopPropagation();
+          currentValue = {
+            ...currentValue,
+            annotations: (currentValue.annotations || []).filter((a) => !selIds.includes(a.id)),
+            selected_ids: [],
+          };
+          txFrame = null;
+          _emit();
+          rebuildSettings();
+          renderCanvas();
+        });
+        settingsArea.appendChild(trashBtn);
+      }
       return;
     }
 
+    // All other tools: always show tool settings (brush size, color, etc.)
     _buildToolSettings();
   }
 
@@ -300,6 +339,21 @@ export default function AnnotateImageSimple(container, props) {
       color = ann.color || "#ff0000";
     }
 
+    if (ann.type === "paint") {
+      const baseSize = (ann.strokes && ann.strokes[0]) ? (ann.strokes[0].size ?? 8) : 8;
+      const currentSize = Math.max(1, Math.round(baseSize * (ann.sizeScale ?? 1)));
+      _buildSizeSlider("Size", 1, 80, currentSize, (sz, emit) => {
+        currentValue = {
+          ...currentValue,
+          annotations: currentValue.annotations.map((a) =>
+            a.id === ann.id ? { ...a, sizeScale: sz / baseSize } : a
+          ),
+        };
+        renderCanvas();
+        if (emit) _emit();
+      });
+    }
+
     const sizeKey = ann.type === "text" ? "font_size" : ann.type === "arrow" ? "width" : null;
     if (sizeKey) {
       const sizeVal = ann[sizeKey] ?? (ann.type === "text" ? 48 : 3);
@@ -339,6 +393,49 @@ export default function AnnotateImageSimple(container, props) {
 
   }
 
+  function _buildMultiSettings(selIds) {
+    const anns = (currentValue.annotations || []).filter((a) => selIds.includes(a.id));
+    // Capture original sizes when the panel is built; slider applies ratio to these originals
+    const origSizes = {};
+    for (const a of anns) {
+      if (a.type === "paint") origSizes[a.id] = a.sizeScale ?? 1;
+      else if (a.type === "text") origSizes[a.id] = a.font_size ?? 48;
+      else if (a.type === "arrow") origSizes[a.id] = a.width ?? 3;
+    }
+    _buildSizeSlider("Scale %", 25, 400, 100, (val, emit) => {
+      const ratio = val / 100;
+      currentValue = {
+        ...currentValue,
+        annotations: currentValue.annotations.map((a) => {
+          if (!selIds.includes(a.id)) return a;
+          if (a.type === "paint") return { ...a, sizeScale: (origSizes[a.id] ?? 1) * ratio };
+          if (a.type === "text") return { ...a, font_size: Math.max(8, Math.round((origSizes[a.id] ?? 48) * ratio)) };
+          if (a.type === "arrow") return { ...a, width: Math.max(1, (origSizes[a.id] ?? 3) * ratio) };
+          return a;
+        }),
+      };
+      renderCanvas();
+      if (emit) _emit();
+    });
+    let firstColor = "#ff0000";
+    for (const a of anns) {
+      if (a.type === "paint" && a.strokes?.[0]) { firstColor = a.strokes[0].color; break; }
+      if (a.color) { firstColor = a.color; break; }
+    }
+    _buildColorSwatch(firstColor, (col, emit) => {
+      currentValue = {
+        ...currentValue,
+        annotations: currentValue.annotations.map((a) => {
+          if (!selIds.includes(a.id)) return a;
+          if (a.type === "paint") return { ...a, strokes: (a.strokes || []).map((s) => ({ ...s, color: col })) };
+          return { ...a, color: col };
+        }),
+      };
+      renderCanvas();
+      if (emit) _emit();
+    });
+  }
+
   function setTool(id) {
     commitTextEdit();
     hoverId = null;
@@ -362,34 +459,36 @@ export default function AnnotateImageSimple(container, props) {
 
   async function _doRender(gen) {
     const cw = canvas.width, ch = canvas.height;
+    const imgUrl = currentValue.image_url;
+
+    // Resolve image before touching the canvas.
+    // If cached, this is fully synchronous (no await) → no blank-frame flicker.
+    let img = null;
+    if (imgUrl) {
+      const key = urlCacheKey(imgUrl);
+      if (imageCache[key]) {
+        img = imageCache[key]; // synchronous cache hit
+      } else {
+        // First load: async, acceptable to have one-time flicker
+        try { img = await loadImage(imgUrl); } catch { /* img stays null */ }
+        if (gen !== renderGen) return;
+        // Auto-size canvas from image on first load
+        if (img && (!currentValue.canvas_width || !currentValue.canvas_height)) {
+          currentValue = { ...currentValue, canvas_width: img.naturalWidth, canvas_height: img.naturalHeight };
+          applyCanvasScale();
+          return; // applyCanvasScale triggers another render
+        }
+      }
+    }
+
+    // From here everything is synchronous → no flicker between clear and draw
+    if (gen !== renderGen) return;
     ctx.clearRect(0, 0, cw, ch);
 
-    // Background image
-    const imgUrl = currentValue.image_url;
-    if (imgUrl) {
-      try {
-        const alreadyCached = !!imageCache[urlCacheKey(imgUrl)];
-        const img = await loadImage(imgUrl);
-        if (gen !== renderGen) return;
-
-        // On first load, set canvas dimensions from image natural size
-        if (!alreadyCached && (!currentValue.canvas_width || !currentValue.canvas_height)) {
-          currentValue = {
-            ...currentValue,
-            canvas_width: img.naturalWidth,
-            canvas_height: img.naturalHeight,
-          };
-          applyCanvasScale();
-          return; // applyCanvasScale triggers another render via dimsChanged
-        }
-
-        ctx.drawImage(img, 0, 0, cw, ch);
-      } catch {
-        ctx.fillStyle = "#222";
-        ctx.fillRect(0, 0, cw, ch);
-      }
+    if (img) {
+      ctx.drawImage(img, 0, 0, cw, ch);
     } else {
-      ctx.fillStyle = "#1a1a1a";
+      ctx.fillStyle = imgUrl ? "#222" : "#1a1a1a";
       ctx.fillRect(0, 0, cw, ch);
     }
 
@@ -398,7 +497,37 @@ export default function AnnotateImageSimple(container, props) {
     // Draw committed annotations
     for (const ann of (currentValue.annotations || [])) {
       if (ann.id === textEditId) continue; // skip live-edited text
-      drawAnnotation(ann, ann.id === currentValue.selected_id);
+      drawAnnotation(ann, (currentValue.selected_ids || []).includes(ann.id));
+    }
+
+    // Unified transform frame — same OBB handles for single or group selection
+    if (txFrame && activeTool === "select") {
+      const corners = _frameCorners(txFrame);
+      const topMid = _frameTopMid(txFrame);
+      const rh = _frameRotHandle(txFrame);
+      const hw = 5 / displayScale;
+      ctx.save();
+      // Dashed OBB outline
+      ctx.strokeStyle = "rgba(79,142,247,0.8)";
+      ctx.lineWidth = 1.5 / displayScale;
+      ctx.setLineDash([5 / displayScale, 4 / displayScale]);
+      ctx.beginPath();
+      ctx.moveTo(corners[0][0], corners[0][1]);
+      for (let i = 1; i < 4; i++) ctx.lineTo(corners[i][0], corners[i][1]);
+      ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
+      // Corner scale handles
+      for (const [hx, hy] of corners) {
+        ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(hx, hy, hw, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = "rgba(79,142,247,0.9)"; ctx.lineWidth = 1.5 / displayScale;
+        ctx.beginPath(); ctx.arc(hx, hy, hw, 0, Math.PI*2); ctx.stroke();
+      }
+      // Rotation handle stem + circle
+      ctx.strokeStyle = "rgba(79,142,247,0.5)"; ctx.lineWidth = 1 / displayScale;
+      ctx.beginPath(); ctx.moveTo(topMid[0], topMid[1]); ctx.lineTo(rh[0], rh[1]); ctx.stroke();
+      ctx.fillStyle = "#4f8ef7"; ctx.beginPath(); ctx.arc(rh[0], rh[1], hw, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = "white"; ctx.lineWidth = 1.5 / displayScale;
+      ctx.beginPath(); ctx.arc(rh[0], rh[1], hw, 0, Math.PI*2); ctx.stroke();
+      ctx.restore();
     }
 
     // In-progress arrow
@@ -409,6 +538,22 @@ export default function AnnotateImageSimple(container, props) {
         toolSettings.arrow.color || "#ff0000",
         toolSettings.arrow.width || 3
       );
+    }
+
+    // Marquee selection rectangle
+    if (dragState?.type === "marquee") {
+      const mx1 = Math.min(dragState.startCx, dragState.x2);
+      const my1 = Math.min(dragState.startCy, dragState.y2);
+      const mw = Math.abs(dragState.x2 - dragState.startCx);
+      const mh = Math.abs(dragState.y2 - dragState.startCy);
+      ctx.save();
+      ctx.fillStyle = "rgba(79,142,247,0.1)";
+      ctx.fillRect(mx1, my1, mw, mh);
+      ctx.strokeStyle = "rgba(79,142,247,0.8)";
+      ctx.lineWidth = 1 / displayScale;
+      ctx.setLineDash([4 / displayScale, 3 / displayScale]);
+      ctx.strokeRect(mx1, my1, mw, mh);
+      ctx.restore();
     }
   }
 
@@ -427,41 +572,9 @@ export default function AnnotateImageSimple(container, props) {
     ctx.rotate(r);
     ctx.scale(sx, sy);
     ctx.translate(-cx, -cy);
-    renderStrokes(ann.strokes || []);
+    renderStrokes(ann.strokes || [], ann.sizeScale ?? 1);
     ctx.restore();
 
-    if (selected && activeTool === "select") {
-      const corners = _getTransformedCorners(ann);
-      if (corners.length === 4) {
-        const hw = 5 / displayScale;
-        // Bounding box
-        ctx.save();
-        ctx.strokeStyle = "rgba(79,142,247,0.8)";
-        ctx.lineWidth = 1.5 / displayScale;
-        ctx.setLineDash([4 / displayScale, 3 / displayScale]);
-        ctx.beginPath();
-        ctx.moveTo(corners[0][0], corners[0][1]);
-        for (let i = 1; i < 4; i++) ctx.lineTo(corners[i][0], corners[i][1]);
-        ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
-        // Corner scale handles
-        for (const [hx, hy] of corners) {
-          ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(hx, hy, hw, 0, Math.PI * 2); ctx.fill();
-          ctx.strokeStyle = "rgba(79,142,247,0.9)"; ctx.lineWidth = 1.5 / displayScale;
-          ctx.beginPath(); ctx.arc(hx, hy, hw, 0, Math.PI * 2); ctx.stroke();
-        }
-        // Rotation handle
-        const rh = _getRotationHandle(ann, corners);
-        if (rh) {
-          const topMid = [(corners[0][0] + corners[1][0]) / 2, (corners[0][1] + corners[1][1]) / 2];
-          ctx.strokeStyle = "rgba(79,142,247,0.5)"; ctx.lineWidth = 1 / displayScale;
-          ctx.beginPath(); ctx.moveTo(topMid[0], topMid[1]); ctx.lineTo(rh[0], rh[1]); ctx.stroke();
-          ctx.fillStyle = "#4f8ef7"; ctx.beginPath(); ctx.arc(rh[0], rh[1], hw, 0, Math.PI * 2); ctx.fill();
-          ctx.strokeStyle = "white"; ctx.lineWidth = 1.5 / displayScale;
-          ctx.beginPath(); ctx.arc(rh[0], rh[1], hw, 0, Math.PI * 2); ctx.stroke();
-        }
-        ctx.restore();
-      }
-    }
   }
 
   function _strokeBounds(stroke) {
@@ -515,30 +628,19 @@ export default function AnnotateImageSimple(container, props) {
     ].map(([nx, ny]) => _paintTransformPt(ann, nx, ny));
   }
 
-  function _getRotationHandle(ann, corners) {
-    if (corners.length < 3) return null;
-    const topMid = [(corners[0][0] + corners[1][0]) / 2, (corners[0][1] + corners[1][1]) / 2];
-    const center = [(corners[0][0] + corners[2][0]) / 2, (corners[0][1] + corners[2][1]) / 2];
-    const dx = topMid[0] - center[0], dy = topMid[1] - center[1];
-    const len = Math.hypot(dx, dy) || 1;
-    const d = 28 / displayScale;
-    return [topMid[0] + dx / len * d, topMid[1] + dy / len * d];
-  }
-
-  function renderStrokes(strokes) {
+  function renderStrokes(strokes, sizeScale = 1) {
     for (const stroke of strokes) {
       const pts = stroke.points || [];
       if (!pts.length) continue;
-      const defaultSz = stroke.size || 8;
+      const defaultSz = (stroke.size || 8) * sizeScale;
       ctx.fillStyle = stroke.color || "#ff0000";
       // Initial dot
-      ctx.beginPath();
-      ctx.arc(pts[0][0], pts[0][1], (pts[0][2] ?? defaultSz) / 2, 0, Math.PI * 2);
-      ctx.fill();
+      const r0 = ((pts[0][2] ?? (stroke.size || 8)) * sizeScale) / 2;
+      ctx.beginPath(); ctx.arc(pts[0][0], pts[0][1], r0, 0, Math.PI * 2); ctx.fill();
       // Variable-width path: filled trapezoid + endpoint circle per segment
       for (let i = 1; i < pts.length; i++) {
-        const px = pts[i-1][0], py = pts[i-1][1], pr = (pts[i-1][2] ?? defaultSz) / 2;
-        const qx = pts[i][0],   qy = pts[i][1],   qr = (pts[i][2]   ?? defaultSz) / 2;
+        const px = pts[i-1][0], py = pts[i-1][1], pr = ((pts[i-1][2] ?? (stroke.size || 8)) * sizeScale) / 2;
+        const qx = pts[i][0],   qy = pts[i][1],   qr = ((pts[i][2]   ?? (stroke.size || 8)) * sizeScale) / 2;
         ctx.beginPath(); ctx.arc(qx, qy, qr, 0, Math.PI * 2); ctx.fill();
         const dx = qx - px, dy = qy - py, len = Math.hypot(dx, dy);
         if (len > 0) {
@@ -573,12 +675,12 @@ export default function AnnotateImageSimple(container, props) {
     ctx.textBaseline = "top";
     ctx.fillText(ann.text || "", ann.x || 0, ann.y || 0);
 
-    const isHovered = ann.id === hoverId;
-    if (selected || isHovered) {
+    const isHovered = ann.id === hoverId && !selected;
+    if (isHovered) {
       const w = ctx.measureText(ann.text || "").width;
       const h = fontSize * 1.2;
-      ctx.strokeStyle = selected ? "rgba(79,142,247,0.85)" : "rgba(79,142,247,0.4)";
-      ctx.lineWidth = (selected ? 1.5 : 1) / displayScale;
+      ctx.strokeStyle = "rgba(79,142,247,0.4)";
+      ctx.lineWidth = 1 / displayScale;
       ctx.setLineDash([4 / displayScale, 3 / displayScale]);
       ctx.strokeRect((ann.x || 0) - 4, (ann.y || 0) - 4, w + 8, h + 8);
       ctx.setLineDash([]);
@@ -647,11 +749,157 @@ export default function AnnotateImageSimple(container, props) {
     return null;
   }
 
+  // Returns the canvas-space axis-aligned bounding box for an annotation
+  function _getAnnotationBounds(ann) {
+    if (ann.type === "text") {
+      const fontSize = Math.max(8, ann.font_size || 48);
+      ctx.font = `${fontSize}px sans-serif`;
+      const w = ctx.measureText(ann.text || "").width;
+      const h = fontSize * 1.2;
+      const ax = ann.x || 0, ay = ann.y || 0;
+      return { minX: ax - 4, minY: ay - 4, maxX: ax + w + 8, maxY: ay + h + 8 };
+    } else if (ann.type === "arrow") {
+      const pad = Math.max(8, (ann.width || 3) / 2 + 4);
+      return {
+        minX: Math.min(ann.x1, ann.x2) - pad, minY: Math.min(ann.y1, ann.y2) - pad,
+        maxX: Math.max(ann.x1, ann.x2) + pad, maxY: Math.max(ann.y1, ann.y2) + pad,
+      };
+    } else if (ann.type === "paint") {
+      const corners = _getTransformedCorners(ann, 10);
+      if (!corners.length) return null;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const [cx, cy] of corners) {
+        minX = Math.min(minX, cx); minY = Math.min(minY, cy);
+        maxX = Math.max(maxX, cx); maxY = Math.max(maxY, cy);
+      }
+      return { minX, minY, maxX, maxY };
+    }
+    return null;
+  }
+
+  function _getGroupBounds(selIds) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let found = false;
+    for (const ann of (currentValue.annotations || [])) {
+      if (!selIds.includes(ann.id)) continue;
+      const b = _getAnnotationBounds(ann);
+      if (!b) continue;
+      found = true;
+      minX = Math.min(minX, b.minX); minY = Math.min(minY, b.minY);
+      maxX = Math.max(maxX, b.maxX); maxY = Math.max(maxY, b.maxY);
+    }
+    if (!found) return null;
+    return { minX, minY, maxX, maxY, centerX: (minX + maxX) / 2, centerY: (minY + maxY) / 2 };
+  }
+
+  function _snapshotAnn(ann) {
+    const [cx, cy] = _paintCenter(ann);
+    return {
+      cx, cy,
+      x: ann.x ?? 0, y: ann.y ?? 0,
+      scaleX: ann.scaleX ?? 1, scaleY: ann.scaleY ?? 1,
+      rotation: ann.rotation ?? 0,
+      x1: ann.x1 ?? 0, y1: ann.y1 ?? 0, x2: ann.x2 ?? 0, y2: ann.y2 ?? 0,
+      font_size: ann.font_size ?? 48,
+      width: ann.width ?? 3,
+      sizeScale: ann.sizeScale ?? 1,
+    };
+  }
+
+  // ── unified transform frame (OBB) ────────────────────────────────────────────
+  // The frame is an oriented bounding box (pivot + rotation + half-extents).
+  // For a single paint, rotation matches the paint's rotation so handles rotate with it.
+  // For groups/text, rotation starts at 0 and accumulates during txRotate drags.
+  // Updating txFrame.rotation live during a drag keeps handles glued to content.
+
+  function _buildTxFrame() {
+    const selIds = currentValue.selected_ids || [];
+    if (!selIds.length || activeTool !== "select") { txFrame = null; return; }
+    const pad = 6 / displayScale;
+    // Detect selection change to reset accumulated rotation
+    const prevIds = txFrame?._selIds || [];
+    const selChanged = selIds.length !== prevIds.length ||
+      selIds.some((id, i) => id !== prevIds[i]);
+    if (selIds.length === 1) {
+      const ann = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
+      if (!ann) { txFrame = null; return; }
+      if (ann.type === "arrow") { txFrame = null; return; } // arrows use endpoint handles
+      if (ann.type === "paint") {
+        const nb = _naturalBounds(ann);
+        if (!nb) { txFrame = null; return; }
+        const [pcx, pcy] = _paintCenter(ann);
+        txFrame = {
+          pivotX: pcx + (ann.x || 0), pivotY: pcy + (ann.y || 0),
+          rotation: ann.rotation || 0, // always matches paint's own rotation
+          halfW: (nb.maxX - nb.minX) / 2 + pad,
+          halfH: (nb.maxY - nb.minY) / 2 + pad,
+          _selIds: [...selIds],
+        };
+        return;
+      }
+      // single text: fall through to AABB
+    }
+    const gb = _getGroupBounds(selIds);
+    if (!gb) { txFrame = null; return; }
+    txFrame = {
+      pivotX: gb.centerX, pivotY: gb.centerY,
+      rotation: selChanged ? 0 : (txFrame?.rotation ?? 0), // reset rotation on new selection
+      halfW: (gb.maxX - gb.minX) / 2 + pad,
+      halfH: (gb.maxY - gb.minY) / 2 + pad,
+      _selIds: [...selIds],
+    };
+  }
+
+  function _frameCorners(frame) {
+    const { pivotX: px, pivotY: py, rotation: r, halfW: hw, halfH: hh } = frame;
+    const cos = Math.cos(r), sin = Math.sin(r);
+    return [[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]].map(([lx,ly]) =>
+      [px + lx*cos - ly*sin, py + lx*sin + ly*cos]);
+  }
+
+  function _frameTopMid(frame) {
+    // local (0, -halfH) → world
+    const { pivotX: px, pivotY: py, rotation: r, halfH: hh } = frame;
+    return [px + hh*Math.sin(r), py - hh*Math.cos(r)];
+  }
+
+  function _frameRotHandle(frame) {
+    const [tx, ty] = _frameTopMid(frame);
+    const d = 28 / displayScale;
+    return [tx + d*Math.sin(frame.rotation), ty - d*Math.cos(frame.rotation)];
+  }
+
+  // Returns true if annotation overlaps the given canvas-space rectangle
+  function _annotationIntersectsRect(ann, x1, y1, x2, y2) {
+    if (ann.type === "text") {
+      const fontSize = Math.max(8, ann.font_size || 48);
+      ctx.font = `${fontSize}px sans-serif`;
+      const w = ctx.measureText(ann.text || "").width;
+      const h = fontSize * 1.2;
+      const ax = ann.x || 0, ay = ann.y || 0;
+      return !(ax + w < x1 || ax > x2 || ay + h < y1 || ay > y2);
+    } else if (ann.type === "arrow") {
+      if (ann.x1 >= x1 && ann.x1 <= x2 && ann.y1 >= y1 && ann.y1 <= y2) return true;
+      if (ann.x2 >= x1 && ann.x2 <= x2 && ann.y2 >= y1 && ann.y2 <= y2) return true;
+      const mx = (ann.x1 + ann.x2) / 2, my = (ann.y1 + ann.y2) / 2;
+      return mx >= x1 && mx <= x2 && my >= y1 && my <= y2;
+    } else if (ann.type === "paint") {
+      for (const stroke of (ann.strokes || [])) {
+        for (const pt of (stroke.points || [])) {
+          const [px, py] = _paintTransformPt(ann, pt[0], pt[1]);
+          if (px >= x1 && px <= x2 && py >= y1 && py <= y2) return true;
+        }
+      }
+      return false;
+    }
+    return false;
+  }
+
   // ── text editing ──────────────────────────────────────────────────────────
   function startTextEdit(ann) {
     commitTextEdit();
     textEditId = ann.id;
-    currentValue = { ...currentValue, selected_id: ann.id };
+    currentValue = { ...currentValue, selected_ids: [ann.id] };
 
     const fontSize = Math.max(8, ann.font_size || 48);
     textInput = document.createElement("textarea");
@@ -724,13 +972,13 @@ export default function AnnotateImageSimple(container, props) {
         // Remove empty text annotations
         currentValue = {
           ...currentValue,
-          selected_id: null,
+          selected_ids: [],
           annotations: currentValue.annotations.filter((a) => a.id !== id),
         };
       } else {
         currentValue = {
           ...currentValue,
-          selected_id: null,
+          selected_ids: [],
           annotations: currentValue.annotations.map((a) =>
             a.id === id ? { ...a, text } : a
           ),
@@ -753,7 +1001,7 @@ export default function AnnotateImageSimple(container, props) {
     currentValue = {
       ...currentValue,
       annotations: [...(currentValue.annotations || []), ann],
-      selected_id: id,
+      selected_ids: [id],
     };
     startTextEdit(ann);
     // emit after startTextEdit so the annotation with the initial text is sent
@@ -761,6 +1009,47 @@ export default function AnnotateImageSimple(container, props) {
   }
 
   // ── pointer events ────────────────────────────────────────────────────────
+  // React Flow intercepts Shift+click via a capture-phase listener on its node element,
+  // which fires before any bubble-phase handler on our canvas.  The only way to beat it
+  // is to register our own listener at the document level in capture phase, which fires
+  // first among all elements.  We only act when the event target is inside our widget
+  // and Shift is held; everything else is passed through untouched.
+  function _shiftInterceptor(e) {
+    if (!e.shiftKey || !wrapper.contains(e.target)) return;
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    // For pointerdown: dispatch into our own handler manually (event never reaches canvas
+    // because we stopped propagation before it could).
+    if (e.type === "pointerdown" && e.button === 0) onPointerDown(e);
+    // mousedown / click: just swallow so React Flow doesn't multi-select the node.
+  }
+  document.addEventListener("pointerdown", _shiftInterceptor, { capture: true });
+  document.addEventListener("mousedown",   _shiftInterceptor, { capture: true });
+  document.addEventListener("click",       _shiftInterceptor, { capture: true });
+
+  function _deleteInterceptor(e) {
+    if (e.key !== "Delete" && e.key !== "Backspace") return;
+    if (!(currentValue.selected_ids || []).length) return;
+    if (textEditId) return;
+    if (activeTool !== "select") return;
+    // Don't steal Delete from text inputs elsewhere on the page
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const selIds = currentValue.selected_ids;
+    currentValue = {
+      ...currentValue,
+      annotations: (currentValue.annotations || []).filter((a) => !selIds.includes(a.id)),
+      selected_ids: [],
+    };
+    txFrame = null;
+    _emit();
+    rebuildSettings();
+    renderCanvas();
+  }
+  document.addEventListener("keydown", _deleteInterceptor, { capture: true });
+
   canvas.addEventListener("pointerdown", onPointerDown);
   canvas.addEventListener("pointermove", onPointerMove);
   canvas.addEventListener("pointerup", onPointerUp);
@@ -783,9 +1072,10 @@ export default function AnnotateImageSimple(container, props) {
       if (hit && hit.type === "text") {
         // Single click on existing text: select it for dragging
         hoverId = null;
-        currentValue = { ...currentValue, selected_id: hit.id };
-        dragState = { id: hit.id, startCx: cx, startCy: cy,
-          origX: hit.x ?? 0, origY: hit.y ?? 0 };
+        currentValue = { ...currentValue, selected_ids: [hit.id] };
+        dragState = { type: "translate", startCx: cx, startCy: cy,
+          origPositions: { [hit.id]: { x: hit.x ?? 0, y: hit.y ?? 0 } },
+          origPivotX: txFrame?.pivotX, origPivotY: txFrame?.pivotY };
         rebuildSettings();
         renderCanvas();
         return;
@@ -798,61 +1088,89 @@ export default function AnnotateImageSimple(container, props) {
     if (activeTool === "select") {
       commitTextEdit();
       const handleR = 8 / displayScale;
+      const selIds = currentValue.selected_ids || [];
 
-      // Check transform handles on currently selected paint annotation first
-      const selId = currentValue.selected_id;
-      const selAnn = selId ? (currentValue.annotations || []).find((a) => a.id === selId) : null;
-      if (selAnn && selAnn.type === "paint") {
-        const corners = _getTransformedCorners(selAnn);
-        const rh = corners.length >= 3 ? _getRotationHandle(selAnn, corners) : null;
-        const [pcx, pcy] = _paintCenter(selAnn);
-        const center = [pcx + (selAnn.x || 0), pcy + (selAnn.y || 0)];
-        if (rh && Math.hypot(cx - rh[0], cy - rh[1]) <= handleR) {
-          dragState = { id: selAnn.id, type: "rotate",
-            centerX: center[0], centerY: center[1],
-            origAngle: Math.atan2(cy - center[1], cx - center[0]),
-            origRotation: selAnn.rotation || 0 };
+      // Unified transform frame handle detection (single paint, single text, or group)
+      if (txFrame) {
+        const corners = _frameCorners(txFrame);
+        const rh = _frameRotHandle(txFrame);
+        const buildSnapshots = () => {
+          const s = {};
+          for (const ann of (currentValue.annotations || []))
+            if (selIds.includes(ann.id)) s[ann.id] = _snapshotAnn(ann);
+          return s;
+        };
+        // Rotation handle
+        if (Math.hypot(cx - rh[0], cy - rh[1]) <= handleR) {
+          dragState = { type: "txRotate",
+            pivot: { x: txFrame.pivotX, y: txFrame.pivotY },
+            origAngle: Math.atan2(cy - txFrame.pivotY, cx - txFrame.pivotX),
+            origRotation: txFrame.rotation,
+            origSnapshots: buildSnapshots(), selIds: [...selIds] };
           renderCanvas(); return;
         }
+        // Corner scale handles — corner[i] maps to local sign [-/+ hw, -/+ hh]
+        const localCornerSigns = [[-1,-1],[1,-1],[1,1],[-1,1]];
         for (let i = 0; i < corners.length; i++) {
-          if (Math.hypot(cx - corners[i][0], cy - corners[i][1]) <= handleR) {
-            const origDist = Math.hypot(cx - center[0], cy - center[1]);
-            dragState = { id: selAnn.id, type: "scale",
-              centerX: center[0], centerY: center[1],
-              origDist: origDist || 1,
-              origScaleX: selAnn.scaleX ?? 1, origScaleY: selAnn.scaleY ?? 1 };
+          const [hx, hy] = corners[i];
+          if (Math.hypot(cx - hx, cy - hy) <= handleR) {
+            dragState = { type: "txScale",
+              pivot: { x: txFrame.pivotX, y: txFrame.pivotY },
+              origFrameRotation: txFrame.rotation,
+              origHalfW: txFrame.halfW, origHalfH: txFrame.halfH,
+              cornerSignX: localCornerSigns[i][0],
+              cornerSignY: localCornerSigns[i][1],
+              origSnapshots: buildSnapshots(), selIds: [...selIds] };
             renderCanvas(); return;
           }
         }
       }
 
-      // Regular hit test
       const hit = hitTest(cx, cy);
-      currentValue = { ...currentValue, selected_id: hit ? hit.id : null };
       if (hit) {
-        if (hit.type === "arrow") {
+        let newSelIds;
+        if (e.shiftKey) {
+          // Shift+click: toggle in/out of selection
+          newSelIds = selIds.includes(hit.id)
+            ? selIds.filter((id) => id !== hit.id)
+            : [...selIds, hit.id];
+        } else if (selIds.includes(hit.id)) {
+          // Click on already-selected annotation: keep selection for drag
+          newSelIds = selIds;
+        } else {
+          // Click on new annotation: replace selection
+          newSelIds = [hit.id];
+        }
+        currentValue = { ...currentValue, selected_ids: newSelIds };
+
+        // Arrow endpoint handles (single selection only)
+        if (newSelIds.length === 1 && hit.type === "arrow") {
           const arrowHandleR = Math.max(10 / displayScale, 8);
           const nearStart = Math.hypot(cx - hit.x1, cy - hit.y1) <= arrowHandleR;
           const nearEnd   = Math.hypot(cx - hit.x2, cy - hit.y2) <= arrowHandleR;
-          if (nearStart) {
-            dragState = { id: hit.id, arrowHandle: "start", startCx: cx, startCy: cy,
+          if (nearStart || nearEnd) {
+            dragState = { type: "arrowHandle", id: hit.id,
+              arrowHandle: nearStart ? "start" : "end",
+              startCx: cx, startCy: cy,
               origX1: hit.x1, origY1: hit.y1, origX2: hit.x2, origY2: hit.y2 };
-          } else if (nearEnd) {
-            dragState = { id: hit.id, arrowHandle: "end", startCx: cx, startCy: cy,
-              origX1: hit.x1, origY1: hit.y1, origX2: hit.x2, origY2: hit.y2 };
-          } else {
-            dragState = { id: hit.id, startCx: cx, startCy: cy,
-              origX1: hit.x1, origY1: hit.y1, origX2: hit.x2, origY2: hit.y2 };
+            rebuildSettings(); renderCanvas(); return;
           }
-        } else if (hit.type === "paint") {
-          dragState = { id: hit.id, startCx: cx, startCy: cy,
-            origX: hit.x || 0, origY: hit.y || 0 };
-        } else {
-          dragState = { id: hit.id, startCx: cx, startCy: cy,
-            origX: hit.x ?? 0, origY: hit.y ?? 0 };
         }
+
+        // Multi-translate drag: all currently selected annotations move together
+        const origPositions = {};
+        for (const id of newSelIds) {
+          const a = (currentValue.annotations || []).find((ann) => ann.id === id);
+          if (!a) continue;
+          if (a.type === "arrow") origPositions[id] = { x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2 };
+          else origPositions[id] = { x: a.x ?? 0, y: a.y ?? 0 };
+        }
+        dragState = { type: "translate", startCx: cx, startCy: cy, origPositions,
+          origPivotX: txFrame?.pivotX, origPivotY: txFrame?.pivotY };
       } else {
-        dragState = null;
+        // Click on empty space: always start marquee; additive when Shift held
+        if (!e.shiftKey) currentValue = { ...currentValue, selected_ids: [] };
+        dragState = { type: "marquee", startCx: cx, startCy: cy, x2: cx, y2: cy, additive: e.shiftKey };
       }
       rebuildSettings();
       renderCanvas();
@@ -920,43 +1238,112 @@ export default function AnnotateImageSimple(container, props) {
       renderCanvas();
 
     } else if (dragState && (activeTool === "select" || activeTool === "text")) {
-      if (dragState.type === "rotate") {
-        const angle = Math.atan2(cy - dragState.centerY, cx - dragState.centerX);
-        const newRotation = dragState.origRotation + (angle - dragState.origAngle);
+      if (dragState.type === "txRotate") {
+        const pivot = dragState.pivot;
+        const angle = Math.atan2(cy - pivot.y, cx - pivot.x);
+        const dAngle = angle - dragState.origAngle;
+        const newRotation = dragState.origRotation + dAngle;
+        // Update the live frame so rendered handles rotate with content
+        if (txFrame) txFrame = { ...txFrame, rotation: newRotation };
+        const cos = Math.cos(dAngle), sin = Math.sin(dAngle);
         currentValue = {
           ...currentValue,
-          annotations: currentValue.annotations.map((a) =>
-            a.id === dragState.id ? { ...a, rotation: newRotation } : a
-          ),
+          annotations: currentValue.annotations.map((a) => {
+            if (!dragState.selIds.includes(a.id)) return a;
+            const snap = dragState.origSnapshots[a.id];
+            if (!snap) return a;
+            if (a.type === "paint") {
+              const ax = snap.cx + snap.x - pivot.x, ay = snap.cy + snap.y - pivot.y;
+              return { ...a,
+                x: ax*cos - ay*sin + pivot.x - snap.cx,
+                y: ax*sin + ay*cos + pivot.y - snap.cy,
+                rotation: snap.rotation + dAngle };
+            } else if (a.type === "text") {
+              const dx = snap.x - pivot.x, dy = snap.y - pivot.y;
+              return { ...a, x: dx*cos - dy*sin + pivot.x, y: dx*sin + dy*cos + pivot.y };
+            } else if (a.type === "arrow") {
+              const d1x = snap.x1 - pivot.x, d1y = snap.y1 - pivot.y;
+              const d2x = snap.x2 - pivot.x, d2y = snap.y2 - pivot.y;
+              return { ...a,
+                x1: d1x*cos - d1y*sin + pivot.x, y1: d1x*sin + d1y*cos + pivot.y,
+                x2: d2x*cos - d2y*sin + pivot.x, y2: d2x*sin + d2y*cos + pivot.y };
+            }
+            return a;
+          }),
         };
-      } else if (dragState.type === "scale") {
-        const dist = Math.hypot(cx - dragState.centerX, cy - dragState.centerY);
-        const ratio = Math.max(0.05, dist / dragState.origDist);
+      } else if (dragState.type === "txScale") {
+        const pivot = dragState.pivot;
+        // Project mouse into frame's local space (rotate by -frameRotation around pivot)
+        const dx = cx - pivot.x, dy = cy - pivot.y;
+        const r = -dragState.origFrameRotation;
+        const rcos = Math.cos(r), rsin = Math.sin(r);
+        const lx = dx*rcos - dy*rsin;  // mouse in frame-local X
+        const ly = dx*rsin + dy*rcos;  // mouse in frame-local Y
+        // ratioX/Y: how far the mouse is compared to where the corner was
+        let ratioX = Math.max(0.05, lx / (dragState.cornerSignX * dragState.origHalfW));
+        let ratioY = Math.max(0.05, ly / (dragState.cornerSignY * dragState.origHalfH));
+        if (e.shiftKey) { const ratio = Math.sqrt(ratioX * ratioY); ratioX = ratio; ratioY = ratio; }
+        // Update live frame size so handles scale with content
+        if (txFrame) txFrame = { ...txFrame, halfW: dragState.origHalfW * ratioX, halfH: dragState.origHalfH * ratioY };
+        // Helper: scale an anchor point in frame-local space then back to world
+        const fcos = Math.cos(dragState.origFrameRotation), fsin = Math.sin(dragState.origFrameRotation);
+        const scaleAnchor = (ax, ay) => {
+          const adx = ax - pivot.x, ady = ay - pivot.y;
+          const alx = adx*rcos - ady*rsin, aly = adx*rsin + ady*rcos;
+          const nlx = alx * ratioX, nly = aly * ratioY;
+          return [pivot.x + nlx*fcos - nly*fsin, pivot.y + nlx*fsin + nly*fcos];
+        };
         currentValue = {
           ...currentValue,
-          annotations: currentValue.annotations.map((a) =>
-            a.id === dragState.id
-              ? { ...a, scaleX: dragState.origScaleX * ratio, scaleY: dragState.origScaleY * ratio }
-              : a
-          ),
+          annotations: currentValue.annotations.map((a) => {
+            if (!dragState.selIds.includes(a.id)) return a;
+            const snap = dragState.origSnapshots[a.id];
+            if (!snap) return a;
+            if (a.type === "paint") {
+              const [nax, nay] = scaleAnchor(snap.cx + snap.x, snap.cy + snap.y);
+              return { ...a, x: nax - snap.cx, y: nay - snap.cy,
+                scaleX: snap.scaleX * ratioX, scaleY: snap.scaleY * ratioY };
+            } else if (a.type === "text") {
+              const [nx, ny] = scaleAnchor(snap.x, snap.y);
+              return { ...a, x: nx, y: ny,
+                font_size: Math.max(8, Math.round(snap.font_size * (ratioX + ratioY) / 2)) };
+            } else if (a.type === "arrow") {
+              const [nx1, ny1] = scaleAnchor(snap.x1, snap.y1);
+              const [nx2, ny2] = scaleAnchor(snap.x2, snap.y2);
+              return { ...a, x1: nx1, y1: ny1, x2: nx2, y2: ny2 };
+            }
+            return a;
+          }),
         };
-      } else {
+      } else if (dragState.type === "arrowHandle") {
         const dx = cx - dragState.startCx, dy = cy - dragState.startCy;
         currentValue = {
           ...currentValue,
           annotations: currentValue.annotations.map((a) => {
             if (a.id !== dragState.id) return a;
-            if (a.type === "arrow") {
-              if (dragState.arrowHandle === "start")
-                return { ...a, x1: dragState.origX1 + dx, y1: dragState.origY1 + dy };
-              if (dragState.arrowHandle === "end")
-                return { ...a, x2: dragState.origX2 + dx, y2: dragState.origY2 + dy };
-              return { ...a, x1: dragState.origX1 + dx, y1: dragState.origY1 + dy,
-                x2: dragState.origX2 + dx, y2: dragState.origY2 + dy };
-            }
-            return { ...a, x: (dragState.origX || 0) + dx, y: (dragState.origY || 0) + dy };
+            if (dragState.arrowHandle === "start")
+              return { ...a, x1: dragState.origX1 + dx, y1: dragState.origY1 + dy };
+            return { ...a, x2: dragState.origX2 + dx, y2: dragState.origY2 + dy };
           }),
         };
+      } else if (dragState.type === "translate") {
+        const dx = cx - dragState.startCx, dy = cy - dragState.startCy;
+        currentValue = {
+          ...currentValue,
+          annotations: currentValue.annotations.map((a) => {
+            const orig = dragState.origPositions[a.id];
+            if (!orig) return a;
+            if (a.type === "arrow")
+              return { ...a, x1: orig.x1 + dx, y1: orig.y1 + dy, x2: orig.x2 + dx, y2: orig.y2 + dy };
+            return { ...a, x: orig.x + dx, y: orig.y + dy };
+          }),
+        };
+        // Move the frame with the selection so handles follow the annotation
+        if (txFrame && dragState.origPivotX != null) {
+          txFrame = { ...txFrame, pivotX: dragState.origPivotX + dx, pivotY: dragState.origPivotY + dy };
+        }
+      } else if (dragState.type === "marquee") {
+        dragState = { ...dragState, x2: cx, y2: cy };
       }
       renderCanvas();
     }
@@ -985,7 +1372,7 @@ export default function AnnotateImageSimple(container, props) {
       currentValue = {
         ...currentValue,
         annotations: [...(currentValue.annotations || []), paintAnn],
-        selected_id: paintAnn.id,
+        selected_ids: [paintAnn.id],
       };
       _emit();
       rebuildSettings();
@@ -1004,7 +1391,7 @@ export default function AnnotateImageSimple(container, props) {
         currentValue = {
           ...currentValue,
           annotations: [...(currentValue.annotations || []), ann],
-          selected_id: ann.id,
+          selected_ids: [ann.id],
         };
         _emit();
         rebuildSettings();
@@ -1012,8 +1399,31 @@ export default function AnnotateImageSimple(container, props) {
       renderCanvas();
 
     } else if (dragState && (activeTool === "select" || activeTool === "text")) {
-      dragState = null;
-      _emit();
+      if (dragState.type === "marquee") {
+        const x1 = Math.min(dragState.startCx, dragState.x2);
+        const y1 = Math.min(dragState.startCy, dragState.y2);
+        const x2 = Math.max(dragState.startCx, dragState.x2);
+        const y2 = Math.max(dragState.startCy, dragState.y2);
+        if (x2 - x1 > 5 || y2 - y1 > 5) {
+          const inRect = (currentValue.annotations || [])
+            .filter((a) => _annotationIntersectsRect(a, x1, y1, x2, y2))
+            .map((a) => a.id);
+          const merged = dragState.additive
+            ? [...new Set([...(currentValue.selected_ids || []), ...inRect])]
+            : inRect;
+          currentValue = { ...currentValue, selected_ids: merged };
+        }
+        dragState = null;
+        rebuildSettings();
+        renderCanvas();
+      } else {
+        dragState = null;
+        // Rebuild frame from new annotation state.
+        // _buildTxFrame reads txFrame?.rotation for groups (preserving accumulated rotation)
+        // and ann.rotation for single paint (which was updated live during txRotate).
+        _buildTxFrame();
+        _emit();
+      }
     }
   }
 
@@ -1050,8 +1460,11 @@ export default function AnnotateImageSimple(container, props) {
   });
 
   // ── emit / uid ─────────────────────────────────────────────────────────────
+  let _emitSeq = 0;
+
   function _emit() {
-    if (onChange) onChange({ ...currentValue, tool_settings: { ...toolSettings } });
+    _emitSeq++;
+    if (onChange) onChange({ ...currentValue, tool_settings: { ...toolSettings }, _emitSeq });
   }
 
   function _uid(prefix) {
@@ -1060,8 +1473,37 @@ export default function AnnotateImageSimple(container, props) {
 
   // ── update from props ──────────────────────────────────────────────────────
   function handleUpdate(newProps) {
-    if (newProps?.onChange) { /* onChange captured at init */ }
-    const nv = (newProps?.value && typeof newProps.value === "object") ? newProps.value : defaultData();
+    const rawNv = (newProps?.value && typeof newProps.value === "object") ? newProps.value : {};
+
+    // Stale-roundtrip guard: if we've emitted more recently than this incoming
+    // value, the framework is echoing back an old snapshot. Accept only
+    // image/dimension fields (set externally by Python), not annotations.
+    const incomingSeq = rawNv._emitSeq || 0;
+    if (incomingSeq > 0 && incomingSeq < _emitSeq) {
+      const urlChanged = (rawNv.image_url || "") !== currentValue.image_url;
+      const dimsChanged = (rawNv.canvas_width || 0) !== currentValue.canvas_width ||
+                          (rawNv.canvas_height || 0) !== currentValue.canvas_height;
+      if (urlChanged || dimsChanged) {
+        currentValue = {
+          ...currentValue,
+          image_url: rawNv.image_url || currentValue.image_url,
+          raw_url: rawNv.raw_url || currentValue.raw_url,
+          canvas_width: rawNv.canvas_width || currentValue.canvas_width,
+          canvas_height: rawNv.canvas_height || currentValue.canvas_height,
+        };
+        applyCanvasScale();
+        renderCanvas();
+      }
+      return;
+    }
+
+    // Fresh update — apply fully
+    const nv = { ...defaultData(), ...rawNv };
+    if (rawNv.selected_id && !rawNv.selected_ids) {
+      nv.selected_ids = [rawNv.selected_id];
+    } else if (!Array.isArray(nv.selected_ids)) {
+      nv.selected_ids = [];
+    }
     const urlChanged = nv.image_url !== currentValue.image_url;
     const dimsChanged = nv.canvas_width !== currentValue.canvas_width ||
                         nv.canvas_height !== currentValue.canvas_height;
@@ -1069,7 +1511,6 @@ export default function AnnotateImageSimple(container, props) {
     toolSettings = { ...currentValue.tool_settings };
     activeTool = currentValue.active_tool || activeTool;
 
-    // Update tool buttons
     for (const [tid, btn] of Object.entries(toolBtns)) {
       btn.className = "ais-tool-btn" + (tid === activeTool ? " active" : "");
     }
@@ -1085,6 +1526,10 @@ export default function AnnotateImageSimple(container, props) {
     commitTextEdit();
     resizeObserver.disconnect();
     if (resizeRafId) cancelAnimationFrame(resizeRafId);
+    document.removeEventListener("pointerdown", _shiftInterceptor, { capture: true });
+    document.removeEventListener("mousedown",   _shiftInterceptor, { capture: true });
+    document.removeEventListener("click",       _shiftInterceptor, { capture: true });
+    document.removeEventListener("keydown",     _deleteInterceptor, { capture: true });
     canvas.removeEventListener("pointerdown", onPointerDown);
     canvas.removeEventListener("pointermove", onPointerMove);
     canvas.removeEventListener("pointerup", onPointerUp);

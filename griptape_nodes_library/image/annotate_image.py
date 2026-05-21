@@ -157,6 +157,7 @@ class AnnotateImage(DataNode):
             lx, ly = (nx - cx) * sx, (ny - cy) * sy
             return cx + tx + lx * cos_r - ly * sin_r, cy + ty + lx * sin_r + ly * cos_r
 
+        size_scale = float(ann.get("sizeScale", 1.0) or 1.0)
         for stroke in ann.get("strokes", []):
             points = stroke.get("points", [])
             if not points:
@@ -165,12 +166,14 @@ class AnnotateImage(DataNode):
             base_size = max(1, int(stroke.get("size", 8)))
             for i, pt in enumerate(points):
                 px, py = xform(pt[0], pt[1])
-                sz = max(1, int(pt[2]) if len(pt) > 2 and pt[2] is not None else base_size)
+                raw_sz = pt[2] if len(pt) > 2 and pt[2] is not None else base_size
+                sz = max(1, int(raw_sz * size_scale))
                 draw.ellipse([px - sz / 2, py - sz / 2, px + sz / 2, py + sz / 2], fill=color)
                 if i > 0:
                     ppx, ppy = xform(points[i - 1][0], points[i - 1][1])
                     prev = points[i - 1]
-                    sz2 = max(1, int(prev[2]) if len(prev) > 2 and prev[2] is not None else base_size)
+                    raw_sz2 = prev[2] if len(prev) > 2 and prev[2] is not None else base_size
+                    sz2 = max(1, int(raw_sz2 * size_scale))
                     w = max(1, int((sz + sz2) / 2))
                     draw.line([ppx, ppy, px, py], fill=color, width=w)
 
