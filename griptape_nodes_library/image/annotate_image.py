@@ -215,9 +215,15 @@ class AnnotateImage(DataNode):
         for i in range(len(pts) - 1):
             draw.line([pts[i], pts[i + 1]], fill=color, width=width)
         head = max(15, width * 4)
+        setback = head * math.cos(math.pi / 6)  # pull line back so it doesn't poke through arrowhead
         if has_end_arrow:
             dx, dy = x2 - cp2x, y2 - cp2y
             angle = math.atan2(dy, dx) if math.hypot(dx, dy) > 0.1 else math.atan2(y2 - y1, x2 - x1)
+            # Shorten the last segment(s) to the arrowhead base
+            base_x = x2 - setback * math.cos(angle)
+            base_y = y2 - setback * math.sin(angle)
+            if pts:
+                pts[-1] = (base_x, base_y)
             tip = (x2, y2)
             left = (x2 - head * math.cos(angle - math.pi / 6), y2 - head * math.sin(angle - math.pi / 6))
             right = (x2 - head * math.cos(angle + math.pi / 6), y2 - head * math.sin(angle + math.pi / 6))
@@ -225,28 +231,65 @@ class AnnotateImage(DataNode):
         if has_start_arrow:
             dx, dy = x1 - cp1x, y1 - cp1y
             angle = math.atan2(dy, dx) if math.hypot(dx, dy) > 0.1 else math.atan2(y1 - y2, x1 - x2)
+            base_x = x1 - setback * math.cos(angle)
+            base_y = y1 - setback * math.sin(angle)
+            if pts:
+                pts[0] = (base_x, base_y)
             tip = (x1, y1)
             left = (x1 - head * math.cos(angle - math.pi / 6), y1 - head * math.sin(angle - math.pi / 6))
             right = (x1 - head * math.cos(angle + math.pi / 6), y1 - head * math.sin(angle + math.pi / 6))
             draw.polygon([tip, left, right], fill=color)
 
+    def _draw_rect(self, draw: ImageDraw.ImageDraw, ann: dict) -> None:
+        x = float(ann.get("x", 0))
+        y = float(ann.get("y", 0))
+        w = float(ann.get("w", 100))
+        h = float(ann.get("h", 100))
+        rotation = float(ann.get("rotation", 0))
+        color = self._parse_color(ann.get("color", "#ff0000"))
+        width = max(1, int(ann.get("width", 2)))
+        fill_color_str = ann.get("fill_color", "") or ""
+        fill = self._parse_color(fill_color_str) if fill_color_str else None
+        cos_r, sin_r = math.cos(rotation), math.sin(rotation)
+        hw, hh = w / 2, h / 2
+        corners = [
+            (x + lx * cos_r - ly * sin_r, y + lx * sin_r + ly * cos_r)
+            for lx, ly in [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)]
+        ]
+        draw.polygon(corners, fill=fill, outline=color, width=width)
+
+    def _draw_ellipse(self, draw: ImageDraw.ImageDraw, ann: dict) -> None:
+        x = float(ann.get("x", 0))
+        y = float(ann.get("y", 0))
+        w = float(ann.get("w", 100))
+        h = float(ann.get("h", 100))
+        fill_color_str = ann.get("fill_color", "") or ""
+        fill = self._parse_color(fill_color_str) if fill_color_str else None
+        color = self._parse_color(ann.get("color", "#ff0000"))
+        width = max(1, int(ann.get("width", 2)))
+        bbox = [x - w / 2, y - h / 2, x + w / 2, y + h / 2]
+        draw.ellipse(bbox, fill=fill, outline=color, width=width)
+
     def process(self) -> None:
         image_artifact = self.get_parameter_value("image")
-        if not image_artifact:
-            msg = f"{self.name}: No input image provided"
-            raise ValueError(msg)
 
         annotation_data = self.get_parameter_value("annotation_data") or _default_annotation_data()
         if not isinstance(annotation_data, dict):
             annotation_data = _default_annotation_data()
 
-        raw_url = annotation_data.get("raw_url") or getattr(image_artifact, "value", "")
-        try:
-            img_data = File(raw_url).read_bytes()
-            bg = Image.open(BytesIO(img_data)).convert("RGBA")
-        except Exception as e:
-            msg = f"{self.name}: Could not load image: {e}"
-            raise ValueError(msg) from e
+        bg = None
+        if image_artifact:
+            raw_url = annotation_data.get("raw_url") or getattr(image_artifact, "value", "")
+            try:
+                img_data = File(raw_url).read_bytes()
+                bg = Image.open(BytesIO(img_data)).convert("RGBA")
+            except Exception:
+                bg = None
+
+        if bg is None:
+            w = annotation_data.get("canvas_width") or 800
+            h = annotation_data.get("canvas_height") or 600
+            bg = Image.new("RGBA", (int(w), int(h)), (0, 0, 0, 0))
 
         overlay = Image.new("RGBA", bg.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
@@ -259,6 +302,10 @@ class AnnotateImage(DataNode):
                 self._draw_text(draw, ann)
             elif ann_type == "arrow":
                 self._draw_arrow(draw, ann)
+            elif ann_type == "rect":
+                self._draw_rect(draw, ann)
+            elif ann_type == "ellipse":
+                self._draw_ellipse(draw, ann)
 
         canvas = Image.alpha_composite(bg, overlay)
 

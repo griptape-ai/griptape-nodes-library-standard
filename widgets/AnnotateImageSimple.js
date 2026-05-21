@@ -5,11 +5,13 @@
 // ── Lucide SVG icons (inlined paths, MIT licensed) ────────────────────────────
 
 const ICON_PATHS = {
-  select: `<path d="m4 4 7.07 17 2.51-7.39L21 11.07z"/>`,
-  paint:  `<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>`,
-  text:   `<polyline points="4 7 4 4 20 4 20 7"/><line x1="9" x2="15" y1="20" y2="20"/><line x1="12" x2="12" y1="4" y2="20"/>`,
-  arrow:  `<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>`,
-  trash:  `<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>`,
+  select:  `<path d="m4 4 7.07 17 2.51-7.39L21 11.07z"/>`,
+  paint:   `<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>`,
+  text:    `<polyline points="4 7 4 4 20 4 20 7"/><line x1="9" x2="15" y1="20" y2="20"/><line x1="12" x2="12" y1="4" y2="20"/>`,
+  arrow:   `<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>`,
+  rect:    `<rect x="3" y="3" width="18" height="18" rx="2"/>`,
+  ellipse: `<ellipse cx="12" cy="12" rx="10" ry="6"/>`,
+  trash:   `<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>`,
 };
 
 function mkIcon(name, size = 15) {
@@ -38,10 +40,10 @@ function injectStyles() {
     .ais-tool-btn:hover { background:var(--muted); color:var(--foreground); }
     .ais-tool-btn.active { background:#7a9db8; color:#ffffff; }
     .ais-setting-label { font-size:11px; color:var(--muted-foreground); }
-    .ais-range { accent-color:#7a9db8; cursor:pointer; width:80px; }
+    .ais-range { accent-color:#7a9db8; cursor:pointer; width:80px; min-width:30px; flex-shrink:1; }
     .ais-color-btn { width:22px; height:22px; border-radius:4px; border:2px solid var(--border,#555); cursor:pointer; flex-shrink:0; }
     .ais-color-input { position:absolute; opacity:0; width:0; height:0; pointer-events:none; }
-    .ais-val-label { font-size:11px; color:var(--foreground); min-width:24px; text-align:right; }
+    .ais-val-label { font-size:11px; color:var(--foreground); min-width:20px; text-align:right; flex-shrink:0; }
   `;
 }
 
@@ -56,9 +58,11 @@ function defaultData() {
     annotations: [],
     active_tool: "select",
     tool_settings: {
-      paint: { color: "#ff0000", size: 8 },
-      text:  { color: "#ffffff", font_size: 48 },
-      arrow: { color: "#ff0000", width: 3, has_start_arrow: false, has_end_arrow: true, is_bezier: false },
+      paint:   { color: "#ff0000", size: 8 },
+      text:    { color: "#ffffff", font_size: 48 },
+      arrow:   { color: "#ff0000", width: 3, has_start_arrow: false, has_end_arrow: true, is_bezier: false },
+      rect:    { color: "#ff0000", width: 2, fill_color: "" },
+      ellipse: { color: "#ff0000", width: 2, fill_color: "" },
     },
     selected_ids: [],
   };
@@ -76,7 +80,14 @@ export default function AnnotateImageSimple(container, props) {
 
   const { onChange } = props;
   const rawValue = (props.value && typeof props.value === "object") ? props.value : {};
-  let currentValue = { ...defaultData(), ...rawValue, tool_settings: { ...defaultData().tool_settings, ...(rawValue.tool_settings || {}) } };
+  const defTS = defaultData().tool_settings;
+  const rawTS = rawValue.tool_settings || {};
+  let currentValue = { ...defaultData(), ...rawValue, tool_settings: {
+    ...defTS,
+    ...rawTS,
+    rect:    { ...defTS.rect,    ...(rawTS.rect    || {}) },
+    ellipse: { ...defTS.ellipse, ...(rawTS.ellipse || {}) },
+  } };
   // Migrate old selected_id (single string) to selected_ids (array)
   if (rawValue.selected_id && !rawValue.selected_ids) {
     currentValue.selected_ids = [rawValue.selected_id];
@@ -98,12 +109,15 @@ export default function AnnotateImageSimple(container, props) {
 
   // unified transform frame (OBB)
   let txFrame = null; // { pivotX, pivotY, rotation, halfW, halfH }
+  const _frameActiveTools = ["select", "paint", "rect", "ellipse"];
 
   // pointer state
   let isPointerDown = false;
   let currentStroke = null;
   let strokeLastMid = null; // tracks last bezier midpoint for incremental draw
   let currentArrow = null;
+  let currentRect = null;
+  let currentEllipse = null;
   let dragState = null;
   let lastPtTime = 0, lastPtX = 0, lastPtY = 0, velSmoothed = 0;
 
@@ -143,10 +157,12 @@ export default function AnnotateImageSimple(container, props) {
 
   // Tool buttons (left side)
   const TOOLS = [
-    { id: "select", title: "Select & Move" },
-    { id: "paint",  title: "Paint" },
-    { id: "text",   title: "Text" },
-    { id: "arrow",  title: "Arrow" },
+    { id: "select",  title: "Select & Move" },
+    { id: "paint",   title: "Paint" },
+    { id: "text",    title: "Text" },
+    { id: "arrow",   title: "Arrow" },
+    { id: "rect",    title: "Rectangle" },
+    { id: "ellipse", title: "Ellipse / Circle" },
   ];
   const toolBtns = {};
   for (const t of TOOLS) {
@@ -184,7 +200,7 @@ export default function AnnotateImageSimple(container, props) {
 
   // Settings area (right of divider, grows to fill)
   const settingsArea = document.createElement("div");
-  settingsArea.style.cssText = "display:flex;align-items:center;gap:8px;flex:1;flex-wrap:wrap;justify-content:flex-end;";
+  settingsArea.style.cssText = "display:flex;align-items:center;gap:6px;flex:1;min-width:0;overflow:hidden;justify-content:flex-end;";
   toolbar.appendChild(settingsArea);
 
   // Canvas area
@@ -334,12 +350,12 @@ export default function AnnotateImageSimple(container, props) {
       return;
     }
 
-    // Arrow tool with a single selected arrow: show that arrow's settings
-    if (activeTool === "arrow") {
+    // Paint/arrow/rect/ellipse tool with a single matching annotation selected: show its settings
+    if (activeTool === "paint" || activeTool === "arrow" || activeTool === "rect" || activeTool === "ellipse") {
       const selIds = currentValue.selected_ids || [];
       if (selIds.length === 1) {
         const selAnn = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
-        if (selAnn?.type === "arrow") {
+        if (selAnn?.type === activeTool) {
           _buildAnnotationSettings(selAnn);
           return;
         }
@@ -369,19 +385,64 @@ export default function AnnotateImageSimple(container, props) {
     settingsArea.appendChild(wrap);
   }
 
+  function _fmtNum(v) {
+    const n = Number(v);
+    if (!isFinite(n)) return "0";
+    if (Number.isInteger(n)) return String(n);
+    const r = Math.round(n * 100) / 100;
+    return Number.isInteger(r) ? String(r) : r.toFixed(2).replace(/0+$/, "");
+  }
+
   function _buildSizeSlider(label, min, max, value, onChange) {
     const wrap = document.createElement("div");
-    wrap.style.cssText = "display:flex;align-items:center;gap:5px;";
+    wrap.style.cssText = "display:flex;align-items:center;gap:3px;flex-shrink:1;min-width:0;";
     const lbl = document.createElement("span");
     lbl.className = "ais-setting-label"; lbl.textContent = label;
     const slider = document.createElement("input");
     slider.type = "range"; slider.className = "ais-range";
     slider.min = min; slider.max = max; slider.value = value;
     const valLbl = document.createElement("span");
-    valLbl.className = "ais-val-label"; valLbl.textContent = value;
-    slider.addEventListener("input", () => { const sz = Number(slider.value); valLbl.textContent = sz; onChange(sz, false); });
+    valLbl.className = "ais-val-label"; valLbl.textContent = _fmtNum(value);
+    slider.addEventListener("input", () => { const sz = Number(slider.value); valLbl.textContent = _fmtNum(sz); onChange(sz, false); });
     slider.addEventListener("change", () => onChange(Number(slider.value), true));
     wrap.appendChild(lbl); wrap.appendChild(slider); wrap.appendChild(valLbl);
+    settingsArea.appendChild(wrap);
+  }
+
+  function _buildFillColorSwatch(fillColor, onChangeColor) {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "position:relative;display:flex;align-items:center;gap:2px;";
+    const swatch = document.createElement("div");
+    swatch.className = "ais-color-btn";
+    swatch.title = "Fill color";
+    if (fillColor) {
+      swatch.style.background = fillColor;
+    } else {
+      swatch.style.background = "repeating-conic-gradient(#888 0% 25%,#333 0% 50%) 0 0/8px 8px";
+    }
+    const pickerInput = document.createElement("input");
+    pickerInput.type = "color";
+    pickerInput.value = fillColor || "#ffffff";
+    pickerInput.className = "ais-color-input";
+    pickerInput.addEventListener("input", () => {
+      swatch.style.background = pickerInput.value;
+      onChangeColor(pickerInput.value, false);
+    });
+    pickerInput.addEventListener("change", () => onChangeColor(pickerInput.value, true));
+    swatch.addEventListener("click", () => pickerInput.click());
+    const clearBtn = document.createElement("button");
+    clearBtn.className = "ais-tool-btn";
+    clearBtn.title = "No fill";
+    clearBtn.style.cssText = "width:16px;height:16px;font-size:11px;padding:0;";
+    clearBtn.textContent = "✕";
+    clearBtn.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      swatch.style.background = "repeating-conic-gradient(#888 0% 25%,#333 0% 50%) 0 0/8px 8px";
+      onChangeColor("", true);
+    });
+    wrap.appendChild(swatch);
+    wrap.appendChild(pickerInput);
+    wrap.appendChild(clearBtn);
     settingsArea.appendChild(wrap);
   }
 
@@ -420,11 +481,14 @@ export default function AnnotateImageSimple(container, props) {
         _emit();
       });
     }
-    const sizeKey = activeTool === "text" ? "font_size" : activeTool === "arrow" ? "width" : "size";
-    const sizeVal = ts[sizeKey] ?? (activeTool === "text" ? 48 : activeTool === "arrow" ? 3 : 8);
+    const isShape = activeTool === "rect" || activeTool === "ellipse";
+    const sizeKey = activeTool === "text" ? "font_size"
+      : (activeTool === "arrow" || isShape) ? "width"
+      : "size";
+    const sizeVal = ts[sizeKey] ?? (activeTool === "text" ? 48 : (activeTool === "arrow" || isShape) ? (isShape ? 2 : 3) : 8);
     const sizeMin = activeTool === "text" ? 8 : 1;
-    const sizeMax = activeTool === "text" ? 120 : activeTool === "arrow" ? 20 : 80;
-    const sizeLbl = activeTool === "arrow" ? "Width" : "Size";
+    const sizeMax = activeTool === "text" ? 120 : (activeTool === "arrow" || isShape) ? 20 : 80;
+    const sizeLbl = (activeTool === "arrow" || isShape) ? "Width" : "Size";
     _buildSizeSlider(sizeLbl, sizeMin, sizeMax, sizeVal, (sz, emit) => {
       toolSettings[activeTool][sizeKey] = sz;
       currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
@@ -437,6 +501,14 @@ export default function AnnotateImageSimple(container, props) {
       currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
       if (emit) _emit();
     });
+    if (isShape) {
+      _buildFillColorSwatch(ts.fill_color || "", (col, emit) => {
+        toolSettings[activeTool].fill_color = col;
+        currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
+        renderCanvas();
+        if (emit) _emit();
+      });
+    }
   }
 
   function _buildAnnotationSettings(ann) {
@@ -477,9 +549,10 @@ export default function AnnotateImageSimple(container, props) {
       });
     }
 
-    const sizeKey = ann.type === "text" ? "font_size" : ann.type === "arrow" ? "width" : null;
+    const isShape = ann.type === "rect" || ann.type === "ellipse";
+    const sizeKey = ann.type === "text" ? "font_size" : (ann.type === "arrow" || isShape) ? "width" : null;
     if (sizeKey) {
-      const sizeVal = ann[sizeKey] ?? (ann.type === "text" ? 48 : 3);
+      const sizeVal = ann[sizeKey] ?? (ann.type === "text" ? 48 : isShape ? 2 : 3);
       const sizeMin = ann.type === "text" ? 8 : 1;
       const sizeMax = ann.type === "text" ? 120 : 20;
       const sizeLbl = ann.type === "text" ? "Size" : "Width";
@@ -490,9 +563,9 @@ export default function AnnotateImageSimple(container, props) {
             a.id === ann.id ? { ...a, [sizeKey]: sz } : a
           ),
         };
-        // Sync to tool settings so next annotation of this type uses same size
         if (ann.type === "arrow") { toolSettings.arrow.width = sz; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
         if (ann.type === "text") { toolSettings.text.font_size = sz; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
+        if (isShape) { toolSettings[ann.type].width = sz; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
         if (textInput && textEditId === ann.id && sizeKey === "font_size") {
           textInput.style.fontSize = sz * displayScale * viewScale + "px"; _autoResizeTextarea();
         }
@@ -510,16 +583,29 @@ export default function AnnotateImageSimple(container, props) {
           return { ...a, color: col };
         }),
       };
-      // Sync color to tool settings so next annotation uses same color
       if (ann.type === "arrow") { toolSettings.arrow.color = col; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
       if (ann.type === "text") { toolSettings.text.color = col; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
       if (ann.type === "paint") { toolSettings.paint.color = col; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
+      if (isShape) { toolSettings[ann.type].color = col; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
       if (textInput && textEditId === ann.id) {
         textInput.style.color = col; textInput.style.borderBottomColor = col;
       }
       renderCanvas();
       if (emit) _emit();
     });
+
+    if (isShape) {
+      _buildFillColorSwatch(ann.fill_color || "", (col, emit) => {
+        currentValue = {
+          ...currentValue,
+          annotations: currentValue.annotations.map((a) => a.id === ann.id ? { ...a, fill_color: col } : a),
+        };
+        toolSettings[ann.type].fill_color = col;
+        currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
+        renderCanvas();
+        if (emit) _emit();
+      });
+    }
 
   }
 
@@ -531,6 +617,7 @@ export default function AnnotateImageSimple(container, props) {
       if (a.type === "paint") origSizes[a.id] = a.sizeScale ?? 1;
       else if (a.type === "text") origSizes[a.id] = a.font_size ?? 48;
       else if (a.type === "arrow") origSizes[a.id] = a.width ?? 3;
+      else if (a.type === "rect" || a.type === "ellipse") origSizes[a.id] = { w: a.w ?? 100, h: a.h ?? 100 };
     }
     _buildSizeSlider("Scale %", 25, 400, 100, (val, emit) => {
       const ratio = val / 100;
@@ -541,6 +628,10 @@ export default function AnnotateImageSimple(container, props) {
           if (a.type === "paint") return { ...a, sizeScale: (origSizes[a.id] ?? 1) * ratio };
           if (a.type === "text") return { ...a, font_size: Math.max(8, Math.round((origSizes[a.id] ?? 48) * ratio)) };
           if (a.type === "arrow") return { ...a, width: Math.max(1, (origSizes[a.id] ?? 3) * ratio) };
+          if (a.type === "rect" || a.type === "ellipse") {
+            const orig = origSizes[a.id] || { w: 100, h: 100 };
+            return { ...a, w: Math.max(2, orig.w * ratio), h: Math.max(2, orig.h * ratio) };
+          }
           return a;
         }),
       };
@@ -737,7 +828,7 @@ export default function AnnotateImageSimple(container, props) {
     if (img) {
       ctx.drawImage(img, 0, 0, cw, ch);
     } else {
-      ctx.fillStyle = imgUrl ? "#222" : "#1a1a1a";
+      ctx.fillStyle = "#1a1a1a";
       ctx.fillRect(0, 0, cw, ch);
     }
 
@@ -750,7 +841,7 @@ export default function AnnotateImageSimple(container, props) {
     }
 
     // Unified transform frame — same OBB handles for single or group selection
-    if (txFrame && activeTool === "select") {
+    if (txFrame && _frameActiveTools.includes(activeTool)) {
       const corners = _frameCorners(txFrame);
       const topMid = _frameTopMid(txFrame);
       const rh = _frameRotHandle(txFrame);
@@ -790,6 +881,38 @@ export default function AnnotateImageSimple(container, props) {
       );
     }
 
+    // In-progress rect
+    if (currentRect) {
+      const ts = toolSettings.rect;
+      const rx = Math.min(currentRect.x1, currentRect.x2);
+      const ry = Math.min(currentRect.y1, currentRect.y2);
+      const rw = Math.abs(currentRect.x2 - currentRect.x1);
+      const rh = Math.abs(currentRect.y2 - currentRect.y1);
+      ctx.save();
+      ctx.lineWidth = ts.width || 2;
+      ctx.strokeStyle = ts.color || "#ff0000";
+      if (ts.fill_color) { ctx.fillStyle = ts.fill_color; ctx.fillRect(rx, ry, rw, rh); }
+      ctx.strokeRect(rx, ry, rw, rh);
+      ctx.restore();
+    }
+
+    // In-progress ellipse
+    if (currentEllipse) {
+      const ts = toolSettings.ellipse;
+      const ex = (currentEllipse.x1 + currentEllipse.x2) / 2;
+      const ey = (currentEllipse.y1 + currentEllipse.y2) / 2;
+      const erx = Math.max(0.5, Math.abs(currentEllipse.x2 - currentEllipse.x1) / 2);
+      const ery = Math.max(0.5, Math.abs(currentEllipse.y2 - currentEllipse.y1) / 2);
+      ctx.save();
+      ctx.lineWidth = ts.width || 2;
+      ctx.strokeStyle = ts.color || "#ff0000";
+      ctx.beginPath();
+      ctx.ellipse(ex, ey, erx, ery, 0, 0, Math.PI * 2);
+      if (ts.fill_color) { ctx.fillStyle = ts.fill_color; ctx.fill(); }
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // Marquee selection rectangle
     if (dragState?.type === "marquee") {
       const mx1 = Math.min(dragState.startCx, dragState.x2);
@@ -808,9 +931,11 @@ export default function AnnotateImageSimple(container, props) {
   }
 
   function drawAnnotation(ann, selected) {
-    if (ann.type === "paint")  drawPaint(ann, selected);
-    else if (ann.type === "text")  drawText(ann, selected);
-    else if (ann.type === "arrow") drawArrowAnnotation(ann, selected);
+    if (ann.type === "paint")   drawPaint(ann, selected);
+    else if (ann.type === "text")   drawText(ann, selected);
+    else if (ann.type === "arrow")  drawArrowAnnotation(ann, selected);
+    else if (ann.type === "rect")   drawRect(ann, selected);
+    else if (ann.type === "ellipse") drawEllipse(ann, selected);
   }
 
   function drawPaint(ann, selected) {
@@ -993,17 +1118,38 @@ export default function AnnotateImageSimple(container, props) {
     if (cp2y == null) cp2y = y1 + (y2 - y1) * 2 / 3;
     if (hasEndArrow == null) hasEndArrow = true;
     const w = Math.max(1, width);
+    const head = Math.max(15, w * 4);
+    // How far back from the tip the base of the triangle sits (cos 30° of head length)
+    const setback = head * Math.cos(Math.PI / 6);
+
+    // Compute angles from tangent directions (control points) before adjusting endpoints
+    let endAngle = 0, startAngle = 0;
+    if (hasEndArrow) {
+      endAngle = Math.hypot(x2 - cp2x, y2 - cp2y) < 0.1
+        ? Math.atan2(y2 - y1, x2 - x1)
+        : Math.atan2(y2 - cp2y, x2 - cp2x);
+    }
+    if (hasStartArrow) {
+      startAngle = Math.hypot(cp1x - x1, cp1y - y1) < 0.1
+        ? Math.atan2(y1 - y2, x1 - x2)
+        : Math.atan2(y1 - cp1y, x1 - cp1x);
+    }
+
+    // Pull line endpoints back to the arrowhead base so the stroke doesn't poke through
+    const lx2 = hasEndArrow   ? x2 - setback * Math.cos(endAngle)   : x2;
+    const ly2 = hasEndArrow   ? y2 - setback * Math.sin(endAngle)   : y2;
+    const lx1 = hasStartArrow ? x1 - setback * Math.cos(startAngle) : x1;
+    const ly1 = hasStartArrow ? y1 - setback * Math.sin(startAngle) : y1;
+
     ctx.save();
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
     ctx.lineWidth = w;
     ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2); ctx.stroke();
-    const head = Math.max(15, w * 4);
+    ctx.beginPath(); ctx.moveTo(lx1, ly1); ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, lx2, ly2); ctx.stroke();
+
+    // Arrowheads drawn at the original tip points
     if (hasEndArrow) {
-      const endAngle = Math.hypot(x2 - cp2x, y2 - cp2y) < 0.1
-        ? Math.atan2(y2 - y1, x2 - x1)
-        : Math.atan2(y2 - cp2y, x2 - cp2x);
       ctx.beginPath();
       ctx.moveTo(x2, y2);
       ctx.lineTo(x2 - head * Math.cos(endAngle - Math.PI / 6), y2 - head * Math.sin(endAngle - Math.PI / 6));
@@ -1011,15 +1157,40 @@ export default function AnnotateImageSimple(container, props) {
       ctx.closePath(); ctx.fill();
     }
     if (hasStartArrow) {
-      const startAngle = Math.hypot(cp1x - x1, cp1y - y1) < 0.1
-        ? Math.atan2(y1 - y2, x1 - x2)
-        : Math.atan2(y1 - cp1y, x1 - cp1x);
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.lineTo(x1 - head * Math.cos(startAngle - Math.PI / 6), y1 - head * Math.sin(startAngle - Math.PI / 6));
       ctx.lineTo(x1 - head * Math.cos(startAngle + Math.PI / 6), y1 - head * Math.sin(startAngle + Math.PI / 6));
       ctx.closePath(); ctx.fill();
     }
+    ctx.restore();
+  }
+
+  function drawRect(ann, _selected) {
+    const hw = (ann.w || 10) / 2, hh = (ann.h || 10) / 2;
+    const r = ann.rotation || 0;
+    ctx.save();
+    ctx.translate(ann.x || 0, ann.y || 0);
+    ctx.rotate(r);
+    ctx.lineWidth = ann.width || 2;
+    ctx.strokeStyle = ann.color || "#ff0000";
+    if (ann.fill_color) { ctx.fillStyle = ann.fill_color; ctx.fillRect(-hw, -hh, hw * 2, hh * 2); }
+    ctx.strokeRect(-hw, -hh, hw * 2, hh * 2);
+    ctx.restore();
+  }
+
+  function drawEllipse(ann, _selected) {
+    const rx = Math.max(0.5, (ann.w || 10) / 2), ry = Math.max(0.5, (ann.h || 10) / 2);
+    const r = ann.rotation || 0;
+    ctx.save();
+    ctx.translate(ann.x || 0, ann.y || 0);
+    ctx.rotate(r);
+    ctx.lineWidth = ann.width || 2;
+    ctx.strokeStyle = ann.color || "#ff0000";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+    if (ann.fill_color) { ctx.fillStyle = ann.fill_color; ctx.fill(); }
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -1050,6 +1221,29 @@ export default function AnnotateImageSimple(container, props) {
           const tol = Math.max(12 / displayScale, (stroke.size || 8) / 2 + 4);
           for (const pt of (stroke.points || [])) {
             if (Math.hypot(lx - pt[0], ly - pt[1]) <= tol) return ann;
+          }
+        }
+      } else if (ann.type === "rect" || ann.type === "ellipse") {
+        const dx = cx - (ann.x || 0), dy = cy - (ann.y || 0);
+        const r = -(ann.rotation || 0);
+        const cos = Math.cos(r), sin = Math.sin(r);
+        const lx = dx * cos - dy * sin, ly = dx * sin + dy * cos;
+        const hw = (ann.w || 10) / 2, hh = (ann.h || 10) / 2;
+        const tol = Math.max(8 / displayScale, (ann.width || 2) + 4);
+        if (ann.type === "rect") {
+          if (ann.fill_color) {
+            if (lx >= -hw && lx <= hw && ly >= -hh && ly <= hh) return ann;
+          } else {
+            const nearH = Math.abs(Math.abs(lx) - hw) <= tol && ly >= -hh - tol && ly <= hh + tol;
+            const nearV = Math.abs(Math.abs(ly) - hh) <= tol && lx >= -hw - tol && lx <= hw + tol;
+            if (nearH || nearV) return ann;
+          }
+        } else {
+          const ex = lx / (hw + tol), ey = ly / (hh + tol);
+          if (ex * ex + ey * ey <= 1) {
+            if (ann.fill_color) return ann;
+            const exIn = hw > tol ? lx / (hw - tol) : 0, eyIn = hh > tol ? ly / (hh - tol) : 0;
+            if (exIn * exIn + eyIn * eyIn >= 1) return ann;
           }
         }
       }
@@ -1083,6 +1277,19 @@ export default function AnnotateImageSimple(container, props) {
         maxX = Math.max(maxX, cx); maxY = Math.max(maxY, cy);
       }
       return { minX, minY, maxX, maxY };
+    } else if (ann.type === "rect" || ann.type === "ellipse") {
+      const hw = (ann.w || 10) / 2, hh = (ann.h || 10) / 2;
+      const r = ann.rotation || 0;
+      const cos = Math.cos(r), sin = Math.sin(r);
+      const corners = [[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]].map(([lx,ly]) =>
+        [(ann.x || 0) + lx*cos - ly*sin, (ann.y || 0) + lx*sin + ly*cos]);
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const [cx, cy] of corners) {
+        minX = Math.min(minX, cx); minY = Math.min(minY, cy);
+        maxX = Math.max(maxX, cx); maxY = Math.max(maxY, cy);
+      }
+      const pad = (ann.width || 2) / 2 + 4;
+      return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
     }
     return null;
   }
@@ -1115,6 +1322,7 @@ export default function AnnotateImageSimple(container, props) {
       font_size: ann.font_size ?? 48,
       width: ann.width ?? 3,
       sizeScale: ann.sizeScale ?? 1,
+      w: ann.w ?? 100, h: ann.h ?? 100,
     };
   }
 
@@ -1134,7 +1342,7 @@ export default function AnnotateImageSimple(container, props) {
 
   function _buildTxFrame() {
     const selIds = currentValue.selected_ids || [];
-    if (!selIds.length || activeTool !== "select") { txFrame = null; return; }
+    if (!selIds.length || !_frameActiveTools.includes(activeTool)) { txFrame = null; return; }
     const pad = 6 / displayScale;
     // Detect selection change to reset accumulated rotation
     const prevIds = txFrame?._selIds || [];
@@ -1144,6 +1352,16 @@ export default function AnnotateImageSimple(container, props) {
       const ann = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
       if (!ann) { txFrame = null; return; }
       if (ann.type === "arrow") { txFrame = null; return; } // arrows use endpoint handles
+      if (ann.type === "rect" || ann.type === "ellipse") {
+        txFrame = {
+          pivotX: ann.x || 0, pivotY: ann.y || 0,
+          rotation: ann.rotation || 0,
+          halfW: (ann.w || 10) / 2 + pad,
+          halfH: (ann.h || 10) / 2 + pad,
+          _selIds: [...selIds],
+        };
+        return;
+      }
       if (ann.type === "paint") {
         const nb = _naturalBounds(ann);
         if (!nb) { txFrame = null; return; }
@@ -1216,6 +1434,10 @@ export default function AnnotateImageSimple(container, props) {
         }
       }
       return false;
+    } else if (ann.type === "rect" || ann.type === "ellipse") {
+      const b = _getAnnotationBounds(ann);
+      if (!b) return false;
+      return !(b.maxX < x1 || b.minX > x2 || b.maxY < y1 || b.minY > y2);
     }
     return false;
   }
@@ -1358,7 +1580,7 @@ export default function AnnotateImageSimple(container, props) {
     if (e.key !== "Delete" && e.key !== "Backspace") return;
     if (!(currentValue.selected_ids || []).length) return;
     if (textEditId) return;
-    if (activeTool !== "select" && activeTool !== "arrow") return;
+    if (activeTool !== "select" && activeTool !== "arrow" && activeTool !== "rect" && activeTool !== "ellipse") return;
     // Don't steal Delete from text inputs elsewhere on the page
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
@@ -1417,6 +1639,12 @@ export default function AnnotateImageSimple(container, props) {
             a.id === selAnn.id ? { ...a, width: next } : a) };
           _emit(); rebuildSettings(); renderCanvas(); return;
         }
+        if (selAnn.type === "rect" || selAnn.type === "ellipse") {
+          const next = Math.max(1, Math.min(20, (selAnn.width ?? 2) + delta));
+          currentValue = { ...currentValue, annotations: currentValue.annotations.map((a) =>
+            a.id === selAnn.id ? { ...a, width: next } : a) };
+          _emit(); rebuildSettings(); renderCanvas(); return;
+        }
       }
     }
     // Otherwise adjust active tool settings
@@ -1430,6 +1658,10 @@ export default function AnnotateImageSimple(container, props) {
       rebuildSettings(); _emit();
     } else if (activeTool === "text") {
       toolSettings.text.font_size = Math.max(8, Math.min(120, (toolSettings.text.font_size ?? 48) + delta * 2));
+      currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
+      rebuildSettings(); _emit();
+    } else if (activeTool === "rect" || activeTool === "ellipse") {
+      toolSettings[activeTool].width = Math.max(1, Math.min(20, (toolSettings[activeTool].width ?? 2) + delta));
       currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
       rebuildSettings(); _emit();
     }
@@ -1463,6 +1695,42 @@ export default function AnnotateImageSimple(container, props) {
     }
 
     const [cx, cy] = screenToCanvas(e);
+
+    // OBB handle check — works in select, rect, and ellipse modes (wherever txFrame is shown)
+    if (txFrame && _frameActiveTools.includes(activeTool)) {
+      const handleR = 8 / displayScale;
+      const selIds = currentValue.selected_ids || [];
+      const corners = _frameCorners(txFrame);
+      const rh = _frameRotHandle(txFrame);
+      const buildSnapshots = () => {
+        const s = {};
+        for (const ann of (currentValue.annotations || []))
+          if (selIds.includes(ann.id)) s[ann.id] = _snapshotAnn(ann);
+        return s;
+      };
+      if (Math.hypot(cx - rh[0], cy - rh[1]) <= handleR) {
+        dragState = { type: "txRotate",
+          pivot: { x: txFrame.pivotX, y: txFrame.pivotY },
+          origAngle: Math.atan2(cy - txFrame.pivotY, cx - txFrame.pivotX),
+          origRotation: txFrame.rotation,
+          origSnapshots: buildSnapshots(), selIds: [...selIds] };
+        canvas.style.cursor = "grabbing"; renderCanvas(); return;
+      }
+      const localCornerSigns = [[-1,-1],[1,-1],[1,1],[-1,1]];
+      for (let i = 0; i < corners.length; i++) {
+        const [hx, hy] = corners[i];
+        if (Math.hypot(cx - hx, cy - hy) <= handleR) {
+          dragState = { type: "txScale",
+            pivot: { x: txFrame.pivotX, y: txFrame.pivotY },
+            origFrameRotation: txFrame.rotation,
+            origHalfW: txFrame.halfW, origHalfH: txFrame.halfH,
+            cornerSignX: localCornerSigns[i][0],
+            cornerSignY: localCornerSigns[i][1],
+            origSnapshots: buildSnapshots(), selIds: [...selIds] };
+          canvas.style.cursor = "grabbing"; renderCanvas(); return;
+        }
+      }
+    }
 
     if (activeTool === "text") {
       if (textEditId) { commitTextEdit(); return; } // clicking away commits edit
@@ -1599,6 +1867,24 @@ export default function AnnotateImageSimple(container, props) {
     }
 
     if (activeTool === "paint") {
+      const selIds = currentValue.selected_ids || [];
+      // If the selected paint annotation is hit, start translate drag instead of new stroke
+      if (selIds.length === 1) {
+        const selAnn = (currentValue.annotations || []).find((a) => a.id === selIds[0] && a.type === "paint");
+        if (selAnn) {
+          const hit = hitTest(cx, cy);
+          if (hit && hit.id === selAnn.id) {
+            dragState = { type: "translate", startCx: cx, startCy: cy,
+              origPositions: { [selAnn.id]: { x: selAnn.x ?? 0, y: selAnn.y ?? 0 } },
+              origPivotX: txFrame?.pivotX, origPivotY: txFrame?.pivotY };
+            canvas.style.cursor = "grabbing";
+            return;
+          }
+        }
+      }
+      // Click on empty space (or different annotation): deselect + start new stroke
+      currentValue = { ...currentValue, selected_ids: [] };
+      rebuildSettings();
       const sz = toolSettings.paint.size;
       strokeLastMid = null;
       currentStroke = { color: toolSettings.paint.color, size: sz, points: [[cx, cy, sz]] };
@@ -1648,6 +1934,50 @@ export default function AnnotateImageSimple(container, props) {
       currentValue = { ...currentValue, selected_ids: [] };
       rebuildSettings();
       currentArrow = { x1: cx, y1: cy, x2: cx, y2: cy };
+    }
+
+    if (activeTool === "rect") {
+      const selIds = currentValue.selected_ids || [];
+      const hit = hitTest(cx, cy);
+      if (hit && hit.type === "rect") {
+        // Click on existing rect: select and start translate drag
+        const newSelIds = selIds.includes(hit.id) ? selIds : [hit.id];
+        currentValue = { ...currentValue, selected_ids: newSelIds };
+        const origPositions = {};
+        for (const id of newSelIds) {
+          const a = (currentValue.annotations || []).find((ann) => ann.id === id);
+          if (a) origPositions[id] = { x: a.x ?? 0, y: a.y ?? 0 };
+        }
+        dragState = { type: "translate", startCx: cx, startCy: cy, origPositions,
+          origPivotX: txFrame?.pivotX, origPivotY: txFrame?.pivotY };
+        canvas.style.cursor = "grabbing";
+        rebuildSettings(); renderCanvas(); return;
+      }
+      currentValue = { ...currentValue, selected_ids: [] };
+      rebuildSettings();
+      currentRect = { x1: cx, y1: cy, x2: cx, y2: cy };
+    }
+
+    if (activeTool === "ellipse") {
+      const selIds = currentValue.selected_ids || [];
+      const hit = hitTest(cx, cy);
+      if (hit && hit.type === "ellipse") {
+        // Click on existing ellipse: select and start translate drag
+        const newSelIds = selIds.includes(hit.id) ? selIds : [hit.id];
+        currentValue = { ...currentValue, selected_ids: newSelIds };
+        const origPositions = {};
+        for (const id of newSelIds) {
+          const a = (currentValue.annotations || []).find((ann) => ann.id === id);
+          if (a) origPositions[id] = { x: a.x ?? 0, y: a.y ?? 0 };
+        }
+        dragState = { type: "translate", startCx: cx, startCy: cy, origPositions,
+          origPivotX: txFrame?.pivotX, origPivotY: txFrame?.pivotY };
+        canvas.style.cursor = "grabbing";
+        rebuildSettings(); renderCanvas(); return;
+      }
+      currentValue = { ...currentValue, selected_ids: [] };
+      rebuildSettings();
+      currentEllipse = { x1: cx, y1: cy, x2: cx, y2: cy };
     }
   }
 
@@ -1702,7 +2032,15 @@ export default function AnnotateImageSimple(container, props) {
       currentArrow = { ...currentArrow, x2: cx, y2: cy };
       renderCanvas();
 
-    } else if (dragState && (activeTool === "select" || activeTool === "text" || activeTool === "arrow")) {
+    } else if (activeTool === "rect" && currentRect) {
+      currentRect = { ...currentRect, x2: cx, y2: cy };
+      renderCanvas();
+
+    } else if (activeTool === "ellipse" && currentEllipse) {
+      currentEllipse = { ...currentEllipse, x2: cx, y2: cy };
+      renderCanvas();
+
+    } else if (dragState && (activeTool === "select" || activeTool === "paint" || activeTool === "text" || activeTool === "arrow" || activeTool === "rect" || activeTool === "ellipse")) {
       if (dragState.type === "txRotate") {
         const pivot = dragState.pivot;
         const angle = Math.atan2(cy - pivot.y, cx - pivot.x);
@@ -1722,6 +2060,11 @@ export default function AnnotateImageSimple(container, props) {
               return { ...a,
                 x: ax*cos - ay*sin + pivot.x - snap.cx,
                 y: ax*sin + ay*cos + pivot.y - snap.cy,
+                rotation: snap.rotation + dAngle };
+            } else if (a.type === "rect" || a.type === "ellipse") {
+              const dx = snap.x - pivot.x, dy = snap.y - pivot.y;
+              return { ...a,
+                x: dx*cos - dy*sin + pivot.x, y: dx*sin + dy*cos + pivot.y,
                 rotation: snap.rotation + dAngle };
             } else if (a.type === "text") {
               const dx = snap.x - pivot.x, dy = snap.y - pivot.y;
@@ -1772,6 +2115,10 @@ export default function AnnotateImageSimple(container, props) {
               const [nax, nay] = scaleAnchor(snap.cx + snap.x, snap.cy + snap.y);
               return { ...a, x: nax - snap.cx, y: nay - snap.cy,
                 scaleX: snap.scaleX * ratioX, scaleY: snap.scaleY * ratioY };
+            } else if (a.type === "rect" || a.type === "ellipse") {
+              const [nx, ny] = scaleAnchor(snap.x, snap.y);
+              return { ...a, x: nx, y: ny,
+                w: Math.max(2, snap.w * ratioX), h: Math.max(2, snap.h * ratioY) };
             } else if (a.type === "text") {
               const [nx, ny] = scaleAnchor(snap.x, snap.y);
               return { ...a, x: nx, y: ny,
@@ -1898,7 +2245,41 @@ export default function AnnotateImageSimple(container, props) {
       }
       renderCanvas();
 
-    } else if (dragState && (activeTool === "select" || activeTool === "text" || activeTool === "arrow")) {
+    } else if (activeTool === "rect" && currentRect) {
+      const r = currentRect;
+      currentRect = null;
+      if (Math.hypot(r.x2 - r.x1, r.y2 - r.y1) > 5) {
+        const ts = toolSettings.rect;
+        const ann = {
+          id: _uid("rect"), type: "rect",
+          x: (r.x1 + r.x2) / 2, y: (r.y1 + r.y2) / 2,
+          w: Math.abs(r.x2 - r.x1), h: Math.abs(r.y2 - r.y1),
+          rotation: 0,
+          color: ts.color, width: ts.width, fill_color: ts.fill_color || "",
+        };
+        currentValue = { ...currentValue, annotations: [...(currentValue.annotations || []), ann], selected_ids: [ann.id] };
+        _emit(); rebuildSettings();
+      }
+      renderCanvas();
+
+    } else if (activeTool === "ellipse" && currentEllipse) {
+      const el = currentEllipse;
+      currentEllipse = null;
+      if (Math.hypot(el.x2 - el.x1, el.y2 - el.y1) > 5) {
+        const ts = toolSettings.ellipse;
+        const ann = {
+          id: _uid("ellipse"), type: "ellipse",
+          x: (el.x1 + el.x2) / 2, y: (el.y1 + el.y2) / 2,
+          w: Math.abs(el.x2 - el.x1), h: Math.abs(el.y2 - el.y1),
+          rotation: 0,
+          color: ts.color, width: ts.width, fill_color: ts.fill_color || "",
+        };
+        currentValue = { ...currentValue, annotations: [...(currentValue.annotations || []), ann], selected_ids: [ann.id] };
+        _emit(); rebuildSettings();
+      }
+      renderCanvas();
+
+    } else if (dragState && (activeTool === "select" || activeTool === "paint" || activeTool === "text" || activeTool === "arrow" || activeTool === "rect" || activeTool === "ellipse")) {
       if (dragState.type === "marquee") {
         const x1 = Math.min(dragState.startCx, dragState.x2);
         const y1 = Math.min(dragState.startCy, dragState.y2);
@@ -1931,25 +2312,31 @@ export default function AnnotateImageSimple(container, props) {
     const handleR = 8 / displayScale;
     const selIds = currentValue.selected_ids || [];
 
-    if (activeTool === "select") {
+    if (_frameActiveTools.includes(activeTool)) {
       if (txFrame) {
         if (Math.hypot(cx - _frameRotHandle(txFrame)[0], cy - _frameRotHandle(txFrame)[1]) <= handleR) return "grab";
         for (const [hx, hy] of _frameCorners(txFrame))
           if (Math.hypot(cx - hx, cy - hy) <= handleR) return "grab";
       }
-      if (selIds.length === 1) {
-        const sa = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
-        if (sa?.type === "arrow") {
-          if (sa.is_bezier) {
-            const cps = _defaultCps(sa), cpR = Math.max(8 / displayScale, 5);
-            if (Math.hypot(cx - cps.cp1x, cy - cps.cp1y) <= cpR) return "grab";
-            if (Math.hypot(cx - cps.cp2x, cy - cps.cp2y) <= cpR) return "grab";
+      if (activeTool === "select") {
+        if (selIds.length === 1) {
+          const sa = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
+          if (sa?.type === "arrow") {
+            if (sa.is_bezier) {
+              const cps = _defaultCps(sa), cpR = Math.max(8 / displayScale, 5);
+              if (Math.hypot(cx - cps.cp1x, cy - cps.cp1y) <= cpR) return "grab";
+              if (Math.hypot(cx - cps.cp2x, cy - cps.cp2y) <= cpR) return "grab";
+            }
+            const ar = Math.max(10 / displayScale, 8);
+            if (Math.hypot(cx - sa.x1, cy - sa.y1) <= ar || Math.hypot(cx - sa.x2, cy - sa.y2) <= ar) return "grab";
           }
-          const ar = Math.max(10 / displayScale, 8);
-          if (Math.hypot(cx - sa.x1, cy - sa.y1) <= ar || Math.hypot(cx - sa.x2, cy - sa.y2) <= ar) return "grab";
         }
+        return hitTest(cx, cy) ? "grab" : "default";
       }
-      return hitTest(cx, cy) ? "grab" : "default";
+      // rect/ellipse: grab if hovering the selected shape
+      const hit = hitTest(cx, cy);
+      if (hit && (currentValue.selected_ids || []).includes(hit.id)) return "grab";
+      return "crosshair";
     }
 
     if (activeTool === "arrow") {
@@ -2051,7 +2438,10 @@ export default function AnnotateImageSimple(container, props) {
     const urlChanged = nv.image_url !== currentValue.image_url;
     const dimsChanged = nv.canvas_width !== currentValue.canvas_width ||
                         nv.canvas_height !== currentValue.canvas_height;
-    currentValue = { ...defaultData(), ...nv, tool_settings: { ...toolSettings, ...(nv.tool_settings || {}) } };
+    const mergedTS = { ...toolSettings, ...(nv.tool_settings || {}) };
+    if (nv.tool_settings?.rect)    mergedTS.rect    = { ...defTS.rect,    ...mergedTS.rect };
+    if (nv.tool_settings?.ellipse) mergedTS.ellipse = { ...defTS.ellipse, ...mergedTS.ellipse };
+    currentValue = { ...defaultData(), ...nv, tool_settings: mergedTS };
     toolSettings = { ...currentValue.tool_settings };
     activeTool = currentValue.active_tool || activeTool;
 
