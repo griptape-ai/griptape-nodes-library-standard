@@ -61,6 +61,7 @@ class BlurVideo(BaseVideoProcessor):
                 tooltip=(
                     f"Gaussian blur sigma ({self.MIN_SIGMA}-{self.MAX_SIGMA}). Only used when blur_type is 'gaussian'."
                 ),
+                hide=True,  # Hidden by default, shown when blur_type is 'gaussian'
             )
             self.add_parameter(sigma_parameter)
             sigma_parameter.add_trait(Slider(min_val=self.MIN_SIGMA, max_val=self.MAX_SIGMA))
@@ -78,6 +79,21 @@ class BlurVideo(BaseVideoProcessor):
 
         self.add_node_element(blur_group)
 
+    def after_value_set(self, parameter, value):
+        if parameter.name in {"blur_type"}:
+            if value == "box":
+                self.show_parameter_by_name("radius")
+                self.show_parameter_by_name("power")
+                self.hide_parameter_by_name("sigma")
+            elif value == "gaussian":
+                self.hide_parameter_by_name("radius")
+                self.hide_parameter_by_name("power")
+                self.show_parameter_by_name("sigma")
+            elif value == "average":
+                self.show_parameter_by_name("radius")
+                self.hide_parameter_by_name("power")
+                self.hide_parameter_by_name("sigma")
+        return super().after_value_set(parameter, value)
     def _get_processing_description(self) -> str:
         """Get description of what this processor does."""
         return "video blur"
