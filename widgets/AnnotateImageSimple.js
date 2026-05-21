@@ -36,9 +36,9 @@ function injectStyles() {
   el.textContent = `
     .ais-tool-btn { background:transparent; border:none; border-radius:4px; color:var(--muted-foreground); cursor:pointer; width:28px; height:28px; display:flex; align-items:center; justify-content:center; transition:background 0.15s,color 0.15s; flex-shrink:0; padding:0; }
     .ais-tool-btn:hover { background:var(--muted); color:var(--foreground); }
-    .ais-tool-btn.active { background:var(--sidebar-primary); color:var(--sidebar-primary-foreground); }
+    .ais-tool-btn.active { background:#7a9db8; color:#ffffff; }
     .ais-setting-label { font-size:11px; color:var(--muted-foreground); }
-    .ais-range { accent-color:var(--sidebar-primary); cursor:pointer; width:80px; }
+    .ais-range { accent-color:#7a9db8; cursor:pointer; width:80px; }
     .ais-color-btn { width:22px; height:22px; border-radius:4px; border:2px solid var(--border,#555); cursor:pointer; flex-shrink:0; }
     .ais-color-input { position:absolute; opacity:0; width:0; height:0; pointer-events:none; }
     .ais-val-label { font-size:11px; color:var(--foreground); min-width:24px; text-align:right; }
@@ -146,7 +146,7 @@ export default function AnnotateImageSimple(container, props) {
     btn.className = "ais-tool-btn" + (t.id === activeTool ? " active" : "");
     btn.title = t.title;
     btn.appendChild(mkIcon(t.id));
-    btn.addEventListener("pointerdown", (e) => { e.stopPropagation(); setTool(t.id); });
+    btn.addEventListener("pointerdown", (e) => { e.stopPropagation(); setTool(t.id); btn.blur(); });
     toolbar.appendChild(btn);
     toolBtns[t.id] = btn;
   }
@@ -166,7 +166,8 @@ export default function AnnotateImageSimple(container, props) {
   canvasWrap.style.cssText = "position:relative;width:100%;overflow:hidden;background:#111;";
 
   const canvas = document.createElement("canvas");
-  canvas.style.cssText = "display:block;transform-origin:top left;cursor:crosshair;";
+  canvas.style.cssText = "display:block;transform-origin:top left;cursor:crosshair;outline:none;";
+  canvas.tabIndex = 0; // focusable so keyboard events naturally target canvas
   canvas.width = 800;
   canvas.height = 600;
   canvas.style.width = "800px";
@@ -241,31 +242,6 @@ export default function AnnotateImageSimple(container, props) {
         hint.style.opacity = "0.5";
         settingsArea.appendChild(hint);
       }
-      if (selIds.length > 0) {
-        // Separator
-        const sep = document.createElement("div");
-        sep.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
-        settingsArea.appendChild(sep);
-        // Trash button
-        const trashBtn = document.createElement("button");
-        trashBtn.className = "ais-tool-btn";
-        trashBtn.title = "Delete selected (Delete)";
-        trashBtn.style.color = "var(--destructive, #ef4444)";
-        trashBtn.appendChild(mkIcon("trash", 15));
-        trashBtn.addEventListener("pointerdown", (e) => {
-          e.stopPropagation();
-          currentValue = {
-            ...currentValue,
-            annotations: (currentValue.annotations || []).filter((a) => !selIds.includes(a.id)),
-            selected_ids: [],
-          };
-          txFrame = null;
-          _emit();
-          rebuildSettings();
-          renderCanvas();
-        });
-        settingsArea.appendChild(trashBtn);
-      }
       return;
     }
 
@@ -276,22 +252,6 @@ export default function AnnotateImageSimple(container, props) {
         const selAnn = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
         if (selAnn?.type === "arrow") {
           _buildAnnotationSettings(selAnn);
-          const sep = document.createElement("div");
-          sep.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
-          settingsArea.appendChild(sep);
-          const trashBtn = document.createElement("button");
-          trashBtn.className = "ais-tool-btn";
-          trashBtn.title = "Delete selected (Delete)";
-          trashBtn.style.color = "var(--destructive, #ef4444)";
-          trashBtn.appendChild(mkIcon("trash", 15));
-          trashBtn.addEventListener("pointerdown", (e) => {
-            e.stopPropagation();
-            currentValue = { ...currentValue,
-              annotations: currentValue.annotations.filter((a) => a.id !== selAnn.id),
-              selected_ids: [] };
-            _emit(); rebuildSettings(); renderCanvas();
-          });
-          settingsArea.appendChild(trashBtn);
           return;
         }
       }
@@ -348,8 +308,6 @@ export default function AnnotateImageSimple(container, props) {
       btn.addEventListener("pointerdown", (e) => { e.stopPropagation(); onClick(); });
       return btn;
     };
-    const lbl = document.createElement("span");
-    lbl.className = "ais-setting-label"; lbl.textContent = "Style";
     const row = document.createElement("div");
     row.style.cssText = "display:flex;align-items:center;gap:2px;";
     row.appendChild(makeToggleBtn("←", "Start arrowhead", source.has_start_arrow ?? false, () => {
@@ -361,12 +319,20 @@ export default function AnnotateImageSimple(container, props) {
     row.appendChild(makeToggleBtn("⌒", "Bezier curve", source.is_bezier ?? false, () => {
       onToggle({ is_bezier: !(source.is_bezier ?? false) });
     }));
-    settingsArea.appendChild(lbl);
     settingsArea.appendChild(row);
   }
 
   function _buildToolSettings() {
     const ts = toolSettings[activeTool] || {};
+    if (activeTool === "arrow") {
+      _buildArrowToggles(toolSettings.arrow, (changes) => {
+        toolSettings.arrow = { ...toolSettings.arrow, ...changes };
+        currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
+        rebuildSettings();
+        renderCanvas();
+        _emit();
+      });
+    }
     const sizeKey = activeTool === "text" ? "font_size" : activeTool === "arrow" ? "width" : "size";
     const sizeVal = ts[sizeKey] ?? (activeTool === "text" ? 48 : activeTool === "arrow" ? 3 : 8);
     const sizeMin = activeTool === "text" ? 8 : 1;
@@ -384,18 +350,21 @@ export default function AnnotateImageSimple(container, props) {
       currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
       if (emit) _emit();
     });
-    if (activeTool === "arrow") {
-      _buildArrowToggles(toolSettings.arrow, (changes) => {
-        toolSettings.arrow = { ...toolSettings.arrow, ...changes };
-        currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
-        rebuildSettings();
-        renderCanvas();
-        _emit();
-      });
-    }
   }
 
   function _buildAnnotationSettings(ann) {
+    if (ann.type === "arrow") {
+      _buildArrowToggles(ann, (changes) => {
+        currentValue = {
+          ...currentValue,
+          annotations: currentValue.annotations.map((a) => a.id === ann.id ? { ...a, ...changes } : a),
+        };
+        renderCanvas();
+        rebuildSettings();
+        _emit();
+      });
+    }
+
     let color;
     if (ann.type === "paint") {
       color = (ann.strokes && ann.strokes[0]) ? ann.strokes[0].color : "#ff0000";
@@ -455,17 +424,6 @@ export default function AnnotateImageSimple(container, props) {
       if (emit) _emit();
     });
 
-    if (ann.type === "arrow") {
-      _buildArrowToggles(ann, (changes) => {
-        currentValue = {
-          ...currentValue,
-          annotations: currentValue.annotations.map((a) => a.id === ann.id ? { ...a, ...changes } : a),
-        };
-        renderCanvas();
-        rebuildSettings();
-        _emit();
-      });
-    }
   }
 
   function _buildMultiSettings(selIds) {
@@ -583,7 +541,7 @@ export default function AnnotateImageSimple(container, props) {
       const hw = 5 / displayScale;
       ctx.save();
       // Dashed OBB outline
-      ctx.strokeStyle = "rgba(79,142,247,0.8)";
+      ctx.strokeStyle = "rgba(122,157,184,0.8)";
       ctx.lineWidth = 1.5 / displayScale;
       ctx.setLineDash([5 / displayScale, 4 / displayScale]);
       ctx.beginPath();
@@ -593,13 +551,13 @@ export default function AnnotateImageSimple(container, props) {
       // Corner scale handles
       for (const [hx, hy] of corners) {
         ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(hx, hy, hw, 0, Math.PI*2); ctx.fill();
-        ctx.strokeStyle = "rgba(79,142,247,0.9)"; ctx.lineWidth = 1.5 / displayScale;
+        ctx.strokeStyle = "rgba(122,157,184,0.9)"; ctx.lineWidth = 1.5 / displayScale;
         ctx.beginPath(); ctx.arc(hx, hy, hw, 0, Math.PI*2); ctx.stroke();
       }
       // Rotation handle stem + circle
-      ctx.strokeStyle = "rgba(79,142,247,0.5)"; ctx.lineWidth = 1 / displayScale;
+      ctx.strokeStyle = "rgba(122,157,184,0.5)"; ctx.lineWidth = 1 / displayScale;
       ctx.beginPath(); ctx.moveTo(topMid[0], topMid[1]); ctx.lineTo(rh[0], rh[1]); ctx.stroke();
-      ctx.fillStyle = "#4f8ef7"; ctx.beginPath(); ctx.arc(rh[0], rh[1], hw, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#7a9db8"; ctx.beginPath(); ctx.arc(rh[0], rh[1], hw, 0, Math.PI*2); ctx.fill();
       ctx.strokeStyle = "white"; ctx.lineWidth = 1.5 / displayScale;
       ctx.beginPath(); ctx.arc(rh[0], rh[1], hw, 0, Math.PI*2); ctx.stroke();
       ctx.restore();
@@ -623,9 +581,9 @@ export default function AnnotateImageSimple(container, props) {
       const mw = Math.abs(dragState.x2 - dragState.startCx);
       const mh = Math.abs(dragState.y2 - dragState.startCy);
       ctx.save();
-      ctx.fillStyle = "rgba(79,142,247,0.1)";
+      ctx.fillStyle = "rgba(122,157,184,0.1)";
       ctx.fillRect(mx1, my1, mw, mh);
-      ctx.strokeStyle = "rgba(79,142,247,0.8)";
+      ctx.strokeStyle = "rgba(122,157,184,0.8)";
       ctx.lineWidth = 1 / displayScale;
       ctx.setLineDash([4 / displayScale, 3 / displayScale]);
       ctx.strokeRect(mx1, my1, mw, mh);
@@ -755,7 +713,7 @@ export default function AnnotateImageSimple(container, props) {
     if (isHovered) {
       const w = ctx.measureText(ann.text || "").width;
       const h = fontSize * 1.2;
-      ctx.strokeStyle = "rgba(79,142,247,0.4)";
+      ctx.strokeStyle = "rgba(122,157,184,0.4)";
       ctx.lineWidth = 1 / displayScale;
       ctx.setLineDash([4 / displayScale, 3 / displayScale]);
       ctx.strokeRect((ann.x || 0) - 4, (ann.y || 0) - 4, w + 8, h + 8);
@@ -776,14 +734,17 @@ export default function AnnotateImageSimple(container, props) {
     if (selected) {
       const r = 5 / displayScale;
       ctx.save();
-      // Endpoint handles
-      ctx.fillStyle = "rgba(79,142,247,0.9)";
-      ctx.beginPath(); ctx.arc(ann.x1, ann.y1, r, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(ann.x2, ann.y2, r, 0, Math.PI * 2); ctx.fill();
+      // Endpoint handles — white fill + slate outline (same as transform corners)
+      for (const [ex, ey] of [[ann.x1, ann.y1], [ann.x2, ann.y2]]) {
+        ctx.fillStyle = "white";
+        ctx.beginPath(); ctx.arc(ex, ey, r, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = "rgba(122,157,184,0.9)"; ctx.lineWidth = 1.5 / displayScale;
+        ctx.beginPath(); ctx.arc(ex, ey, r, 0, Math.PI * 2); ctx.stroke();
+      }
       if (isBezier) {
         const cpR = 4 / displayScale;
         // Control point arms (dashed)
-        ctx.strokeStyle = "rgba(79,142,247,0.5)";
+        ctx.strokeStyle = "rgba(122,157,184,0.5)";
         ctx.lineWidth = 1 / displayScale;
         ctx.setLineDash([3 / displayScale, 2 / displayScale]);
         ctx.beginPath(); ctx.moveTo(ann.x1, ann.y1); ctx.lineTo(cps.cp1x, cps.cp1y); ctx.stroke();
@@ -791,7 +752,7 @@ export default function AnnotateImageSimple(container, props) {
         ctx.setLineDash([]);
         // Control point handles (hollow circles)
         ctx.fillStyle = "white";
-        ctx.strokeStyle = "rgba(79,142,247,0.9)";
+        ctx.strokeStyle = "rgba(122,157,184,0.9)";
         ctx.lineWidth = 1.5 / displayScale;
         ctx.beginPath(); ctx.arc(cps.cp1x, cps.cp1y, cpR, 0, Math.PI * 2); ctx.fill();
         ctx.beginPath(); ctx.arc(cps.cp1x, cps.cp1y, cpR, 0, Math.PI * 2); ctx.stroke();
@@ -1192,6 +1153,58 @@ export default function AnnotateImageSimple(container, props) {
   }
   document.addEventListener("keydown", _deleteInterceptor, { capture: true });
 
+  function _sizeInterceptor(e) {
+    if (e.key !== "[" && e.key !== "]") return;
+    if (textEditId) return;
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const delta = e.key === "]" ? 1 : -1;
+    const selIds = currentValue.selected_ids || [];
+    // Adjust selected annotation if one is selected
+    if (selIds.length === 1 && (activeTool === "select" || activeTool === "arrow")) {
+      const selAnn = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
+      if (selAnn) {
+        if (selAnn.type === "paint") {
+          const base = selAnn.strokes?.[0]?.size ?? 8;
+          const cur = Math.round(base * (selAnn.sizeScale ?? 1));
+          const next = Math.max(1, Math.min(80, cur + delta));
+          currentValue = { ...currentValue, annotations: currentValue.annotations.map((a) =>
+            a.id === selAnn.id ? { ...a, sizeScale: next / base } : a) };
+          _emit(); rebuildSettings(); renderCanvas(); return;
+        }
+        if (selAnn.type === "text") {
+          const next = Math.max(8, Math.min(120, (selAnn.font_size ?? 48) + delta * 2));
+          currentValue = { ...currentValue, annotations: currentValue.annotations.map((a) =>
+            a.id === selAnn.id ? { ...a, font_size: next } : a) };
+          _emit(); rebuildSettings(); renderCanvas(); return;
+        }
+        if (selAnn.type === "arrow") {
+          const next = Math.max(1, Math.min(20, (selAnn.width ?? 3) + delta));
+          currentValue = { ...currentValue, annotations: currentValue.annotations.map((a) =>
+            a.id === selAnn.id ? { ...a, width: next } : a) };
+          _emit(); rebuildSettings(); renderCanvas(); return;
+        }
+      }
+    }
+    // Otherwise adjust active tool settings
+    if (activeTool === "paint") {
+      toolSettings.paint.size = Math.max(1, Math.min(40, (toolSettings.paint.size ?? 8) + delta));
+      currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
+      rebuildSettings(); _emit();
+    } else if (activeTool === "arrow") {
+      toolSettings.arrow.width = Math.max(1, Math.min(20, (toolSettings.arrow.width ?? 3) + delta));
+      currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
+      rebuildSettings(); _emit();
+    } else if (activeTool === "text") {
+      toolSettings.text.font_size = Math.max(8, Math.min(120, (toolSettings.text.font_size ?? 48) + delta * 2));
+      currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
+      rebuildSettings(); _emit();
+    }
+  }
+  document.addEventListener("keydown", _sizeInterceptor, { capture: true });
+
   canvas.addEventListener("pointerdown", onPointerDown);
   canvas.addEventListener("pointermove", onPointerMove);
   canvas.addEventListener("pointerup", onPointerUp);
@@ -1205,6 +1218,7 @@ export default function AnnotateImageSimple(container, props) {
     if (e.button !== 0) return;
     e.stopPropagation();
     canvas.setPointerCapture(e.pointerId);
+    canvas.focus({ preventScroll: true });
     isPointerDown = true;
     const [cx, cy] = screenToCanvas(e);
 
@@ -1218,6 +1232,7 @@ export default function AnnotateImageSimple(container, props) {
         dragState = { type: "translate", startCx: cx, startCy: cy,
           origPositions: { [hit.id]: { x: hit.x ?? 0, y: hit.y ?? 0 } },
           origPivotX: txFrame?.pivotX, origPivotY: txFrame?.pivotY };
+        canvas.style.cursor = "grabbing";
         rebuildSettings();
         renderCanvas();
         return;
@@ -1249,7 +1264,7 @@ export default function AnnotateImageSimple(container, props) {
             origAngle: Math.atan2(cy - txFrame.pivotY, cx - txFrame.pivotX),
             origRotation: txFrame.rotation,
             origSnapshots: buildSnapshots(), selIds: [...selIds] };
-          renderCanvas(); return;
+          canvas.style.cursor = "grabbing"; renderCanvas(); return;
         }
         // Corner scale handles — corner[i] maps to local sign [-/+ hw, -/+ hh]
         const localCornerSigns = [[-1,-1],[1,-1],[1,1],[-1,1]];
@@ -1263,7 +1278,7 @@ export default function AnnotateImageSimple(container, props) {
               cornerSignX: localCornerSigns[i][0],
               cornerSignY: localCornerSigns[i][1],
               origSnapshots: buildSnapshots(), selIds: [...selIds] };
-            renderCanvas(); return;
+            canvas.style.cursor = "grabbing"; renderCanvas(); return;
           }
         }
       }
@@ -1278,7 +1293,7 @@ export default function AnnotateImageSimple(container, props) {
             if (Math.hypot(cx - hx, cy - hy) <= cpR) {
               dragState = { type: "arrowCp", id: selAnn.id, which, startCx: cx, startCy: cy,
                 origCp1x: cps.cp1x, origCp1y: cps.cp1y, origCp2x: cps.cp2x, origCp2y: cps.cp2y };
-              renderCanvas(); return;
+              canvas.style.cursor = "grabbing"; renderCanvas(); return;
             }
           }
         }
@@ -1313,7 +1328,7 @@ export default function AnnotateImageSimple(container, props) {
               startCx: cx, startCy: cy,
               origX1: hit.x1, origY1: hit.y1, origX2: hit.x2, origY2: hit.y2,
               origCp1x: hitCps.cp1x, origCp1y: hitCps.cp1y, origCp2x: hitCps.cp2x, origCp2y: hitCps.cp2y };
-            rebuildSettings(); renderCanvas(); return;
+            canvas.style.cursor = "grabbing"; rebuildSettings(); renderCanvas(); return;
           }
         }
 
@@ -1330,6 +1345,7 @@ export default function AnnotateImageSimple(container, props) {
         }
         dragState = { type: "translate", startCx: cx, startCy: cy, origPositions,
           origPivotX: txFrame?.pivotX, origPivotY: txFrame?.pivotY };
+        canvas.style.cursor = "grabbing";
       } else {
         // Click on empty space: always start marquee; additive when Shift held
         if (!e.shiftKey) currentValue = { ...currentValue, selected_ids: [] };
@@ -1371,7 +1387,7 @@ export default function AnnotateImageSimple(container, props) {
               startCx: cx, startCy: cy,
               origX1: selAnn.x1, origY1: selAnn.y1, origX2: selAnn.x2, origY2: selAnn.y2,
               origCp1x: hitCps.cp1x, origCp1y: hitCps.cp1y, origCp2x: hitCps.cp2x, origCp2y: hitCps.cp2y };
-            return;
+            canvas.style.cursor = "grabbing"; return;
           }
           if (selAnn.is_bezier) {
             const cps = _defaultCps(selAnn);
@@ -1380,7 +1396,7 @@ export default function AnnotateImageSimple(container, props) {
               if (Math.hypot(cx - hx, cy - hy) <= cpR) {
                 dragState = { type: "arrowCp", id: selAnn.id, which, startCx: cx, startCy: cy,
                   origCp1x: cps.cp1x, origCp1y: cps.cp1y, origCp2x: cps.cp2x, origCp2y: cps.cp2y };
-                return;
+                canvas.style.cursor = "grabbing"; return;
               }
             }
           }
@@ -1570,6 +1586,7 @@ export default function AnnotateImageSimple(container, props) {
     isPointerDown = false;
     e.stopPropagation();
     const [cx, cy] = screenToCanvas(e);
+    canvas.style.cursor = _cursorForPos(cx, cy);
 
     if (activeTool === "paint" && currentStroke && currentStroke.points.length >= 1) {
       currentStroke.points = decimatePoints(currentStroke.points);
@@ -1649,23 +1666,67 @@ export default function AnnotateImageSimple(container, props) {
     }
   }
 
-  // Hover highlight for text tool (and select tool cursors)
+  function _cursorForPos(cx, cy) {
+    const handleR = 8 / displayScale;
+    const selIds = currentValue.selected_ids || [];
+
+    if (activeTool === "select") {
+      if (txFrame) {
+        if (Math.hypot(cx - _frameRotHandle(txFrame)[0], cy - _frameRotHandle(txFrame)[1]) <= handleR) return "grab";
+        for (const [hx, hy] of _frameCorners(txFrame))
+          if (Math.hypot(cx - hx, cy - hy) <= handleR) return "grab";
+      }
+      if (selIds.length === 1) {
+        const sa = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
+        if (sa?.type === "arrow") {
+          if (sa.is_bezier) {
+            const cps = _defaultCps(sa), cpR = Math.max(8 / displayScale, 5);
+            if (Math.hypot(cx - cps.cp1x, cy - cps.cp1y) <= cpR) return "grab";
+            if (Math.hypot(cx - cps.cp2x, cy - cps.cp2y) <= cpR) return "grab";
+          }
+          const ar = Math.max(10 / displayScale, 8);
+          if (Math.hypot(cx - sa.x1, cy - sa.y1) <= ar || Math.hypot(cx - sa.x2, cy - sa.y2) <= ar) return "grab";
+        }
+      }
+      return hitTest(cx, cy) ? "grab" : "default";
+    }
+
+    if (activeTool === "arrow") {
+      if (selIds.length === 1) {
+        const sa = (currentValue.annotations || []).find((a) => a.id === selIds[0] && a.type === "arrow");
+        if (sa) {
+          const ar = Math.max(10 / displayScale, 8);
+          if (Math.hypot(cx - sa.x1, cy - sa.y1) <= ar || Math.hypot(cx - sa.x2, cy - sa.y2) <= ar) return "grab";
+          if (sa.is_bezier) {
+            const cps = _defaultCps(sa), cpR = Math.max(8 / displayScale, 5);
+            if (Math.hypot(cx - cps.cp1x, cy - cps.cp1y) <= cpR) return "grab";
+            if (Math.hypot(cx - cps.cp2x, cy - cps.cp2y) <= cpR) return "grab";
+          }
+        }
+      }
+      return "crosshair";
+    }
+
+    if (activeTool === "text") {
+      const hit = hitTest(cx, cy);
+      return (hit && hit.type === "text") ? "grab" : "crosshair";
+    }
+
+    return "crosshair";
+  }
+
   function onMouseHover(e) {
     if (isPointerDown) return;
-    if (activeTool !== "text" && activeTool !== "select") {
-      if (hoverId) { hoverId = null; renderCanvas(); }
-      return;
-    }
     const [cx, cy] = screenToCanvas(e);
-    const hit = hitTest(cx, cy);
-    const newId = (hit && hit.type === "text") ? hit.id : null;
-    if (newId !== hoverId) {
-      hoverId = newId;
-      // Show pointer cursor when hovering over text in either tool
-      if (activeTool === "select") canvas.style.cursor = newId ? "move" : "default";
-      if (activeTool === "text")   canvas.style.cursor = newId ? "move" : "crosshair";
-      renderCanvas();
+    const prevHoverId = hoverId;
+    if (activeTool === "text" || activeTool === "select") {
+      const hit = hitTest(cx, cy);
+      hoverId = (hit && hit.type === "text") ? hit.id : null;
+    } else {
+      hoverId = null;
     }
+    canvas.style.cursor = _cursorForPos(cx, cy);
+    if (hoverId !== prevHoverId) renderCanvas();
   }
 
   // Double-click to edit text (works in both text and select tools)
@@ -1752,6 +1813,7 @@ export default function AnnotateImageSimple(container, props) {
     document.removeEventListener("mousedown",   _shiftInterceptor, { capture: true });
     document.removeEventListener("click",       _shiftInterceptor, { capture: true });
     document.removeEventListener("keydown",     _deleteInterceptor, { capture: true });
+    document.removeEventListener("keydown",     _sizeInterceptor,   { capture: true });
     canvas.removeEventListener("pointerdown", onPointerDown);
     canvas.removeEventListener("pointermove", onPointerMove);
     canvas.removeEventListener("pointerup", onPointerUp);
