@@ -190,7 +190,7 @@ class AnnotateImage(DataNode):
             font = ImageFont.load_default(size=font_size)
         except TypeError:
             font = ImageFont.load_default()
-        draw.text((x, y), text, font=font, fill=color)
+        draw.text((x, y), text, font=font, fill=color, spacing=int(font_size * 0.2))
 
     def _draw_arrow(self, draw: ImageDraw.ImageDraw, ann: dict) -> None:
         x1, y1 = float(ann.get("x1", 0)), float(ann.get("y1", 0))

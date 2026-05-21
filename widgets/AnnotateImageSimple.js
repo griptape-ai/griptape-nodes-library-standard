@@ -88,6 +88,14 @@ export default function AnnotateImageSimple(container, props) {
   let toolSettings = { ...currentValue.tool_settings };
   let displayScale = 1;
 
+  // zoom / pan state
+  let viewScale = 1;
+  let panX = 0, panY = 0;
+  let isPanning = false;
+  let panStartX = 0, panStartY = 0;
+  let isAltHeld = false;
+  let resetViewBtn = null;
+
   // unified transform frame (OBB)
   let txFrame = null; // { pivotX, pivotY, rotation, halfW, halfH }
 
@@ -156,6 +164,24 @@ export default function AnnotateImageSimple(container, props) {
   divider.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
   toolbar.appendChild(divider);
 
+  // Reset-view button (dimmed when at default zoom/pan)
+  resetViewBtn = document.createElement("button");
+  resetViewBtn.className = "ais-tool-btn";
+  resetViewBtn.title = "Reset view (fit to window)";
+  resetViewBtn.style.opacity = "0.4";
+  resetViewBtn.style.pointerEvents = "none";
+  resetViewBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <rect x="1" y="1" width="12" height="12" rx="1.5"/>
+    <path d="M4.5 1v2.5H2M9.5 1v2.5H12M4.5 13v-2.5H2M9.5 13v-2.5H12"/>
+  </svg>`;
+  resetViewBtn.addEventListener("pointerdown", (e) => { e.stopPropagation(); resetView(); resetViewBtn.blur(); });
+  toolbar.appendChild(resetViewBtn);
+
+  // Second divider
+  const divider2 = document.createElement("div");
+  divider2.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
+  toolbar.appendChild(divider2);
+
   // Settings area (right of divider, grows to fill)
   const settingsArea = document.createElement("div");
   settingsArea.style.cssText = "display:flex;align-items:center;gap:8px;flex:1;flex-wrap:wrap;justify-content:flex-end;";
@@ -166,7 +192,8 @@ export default function AnnotateImageSimple(container, props) {
   canvasWrap.style.cssText = "position:relative;width:100%;overflow:hidden;background:#111;";
 
   const canvas = document.createElement("canvas");
-  canvas.style.cssText = "display:block;transform-origin:top left;cursor:crosshair;outline:none;";
+  canvas.style.cssText = "display:block;transform-origin:top left;cursor:crosshair;outline:none;" +
+    "box-shadow:0 0 0 1px rgba(122,157,184,0.35);";
   canvas.tabIndex = 0; // focusable so keyboard events naturally target canvas
   canvas.width = 800;
   canvas.height = 600;
@@ -199,6 +226,51 @@ export default function AnnotateImageSimple(container, props) {
   });
   resizeObserver.observe(canvasWrap);
 
+  // ── zoom via scroll wheel ─────────────────────────────────────────────────
+  canvasWrap.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const newVS = Math.max(0.25, Math.min(10, viewScale * factor));
+    const rect = canvasWrap.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const ratio = newVS / viewScale;
+    panX = mx - (mx - panX) * ratio;
+    panY = my - (my - panY) * ratio;
+    viewScale = newVS;
+    _applyViewTransform();
+    const isDefault = viewScale === 1 && panX === 0 && panY === 0;
+    resetViewBtn.style.opacity = isDefault ? "0.4" : "1";
+    resetViewBtn.style.pointerEvents = isDefault ? "none" : "auto";
+  }, { passive: false });
+
+  // ── Alt key state for pan cursor ──────────────────────────────────────────
+  function _onAltDown(e) {
+    if (e.key === "Alt" && !isAltHeld) {
+      isAltHeld = true;
+      if (!isPointerDown) canvas.style.cursor = "grab";
+    }
+  }
+  function _onAltUp(e) {
+    if (e.key === "Alt") {
+      isAltHeld = false;
+      if (!isPanning && !isPointerDown) canvas.style.cursor = _currentToolCursor();
+    }
+  }
+  document.addEventListener("keydown", _onAltDown);
+  document.addEventListener("keyup",   _onAltUp);
+
+  function _currentToolCursor() {
+    return activeTool === "select" ? "default" : "crosshair";
+  }
+
+  function _applyViewTransform() {
+    const totalScale = displayScale * viewScale;
+    const ch = currentValue.canvas_height || 600;
+    canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${totalScale})`;
+    canvasWrap.style.height = ch * displayScale + "px";
+  }
+
   function applyCanvasScale() {
     const cw = currentValue.canvas_width || 800;
     const ch = currentValue.canvas_height || 600;
@@ -214,22 +286,39 @@ export default function AnnotateImageSimple(container, props) {
     }
     if (newScale !== displayScale || dimsChanged) {
       displayScale = newScale;
-      canvas.style.transform = `scale(${displayScale})`;
-      canvasWrap.style.height = ch * displayScale + "px";
+      _applyViewTransform();
     }
     if (dimsChanged) renderCanvas();
+  }
+
+  function resetView() {
+    viewScale = 1;
+    panX = 0;
+    panY = 0;
+    _applyViewTransform();
+    if (resetViewBtn) {
+      resetViewBtn.style.opacity = "0.4";
+      resetViewBtn.style.pointerEvents = "none";
+    }
   }
 
   // ── tool settings panel ───────────────────────────────────────────────────
   let colorPickerEl = null;
 
-  function rebuildSettings() {
+  function rebuildSettings(keepLayerPopup = false) {
+    if (!keepLayerPopup) _dismissLayerPopup();
     _buildTxFrame();
     settingsArea.innerHTML = "";
     colorPickerEl = null;
 
     if (activeTool === "select") {
       const selIds = currentValue.selected_ids || [];
+      if (selIds.length > 0) {
+        _buildLayerOrderButton(selIds);
+        const sep = document.createElement("div");
+        sep.style.cssText = "width:1px;height:16px;background:var(--border);flex-shrink:0;";
+        settingsArea.appendChild(sep);
+      }
       if (selIds.length === 1) {
         const selAnn = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
         if (selAnn) _buildAnnotationSettings(selAnn);
@@ -264,9 +353,7 @@ export default function AnnotateImageSimple(container, props) {
   // onChange(color, emit) — emit=false during drag, emit=true on commit
   function _buildColorSwatch(color, onChange) {
     const wrap = document.createElement("div");
-    wrap.style.cssText = "position:relative;display:flex;align-items:center;gap:5px;";
-    const lbl = document.createElement("span");
-    lbl.className = "ais-setting-label"; lbl.textContent = "Color";
+    wrap.style.cssText = "position:relative;display:flex;align-items:center;";
     const swatch = document.createElement("div");
     swatch.className = "ais-color-btn"; swatch.style.background = color;
     colorPickerEl = document.createElement("input");
@@ -278,7 +365,7 @@ export default function AnnotateImageSimple(container, props) {
     });
     colorPickerEl.addEventListener("change", () => onChange(colorPickerEl.value, true));
     swatch.addEventListener("click", () => colorPickerEl.click());
-    wrap.appendChild(lbl); wrap.appendChild(swatch); wrap.appendChild(colorPickerEl);
+    wrap.appendChild(swatch); wrap.appendChild(colorPickerEl);
     settingsArea.appendChild(wrap);
   }
 
@@ -336,7 +423,7 @@ export default function AnnotateImageSimple(container, props) {
     const sizeKey = activeTool === "text" ? "font_size" : activeTool === "arrow" ? "width" : "size";
     const sizeVal = ts[sizeKey] ?? (activeTool === "text" ? 48 : activeTool === "arrow" ? 3 : 8);
     const sizeMin = activeTool === "text" ? 8 : 1;
-    const sizeMax = activeTool === "text" ? 120 : activeTool === "arrow" ? 20 : 40;
+    const sizeMax = activeTool === "text" ? 120 : activeTool === "arrow" ? 20 : 80;
     const sizeLbl = activeTool === "arrow" ? "Width" : "Size";
     _buildSizeSlider(sizeLbl, sizeMin, sizeMax, sizeVal, (sz, emit) => {
       toolSettings[activeTool][sizeKey] = sz;
@@ -359,6 +446,9 @@ export default function AnnotateImageSimple(container, props) {
           ...currentValue,
           annotations: currentValue.annotations.map((a) => a.id === ann.id ? { ...a, ...changes } : a),
         };
+        // Sync arrow-style toggles to tool settings so next arrow uses same style
+        toolSettings.arrow = { ...toolSettings.arrow, ...changes };
+        currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
         renderCanvas();
         rebuildSettings();
         _emit();
@@ -400,8 +490,11 @@ export default function AnnotateImageSimple(container, props) {
             a.id === ann.id ? { ...a, [sizeKey]: sz } : a
           ),
         };
+        // Sync to tool settings so next annotation of this type uses same size
+        if (ann.type === "arrow") { toolSettings.arrow.width = sz; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
+        if (ann.type === "text") { toolSettings.text.font_size = sz; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
         if (textInput && textEditId === ann.id && sizeKey === "font_size") {
-          textInput.style.fontSize = sz * displayScale + "px"; _autoResizeTextarea();
+          textInput.style.fontSize = sz * displayScale * viewScale + "px"; _autoResizeTextarea();
         }
         renderCanvas();
         if (emit) _emit();
@@ -417,6 +510,10 @@ export default function AnnotateImageSimple(container, props) {
           return { ...a, color: col };
         }),
       };
+      // Sync color to tool settings so next annotation uses same color
+      if (ann.type === "arrow") { toolSettings.arrow.color = col; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
+      if (ann.type === "text") { toolSettings.text.color = col; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
+      if (ann.type === "paint") { toolSettings.paint.color = col; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
       if (textInput && textEditId === ann.id) {
         textInput.style.color = col; textInput.style.borderBottomColor = col;
       }
@@ -469,6 +566,124 @@ export default function AnnotateImageSimple(container, props) {
     });
   }
 
+  function _reorderAnnotations(selIds, action) {
+    const anns = [...(currentValue.annotations || [])];
+    const selSet = new Set(selIds);
+    const sIdxs = anns.map((a, i) => (selSet.has(a.id) ? i : -1)).filter((i) => i >= 0);
+    if (!sIdxs.length) return anns;
+    if (action === "front") {
+      return [...anns.filter((a) => !selSet.has(a.id)), ...anns.filter((a) => selSet.has(a.id))];
+    }
+    if (action === "back") {
+      return [...anns.filter((a) => selSet.has(a.id)), ...anns.filter((a) => !selSet.has(a.id))];
+    }
+    if (action === "forward") {
+      const result = [...anns];
+      const idxs = result.map((a, i) => (selSet.has(a.id) ? i : -1)).filter((i) => i >= 0);
+      const lastSel = Math.max(...idxs);
+      let swapIdx = lastSel + 1;
+      while (swapIdx < result.length && selSet.has(result[swapIdx].id)) swapIdx++;
+      if (swapIdx < result.length) {
+        const [item] = result.splice(swapIdx, 1);
+        result.splice(Math.min(...idxs), 0, item);
+      }
+      return result;
+    }
+    if (action === "backward") {
+      const result = [...anns];
+      const idxs = result.map((a, i) => (selSet.has(a.id) ? i : -1)).filter((i) => i >= 0);
+      const firstSel = Math.min(...idxs);
+      let swapIdx = firstSel - 1;
+      while (swapIdx >= 0 && selSet.has(result[swapIdx].id)) swapIdx--;
+      if (swapIdx >= 0) {
+        const lastSel = Math.max(...idxs);
+        const [item] = result.splice(swapIdx, 1);
+        result.splice(lastSel, 0, item);
+      }
+      return result;
+    }
+    return anns;
+  }
+
+  function _dismissLayerPopup() {
+    const p = document.getElementById("ais-layer-popup");
+    if (p) p.remove();
+  }
+
+  function _buildLayerOrderButton(selIds) {
+    const btn = document.createElement("button");
+    btn.className = "ais-tool-btn";
+    btn.title = "Layer order";
+    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+      <rect x="1" y="1" width="12" height="3" rx="0.5"/>
+      <rect x="1" y="5.5" width="12" height="3" rx="0.5"/>
+      <rect x="1" y="10" width="12" height="3" rx="0.5"/>
+    </svg>`;
+    settingsArea.appendChild(btn);
+
+    btn.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      btn.blur();
+
+      const popup = document.createElement("div");
+      popup.id = "ais-layer-popup";
+      popup.style.cssText = [
+        "position:fixed",
+        "background:var(--popover,#1e1e1e)",
+        "border:1px solid var(--border,#444)",
+        "border-radius:6px",
+        "box-shadow:0 4px 16px rgba(0,0,0,0.5)",
+        "z-index:10000",
+        "overflow:hidden",
+        "min-width:160px",
+        "font-family:sans-serif",
+        "font-size:12px",
+      ].join(";");
+
+      const ACTIONS = [
+        { label: "↑   Bring Forward",  action: "forward"  },
+        { label: "⬆   Bring to Front", action: "front"    },
+        { label: "↓   Send Backward",  action: "backward" },
+        { label: "⬇   Send to Back",   action: "back"     },
+      ];
+      for (const { label, action } of ACTIONS) {
+        const item = document.createElement("div");
+        item.style.cssText = "padding:7px 14px;cursor:pointer;color:var(--foreground,#eee);white-space:nowrap;";
+        item.textContent = label;
+        item.addEventListener("pointerover",  () => { item.style.background = "rgba(122,157,184,0.18)"; });
+        item.addEventListener("pointerout",   () => { item.style.background = ""; });
+        item.addEventListener("pointerdown",  (ev) => {
+          ev.stopPropagation();
+          currentValue = { ...currentValue, annotations: _reorderAnnotations(selIds, action) };
+          _emit(); rebuildSettings(true); renderCanvas();
+        });
+        popup.appendChild(item);
+      }
+
+      document.body.appendChild(popup);
+      const bRect = btn.getBoundingClientRect();
+      // Right-align popup to button, open downward
+      popup.style.top  = `${bRect.bottom + 4}px`;
+      popup.style.left = `${bRect.right}px`;  // temp; adjust after paint
+      requestAnimationFrame(() => {
+        const pw = popup.offsetWidth;
+        let left = bRect.right - pw;
+        if (left < 8) left = 8;
+        popup.style.left = `${left}px`;
+      });
+
+      // Dismiss on outside click
+      const dismiss = (ev) => {
+        if (!popup.contains(ev.target)) {
+          _dismissLayerPopup();
+          document.removeEventListener("pointerdown", dismiss, { capture: true });
+        }
+      };
+      setTimeout(() => document.addEventListener("pointerdown", dismiss, { capture: true }), 0);
+    });
+  }
+
   function setTool(id) {
     commitTextEdit();
     hoverId = null;
@@ -477,7 +692,8 @@ export default function AnnotateImageSimple(container, props) {
     for (const [tid, btn] of Object.entries(toolBtns)) {
       btn.className = "ais-tool-btn" + (tid === id ? " active" : "");
     }
-    canvas.style.cursor = id === "select" ? "default" : "crosshair";
+    canvas.style.cursor = _currentToolCursor();
+    canvas.focus({ preventScroll: true });
     rebuildSettings();
     renderCanvas();
   }
@@ -703,20 +919,26 @@ export default function AnnotateImageSimple(container, props) {
 
   function drawText(ann, selected) {
     const fontSize = Math.max(8, ann.font_size || 48);
+    const lineHeight = fontSize * 1.2;
+    const lines = (ann.text || "").split("\n");
+    const x = ann.x || 0;
+    const y = ann.y || 0;
     ctx.save();
     ctx.font = `${fontSize}px sans-serif`;
     ctx.fillStyle = ann.color || "#ffffff";
     ctx.textBaseline = "top";
-    ctx.fillText(ann.text || "", ann.x || 0, ann.y || 0);
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], x, y + i * lineHeight);
+    }
 
     const isHovered = ann.id === hoverId && !selected;
     if (isHovered) {
-      const w = ctx.measureText(ann.text || "").width;
-      const h = fontSize * 1.2;
+      const w = Math.max(...lines.map((l) => ctx.measureText(l).width));
+      const h = lineHeight * lines.length;
       ctx.strokeStyle = "rgba(122,157,184,0.4)";
       ctx.lineWidth = 1 / displayScale;
       ctx.setLineDash([4 / displayScale, 3 / displayScale]);
-      ctx.strokeRect((ann.x || 0) - 4, (ann.y || 0) - 4, w + 8, h + 8);
+      ctx.strokeRect(x - 4, y - 4, w + 8, h + 8);
       ctx.setLineDash([]);
     }
     ctx.restore();
@@ -1005,17 +1227,18 @@ export default function AnnotateImageSimple(container, props) {
     currentValue = { ...currentValue, selected_ids: [ann.id] };
 
     const fontSize = Math.max(8, ann.font_size || 48);
+    const totalScale = displayScale * viewScale;
     textInput = document.createElement("textarea");
     textInput.value = ann.text || "";
     textInput.rows = 1;
     textInput.style.cssText = [
       "position:absolute",
-      `left:${(ann.x || 0) * displayScale}px`,
-      `top:${(ann.y || 0) * displayScale}px`,
+      `left:${(ann.x || 0) * totalScale + panX}px`,
+      `top:${(ann.y || 0) * totalScale + panY}px`,
       "min-width:60px",
       "background:transparent",
       `color:${ann.color || "#ffffff"}`,
-      `font-size:${fontSize * displayScale}px`,
+      `font-size:${fontSize * totalScale}px`,
       "font-family:sans-serif",
       "border:none",
       `border-bottom:2px solid ${ann.color || "#ffffff"}`,
@@ -1045,8 +1268,8 @@ export default function AnnotateImageSimple(container, props) {
     });
     textInput.addEventListener("keydown", (e) => {
       e.stopPropagation();
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commitTextEdit(); }
-      if (e.key === "Escape") { e.preventDefault(); commitTextEdit(); }
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commitTextEdit(); canvas.focus({ preventScroll: true }); }
+      if (e.key === "Escape") { e.preventDefault(); commitTextEdit(); canvas.focus({ preventScroll: true }); }
     });
     textInput.addEventListener("blur", commitTextEdit);
     textInput.addEventListener("pointerdown", (e) => e.stopPropagation());
@@ -1064,7 +1287,8 @@ export default function AnnotateImageSimple(container, props) {
   function commitTextEdit() {
     if (!textInput) return;
     const id = textEditId;
-    const text = textInput.value.trim();
+    const rawText = textInput.value;
+    const text = rawText.trim() ? rawText : "";  // preserve internal/trailing newlines; treat all-whitespace as empty
     textInput.removeEventListener("blur", commitTextEdit);
     textInput.remove();
     textInput = null;
@@ -1157,7 +1381,14 @@ export default function AnnotateImageSimple(container, props) {
     if (e.key !== "[" && e.key !== "]") return;
     if (textEditId) return;
     const t = e.target;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    // Allow [ ] through for range/color/checkbox inputs (widget controls) — only block text-entry fields
+    const inputType = (t?.type || "").toLowerCase();
+    const isTextEntry = t && (
+      (t.tagName === "INPUT" && !["range", "color", "checkbox", "radio"].includes(inputType)) ||
+      t.tagName === "TEXTAREA" ||
+      t.isContentEditable
+    );
+    if (isTextEntry) return;
     e.preventDefault();
     e.stopPropagation();
     const delta = e.key === "]" ? 1 : -1;
@@ -1190,7 +1421,7 @@ export default function AnnotateImageSimple(container, props) {
     }
     // Otherwise adjust active tool settings
     if (activeTool === "paint") {
-      toolSettings.paint.size = Math.max(1, Math.min(40, (toolSettings.paint.size ?? 8) + delta));
+      toolSettings.paint.size = Math.max(1, Math.min(80, (toolSettings.paint.size ?? 8) + delta));
       currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
       rebuildSettings(); _emit();
     } else if (activeTool === "arrow") {
@@ -1220,6 +1451,17 @@ export default function AnnotateImageSimple(container, props) {
     canvas.setPointerCapture(e.pointerId);
     canvas.focus({ preventScroll: true });
     isPointerDown = true;
+
+    // Alt + LMB → pan (overrides all tools)
+    if (e.altKey) {
+      e.preventDefault();
+      isPanning = true;
+      panStartX = e.clientX - panX;
+      panStartY = e.clientY - panY;
+      canvas.style.cursor = "grabbing";
+      return;
+    }
+
     const [cx, cy] = screenToCanvas(e);
 
     if (activeTool === "text") {
@@ -1412,6 +1654,17 @@ export default function AnnotateImageSimple(container, props) {
   function onPointerMove(e) {
     if (!isPointerDown) return;
     e.stopPropagation();
+
+    if (isPanning) {
+      panX = e.clientX - panStartX;
+      panY = e.clientY - panStartY;
+      _applyViewTransform();
+      const isDefault = viewScale === 1 && panX === 0 && panY === 0;
+      resetViewBtn.style.opacity = isDefault ? "0.4" : "1";
+      resetViewBtn.style.pointerEvents = isDefault ? "none" : "auto";
+      return;
+    }
+
     const [cx, cy] = screenToCanvas(e);
 
     if (activeTool === "paint" && currentStroke) {
@@ -1585,6 +1838,13 @@ export default function AnnotateImageSimple(container, props) {
     if (!isPointerDown) return;
     isPointerDown = false;
     e.stopPropagation();
+
+    if (isPanning) {
+      isPanning = false;
+      canvas.style.cursor = isAltHeld ? "grab" : _currentToolCursor();
+      return;
+    }
+
     const [cx, cy] = screenToCanvas(e);
     canvas.style.cursor = _cursorForPos(cx, cy);
 
@@ -1609,6 +1869,7 @@ export default function AnnotateImageSimple(container, props) {
       };
       _emit();
       rebuildSettings();
+      canvas.focus({ preventScroll: true });
       renderCanvas();
 
     } else if (activeTool === "arrow" && currentArrow) {
@@ -1797,8 +2058,8 @@ export default function AnnotateImageSimple(container, props) {
     for (const [tid, btn] of Object.entries(toolBtns)) {
       btn.className = "ais-tool-btn" + (tid === activeTool ? " active" : "");
     }
-    canvas.style.cursor = activeTool === "select" ? "default" : "crosshair";
-    rebuildSettings();
+    canvas.style.cursor = _currentToolCursor();
+    rebuildSettings(!!document.getElementById("ais-layer-popup"));
 
     if (dimsChanged || urlChanged) applyCanvasScale();
     renderCanvas();
@@ -1807,6 +2068,7 @@ export default function AnnotateImageSimple(container, props) {
   // ── cleanup ────────────────────────────────────────────────────────────────
   function cleanup() {
     commitTextEdit();
+    _dismissLayerPopup();
     resizeObserver.disconnect();
     if (resizeRafId) cancelAnimationFrame(resizeRafId);
     document.removeEventListener("pointerdown", _shiftInterceptor, { capture: true });
@@ -1814,6 +2076,8 @@ export default function AnnotateImageSimple(container, props) {
     document.removeEventListener("click",       _shiftInterceptor, { capture: true });
     document.removeEventListener("keydown",     _deleteInterceptor, { capture: true });
     document.removeEventListener("keydown",     _sizeInterceptor,   { capture: true });
+    document.removeEventListener("keydown",     _onAltDown);
+    document.removeEventListener("keyup",       _onAltUp);
     canvas.removeEventListener("pointerdown", onPointerDown);
     canvas.removeEventListener("pointermove", onPointerMove);
     canvas.removeEventListener("pointerup", onPointerUp);
