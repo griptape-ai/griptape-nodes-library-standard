@@ -225,23 +225,39 @@ export default function AnnotateImage(container, props) {
 
   // ── canvas scaling ────────────────────────────────────────────────────────
 
-  const resizeObserver = new ResizeObserver(() => applyCanvasScale());
+  let resizeRafId = null;
+  const resizeObserver = new ResizeObserver(() => {
+    // Debounce via rAF: if the container size oscillates within a single frame
+    // (e.g. a framework re-render briefly changes layout then restores it),
+    // only the final stable measurement triggers a scale update.
+    if (resizeRafId) cancelAnimationFrame(resizeRafId);
+    resizeRafId = requestAnimationFrame(() => { resizeRafId = null; applyCanvasScale(); });
+  });
   resizeObserver.observe(canvasArea);
 
   function applyCanvasScale() {
     const cw = currentValue.canvas_width || 1920;
     const ch = currentValue.canvas_height || 1080;
     const areaW = canvasArea.clientWidth || 300;
-    displayScale = areaW / cw;
+    const newScale = areaW / cw;
 
-    canvas.width = cw;
-    canvas.height = ch;
-    canvas.style.width = cw + "px";
-    canvas.style.height = ch + "px";
-    canvas.style.transform = `scale(${displayScale})`;
-    canvasWrapper.style.height = ch * displayScale + "px";
+    // Only reassign canvas dimensions when they actually change — assigning
+    // canvas.width clears the bitmap even when the value is identical.
+    const dimsChanged = canvas.width !== cw || canvas.height !== ch;
+    if (dimsChanged) {
+      canvas.width = cw;
+      canvas.height = ch;
+      canvas.style.width = cw + "px";
+      canvas.style.height = ch + "px";
+    }
 
-    renderCanvas();
+    if (newScale !== displayScale) {
+      displayScale = newScale;
+      canvas.style.transform = `scale(${displayScale})`;
+      canvasWrapper.style.height = ch * displayScale + "px";
+    }
+
+    if (dimsChanged) renderCanvas();
   }
 
   function screenToCanvas(e) {
@@ -1523,6 +1539,7 @@ export default function AnnotateImage(container, props) {
     document.removeEventListener("mousemove", onDragMove);
     document.removeEventListener("mouseup", onDragEnd);
     if (dragGhost) { dragGhost.remove(); dragGhost = null; }
+    if (resizeRafId) cancelAnimationFrame(resizeRafId);
     resizeObserver.disconnect();
     wrapper.remove();
     delete container._instance;
