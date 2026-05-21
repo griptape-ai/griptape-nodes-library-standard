@@ -52,13 +52,22 @@ class AnnotateImage(DataNode):
 
         self.add_parameter(
             ParameterDict(
+                name="import_annotations",
+                default_value=None,
+                tooltip="Annotation data to import from another node (overrides can be applied in canvas)",
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
+            )
+        )
+
+        self.add_parameter(
+            ParameterDict(
                 name="annotation_data",
                 default_value=_default_annotation_data(),
                 tooltip="Canvas annotations (paint, text, arrows)",
                 display_name="Canvas",
-                allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT, ParameterMode.INPUT},
+                allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT},
                 traits={Widget(name="AnnotateImageSimple", library="Griptape Nodes Library")},
-                
             )
         )
 
@@ -123,7 +132,6 @@ class AnnotateImage(DataNode):
             data = self.get_parameter_value("annotation_data") or _default_annotation_data()
             if not isinstance(data, dict):
                 data = _default_annotation_data()
-            # Preserve all annotations; only refresh image/canvas fields.
             new_data = {
                 **data,
                 "image_url": browser_url,
@@ -133,6 +141,18 @@ class AnnotateImage(DataNode):
             }
             self.set_parameter_value("annotation_data", new_data)
             self.publish_update_to_parameter("annotation_data", new_data)
+
+        if parameter.name == "import_annotations" and isinstance(value, dict):
+            # Accept full annotation_data dict from an upstream node's annotation_data output.
+            # Compute the effective (merged) annotations so overrides and deletions are resolved.
+            imported = self._effective_annotations(value)
+            data = self.get_parameter_value("annotation_data") or _default_annotation_data()
+            if not isinstance(data, dict):
+                data = _default_annotation_data()
+            new_data = {**data, "imported_annotations": imported}
+            self.set_parameter_value("annotation_data", new_data)
+            self.publish_update_to_parameter("annotation_data", new_data)
+
         return super().after_value_set(parameter, value)
 
     # ── compositing ───────────────────────────────────────────────────────────
@@ -272,6 +292,21 @@ class AnnotateImage(DataNode):
         bbox = [x - w / 2, y - h / 2, x + w / 2, y + h / 2]
         draw.ellipse(bbox, fill=fill, outline=color, width=width)
 
+    def _effective_annotations(self, annotation_data: dict) -> list:
+        """Return imported (with overrides applied, deleted ones skipped) + local annotations."""
+        imported = annotation_data.get("imported_annotations", []) or []
+        overrides = annotation_data.get("overrides", {}) or {}
+        local = annotation_data.get("annotations", []) or []
+
+        merged_imported = []
+        for ann in imported:
+            ov = overrides.get(ann.get("id", ""), {})
+            if ov.get("deleted"):
+                continue
+            merged_imported.append({**ann, **{k: v for k, v in ov.items() if k != "deleted"}})
+
+        return merged_imported + local
+
     def process(self) -> None:
         image_artifact = self.get_parameter_value("image")
 
@@ -296,7 +331,8 @@ class AnnotateImage(DataNode):
         overlay = Image.new("RGBA", bg.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
 
-        for ann in annotation_data.get("annotations", []):
+        all_annotations = self._effective_annotations(annotation_data)
+        for ann in all_annotations:
             ann_type = ann.get("type")
             if ann_type == "paint":
                 self._draw_paint(draw, ann)
@@ -320,4 +356,8 @@ class AnnotateImage(DataNode):
         self.set_parameter_value("output_image", artifact)
         self.parameter_output_values["output_image"] = artifact
         self.publish_update_to_parameter("output_image", artifact)
+
+        self.parameter_output_values["annotation_data"] = annotation_data
+        self.publish_update_to_parameter("annotation_data", annotation_data)
+
         logger.debug(f"{self.name}: Output saved to {artifact.value}")

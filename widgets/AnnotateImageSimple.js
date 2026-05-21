@@ -59,6 +59,8 @@ function defaultData() {
     canvas_width: 0,
     canvas_height: 0,
     annotations: [],
+    imported_annotations: [],
+    overrides: {},
     active_tool: "select",
     tool_settings: {
       paint:   { color: "#ff0000", size: 8 },
@@ -128,6 +130,70 @@ export default function AnnotateImageSimple(container, props) {
   let textInput = null;
   let textEditId = null;
   let hoverId = null;  // annotation id being hovered (text tool)
+
+  // ── import/override helpers ───────────────────────────────────────────────
+
+  function _isImported(id) {
+    return (currentValue.imported_annotations || []).some((a) => a.id === id);
+  }
+
+  // Returns imported (with overrides applied, deleted ones skipped) + local annotations.
+  // This is the authoritative list for rendering, hit-testing, and selection.
+  function _effectiveAnnotations() {
+    const imported = currentValue.imported_annotations || [];
+    const overrides = currentValue.overrides || {};
+    const local = currentValue.annotations || [];
+    const merged = imported
+      .filter((a) => !overrides[a.id]?.deleted)
+      .map((a) => ({ ...a, ...overrides[a.id], _imported: true }));
+    return [...merged, ...local];
+  }
+
+  // Apply mapFn to the given annotation ids, routing imported ones to overrides.
+  function _applyAnnotationMap(selIds, mapFn) {
+    const newAnnotations = (currentValue.annotations || []).map((a) => {
+      if (!selIds.includes(a.id)) return a;
+      return mapFn(a);
+    });
+    const newOverrides = { ...(currentValue.overrides || {}) };
+    for (const imp of (currentValue.imported_annotations || [])) {
+      if (!selIds.includes(imp.id)) continue;
+      const existing = newOverrides[imp.id] || {};
+      const merged = { ...imp, ...existing };
+      const updated = mapFn(merged);
+      // Store only fields that actually differ from the original imported annotation.
+      // This keeps overrides minimal — moving shouldn't override text, color, etc.
+      const newOverride = {};
+      for (const key of Object.keys(updated)) {
+        if (key.startsWith("_")) continue; // skip internal flags like _imported
+        if (updated[key] !== imp[key]) newOverride[key] = updated[key];
+      }
+      newOverrides[imp.id] = newOverride;
+    }
+    return { annotations: newAnnotations, overrides: newOverrides };
+  }
+
+  // Update a single annotation by id, routing imported ones to overrides.
+  function _applySingleUpdate(id, mapFn) {
+    const { annotations, overrides } = _applyAnnotationMap([id], mapFn);
+    currentValue = { ...currentValue, annotations, overrides };
+  }
+
+  // Delete a single annotation by id: soft-delete imported ones via override, remove local ones.
+  function _deleteAnnotations(ids) {
+    const newOverrides = { ...(currentValue.overrides || {}) };
+    const importedIds = new Set((currentValue.imported_annotations || []).map((a) => a.id));
+    for (const id of ids) {
+      if (importedIds.has(id)) {
+        newOverrides[id] = { ...(newOverrides[id] || {}), deleted: true };
+      }
+    }
+    currentValue = {
+      ...currentValue,
+      annotations: (currentValue.annotations || []).filter((a) => !ids.includes(a.id) || importedIds.has(a.id)),
+      overrides: newOverrides,
+    };
+  }
 
   // image cache
   const imageCache = {};
@@ -346,7 +412,7 @@ export default function AnnotateImageSimple(container, props) {
         settingsArea.appendChild(sep);
       }
       if (selIds.length === 1) {
-        const selAnn = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
+        const selAnn = _effectiveAnnotations().find((a) => a.id === selIds[0]);
         if (selAnn) _buildAnnotationSettings(selAnn);
       } else if (selIds.length > 1) {
         _buildMultiSettings(selIds);
@@ -364,7 +430,7 @@ export default function AnnotateImageSimple(container, props) {
     if (activeTool === "paint" || activeTool === "arrow" || activeTool === "rect" || activeTool === "ellipse") {
       const selIds = currentValue.selected_ids || [];
       if (selIds.length === 1) {
-        const selAnn = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
+        const selAnn = _effectiveAnnotations().find((a) => a.id === selIds[0]);
         if (selAnn?.type === activeTool) {
           _buildAnnotationSettings(selAnn);
           return;
@@ -545,10 +611,7 @@ export default function AnnotateImageSimple(container, props) {
   function _buildAnnotationSettings(ann) {
     if (ann.type === "arrow") {
       _buildArrowToggles(ann, (changes) => {
-        currentValue = {
-          ...currentValue,
-          annotations: currentValue.annotations.map((a) => a.id === ann.id ? { ...a, ...changes } : a),
-        };
+        _applySingleUpdate(ann.id, (a) => ({ ...a, ...changes }));
         // Sync arrow-style toggles to tool settings so next arrow uses same style
         toolSettings.arrow = { ...toolSettings.arrow, ...changes };
         currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
@@ -569,12 +632,7 @@ export default function AnnotateImageSimple(container, props) {
       const baseSize = (ann.strokes && ann.strokes[0]) ? (ann.strokes[0].size ?? 8) : 8;
       const currentSize = Math.max(1, Math.round(baseSize * (ann.sizeScale ?? 1)));
       _buildSizeSlider("Size", 1, 80, currentSize, (sz, emit) => {
-        currentValue = {
-          ...currentValue,
-          annotations: currentValue.annotations.map((a) =>
-            a.id === ann.id ? { ...a, sizeScale: sz / baseSize } : a
-          ),
-        };
+        _applySingleUpdate(ann.id, (a) => ({ ...a, sizeScale: sz / baseSize }));
         renderCanvas();
         if (emit) _emit();
       });
@@ -588,12 +646,7 @@ export default function AnnotateImageSimple(container, props) {
       const sizeMax = ann.type === "text" ? 120 : 20;
       const sizeLbl = ann.type === "text" ? "Size" : "Width";
       _buildSizeSlider(sizeLbl, sizeMin, sizeMax, sizeVal, (sz, emit) => {
-        currentValue = {
-          ...currentValue,
-          annotations: currentValue.annotations.map((a) =>
-            a.id === ann.id ? { ...a, [sizeKey]: sz } : a
-          ),
-        };
+        _applySingleUpdate(ann.id, (a) => ({ ...a, [sizeKey]: sz }));
         if (ann.type === "arrow") { toolSettings.arrow.width = sz; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
         if (ann.type === "text") { toolSettings.text.font_size = sz; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
         if (isShape) { toolSettings[ann.type].width = sz; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
@@ -606,14 +659,10 @@ export default function AnnotateImageSimple(container, props) {
     }
 
     _buildColorSwatch(color, (col, emit) => {
-      currentValue = {
-        ...currentValue,
-        annotations: currentValue.annotations.map((a) => {
-          if (a.id !== ann.id) return a;
-          if (a.type === "paint") return { ...a, strokes: (a.strokes || []).map((s) => ({ ...s, color: col })) };
-          return { ...a, color: col };
-        }),
-      };
+      _applySingleUpdate(ann.id, (a) => {
+        if (a.type === "paint") return { ...a, strokes: (a.strokes || []).map((s) => ({ ...s, color: col })) };
+        return { ...a, color: col };
+      });
       if (ann.type === "arrow") { toolSettings.arrow.color = col; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
       if (ann.type === "text") { toolSettings.text.color = col; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
       if (ann.type === "paint") { toolSettings.paint.color = col; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
@@ -627,10 +676,7 @@ export default function AnnotateImageSimple(container, props) {
 
     if (isShape) {
       _buildFillColorSwatch(ann.fill_color || "", (col, emit) => {
-        currentValue = {
-          ...currentValue,
-          annotations: currentValue.annotations.map((a) => a.id === ann.id ? { ...a, fill_color: col } : a),
-        };
+        _applySingleUpdate(ann.id, (a) => ({ ...a, fill_color: col }));
         toolSettings[ann.type].fill_color = col;
         currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
         renderCanvas();
@@ -641,7 +687,7 @@ export default function AnnotateImageSimple(container, props) {
   }
 
   function _buildMultiSettings(selIds) {
-    const anns = (currentValue.annotations || []).filter((a) => selIds.includes(a.id));
+    const anns = _effectiveAnnotations().filter((a) => selIds.includes(a.id));
     // Capture original sizes when the panel is built; slider applies ratio to these originals
     const origSizes = {};
     for (const a of anns) {
@@ -652,20 +698,17 @@ export default function AnnotateImageSimple(container, props) {
     }
     _buildSizeSlider("Scale %", 25, 400, 100, (val, emit) => {
       const ratio = val / 100;
-      currentValue = {
-        ...currentValue,
-        annotations: currentValue.annotations.map((a) => {
-          if (!selIds.includes(a.id)) return a;
-          if (a.type === "paint") return { ...a, sizeScale: (origSizes[a.id] ?? 1) * ratio };
-          if (a.type === "text") return { ...a, font_size: Math.max(8, Math.round((origSizes[a.id] ?? 48) * ratio)) };
-          if (a.type === "arrow") return { ...a, width: Math.max(1, (origSizes[a.id] ?? 3) * ratio) };
-          if (a.type === "rect" || a.type === "ellipse") {
-            const orig = origSizes[a.id] || { w: 100, h: 100 };
-            return { ...a, w: Math.max(2, orig.w * ratio), h: Math.max(2, orig.h * ratio) };
-          }
-          return a;
-        }),
-      };
+      const { annotations, overrides } = _applyAnnotationMap(selIds, (a) => {
+        if (a.type === "paint") return { ...a, sizeScale: (origSizes[a.id] ?? 1) * ratio };
+        if (a.type === "text") return { ...a, font_size: Math.max(8, Math.round((origSizes[a.id] ?? 48) * ratio)) };
+        if (a.type === "arrow") return { ...a, width: Math.max(1, (origSizes[a.id] ?? 3) * ratio) };
+        if (a.type === "rect" || a.type === "ellipse") {
+          const orig = origSizes[a.id] || { w: 100, h: 100 };
+          return { ...a, w: Math.max(2, orig.w * ratio), h: Math.max(2, orig.h * ratio) };
+        }
+        return a;
+      });
+      currentValue = { ...currentValue, annotations, overrides };
       renderCanvas();
       if (emit) _emit();
     });
@@ -675,14 +718,11 @@ export default function AnnotateImageSimple(container, props) {
       if (a.color) { firstColor = a.color; break; }
     }
     _buildColorSwatch(firstColor, (col, emit) => {
-      currentValue = {
-        ...currentValue,
-        annotations: currentValue.annotations.map((a) => {
-          if (!selIds.includes(a.id)) return a;
-          if (a.type === "paint") return { ...a, strokes: (a.strokes || []).map((s) => ({ ...s, color: col })) };
-          return { ...a, color: col };
-        }),
-      };
+      const { annotations, overrides } = _applyAnnotationMap(selIds, (a) => {
+        if (a.type === "paint") return { ...a, strokes: (a.strokes || []).map((s) => ({ ...s, color: col })) };
+        return { ...a, color: col };
+      });
+      currentValue = { ...currentValue, annotations, overrides };
       renderCanvas();
       if (emit) _emit();
     });
@@ -866,7 +906,7 @@ export default function AnnotateImageSimple(container, props) {
     if (gen !== renderGen) return;
 
     // Draw committed annotations
-    for (const ann of (currentValue.annotations || [])) {
+    for (const ann of _effectiveAnnotations()) {
       if (ann.id === textEditId) continue; // skip live-edited text
       drawAnnotation(ann, (currentValue.selected_ids || []).includes(ann.id));
     }
@@ -877,9 +917,14 @@ export default function AnnotateImageSimple(container, props) {
       const topMid = _frameTopMid(txFrame);
       const rh = _frameRotHandle(txFrame);
       const hw = 5 / displayScale;
+      // Amber for imported annotations, blue-slate for local
+      const selIds = currentValue.selected_ids || [];
+      const allImported = selIds.length > 0 && selIds.every((id) => _isImported(id));
+      const frameColor = allImported ? "#c9830a" : "#7a9db8";
+      const frameColorRgb = allImported ? "201,131,10" : "122,157,184";
       ctx.save();
       // Dashed OBB outline
-      ctx.strokeStyle = "rgba(122,157,184,0.8)";
+      ctx.strokeStyle = `rgba(${frameColorRgb},0.8)`;
       ctx.lineWidth = 1.5 / displayScale;
       ctx.setLineDash([5 / displayScale, 4 / displayScale]);
       ctx.beginPath();
@@ -889,13 +934,13 @@ export default function AnnotateImageSimple(container, props) {
       // Corner scale handles
       for (const [hx, hy] of corners) {
         ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(hx, hy, hw, 0, Math.PI*2); ctx.fill();
-        ctx.strokeStyle = "rgba(122,157,184,0.9)"; ctx.lineWidth = 1.5 / displayScale;
+        ctx.strokeStyle = `rgba(${frameColorRgb},0.9)`; ctx.lineWidth = 1.5 / displayScale;
         ctx.beginPath(); ctx.arc(hx, hy, hw, 0, Math.PI*2); ctx.stroke();
       }
       // Rotation handle stem + circle
-      ctx.strokeStyle = "rgba(122,157,184,0.5)"; ctx.lineWidth = 1 / displayScale;
+      ctx.strokeStyle = `rgba(${frameColorRgb},0.5)`; ctx.lineWidth = 1 / displayScale;
       ctx.beginPath(); ctx.moveTo(topMid[0], topMid[1]); ctx.lineTo(rh[0], rh[1]); ctx.stroke();
-      ctx.fillStyle = "#7a9db8"; ctx.beginPath(); ctx.arc(rh[0], rh[1], hw, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = frameColor; ctx.beginPath(); ctx.arc(rh[0], rh[1], hw, 0, Math.PI*2); ctx.fill();
       ctx.strokeStyle = "white"; ctx.lineWidth = 1.5 / displayScale;
       ctx.beginPath(); ctx.arc(rh[0], rh[1], hw, 0, Math.PI*2); ctx.stroke();
       ctx.restore();
@@ -1227,7 +1272,7 @@ export default function AnnotateImageSimple(container, props) {
 
   // ── hit testing ───────────────────────────────────────────────────────────
   function hitTest(cx, cy) {
-    const anns = [...(currentValue.annotations || [])].reverse();
+    const anns = [..._effectiveAnnotations()].reverse();
     for (const ann of anns) {
       if (ann.type === "text") {
         const fontSize = Math.max(8, ann.font_size || 48);
@@ -1328,7 +1373,7 @@ export default function AnnotateImageSimple(container, props) {
   function _getGroupBounds(selIds) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     let found = false;
-    for (const ann of (currentValue.annotations || [])) {
+    for (const ann of _effectiveAnnotations()) {
       if (!selIds.includes(ann.id)) continue;
       const b = _getAnnotationBounds(ann);
       if (!b) continue;
@@ -1380,7 +1425,7 @@ export default function AnnotateImageSimple(container, props) {
     const selChanged = selIds.length !== prevIds.length ||
       selIds.some((id, i) => id !== prevIds[i]);
     if (selIds.length === 1) {
-      const ann = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
+      const ann = _effectiveAnnotations().find((a) => a.id === selIds[0]);
       if (!ann) { txFrame = null; return; }
       if (ann.type === "arrow") { txFrame = null; return; } // arrows use endpoint handles
       if (ann.type === "rect" || ann.type === "ellipse") {
@@ -1509,12 +1554,7 @@ export default function AnnotateImageSimple(container, props) {
 
     textInput.addEventListener("input", () => {
       _autoResizeTextarea();
-      currentValue = {
-        ...currentValue,
-        annotations: currentValue.annotations.map((a) =>
-          a.id === textEditId ? { ...a, text: textInput.value } : a
-        ),
-      };
+      _applySingleUpdate(textEditId, (a) => ({ ...a, text: textInput.value }));
     });
     textInput.addEventListener("keydown", (e) => {
       e.stopPropagation();
@@ -1563,20 +1603,12 @@ export default function AnnotateImageSimple(container, props) {
     dragState = null;
     if (id) {
       if (!text) {
-        // Remove empty text annotations
-        currentValue = {
-          ...currentValue,
-          selected_ids: [],
-          annotations: currentValue.annotations.filter((a) => a.id !== id),
-        };
+        // Remove empty text annotations — soft-delete imported, hard-delete local
+        _deleteAnnotations([id]);
+        currentValue = { ...currentValue, selected_ids: [] };
       } else {
-        currentValue = {
-          ...currentValue,
-          selected_ids: [],
-          annotations: currentValue.annotations.map((a) =>
-            a.id === id ? { ...a, text } : a
-          ),
-        };
+        _applySingleUpdate(id, (a) => ({ ...a, text }));
+        currentValue = { ...currentValue, selected_ids: [] };
       }
       _emit();
     }
@@ -1632,11 +1664,8 @@ export default function AnnotateImageSimple(container, props) {
     e.stopPropagation();
     e.preventDefault();
     const selIds = currentValue.selected_ids;
-    currentValue = {
-      ...currentValue,
-      annotations: (currentValue.annotations || []).filter((a) => !selIds.includes(a.id)),
-      selected_ids: [],
-    };
+    _deleteAnnotations(selIds);
+    currentValue = { ...currentValue, selected_ids: [] };
     txFrame = null;
     _emit();
     rebuildSettings();
@@ -1662,32 +1691,28 @@ export default function AnnotateImageSimple(container, props) {
     const selIds = currentValue.selected_ids || [];
     // Adjust selected annotation if one is selected
     if (selIds.length === 1 && (activeTool === "select" || activeTool === "arrow")) {
-      const selAnn = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
+      const selAnn = _effectiveAnnotations().find((a) => a.id === selIds[0]);
       if (selAnn) {
         if (selAnn.type === "paint") {
           const base = selAnn.strokes?.[0]?.size ?? 8;
           const cur = Math.round(base * (selAnn.sizeScale ?? 1));
           const next = Math.max(1, Math.min(80, cur + delta));
-          currentValue = { ...currentValue, annotations: currentValue.annotations.map((a) =>
-            a.id === selAnn.id ? { ...a, sizeScale: next / base } : a) };
+          _applySingleUpdate(selAnn.id, (a) => ({ ...a, sizeScale: next / base }));
           _emit(); rebuildSettings(); renderCanvas(); return;
         }
         if (selAnn.type === "text") {
           const next = Math.max(8, Math.min(120, (selAnn.font_size ?? 48) + delta * 2));
-          currentValue = { ...currentValue, annotations: currentValue.annotations.map((a) =>
-            a.id === selAnn.id ? { ...a, font_size: next } : a) };
+          _applySingleUpdate(selAnn.id, (a) => ({ ...a, font_size: next }));
           _emit(); rebuildSettings(); renderCanvas(); return;
         }
         if (selAnn.type === "arrow") {
           const next = Math.max(1, Math.min(20, (selAnn.width ?? 3) + delta));
-          currentValue = { ...currentValue, annotations: currentValue.annotations.map((a) =>
-            a.id === selAnn.id ? { ...a, width: next } : a) };
+          _applySingleUpdate(selAnn.id, (a) => ({ ...a, width: next }));
           _emit(); rebuildSettings(); renderCanvas(); return;
         }
         if (selAnn.type === "rect" || selAnn.type === "ellipse") {
           const next = Math.max(1, Math.min(20, (selAnn.width ?? 2) + delta));
-          currentValue = { ...currentValue, annotations: currentValue.annotations.map((a) =>
-            a.id === selAnn.id ? { ...a, width: next } : a) };
+          _applySingleUpdate(selAnn.id, (a) => ({ ...a, width: next }));
           _emit(); rebuildSettings(); renderCanvas(); return;
         }
       }
@@ -1749,7 +1774,7 @@ export default function AnnotateImageSimple(container, props) {
       const rh = _frameRotHandle(txFrame);
       const buildSnapshots = () => {
         const s = {};
-        for (const ann of (currentValue.annotations || []))
+        for (const ann of _effectiveAnnotations())
           if (selIds.includes(ann.id)) s[ann.id] = _snapshotAnn(ann);
         return s;
       };
@@ -1808,7 +1833,7 @@ export default function AnnotateImageSimple(container, props) {
         const rh = _frameRotHandle(txFrame);
         const buildSnapshots = () => {
           const s = {};
-          for (const ann of (currentValue.annotations || []))
+          for (const ann of _effectiveAnnotations())
             if (selIds.includes(ann.id)) s[ann.id] = _snapshotAnn(ann);
           return s;
         };
@@ -1840,7 +1865,7 @@ export default function AnnotateImageSimple(container, props) {
 
       // Control point handle detection: only when single arrow already selected
       if (selIds.length === 1) {
-        const selAnn = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
+        const selAnn = _effectiveAnnotations().find((a) => a.id === selIds[0]);
         if (selAnn?.type === "arrow") {
           const cps = _defaultCps(selAnn);
           const cpR = Math.max(8 / displayScale, 5);
@@ -1892,7 +1917,7 @@ export default function AnnotateImageSimple(container, props) {
         // Multi-translate drag: all currently selected annotations move together
         const origPositions = {};
         for (const id of newSelIds) {
-          const a = (currentValue.annotations || []).find((ann) => ann.id === id);
+          const a = _effectiveAnnotations().find((ann) => ann.id === id);
           if (!a) continue;
           if (a.type === "arrow") {
             const cps = _defaultCps(a);
@@ -1917,7 +1942,7 @@ export default function AnnotateImageSimple(container, props) {
       const selIds = currentValue.selected_ids || [];
       // If the selected paint annotation is hit, start translate drag instead of new stroke
       if (selIds.length === 1) {
-        const selAnn = (currentValue.annotations || []).find((a) => a.id === selIds[0] && a.type === "paint");
+        const selAnn = _effectiveAnnotations().find((a) => a.id === selIds[0] && a.type === "paint");
         if (selAnn) {
           const hit = hitTest(cx, cy);
           if (hit && hit.id === selAnn.id) {
@@ -1950,7 +1975,7 @@ export default function AnnotateImageSimple(container, props) {
       // If a single arrow is already selected, check its handles first
       const selIds = currentValue.selected_ids || [];
       if (selIds.length === 1) {
-        const selAnn = (currentValue.annotations || []).find((a) => a.id === selIds[0] && a.type === "arrow");
+        const selAnn = _effectiveAnnotations().find((a) => a.id === selIds[0] && a.type === "arrow");
         if (selAnn) {
           const handleR = Math.max(10 / displayScale, 8);
           const nearStart = Math.hypot(cx - selAnn.x1, cy - selAnn.y1) <= handleR;
@@ -1992,7 +2017,7 @@ export default function AnnotateImageSimple(container, props) {
         currentValue = { ...currentValue, selected_ids: newSelIds };
         const origPositions = {};
         for (const id of newSelIds) {
-          const a = (currentValue.annotations || []).find((ann) => ann.id === id);
+          const a = _effectiveAnnotations().find((ann) => ann.id === id);
           if (a) origPositions[id] = { x: a.x ?? 0, y: a.y ?? 0 };
         }
         dragState = { type: "translate", startCx: cx, startCy: cy, origPositions,
@@ -2014,7 +2039,7 @@ export default function AnnotateImageSimple(container, props) {
         currentValue = { ...currentValue, selected_ids: newSelIds };
         const origPositions = {};
         for (const id of newSelIds) {
-          const a = (currentValue.annotations || []).find((ann) => ann.id === id);
+          const a = _effectiveAnnotations().find((ann) => ann.id === id);
           if (a) origPositions[id] = { x: a.x ?? 0, y: a.y ?? 0 };
         }
         dragState = { type: "translate", startCx: cx, startCy: cy, origPositions,
@@ -2096,40 +2121,37 @@ export default function AnnotateImageSimple(container, props) {
         // Update the live frame so rendered handles rotate with content
         if (txFrame) txFrame = { ...txFrame, rotation: newRotation };
         const cos = Math.cos(dAngle), sin = Math.sin(dAngle);
-        currentValue = {
-          ...currentValue,
-          annotations: currentValue.annotations.map((a) => {
-            if (!dragState.selIds.includes(a.id)) return a;
-            const snap = dragState.origSnapshots[a.id];
-            if (!snap) return a;
-            if (a.type === "paint") {
-              const ax = snap.cx + snap.x - pivot.x, ay = snap.cy + snap.y - pivot.y;
-              return { ...a,
-                x: ax*cos - ay*sin + pivot.x - snap.cx,
-                y: ax*sin + ay*cos + pivot.y - snap.cy,
-                rotation: snap.rotation + dAngle };
-            } else if (a.type === "rect" || a.type === "ellipse") {
-              const dx = snap.x - pivot.x, dy = snap.y - pivot.y;
-              return { ...a,
-                x: dx*cos - dy*sin + pivot.x, y: dx*sin + dy*cos + pivot.y,
-                rotation: snap.rotation + dAngle };
-            } else if (a.type === "text") {
-              const dx = snap.x - pivot.x, dy = snap.y - pivot.y;
-              return { ...a, x: dx*cos - dy*sin + pivot.x, y: dx*sin + dy*cos + pivot.y };
-            } else if (a.type === "arrow") {
-              const d1x = snap.x1 - pivot.x, d1y = snap.y1 - pivot.y;
-              const d2x = snap.x2 - pivot.x, d2y = snap.y2 - pivot.y;
-              const dc1x = snap.cp1x - pivot.x, dc1y = snap.cp1y - pivot.y;
-              const dc2x = snap.cp2x - pivot.x, dc2y = snap.cp2y - pivot.y;
-              return { ...a,
-                x1: d1x*cos - d1y*sin + pivot.x, y1: d1x*sin + d1y*cos + pivot.y,
-                x2: d2x*cos - d2y*sin + pivot.x, y2: d2x*sin + d2y*cos + pivot.y,
-                cp1x: dc1x*cos - dc1y*sin + pivot.x, cp1y: dc1x*sin + dc1y*cos + pivot.y,
-                cp2x: dc2x*cos - dc2y*sin + pivot.x, cp2y: dc2x*sin + dc2y*cos + pivot.y };
-            }
-            return a;
-          }),
-        };
+        const { annotations: rotAnns, overrides: rotOvr } = _applyAnnotationMap(dragState.selIds, (a) => {
+          const snap = dragState.origSnapshots[a.id];
+          if (!snap) return a;
+          if (a.type === "paint") {
+            const ax = snap.cx + snap.x - pivot.x, ay = snap.cy + snap.y - pivot.y;
+            return { ...a,
+              x: ax*cos - ay*sin + pivot.x - snap.cx,
+              y: ax*sin + ay*cos + pivot.y - snap.cy,
+              rotation: snap.rotation + dAngle };
+          } else if (a.type === "rect" || a.type === "ellipse") {
+            const dx = snap.x - pivot.x, dy = snap.y - pivot.y;
+            return { ...a,
+              x: dx*cos - dy*sin + pivot.x, y: dx*sin + dy*cos + pivot.y,
+              rotation: snap.rotation + dAngle };
+          } else if (a.type === "text") {
+            const dx = snap.x - pivot.x, dy = snap.y - pivot.y;
+            return { ...a, x: dx*cos - dy*sin + pivot.x, y: dx*sin + dy*cos + pivot.y };
+          } else if (a.type === "arrow") {
+            const d1x = snap.x1 - pivot.x, d1y = snap.y1 - pivot.y;
+            const d2x = snap.x2 - pivot.x, d2y = snap.y2 - pivot.y;
+            const dc1x = snap.cp1x - pivot.x, dc1y = snap.cp1y - pivot.y;
+            const dc2x = snap.cp2x - pivot.x, dc2y = snap.cp2y - pivot.y;
+            return { ...a,
+              x1: d1x*cos - d1y*sin + pivot.x, y1: d1x*sin + d1y*cos + pivot.y,
+              x2: d2x*cos - d2y*sin + pivot.x, y2: d2x*sin + d2y*cos + pivot.y,
+              cp1x: dc1x*cos - dc1y*sin + pivot.x, cp1y: dc1x*sin + dc1y*cos + pivot.y,
+              cp2x: dc2x*cos - dc2y*sin + pivot.x, cp2y: dc2x*sin + dc2y*cos + pivot.y };
+          }
+          return a;
+        });
+        currentValue = { ...currentValue, annotations: rotAnns, overrides: rotOvr };
       } else if (dragState.type === "txScale") {
         const pivot = dragState.pivot;
         // Project mouse into frame's local space (rotate by -frameRotation around pivot)
@@ -2152,71 +2174,59 @@ export default function AnnotateImageSimple(container, props) {
           const nlx = alx * ratioX, nly = aly * ratioY;
           return [pivot.x + nlx*fcos - nly*fsin, pivot.y + nlx*fsin + nly*fcos];
         };
-        currentValue = {
-          ...currentValue,
-          annotations: currentValue.annotations.map((a) => {
-            if (!dragState.selIds.includes(a.id)) return a;
-            const snap = dragState.origSnapshots[a.id];
-            if (!snap) return a;
-            if (a.type === "paint") {
-              const [nax, nay] = scaleAnchor(snap.cx + snap.x, snap.cy + snap.y);
-              return { ...a, x: nax - snap.cx, y: nay - snap.cy,
-                scaleX: snap.scaleX * ratioX, scaleY: snap.scaleY * ratioY };
-            } else if (a.type === "rect" || a.type === "ellipse") {
-              const [nx, ny] = scaleAnchor(snap.x, snap.y);
-              return { ...a, x: nx, y: ny,
-                w: Math.max(2, snap.w * ratioX), h: Math.max(2, snap.h * ratioY) };
-            } else if (a.type === "text") {
-              const [nx, ny] = scaleAnchor(snap.x, snap.y);
-              return { ...a, x: nx, y: ny,
-                font_size: Math.max(8, Math.round(snap.font_size * (ratioX + ratioY) / 2)) };
-            } else if (a.type === "arrow") {
-              const [nx1, ny1] = scaleAnchor(snap.x1, snap.y1);
-              const [nx2, ny2] = scaleAnchor(snap.x2, snap.y2);
-              const [nc1x, nc1y] = scaleAnchor(snap.cp1x, snap.cp1y);
-              const [nc2x, nc2y] = scaleAnchor(snap.cp2x, snap.cp2y);
-              return { ...a, x1: nx1, y1: ny1, x2: nx2, y2: ny2, cp1x: nc1x, cp1y: nc1y, cp2x: nc2x, cp2y: nc2y };
-            }
-            return a;
-          }),
-        };
+        const { annotations: scAnns, overrides: scOvr } = _applyAnnotationMap(dragState.selIds, (a) => {
+          const snap = dragState.origSnapshots[a.id];
+          if (!snap) return a;
+          if (a.type === "paint") {
+            const [nax, nay] = scaleAnchor(snap.cx + snap.x, snap.cy + snap.y);
+            return { ...a, x: nax - snap.cx, y: nay - snap.cy,
+              scaleX: snap.scaleX * ratioX, scaleY: snap.scaleY * ratioY };
+          } else if (a.type === "rect" || a.type === "ellipse") {
+            const [nx, ny] = scaleAnchor(snap.x, snap.y);
+            return { ...a, x: nx, y: ny,
+              w: Math.max(2, snap.w * ratioX), h: Math.max(2, snap.h * ratioY) };
+          } else if (a.type === "text") {
+            const [nx, ny] = scaleAnchor(snap.x, snap.y);
+            return { ...a, x: nx, y: ny,
+              font_size: Math.max(8, Math.round(snap.font_size * (ratioX + ratioY) / 2)) };
+          } else if (a.type === "arrow") {
+            const [nx1, ny1] = scaleAnchor(snap.x1, snap.y1);
+            const [nx2, ny2] = scaleAnchor(snap.x2, snap.y2);
+            const [nc1x, nc1y] = scaleAnchor(snap.cp1x, snap.cp1y);
+            const [nc2x, nc2y] = scaleAnchor(snap.cp2x, snap.cp2y);
+            return { ...a, x1: nx1, y1: ny1, x2: nx2, y2: ny2, cp1x: nc1x, cp1y: nc1y, cp2x: nc2x, cp2y: nc2y };
+          }
+          return a;
+        });
+        currentValue = { ...currentValue, annotations: scAnns, overrides: scOvr };
       } else if (dragState.type === "arrowCp") {
         const dx = cx - dragState.startCx, dy = cy - dragState.startCy;
-        currentValue = {
-          ...currentValue,
-          annotations: currentValue.annotations.map((a) => {
-            if (a.id !== dragState.id) return a;
-            if (dragState.which === "cp1")
-              return { ...a, cp1x: dragState.origCp1x + dx, cp1y: dragState.origCp1y + dy };
-            return { ...a, cp2x: dragState.origCp2x + dx, cp2y: dragState.origCp2y + dy };
-          }),
-        };
+        _applySingleUpdate(dragState.id, (a) => {
+          if (dragState.which === "cp1")
+            return { ...a, cp1x: dragState.origCp1x + dx, cp1y: dragState.origCp1y + dy };
+          return { ...a, cp2x: dragState.origCp2x + dx, cp2y: dragState.origCp2y + dy };
+        });
       } else if (dragState.type === "arrowHandle") {
         const dx = cx - dragState.startCx, dy = cy - dragState.startCy;
-        currentValue = {
-          ...currentValue,
-          annotations: currentValue.annotations.map((a) => {
-            if (a.id !== dragState.id) return a;
-            if (dragState.arrowHandle === "start")
-              return { ...a, x1: dragState.origX1 + dx, y1: dragState.origY1 + dy,
-                cp1x: dragState.origCp1x + dx, cp1y: dragState.origCp1y + dy };
-            return { ...a, x2: dragState.origX2 + dx, y2: dragState.origY2 + dy,
-              cp2x: dragState.origCp2x + dx, cp2y: dragState.origCp2y + dy };
-          }),
-        };
+        _applySingleUpdate(dragState.id, (a) => {
+          if (dragState.arrowHandle === "start")
+            return { ...a, x1: dragState.origX1 + dx, y1: dragState.origY1 + dy,
+              cp1x: dragState.origCp1x + dx, cp1y: dragState.origCp1y + dy };
+          return { ...a, x2: dragState.origX2 + dx, y2: dragState.origY2 + dy,
+            cp2x: dragState.origCp2x + dx, cp2y: dragState.origCp2y + dy };
+        });
       } else if (dragState.type === "translate") {
         const dx = cx - dragState.startCx, dy = cy - dragState.startCy;
-        currentValue = {
-          ...currentValue,
-          annotations: currentValue.annotations.map((a) => {
-            const orig = dragState.origPositions[a.id];
-            if (!orig) return a;
-            if (a.type === "arrow")
-              return { ...a, x1: orig.x1 + dx, y1: orig.y1 + dy, x2: orig.x2 + dx, y2: orig.y2 + dy,
-                cp1x: orig.cp1x + dx, cp1y: orig.cp1y + dy, cp2x: orig.cp2x + dx, cp2y: orig.cp2y + dy };
-            return { ...a, x: orig.x + dx, y: orig.y + dy };
-          }),
-        };
+        const translateIds = Object.keys(dragState.origPositions);
+        const { annotations: trAnns, overrides: trOvr } = _applyAnnotationMap(translateIds, (a) => {
+          const orig = dragState.origPositions[a.id];
+          if (!orig) return a;
+          if (a.type === "arrow")
+            return { ...a, x1: orig.x1 + dx, y1: orig.y1 + dy, x2: orig.x2 + dx, y2: orig.y2 + dy,
+              cp1x: orig.cp1x + dx, cp1y: orig.cp1y + dy, cp2x: orig.cp2x + dx, cp2y: orig.cp2y + dy };
+          return { ...a, x: orig.x + dx, y: orig.y + dy };
+        });
+        currentValue = { ...currentValue, annotations: trAnns, overrides: trOvr };
         // Move the frame with the selection so handles follow the annotation
         if (txFrame && dragState.origPivotX != null) {
           txFrame = { ...txFrame, pivotX: dragState.origPivotX + dx, pivotY: dragState.origPivotY + dy };
@@ -2333,7 +2343,7 @@ export default function AnnotateImageSimple(container, props) {
         const x2 = Math.max(dragState.startCx, dragState.x2);
         const y2 = Math.max(dragState.startCy, dragState.y2);
         if (x2 - x1 > 5 || y2 - y1 > 5) {
-          const inRect = (currentValue.annotations || [])
+          const inRect = _effectiveAnnotations()
             .filter((a) => _annotationIntersectsRect(a, x1, y1, x2, y2))
             .map((a) => a.id);
           const merged = dragState.additive
@@ -2367,7 +2377,7 @@ export default function AnnotateImageSimple(container, props) {
       }
       if (activeTool === "select") {
         if (selIds.length === 1) {
-          const sa = (currentValue.annotations || []).find((a) => a.id === selIds[0]);
+          const sa = _effectiveAnnotations().find((a) => a.id === selIds[0]);
           if (sa?.type === "arrow") {
             if (sa.is_bezier) {
               const cps = _defaultCps(sa), cpR = Math.max(8 / displayScale, 5);
@@ -2388,7 +2398,7 @@ export default function AnnotateImageSimple(container, props) {
 
     if (activeTool === "arrow") {
       if (selIds.length === 1) {
-        const sa = (currentValue.annotations || []).find((a) => a.id === selIds[0] && a.type === "arrow");
+        const sa = _effectiveAnnotations().find((a) => a.id === selIds[0] && a.type === "arrow");
         if (sa) {
           const ar = Math.max(10 / displayScale, 8);
           if (Math.hypot(cx - sa.x1, cy - sa.y1) <= ar || Math.hypot(cx - sa.x2, cy - sa.y2) <= ar) return "grab";
@@ -2432,7 +2442,7 @@ export default function AnnotateImageSimple(container, props) {
     const hit = hitTest(cx, cy);
     if (hit && hit.type === "text") {
       // Refresh annotation from currentValue so we get the latest text
-      const fresh = (currentValue.annotations || []).find((a) => a.id === hit.id) || hit;
+      const fresh = _effectiveAnnotations().find((a) => a.id === hit.id) || hit;
       startTextEdit(fresh);
     }
   });
