@@ -142,21 +142,37 @@ class AnnotateImage(DataNode):
         return (r, g, b, int(255 * opacity))
 
     def _draw_paint(self, draw: ImageDraw.ImageDraw, ann: dict) -> None:
+        import math as _math
+
+        cx = ann.get("cx", 0) or 0
+        cy = ann.get("cy", 0) or 0
+        tx = ann.get("x", 0) or 0
+        ty = ann.get("y", 0) or 0
+        sx = ann.get("scaleX", 1) or 1
+        sy = ann.get("scaleY", 1) or 1
+        rot = ann.get("rotation", 0) or 0
+        cos_r, sin_r = _math.cos(rot), _math.sin(rot)
+
+        def xform(nx: float, ny: float) -> tuple[float, float]:
+            lx, ly = (nx - cx) * sx, (ny - cy) * sy
+            return cx + tx + lx * cos_r - ly * sin_r, cy + ty + lx * sin_r + ly * cos_r
+
         for stroke in ann.get("strokes", []):
             points = stroke.get("points", [])
             if not points:
                 continue
             color = self._parse_color(stroke.get("color", "#ff0000"))
             base_size = max(1, int(stroke.get("size", 8)))
-            for pt in points:
-                px, py = pt[0], pt[1]
-                sz = max(1, int(pt[2])) if len(pt) > 2 else base_size
+            for i, pt in enumerate(points):
+                px, py = xform(pt[0], pt[1])
+                sz = max(1, int(pt[2]) if len(pt) > 2 and pt[2] is not None else base_size)
                 draw.ellipse([px - sz / 2, py - sz / 2, px + sz / 2, py + sz / 2], fill=color)
-            for i in range(len(points) - 1):
-                x0, y0 = points[i][0], points[i][1]
-                x1, y1 = points[i + 1][0], points[i + 1][1]
-                sz = max(1, int((points[i][2] + points[i + 1][2]) / 2)) if len(points[i]) > 2 else base_size
-                draw.line([x0, y0, x1, y1], fill=color, width=sz)
+                if i > 0:
+                    ppx, ppy = xform(points[i - 1][0], points[i - 1][1])
+                    prev = points[i - 1]
+                    sz2 = max(1, int(prev[2]) if len(prev) > 2 and prev[2] is not None else base_size)
+                    w = max(1, int((sz + sz2) / 2))
+                    draw.line([ppx, ppy, px, py], fill=color, width=w)
 
     def _draw_text(self, draw: ImageDraw.ImageDraw, ann: dict) -> None:
         text = ann.get("text", "")
