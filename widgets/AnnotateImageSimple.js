@@ -202,6 +202,13 @@ export default function AnnotateImageSimple(container, props) {
   const settingsArea = document.createElement("div");
   settingsArea.style.cssText = "display:flex;align-items:center;gap:6px;flex:1;min-width:0;overflow:hidden;justify-content:flex-end;";
   toolbar.appendChild(settingsArea);
+  // While editing text, don't let toolbar controls steal focus from the textarea.
+  // Range sliders are excluded so they can still gain focus (the blur handler re-focuses).
+  settingsArea.addEventListener("mousedown", (e) => {
+    if (!textEditId) return;
+    if (e.target.type === "range") return;
+    e.preventDefault();
+  });
 
   // Canvas area
   const canvasWrap = document.createElement("div");
@@ -492,6 +499,17 @@ export default function AnnotateImageSimple(container, props) {
     _buildSizeSlider(sizeLbl, sizeMin, sizeMax, sizeVal, (sz, emit) => {
       toolSettings[activeTool][sizeKey] = sz;
       currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
+      // While editing text, apply font size change live to the textarea and annotation
+      if (activeTool === "text" && textEditId) {
+        textInput.style.fontSize = sz * displayScale * viewScale + "px";
+        _autoResizeTextarea();
+        currentValue = {
+          ...currentValue,
+          annotations: currentValue.annotations.map((a) =>
+            a.id === textEditId ? { ...a, font_size: sz } : a
+          ),
+        };
+      }
       renderCanvas();
       if (emit) _emit();
     });
@@ -499,6 +517,16 @@ export default function AnnotateImageSimple(container, props) {
     _buildColorSwatch(color, (col, emit) => {
       toolSettings[activeTool].color = col;
       currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
+      if (activeTool === "text" && textEditId) {
+        textInput.style.color = col;
+        currentValue = {
+          ...currentValue,
+          annotations: currentValue.annotations.map((a) =>
+            a.id === textEditId ? { ...a, color: col } : a
+          ),
+        };
+        renderCanvas();
+      }
       if (emit) _emit();
     });
     if (isShape) {
@@ -1463,7 +1491,6 @@ export default function AnnotateImageSimple(container, props) {
       `font-size:${fontSize * totalScale}px`,
       "font-family:sans-serif",
       "border:none",
-      `border-bottom:2px solid ${ann.color || "#ffffff"}`,
       "outline:none",
       "resize:none",
       "overflow:hidden",
@@ -1471,12 +1498,10 @@ export default function AnnotateImageSimple(container, props) {
       "z-index:100",
       "padding:0",
       "margin:0",
-      "line-height:1.2",
+      "line-height:1",
     ].join(";");
 
     canvasWrap.appendChild(textInput);
-    textInput.focus();
-    textInput.select();
     _autoResizeTextarea();
 
     textInput.addEventListener("input", () => {
@@ -1493,8 +1518,25 @@ export default function AnnotateImageSimple(container, props) {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commitTextEdit(); canvas.focus({ preventScroll: true }); }
       if (e.key === "Escape") { e.preventDefault(); commitTextEdit(); canvas.focus({ preventScroll: true }); }
     });
-    textInput.addEventListener("blur", commitTextEdit);
+    textInput.addEventListener("blur", (e) => {
+      // If focus moves to a toolbar control (slider, button, etc.), don't commit —
+      // re-focus the textarea after the control interaction so the user can keep typing.
+      const toEl = e.relatedTarget;
+      if (toEl && toolbar.contains(toEl)) {
+        setTimeout(() => { if (textInput) textInput.focus(); }, 0);
+        return;
+      }
+      commitTextEdit();
+    });
     textInput.addEventListener("pointerdown", (e) => e.stopPropagation());
+    // Defer focus so it fires after the browser's mousedown default action
+    // (which would re-focus the canvas and immediately blur/destroy the textarea)
+    setTimeout(() => {
+      if (!textInput) return;
+      textInput.focus();
+      const len = textInput.value.length;
+      textInput.setSelectionRange(len, len);
+    }, 0);
     renderCanvas();
   }
 
@@ -1542,7 +1584,7 @@ export default function AnnotateImageSimple(container, props) {
   function placeNewText(cx, cy) {
     const id = _uid("text");
     const ann = {
-      id, type: "text", text: "Text",
+      id, type: "text", text: "",
       x: cx, y: cy,
       color: toolSettings.text.color,
       font_size: toolSettings.text.font_size,
@@ -1825,6 +1867,8 @@ export default function AnnotateImageSimple(container, props) {
           newSelIds = [hit.id];
         }
         currentValue = { ...currentValue, selected_ids: newSelIds };
+        // Rebuild frame immediately so origPivotX/Y captures the NEW selection's pivot, not the old one
+        _buildTxFrame();
 
         // Arrow endpoint handles (single selection only)
         if (newSelIds.length === 1 && hit.type === "arrow") {
