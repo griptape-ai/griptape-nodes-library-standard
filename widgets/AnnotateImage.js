@@ -128,6 +128,8 @@ export default function AnnotateImage(container, props) {
   let currentArrow = null;
   let dragState = null;
   let dragLayerId = null;     // layer being reordered in the panel
+  let dropIndex = -1;         // insertion index during drag (-1 = not active)
+  let dragGhost = null;       // floating clone that follows the cursor
   let renderGen = 0;          // cancels stale renders when a newer one starts
   const imageCache = {};
 
@@ -959,6 +961,7 @@ export default function AnnotateImage(container, props) {
     panel.appendChild(lHeader);
     panel.appendChild(lBody);
 
+
     panel._tsHeader = tsHeader;
     panel._tsBody = tsBody;
     panel._lBody = lBody;
@@ -977,51 +980,7 @@ export default function AnnotateImage(container, props) {
       const isSelected = layer.id === currentValue.selected_layer_id;
       const row = document.createElement("div");
       row.className = "ai-layer-row" + (isSelected ? " selected" : "");
-      row.draggable = true;
       row.dataset.layerId = layer.id;
-
-      // ── drag-and-drop handlers ────────────────────────────────────────────
-      row.addEventListener("dragstart", (e) => {
-        // Don't start a row-drag when clicking on buttons
-        if (e.target.closest("button")) { e.preventDefault(); return; }
-        dragLayerId = layer.id;
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", layer.id);
-        setTimeout(() => { row.style.opacity = "0.4"; }, 0);
-      });
-
-      row.addEventListener("dragend", () => {
-        dragLayerId = null;
-        row.style.opacity = "";
-        body.querySelectorAll(".ai-layer-row").forEach((r) => {
-          r.style.borderTop = "";
-        });
-      });
-
-      row.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        body.querySelectorAll(".ai-layer-row").forEach((r) => {
-          r.style.borderTop = "";
-        });
-        if (dragLayerId && dragLayerId !== layer.id) {
-          row.style.borderTop = "2px solid var(--sidebar-primary)";
-        }
-      });
-
-      row.addEventListener("dragleave", (e) => {
-        if (!row.contains(e.relatedTarget)) {
-          row.style.borderTop = "";
-        }
-      });
-
-      row.addEventListener("drop", (e) => {
-        e.preventDefault();
-        row.style.borderTop = "";
-        if (dragLayerId && dragLayerId !== layer.id) {
-          reorderLayers(dragLayerId, layer.id);
-        }
-      });
 
       // ── row content ───────────────────────────────────────────────────────
       const rowTop = document.createElement("div");
@@ -1030,6 +989,12 @@ export default function AnnotateImage(container, props) {
       const gripHandle = document.createElement("span");
       gripHandle.style.cssText = "display:flex;align-items:center;color:var(--muted-foreground);opacity:0.35;cursor:grab;flex-shrink:0;";
       gripHandle.appendChild(icon("grip", 11));
+
+      gripHandle.addEventListener("mousedown", (e) => {
+        e.stopPropagation();
+        e.preventDefault(); // prevent text selection during drag
+        startLayerDrag(e, layer.id, row);
+      });
 
       const visBtn = document.createElement("button");
       visBtn.className = "ai-icon-btn";
@@ -1048,6 +1013,43 @@ export default function AnnotateImage(container, props) {
       const name = document.createElement("span");
       name.className = "ai-layer-name";
       name.textContent = layer.name || "Layer";
+      name.title = "Double-click to rename";
+      name.style.cursor = "text";
+
+      name.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+
+        const input = document.createElement("input");
+        input.value = name.textContent;
+        input.className = "ai-layer-name";
+        input.style.cssText = "background:var(--input,#1e1e1e);border:1px solid var(--sidebar-primary);border-radius:3px;padding:0 3px;min-width:0;flex:1 1 0;font:inherit;color:inherit;outline:none;";
+        name.replaceWith(input);
+        input.focus();
+        input.select();
+
+        let committed = false;
+        function commit() {
+          if (committed) return;
+          committed = true;
+          const trimmed = input.value.trim() || name.textContent;
+          name.textContent = trimmed;
+          input.replaceWith(name);
+          renameLayer(layer.id, trimmed);
+        }
+        function cancel() {
+          if (committed) return;
+          committed = true;
+          input.replaceWith(name);
+        }
+
+        input.addEventListener("blur", commit);
+        input.addEventListener("pointerdown", (e) => e.stopPropagation());
+        input.addEventListener("keydown", (e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") { e.preventDefault(); commit(); }
+          if (e.key === "Escape") { e.preventDefault(); cancel(); }
+        });
+      });
 
       rowTop.appendChild(gripHandle);
       rowTop.appendChild(visBtn);
@@ -1070,8 +1072,7 @@ export default function AnnotateImage(container, props) {
         e.stopPropagation();
         if (currentValue.selected_layer_id === layer.id) return;
         currentValue = { ...currentValue, selected_layer_id: layer.id };
-        // Update highlight in-place — do NOT call rebuildLayersPanel() here,
-        // because that destroys the row before the browser can fire dragstart.
+        // Update highlight in-place — do NOT call rebuildLayersPanel() here.
         sidePanel._lBody.querySelectorAll(".ai-layer-row").forEach((r) => {
           r.className = "ai-layer-row" + (r.dataset.layerId === layer.id ? " selected" : "");
         });
@@ -1104,6 +1105,116 @@ export default function AnnotateImage(container, props) {
     emitChange();
     renderCanvas();
     rebuildLayersPanel();
+  }
+
+  function moveLayerToBottom(fromId) {
+    const sorted = [...(currentValue.layers || [])].sort(
+      (a, b) => (b.order ?? 0) - (a.order ?? 0)
+    );
+    const fromIdx = sorted.findIndex((l) => l.id === fromId);
+    if (fromIdx === -1) return;
+    const moved = sorted.splice(fromIdx, 1)[0];
+    sorted.push(moved); // end of sorted = bottom of panel = lowest z-order
+    const n = sorted.length;
+    const layerMap = Object.fromEntries(sorted.map((l, i) => [l.id, n - 1 - i]));
+    const layers = (currentValue.layers || []).map((l) => ({ ...l, order: layerMap[l.id] ?? l.order }));
+    currentValue = { ...currentValue, layers };
+    emitChange();
+    renderCanvas();
+    rebuildLayersPanel();
+  }
+
+  // ── Layer panel drag (mouse events — bypasses unreliable HTML5 DnD) ─────────
+
+  function clearDropIndicators() {
+    (sidePanel._lBody || document.createElement("div")).querySelectorAll(".ai-layer-row").forEach((r) => {
+      r.style.borderTop = "";
+      r.style.borderBottom = "";
+    });
+  }
+
+  function startLayerDrag(e, layerId, rowEl) {
+    dragLayerId = layerId;
+    dropIndex = -1;
+
+    const rowRect = rowEl.getBoundingClientRect();
+    dragGhost = rowEl.cloneNode(true);
+    // Reset any inline styles that might look wrong on the ghost
+    dragGhost.style.cssText = [
+      "position:fixed",
+      "pointer-events:none",
+      "opacity:0.85",
+      `width:${rowRect.width}px`,
+      "z-index:99999",
+      `left:${rowRect.left}px`,
+      `top:${rowRect.top}px`,
+      "background:var(--sidebar-background,#1a1a1a)",
+      "border:1px solid var(--sidebar-primary)",
+      "border-radius:4px",
+      "box-shadow:0 4px 16px rgba(0,0,0,0.5)",
+    ].join(";");
+    document.body.appendChild(dragGhost);
+    rowEl.style.opacity = "0.3";
+
+    document.addEventListener("mousemove", onDragMove);
+    document.addEventListener("mouseup", onDragEnd);
+  }
+
+  function onDragMove(e) {
+    if (!dragLayerId || !dragGhost) return;
+    const gh = dragGhost.offsetHeight;
+    dragGhost.style.top = (e.clientY - gh / 2) + "px";
+    dragGhost.style.left = (e.clientX + 10) + "px";
+
+    const lBody = sidePanel._lBody;
+    const lRect = lBody.getBoundingClientRect();
+    clearDropIndicators();
+
+    if (e.clientX < lRect.left || e.clientX > lRect.right ||
+        e.clientY < lRect.top  || e.clientY > lRect.bottom) {
+      dropIndex = -1;
+      return;
+    }
+
+    const rows = [...lBody.querySelectorAll(".ai-layer-row")];
+    let idx = rows.length;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i].getBoundingClientRect();
+      if (e.clientY < r.top + r.height / 2) { idx = i; break; }
+    }
+    dropIndex = idx;
+
+    if (idx < rows.length) {
+      if (rows[idx].dataset.layerId !== dragLayerId)
+        rows[idx].style.borderTop = "2px solid var(--sidebar-primary)";
+    } else {
+      const last = rows[rows.length - 1];
+      if (last && last.dataset.layerId !== dragLayerId)
+        last.style.borderBottom = "2px solid var(--sidebar-primary)";
+    }
+  }
+
+  function onDragEnd() {
+    document.removeEventListener("mousemove", onDragMove);
+    document.removeEventListener("mouseup", onDragEnd);
+
+    if (dragGhost) { dragGhost.remove(); dragGhost = null; }
+    clearDropIndicators();
+    sidePanel._lBody.querySelectorAll(".ai-layer-row").forEach((r) => { r.style.opacity = ""; });
+
+    const fromId = dragLayerId;
+    const atIdx = dropIndex;
+    dragLayerId = null;
+    dropIndex = -1;
+
+    if (!fromId || atIdx === -1) return;
+    const rows = [...sidePanel._lBody.querySelectorAll(".ai-layer-row")];
+    if (atIdx >= rows.length) {
+      moveLayerToBottom(fromId);
+    } else {
+      const targetId = rows[atIdx].dataset.layerId;
+      if (targetId !== fromId) reorderLayers(fromId, targetId);
+    }
   }
 
   function updateToolSettingsPanel() {
@@ -1355,6 +1466,16 @@ export default function AnnotateImage(container, props) {
     rebuildLayersPanel();
   }
 
+  function renameLayer(layerId, newName) {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    const layers = (currentValue.layers || []).map((l) =>
+      l.id === layerId ? { ...l, name: trimmed } : l
+    );
+    currentValue = { ...currentValue, layers };
+    emitChange();
+  }
+
   // ── emit change ───────────────────────────────────────────────────────────
 
   function emitChange() {
@@ -1394,6 +1515,9 @@ export default function AnnotateImage(container, props) {
   // ── cleanup ───────────────────────────────────────────────────────────────
 
   function cleanup() {
+    document.removeEventListener("mousemove", onDragMove);
+    document.removeEventListener("mouseup", onDragEnd);
+    if (dragGhost) { dragGhost.remove(); dragGhost = null; }
     resizeObserver.disconnect();
     wrapper.remove();
     delete container._instance;
