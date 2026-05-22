@@ -1325,10 +1325,8 @@ export default function AnnotateImageSimple(container, props) {
     if (hasEndArrow == null) hasEndArrow = true;
     const w = Math.max(1, width);
     const head = Math.max(15, w * 4);
-    // How far back from the tip the base of the triangle sits (cos 30° of head length)
     const setback = head * Math.cos(Math.PI / 6);
 
-    // Compute angles from tangent directions (control points) before adjusting endpoints
     let endAngle = 0, startAngle = 0;
     if (hasEndArrow) {
       endAngle = Math.hypot(x2 - cp2x, y2 - cp2y) < 0.1
@@ -1341,32 +1339,70 @@ export default function AnnotateImageSimple(container, props) {
         : Math.atan2(y1 - cp1y, x1 - cp1x);
     }
 
-    // Pull line endpoints back to the arrowhead base so the stroke doesn't poke through
     const lx2 = hasEndArrow   ? x2 - setback * Math.cos(endAngle)   : x2;
     const ly2 = hasEndArrow   ? y2 - setback * Math.sin(endAngle)   : y2;
     const lx1 = hasStartArrow ? x1 - setback * Math.cos(startAngle) : x1;
     const ly1 = hasStartArrow ? y1 - setback * Math.sin(startAngle) : y1;
 
-    ctx.save();
-    ctx.strokeStyle = color;
-    ctx.fillStyle = color;
-    ctx.lineWidth = w;
-    ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(lx1, ly1); ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, lx2, ly2); ctx.stroke();
+    // Sample the bezier — compute position and parametric speed at each point
+    const N = 48;
+    const pts = [], speeds = [], tangents = [];
+    for (let i = 0; i <= N; i++) {
+      const t = i / N, mt = 1 - t;
+      pts.push([
+        mt**3*lx1 + 3*mt**2*t*cp1x + 3*mt*t**2*cp2x + t**3*lx2,
+        mt**3*ly1 + 3*mt**2*t*cp1y + 3*mt*t**2*cp2y + t**3*ly2,
+      ]);
+      // First derivative of cubic bezier
+      const dvx = 3*(mt**2*(cp1x-lx1) + 2*mt*t*(cp2x-cp1x) + t**2*(lx2-cp2x));
+      const dvy = 3*(mt**2*(cp1y-ly1) + 2*mt*t*(cp2y-cp1y) + t**2*(ly2-cp2y));
+      const spd = Math.hypot(dvx, dvy);
+      tangents.push([dvx, dvy, spd]);
+      speeds.push(spd);
+    }
 
-    // Arrowheads drawn at the original tip points
+    // Fast (straight) sections get full width; slow (tight-bend) sections get thin
+    const minSpd = Math.min(...speeds), maxSpd = Math.max(...speeds);
+    const spdRange = maxSpd - minSpd;
+    const minW = w * 0.18, maxW = w;
+
+    // Build a filled polygon offset perpendicular to the tangent at each sample
+    const left = [], right = [];
+    for (let i = 0; i <= N; i++) {
+      const [bx, by] = pts[i];
+      const [dvx, dvy, spd] = tangents[i];
+      const rawNorm = spdRange < 0.001 ? 1 : (speeds[i] - minSpd) / spdRange;
+      const hw = (minW + (1 - rawNorm) * (maxW - minW)) / 2;
+      // Perpendicular unit vector (rotate tangent 90°)
+      const [px, py] = spd < 0.001 ? [0, hw] : [-dvy / spd * hw, dvx / spd * hw];
+      left.push([bx + px, by + py]);
+      right.push([bx - px, by - py]);
+    }
+
+    ctx.save();
+    ctx.fillStyle = color;
+
+    // Filled variable-width body
+    ctx.beginPath();
+    ctx.moveTo(left[0][0], left[0][1]);
+    for (let i = 1; i <= N; i++) ctx.lineTo(left[i][0], left[i][1]);
+    for (let i = N; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
+    ctx.closePath();
+    ctx.fill();
+
+    // Arrowheads
     if (hasEndArrow) {
       ctx.beginPath();
       ctx.moveTo(x2, y2);
-      ctx.lineTo(x2 - head * Math.cos(endAngle - Math.PI / 6), y2 - head * Math.sin(endAngle - Math.PI / 6));
-      ctx.lineTo(x2 - head * Math.cos(endAngle + Math.PI / 6), y2 - head * Math.sin(endAngle + Math.PI / 6));
+      ctx.lineTo(x2 - head * Math.cos(endAngle - Math.PI/6), y2 - head * Math.sin(endAngle - Math.PI/6));
+      ctx.lineTo(x2 - head * Math.cos(endAngle + Math.PI/6), y2 - head * Math.sin(endAngle + Math.PI/6));
       ctx.closePath(); ctx.fill();
     }
     if (hasStartArrow) {
       ctx.beginPath();
       ctx.moveTo(x1, y1);
-      ctx.lineTo(x1 - head * Math.cos(startAngle - Math.PI / 6), y1 - head * Math.sin(startAngle - Math.PI / 6));
-      ctx.lineTo(x1 - head * Math.cos(startAngle + Math.PI / 6), y1 - head * Math.sin(startAngle + Math.PI / 6));
+      ctx.lineTo(x1 - head * Math.cos(startAngle - Math.PI/6), y1 - head * Math.sin(startAngle - Math.PI/6));
+      ctx.lineTo(x1 - head * Math.cos(startAngle + Math.PI/6), y1 - head * Math.sin(startAngle + Math.PI/6));
       ctx.closePath(); ctx.fill();
     }
     ctx.restore();
