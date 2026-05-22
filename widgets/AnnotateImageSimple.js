@@ -11,6 +11,8 @@ const ICON_PATHS = {
   arrow:   `<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>`,
   rect:    `<rect x="3" y="3" width="18" height="18" rx="2"/>`,
   ellipse: `<ellipse cx="12" cy="12" rx="10" ry="6"/>`,
+  hand:    `<path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>`,
+  zoom:    `<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6"/><path d="M8 11h6"/>`,
   trash:   `<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>`,
 };
 
@@ -39,6 +41,9 @@ function injectStyles() {
     .ais-tool-btn { background:transparent; border:none; border-radius:4px; color:var(--muted-foreground); cursor:pointer; width:28px; height:28px; display:flex; align-items:center; justify-content:center; transition:background 0.15s,color 0.15s; flex-shrink:0; padding:0; }
     .ais-tool-btn:hover { background:var(--muted); color:var(--foreground); }
     .ais-tool-btn.active { background:transparent; color:var(--foreground); box-shadow:0 0 0 1.5px #7a9db8, 0 0 6px 1px rgba(122,157,184,0.4); }
+    .ais-toggle-btn { background:transparent; border:none; border-radius:4px; color:var(--muted-foreground); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.15s,color 0.15s; flex-shrink:0; padding:0; }
+    .ais-toggle-btn:hover { background:var(--muted); color:var(--foreground); }
+    .ais-toggle-btn.active { background:rgba(122,157,184,0.2); color:var(--foreground); border:1px solid rgba(122,157,184,0.5); }
     .ais-setting-label { font-size:11px; color:var(--muted-foreground); }
     .ais-range { accent-color:#7a9db8; cursor:pointer; width:80px; min-width:30px; flex-shrink:1; }
     .ais-color-btn { width:22px; height:22px; border-radius:4px; border:2px solid var(--border,#555); cursor:pointer; flex-shrink:0; }
@@ -267,17 +272,24 @@ export default function AnnotateImageSimple(container, props) {
     "display:flex;align-items:center;gap:4px;padding:5px 8px;" +
     "background:var(--card);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;min-height:38px;";
 
-  // Tool buttons (left side)
-  const TOOLS = [
-    { id: "select",  title: "Select & Move" },
-    { id: "paint",   title: "Paint" },
-    { id: "text",    title: "Text" },
-    { id: "arrow",   title: "Arrow" },
-    { id: "rect",    title: "Rectangle" },
-    { id: "ellipse", title: "Ellipse / Circle" },
+  // Tool buttons — navigation group
+  const NAV_TOOLS = [
+    { id: "select",  title: "Select & Move  [V]" },
+    { id: "hand",    title: "Pan  [H]" },
+    { id: "zoom",    title: "Zoom  [Z]" },
   ];
+  // Tool buttons — drawing group
+  const DRAW_TOOLS = [
+    { id: "paint",   title: "Draw  [D]" },
+    { id: "text",    title: "Text  [T]" },
+    { id: "arrow",   title: "Arrow  [L]" },
+    { id: "rect",    title: "Rectangle  [R]" },
+    { id: "ellipse", title: "Ellipse  [O]" },
+  ];
+  const TOOLS = [...NAV_TOOLS, ...DRAW_TOOLS];
   const toolBtns = {};
-  for (const t of TOOLS) {
+
+  const _mkToolBtn = (t) => {
     const btn = document.createElement("button");
     btn.className = "ais-tool-btn" + (t.id === activeTool ? " active" : "");
     _addTooltip(btn, t.title);
@@ -285,17 +297,14 @@ export default function AnnotateImageSimple(container, props) {
     btn.addEventListener("pointerdown", (e) => { e.stopPropagation(); setTool(t.id); btn.blur(); });
     toolbar.appendChild(btn);
     toolBtns[t.id] = btn;
-  }
+  };
 
-  // Divider
-  const divider = document.createElement("div");
-  divider.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
-  toolbar.appendChild(divider);
+  for (const t of NAV_TOOLS) _mkToolBtn(t);
 
-  // Reset-view button (dimmed when at default zoom/pan)
+  // Fit-to-window button sits with the nav group
   resetViewBtn = document.createElement("button");
   resetViewBtn.className = "ais-tool-btn";
-  _addTooltip(resetViewBtn, "Fit canvas to window");
+  _addTooltip(resetViewBtn, "Fit canvas to window  [F]");
   resetViewBtn.style.opacity = "0.4";
   resetViewBtn.style.pointerEvents = "none";
   resetViewBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -312,13 +321,20 @@ export default function AnnotateImageSimple(container, props) {
   });
   toolbar.appendChild(resetViewBtn);
 
+  // Divider between nav and drawing tools
+  const divider = document.createElement("div");
+  divider.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
+  toolbar.appendChild(divider);
+
+  for (const t of DRAW_TOOLS) _mkToolBtn(t);
+
   // Divider before action buttons
   const divider1b = document.createElement("div");
   divider1b.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
   toolbar.appendChild(divider1b);
 
   // ── Action button group ────────────────────────────────────────────────────
-  // Shared popup infrastructure (one popup at a time)
+  // Shared confirm popup
   let actionPopup = null;
   function _dismissActionPopup() {
     if (actionPopup) { actionPopup.remove(); actionPopup = null; }
@@ -351,142 +367,182 @@ export default function AnnotateImageSimple(container, props) {
     setTimeout(() => document.addEventListener("pointerdown", _outsideActionHandler, true), 0);
   }
 
-  // ── Delete selected ──────────────────────────────────────────────────────
-  deleteSelectedBtn = document.createElement("button");
-  deleteSelectedBtn.className = "ais-tool-btn";
-  _addTooltip(deleteSelectedBtn, "Delete selected");
-  deleteSelectedBtn.style.opacity = "0.4";
-  deleteSelectedBtn.style.pointerEvents = "none";
-  deleteSelectedBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
-    <path d="M3 6h18"/>
-    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-  </svg>`;
-  function _updateDeleteSelectedBtn() {
-    const hasSelection = (currentValue.selected_ids || []).length > 0;
-    deleteSelectedBtn.style.opacity = hasSelection ? "1" : "0.4";
-    deleteSelectedBtn.style.pointerEvents = hasSelection ? "auto" : "none";
-  }
-  _updateDeleteSelectedBtn();
-  deleteSelectedBtn.addEventListener("pointerdown", (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    deleteSelectedBtn.blur();
+  // Action logic functions (shared by inline buttons + overflow menu)
+  function _executeDeleteSelected() {
     if (textEditId) commitTextEdit();
     const selIds = currentValue.selected_ids || [];
     if (!selIds.length) return;
     const importedIds = (currentValue.imported_annotations || []).map((a) => a.id);
     const newOverrides = { ...(currentValue.overrides || {}) };
     for (const id of selIds) {
-      if (importedIds.includes(id)) {
-        newOverrides[id] = { ...(newOverrides[id] || {}), deleted: true };
-      }
+      if (importedIds.includes(id)) newOverrides[id] = { ...(newOverrides[id] || {}), deleted: true };
     }
     const newAnnotations = (currentValue.annotations || []).filter((a) => !selIds.includes(a.id));
     currentValue = { ...currentValue, annotations: newAnnotations, overrides: newOverrides, selected_ids: [] };
     _emit(); rebuildSettings(); renderCanvas();
-  });
-  toolbar.appendChild(deleteSelectedBtn);
-
-  // ── Delete all ──────────────────────────────────────────────────────────
-  // Icon: trash can with asterisk badge
-  const deleteAllBtn = document.createElement("button");
-  deleteAllBtn.className = "ais-tool-btn";
-  _addTooltip(deleteAllBtn, "Delete all annotations");
-  deleteAllBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
-    <path d="M3 6h18" fill="none"/>
-    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" fill="none"/>
-  </svg>`;
+  }
   function _executeDeleteAll() {
     if (textEditId) commitTextEdit();
     const importedIds = (currentValue.imported_annotations || []).map((a) => a.id);
     const newOverrides = { ...(currentValue.overrides || {}) };
-    for (const id of importedIds) {
-      newOverrides[id] = { ...(newOverrides[id] || {}), deleted: true };
-    }
+    for (const id of importedIds) newOverrides[id] = { ...(newOverrides[id] || {}), deleted: true };
     currentValue = { ...currentValue, annotations: [], overrides: newOverrides, selected_ids: [] };
     _emit(); rebuildSettings(); renderCanvas();
   }
-  deleteAllBtn.addEventListener("pointerdown", (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    deleteAllBtn.blur();
-    _showActionPopup(deleteAllBtn, "Delete all annotations?", "Delete all",
-      "background:var(--destructive);color:#fff", _executeDeleteAll);
-  });
-  toolbar.appendChild(deleteAllBtn);
-
-  // Small visual gap between delete and reset pairs
-  const pairGap = document.createElement("div");
-  pairGap.style.cssText = "width:4px;flex-shrink:0;";
-  toolbar.appendChild(pairGap);
-
-  // ── Reset selected overrides ─────────────────────────────────────────────
-  // Icon: counterclockwise arrow with selection dot — amber
-  const resetOverridesBtn = document.createElement("button");
-  resetOverridesBtn.className = "ais-tool-btn";
-  _addTooltip(resetOverridesBtn, "Reset overrides for selected");
-  resetOverridesBtn.style.color = "#c9830a";
-  resetOverridesBtn.style.opacity = "0.4";
-  resetOverridesBtn.style.pointerEvents = "none";
-  resetOverridesBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-    <path d="M3 3v5h5"/>
-  </svg>`;
-  function _updateResetOverridesBtn() {
-    const selIds = currentValue.selected_ids || [];
-    const overrides = currentValue.overrides || {};
-    const eligible = selIds.length === 1 && _isImported(selIds[0]) &&
-      overrides[selIds[0]] && Object.keys(overrides[selIds[0]]).length > 0;
-    resetOverridesBtn.style.opacity = eligible ? "1" : "0.4";
-    resetOverridesBtn.style.pointerEvents = eligible ? "auto" : "none";
-  }
-  _updateResetOverridesBtn();
-  resetOverridesBtn.addEventListener("pointerdown", (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    resetOverridesBtn.blur();
+  function _executeResetSelected() {
     const selId = (currentValue.selected_ids || [])[0];
     if (!selId) return;
     const newOverrides = { ...(currentValue.overrides || {}) };
     delete newOverrides[selId];
     currentValue = { ...currentValue, overrides: newOverrides };
     _emit(); rebuildSettings(); renderCanvas();
-  });
-  toolbar.appendChild(resetOverridesBtn);
-
-  // ── Reset all overrides ──────────────────────────────────────────────────
-  // Icon: counterclockwise arrow with asterisk — amber
-  resetAllOverridesBtn = document.createElement("button");
-  resetAllOverridesBtn.className = "ais-tool-btn";
-  _addTooltip(resetAllOverridesBtn, "Reset all overrides");
-  resetAllOverridesBtn.style.color = "#c9830a";
-  resetAllOverridesBtn.style.opacity = "0.4";
-  resetAllOverridesBtn.style.pointerEvents = "none";
-  resetAllOverridesBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M3 2v6h6"/>
-    <path d="M21 12A9 9 0 0 0 6 5.3L3 8"/>
-    <path d="M21 22v-6h-6"/>
-    <path d="M3 12a9 9 0 0 0 15 6.7l3-2.7"/>
-  </svg>`;
-  function _updateResetAllOverridesBtn() {
-    const hasOverrides = Object.keys(currentValue.overrides || {}).length > 0;
-    resetAllOverridesBtn.style.opacity = hasOverrides ? "1" : "0.4";
-    resetAllOverridesBtn.style.pointerEvents = hasOverrides ? "auto" : "none";
   }
-  _updateResetAllOverridesBtn();
-  resetAllOverridesBtn.addEventListener("pointerdown", (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    resetAllOverridesBtn.blur();
-    _showActionPopup(resetAllOverridesBtn, "Reset all overrides?", "Reset all",
-      "background:#c9830a;color:#fff", () => {
-        currentValue = { ...currentValue, overrides: {} };
-        _emit(); rebuildSettings(); renderCanvas();
-      });
+  function _executeResetAll() {
+    currentValue = { ...currentValue, overrides: {} };
+    _emit(); rebuildSettings(); renderCanvas();
+  }
+
+  // Eligibility checks (used to dim buttons + menu rows)
+  function _canDeleteSelected() { return (currentValue.selected_ids || []).length > 0; }
+  function _canResetSelected() {
+    const selIds = currentValue.selected_ids || [];
+    const overrides = currentValue.overrides || {};
+    return selIds.length === 1 && _isImported(selIds[0]) &&
+      overrides[selIds[0]] && Object.keys(overrides[selIds[0]]).length > 0;
+  }
+  function _canResetAll() { return Object.keys(currentValue.overrides || {}).length > 0; }
+
+  // Action descriptors — single source of truth for icon, label, enabled, run
+  const ACTION_DESCS = [
+    {
+      id: "deleteSelected", label: "Delete selected", color: null,
+      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
+      isEnabled: _canDeleteSelected,
+      trigger: (anchor) => _executeDeleteSelected(),
+    },
+    {
+      id: "deleteAll", label: "Delete all annotations", color: null,
+      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18" fill="none"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" fill="none"/></svg>`,
+      isEnabled: () => true,
+      trigger: (anchor) => _showActionPopup(anchor, "Delete all annotations?", "Delete all",
+        "background:var(--destructive);color:#fff", _executeDeleteAll),
+    },
+    {
+      id: "resetSelected", label: "Reset overrides for selected", color: "#c9830a",
+      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`,
+      isEnabled: _canResetSelected,
+      trigger: (anchor) => _executeResetSelected(),
+    },
+    {
+      id: "resetAll", label: "Reset all overrides", color: "#c9830a",
+      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v6h6"/><path d="M21 12A9 9 0 0 0 6 5.3L3 8"/><path d="M21 22v-6h-6"/><path d="M3 12a9 9 0 0 0 15 6.7l3-2.7"/></svg>`,
+      isEnabled: _canResetAll,
+      trigger: (anchor) => _showActionPopup(anchor, "Reset all overrides?", "Reset all",
+        "background:#c9830a;color:#fff", _executeResetAll),
+    },
+  ];
+
+  // Build inline action buttons wrapped in a group div
+  const actionsGroup = document.createElement("div");
+  actionsGroup.style.cssText = "display:flex;align-items:center;gap:0;flex-shrink:0;";
+  const _inlineBtns = {};
+  // Small gap between the two pairs
+  ACTION_DESCS.forEach((desc, i) => {
+    if (i === 2) {
+      const g = document.createElement("div");
+      g.style.cssText = "width:4px;flex-shrink:0;";
+      actionsGroup.appendChild(g);
+    }
+    const btn = document.createElement("button");
+    btn.className = "ais-tool-btn";
+    if (desc.color) btn.style.color = desc.color;
+    btn.innerHTML = desc.icon;
+    _addTooltip(btn, desc.label);
+    btn.addEventListener("pointerdown", (e) => { e.stopPropagation(); e.preventDefault(); btn.blur(); desc.trigger(btn); });
+    actionsGroup.appendChild(btn);
+    _inlineBtns[desc.id] = btn;
   });
-  toolbar.appendChild(resetAllOverridesBtn);
+  toolbar.appendChild(actionsGroup);
+
+  // Overflow button — shown when actionsGroup doesn't fit
+  const overflowBtn = document.createElement("button");
+  overflowBtn.className = "ais-tool-btn";
+  overflowBtn.style.cssText = "display:none;font-size:16px;letter-spacing:1px;width:32px;";
+  overflowBtn.textContent = "···";
+  _addTooltip(overflowBtn, "Actions");
+  let overflowMenuEl = null;
+  function _dismissOverflowMenu() {
+    if (overflowMenuEl) { overflowMenuEl.remove(); overflowMenuEl = null; }
+    document.removeEventListener("pointerdown", _outsideOverflowHandler, true);
+  }
+  function _outsideOverflowHandler(e) {
+    if (overflowMenuEl && !overflowMenuEl.contains(e.target) && e.target !== overflowBtn) _dismissOverflowMenu();
+  }
+  overflowBtn.addEventListener("pointerdown", (e) => {
+    e.stopPropagation(); e.preventDefault(); overflowBtn.blur();
+    if (overflowMenuEl) { _dismissOverflowMenu(); return; }
+    const rect = overflowBtn.getBoundingClientRect();
+    overflowMenuEl = document.createElement("div");
+    overflowMenuEl.style.cssText =
+      "position:fixed;z-index:99999;background:var(--card);border:1px solid var(--border);" +
+      "border-radius:8px;padding:4px;box-shadow:0 4px 16px rgba(0,0,0,0.4);min-width:220px;" +
+      `left:${rect.left}px;top:${rect.bottom + 6}px;`;
+    ACTION_DESCS.forEach((desc, i) => {
+      if (i === 2) {
+        const sep = document.createElement("div");
+        sep.style.cssText = "height:1px;background:var(--border);margin:3px 0;";
+        overflowMenuEl.appendChild(sep);
+      }
+      const enabled = desc.isEnabled();
+      const row = document.createElement("button");
+      row.style.cssText =
+        `display:flex;align-items:center;gap:10px;width:100%;padding:7px 10px;` +
+        `border:none;border-radius:5px;background:transparent;cursor:${enabled ? "pointer" : "default"};` +
+        `color:${desc.color || "var(--foreground)"};opacity:${enabled ? "1" : "0.35"};` +
+        `font-size:12px;text-align:left;pointer-events:${enabled ? "auto" : "none"};`;
+      row.innerHTML = desc.icon + `<span>${desc.label}</span>`;
+      row.addEventListener("pointerdown", (e) => {
+        e.stopPropagation();
+        _dismissOverflowMenu();
+        if (enabled) desc.trigger(overflowBtn);
+      });
+      overflowMenuEl.appendChild(row);
+    });
+    document.body.appendChild(overflowMenuEl);
+    setTimeout(() => document.addEventListener("pointerdown", _outsideOverflowHandler, true), 0);
+  });
+  toolbar.appendChild(overflowBtn);
+
+  // Enabled-state update functions referenced in rebuildSettings
+  function _updateDeleteSelectedBtn() {
+    const on = _canDeleteSelected();
+    _inlineBtns.deleteSelected.style.opacity = on ? "1" : "0.4";
+    _inlineBtns.deleteSelected.style.pointerEvents = on ? "auto" : "none";
+  }
+  function _updateResetOverridesBtn() {
+    const on = _canResetSelected();
+    _inlineBtns.resetSelected.style.opacity = on ? "1" : "0.4";
+    _inlineBtns.resetSelected.style.pointerEvents = on ? "auto" : "none";
+  }
+  function _updateResetAllOverridesBtn() {
+    const on = _canResetAll();
+    _inlineBtns.resetAll.style.opacity = on ? "1" : "0.4";
+    _inlineBtns.resetAll.style.pointerEvents = on ? "auto" : "none";
+  }
+  // Initial state
+  _updateDeleteSelectedBtn(); _updateResetOverridesBtn(); _updateResetAllOverridesBtn();
+
+  // ResizeObserver — collapse action group into overflow button when toolbar is too narrow
+  const _actionsRO = new ResizeObserver(() => {
+    // Temporarily force both visible to measure natural width
+    actionsGroup.style.display = "flex";
+    overflowBtn.style.display = "none";
+    const collapsed = toolbar.scrollWidth > toolbar.clientWidth + 2;
+    actionsGroup.style.display = collapsed ? "none" : "flex";
+    overflowBtn.style.display = collapsed ? "flex" : "none";
+    if (!collapsed && overflowMenuEl) _dismissOverflowMenu();
+  });
+  _actionsRO.observe(toolbar);
 
   // Divider before settings area
   const divider2 = document.createElement("div");
@@ -579,7 +635,10 @@ export default function AnnotateImageSimple(container, props) {
   document.addEventListener("keyup",   _onAltUp);
 
   function _currentToolCursor() {
-    return activeTool === "select" ? "default" : "crosshair";
+    if (activeTool === "select") return "default";
+    if (activeTool === "hand") return "grab";
+    if (activeTool === "zoom") return "zoom-in";
+    return "crosshair";
   }
 
   function _applyViewTransform() {
@@ -750,7 +809,7 @@ export default function AnnotateImageSimple(container, props) {
   function _buildArrowToggles(source, onToggle) {
     const makeToggleBtn = (label, title, active, onClick) => {
       const btn = document.createElement("button");
-      btn.className = "ais-tool-btn" + (active ? " active" : "");
+      btn.className = "ais-toggle-btn" + (active ? " active" : "");
       _addTooltip(btn, title);
       btn.style.cssText = "font-size:14px;font-weight:bold;width:26px;height:26px;line-height:1;";
       btn.textContent = label;
@@ -1219,15 +1278,17 @@ export default function AnnotateImageSimple(container, props) {
         ctx.stroke();
       }
 
-      // Rotation handle — thin dotted stem + filled circle
-      ctx.strokeStyle = `rgba(${frameColorRgb},0.35)`; ctx.lineWidth = 0.75 / displayScale;
-      ctx.setLineDash([2 / displayScale, 2 / displayScale]);
-      ctx.beginPath(); ctx.moveTo(topMid[0], topMid[1]); ctx.lineTo(rh[0], rh[1]); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = frameColor;
-      ctx.beginPath(); ctx.arc(rh[0], rh[1], rhs, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 1.5 / displayScale;
-      ctx.beginPath(); ctx.arc(rh[0], rh[1], rhs, 0, Math.PI * 2); ctx.stroke();
+      // Rotation handle — thin dotted stem + filled circle (hidden for text)
+      if (!txFrame.noRotate) {
+        ctx.strokeStyle = `rgba(${frameColorRgb},0.35)`; ctx.lineWidth = 0.75 / displayScale;
+        ctx.setLineDash([2 / displayScale, 2 / displayScale]);
+        ctx.beginPath(); ctx.moveTo(topMid[0], topMid[1]); ctx.lineTo(rh[0], rh[1]); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = frameColor;
+        ctx.beginPath(); ctx.arc(rh[0], rh[1], rhs, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 1.5 / displayScale;
+        ctx.beginPath(); ctx.arc(rh[0], rh[1], rhs, 0, Math.PI * 2); ctx.stroke();
+      }
 
       ctx.restore();
     }
@@ -1790,15 +1851,18 @@ export default function AnnotateImageSimple(container, props) {
         };
         return;
       }
-      // single text: fall through to AABB
+      // text: fall through to AABB (rotation not supported for text)
     }
     const gb = _getGroupBounds(selIds);
     if (!gb) { txFrame = null; return; }
+    const isSingleText = selIds.length === 1 &&
+      _effectiveAnnotations().find((a) => a.id === selIds[0])?.type === "text";
     txFrame = {
       pivotX: gb.centerX, pivotY: gb.centerY,
-      rotation: selChanged ? 0 : (txFrame?.rotation ?? 0), // reset rotation on new selection
+      rotation: selChanged ? 0 : (txFrame?.rotation ?? 0),
       halfW: (gb.maxX - gb.minX) / 2 + pad,
       halfH: (gb.maxY - gb.minY) / 2 + pad,
+      noRotate: isSingleText,
       _selIds: [...selIds],
     };
   }
@@ -2077,13 +2141,15 @@ export default function AnnotateImageSimple(container, props) {
   }
   document.addEventListener("keydown", _sizeInterceptor, { capture: true });
 
-  const _toolHotkeys = { q: "select", b: "paint", t: "text", l: "arrow", r: "rect", o: "ellipse" };
+  const _toolHotkeys = { v: "select", h: "hand", z: "zoom", d: "paint", t: "text", l: "arrow", r: "rect", o: "ellipse" };
   function _toolHotkeyInterceptor(e) {
     if (textEditId) return;
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const tool = _toolHotkeys[e.key.toLowerCase()];
+    const key = e.key.toLowerCase();
+    if (key === "f") { e.stopPropagation(); resetView(); return; }
+    const tool = _toolHotkeys[key];
     if (!tool) return;
     e.stopPropagation();
     setTool(tool);
@@ -2106,13 +2172,30 @@ export default function AnnotateImageSimple(container, props) {
     canvas.focus({ preventScroll: true });
     isPointerDown = true;
 
-    // Alt + LMB → pan (overrides all tools)
-    if (e.altKey) {
+    // Alt + LMB or hand tool → pan
+    if (e.altKey || activeTool === "hand") {
       e.preventDefault();
       isPanning = true;
       panStartX = e.clientX - panX;
       panStartY = e.clientY - panY;
       canvas.style.cursor = "grabbing";
+      return;
+    }
+
+    // Zoom tool — drag right to zoom in, drag left to zoom out, anchored to click point
+    if (activeTool === "zoom") {
+      e.preventDefault();
+      const rect = canvasWrap.getBoundingClientRect();
+      dragState = {
+        type: "zoom",
+        startClientX: e.clientX,
+        anchorMx: e.clientX - rect.left,
+        anchorMy: e.clientY - rect.top,
+        startViewScale: viewScale,
+        startPanX: panX,
+        startPanY: panY,
+      };
+      canvas.style.cursor = "ew-resize";
       return;
     }
 
@@ -2130,7 +2213,7 @@ export default function AnnotateImageSimple(container, props) {
           if (selIds.includes(ann.id)) s[ann.id] = _snapshotAnn(ann);
         return s;
       };
-      if (Math.hypot(cx - rh[0], cy - rh[1]) <= handleR) {
+      if (!txFrame.noRotate && Math.hypot(cx - rh[0], cy - rh[1]) <= handleR) {
         dragState = { type: "txRotate",
           pivot: { x: txFrame.pivotX, y: txFrame.pivotY },
           origAngle: Math.atan2(cy - txFrame.pivotY, cx - txFrame.pivotX),
@@ -2206,7 +2289,7 @@ export default function AnnotateImageSimple(container, props) {
           return s;
         };
         // Rotation handle
-        if (Math.hypot(cx - rh[0], cy - rh[1]) <= handleR) {
+        if (!txFrame.noRotate && Math.hypot(cx - rh[0], cy - rh[1]) <= handleR) {
           dragState = { type: "txRotate",
             pivot: { x: txFrame.pivotX, y: txFrame.pivotY },
             origAngle: Math.atan2(cy - txFrame.pivotY, cx - txFrame.pivotX),
@@ -2421,6 +2504,21 @@ export default function AnnotateImageSimple(container, props) {
       return;
     }
 
+    if (dragState?.type === "zoom") {
+      const dx = e.clientX - dragState.startClientX;
+      // ~300px drag = 4× zoom change; exponential feel
+      const newVS = Math.max(0.25, Math.min(10, dragState.startViewScale * Math.pow(2, dx / 150)));
+      const ratio = newVS / dragState.startViewScale;
+      panX = dragState.anchorMx - (dragState.anchorMx - dragState.startPanX) * ratio;
+      panY = dragState.anchorMy - (dragState.anchorMy - dragState.startPanY) * ratio;
+      viewScale = newVS;
+      _applyViewTransform();
+      const isDefault = viewScale === 1 && panX === 0 && panY === 0;
+      resetViewBtn.style.opacity = isDefault ? "0.4" : "1";
+      resetViewBtn.style.pointerEvents = isDefault ? "none" : "auto";
+      return;
+    }
+
     const [cx, cy] = screenToCanvas(e);
 
     if (activeTool === "paint" && currentStroke) {
@@ -2603,6 +2701,12 @@ export default function AnnotateImageSimple(container, props) {
       return;
     }
 
+    if (dragState?.type === "zoom") {
+      dragState = null;
+      canvas.style.cursor = _currentToolCursor();
+      return;
+    }
+
     const [cx, cy] = screenToCanvas(e);
     canvas.style.cursor = _cursorForPos(cx, cy);
 
@@ -2725,7 +2829,7 @@ export default function AnnotateImageSimple(container, props) {
 
     if (_frameActiveTools.includes(activeTool)) {
       if (txFrame) {
-        if (Math.hypot(cx - _frameRotHandle(txFrame)[0], cy - _frameRotHandle(txFrame)[1]) <= handleR) return "grab";
+        if (!txFrame.noRotate && Math.hypot(cx - _frameRotHandle(txFrame)[0], cy - _frameRotHandle(txFrame)[1]) <= handleR) return "grab";
         for (const [hx, hy] of _frameCorners(txFrame))
           if (Math.hypot(cx - hx, cy - hy) <= handleR) return "grab";
         if (Math.hypot(cx - txFrame.pivotX, cy - txFrame.pivotY) <= handleR) return "grab";
@@ -2772,6 +2876,8 @@ export default function AnnotateImageSimple(container, props) {
       const hit = hitTest(cx, cy);
       return (hit && hit.type === "text") ? "grab" : "crosshair";
     }
+
+    if (activeTool === "zoom") return isAltHeld ? "zoom-out" : "zoom-in";
 
     return "crosshair";
   }
@@ -2872,6 +2978,8 @@ export default function AnnotateImageSimple(container, props) {
   function cleanup() {
     commitTextEdit();
     _dismissLayerPopup();
+    _dismissOverflowMenu();
+    _actionsRO.disconnect();
     _hideTooltip();
     _tooltipEl.remove();
     resizeObserver.disconnect();
