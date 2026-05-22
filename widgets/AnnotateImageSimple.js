@@ -307,8 +307,6 @@ export default function AnnotateImageSimple(container, props) {
     clearPopup.querySelector("#_ais-confirm").addEventListener("pointerdown", (e) => { e.stopPropagation(); _executeClear(); });
     setTimeout(() => document.addEventListener("pointerdown", _outsideClearHandler, true), 0);
   });
-  toolbar.appendChild(clearBtn);
-
   // Reset-view button (dimmed when at default zoom/pan) — grouped with clear
   resetViewBtn = document.createElement("button");
   resetViewBtn.className = "ais-tool-btn";
@@ -326,6 +324,8 @@ export default function AnnotateImageSimple(container, props) {
     resetViewBtn.blur();
   });
   toolbar.appendChild(resetViewBtn);
+
+  toolbar.appendChild(clearBtn);
 
   // Reset overrides button — active only when a single imported annotation with overrides is selected
   const resetOverridesBtn = document.createElement("button");
@@ -1064,6 +1064,18 @@ export default function AnnotateImageSimple(container, props) {
         ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(hx, hy, hw, 0, Math.PI*2); ctx.fill();
         ctx.strokeStyle = `rgba(${frameColorRgb},0.9)`; ctx.lineWidth = 1.5 / displayScale;
         ctx.beginPath(); ctx.arc(hx, hy, hw, 0, Math.PI*2); ctx.stroke();
+      }
+      // Center move handle — only shown in paint mode
+      if (activeTool === "paint") {
+        const chw = 5 / displayScale;
+        const chLen = 7 / displayScale;
+        const cpx = txFrame.pivotX, cpy = txFrame.pivotY;
+        ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(cpx, cpy, chw, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = `rgba(${frameColorRgb},0.9)`; ctx.lineWidth = 1.5 / displayScale;
+        ctx.beginPath(); ctx.arc(cpx, cpy, chw, 0, Math.PI*2); ctx.stroke();
+        ctx.strokeStyle = `rgba(${frameColorRgb},0.7)`; ctx.lineWidth = 1.5 / displayScale;
+        ctx.beginPath(); ctx.moveTo(cpx - chLen, cpy); ctx.lineTo(cpx + chLen, cpy);
+        ctx.moveTo(cpx, cpy - chLen); ctx.lineTo(cpx, cpy + chLen); ctx.stroke();
       }
       // Rotation handle stem + circle
       ctx.strokeStyle = `rgba(${frameColorRgb},0.5)`; ctx.lineWidth = 1 / displayScale;
@@ -1960,7 +1972,7 @@ export default function AnnotateImageSimple(container, props) {
 
     const [cx, cy] = screenToCanvas(e);
 
-    // OBB handle check — works in select, rect, and ellipse modes (wherever txFrame is shown)
+    // OBB handle check — works in all frame-active tools (select, paint, rect, ellipse)
     if (txFrame && _frameActiveTools.includes(activeTool)) {
       const handleR = 8 / displayScale;
       const selIds = currentValue.selected_ids || [];
@@ -1993,6 +2005,22 @@ export default function AnnotateImageSimple(container, props) {
             origSnapshots: buildSnapshots(), selIds: [...selIds] };
           canvas.style.cursor = "grabbing"; renderCanvas(); return;
         }
+      }
+      // Center move handle — always available in all frame-active tools (especially useful in paint mode)
+      if (Math.hypot(cx - txFrame.pivotX, cy - txFrame.pivotY) <= handleR) {
+        const origPositions = {};
+        for (const id of selIds) {
+          const a = _effectiveAnnotations().find((ann) => ann.id === id);
+          if (!a) continue;
+          if (a.type === "arrow") {
+            const cps = _defaultCps(a);
+            origPositions[id] = { x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2,
+              cp1x: cps.cp1x, cp1y: cps.cp1y, cp2x: cps.cp2x, cp2y: cps.cp2y };
+          } else origPositions[id] = { x: a.x ?? 0, y: a.y ?? 0 };
+        }
+        dragState = { type: "translate", startCx: cx, startCy: cy, origPositions,
+          origPivotX: txFrame.pivotX, origPivotY: txFrame.pivotY };
+        canvas.style.cursor = "grabbing"; renderCanvas(); return;
       }
     }
 
@@ -2133,22 +2161,8 @@ export default function AnnotateImageSimple(container, props) {
     }
 
     if (activeTool === "paint") {
-      const selIds = currentValue.selected_ids || [];
-      // If the selected paint annotation is hit, start translate drag instead of new stroke
-      if (selIds.length === 1) {
-        const selAnn = _effectiveAnnotations().find((a) => a.id === selIds[0] && a.type === "paint");
-        if (selAnn) {
-          const hit = hitTest(cx, cy);
-          if (hit && hit.id === selAnn.id) {
-            dragState = { type: "translate", startCx: cx, startCy: cy,
-              origPositions: { [selAnn.id]: { x: selAnn.x ?? 0, y: selAnn.y ?? 0 } },
-              origPivotX: txFrame?.pivotX, origPivotY: txFrame?.pivotY };
-            canvas.style.cursor = "grabbing";
-            return;
-          }
-        }
-      }
-      // Click on empty space (or different annotation): deselect + start new stroke
+      // In paint mode, corner/rotation/center handles are checked above — all other clicks draw.
+      // Deselect any selection and start new stroke
       currentValue = { ...currentValue, selected_ids: [] };
       rebuildSettings();
       const sz = toolSettings.paint.size;
@@ -2568,7 +2582,9 @@ export default function AnnotateImageSimple(container, props) {
         if (Math.hypot(cx - _frameRotHandle(txFrame)[0], cy - _frameRotHandle(txFrame)[1]) <= handleR) return "grab";
         for (const [hx, hy] of _frameCorners(txFrame))
           if (Math.hypot(cx - hx, cy - hy) <= handleR) return "grab";
+        if (Math.hypot(cx - txFrame.pivotX, cy - txFrame.pivotY) <= handleR) return "grab";
       }
+      if (activeTool === "paint") return "crosshair";
       if (activeTool === "select") {
         if (selIds.length === 1) {
           const sa = _effectiveAnnotations().find((a) => a.id === selIds[0]);

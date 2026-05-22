@@ -45,7 +45,7 @@ class AnnotateImage(DataNode):
                 name="image",
                 default_value=None,
                 tooltip="Input image to annotate",
-                allowed_modes={ParameterMode.INPUT},
+                allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
                 hide_property=True
             )
         )
@@ -408,6 +408,10 @@ class AnnotateImage(DataNode):
         self.set_parameter_value("output_image", artifact)
         self.parameter_output_values["output_image"] = artifact
         self.publish_update_to_parameter("output_image", artifact)
+
+        if image_artifact:
+            self.parameter_output_values["image"] = image_artifact
+            self.publish_update_to_parameter("image", image_artifact)
 
         self.parameter_output_values["annotation_data"] = annotation_data
         self.publish_update_to_parameter("annotation_data", annotation_data)
