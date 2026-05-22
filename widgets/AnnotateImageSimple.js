@@ -38,7 +38,7 @@ function injectStyles() {
   el.textContent = `
     .ais-tool-btn { background:transparent; border:none; border-radius:4px; color:var(--muted-foreground); cursor:pointer; width:28px; height:28px; display:flex; align-items:center; justify-content:center; transition:background 0.15s,color 0.15s; flex-shrink:0; padding:0; }
     .ais-tool-btn:hover { background:var(--muted); color:var(--foreground); }
-    .ais-tool-btn.active { background:#7a9db8; color:#ffffff; }
+    .ais-tool-btn.active { background:transparent; color:var(--foreground); box-shadow:0 0 0 1.5px #7a9db8, 0 0 6px 1px rgba(122,157,184,0.4); }
     .ais-setting-label { font-size:11px; color:var(--muted-foreground); }
     .ais-range { accent-color:#7a9db8; cursor:pointer; width:80px; min-width:30px; flex-shrink:1; }
     .ais-color-btn { width:22px; height:22px; border-radius:4px; border:2px solid var(--border,#555); cursor:pointer; flex-shrink:0; }
@@ -111,6 +111,49 @@ export default function AnnotateImageSimple(container, props) {
   let panStartX = 0, panStartY = 0;
   let isAltHeld = false;
   let resetViewBtn = null;
+  let deleteSelectedBtn = null;
+  let resetAllOverridesBtn = null;
+
+  // ── Tooltip system ────────────────────────────────────────────────────────
+  const _tooltipEl = document.createElement("div");
+  _tooltipEl.style.cssText =
+    "position:fixed;z-index:999999;pointer-events:none;opacity:0;transition:opacity 0.1s;" +
+    "background:var(--foreground);color:var(--background);font-size:11px;line-height:1.3;" +
+    "padding:4px 8px;border-radius:5px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.3);" +
+    "transform:translateX(-50%) translateY(-4px);";
+  // Arrow pointing downward
+  const _tooltipArrow = document.createElement("div");
+  _tooltipArrow.style.cssText =
+    "position:absolute;left:50%;bottom:-4px;transform:translateX(-50%);" +
+    "width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;" +
+    "border-top:4px solid var(--foreground);";
+  _tooltipEl.appendChild(_tooltipArrow);
+  document.body.appendChild(_tooltipEl);
+  let _tooltipTimer = null;
+
+  function _showTooltip(text, anchorEl) {
+    clearTimeout(_tooltipTimer);
+    _tooltipTimer = setTimeout(() => {
+      _tooltipEl.textContent = text;
+      _tooltipEl.appendChild(_tooltipArrow);
+      const rect = anchorEl.getBoundingClientRect();
+      _tooltipEl.style.left = (rect.left + rect.width / 2) + "px";
+      _tooltipEl.style.top = (rect.top - 8) + "px";
+      _tooltipEl.style.transform = "translateX(-50%) translateY(-100%)";
+      _tooltipEl.style.opacity = "1";
+    }, 300);
+  }
+
+  function _hideTooltip() {
+    clearTimeout(_tooltipTimer);
+    _tooltipEl.style.opacity = "0";
+  }
+
+  function _addTooltip(el, text) {
+    el.addEventListener("mouseenter", () => _showTooltip(text, el));
+    el.addEventListener("mouseleave", _hideTooltip);
+    el.addEventListener("pointerdown", _hideTooltip);
+  }
 
   // unified transform frame (OBB)
   let txFrame = null; // { pivotX, pivotY, rotation, halfW, halfH }
@@ -237,7 +280,7 @@ export default function AnnotateImageSimple(container, props) {
   for (const t of TOOLS) {
     const btn = document.createElement("button");
     btn.className = "ais-tool-btn" + (t.id === activeTool ? " active" : "");
-    btn.title = t.title;
+    _addTooltip(btn, t.title);
     btn.appendChild(mkIcon(t.id));
     btn.addEventListener("pointerdown", (e) => { e.stopPropagation(); setTool(t.id); btn.blur(); });
     toolbar.appendChild(btn);
@@ -249,73 +292,17 @@ export default function AnnotateImageSimple(container, props) {
   divider.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
   toolbar.appendChild(divider);
 
-  // Clear annotations button
-  const clearBtn = document.createElement("button");
-  clearBtn.className = "ais-tool-btn";
-  clearBtn.title = "Clear all annotations";
-  clearBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-    <polyline points="1,3.5 2.5,3.5 13,3.5"/>
-    <path d="M4.5 3.5V2.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1"/>
-    <path d="M11.5 3.5l-.6 8a1 1 0 0 1-1 0.9H4.1a1 1 0 0 1-1-0.9l-.6-8"/>
-    <line x1="5.5" y1="6" x2="5.5" y2="10"/>
-    <line x1="8.5" y1="6" x2="8.5" y2="10"/>
-  </svg>`;
-  let clearPopup = null;
-  function _dismissClearPopup() {
-    if (clearPopup) { clearPopup.remove(); clearPopup = null; }
-    document.removeEventListener("pointerdown", _outsideClearHandler, true);
-  }
-  function _outsideClearHandler(e) {
-    if (clearPopup && !clearPopup.contains(e.target)) _dismissClearPopup();
-  }
-  function _executeClear() {
-    _dismissClearPopup();
-    if (textEditId) commitTextEdit();
-    const importedIds = (currentValue.imported_annotations || []).map((a) => a.id);
-    const newOverrides = { ...(currentValue.overrides || {}) };
-    for (const id of importedIds) {
-      newOverrides[id] = { ...(newOverrides[id] || {}), deleted: true };
-    }
-    currentValue = { ...currentValue, annotations: [], overrides: newOverrides, selected_ids: [] };
-    _emit();
-    rebuildSettings();
-    renderCanvas();
-  }
-  clearBtn.addEventListener("pointerdown", (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    clearBtn.blur();
-    if (clearPopup) { _dismissClearPopup(); return; }
-    const rect = clearBtn.getBoundingClientRect();
-    clearPopup = document.createElement("div");
-    clearPopup.style.cssText =
-      "position:fixed;z-index:99999;background:var(--card);border:1px solid var(--border);" +
-      "border-radius:8px;padding:12px 14px;box-shadow:0 4px 16px rgba(0,0,0,0.4);" +
-      "display:flex;flex-direction:column;gap:10px;min-width:200px;" +
-      `left:${rect.left}px;top:${rect.bottom + 6}px;`;
-    clearPopup.innerHTML = `
-      <div style="font-size:12px;color:var(--foreground);line-height:1.4;">
-        Clear all annotations?<br>
-        <span style="color:var(--muted-foreground);font-size:11px;">This cannot be undone.</span>
-      </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;">
-        <button id="_ais-cancel" style="font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);background:var(--muted);color:var(--muted-foreground);cursor:pointer;">Cancel</button>
-        <button id="_ais-confirm" style="font-size:11px;padding:3px 10px;border-radius:5px;border:none;background:var(--destructive);color:#fff;cursor:pointer;">Clear</button>
-      </div>`;
-    document.body.appendChild(clearPopup);
-    clearPopup.querySelector("#_ais-cancel").addEventListener("pointerdown", (e) => { e.stopPropagation(); _dismissClearPopup(); });
-    clearPopup.querySelector("#_ais-confirm").addEventListener("pointerdown", (e) => { e.stopPropagation(); _executeClear(); });
-    setTimeout(() => document.addEventListener("pointerdown", _outsideClearHandler, true), 0);
-  });
-  // Reset-view button (dimmed when at default zoom/pan) — grouped with clear
+  // Reset-view button (dimmed when at default zoom/pan)
   resetViewBtn = document.createElement("button");
   resetViewBtn.className = "ais-tool-btn";
-  resetViewBtn.title = "Reset view — fit canvas to window";
+  _addTooltip(resetViewBtn, "Fit canvas to window");
   resetViewBtn.style.opacity = "0.4";
   resetViewBtn.style.pointerEvents = "none";
-  resetViewBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-    <rect x="1" y="1" width="12" height="12" rx="1.5"/>
-    <path d="M4.5 1v2.5H2M9.5 1v2.5H12M4.5 13v-2.5H2M9.5 13v-2.5H12"/>
+  resetViewBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 3H5a2 2 0 0 0-2 2v3"/>
+    <path d="M21 8V5a2 2 0 0 0-2-2h-3"/>
+    <path d="M3 16v3a2 2 0 0 0 2 2h3"/>
+    <path d="M16 21h3a2 2 0 0 0 2-2v-3"/>
   </svg>`;
   resetViewBtn.addEventListener("pointerdown", (e) => {
     e.stopPropagation();
@@ -325,16 +312,125 @@ export default function AnnotateImageSimple(container, props) {
   });
   toolbar.appendChild(resetViewBtn);
 
-  toolbar.appendChild(clearBtn);
+  // Divider before action buttons
+  const divider1b = document.createElement("div");
+  divider1b.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
+  toolbar.appendChild(divider1b);
 
-  // Reset overrides button — active only when a single imported annotation with overrides is selected
+  // ── Action button group ────────────────────────────────────────────────────
+  // Shared popup infrastructure (one popup at a time)
+  let actionPopup = null;
+  function _dismissActionPopup() {
+    if (actionPopup) { actionPopup.remove(); actionPopup = null; }
+    document.removeEventListener("pointerdown", _outsideActionHandler, true);
+  }
+  function _outsideActionHandler(e) {
+    if (actionPopup && !actionPopup.contains(e.target)) _dismissActionPopup();
+  }
+  function _showActionPopup(anchorEl, message, confirmLabel, confirmStyle, onConfirm) {
+    if (actionPopup) { _dismissActionPopup(); return; }
+    const rect = anchorEl.getBoundingClientRect();
+    actionPopup = document.createElement("div");
+    actionPopup.style.cssText =
+      "position:fixed;z-index:99999;background:var(--card);border:1px solid var(--border);" +
+      "border-radius:8px;padding:12px 14px;box-shadow:0 4px 16px rgba(0,0,0,0.4);" +
+      "display:flex;flex-direction:column;gap:10px;min-width:200px;" +
+      `left:${rect.left}px;top:${rect.bottom + 6}px;`;
+    actionPopup.innerHTML = `
+      <div style="font-size:12px;color:var(--foreground);line-height:1.4;">
+        ${message}<br>
+        <span style="color:var(--muted-foreground);font-size:11px;">This cannot be undone.</span>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button id="_ais-cancel" style="font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);background:var(--muted);color:var(--muted-foreground);cursor:pointer;">Cancel</button>
+        <button id="_ais-confirm" style="font-size:11px;padding:3px 10px;border-radius:5px;border:none;${confirmStyle};cursor:pointer;">${confirmLabel}</button>
+      </div>`;
+    document.body.appendChild(actionPopup);
+    actionPopup.querySelector("#_ais-cancel").addEventListener("pointerdown", (e) => { e.stopPropagation(); _dismissActionPopup(); });
+    actionPopup.querySelector("#_ais-confirm").addEventListener("pointerdown", (e) => { e.stopPropagation(); _dismissActionPopup(); onConfirm(); });
+    setTimeout(() => document.addEventListener("pointerdown", _outsideActionHandler, true), 0);
+  }
+
+  // ── Delete selected ──────────────────────────────────────────────────────
+  deleteSelectedBtn = document.createElement("button");
+  deleteSelectedBtn.className = "ais-tool-btn";
+  _addTooltip(deleteSelectedBtn, "Delete selected");
+  deleteSelectedBtn.style.opacity = "0.4";
+  deleteSelectedBtn.style.pointerEvents = "none";
+  deleteSelectedBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+    <path d="M3 6h18"/>
+    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+  </svg>`;
+  function _updateDeleteSelectedBtn() {
+    const hasSelection = (currentValue.selected_ids || []).length > 0;
+    deleteSelectedBtn.style.opacity = hasSelection ? "1" : "0.4";
+    deleteSelectedBtn.style.pointerEvents = hasSelection ? "auto" : "none";
+  }
+  _updateDeleteSelectedBtn();
+  deleteSelectedBtn.addEventListener("pointerdown", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    deleteSelectedBtn.blur();
+    if (textEditId) commitTextEdit();
+    const selIds = currentValue.selected_ids || [];
+    if (!selIds.length) return;
+    const importedIds = (currentValue.imported_annotations || []).map((a) => a.id);
+    const newOverrides = { ...(currentValue.overrides || {}) };
+    for (const id of selIds) {
+      if (importedIds.includes(id)) {
+        newOverrides[id] = { ...(newOverrides[id] || {}), deleted: true };
+      }
+    }
+    const newAnnotations = (currentValue.annotations || []).filter((a) => !selIds.includes(a.id));
+    currentValue = { ...currentValue, annotations: newAnnotations, overrides: newOverrides, selected_ids: [] };
+    _emit(); rebuildSettings(); renderCanvas();
+  });
+  toolbar.appendChild(deleteSelectedBtn);
+
+  // ── Delete all ──────────────────────────────────────────────────────────
+  // Icon: trash can with asterisk badge
+  const deleteAllBtn = document.createElement("button");
+  deleteAllBtn.className = "ais-tool-btn";
+  _addTooltip(deleteAllBtn, "Delete all annotations");
+  deleteAllBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+    <path d="M3 6h18" fill="none"/>
+    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" fill="none"/>
+  </svg>`;
+  function _executeDeleteAll() {
+    if (textEditId) commitTextEdit();
+    const importedIds = (currentValue.imported_annotations || []).map((a) => a.id);
+    const newOverrides = { ...(currentValue.overrides || {}) };
+    for (const id of importedIds) {
+      newOverrides[id] = { ...(newOverrides[id] || {}), deleted: true };
+    }
+    currentValue = { ...currentValue, annotations: [], overrides: newOverrides, selected_ids: [] };
+    _emit(); rebuildSettings(); renderCanvas();
+  }
+  deleteAllBtn.addEventListener("pointerdown", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    deleteAllBtn.blur();
+    _showActionPopup(deleteAllBtn, "Delete all annotations?", "Delete all",
+      "background:var(--destructive);color:#fff", _executeDeleteAll);
+  });
+  toolbar.appendChild(deleteAllBtn);
+
+  // Small visual gap between delete and reset pairs
+  const pairGap = document.createElement("div");
+  pairGap.style.cssText = "width:4px;flex-shrink:0;";
+  toolbar.appendChild(pairGap);
+
+  // ── Reset selected overrides ─────────────────────────────────────────────
+  // Icon: counterclockwise arrow with selection dot — amber
   const resetOverridesBtn = document.createElement("button");
   resetOverridesBtn.className = "ais-tool-btn";
-  resetOverridesBtn.title = "Reset overrides — restore selected annotation to original imported values";
+  _addTooltip(resetOverridesBtn, "Reset overrides for selected");
   resetOverridesBtn.style.color = "#c9830a";
   resetOverridesBtn.style.opacity = "0.4";
   resetOverridesBtn.style.pointerEvents = "none";
-  resetOverridesBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  resetOverridesBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
     <path d="M3 3v5h5"/>
   </svg>`;
@@ -356,11 +452,41 @@ export default function AnnotateImageSimple(container, props) {
     const newOverrides = { ...(currentValue.overrides || {}) };
     delete newOverrides[selId];
     currentValue = { ...currentValue, overrides: newOverrides };
-    _emit();
-    rebuildSettings();
-    renderCanvas();
+    _emit(); rebuildSettings(); renderCanvas();
   });
   toolbar.appendChild(resetOverridesBtn);
+
+  // ── Reset all overrides ──────────────────────────────────────────────────
+  // Icon: counterclockwise arrow with asterisk — amber
+  resetAllOverridesBtn = document.createElement("button");
+  resetAllOverridesBtn.className = "ais-tool-btn";
+  _addTooltip(resetAllOverridesBtn, "Reset all overrides");
+  resetAllOverridesBtn.style.color = "#c9830a";
+  resetAllOverridesBtn.style.opacity = "0.4";
+  resetAllOverridesBtn.style.pointerEvents = "none";
+  resetAllOverridesBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 2v6h6"/>
+    <path d="M21 12A9 9 0 0 0 6 5.3L3 8"/>
+    <path d="M21 22v-6h-6"/>
+    <path d="M3 12a9 9 0 0 0 15 6.7l3-2.7"/>
+  </svg>`;
+  function _updateResetAllOverridesBtn() {
+    const hasOverrides = Object.keys(currentValue.overrides || {}).length > 0;
+    resetAllOverridesBtn.style.opacity = hasOverrides ? "1" : "0.4";
+    resetAllOverridesBtn.style.pointerEvents = hasOverrides ? "auto" : "none";
+  }
+  _updateResetAllOverridesBtn();
+  resetAllOverridesBtn.addEventListener("pointerdown", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    resetAllOverridesBtn.blur();
+    _showActionPopup(resetAllOverridesBtn, "Reset all overrides?", "Reset all",
+      "background:#c9830a;color:#fff", () => {
+        currentValue = { ...currentValue, overrides: {} };
+        _emit(); rebuildSettings(); renderCanvas();
+      });
+  });
+  toolbar.appendChild(resetAllOverridesBtn);
 
   // Divider before settings area
   const divider2 = document.createElement("div");
@@ -499,7 +625,9 @@ export default function AnnotateImageSimple(container, props) {
 
   function rebuildSettings(keepLayerPopup = false) {
     if (!keepLayerPopup) _dismissLayerPopup();
+    _updateDeleteSelectedBtn();
     _updateResetOverridesBtn();
+    _updateResetAllOverridesBtn();
     _buildTxFrame();
     settingsArea.innerHTML = "";
     colorPickerEl = null;
@@ -587,7 +715,7 @@ export default function AnnotateImageSimple(container, props) {
     wrap.style.cssText = "position:relative;display:flex;align-items:center;gap:2px;";
     const swatch = document.createElement("div");
     swatch.className = "ais-color-btn";
-    swatch.title = "Fill color";
+    _addTooltip(swatch, "Fill color");
     if (fillColor) {
       swatch.style.background = fillColor;
     } else {
@@ -605,7 +733,7 @@ export default function AnnotateImageSimple(container, props) {
     swatch.addEventListener("click", () => pickerInput.click());
     const clearBtn = document.createElement("button");
     clearBtn.className = "ais-tool-btn";
-    clearBtn.title = "No fill";
+    _addTooltip(clearBtn, "No fill");
     clearBtn.style.cssText = "width:16px;height:16px;font-size:11px;padding:0;";
     clearBtn.textContent = "✕";
     clearBtn.addEventListener("pointerdown", (e) => {
@@ -623,7 +751,7 @@ export default function AnnotateImageSimple(container, props) {
     const makeToggleBtn = (label, title, active, onClick) => {
       const btn = document.createElement("button");
       btn.className = "ais-tool-btn" + (active ? " active" : "");
-      btn.title = title;
+      _addTooltip(btn, title);
       btn.style.cssText = "font-size:14px;font-weight:bold;width:26px;height:26px;line-height:1;";
       btn.textContent = label;
       btn.addEventListener("pointerdown", (e) => { e.stopPropagation(); onClick(); });
@@ -880,9 +1008,9 @@ export default function AnnotateImageSimple(container, props) {
 
     const btn = document.createElement("button");
     btn.className = "ais-tool-btn";
-    btn.title = "Reset overrides — restore to original imported values";
+    _addTooltip(btn, "Reset overrides");
     btn.style.color = "#c9830a";
-    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
       <path d="M3 3v5h5"/>
     </svg>`;
@@ -903,11 +1031,11 @@ export default function AnnotateImageSimple(container, props) {
   function _buildLayerOrderButton(selIds) {
     const btn = document.createElement("button");
     btn.className = "ais-tool-btn";
-    btn.title = "Layer order";
-    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-      <rect x="1" y="1" width="12" height="3" rx="0.5"/>
-      <rect x="1" y="5.5" width="12" height="3" rx="0.5"/>
-      <rect x="1" y="10" width="12" height="3" rx="0.5"/>
+    _addTooltip(btn, "Layer order");
+    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/>
+      <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/>
+      <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/>
     </svg>`;
     settingsArea.appendChild(btn);
 
@@ -1044,45 +1172,63 @@ export default function AnnotateImageSimple(container, props) {
       const corners = _frameCorners(txFrame);
       const topMid = _frameTopMid(txFrame);
       const rh = _frameRotHandle(txFrame);
-      const hw = 5 / displayScale;
-      // Amber for imported annotations, blue-slate for local
       const selIds = currentValue.selected_ids || [];
       const allImported = selIds.length > 0 && selIds.every((id) => _isImported(id));
       const frameColor = allImported ? "#c9830a" : "#7a9db8";
       const frameColorRgb = allImported ? "201,131,10" : "122,157,184";
+      const hs = 4 / displayScale;   // corner handle half-size
+      const rhs = 4.5 / displayScale; // rotation handle radius
       ctx.save();
-      // Dashed OBB outline
-      ctx.strokeStyle = `rgba(${frameColorRgb},0.8)`;
-      ctx.lineWidth = 1.5 / displayScale;
-      ctx.setLineDash([5 / displayScale, 4 / displayScale]);
+
+      // Subtle fill tint inside selection
+      ctx.fillStyle = `rgba(${frameColorRgb},0.06)`;
       ctx.beginPath();
       ctx.moveTo(corners[0][0], corners[0][1]);
       for (let i = 1; i < 4; i++) ctx.lineTo(corners[i][0], corners[i][1]);
-      ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
-      // Corner scale handles
+      ctx.closePath(); ctx.fill();
+
+      // Solid outline — thin and clean
+      ctx.strokeStyle = `rgba(${frameColorRgb},0.75)`;
+      ctx.lineWidth = 1 / displayScale;
+      ctx.beginPath();
+      ctx.moveTo(corners[0][0], corners[0][1]);
+      for (let i = 1; i < 4; i++) ctx.lineTo(corners[i][0], corners[i][1]);
+      ctx.closePath(); ctx.stroke();
+
+      // Corner handles — small white squares
+      ctx.lineWidth = 1.5 / displayScale;
       for (const [hx, hy] of corners) {
-        ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(hx, hy, hw, 0, Math.PI*2); ctx.fill();
-        ctx.strokeStyle = `rgba(${frameColorRgb},0.9)`; ctx.lineWidth = 1.5 / displayScale;
-        ctx.beginPath(); ctx.arc(hx, hy, hw, 0, Math.PI*2); ctx.stroke();
+        ctx.fillStyle = "white";
+        ctx.fillRect(hx - hs, hy - hs, hs * 2, hs * 2);
+        ctx.strokeStyle = frameColor;
+        ctx.strokeRect(hx - hs, hy - hs, hs * 2, hs * 2);
       }
+
       // Center move handle — only shown in paint mode
       if (activeTool === "paint") {
-        const chw = 5 / displayScale;
-        const chLen = 7 / displayScale;
+        const chLen = 6 / displayScale;
         const cpx = txFrame.pivotX, cpy = txFrame.pivotY;
-        ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(cpx, cpy, chw, 0, Math.PI*2); ctx.fill();
-        ctx.strokeStyle = `rgba(${frameColorRgb},0.9)`; ctx.lineWidth = 1.5 / displayScale;
-        ctx.beginPath(); ctx.arc(cpx, cpy, chw, 0, Math.PI*2); ctx.stroke();
-        ctx.strokeStyle = `rgba(${frameColorRgb},0.7)`; ctx.lineWidth = 1.5 / displayScale;
-        ctx.beginPath(); ctx.moveTo(cpx - chLen, cpy); ctx.lineTo(cpx + chLen, cpy);
-        ctx.moveTo(cpx, cpy - chLen); ctx.lineTo(cpx, cpy + chLen); ctx.stroke();
+        ctx.fillStyle = "white";
+        ctx.fillRect(cpx - hs, cpy - hs, hs * 2, hs * 2);
+        ctx.strokeStyle = frameColor; ctx.lineWidth = 1.5 / displayScale;
+        ctx.strokeRect(cpx - hs, cpy - hs, hs * 2, hs * 2);
+        ctx.strokeStyle = `rgba(${frameColorRgb},0.55)`; ctx.lineWidth = 1 / displayScale;
+        ctx.beginPath();
+        ctx.moveTo(cpx - chLen, cpy); ctx.lineTo(cpx + chLen, cpy);
+        ctx.moveTo(cpx, cpy - chLen); ctx.lineTo(cpx, cpy + chLen);
+        ctx.stroke();
       }
-      // Rotation handle stem + circle
-      ctx.strokeStyle = `rgba(${frameColorRgb},0.5)`; ctx.lineWidth = 1 / displayScale;
+
+      // Rotation handle — thin dotted stem + filled circle
+      ctx.strokeStyle = `rgba(${frameColorRgb},0.35)`; ctx.lineWidth = 0.75 / displayScale;
+      ctx.setLineDash([2 / displayScale, 2 / displayScale]);
       ctx.beginPath(); ctx.moveTo(topMid[0], topMid[1]); ctx.lineTo(rh[0], rh[1]); ctx.stroke();
-      ctx.fillStyle = frameColor; ctx.beginPath(); ctx.arc(rh[0], rh[1], hw, 0, Math.PI*2); ctx.fill();
-      ctx.strokeStyle = "white"; ctx.lineWidth = 1.5 / displayScale;
-      ctx.beginPath(); ctx.arc(rh[0], rh[1], hw, 0, Math.PI*2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = frameColor;
+      ctx.beginPath(); ctx.arc(rh[0], rh[1], rhs, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 1.5 / displayScale;
+      ctx.beginPath(); ctx.arc(rh[0], rh[1], rhs, 0, Math.PI * 2); ctx.stroke();
+
       ctx.restore();
     }
 
@@ -2726,6 +2872,8 @@ export default function AnnotateImageSimple(container, props) {
   function cleanup() {
     commitTextEdit();
     _dismissLayerPopup();
+    _hideTooltip();
+    _tooltipEl.remove();
     resizeObserver.disconnect();
     if (resizeRafId) cancelAnimationFrame(resizeRafId);
     document.removeEventListener("pointerdown", _shiftInterceptor, { capture: true });
