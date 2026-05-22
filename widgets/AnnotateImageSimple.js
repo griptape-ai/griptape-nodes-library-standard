@@ -1361,34 +1361,41 @@ export default function AnnotateImageSimple(container, props) {
       speeds.push(spd);
     }
 
-    // Fast (straight) sections get full width; slow (tight-bend) sections get thin
     const minSpd = Math.min(...speeds), maxSpd = Math.max(...speeds);
     const spdRange = maxSpd - minSpd;
-    const minW = w * 0.18, maxW = w;
-
-    // Build a filled polygon offset perpendicular to the tangent at each sample
-    const left = [], right = [];
-    for (let i = 0; i <= N; i++) {
-      const [bx, by] = pts[i];
-      const [dvx, dvy, spd] = tangents[i];
-      const rawNorm = spdRange < 0.001 ? 1 : (speeds[i] - minSpd) / spdRange;
-      const hw = (minW + (1 - rawNorm) * (maxW - minW)) / 2;
-      // Perpendicular unit vector (rotate tangent 90°)
-      const [px, py] = spd < 0.001 ? [0, hw] : [-dvy / spd * hw, dvx / spd * hw];
-      left.push([bx + px, by + py]);
-      right.push([bx - px, by - py]);
-    }
 
     ctx.save();
     ctx.fillStyle = color;
+    ctx.strokeStyle = color;
 
-    // Filled variable-width body
-    ctx.beginPath();
-    ctx.moveTo(left[0][0], left[0][1]);
-    for (let i = 1; i <= N; i++) ctx.lineTo(left[i][0], left[i][1]);
-    for (let i = N; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
-    ctx.closePath();
-    ctx.fill();
+    if (spdRange < 0.001) {
+      // Straight line — use round-capped stroke at full width
+      ctx.lineWidth = w;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(lx1, ly1);
+      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, lx2, ly2);
+      ctx.stroke();
+    } else {
+      // Curved line — filled variable-width polygon (fat in bends, thin on straights)
+      const minW = w * 0.18, maxW = w;
+      const left = [], right = [];
+      for (let i = 0; i <= N; i++) {
+        const [bx, by] = pts[i];
+        const [dvx, dvy, spd] = tangents[i];
+        const rawNorm = (speeds[i] - minSpd) / spdRange;
+        const hw = (minW + (1 - rawNorm) * (maxW - minW)) / 2;
+        const [px, py] = spd < 0.001 ? [0, hw] : [-dvy / spd * hw, dvx / spd * hw];
+        left.push([bx + px, by + py]);
+        right.push([bx - px, by - py]);
+      }
+      ctx.beginPath();
+      ctx.moveTo(left[0][0], left[0][1]);
+      for (let i = 1; i <= N; i++) ctx.lineTo(left[i][0], left[i][1]);
+      for (let i = N; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
+      ctx.closePath();
+      ctx.fill();
+    }
 
     // Arrowheads
     if (hasEndArrow) {
