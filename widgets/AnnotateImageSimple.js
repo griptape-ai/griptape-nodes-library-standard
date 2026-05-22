@@ -166,6 +166,7 @@ export default function AnnotateImageSimple(container, props) {
 
   // pointer state
   let isPointerDown = false;
+  let _mouseIsOver = false;
   let currentStroke = null;
   let strokeLastMid = null; // tracks last bezier midpoint for incremental draw
   let currentArrow = null;
@@ -620,6 +621,7 @@ export default function AnnotateImageSimple(container, props) {
 
   // ── Alt key state for pan cursor ──────────────────────────────────────────
   function _onAltDown(e) {
+    if (!_mouseIsOver) return;
     if (e.key === "Alt" && !isAltHeld) {
       isAltHeld = true;
       if (!isPointerDown) canvas.style.cursor = "grab";
@@ -2057,6 +2059,7 @@ export default function AnnotateImageSimple(container, props) {
   document.addEventListener("click",       _shiftInterceptor, { capture: true });
 
   function _deleteInterceptor(e) {
+    if (!_mouseIsOver) return;
     if (e.key !== "Delete" && e.key !== "Backspace") return;
     if (!(currentValue.selected_ids || []).length) return;
     if (textEditId) return;
@@ -2077,6 +2080,7 @@ export default function AnnotateImageSimple(container, props) {
   document.addEventListener("keydown", _deleteInterceptor, { capture: true });
 
   function _sizeInterceptor(e) {
+    if (!_mouseIsOver) return;
     if (e.key !== "[" && e.key !== "]") return;
     if (textEditId) return;
     const t = e.target;
@@ -2143,6 +2147,7 @@ export default function AnnotateImageSimple(container, props) {
 
   const _toolHotkeys = { v: "select", h: "hand", z: "zoom", d: "paint", t: "text", l: "arrow", r: "rect", o: "ellipse" };
   function _toolHotkeyInterceptor(e) {
+    if (!_mouseIsOver) return;
     if (textEditId) return;
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
@@ -2164,6 +2169,9 @@ export default function AnnotateImageSimple(container, props) {
   canvas.addEventListener("mouseleave", () => {
     if (hoverId) { hoverId = null; renderCanvas(); }
   });
+
+  container.addEventListener("mouseenter", () => { _mouseIsOver = true; });
+  container.addEventListener("mouseleave", () => { _mouseIsOver = false; });
 
   function onPointerDown(e) {
     if (e.button !== 0) return;
