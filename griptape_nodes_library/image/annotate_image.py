@@ -164,39 +164,53 @@ class AnnotateImage(DataNode):
             r, g, b = 255, 0, 0
         return (r, g, b, int(255 * opacity))
 
-    def _draw_paint(self, draw: ImageDraw.ImageDraw, ann: dict) -> None:
-        import math as _math
+    def _paint_natural_center(self, ann: dict) -> tuple[float, float]:
+        if ann.get("cx") is not None and ann.get("cy") is not None:
+            return float(ann["cx"]), float(ann["cy"])
+        min_x = min_y = float("inf")
+        max_x = max_y = float("-inf")
+        for stroke in ann.get("strokes", []):
+            for pt in stroke.get("points", []):
+                min_x = min(min_x, pt[0]); min_y = min(min_y, pt[1])
+                max_x = max(max_x, pt[0]); max_y = max(max_y, pt[1])
+        if math.isinf(min_x):
+            return 0.0, 0.0
+        return (min_x + max_x) / 2, (min_y + max_y) / 2
 
-        cx = ann.get("cx", 0) or 0
-        cy = ann.get("cy", 0) or 0
+    def _draw_paint(self, draw: ImageDraw.ImageDraw, ann: dict) -> None:
+        cx, cy = self._paint_natural_center(ann)
         tx = ann.get("x", 0) or 0
         ty = ann.get("y", 0) or 0
         sx = ann.get("scaleX", 1) or 1
         sy = ann.get("scaleY", 1) or 1
         rot = ann.get("rotation", 0) or 0
-        cos_r, sin_r = _math.cos(rot), _math.sin(rot)
+        cos_r, sin_r = math.cos(rot), math.sin(rot)
 
         def xform(nx: float, ny: float) -> tuple[float, float]:
             lx, ly = (nx - cx) * sx, (ny - cy) * sy
             return cx + tx + lx * cos_r - ly * sin_r, cy + ty + lx * sin_r + ly * cos_r
 
         size_scale = float(ann.get("sizeScale", 1.0) or 1.0)
+        # sx/sy scale both point positions (via xform) and brush radius
+        transform_scale = math.sqrt(abs(sx * sy))
+        effective_scale = size_scale * transform_scale
         for stroke in ann.get("strokes", []):
             points = stroke.get("points", [])
             if not points:
                 continue
             color = self._parse_color(stroke.get("color", "#ff0000"))
-            base_size = max(1, int(stroke.get("size", 8)))
+            base_size = max(1, float(stroke.get("size", 8)))
             for i, pt in enumerate(points):
                 px, py = xform(pt[0], pt[1])
                 raw_sz = pt[2] if len(pt) > 2 and pt[2] is not None else base_size
-                sz = max(1, int(raw_sz * size_scale))
-                draw.ellipse([px - sz / 2, py - sz / 2, px + sz / 2, py + sz / 2], fill=color)
+                sz = max(1, raw_sz * effective_scale)
+                r = sz / 2
+                draw.ellipse([px - r, py - r, px + r, py + r], fill=color)
                 if i > 0:
                     ppx, ppy = xform(points[i - 1][0], points[i - 1][1])
                     prev = points[i - 1]
                     raw_sz2 = prev[2] if len(prev) > 2 and prev[2] is not None else base_size
-                    sz2 = max(1, int(raw_sz2 * size_scale))
+                    sz2 = max(1, raw_sz2 * effective_scale)
                     w = max(1, int((sz + sz2) / 2))
                     draw.line([ppx, ppy, px, py], fill=color, width=w)
 
@@ -217,49 +231,87 @@ class AnnotateImage(DataNode):
     def _draw_arrow(self, draw: ImageDraw.ImageDraw, ann: dict) -> None:
         x1, y1 = float(ann.get("x1", 0)), float(ann.get("y1", 0))
         x2, y2 = float(ann.get("x2", 0)), float(ann.get("y2", 0))
-        is_bezier = bool(ann.get("is_bezier", False))
-        cp1x = float(ann.get("cp1x", x1 + (x2 - x1) / 3)) if is_bezier else x1 + (x2 - x1) / 3
-        cp1y = float(ann.get("cp1y", y1 + (y2 - y1) / 3)) if is_bezier else y1 + (y2 - y1) / 3
-        cp2x = float(ann.get("cp2x", x1 + (x2 - x1) * 2 / 3)) if is_bezier else x1 + (x2 - x1) * 2 / 3
-        cp2y = float(ann.get("cp2y", y1 + (y2 - y1) * 2 / 3)) if is_bezier else y1 + (y2 - y1) * 2 / 3
+        cp1x = float(ann.get("cp1x", x1 + (x2 - x1) / 3))
+        cp1y = float(ann.get("cp1y", y1 + (y2 - y1) / 3))
+        cp2x = float(ann.get("cp2x", x1 + (x2 - x1) * 2 / 3))
+        cp2y = float(ann.get("cp2y", y1 + (y2 - y1) * 2 / 3))
         color = self._parse_color(ann.get("color", "#ff0000"))
-        width = max(1, int(ann.get("width", 3)))
-        has_end_arrow = ann.get("has_end_arrow", True)
+        w = max(1.0, float(ann.get("width", 3)))
+        has_end_arrow = bool(ann.get("has_end_arrow", True))
         has_start_arrow = bool(ann.get("has_start_arrow", False))
-        n = 30
-        pts = []
+
+        head = max(15.0, w * 4)
+        setback = head * math.cos(math.pi / 6)
+
+        # Arrowhead angles from tangent at endpoints
+        end_angle = start_angle = 0.0
+        if has_end_arrow:
+            dx, dy = x2 - cp2x, y2 - cp2y
+            end_angle = math.atan2(dy, dx) if math.hypot(dx, dy) > 0.1 else math.atan2(y2 - y1, x2 - x1)
+        if has_start_arrow:
+            dx, dy = x1 - cp1x, y1 - cp1y
+            start_angle = math.atan2(dy, dx) if math.hypot(dx, dy) > 0.1 else math.atan2(y1 - y2, x1 - x2)
+
+        # Pull endpoints back to arrowhead base
+        lx2 = x2 - setback * math.cos(end_angle)   if has_end_arrow   else x2
+        ly2 = y2 - setback * math.sin(end_angle)   if has_end_arrow   else y2
+        lx1 = x1 - setback * math.cos(start_angle) if has_start_arrow else x1
+        ly1 = y1 - setback * math.sin(start_angle) if has_start_arrow else y1
+
+        # Sample bezier and compute parametric speed (first derivative magnitude)
+        n = 48
+        pts, speeds, tangents = [], [], []
         for i in range(n + 1):
             t = i / n
             mt = 1 - t
-            bx = mt**3 * x1 + 3 * mt**2 * t * cp1x + 3 * mt * t**2 * cp2x + t**3 * x2
-            by = mt**3 * y1 + 3 * mt**2 * t * cp1y + 3 * mt * t**2 * cp2y + t**3 * y2
+            bx = mt**3*lx1 + 3*mt**2*t*cp1x + 3*mt*t**2*cp2x + t**3*lx2
+            by = mt**3*ly1 + 3*mt**2*t*cp1y + 3*mt*t**2*cp2y + t**3*ly2
+            dvx = 3*(mt**2*(cp1x-lx1) + 2*mt*t*(cp2x-cp1x) + t**2*(lx2-cp2x))
+            dvy = 3*(mt**2*(cp1y-ly1) + 2*mt*t*(cp2y-cp1y) + t**2*(ly2-cp2y))
+            spd = math.hypot(dvx, dvy)
             pts.append((bx, by))
-        for i in range(len(pts) - 1):
-            draw.line([pts[i], pts[i + 1]], fill=color, width=width)
-        head = max(15, width * 4)
-        setback = head * math.cos(math.pi / 6)  # pull line back so it doesn't poke through arrowhead
+            speeds.append(spd)
+            tangents.append((dvx, dvy, spd))
+
+        min_spd, max_spd = min(speeds), max(speeds)
+        spd_range = max_spd - min_spd
+        min_w, max_w = w * 0.18, w
+
+        if spd_range < 0.001:
+            # Straight line — uniform width with round caps via overlapping circles
+            for i in range(n + 1):
+                bx, by = pts[i]
+                r = w / 2
+                draw.ellipse([bx - r, by - r, bx + r, by + r], fill=color)
+            for i in range(n):
+                draw.line([pts[i], pts[i + 1]], fill=color, width=int(w))
+        else:
+            # Curved line — filled variable-width polygon (fat in bends, thin on straights)
+            left_pts, right_pts = [], []
+            for i in range(n + 1):
+                bx, by = pts[i]
+                dvx, dvy, spd = tangents[i]
+                raw_norm = (speeds[i] - min_spd) / spd_range
+                hw = (min_w + (1 - raw_norm) * (max_w - min_w)) / 2
+                if spd < 0.001:
+                    px, py = 0.0, hw
+                else:
+                    px, py = -dvy / spd * hw, dvx / spd * hw
+                left_pts.append((bx + px, by + py))
+                right_pts.append((bx - px, by - py))
+            polygon = left_pts + list(reversed(right_pts))
+            draw.polygon([(int(x), int(y)) for x, y in polygon], fill=color)
+
+        # Arrowheads
         if has_end_arrow:
-            dx, dy = x2 - cp2x, y2 - cp2y
-            angle = math.atan2(dy, dx) if math.hypot(dx, dy) > 0.1 else math.atan2(y2 - y1, x2 - x1)
-            # Shorten the last segment(s) to the arrowhead base
-            base_x = x2 - setback * math.cos(angle)
-            base_y = y2 - setback * math.sin(angle)
-            if pts:
-                pts[-1] = (base_x, base_y)
             tip = (x2, y2)
-            left = (x2 - head * math.cos(angle - math.pi / 6), y2 - head * math.sin(angle - math.pi / 6))
-            right = (x2 - head * math.cos(angle + math.pi / 6), y2 - head * math.sin(angle + math.pi / 6))
+            left = (x2 - head * math.cos(end_angle - math.pi/6), y2 - head * math.sin(end_angle - math.pi/6))
+            right = (x2 - head * math.cos(end_angle + math.pi/6), y2 - head * math.sin(end_angle + math.pi/6))
             draw.polygon([tip, left, right], fill=color)
         if has_start_arrow:
-            dx, dy = x1 - cp1x, y1 - cp1y
-            angle = math.atan2(dy, dx) if math.hypot(dx, dy) > 0.1 else math.atan2(y1 - y2, x1 - x2)
-            base_x = x1 - setback * math.cos(angle)
-            base_y = y1 - setback * math.sin(angle)
-            if pts:
-                pts[0] = (base_x, base_y)
             tip = (x1, y1)
-            left = (x1 - head * math.cos(angle - math.pi / 6), y1 - head * math.sin(angle - math.pi / 6))
-            right = (x1 - head * math.cos(angle + math.pi / 6), y1 - head * math.sin(angle + math.pi / 6))
+            left = (x1 - head * math.cos(start_angle - math.pi/6), y1 - head * math.sin(start_angle - math.pi/6))
+            right = (x1 - head * math.cos(start_angle + math.pi/6), y1 - head * math.sin(start_angle + math.pi/6))
             draw.polygon([tip, left, right], fill=color)
 
     def _draw_rect(self, draw: ImageDraw.ImageDraw, ann: dict) -> None:

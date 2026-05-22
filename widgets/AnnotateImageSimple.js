@@ -1919,6 +1919,19 @@ export default function AnnotateImageSimple(container, props) {
   }
   document.addEventListener("keydown", _sizeInterceptor, { capture: true });
 
+  const _toolHotkeys = { q: "select", b: "paint", t: "text", l: "arrow", r: "rect", o: "ellipse" };
+  function _toolHotkeyInterceptor(e) {
+    if (textEditId) return;
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const tool = _toolHotkeys[e.key.toLowerCase()];
+    if (!tool) return;
+    e.stopPropagation();
+    setTool(tool);
+  }
+  document.addEventListener("keydown", _toolHotkeyInterceptor, { capture: true });
+
   canvas.addEventListener("pointerdown", onPointerDown);
   canvas.addEventListener("pointermove", onPointerMove);
   canvas.addEventListener("pointerup", onPointerUp);
@@ -2702,8 +2715,9 @@ export default function AnnotateImageSimple(container, props) {
     document.removeEventListener("pointerdown", _shiftInterceptor, { capture: true });
     document.removeEventListener("mousedown",   _shiftInterceptor, { capture: true });
     document.removeEventListener("click",       _shiftInterceptor, { capture: true });
-    document.removeEventListener("keydown",     _deleteInterceptor, { capture: true });
-    document.removeEventListener("keydown",     _sizeInterceptor,   { capture: true });
+    document.removeEventListener("keydown",     _deleteInterceptor,      { capture: true });
+    document.removeEventListener("keydown",     _sizeInterceptor,        { capture: true });
+    document.removeEventListener("keydown",     _toolHotkeyInterceptor,  { capture: true });
     document.removeEventListener("keydown",     _onAltDown);
     document.removeEventListener("keyup",       _onAltUp);
     canvas.removeEventListener("pointerdown", onPointerDown);
