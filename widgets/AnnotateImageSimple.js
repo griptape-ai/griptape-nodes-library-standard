@@ -2,81 +2,18 @@
 // Layout: toolbar (tools left, settings right) + canvas
 // Tools: Select, Paint, Text, Arrow
 
-// ── Lucide SVG icons (inlined paths, MIT licensed) ────────────────────────────
-
-const ICON_PATHS = {
-  select:  `<path d="m4 4 7.07 17 2.51-7.39L21 11.07z"/>`,
-  paint:   `<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>`,
-  text:    `<polyline points="4 7 4 4 20 4 20 7"/><line x1="9" x2="15" y1="20" y2="20"/><line x1="12" x2="12" y1="4" y2="20"/>`,
-  arrow:   `<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>`,
-  rect:    `<rect x="3" y="3" width="18" height="18" rx="2"/>`,
-  ellipse: `<ellipse cx="12" cy="12" rx="10" ry="6"/>`,
-  hand:    `<path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>`,
-  zoom:    `<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6"/><path d="M8 11h6"/>`,
-  trash:   `<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>`,
-};
-
-function mkIcon(name, size = 15) {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("width", size);
-  svg.setAttribute("height", size);
-  svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "2");
-  svg.setAttribute("stroke-linecap", "round");
-  svg.setAttribute("stroke-linejoin", "round");
-  svg.style.cssText = "display:block;flex-shrink:0;pointer-events:none;";
-  svg.innerHTML = ICON_PATHS[name] || "";
-  return svg;
-}
-
-// ── global style injection ────────────────────────────────────────────────────
-
-function injectStyles() {
-  const id = "ais-styles";
-  let el = document.getElementById(id);
-  if (!el) { el = document.createElement("style"); el.id = id; document.head.appendChild(el); }
-  el.textContent = `
-    .ais-tool-btn { background:transparent; border:none; border-radius:4px; color:var(--muted-foreground); cursor:pointer; width:28px; height:28px; display:flex; align-items:center; justify-content:center; transition:background 0.15s,color 0.15s; flex-shrink:0; padding:0; }
-    .ais-tool-btn:hover { background:var(--muted); color:var(--foreground); }
-    .ais-tool-btn.active { background:transparent; color:var(--foreground); box-shadow:0 0 0 1.5px #7a9db8, 0 0 6px 1px rgba(122,157,184,0.4); }
-    .ais-toggle-btn { background:transparent; border:none; border-radius:4px; color:var(--muted-foreground); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.15s,color 0.15s; flex-shrink:0; padding:0; }
-    .ais-toggle-btn:hover { background:var(--muted); color:var(--foreground); }
-    .ais-toggle-btn.active { background:rgba(122,157,184,0.2); color:var(--foreground); border:1px solid rgba(122,157,184,0.5); }
-    .ais-setting-label { font-size:11px; color:var(--muted-foreground); }
-    .ais-range { accent-color:#7a9db8; cursor:pointer; width:80px; min-width:30px; flex-shrink:1; }
-    .ais-color-btn { width:22px; height:22px; border-radius:4px; border:2px solid var(--border,#555); cursor:pointer; flex-shrink:0; }
-    .ais-color-input { position:absolute; opacity:0; width:0; height:0; pointer-events:none; }
-    .ais-val-label { font-size:11px; color:var(--foreground); min-width:20px; text-align:right; flex-shrink:0; }
-  `;
-}
-
-const DEFAULT_CANVAS_WIDTH = 1920;
-const DEFAULT_CANVAS_HEIGHT = 1080;
-
-// ── default data ──────────────────────────────────────────────────────────────
-
-function defaultData() {
-  return {
-    image_url: "",
-    raw_url: "",
-    canvas_width: 0,
-    canvas_height: 0,
-    annotations: [],
-    imported_annotations: [],
-    overrides: {},
-    active_tool: "select",
-    tool_settings: {
-      paint:   { color: "#ff0000", size: 8 },
-      text:    { color: "#ffffff", font_size: 48 },
-      arrow:   { color: "#ff0000", width: 3, has_start_arrow: false, has_end_arrow: true, is_bezier: false },
-      rect:    { color: "#ff0000", width: 2, fill_color: "" },
-      ellipse: { color: "#ff0000", width: 2, fill_color: "" },
-    },
-    selected_ids: [],
-  };
-}
+import { ICON_PATHS, mkIcon } from './_icons.js';
+import { injectStyles, defaultData, DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from './_styles.js';
+import {
+  decimatePoints,
+  strokeBounds, naturalBounds, paintCenter,
+  paintTransformPt, paintInvTransformPt, getTransformedCorners,
+  defaultCps, snapshotAnn,
+  frameCorners, frameTopMid, frameRotHandle,
+} from './_geometry.js';
+import { createDrawing } from './_drawing.js';
+import { createTooltip } from './_tooltip.js';
+import { setupHotkeys } from './_hotkeys.js';
 
 // ── main widget ───────────────────────────────────────────────────────────────
 
@@ -108,6 +45,7 @@ export default function AnnotateImageSimple(container, props) {
   let activeTool = currentValue.active_tool || "select";
   let toolSettings = { ...currentValue.tool_settings };
   let displayScale = 1;
+  let centerOffsetX = 0, centerOffsetY = 0;
 
   // zoom / pan state
   let viewScale = 1;
@@ -120,45 +58,8 @@ export default function AnnotateImageSimple(container, props) {
   let resetAllOverridesBtn = null;
 
   // ── Tooltip system ────────────────────────────────────────────────────────
-  const _tooltipEl = document.createElement("div");
-  _tooltipEl.style.cssText =
-    "position:fixed;z-index:999999;pointer-events:none;opacity:0;transition:opacity 0.1s;" +
-    "background:var(--foreground);color:var(--background);font-size:11px;line-height:1.3;" +
-    "padding:4px 8px;border-radius:5px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.3);" +
-    "transform:translateX(-50%) translateY(-4px);";
-  // Arrow pointing downward
-  const _tooltipArrow = document.createElement("div");
-  _tooltipArrow.style.cssText =
-    "position:absolute;left:50%;bottom:-4px;transform:translateX(-50%);" +
-    "width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;" +
-    "border-top:4px solid var(--foreground);";
-  _tooltipEl.appendChild(_tooltipArrow);
-  document.body.appendChild(_tooltipEl);
-  let _tooltipTimer = null;
-
-  function _showTooltip(text, anchorEl) {
-    clearTimeout(_tooltipTimer);
-    _tooltipTimer = setTimeout(() => {
-      _tooltipEl.textContent = text;
-      _tooltipEl.appendChild(_tooltipArrow);
-      const rect = anchorEl.getBoundingClientRect();
-      _tooltipEl.style.left = (rect.left + rect.width / 2) + "px";
-      _tooltipEl.style.top = (rect.top - 8) + "px";
-      _tooltipEl.style.transform = "translateX(-50%) translateY(-100%)";
-      _tooltipEl.style.opacity = "1";
-    }, 300);
-  }
-
-  function _hideTooltip() {
-    clearTimeout(_tooltipTimer);
-    _tooltipEl.style.opacity = "0";
-  }
-
-  function _addTooltip(el, text) {
-    el.addEventListener("mouseenter", () => _showTooltip(text, el));
-    el.addEventListener("mouseleave", _hideTooltip);
-    el.addEventListener("pointerdown", _hideTooltip);
-  }
+  const _tooltip = createTooltip();
+  const _addTooltip = _tooltip.addTooltip;
 
   // unified transform frame (OBB)
   let txFrame = null; // { pivotX, pivotY, rotation, halfW, halfH }
@@ -264,7 +165,7 @@ export default function AnnotateImageSimple(container, props) {
   const wrapper = document.createElement("div");
   wrapper.className = "nodrag nowheel";
   wrapper.style.cssText =
-    "display:flex;flex-direction:column;width:100%;background:var(--background);border-radius:6px;" +
+    "display:flex;flex-direction:column;width:100%;height:100%;background:var(--background);border-radius:6px;" +
     "font-family:sans-serif;box-sizing:border-box;overflow:hidden;";
 
   // Toolbar
@@ -564,7 +465,7 @@ export default function AnnotateImageSimple(container, props) {
 
   // Canvas area
   const canvasWrap = document.createElement("div");
-  canvasWrap.style.cssText = "position:relative;width:100%;overflow:hidden;background:#111;";
+  canvasWrap.style.cssText = "position:relative;width:100%;overflow:hidden;background:#111;flex:1 1 0;min-height:0;";
 
   const canvas = document.createElement("canvas");
   canvas.style.cssText = "display:block;transform-origin:top left;cursor:crosshair;outline:none;" +
@@ -572,8 +473,6 @@ export default function AnnotateImageSimple(container, props) {
   canvas.tabIndex = 0; // focusable so keyboard events naturally target canvas
   canvas.width = DEFAULT_CANVAS_WIDTH;
   canvas.height = DEFAULT_CANVAS_HEIGHT;
-  canvas.style.width = `${DEFAULT_CANVAS_WIDTH}px`;
-  canvas.style.height = `${DEFAULT_CANVAS_HEIGHT}px`;
 
   canvasWrap.appendChild(canvas);
   wrapper.appendChild(toolbar);
@@ -594,12 +493,9 @@ export default function AnnotateImageSimple(container, props) {
   }
 
   // ── canvas scaling ────────────────────────────────────────────────────────
-  let resizeRafId = null;
-  const resizeObserver = new ResizeObserver(() => {
-    if (resizeRafId) cancelAnimationFrame(resizeRafId);
-    resizeRafId = requestAnimationFrame(() => { resizeRafId = null; applyCanvasScale(); });
-  });
+  const resizeObserver = new ResizeObserver(() => applyCanvasScale());
   resizeObserver.observe(canvasWrap);
+  applyCanvasScale(); // run synchronously so height is set before framework measures the node
 
   // ── zoom via scroll wheel ─────────────────────────────────────────────────
   canvasWrap.addEventListener("wheel", (e) => {
@@ -610,8 +506,10 @@ export default function AnnotateImageSimple(container, props) {
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
     const ratio = newVS / viewScale;
-    panX = mx - (mx - panX) * ratio;
-    panY = my - (my - panY) * ratio;
+    const lx = mx - centerOffsetX;
+    const ly = my - centerOffsetY;
+    panX = lx - (lx - panX) * ratio;
+    panY = ly - (ly - panY) * ratio;
     viewScale = newVS;
     _applyViewTransform();
     const isDefault = viewScale === 1 && panX === 0 && panY === 0;
@@ -620,21 +518,7 @@ export default function AnnotateImageSimple(container, props) {
   }, { passive: false });
 
   // ── Alt key state for pan cursor ──────────────────────────────────────────
-  function _onAltDown(e) {
-    if (!_mouseIsOver) return;
-    if (e.key === "Alt" && !isAltHeld) {
-      isAltHeld = true;
-      if (!isPointerDown) canvas.style.cursor = "grab";
-    }
-  }
-  function _onAltUp(e) {
-    if (e.key === "Alt") {
-      isAltHeld = false;
-      if (!isPanning && !isPointerDown) canvas.style.cursor = _currentToolCursor();
-    }
-  }
-  document.addEventListener("keydown", _onAltDown);
-  document.addEventListener("keyup",   _onAltUp);
+  // Registered via setupHotkeys below — these callbacks update canvas cursor
 
   function _currentToolCursor() {
     if (activeTool === "select") return "default";
@@ -645,29 +529,29 @@ export default function AnnotateImageSimple(container, props) {
 
   function _applyViewTransform() {
     const totalScale = displayScale * viewScale;
-    const ch = currentValue.canvas_height || DEFAULT_CANVAS_HEIGHT;
-    canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${totalScale})`;
-    canvasWrap.style.height = ch * displayScale + "px";
+    canvas.style.transform = `translate(${centerOffsetX + panX}px, ${centerOffsetY + panY}px) scale(${totalScale})`;
   }
 
   function applyCanvasScale() {
     const cw = currentValue.canvas_width || DEFAULT_CANVAS_WIDTH;
     const ch = currentValue.canvas_height || DEFAULT_CANVAS_HEIGHT;
     const areaW = canvasWrap.clientWidth || 300;
-    const newScale = areaW / cw;
+    const areaH = canvasWrap.clientHeight || 200;
+    const newScale = Math.min(areaW / cw, areaH / ch);
+    centerOffsetX = Math.max(0, (areaW - cw * newScale) / 2);
+    centerOffsetY = Math.max(0, (areaH - ch * newScale) / 2);
 
     const dimsChanged = canvas.width !== cw || canvas.height !== ch;
     if (dimsChanged) {
       canvas.width = cw;
       canvas.height = ch;
-      canvas.style.width = cw + "px";
-      canvas.style.height = ch + "px";
     }
+    canvas.style.width = cw + "px";
+    canvas.style.height = ch + "px";
     if (newScale !== displayScale || dimsChanged) {
       displayScale = newScale;
       _applyViewTransform();
     }
-    if (dimsChanged) renderCanvas();
   }
 
   function resetView() {
@@ -1230,9 +1114,9 @@ export default function AnnotateImageSimple(container, props) {
 
     // Unified transform frame — same OBB handles for single or group selection
     if (txFrame && _frameActiveTools.includes(activeTool)) {
-      const corners = _frameCorners(txFrame);
-      const topMid = _frameTopMid(txFrame);
-      const rh = _frameRotHandle(txFrame);
+      const corners = frameCorners(txFrame);
+      const topMid = frameTopMid(txFrame);
+      const rh = frameRotHandle(txFrame, displayScale);
       const selIds = currentValue.selected_ids || [];
       const allImported = selIds.length > 0 && selIds.every((id) => _isImported(id));
       const frameColor = allImported ? "#c9830a" : "#7a9db8";
@@ -1363,306 +1247,9 @@ export default function AnnotateImageSimple(container, props) {
     else if (ann.type === "ellipse") drawEllipse(ann, selected);
   }
 
-  function drawPaint(ann, selected) {
-    const [cx, cy] = _paintCenter(ann);
-    const x = ann.x || 0, y = ann.y || 0;
-    const sx = ann.scaleX ?? 1, sy = ann.scaleY ?? 1, r = ann.rotation || 0;
-    ctx.save();
-    ctx.translate(cx + x, cy + y);
-    ctx.rotate(r);
-    ctx.scale(sx, sy);
-    ctx.translate(-cx, -cy);
-    renderStrokes(ann.strokes || [], ann.sizeScale ?? 1);
-    ctx.restore();
-
-  }
-
-  function _strokeBounds(stroke) {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const pt of (stroke.points || [])) {
-      minX = Math.min(minX, pt[0]); minY = Math.min(minY, pt[1]);
-      maxX = Math.max(maxX, pt[0]); maxY = Math.max(maxY, pt[1]);
-    }
-    if (!isFinite(minX)) return null;
-    const r = (stroke.size || 8) / 2;
-    return { minX: minX - r, minY: minY - r, maxX: maxX + r, maxY: maxY + r };
-  }
-
-  function _naturalBounds(ann) {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const stroke of (ann.strokes || [])) {
-      const b = _strokeBounds(stroke);
-      if (b) { minX = Math.min(minX, b.minX); minY = Math.min(minY, b.minY); maxX = Math.max(maxX, b.maxX); maxY = Math.max(maxY, b.maxY); }
-    }
-    return isFinite(minX) ? { minX, minY, maxX, maxY } : null;
-  }
-
-  function _paintCenter(ann) {
-    if (ann.cx != null && ann.cy != null) return [ann.cx, ann.cy];
-    const b = _naturalBounds(ann);
-    return b ? [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2] : [0, 0];
-  }
-
-  function _paintTransformPt(ann, nx, ny) {
-    const [cx, cy] = _paintCenter(ann);
-    const x = ann.x || 0, y = ann.y || 0;
-    const sx = ann.scaleX ?? 1, sy = ann.scaleY ?? 1, r = ann.rotation || 0;
-    const cos = Math.cos(r), sin = Math.sin(r);
-    const lx = (nx - cx) * sx, ly = (ny - cy) * sy;
-    return [cx + x + lx * cos - ly * sin, cy + y + lx * sin + ly * cos];
-  }
-
-  function _paintInvTransformPt(ann, px, py) {
-    const [cx, cy] = _paintCenter(ann);
-    const x = ann.x || 0, y = ann.y || 0;
-    const sx = ann.scaleX ?? 1, sy = ann.scaleY ?? 1, r = -(ann.rotation || 0);
-    const cos = Math.cos(r), sin = Math.sin(r);
-    const dx = px - (cx + x), dy = py - (cy + y);
-    return [(dx * cos - dy * sin) / sx + cx, (dx * sin + dy * cos) / sy + cy];
-  }
-
-  function _getTransformedCorners(ann, pad = 10) {
-    const b = _naturalBounds(ann);
-    if (!b) return [];
-    return [
-      [b.minX - pad, b.minY - pad], [b.maxX + pad, b.minY - pad],
-      [b.maxX + pad, b.maxY + pad], [b.minX - pad, b.maxY + pad],
-    ].map(([nx, ny]) => _paintTransformPt(ann, nx, ny));
-  }
-
-  function renderStrokes(strokes, sizeScale = 1) {
-    for (const stroke of strokes) {
-      const pts = stroke.points || [];
-      if (!pts.length) continue;
-      const defaultSz = (stroke.size || 8) * sizeScale;
-      ctx.fillStyle = stroke.color || "#ff0000";
-      // Initial dot
-      const r0 = ((pts[0][2] ?? (stroke.size || 8)) * sizeScale) / 2;
-      ctx.beginPath(); ctx.arc(pts[0][0], pts[0][1], r0, 0, Math.PI * 2); ctx.fill();
-      // Variable-width path: filled trapezoid + endpoint circle per segment
-      for (let i = 1; i < pts.length; i++) {
-        const px = pts[i-1][0], py = pts[i-1][1], pr = ((pts[i-1][2] ?? (stroke.size || 8)) * sizeScale) / 2;
-        const qx = pts[i][0],   qy = pts[i][1],   qr = ((pts[i][2]   ?? (stroke.size || 8)) * sizeScale) / 2;
-        ctx.beginPath(); ctx.arc(qx, qy, qr, 0, Math.PI * 2); ctx.fill();
-        const dx = qx - px, dy = qy - py, len = Math.hypot(dx, dy);
-        if (len > 0) {
-          const nx = -dy / len, ny = dx / len;
-          ctx.beginPath();
-          ctx.moveTo(px + nx * pr, py + ny * pr);
-          ctx.lineTo(qx + nx * qr, qy + ny * qr);
-          ctx.lineTo(qx - nx * qr, qy - ny * qr);
-          ctx.lineTo(px - nx * pr, py - ny * pr);
-          ctx.closePath(); ctx.fill();
-        }
-      }
-    }
-  }
-
-  function decimatePoints(points, minDist = 3) {
-    if (points.length <= 2) return points;
-    const out = [points[0]];
-    for (let i = 1; i < points.length - 1; i++) {
-      const prev = out[out.length - 1];
-      if (Math.hypot(points[i][0] - prev[0], points[i][1] - prev[1]) >= minDist) out.push(points[i]);
-    }
-    out.push(points[points.length - 1]);
-    return out;
-  }
-
-  function drawText(ann, selected) {
-    const fontSize = Math.max(8, ann.font_size || 48);
-    const lineHeight = fontSize * 1.2;
-    const lines = (ann.text || "").split("\n");
-    const x = ann.x || 0;
-    const y = ann.y || 0;
-    ctx.save();
-    ctx.font = `${fontSize}px sans-serif`;
-    ctx.fillStyle = ann.color || "#ffffff";
-    ctx.textBaseline = "top";
-    for (let i = 0; i < lines.length; i++) {
-      ctx.fillText(lines[i], x, y + i * lineHeight);
-    }
-
-    const isHovered = ann.id === hoverId && !selected;
-    if (isHovered) {
-      const w = Math.max(...lines.map((l) => ctx.measureText(l).width));
-      const h = lineHeight * lines.length;
-      ctx.strokeStyle = "rgba(122,157,184,0.4)";
-      ctx.lineWidth = 1 / displayScale;
-      ctx.setLineDash([4 / displayScale, 3 / displayScale]);
-      ctx.strokeRect(x - 4, y - 4, w + 8, h + 8);
-      ctx.setLineDash([]);
-    }
-    ctx.restore();
-  }
-
-  function drawArrowAnnotation(ann, selected) {
-    const isBezier = ann.is_bezier ?? false;
-    const cps = _defaultCps(ann);
-    const cp1x = isBezier ? cps.cp1x : null;
-    const cp1y = isBezier ? cps.cp1y : null;
-    const cp2x = isBezier ? cps.cp2x : null;
-    const cp2y = isBezier ? cps.cp2y : null;
-    drawArrowLine(ann.x1, ann.y1, ann.x2, ann.y2, ann.color || "#ff0000", ann.width || 3,
-      cp1x, cp1y, cp2x, cp2y, ann.has_start_arrow ?? false, ann.has_end_arrow ?? true);
-    if (selected) {
-      const r = 5 / displayScale;
-      ctx.save();
-      // Endpoint handles — white fill + slate outline (same as transform corners)
-      for (const [ex, ey] of [[ann.x1, ann.y1], [ann.x2, ann.y2]]) {
-        ctx.fillStyle = "white";
-        ctx.beginPath(); ctx.arc(ex, ey, r, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = "rgba(122,157,184,0.9)"; ctx.lineWidth = 1.5 / displayScale;
-        ctx.beginPath(); ctx.arc(ex, ey, r, 0, Math.PI * 2); ctx.stroke();
-      }
-      if (isBezier) {
-        const cpR = 4 / displayScale;
-        // Control point arms (dashed)
-        ctx.strokeStyle = "rgba(122,157,184,0.5)";
-        ctx.lineWidth = 1 / displayScale;
-        ctx.setLineDash([3 / displayScale, 2 / displayScale]);
-        ctx.beginPath(); ctx.moveTo(ann.x1, ann.y1); ctx.lineTo(cps.cp1x, cps.cp1y); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(ann.x2, ann.y2); ctx.lineTo(cps.cp2x, cps.cp2y); ctx.stroke();
-        ctx.setLineDash([]);
-        // Control point handles (hollow circles)
-        ctx.fillStyle = "white";
-        ctx.strokeStyle = "rgba(122,157,184,0.9)";
-        ctx.lineWidth = 1.5 / displayScale;
-        ctx.beginPath(); ctx.arc(cps.cp1x, cps.cp1y, cpR, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(cps.cp1x, cps.cp1y, cpR, 0, Math.PI * 2); ctx.stroke();
-        ctx.fillStyle = "white";
-        ctx.beginPath(); ctx.arc(cps.cp2x, cps.cp2y, cpR, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(cps.cp2x, cps.cp2y, cpR, 0, Math.PI * 2); ctx.stroke();
-      }
-      ctx.restore();
-    }
-  }
-
-  function drawArrowLine(x1, y1, x2, y2, color, width, cp1x, cp1y, cp2x, cp2y, hasStartArrow, hasEndArrow) {
-    if (cp1x == null) cp1x = x1 + (x2 - x1) / 3;
-    if (cp1y == null) cp1y = y1 + (y2 - y1) / 3;
-    if (cp2x == null) cp2x = x1 + (x2 - x1) * 2 / 3;
-    if (cp2y == null) cp2y = y1 + (y2 - y1) * 2 / 3;
-    if (hasEndArrow == null) hasEndArrow = true;
-    const w = Math.max(1, width);
-    const head = Math.max(15, w * 4);
-    const setback = head * Math.cos(Math.PI / 6);
-
-    let endAngle = 0, startAngle = 0;
-    if (hasEndArrow) {
-      endAngle = Math.hypot(x2 - cp2x, y2 - cp2y) < 0.1
-        ? Math.atan2(y2 - y1, x2 - x1)
-        : Math.atan2(y2 - cp2y, x2 - cp2x);
-    }
-    if (hasStartArrow) {
-      startAngle = Math.hypot(cp1x - x1, cp1y - y1) < 0.1
-        ? Math.atan2(y1 - y2, x1 - x2)
-        : Math.atan2(y1 - cp1y, x1 - cp1x);
-    }
-
-    const lx2 = hasEndArrow   ? x2 - setback * Math.cos(endAngle)   : x2;
-    const ly2 = hasEndArrow   ? y2 - setback * Math.sin(endAngle)   : y2;
-    const lx1 = hasStartArrow ? x1 - setback * Math.cos(startAngle) : x1;
-    const ly1 = hasStartArrow ? y1 - setback * Math.sin(startAngle) : y1;
-
-    // Sample the bezier — compute position and parametric speed at each point
-    const N = 48;
-    const pts = [], speeds = [], tangents = [];
-    for (let i = 0; i <= N; i++) {
-      const t = i / N, mt = 1 - t;
-      pts.push([
-        mt**3*lx1 + 3*mt**2*t*cp1x + 3*mt*t**2*cp2x + t**3*lx2,
-        mt**3*ly1 + 3*mt**2*t*cp1y + 3*mt*t**2*cp2y + t**3*ly2,
-      ]);
-      // First derivative of cubic bezier
-      const dvx = 3*(mt**2*(cp1x-lx1) + 2*mt*t*(cp2x-cp1x) + t**2*(lx2-cp2x));
-      const dvy = 3*(mt**2*(cp1y-ly1) + 2*mt*t*(cp2y-cp1y) + t**2*(ly2-cp2y));
-      const spd = Math.hypot(dvx, dvy);
-      tangents.push([dvx, dvy, spd]);
-      speeds.push(spd);
-    }
-
-    const minSpd = Math.min(...speeds), maxSpd = Math.max(...speeds);
-    const spdRange = maxSpd - minSpd;
-
-    ctx.save();
-    ctx.fillStyle = color;
-    ctx.strokeStyle = color;
-
-    if (spdRange < 0.001) {
-      // Straight line — use round-capped stroke at full width
-      ctx.lineWidth = w;
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(lx1, ly1);
-      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, lx2, ly2);
-      ctx.stroke();
-    } else {
-      // Curved line — filled variable-width polygon (fat in bends, thin on straights)
-      const minW = w * 0.18, maxW = w;
-      const left = [], right = [];
-      for (let i = 0; i <= N; i++) {
-        const [bx, by] = pts[i];
-        const [dvx, dvy, spd] = tangents[i];
-        const rawNorm = (speeds[i] - minSpd) / spdRange;
-        const hw = (minW + (1 - rawNorm) * (maxW - minW)) / 2;
-        const [px, py] = spd < 0.001 ? [0, hw] : [-dvy / spd * hw, dvx / spd * hw];
-        left.push([bx + px, by + py]);
-        right.push([bx - px, by - py]);
-      }
-      ctx.beginPath();
-      ctx.moveTo(left[0][0], left[0][1]);
-      for (let i = 1; i <= N; i++) ctx.lineTo(left[i][0], left[i][1]);
-      for (let i = N; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    // Arrowheads
-    if (hasEndArrow) {
-      ctx.beginPath();
-      ctx.moveTo(x2, y2);
-      ctx.lineTo(x2 - head * Math.cos(endAngle - Math.PI/6), y2 - head * Math.sin(endAngle - Math.PI/6));
-      ctx.lineTo(x2 - head * Math.cos(endAngle + Math.PI/6), y2 - head * Math.sin(endAngle + Math.PI/6));
-      ctx.closePath(); ctx.fill();
-    }
-    if (hasStartArrow) {
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x1 - head * Math.cos(startAngle - Math.PI/6), y1 - head * Math.sin(startAngle - Math.PI/6));
-      ctx.lineTo(x1 - head * Math.cos(startAngle + Math.PI/6), y1 - head * Math.sin(startAngle + Math.PI/6));
-      ctx.closePath(); ctx.fill();
-    }
-    ctx.restore();
-  }
-
-  function drawRect(ann, _selected) {
-    const hw = (ann.w || 10) / 2, hh = (ann.h || 10) / 2;
-    const r = ann.rotation || 0;
-    ctx.save();
-    ctx.translate(ann.x || 0, ann.y || 0);
-    ctx.rotate(r);
-    ctx.lineWidth = ann.width || 2;
-    ctx.strokeStyle = ann.color || "#ff0000";
-    if (ann.fill_color) { ctx.fillStyle = ann.fill_color; ctx.fillRect(-hw, -hh, hw * 2, hh * 2); }
-    ctx.strokeRect(-hw, -hh, hw * 2, hh * 2);
-    ctx.restore();
-  }
-
-  function drawEllipse(ann, _selected) {
-    const rx = Math.max(0.5, (ann.w || 10) / 2), ry = Math.max(0.5, (ann.h || 10) / 2);
-    const r = ann.rotation || 0;
-    ctx.save();
-    ctx.translate(ann.x || 0, ann.y || 0);
-    ctx.rotate(r);
-    ctx.lineWidth = ann.width || 2;
-    ctx.strokeStyle = ann.color || "#ff0000";
-    ctx.beginPath();
-    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
-    if (ann.fill_color) { ctx.fillStyle = ann.fill_color; ctx.fill(); }
-    ctx.stroke();
-    ctx.restore();
-  }
+  // ── drawing functions (bound to live state via factory) ───────────────────
+  const drawing = createDrawing(() => ({ ctx, displayScale, hoverId }));
+  const { renderStrokes, drawPaint, drawText, drawArrowLine, drawArrowAnnotation, drawRect, drawEllipse } = drawing;
 
   // ── hit testing ───────────────────────────────────────────────────────────
   function hitTest(cx, cy) {
@@ -1676,7 +1263,7 @@ export default function AnnotateImageSimple(container, props) {
         const ax = (ann.x || 0) - 4, ay = (ann.y || 0) - 4;
         if (cx >= ax && cx <= ax + w + 8 && cy >= ay && cy <= ay + h + 8) return ann;
       } else if (ann.type === "arrow") {
-        const { cp1x, cp1y, cp2x, cp2y } = _defaultCps(ann);
+        const { cp1x, cp1y, cp2x, cp2y } = defaultCps(ann);
         const tol = Math.max(12 / displayScale, (ann.width || 3) + 6);
         const N = 20;
         for (let i = 0; i <= N; i++) {
@@ -1686,11 +1273,11 @@ export default function AnnotateImageSimple(container, props) {
           if (Math.hypot(cx - bx, cy - by) <= tol) return ann;
         }
       } else if (ann.type === "paint") {
-        const [lx, ly] = _paintInvTransformPt(ann, cx, cy);
+        const [lx, ly] = paintInvTransformPt(ann, cx, cy);
         // If already selected, accept click anywhere inside the bounding box
         const isSelected = (currentValue.selected_ids || []).includes(ann.id);
         if (isSelected) {
-          const nb = _naturalBounds(ann);
+          const nb = naturalBounds(ann);
           if (nb && lx >= nb.minX && lx <= nb.maxX && ly >= nb.minY && ly <= nb.maxY) return ann;
         }
         for (const stroke of (ann.strokes || [])) {
@@ -1738,7 +1325,7 @@ export default function AnnotateImageSimple(container, props) {
       const ax = ann.x || 0, ay = ann.y || 0;
       return { minX: ax - 4, minY: ay - 4, maxX: ax + w + 8, maxY: ay + h + 8 };
     } else if (ann.type === "arrow") {
-      const { cp1x, cp1y, cp2x, cp2y } = _defaultCps(ann);
+      const { cp1x, cp1y, cp2x, cp2y } = defaultCps(ann);
       const pad = Math.max(8, (ann.width || 3) / 2 + 4);
       const xs = [ann.x1, ann.x2, cp1x, cp2x], ys = [ann.y1, ann.y2, cp1y, cp2y];
       return {
@@ -1746,7 +1333,7 @@ export default function AnnotateImageSimple(container, props) {
         maxX: Math.max(...xs) + pad, maxY: Math.max(...ys) + pad,
       };
     } else if (ann.type === "paint") {
-      const corners = _getTransformedCorners(ann, 10);
+      const corners = getTransformedCorners(ann, 10);
       if (!corners.length) return null;
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       for (const [cx, cy] of corners) {
@@ -1786,30 +1373,7 @@ export default function AnnotateImageSimple(container, props) {
     return { minX, minY, maxX, maxY, centerX: (minX + maxX) / 2, centerY: (minY + maxY) / 2 };
   }
 
-  function _snapshotAnn(ann) {
-    const [cx, cy] = _paintCenter(ann);
-    const cps = _defaultCps(ann);
-    return {
-      cx, cy,
-      x: ann.x ?? 0, y: ann.y ?? 0,
-      scaleX: ann.scaleX ?? 1, scaleY: ann.scaleY ?? 1,
-      rotation: ann.rotation ?? 0,
-      x1: ann.x1 ?? 0, y1: ann.y1 ?? 0, x2: ann.x2 ?? 0, y2: ann.y2 ?? 0,
-      cp1x: cps.cp1x, cp1y: cps.cp1y, cp2x: cps.cp2x, cp2y: cps.cp2y,
-      font_size: ann.font_size ?? 48,
-      width: ann.width ?? 3,
-      sizeScale: ann.sizeScale ?? 1,
-      w: ann.w ?? 100, h: ann.h ?? 100,
-    };
-  }
-
-  function _defaultCps(ann) {
-    const cp1x = ann.cp1x ?? (ann.x1 + ((ann.x2 ?? 0) - (ann.x1 ?? 0)) / 3);
-    const cp1y = ann.cp1y ?? (ann.y1 + ((ann.y2 ?? 0) - (ann.y1 ?? 0)) / 3);
-    const cp2x = ann.cp2x ?? (ann.x1 + ((ann.x2 ?? 0) - (ann.x1 ?? 0)) * 2 / 3);
-    const cp2y = ann.cp2y ?? (ann.y1 + ((ann.y2 ?? 0) - (ann.y1 ?? 0)) * 2 / 3);
-    return { cp1x, cp1y, cp2x, cp2y };
-  }
+  // snapshotAnn, defaultCps, paintCenter etc. imported from _geometry.js
 
   // ── unified transform frame (OBB) ────────────────────────────────────────────
   // The frame is an oriented bounding box (pivot + rotation + half-extents).
@@ -1840,9 +1404,9 @@ export default function AnnotateImageSimple(container, props) {
         return;
       }
       if (ann.type === "paint") {
-        const nb = _naturalBounds(ann);
+        const nb = naturalBounds(ann);
         if (!nb) { txFrame = null; return; }
-        const [pcx, pcy] = _paintCenter(ann);
+        const [pcx, pcy] = paintCenter(ann);
         const sx = ann.scaleX ?? 1, sy = ann.scaleY ?? 1;
         txFrame = {
           pivotX: pcx + (ann.x || 0), pivotY: pcy + (ann.y || 0),
@@ -1869,24 +1433,7 @@ export default function AnnotateImageSimple(container, props) {
     };
   }
 
-  function _frameCorners(frame) {
-    const { pivotX: px, pivotY: py, rotation: r, halfW: hw, halfH: hh } = frame;
-    const cos = Math.cos(r), sin = Math.sin(r);
-    return [[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]].map(([lx,ly]) =>
-      [px + lx*cos - ly*sin, py + lx*sin + ly*cos]);
-  }
-
-  function _frameTopMid(frame) {
-    // local (0, -halfH) → world
-    const { pivotX: px, pivotY: py, rotation: r, halfH: hh } = frame;
-    return [px + hh*Math.sin(r), py - hh*Math.cos(r)];
-  }
-
-  function _frameRotHandle(frame) {
-    const [tx, ty] = _frameTopMid(frame);
-    const d = 28 / displayScale;
-    return [tx + d*Math.sin(frame.rotation), ty - d*Math.cos(frame.rotation)];
-  }
+  // frameCorners, frameTopMid, frameRotHandle imported from _geometry.js
 
   // Returns true if annotation overlaps the given canvas-space rectangle
   function _annotationIntersectsRect(ann, x1, y1, x2, y2) {
@@ -1898,7 +1445,7 @@ export default function AnnotateImageSimple(container, props) {
       const ax = ann.x || 0, ay = ann.y || 0;
       return !(ax + w < x1 || ax > x2 || ay + h < y1 || ay > y2);
     } else if (ann.type === "arrow") {
-      const { cp1x, cp1y, cp2x, cp2y } = _defaultCps(ann);
+      const { cp1x, cp1y, cp2x, cp2y } = defaultCps(ann);
       const N = 12;
       for (let i = 0; i <= N; i++) {
         const t = i / N, mt = 1 - t;
@@ -1910,7 +1457,7 @@ export default function AnnotateImageSimple(container, props) {
     } else if (ann.type === "paint") {
       for (const stroke of (ann.strokes || [])) {
         for (const pt of (stroke.points || [])) {
-          const [px, py] = _paintTransformPt(ann, pt[0], pt[1]);
+          const [px, py] = paintTransformPt(ann, pt[0], pt[1]);
           if (px >= x1 && px <= x2 && py >= y1 && py <= y2) return true;
         }
       }
@@ -2042,124 +1589,23 @@ export default function AnnotateImageSimple(container, props) {
   // ── pointer events ────────────────────────────────────────────────────────
   // React Flow intercepts Shift+click via a capture-phase listener on its node element,
   // which fires before any bubble-phase handler on our canvas.  The only way to beat it
-  // is to register our own listener at the document level in capture phase, which fires
-  // first among all elements.  We only act when the event target is inside our widget
-  // and Shift is held; everything else is passed through untouched.
-  function _shiftInterceptor(e) {
-    if (!e.shiftKey || !wrapper.contains(e.target)) return;
-    e.stopPropagation();
-    e.stopImmediatePropagation();
-    // For pointerdown: dispatch into our own handler manually (event never reaches canvas
-    // because we stopped propagation before it could).
-    if (e.type === "pointerdown" && e.button === 0) onPointerDown(e);
-    // mousedown / click: just swallow so React Flow doesn't multi-select the node.
-  }
-  document.addEventListener("pointerdown", _shiftInterceptor, { capture: true });
-  document.addEventListener("mousedown",   _shiftInterceptor, { capture: true });
-  document.addEventListener("click",       _shiftInterceptor, { capture: true });
-
-  function _deleteInterceptor(e) {
-    if (!_mouseIsOver) return;
-    if (e.key !== "Delete" && e.key !== "Backspace") return;
-    if (!(currentValue.selected_ids || []).length) return;
-    if (textEditId) return;
-    if (activeTool !== "select" && activeTool !== "arrow" && activeTool !== "rect" && activeTool !== "ellipse") return;
-    // Don't steal Delete from text inputs elsewhere on the page
-    const t = e.target;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-    e.stopPropagation();
-    e.preventDefault();
-    const selIds = currentValue.selected_ids;
-    _deleteAnnotations(selIds);
-    currentValue = { ...currentValue, selected_ids: [] };
-    txFrame = null;
-    _emit();
-    rebuildSettings();
-    renderCanvas();
-  }
-  document.addEventListener("keydown", _deleteInterceptor, { capture: true });
-
-  function _sizeInterceptor(e) {
-    if (!_mouseIsOver) return;
-    if (e.key !== "[" && e.key !== "]") return;
-    if (textEditId) return;
-    const t = e.target;
-    // Allow [ ] through for range/color/checkbox inputs (widget controls) — only block text-entry fields
-    const inputType = (t?.type || "").toLowerCase();
-    const isTextEntry = t && (
-      (t.tagName === "INPUT" && !["range", "color", "checkbox", "radio"].includes(inputType)) ||
-      t.tagName === "TEXTAREA" ||
-      t.isContentEditable
-    );
-    if (isTextEntry) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const delta = e.key === "]" ? 1 : -1;
-    const selIds = currentValue.selected_ids || [];
-    // Adjust selected annotation if one is selected
-    if (selIds.length === 1 && (activeTool === "select" || activeTool === "arrow")) {
-      const selAnn = _effectiveAnnotations().find((a) => a.id === selIds[0]);
-      if (selAnn) {
-        if (selAnn.type === "paint") {
-          const base = selAnn.strokes?.[0]?.size ?? 8;
-          const cur = Math.round(base * (selAnn.sizeScale ?? 1));
-          const next = Math.max(1, Math.min(80, cur + delta));
-          _applySingleUpdate(selAnn.id, (a) => ({ ...a, sizeScale: next / base }));
-          _emit(); rebuildSettings(); renderCanvas(); return;
-        }
-        if (selAnn.type === "text") {
-          const next = Math.max(8, Math.min(120, (selAnn.font_size ?? 48) + delta * 2));
-          _applySingleUpdate(selAnn.id, (a) => ({ ...a, font_size: next }));
-          _emit(); rebuildSettings(); renderCanvas(); return;
-        }
-        if (selAnn.type === "arrow") {
-          const next = Math.max(1, Math.min(20, (selAnn.width ?? 3) + delta));
-          _applySingleUpdate(selAnn.id, (a) => ({ ...a, width: next }));
-          _emit(); rebuildSettings(); renderCanvas(); return;
-        }
-        if (selAnn.type === "rect" || selAnn.type === "ellipse") {
-          const next = Math.max(1, Math.min(20, (selAnn.width ?? 2) + delta));
-          _applySingleUpdate(selAnn.id, (a) => ({ ...a, width: next }));
-          _emit(); rebuildSettings(); renderCanvas(); return;
-        }
-      }
+  // ── hotkeys (all document-level keyboard listeners) ───────────────────────
+  const _cleanupHotkeys = setupHotkeys(
+    () => ({ mouseIsOver: _mouseIsOver, textEditId, activeTool, currentValue, toolSettings }),
+    {
+      setTool, resetView, rebuildSettings,
+      emit: _emit, renderCanvas,
+      deleteAnnotations: _deleteAnnotations,
+      setCurrentValue: (v) => { currentValue = v; },
+      setTxFrame: (f) => { txFrame = f; },
+      applySingleUpdate: _applySingleUpdate,
+      effectiveAnnotations: _effectiveAnnotations,
+      onPointerDown,
+      onAltDown: () => { if (!isAltHeld) { isAltHeld = true; if (!isPointerDown) canvas.style.cursor = "grab"; } },
+      onAltUp:   () => { isAltHeld = false; if (!isPanning && !isPointerDown) canvas.style.cursor = _currentToolCursor(); },
+      wrapper,
     }
-    // Otherwise adjust active tool settings
-    if (activeTool === "paint") {
-      toolSettings.paint.size = Math.max(1, Math.min(80, (toolSettings.paint.size ?? 8) + delta));
-      currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
-      rebuildSettings(); _emit();
-    } else if (activeTool === "arrow") {
-      toolSettings.arrow.width = Math.max(1, Math.min(20, (toolSettings.arrow.width ?? 3) + delta));
-      currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
-      rebuildSettings(); _emit();
-    } else if (activeTool === "text") {
-      toolSettings.text.font_size = Math.max(8, Math.min(120, (toolSettings.text.font_size ?? 48) + delta * 2));
-      currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
-      rebuildSettings(); _emit();
-    } else if (activeTool === "rect" || activeTool === "ellipse") {
-      toolSettings[activeTool].width = Math.max(1, Math.min(20, (toolSettings[activeTool].width ?? 2) + delta));
-      currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
-      rebuildSettings(); _emit();
-    }
-  }
-  document.addEventListener("keydown", _sizeInterceptor, { capture: true });
-
-  const _toolHotkeys = { v: "select", h: "hand", z: "zoom", d: "paint", t: "text", l: "arrow", r: "rect", o: "ellipse" };
-  function _toolHotkeyInterceptor(e) {
-    if (!_mouseIsOver) return;
-    if (textEditId) return;
-    const t = e.target;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const key = e.key.toLowerCase();
-    if (key === "f") { e.stopPropagation(); resetView(); return; }
-    const tool = _toolHotkeys[key];
-    if (!tool) return;
-    e.stopPropagation();
-    setTool(tool);
-  }
-  document.addEventListener("keydown", _toolHotkeyInterceptor, { capture: true });
+  );
 
   canvas.addEventListener("pointerdown", onPointerDown);
   canvas.addEventListener("pointermove", onPointerMove);
@@ -2213,12 +1659,12 @@ export default function AnnotateImageSimple(container, props) {
     if (txFrame && _frameActiveTools.includes(activeTool)) {
       const handleR = 8 / displayScale;
       const selIds = currentValue.selected_ids || [];
-      const corners = _frameCorners(txFrame);
-      const rh = _frameRotHandle(txFrame);
+      const corners = frameCorners(txFrame);
+      const rh = frameRotHandle(txFrame, displayScale);
       const buildSnapshots = () => {
         const s = {};
         for (const ann of _effectiveAnnotations())
-          if (selIds.includes(ann.id)) s[ann.id] = _snapshotAnn(ann);
+          if (selIds.includes(ann.id)) s[ann.id] = snapshotAnn(ann);
         return s;
       };
       if (!txFrame.noRotate && Math.hypot(cx - rh[0], cy - rh[1]) <= handleR) {
@@ -2250,7 +1696,7 @@ export default function AnnotateImageSimple(container, props) {
           const a = _effectiveAnnotations().find((ann) => ann.id === id);
           if (!a) continue;
           if (a.type === "arrow") {
-            const cps = _defaultCps(a);
+            const cps = defaultCps(a);
             origPositions[id] = { x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2,
               cp1x: cps.cp1x, cp1y: cps.cp1y, cp2x: cps.cp2x, cp2y: cps.cp2y };
           } else origPositions[id] = { x: a.x ?? 0, y: a.y ?? 0 };
@@ -2288,12 +1734,12 @@ export default function AnnotateImageSimple(container, props) {
 
       // Unified transform frame handle detection (single paint, single text, or group)
       if (txFrame) {
-        const corners = _frameCorners(txFrame);
-        const rh = _frameRotHandle(txFrame);
+        const corners = frameCorners(txFrame);
+        const rh = frameRotHandle(txFrame, displayScale);
         const buildSnapshots = () => {
           const s = {};
           for (const ann of _effectiveAnnotations())
-            if (selIds.includes(ann.id)) s[ann.id] = _snapshotAnn(ann);
+            if (selIds.includes(ann.id)) s[ann.id] = snapshotAnn(ann);
           return s;
         };
         // Rotation handle
@@ -2326,7 +1772,7 @@ export default function AnnotateImageSimple(container, props) {
       if (selIds.length === 1) {
         const selAnn = _effectiveAnnotations().find((a) => a.id === selIds[0]);
         if (selAnn?.type === "arrow") {
-          const cps = _defaultCps(selAnn);
+          const cps = defaultCps(selAnn);
           const cpR = Math.max(8 / displayScale, 5);
           for (const [which, hx, hy] of [["cp1", cps.cp1x, cps.cp1y], ["cp2", cps.cp2x, cps.cp2y]]) {
             if (Math.hypot(cx - hx, cy - hy) <= cpR) {
@@ -2363,7 +1809,7 @@ export default function AnnotateImageSimple(container, props) {
           const nearStart = Math.hypot(cx - hit.x1, cy - hit.y1) <= arrowHandleR;
           const nearEnd   = Math.hypot(cx - hit.x2, cy - hit.y2) <= arrowHandleR;
           if (nearStart || nearEnd) {
-            const hitCps = _defaultCps(hit);
+            const hitCps = defaultCps(hit);
             dragState = { type: "arrowHandle", id: hit.id,
               arrowHandle: nearStart ? "start" : "end",
               startCx: cx, startCy: cy,
@@ -2379,7 +1825,7 @@ export default function AnnotateImageSimple(container, props) {
           const a = _effectiveAnnotations().find((ann) => ann.id === id);
           if (!a) continue;
           if (a.type === "arrow") {
-            const cps = _defaultCps(a);
+            const cps = defaultCps(a);
             origPositions[id] = { x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2,
               cp1x: cps.cp1x, cp1y: cps.cp1y, cp2x: cps.cp2x, cp2y: cps.cp2y };
           } else origPositions[id] = { x: a.x ?? 0, y: a.y ?? 0 };
@@ -2426,7 +1872,7 @@ export default function AnnotateImageSimple(container, props) {
           const nearStart = Math.hypot(cx - selAnn.x1, cy - selAnn.y1) <= handleR;
           const nearEnd   = Math.hypot(cx - selAnn.x2, cy - selAnn.y2) <= handleR;
           if (nearStart || nearEnd) {
-            const hitCps = _defaultCps(selAnn);
+            const hitCps = defaultCps(selAnn);
             dragState = { type: "arrowHandle", id: selAnn.id,
               arrowHandle: nearStart ? "start" : "end",
               startCx: cx, startCy: cy,
@@ -2435,7 +1881,7 @@ export default function AnnotateImageSimple(container, props) {
             canvas.style.cursor = "grabbing"; return;
           }
           if (selAnn.is_bezier) {
-            const cps = _defaultCps(selAnn);
+            const cps = defaultCps(selAnn);
             const cpR = Math.max(8 / displayScale, 5);
             for (const [which, hx, hy] of [["cp1", cps.cp1x, cps.cp1y], ["cp2", cps.cp2x, cps.cp2y]]) {
               if (Math.hypot(cx - hx, cy - hy) <= cpR) {
@@ -2724,7 +2170,7 @@ export default function AnnotateImageSimple(container, props) {
       const stroke = currentStroke;
       currentStroke = null;
       // Each stroke = its own paint annotation with independent transform
-      const b = _strokeBounds(stroke);
+      const b = strokeBounds(stroke);
       const paintAnn = {
         id: _uid("paint"), type: "paint",
         strokes: [stroke],
@@ -2837,8 +2283,8 @@ export default function AnnotateImageSimple(container, props) {
 
     if (_frameActiveTools.includes(activeTool)) {
       if (txFrame) {
-        if (!txFrame.noRotate && Math.hypot(cx - _frameRotHandle(txFrame)[0], cy - _frameRotHandle(txFrame)[1]) <= handleR) return "grab";
-        for (const [hx, hy] of _frameCorners(txFrame))
+        if (!txFrame.noRotate && Math.hypot(cx - frameRotHandle(txFrame, displayScale)[0], cy - frameRotHandle(txFrame, displayScale)[1]) <= handleR) return "grab";
+        for (const [hx, hy] of frameCorners(txFrame))
           if (Math.hypot(cx - hx, cy - hy) <= handleR) return "grab";
         if (Math.hypot(cx - txFrame.pivotX, cy - txFrame.pivotY) <= handleR) return "grab";
       }
@@ -2848,7 +2294,7 @@ export default function AnnotateImageSimple(container, props) {
           const sa = _effectiveAnnotations().find((a) => a.id === selIds[0]);
           if (sa?.type === "arrow") {
             if (sa.is_bezier) {
-              const cps = _defaultCps(sa), cpR = Math.max(8 / displayScale, 5);
+              const cps = defaultCps(sa), cpR = Math.max(8 / displayScale, 5);
               if (Math.hypot(cx - cps.cp1x, cy - cps.cp1y) <= cpR) return "grab";
               if (Math.hypot(cx - cps.cp2x, cy - cps.cp2y) <= cpR) return "grab";
             }
@@ -2871,7 +2317,7 @@ export default function AnnotateImageSimple(container, props) {
           const ar = Math.max(10 / displayScale, 8);
           if (Math.hypot(cx - sa.x1, cy - sa.y1) <= ar || Math.hypot(cx - sa.x2, cy - sa.y2) <= ar) return "grab";
           if (sa.is_bezier) {
-            const cps = _defaultCps(sa), cpR = Math.max(8 / displayScale, 5);
+            const cps = defaultCps(sa), cpR = Math.max(8 / displayScale, 5);
             if (Math.hypot(cx - cps.cp1x, cy - cps.cp1y) <= cpR) return "grab";
             if (Math.hypot(cx - cps.cp2x, cy - cps.cp2y) <= cpR) return "grab";
           }
@@ -2988,18 +2434,9 @@ export default function AnnotateImageSimple(container, props) {
     _dismissLayerPopup();
     _dismissOverflowMenu();
     _actionsRO.disconnect();
-    _hideTooltip();
-    _tooltipEl.remove();
+    _tooltip.cleanup();
+    _cleanupHotkeys();
     resizeObserver.disconnect();
-    if (resizeRafId) cancelAnimationFrame(resizeRafId);
-    document.removeEventListener("pointerdown", _shiftInterceptor, { capture: true });
-    document.removeEventListener("mousedown",   _shiftInterceptor, { capture: true });
-    document.removeEventListener("click",       _shiftInterceptor, { capture: true });
-    document.removeEventListener("keydown",     _deleteInterceptor,      { capture: true });
-    document.removeEventListener("keydown",     _sizeInterceptor,        { capture: true });
-    document.removeEventListener("keydown",     _toolHotkeyInterceptor,  { capture: true });
-    document.removeEventListener("keydown",     _onAltDown);
-    document.removeEventListener("keyup",       _onAltUp);
     canvas.removeEventListener("pointerdown", onPointerDown);
     canvas.removeEventListener("pointermove", onPointerMove);
     canvas.removeEventListener("pointerup", onPointerUp);

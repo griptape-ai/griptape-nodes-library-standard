@@ -129,3 +129,142 @@ if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
 - Call `onChange` on `blur`, not on every `input` event — avoids focus-stealing
 - Pass a copy to `onChange`, never internal state: `onChange({ ...value, field: newVal })`
 - Cleanup must remove DOM elements and delete `container._instance`
+
+---
+
+## Splitting a Large Widget into ES Modules
+
+Widgets are served as static files and loaded with `import(widgetUrl)`. The browser resolves **relative imports** relative to that served URL — so sibling files in `widgets/` work with no build step.
+
+```
+widgets/
+  MyWidget.js        ← main entry point
+  _geometry.js       ← pure math helpers
+  _drawing.js        ← canvas drawing factory
+  _hotkeys.js        ← document keyboard handler setup/teardown
+  _tooltip.js        ← tooltip factory
+  _styles.js         ← CSS injection + constants
+  _icons.js          ← SVG path strings + icon builder
+```
+
+Convention: prefix helper files with `_` to distinguish them from widget entry points.
+
+**Entry point imports:**
+```js
+import { ICON_PATHS, mkIcon } from './_icons.js';
+import { injectStyles, defaultData, DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from './_styles.js';
+import { decimatePoints, paintCenter, frameRotHandle } from './_geometry.js';
+import { createDrawing } from './_drawing.js';
+import { createTooltip } from './_tooltip.js';
+import { setupHotkeys } from './_hotkeys.js';
+```
+
+No CDN, no bundler, no build step. The browser handles it.
+
+### Module type guide
+
+| Module | Pattern | What goes in it |
+|--------|---------|-----------------|
+| `_geometry.js` | Pure functions | Math, coordinate transforms, bounds calculations — no DOM, no canvas |
+| `_drawing.js` | Factory | `createDrawing(getState)` — canvas draw calls that need shared mutable state |
+| `_tooltip.js` | Factory | `createTooltip()` — creates DOM element, returns `{ addTooltip, cleanup }` |
+| `_hotkeys.js` | Setup/teardown | `setupHotkeys(getState, actions)` — registers document listeners, returns `cleanup()` |
+| `_styles.js` | Constants + side-effect | CSS string injection, default data shapes, size constants |
+| `_icons.js` | Data + helper | SVG path strings, `mkIcon(name, size)` builder |
+
+---
+
+## Factory Pattern for Stateful Canvas Functions
+
+When drawing functions need access to mutable widget state (like `ctx`, `displayScale`, `hoverId`), use a factory that takes a `getState` lambda instead of passing state as parameters on every call.
+
+```js
+// _drawing.js
+export function createDrawing(getState) {
+  // getState() returns { ctx, displayScale, hoverId }
+
+  function drawText(ann, selected) {
+    const { ctx, displayScale, hoverId } = getState();  // reads current values
+    // ...
+  }
+
+  return { drawText, drawRect, drawEllipse, drawPaint, drawArrowAnnotation };
+}
+```
+
+```js
+// Widget main file
+let ctx, displayScale, hoverId;  // mutable — updated as the widget runs
+
+const drawing = createDrawing(() => ({ ctx, displayScale, hoverId }));
+const { drawText, drawRect } = drawing;
+```
+
+The lambda `() => ({ ctx, displayScale, hoverId })` is evaluated fresh on each call, so the drawing functions always see the current values without the widget needing to push updates.
+
+Same pattern applies to `setupHotkeys(getState, actions)`:
+```js
+const _cleanupHotkeys = setupHotkeys(
+  () => ({ mouseIsOver: _mouseIsOver, textEditId, activeTool, currentValue, toolSettings }),
+  { setTool, resetView, deleteAnnotations, /* ... */ }
+);
+```
+
+---
+
+## Scoping Hotkeys to the Widget (Mouse-Over Guard)
+
+`document.addEventListener` handlers fire globally. To prevent widget keyboard shortcuts from hijacking the rest of the app, guard with a `_mouseIsOver` flag set by the container's `mouseenter`/`mouseleave` events.
+
+```js
+let _mouseIsOver = false;
+container.addEventListener("mouseenter", () => { _mouseIsOver = true; });
+container.addEventListener("mouseleave", () => { _mouseIsOver = false; });
+```
+
+Use `container` (not `canvas`) so the guard covers the toolbar, settings panels, and canvas area.
+
+In each document-level key handler:
+```js
+function _deleteInterceptor(e) {
+  if (!getState().mouseIsOver) return;  // ← guard first
+  // ... rest of handler
+}
+```
+
+**Exception: skip the guard on `keyup` for any modifier you track as a persistent boolean.** If the user holds a modifier key, moves the mouse out of the widget, and releases, the boolean must still reset — otherwise the widget gets stuck in the wrong state (wrong cursor, wrong tool behavior, etc.).
+
+```js
+function _onAltDown(e) {
+  if (!getState().mouseIsOver) return;  // guard: only activate if over widget
+  if (e.key === "Alt") actions.onAltDown();
+}
+
+function _onAltUp(e) {
+  // NO guard — always release alt state regardless of mouse position
+  if (e.key === "Alt") actions.onAltUp();
+}
+```
+
+This applies to **any** modifier you store as state — alt, shift, ctrl, meta. The pattern is always the same: guard `keydown`, skip the guard on `keyup`. If you're not storing a boolean (just reading `e.shiftKey` inline at event time), no special handling is needed.
+
+---
+
+## Cleanup Consolidation
+
+Each factory returns its own cleanup. Collect them all in the widget's `cleanup()`:
+
+```js
+const _tooltip = createTooltip();
+const _cleanupHotkeys = setupHotkeys(getState, actions);
+
+function cleanup() {
+  _tooltip.cleanup();       // removes tooltip DOM element, clears timer
+  _cleanupHotkeys();        // removes all document keydown/keyup listeners
+  resizeObserver.disconnect();
+  wrapper.remove();
+  delete container._instance;
+}
+```
+
+This keeps cleanup traceable — each factory owns its own teardown, the widget just calls them in sequence.
