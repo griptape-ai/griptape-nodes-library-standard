@@ -1150,6 +1150,17 @@
       }
     },
     {
+      "class_name": "BlurVideo",
+      "file_path": "griptape_nodes_library/video/blur_video.py",
+      "metadata": {
+        "category": "video",
+        "description": "Blur a video using fast ffmpeg filters (boxblur, gblur, avgblur) with adjustable radius/sigma",
+        "display_name": "Blur Video",
+        "icon": "droplets",
+        "group": "effects"
+      }
+    },
+    {
       "class_name": "AdjustVideoEQ",
       "file_path": "griptape_nodes_library/video/adjust_video_eq.py",
       "metadata": {
