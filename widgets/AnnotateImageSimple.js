@@ -249,24 +249,6 @@ export default function AnnotateImageSimple(container, props) {
   divider.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
   toolbar.appendChild(divider);
 
-  // Reset-view button (dimmed when at default zoom/pan)
-  resetViewBtn = document.createElement("button");
-  resetViewBtn.className = "ais-tool-btn";
-  resetViewBtn.title = "Reset view (fit to window)";
-  resetViewBtn.style.opacity = "0.4";
-  resetViewBtn.style.pointerEvents = "none";
-  resetViewBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-    <rect x="1" y="1" width="12" height="12" rx="1.5"/>
-    <path d="M4.5 1v2.5H2M9.5 1v2.5H12M4.5 13v-2.5H2M9.5 13v-2.5H12"/>
-  </svg>`;
-  resetViewBtn.addEventListener("pointerdown", (e) => { e.stopPropagation(); resetView(); resetViewBtn.blur(); });
-  toolbar.appendChild(resetViewBtn);
-
-  // Second divider
-  const divider2 = document.createElement("div");
-  divider2.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
-  toolbar.appendChild(divider2);
-
   // Clear annotations button
   const clearBtn = document.createElement("button");
   clearBtn.className = "ais-tool-btn";
@@ -278,9 +260,16 @@ export default function AnnotateImageSimple(container, props) {
     <line x1="5.5" y1="6" x2="5.5" y2="10"/>
     <line x1="8.5" y1="6" x2="8.5" y2="10"/>
   </svg>`;
-  clearBtn.addEventListener("pointerdown", (e) => {
-    e.stopPropagation();
-    e.preventDefault();
+  let clearPopup = null;
+  function _dismissClearPopup() {
+    if (clearPopup) { clearPopup.remove(); clearPopup = null; }
+    document.removeEventListener("pointerdown", _outsideClearHandler, true);
+  }
+  function _outsideClearHandler(e) {
+    if (clearPopup && !clearPopup.contains(e.target)) _dismissClearPopup();
+  }
+  function _executeClear() {
+    _dismissClearPopup();
     if (textEditId) commitTextEdit();
     const importedIds = (currentValue.imported_annotations || []).map((a) => a.id);
     const newOverrides = { ...(currentValue.overrides || {}) };
@@ -291,9 +280,92 @@ export default function AnnotateImageSimple(container, props) {
     _emit();
     rebuildSettings();
     renderCanvas();
+  }
+  clearBtn.addEventListener("pointerdown", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
     clearBtn.blur();
+    if (clearPopup) { _dismissClearPopup(); return; }
+    const rect = clearBtn.getBoundingClientRect();
+    clearPopup = document.createElement("div");
+    clearPopup.style.cssText =
+      "position:fixed;z-index:99999;background:var(--card);border:1px solid var(--border);" +
+      "border-radius:8px;padding:12px 14px;box-shadow:0 4px 16px rgba(0,0,0,0.4);" +
+      "display:flex;flex-direction:column;gap:10px;min-width:200px;" +
+      `left:${rect.left}px;top:${rect.bottom + 6}px;`;
+    clearPopup.innerHTML = `
+      <div style="font-size:12px;color:var(--foreground);line-height:1.4;">
+        Clear all annotations?<br>
+        <span style="color:var(--muted-foreground);font-size:11px;">This cannot be undone.</span>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button id="_ais-cancel" style="font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);background:var(--muted);color:var(--muted-foreground);cursor:pointer;">Cancel</button>
+        <button id="_ais-confirm" style="font-size:11px;padding:3px 10px;border-radius:5px;border:none;background:var(--destructive);color:#fff;cursor:pointer;">Clear</button>
+      </div>`;
+    document.body.appendChild(clearPopup);
+    clearPopup.querySelector("#_ais-cancel").addEventListener("pointerdown", (e) => { e.stopPropagation(); _dismissClearPopup(); });
+    clearPopup.querySelector("#_ais-confirm").addEventListener("pointerdown", (e) => { e.stopPropagation(); _executeClear(); });
+    setTimeout(() => document.addEventListener("pointerdown", _outsideClearHandler, true), 0);
   });
   toolbar.appendChild(clearBtn);
+
+  // Reset-view button (dimmed when at default zoom/pan) — grouped with clear
+  resetViewBtn = document.createElement("button");
+  resetViewBtn.className = "ais-tool-btn";
+  resetViewBtn.title = "Reset view — fit canvas to window";
+  resetViewBtn.style.opacity = "0.4";
+  resetViewBtn.style.pointerEvents = "none";
+  resetViewBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <rect x="1" y="1" width="12" height="12" rx="1.5"/>
+    <path d="M4.5 1v2.5H2M9.5 1v2.5H12M4.5 13v-2.5H2M9.5 13v-2.5H12"/>
+  </svg>`;
+  resetViewBtn.addEventListener("pointerdown", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    resetView();
+    resetViewBtn.blur();
+  });
+  toolbar.appendChild(resetViewBtn);
+
+  // Reset overrides button — active only when a single imported annotation with overrides is selected
+  const resetOverridesBtn = document.createElement("button");
+  resetOverridesBtn.className = "ais-tool-btn";
+  resetOverridesBtn.title = "Reset overrides — restore selected annotation to original imported values";
+  resetOverridesBtn.style.color = "#c9830a";
+  resetOverridesBtn.style.opacity = "0.4";
+  resetOverridesBtn.style.pointerEvents = "none";
+  resetOverridesBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+    <path d="M3 3v5h5"/>
+  </svg>`;
+  function _updateResetOverridesBtn() {
+    const selIds = currentValue.selected_ids || [];
+    const overrides = currentValue.overrides || {};
+    const eligible = selIds.length === 1 && _isImported(selIds[0]) &&
+      overrides[selIds[0]] && Object.keys(overrides[selIds[0]]).length > 0;
+    resetOverridesBtn.style.opacity = eligible ? "1" : "0.4";
+    resetOverridesBtn.style.pointerEvents = eligible ? "auto" : "none";
+  }
+  _updateResetOverridesBtn();
+  resetOverridesBtn.addEventListener("pointerdown", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    resetOverridesBtn.blur();
+    const selId = (currentValue.selected_ids || [])[0];
+    if (!selId) return;
+    const newOverrides = { ...(currentValue.overrides || {}) };
+    delete newOverrides[selId];
+    currentValue = { ...currentValue, overrides: newOverrides };
+    _emit();
+    rebuildSettings();
+    renderCanvas();
+  });
+  toolbar.appendChild(resetOverridesBtn);
+
+  // Divider before settings area
+  const divider2 = document.createElement("div");
+  divider2.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
+  toolbar.appendChild(divider2);
 
   // Settings area (right of divider, grows to fill)
   const settingsArea = document.createElement("div");
@@ -427,6 +499,7 @@ export default function AnnotateImageSimple(container, props) {
 
   function rebuildSettings(keepLayerPopup = false) {
     if (!keepLayerPopup) _dismissLayerPopup();
+    _updateResetOverridesBtn();
     _buildTxFrame();
     settingsArea.innerHTML = "";
     colorPickerEl = null;
@@ -443,16 +516,9 @@ export default function AnnotateImageSimple(container, props) {
         const selAnn = _effectiveAnnotations().find((a) => a.id === selIds[0]);
         if (selAnn) {
           _buildAnnotationSettings(selAnn);
-          if (_isImported(selAnn.id)) _buildResetOverrideButton(selAnn.id);
         }
       } else if (selIds.length > 1) {
         _buildMultiSettings(selIds);
-      } else {
-        const hint = document.createElement("span");
-        hint.className = "ais-setting-label";
-        hint.textContent = "Click to select · Shift+click to add · Drag to select area";
-        hint.style.opacity = "0.5";
-        settingsArea.appendChild(hint);
       }
       return;
     }
@@ -464,7 +530,6 @@ export default function AnnotateImageSimple(container, props) {
         const selAnn = _effectiveAnnotations().find((a) => a.id === selIds[0]);
         if (selAnn?.type === activeTool) {
           _buildAnnotationSettings(selAnn);
-          if (_isImported(selAnn.id)) _buildResetOverrideButton(selAnn.id);
           return;
         }
       }
@@ -1097,7 +1162,9 @@ export default function AnnotateImageSimple(container, props) {
       minX = Math.min(minX, pt[0]); minY = Math.min(minY, pt[1]);
       maxX = Math.max(maxX, pt[0]); maxY = Math.max(maxY, pt[1]);
     }
-    return isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+    if (!isFinite(minX)) return null;
+    const r = (stroke.size || 8) / 2;
+    return { minX: minX - r, minY: minY - r, maxX: maxX + r, maxY: maxY + r };
   }
 
   function _naturalBounds(ann) {
@@ -1356,6 +1423,12 @@ export default function AnnotateImageSimple(container, props) {
         }
       } else if (ann.type === "paint") {
         const [lx, ly] = _paintInvTransformPt(ann, cx, cy);
+        // If already selected, accept click anywhere inside the bounding box
+        const isSelected = (currentValue.selected_ids || []).includes(ann.id);
+        if (isSelected) {
+          const nb = _naturalBounds(ann);
+          if (nb && lx >= nb.minX && lx <= nb.maxX && ly >= nb.minY && ly <= nb.maxY) return ann;
+        }
         for (const stroke of (ann.strokes || [])) {
           const tol = Math.max(12 / displayScale, (stroke.size || 8) / 2 + 4);
           for (const pt of (stroke.points || [])) {
@@ -1369,8 +1442,9 @@ export default function AnnotateImageSimple(container, props) {
         const lx = dx * cos - dy * sin, ly = dx * sin + dy * cos;
         const hw = (ann.w || 10) / 2, hh = (ann.h || 10) / 2;
         const tol = Math.max(8 / displayScale, (ann.width || 2) + 4);
+        const isSelected = (currentValue.selected_ids || []).includes(ann.id);
         if (ann.type === "rect") {
-          if (ann.fill_color) {
+          if (isSelected || ann.fill_color) {
             if (lx >= -hw && lx <= hw && ly >= -hh && ly <= hh) return ann;
           } else {
             const nearH = Math.abs(Math.abs(lx) - hw) <= tol && ly >= -hh - tol && ly <= hh + tol;
@@ -1380,7 +1454,7 @@ export default function AnnotateImageSimple(container, props) {
         } else {
           const ex = lx / (hw + tol), ey = ly / (hh + tol);
           if (ex * ex + ey * ey <= 1) {
-            if (ann.fill_color) return ann;
+            if (isSelected || ann.fill_color) return ann;
             const exIn = hw > tol ? lx / (hw - tol) : 0, eyIn = hh > tol ? ly / (hh - tol) : 0;
             if (exIn * exIn + eyIn * eyIn >= 1) return ann;
           }
@@ -1505,11 +1579,12 @@ export default function AnnotateImageSimple(container, props) {
         const nb = _naturalBounds(ann);
         if (!nb) { txFrame = null; return; }
         const [pcx, pcy] = _paintCenter(ann);
+        const sx = ann.scaleX ?? 1, sy = ann.scaleY ?? 1;
         txFrame = {
           pivotX: pcx + (ann.x || 0), pivotY: pcy + (ann.y || 0),
-          rotation: ann.rotation || 0, // always matches paint's own rotation
-          halfW: (nb.maxX - nb.minX) / 2 + pad,
-          halfH: (nb.maxY - nb.minY) / 2 + pad,
+          rotation: ann.rotation || 0,
+          halfW: (nb.maxX - nb.minX) / 2 * sx + pad,
+          halfH: (nb.maxY - nb.minY) / 2 * sy + pad,
           _selIds: [...selIds],
         };
         return;
