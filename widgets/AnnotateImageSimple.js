@@ -2340,12 +2340,8 @@ export default function AnnotateImageSimple(container, props) {
     if (isPointerDown) return;
     const [cx, cy] = screenToCanvas(e);
     const prevHoverId = hoverId;
-    if (activeTool === "text" || activeTool === "select") {
-      const hit = hitTest(cx, cy);
-      hoverId = (hit && hit.type === "text") ? hit.id : null;
-    } else {
-      hoverId = null;
-    }
+    const hit = hitTest(cx, cy);
+    hoverId = hit ? hit.id : null;
     canvas.style.cursor = _cursorForPos(cx, cy);
     if (hoverId !== prevHoverId) renderCanvas();
   }

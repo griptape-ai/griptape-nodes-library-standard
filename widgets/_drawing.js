@@ -2,7 +2,7 @@
 // Use createDrawing(getState) to get a bound set of draw functions.
 // getState() must return { ctx, displayScale, hoverId }.
 
-import { paintCenter, defaultCps } from './_geometry.js';
+import { paintCenter, defaultCps, naturalBounds, getTransformedCorners } from './_geometry.js';
 
 export function createDrawing(getState) {
 
@@ -32,8 +32,8 @@ export function createDrawing(getState) {
     }
   }
 
-  function drawPaint(ann) {
-    const { ctx } = getState();
+  function drawPaint(ann, selected) {
+    const { ctx, displayScale, hoverId } = getState();
     const [cx, cy] = paintCenter(ann);
     const x = ann.x || 0, y = ann.y || 0;
     const sx = ann.scaleX ?? 1, sy = ann.scaleY ?? 1, r = ann.rotation || 0;
@@ -44,6 +44,20 @@ export function createDrawing(getState) {
     ctx.translate(-cx, -cy);
     renderStrokes(ann.strokes || [], ann.sizeScale ?? 1);
     ctx.restore();
+    if (ann.id === hoverId && !selected) {
+      const corners = getTransformedCorners(ann, 6);
+      if (corners.length === 4) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(122,157,184,0.7)";
+        ctx.lineWidth = 1.5 / displayScale;
+        ctx.beginPath();
+        ctx.moveTo(corners[0][0], corners[0][1]);
+        for (let i = 1; i < corners.length; i++) ctx.lineTo(corners[i][0], corners[i][1]);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
   }
 
   function drawText(ann, selected) {
@@ -60,15 +74,12 @@ export function createDrawing(getState) {
     for (let i = 0; i < lines.length; i++) {
       ctx.fillText(lines[i], x, y + i * lineHeight);
     }
-    const isHovered = ann.id === hoverId && !selected;
-    if (isHovered) {
+    if (ann.id === hoverId && !selected) {
       const w = Math.max(...lines.map((l) => ctx.measureText(l).width));
       const h = lineHeight * lines.length;
-      ctx.strokeStyle = "rgba(122,157,184,0.4)";
-      ctx.lineWidth = 1 / displayScale;
-      ctx.setLineDash([4 / displayScale, 3 / displayScale]);
+      ctx.strokeStyle = "rgba(122,157,184,0.7)";
+      ctx.lineWidth = 1.5 / displayScale;
       ctx.strokeRect(x - 4, y - 4, w + 8, h + 8);
-      ctx.setLineDash([]);
     }
     ctx.restore();
   }
@@ -168,7 +179,7 @@ export function createDrawing(getState) {
   }
 
   function drawArrowAnnotation(ann, selected) {
-    const { ctx, displayScale } = getState();
+    const { ctx, displayScale, hoverId } = getState();
     const isBezier = ann.is_bezier ?? false;
     const cps = defaultCps(ann);
     const cp1x = isBezier ? cps.cp1x : null;
@@ -205,10 +216,20 @@ export function createDrawing(getState) {
       }
       ctx.restore();
     }
+    if (ann.id === hoverId && !selected) {
+      const r = 4 / displayScale;
+      ctx.save();
+      ctx.strokeStyle = "rgba(122,157,184,0.7)";
+      ctx.lineWidth = 1.5 / displayScale;
+      for (const [ex, ey] of [[ann.x1, ann.y1], [ann.x2, ann.y2]]) {
+        ctx.beginPath(); ctx.arc(ex, ey, r, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.restore();
+    }
   }
 
-  function drawRect(ann) {
-    const { ctx } = getState();
+  function drawRect(ann, selected) {
+    const { ctx, displayScale, hoverId } = getState();
     const hw = (ann.w || 10) / 2, hh = (ann.h || 10) / 2;
     ctx.save();
     ctx.translate(ann.x || 0, ann.y || 0);
@@ -217,11 +238,17 @@ export function createDrawing(getState) {
     ctx.strokeStyle = ann.color || "#ff0000";
     if (ann.fill_color) { ctx.fillStyle = ann.fill_color; ctx.fillRect(-hw, -hh, hw * 2, hh * 2); }
     ctx.strokeRect(-hw, -hh, hw * 2, hh * 2);
+    if (ann.id === hoverId && !selected) {
+      const pad = 4 / displayScale;
+      ctx.strokeStyle = "rgba(122,157,184,0.7)";
+      ctx.lineWidth = 1.5 / displayScale;
+      ctx.strokeRect(-hw - pad, -hh - pad, hw * 2 + pad * 2, hh * 2 + pad * 2);
+    }
     ctx.restore();
   }
 
-  function drawEllipse(ann) {
-    const { ctx } = getState();
+  function drawEllipse(ann, selected) {
+    const { ctx, displayScale, hoverId } = getState();
     const rx = Math.max(0.5, (ann.w || 10) / 2), ry = Math.max(0.5, (ann.h || 10) / 2);
     ctx.save();
     ctx.translate(ann.x || 0, ann.y || 0);
@@ -232,6 +259,14 @@ export function createDrawing(getState) {
     ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
     if (ann.fill_color) { ctx.fillStyle = ann.fill_color; ctx.fill(); }
     ctx.stroke();
+    if (ann.id === hoverId && !selected) {
+      const pad = 4 / displayScale;
+      ctx.strokeStyle = "rgba(122,157,184,0.7)";
+      ctx.lineWidth = 1.5 / displayScale;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rx + pad, ry + pad, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
