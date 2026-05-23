@@ -29,8 +29,10 @@ def _default_annotation_data() -> dict:
         "active_tool": "select",
         "tool_settings": {
             "paint": {"color": "#ff0000", "size": 8},
-            "text": {"color": "#ffffff", "font_size": 48},
-            "arrow": {"color": "#ff0000", "width": 3},
+            "text": {"color": "#ff0000", "font_size": 48},
+            "arrow": {"color": "#ff0000", "width": 8, "has_start_arrow": False, "has_end_arrow": True, "is_bezier": False, "taper": False},
+            "rect": {"color": "#ff0000", "width": 8, "fill_color": ""},
+            "ellipse": {"color": "#ff0000", "width": 8, "fill_color": ""},
         },
         "selected_id": None,
     }
@@ -221,7 +223,7 @@ class AnnotateImage(DataNode):
         x = float(ann.get("x", 0))
         y = float(ann.get("y", 0))
         font_size = max(8, int(ann.get("font_size", 48)))
-        color = self._parse_color(ann.get("color", "#ffffff"))
+        color = self._parse_color(ann.get("color", "#ff0000"))
         try:
             font = ImageFont.load_default(size=font_size)
         except TypeError:
@@ -236,9 +238,10 @@ class AnnotateImage(DataNode):
         cp2x = float(ann.get("cp2x", x1 + (x2 - x1) * 2 / 3))
         cp2y = float(ann.get("cp2y", y1 + (y2 - y1) * 2 / 3))
         color = self._parse_color(ann.get("color", "#ff0000"))
-        w = max(1.0, float(ann.get("width", 3)))
+        w = max(1.0, float(ann.get("width", 8)))
         has_end_arrow = bool(ann.get("has_end_arrow", True))
         has_start_arrow = bool(ann.get("has_start_arrow", False))
+        taper = bool(ann.get("taper", False))
 
         head = max(15.0, w * 4)
         setback = head * math.cos(math.pi / 6)
@@ -270,15 +273,14 @@ class AnnotateImage(DataNode):
             dvy = 3*(mt**2*(cp1y-ly1) + 2*mt*t*(cp2y-cp1y) + t**2*(ly2-cp2y))
             spd = math.hypot(dvx, dvy)
             pts.append((bx, by))
-            speeds.append(spd)
-            tangents.append((dvx, dvy, spd))
+            speeds.append(max(spd, 0.001))
+            tangents.append((dvx, dvy, max(spd, 0.001)))
 
-        min_spd, max_spd = min(speeds), max(speeds)
-        spd_range = max_spd - min_spd
-        min_w, max_w = w * 0.18, w
+        min_spd = min(speeds)
+        is_straight = (max(speeds) - min_spd) < 0.001
 
-        if spd_range < 0.001:
-            # Straight line — uniform width with round caps via overlapping circles
+        if not taper or is_straight:
+            # Uniform width — round caps via overlapping circles + connecting lines
             for i in range(n + 1):
                 bx, by = pts[i]
                 r = w / 2
@@ -286,17 +288,14 @@ class AnnotateImage(DataNode):
             for i in range(n):
                 draw.line([pts[i], pts[i + 1]], fill=color, width=int(w))
         else:
-            # Curved line — filled variable-width polygon (fat in bends, thin on straights)
+            # Velocity taper — thick in curves (slow), thin on straights (fast).
+            # Mirrors the JS formula: hw = (minSpd / spd) * w / 2
             left_pts, right_pts = [], []
             for i in range(n + 1):
                 bx, by = pts[i]
                 dvx, dvy, spd = tangents[i]
-                raw_norm = (speeds[i] - min_spd) / spd_range
-                hw = (min_w + (1 - raw_norm) * (max_w - min_w)) / 2
-                if spd < 0.001:
-                    px, py = 0.0, hw
-                else:
-                    px, py = -dvy / spd * hw, dvx / spd * hw
+                hw = (min_spd / spd) * w / 2
+                px, py = (-dvy / spd * hw, dvx / spd * hw)
                 left_pts.append((bx + px, by + py))
                 right_pts.append((bx - px, by - py))
             polygon = left_pts + list(reversed(right_pts))

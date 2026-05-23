@@ -1,3 +1,10 @@
+import {
+  DEFAULT_PAINT_SIZE, MIN_PAINT_SIZE, MAX_PAINT_SIZE,
+  DEFAULT_TEXT_SIZE,  MIN_TEXT_SIZE,  MAX_TEXT_SIZE,
+  DEFAULT_ARROW_WIDTH, MIN_ARROW_WIDTH, MAX_ARROW_WIDTH,
+  DEFAULT_SHAPE_WIDTH, MIN_SHAPE_WIDTH, MAX_SHAPE_WIDTH,
+} from './_styles.js';
+
 // Keyboard shortcut handling for the annotation widget.
 //
 // setupHotkeys(getState, actions) registers all document-level key listeners
@@ -41,13 +48,16 @@ export function setupHotkeys(getState, actions) {
     const { mouseIsOver, textEditId, activeTool, currentValue } = getState();
     if (!mouseIsOver) return;
     if (e.key !== "Delete" && e.key !== "Backspace") return;
-    if (!(currentValue.selected_ids || []).length) return;
-    if (textEditId) return;
-    if (activeTool !== "select" && activeTool !== "arrow" && activeTool !== "rect" && activeTool !== "ellipse") return;
+    // Never intercept while focus is in a real text input (typing in a form field, not our canvas)
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    // Always block the key from reaching the node framework when mouse is over the canvas,
+    // even if there's nothing to delete — prevents accidental node deletion.
     e.stopPropagation();
     e.preventDefault();
+    if (textEditId) return;
+    if (!(currentValue.selected_ids || []).length) return;
+    if (activeTool !== "select" && activeTool !== "arrow" && activeTool !== "rect" && activeTool !== "ellipse") return;
     deleteAnnotations(currentValue.selected_ids);
     setCurrentValue({ ...currentValue, selected_ids: [] });
     setTxFrame(null);
@@ -77,24 +87,24 @@ export function setupHotkeys(getState, actions) {
       const selAnn = effectiveAnnotations().find((a) => a.id === selIds[0]);
       if (selAnn) {
         if (selAnn.type === "paint") {
-          const base = selAnn.strokes?.[0]?.size ?? 8;
+          const base = selAnn.strokes?.[0]?.size ?? DEFAULT_PAINT_SIZE;
           const cur = Math.round(base * (selAnn.sizeScale ?? 1));
-          const next = Math.max(1, Math.min(80, cur + delta));
+          const next = Math.max(MIN_PAINT_SIZE, Math.min(MAX_PAINT_SIZE, cur + delta));
           applySingleUpdate(selAnn.id, (a) => ({ ...a, sizeScale: next / base }));
           emit(); rebuildSettings(); renderCanvas(); return;
         }
         if (selAnn.type === "text") {
-          const next = Math.max(8, Math.min(120, (selAnn.font_size ?? 48) + delta * 2));
+          const next = Math.max(MIN_TEXT_SIZE, Math.min(MAX_TEXT_SIZE, (selAnn.font_size ?? DEFAULT_TEXT_SIZE) + delta * 2));
           applySingleUpdate(selAnn.id, (a) => ({ ...a, font_size: next }));
           emit(); rebuildSettings(); renderCanvas(); return;
         }
         if (selAnn.type === "arrow") {
-          const next = Math.max(1, Math.min(20, (selAnn.width ?? 3) + delta));
+          const next = Math.max(MIN_ARROW_WIDTH, Math.min(MAX_ARROW_WIDTH, (selAnn.width ?? DEFAULT_ARROW_WIDTH) + delta));
           applySingleUpdate(selAnn.id, (a) => ({ ...a, width: next }));
           emit(); rebuildSettings(); renderCanvas(); return;
         }
         if (selAnn.type === "rect" || selAnn.type === "ellipse") {
-          const next = Math.max(1, Math.min(20, (selAnn.width ?? 2) + delta));
+          const next = Math.max(MIN_SHAPE_WIDTH, Math.min(MAX_SHAPE_WIDTH, (selAnn.width ?? DEFAULT_SHAPE_WIDTH) + delta));
           applySingleUpdate(selAnn.id, (a) => ({ ...a, width: next }));
           emit(); rebuildSettings(); renderCanvas(); return;
         }
@@ -102,19 +112,19 @@ export function setupHotkeys(getState, actions) {
     }
     // Adjust active tool settings
     if (activeTool === "paint") {
-      toolSettings.paint.size = Math.max(1, Math.min(80, (toolSettings.paint.size ?? 8) + delta));
+      toolSettings.paint.size = Math.max(MIN_PAINT_SIZE, Math.min(MAX_PAINT_SIZE, (toolSettings.paint.size ?? DEFAULT_PAINT_SIZE) + delta));
       setCurrentValue({ ...currentValue, tool_settings: { ...toolSettings } });
       rebuildSettings(); emit();
     } else if (activeTool === "arrow") {
-      toolSettings.arrow.width = Math.max(1, Math.min(20, (toolSettings.arrow.width ?? 3) + delta));
+      toolSettings.arrow.width = Math.max(MIN_ARROW_WIDTH, Math.min(MAX_ARROW_WIDTH, (toolSettings.arrow.width ?? DEFAULT_ARROW_WIDTH) + delta));
       setCurrentValue({ ...currentValue, tool_settings: { ...toolSettings } });
       rebuildSettings(); emit();
     } else if (activeTool === "text") {
-      toolSettings.text.font_size = Math.max(8, Math.min(120, (toolSettings.text.font_size ?? 48) + delta * 2));
+      toolSettings.text.font_size = Math.max(MIN_TEXT_SIZE, Math.min(MAX_TEXT_SIZE, (toolSettings.text.font_size ?? DEFAULT_TEXT_SIZE) + delta * 2));
       setCurrentValue({ ...currentValue, tool_settings: { ...toolSettings } });
       rebuildSettings(); emit();
     } else if (activeTool === "rect" || activeTool === "ellipse") {
-      toolSettings[activeTool].width = Math.max(1, Math.min(20, (toolSettings[activeTool].width ?? 2) + delta));
+      toolSettings[activeTool].width = Math.max(MIN_SHAPE_WIDTH, Math.min(MAX_SHAPE_WIDTH, (toolSettings[activeTool].width ?? DEFAULT_SHAPE_WIDTH) + delta));
       setCurrentValue({ ...currentValue, tool_settings: { ...toolSettings } });
       rebuildSettings(); emit();
     }

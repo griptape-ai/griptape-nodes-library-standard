@@ -3,7 +3,22 @@
 // Tools: Select, Paint, Text, Arrow
 
 import { ICON_PATHS, mkIcon } from './_icons.js';
-import { injectStyles, defaultData, DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from './_styles.js';
+import {
+  injectStyles, defaultData,
+  DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT, DEFAULT_COLOR,
+  DEFAULT_PAINT_SIZE, MIN_PAINT_SIZE, MAX_PAINT_SIZE,
+  DEFAULT_TEXT_SIZE,  MIN_TEXT_SIZE,  MAX_TEXT_SIZE,
+  DEFAULT_ARROW_WIDTH, MIN_ARROW_WIDTH, MAX_ARROW_WIDTH,
+  DEFAULT_SHAPE_WIDTH, MIN_SHAPE_WIDTH, MAX_SHAPE_WIDTH,
+  SEL_COLOR, SEL_COLOR_RGB, IMP_COLOR, IMP_COLOR_RGB,
+  FRAME_FILL_OPACITY, FRAME_BORDER_OPACITY, FRAME_CORNER_OPACITY,
+  FRAME_ROT_STEM_OPACITY, ROT_HANDLE_INNER_OPACITY,
+  HOVER_OPACITY, LASSO_FILL_OPACITY, LASSO_STROKE_OPACITY, LAYER_HOVER_OPACITY,
+  HANDLE_FILL, HANDLE_STROKE_OPACITY,
+  LINE_WIDTH_PRIMARY, LINE_WIDTH_SECONDARY, LINE_WIDTH_TERTIARY,
+  HANDLE_RADIUS, ROT_HANDLE_RADIUS, CORNER_TICK_LEN,
+  DASH_ROT_STEM, DASH_LASSO,
+} from './_styles.js';
 import {
   decimatePoints,
   strokeBounds, naturalBounds, paintCenter,
@@ -32,6 +47,9 @@ export default function AnnotateImageSimple(container, props) {
   let currentValue = { ...defaultData(), ...rawValue, tool_settings: {
     ...defTS,
     ...rawTS,
+    // Deep-merge each tool so new default fields (e.g. taper) survive alongside stored values.
+    // Migrate arrow width: old default was 3, new default is 8 — upgrade silently.
+    arrow:   { ...defTS.arrow,   ...(rawTS.arrow   || {}), width: (rawTS.arrow?.width === 3 ? 8 : (rawTS.arrow?.width ?? defTS.arrow.width)) },
     rect:    { ...defTS.rect,    ...(rawTS.rect    || {}) },
     ellipse: { ...defTS.ellipse, ...(rawTS.ellipse || {}) },
   } };
@@ -330,17 +348,17 @@ export default function AnnotateImageSimple(container, props) {
         "background:var(--destructive);color:#fff", _executeDeleteAll),
     },
     {
-      id: "resetSelected", label: "Reset overrides for selected", color: "#c9830a",
+      id: "resetSelected", label: "Reset overrides for selected", color: IMP_COLOR,
       icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`,
       isEnabled: _canResetSelected,
       trigger: (anchor) => _executeResetSelected(),
     },
     {
-      id: "resetAll", label: "Reset all overrides", color: "#c9830a",
+      id: "resetAll", label: "Reset all overrides", color: IMP_COLOR,
       icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v6h6"/><path d="M21 12A9 9 0 0 0 6 5.3L3 8"/><path d="M21 22v-6h-6"/><path d="M3 12a9 9 0 0 0 15 6.7l3-2.7"/></svg>`,
       isEnabled: _canResetAll,
       trigger: (anchor) => _showActionPopup(anchor, "Reset all overrides?", "Reset all",
-        "background:#c9830a;color:#fff", _executeResetAll),
+        `background:${IMP_COLOR};color:#fff`, _executeResetAll),
     },
   ];
 
@@ -469,7 +487,7 @@ export default function AnnotateImageSimple(container, props) {
 
   const canvas = document.createElement("canvas");
   canvas.style.cssText = "display:block;transform-origin:top left;cursor:crosshair;outline:none;" +
-    "box-shadow:0 0 0 1px rgba(122,157,184,0.35);";
+    `box-shadow:0 0 0 1px rgba(${SEL_COLOR_RGB},${FRAME_ROT_STEM_OPACITY});`;
   canvas.tabIndex = 0; // focusable so keyboard events naturally target canvas
   canvas.width = DEFAULT_CANVAS_WIDTH;
   canvas.height = DEFAULT_CANVAS_HEIGHT;
@@ -693,12 +711,12 @@ export default function AnnotateImageSimple(container, props) {
   }
 
   function _buildArrowToggles(source, onToggle) {
-    const makeToggleBtn = (label, title, active, onClick) => {
+    const makeToggleBtn = (content, title, active, onClick) => {
       const btn = document.createElement("button");
       btn.className = "ais-toggle-btn" + (active ? " active" : "");
       _addTooltip(btn, title);
       btn.style.cssText = "font-size:14px;font-weight:bold;width:26px;height:26px;line-height:1;";
-      btn.textContent = label;
+      if (typeof content === "string") { btn.textContent = content; } else { btn.appendChild(content); }
       btn.addEventListener("pointerdown", (e) => { e.stopPropagation(); onClick(); });
       return btn;
     };
@@ -710,8 +728,13 @@ export default function AnnotateImageSimple(container, props) {
     row.appendChild(makeToggleBtn("→", "End arrowhead", source.has_end_arrow ?? true, () => {
       onToggle({ has_end_arrow: !(source.has_end_arrow ?? true) });
     }));
-    row.appendChild(makeToggleBtn("⌒", "Bezier curve", source.is_bezier ?? false, () => {
+    row.appendChild(makeToggleBtn(mkIcon("bezier", 14), "Bezier curve", source.is_bezier ?? false, () => {
       onToggle({ is_bezier: !(source.is_bezier ?? false) });
+    }));
+    // Taper: variable-width stroke, thin at tail and full-width at arrowhead.
+    // Off by default — uniform width is cleaner for most annotation use cases.
+    row.appendChild(makeToggleBtn(mkIcon("taper", 14), "Taper stroke width", source.taper ?? false, () => {
+      onToggle({ taper: !(source.taper ?? false) });
     }));
     settingsArea.appendChild(row);
   }
@@ -731,9 +754,9 @@ export default function AnnotateImageSimple(container, props) {
     const sizeKey = activeTool === "text" ? "font_size"
       : (activeTool === "arrow" || isShape) ? "width"
       : "size";
-    const sizeVal = ts[sizeKey] ?? (activeTool === "text" ? 48 : (activeTool === "arrow" || isShape) ? (isShape ? 2 : 3) : 8);
-    const sizeMin = activeTool === "text" ? 8 : 1;
-    const sizeMax = activeTool === "text" ? 120 : (activeTool === "arrow" || isShape) ? 20 : 80;
+    const sizeVal = ts[sizeKey] ?? (activeTool === "text" ? DEFAULT_TEXT_SIZE : (activeTool === "arrow") ? DEFAULT_ARROW_WIDTH : isShape ? DEFAULT_SHAPE_WIDTH : DEFAULT_PAINT_SIZE);
+    const sizeMin = activeTool === "text" ? MIN_TEXT_SIZE : (activeTool === "arrow" || isShape) ? MIN_ARROW_WIDTH : MIN_PAINT_SIZE;
+    const sizeMax = activeTool === "text" ? MAX_TEXT_SIZE : (activeTool === "arrow" || isShape) ? MAX_ARROW_WIDTH : MAX_PAINT_SIZE;
     const sizeLbl = (activeTool === "arrow" || isShape) ? "Width" : "Size";
     _buildSizeSlider(sizeLbl, sizeMin, sizeMax, sizeVal, (sz, emit) => {
       toolSettings[activeTool][sizeKey] = sz;
@@ -752,7 +775,7 @@ export default function AnnotateImageSimple(container, props) {
       renderCanvas();
       if (emit) _emit();
     });
-    const color = ts.color || "#ff0000";
+    const color = ts.color || DEFAULT_COLOR;
     _buildColorSwatch(color, (col, emit) => {
       toolSettings[activeTool].color = col;
       currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
@@ -793,15 +816,15 @@ export default function AnnotateImageSimple(container, props) {
 
     let color;
     if (ann.type === "paint") {
-      color = (ann.strokes && ann.strokes[0]) ? ann.strokes[0].color : "#ff0000";
+      color = (ann.strokes && ann.strokes[0]) ? ann.strokes[0].color : DEFAULT_COLOR;
     } else {
-      color = ann.color || "#ff0000";
+      color = ann.color || DEFAULT_COLOR;
     }
 
     if (ann.type === "paint") {
-      const baseSize = (ann.strokes && ann.strokes[0]) ? (ann.strokes[0].size ?? 8) : 8;
-      const currentSize = Math.max(1, Math.round(baseSize * (ann.sizeScale ?? 1)));
-      _buildSizeSlider("Size", 1, 80, currentSize, (sz, emit) => {
+      const baseSize = (ann.strokes && ann.strokes[0]) ? (ann.strokes[0].size ?? DEFAULT_PAINT_SIZE) : DEFAULT_PAINT_SIZE;
+      const currentSize = Math.max(MIN_PAINT_SIZE, Math.round(baseSize * (ann.sizeScale ?? 1)));
+      _buildSizeSlider("Size", MIN_PAINT_SIZE, MAX_PAINT_SIZE, currentSize, (sz, emit) => {
         _applySingleUpdate(ann.id, (a) => ({ ...a, sizeScale: sz / baseSize }));
         renderCanvas();
         if (emit) _emit();
@@ -811,9 +834,9 @@ export default function AnnotateImageSimple(container, props) {
     const isShape = ann.type === "rect" || ann.type === "ellipse";
     const sizeKey = ann.type === "text" ? "font_size" : (ann.type === "arrow" || isShape) ? "width" : null;
     if (sizeKey) {
-      const sizeVal = ann[sizeKey] ?? (ann.type === "text" ? 48 : isShape ? 2 : 3);
-      const sizeMin = ann.type === "text" ? 8 : 1;
-      const sizeMax = ann.type === "text" ? 120 : 20;
+      const sizeVal = ann[sizeKey] ?? (ann.type === "text" ? DEFAULT_TEXT_SIZE : isShape ? DEFAULT_SHAPE_WIDTH : DEFAULT_ARROW_WIDTH);
+      const sizeMin = ann.type === "text" ? MIN_TEXT_SIZE : MIN_ARROW_WIDTH;
+      const sizeMax = ann.type === "text" ? MAX_TEXT_SIZE : MAX_ARROW_WIDTH;
       const sizeLbl = ann.type === "text" ? "Size" : "Width";
       _buildSizeSlider(sizeLbl, sizeMin, sizeMax, sizeVal, (sz, emit) => {
         _applySingleUpdate(ann.id, (a) => ({ ...a, [sizeKey]: sz }));
@@ -862,7 +885,7 @@ export default function AnnotateImageSimple(container, props) {
     const origSizes = {};
     for (const a of anns) {
       if (a.type === "paint") origSizes[a.id] = a.sizeScale ?? 1;
-      else if (a.type === "text") origSizes[a.id] = a.font_size ?? 48;
+      else if (a.type === "text") origSizes[a.id] = a.font_size ?? DEFAULT_TEXT_SIZE;
       else if (a.type === "arrow") origSizes[a.id] = a.width ?? 3;
       else if (a.type === "rect" || a.type === "ellipse") origSizes[a.id] = { w: a.w ?? 100, h: a.h ?? 100 };
     }
@@ -870,7 +893,7 @@ export default function AnnotateImageSimple(container, props) {
       const ratio = val / 100;
       const { annotations, overrides } = _applyAnnotationMap(selIds, (a) => {
         if (a.type === "paint") return { ...a, sizeScale: (origSizes[a.id] ?? 1) * ratio };
-        if (a.type === "text") return { ...a, font_size: Math.max(8, Math.round((origSizes[a.id] ?? 48) * ratio)) };
+        if (a.type === "text") return { ...a, font_size: Math.max(MIN_TEXT_SIZE, Math.round((origSizes[a.id] ?? DEFAULT_TEXT_SIZE) * ratio)) };
         if (a.type === "arrow") return { ...a, width: Math.max(1, (origSizes[a.id] ?? 3) * ratio) };
         if (a.type === "rect" || a.type === "ellipse") {
           const orig = origSizes[a.id] || { w: 100, h: 100 };
@@ -882,7 +905,7 @@ export default function AnnotateImageSimple(container, props) {
       renderCanvas();
       if (emit) _emit();
     });
-    let firstColor = "#ff0000";
+    let firstColor = DEFAULT_COLOR;
     for (const a of anns) {
       if (a.type === "paint" && a.strokes?.[0]) { firstColor = a.strokes[0].color; break; }
       if (a.color) { firstColor = a.color; break; }
@@ -954,7 +977,7 @@ export default function AnnotateImageSimple(container, props) {
     const btn = document.createElement("button");
     btn.className = "ais-tool-btn";
     _addTooltip(btn, "Reset overrides");
-    btn.style.color = "#c9830a";
+    btn.style.color = IMP_COLOR;
     btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
       <path d="M3 3v5h5"/>
@@ -1014,7 +1037,7 @@ export default function AnnotateImageSimple(container, props) {
         const item = document.createElement("div");
         item.style.cssText = "padding:7px 14px;cursor:pointer;color:var(--foreground,#eee);white-space:nowrap;";
         item.textContent = label;
-        item.addEventListener("pointerover",  () => { item.style.background = "rgba(122,157,184,0.18)"; });
+        item.addEventListener("pointerover",  () => { item.style.background = `rgba(${SEL_COLOR_RGB},${LAYER_HOVER_OPACITY})`; });
         item.addEventListener("pointerout",   () => { item.style.background = ""; });
         item.addEventListener("pointerdown",  (ev) => {
           ev.stopPropagation();
@@ -1106,44 +1129,49 @@ export default function AnnotateImageSimple(container, props) {
 
     if (gen !== renderGen) return;
 
+    // In drawing modes (paint, arrow, rect, ellipse, text) selection state is visual noise —
+    // the user is focused on placing new content, not manipulating existing objects.
+    // Only show selection highlights in select mode (mirrors tldraw / modern Figma).
+    const showSelection = activeTool === "select";
+
     // Draw committed annotations
     for (const ann of _effectiveAnnotations()) {
       if (ann.id === textEditId) continue; // skip live-edited text
-      drawAnnotation(ann, (currentValue.selected_ids || []).includes(ann.id));
+      drawAnnotation(ann, showSelection && (currentValue.selected_ids || []).includes(ann.id));
     }
 
-    // Unified transform frame — same OBB handles for single or group selection
-    if (txFrame && _frameActiveTools.includes(activeTool)) {
+    // Transform handles are only meaningful in select mode.
+    if (showSelection && txFrame && _frameActiveTools.includes(activeTool)) {
       const corners = frameCorners(txFrame);
       const topMid = frameTopMid(txFrame);
       const rh = frameRotHandle(txFrame, displayScale);
       const selIds = currentValue.selected_ids || [];
       const allImported = selIds.length > 0 && selIds.every((id) => _isImported(id));
-      const frameColor = allImported ? "#c9830a" : "#7a9db8";
-      const frameColorRgb = allImported ? "201,131,10" : "122,157,184";
-      const hs = 4 / displayScale;   // corner handle half-size
-      const rhs = 4.5 / displayScale; // rotation handle radius
+      const frameColor = allImported ? IMP_COLOR : SEL_COLOR;
+      const frameColorRgb = allImported ? IMP_COLOR_RGB : SEL_COLOR_RGB;
+      const hs = HANDLE_RADIUS / 2 / displayScale;   // corner handle half-size
+      const rhs = ROT_HANDLE_RADIUS / displayScale;
       ctx.save();
 
       // Subtle fill tint inside selection
-      ctx.fillStyle = `rgba(${frameColorRgb},0.06)`;
+      ctx.fillStyle = `rgba(${frameColorRgb},${FRAME_FILL_OPACITY})`;
       ctx.beginPath();
       ctx.moveTo(corners[0][0], corners[0][1]);
       for (let i = 1; i < 4; i++) ctx.lineTo(corners[i][0], corners[i][1]);
       ctx.closePath(); ctx.fill();
 
       // Solid outline — thin and clean
-      ctx.strokeStyle = `rgba(${frameColorRgb},0.75)`;
-      ctx.lineWidth = 1 / displayScale;
+      ctx.strokeStyle = `rgba(${frameColorRgb},${FRAME_BORDER_OPACITY})`;
+      ctx.lineWidth = LINE_WIDTH_SECONDARY / displayScale;
       ctx.beginPath();
       ctx.moveTo(corners[0][0], corners[0][1]);
       for (let i = 1; i < 4; i++) ctx.lineTo(corners[i][0], corners[i][1]);
       ctx.closePath(); ctx.stroke();
 
       // Corner handles — small white squares
-      ctx.lineWidth = 1.5 / displayScale;
+      ctx.lineWidth = LINE_WIDTH_PRIMARY / displayScale;
       for (const [hx, hy] of corners) {
-        ctx.fillStyle = "white";
+        ctx.fillStyle = HANDLE_FILL;
         ctx.fillRect(hx - hs, hy - hs, hs * 2, hs * 2);
         ctx.strokeStyle = frameColor;
         ctx.strokeRect(hx - hs, hy - hs, hs * 2, hs * 2);
@@ -1151,13 +1179,13 @@ export default function AnnotateImageSimple(container, props) {
 
       // Center move handle — only shown in paint mode
       if (activeTool === "paint") {
-        const chLen = 6 / displayScale;
+        const chLen = CORNER_TICK_LEN / displayScale;
         const cpx = txFrame.pivotX, cpy = txFrame.pivotY;
-        ctx.fillStyle = "white";
+        ctx.fillStyle = HANDLE_FILL;
         ctx.fillRect(cpx - hs, cpy - hs, hs * 2, hs * 2);
-        ctx.strokeStyle = frameColor; ctx.lineWidth = 1.5 / displayScale;
+        ctx.strokeStyle = frameColor; ctx.lineWidth = LINE_WIDTH_PRIMARY / displayScale;
         ctx.strokeRect(cpx - hs, cpy - hs, hs * 2, hs * 2);
-        ctx.strokeStyle = `rgba(${frameColorRgb},0.55)`; ctx.lineWidth = 1 / displayScale;
+        ctx.strokeStyle = `rgba(${frameColorRgb},${FRAME_CORNER_OPACITY})`; ctx.lineWidth = LINE_WIDTH_SECONDARY / displayScale;
         ctx.beginPath();
         ctx.moveTo(cpx - chLen, cpy); ctx.lineTo(cpx + chLen, cpy);
         ctx.moveTo(cpx, cpy - chLen); ctx.lineTo(cpx, cpy + chLen);
@@ -1166,13 +1194,13 @@ export default function AnnotateImageSimple(container, props) {
 
       // Rotation handle — thin dotted stem + filled circle (hidden for text)
       if (!txFrame.noRotate) {
-        ctx.strokeStyle = `rgba(${frameColorRgb},0.35)`; ctx.lineWidth = 0.75 / displayScale;
-        ctx.setLineDash([2 / displayScale, 2 / displayScale]);
+        ctx.strokeStyle = `rgba(${frameColorRgb},${FRAME_ROT_STEM_OPACITY})`; ctx.lineWidth = LINE_WIDTH_TERTIARY / displayScale;
+        ctx.setLineDash(DASH_ROT_STEM.map((v) => v / displayScale));
         ctx.beginPath(); ctx.moveTo(topMid[0], topMid[1]); ctx.lineTo(rh[0], rh[1]); ctx.stroke();
         ctx.setLineDash([]);
         ctx.fillStyle = frameColor;
         ctx.beginPath(); ctx.arc(rh[0], rh[1], rhs, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 1.5 / displayScale;
+        ctx.strokeStyle = `rgba(255,255,255,${ROT_HANDLE_INNER_OPACITY})`; ctx.lineWidth = LINE_WIDTH_PRIMARY / displayScale;
         ctx.beginPath(); ctx.arc(rh[0], rh[1], rhs, 0, Math.PI * 2); ctx.stroke();
       }
 
@@ -1184,9 +1212,9 @@ export default function AnnotateImageSimple(container, props) {
       const ts = toolSettings.arrow;
       drawArrowLine(
         currentArrow.x1, currentArrow.y1, currentArrow.x2, currentArrow.y2,
-        ts.color || "#ff0000", ts.width || 3,
+        ts.color || DEFAULT_COLOR, ts.width || DEFAULT_ARROW_WIDTH,
         null, null, null, null,
-        ts.has_start_arrow ?? false, ts.has_end_arrow ?? true
+        ts.has_start_arrow ?? false, ts.has_end_arrow ?? true, ts.taper ?? false
       );
     }
 
@@ -1199,7 +1227,7 @@ export default function AnnotateImageSimple(container, props) {
       const rh = Math.abs(currentRect.y2 - currentRect.y1);
       ctx.save();
       ctx.lineWidth = ts.width || 2;
-      ctx.strokeStyle = ts.color || "#ff0000";
+      ctx.strokeStyle = ts.color || DEFAULT_COLOR;
       if (ts.fill_color) { ctx.fillStyle = ts.fill_color; ctx.fillRect(rx, ry, rw, rh); }
       ctx.strokeRect(rx, ry, rw, rh);
       ctx.restore();
@@ -1214,7 +1242,7 @@ export default function AnnotateImageSimple(container, props) {
       const ery = Math.max(0.5, Math.abs(currentEllipse.y2 - currentEllipse.y1) / 2);
       ctx.save();
       ctx.lineWidth = ts.width || 2;
-      ctx.strokeStyle = ts.color || "#ff0000";
+      ctx.strokeStyle = ts.color || DEFAULT_COLOR;
       ctx.beginPath();
       ctx.ellipse(ex, ey, erx, ery, 0, 0, Math.PI * 2);
       if (ts.fill_color) { ctx.fillStyle = ts.fill_color; ctx.fill(); }
@@ -1229,11 +1257,11 @@ export default function AnnotateImageSimple(container, props) {
       const mw = Math.abs(dragState.x2 - dragState.startCx);
       const mh = Math.abs(dragState.y2 - dragState.startCy);
       ctx.save();
-      ctx.fillStyle = "rgba(122,157,184,0.1)";
+      ctx.fillStyle = `rgba(${SEL_COLOR_RGB},${LASSO_FILL_OPACITY})`;
       ctx.fillRect(mx1, my1, mw, mh);
-      ctx.strokeStyle = "rgba(122,157,184,0.8)";
-      ctx.lineWidth = 1 / displayScale;
-      ctx.setLineDash([4 / displayScale, 3 / displayScale]);
+      ctx.strokeStyle = `rgba(${SEL_COLOR_RGB},${LASSO_STROKE_OPACITY})`;
+      ctx.lineWidth = LINE_WIDTH_SECONDARY / displayScale;
+      ctx.setLineDash(DASH_LASSO.map((v) => v / displayScale));
       ctx.strokeRect(mx1, my1, mw, mh);
       ctx.restore();
     }
@@ -1256,7 +1284,7 @@ export default function AnnotateImageSimple(container, props) {
     const anns = [..._effectiveAnnotations()].reverse();
     for (const ann of anns) {
       if (ann.type === "text") {
-        const fontSize = Math.max(8, ann.font_size || 48);
+        const fontSize = Math.max(MIN_TEXT_SIZE, ann.font_size || DEFAULT_TEXT_SIZE);
         ctx.font = `${fontSize}px sans-serif`;
         const w = ctx.measureText(ann.text || "").width;
         const h = fontSize * 1.2;
@@ -1281,7 +1309,7 @@ export default function AnnotateImageSimple(container, props) {
           if (nb && lx >= nb.minX && lx <= nb.maxX && ly >= nb.minY && ly <= nb.maxY) return ann;
         }
         for (const stroke of (ann.strokes || [])) {
-          const tol = Math.max(12 / displayScale, (stroke.size || 8) / 2 + 4);
+          const tol = Math.max(12 / displayScale, (stroke.size || DEFAULT_PAINT_SIZE) / 2 + 4);
           for (const pt of (stroke.points || [])) {
             if (Math.hypot(lx - pt[0], ly - pt[1]) <= tol) return ann;
           }
@@ -1318,7 +1346,7 @@ export default function AnnotateImageSimple(container, props) {
   // Returns the canvas-space axis-aligned bounding box for an annotation
   function _getAnnotationBounds(ann) {
     if (ann.type === "text") {
-      const fontSize = Math.max(8, ann.font_size || 48);
+      const fontSize = Math.max(MIN_TEXT_SIZE, ann.font_size || DEFAULT_TEXT_SIZE);
       ctx.font = `${fontSize}px sans-serif`;
       const w = ctx.measureText(ann.text || "").width;
       const h = fontSize * 1.2;
@@ -1438,7 +1466,7 @@ export default function AnnotateImageSimple(container, props) {
   // Returns true if annotation overlaps the given canvas-space rectangle
   function _annotationIntersectsRect(ann, x1, y1, x2, y2) {
     if (ann.type === "text") {
-      const fontSize = Math.max(8, ann.font_size || 48);
+      const fontSize = Math.max(MIN_TEXT_SIZE, ann.font_size || DEFAULT_TEXT_SIZE);
       ctx.font = `${fontSize}px sans-serif`;
       const w = ctx.measureText(ann.text || "").width;
       const h = fontSize * 1.2;
@@ -1476,7 +1504,7 @@ export default function AnnotateImageSimple(container, props) {
     textEditId = ann.id;
     currentValue = { ...currentValue, selected_ids: [ann.id] };
 
-    const fontSize = Math.max(8, ann.font_size || 48);
+    const fontSize = Math.max(MIN_TEXT_SIZE, ann.font_size || DEFAULT_TEXT_SIZE);
     const totalScale = displayScale * viewScale;
     textInput = document.createElement("textarea");
     textInput.value = ann.text || "";
@@ -1555,12 +1583,16 @@ export default function AnnotateImageSimple(container, props) {
     dragState = null;
     if (id) {
       if (!text) {
-        // Remove empty text annotations — soft-delete imported, hard-delete local
+        // Empty text: discard the annotation entirely and clear selection.
         _deleteAnnotations([id]);
         currentValue = { ...currentValue, selected_ids: [] };
+        setTool("select");
       } else {
+        // Text committed: keep it selected and drop into select mode so the user
+        // can immediately reposition it — same pattern as tldraw / Figma text tool.
         _applySingleUpdate(id, (a) => ({ ...a, text }));
-        currentValue = { ...currentValue, selected_ids: [] };
+        currentValue = { ...currentValue, selected_ids: [id] };
+        setTool("select");
       }
       _emit();
     }
@@ -1655,8 +1687,8 @@ export default function AnnotateImageSimple(container, props) {
 
     const [cx, cy] = screenToCanvas(e);
 
-    // OBB handle check — works in all frame-active tools (select, paint, rect, ellipse)
-    if (txFrame && _frameActiveTools.includes(activeTool)) {
+    // OBB handle check — only in select mode (handles aren't rendered in drawing modes)
+    if (activeTool === "select" && txFrame) {
       const handleR = 8 / displayScale;
       const selIds = currentValue.selected_ids || [];
       const corners = frameCorners(txFrame);
@@ -2178,10 +2210,13 @@ export default function AnnotateImageSimple(container, props) {
         cy: b ? (b.minY + b.maxY) / 2 : 0,
         x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0,
       };
+      // Paint is a continuous tool — like a brush in Figma/tldraw, you stay in paint
+      // mode and keep drawing.  Don't select the stroke or switch tools; the user will
+      // switch to select manually when they want to reposition something.
       currentValue = {
         ...currentValue,
         annotations: [...(currentValue.annotations || []), paintAnn],
-        selected_ids: [paintAnn.id],
+        selected_ids: [],
       };
       _emit();
       rebuildSettings();
@@ -2203,12 +2238,16 @@ export default function AnnotateImageSimple(container, props) {
           has_start_arrow: ts.has_start_arrow ?? false,
           has_end_arrow: ts.has_end_arrow ?? true,
           is_bezier: ts.is_bezier ?? false,
+          taper: ts.taper ?? false,
         };
+        // Discrete object: select it and drop into select mode so the user can
+        // immediately reposition/resize — same pattern as tldraw and modern Figma.
         currentValue = {
           ...currentValue,
           annotations: [...(currentValue.annotations || []), ann],
           selected_ids: [ann.id],
         };
+        setTool("select");
         _emit();
         rebuildSettings();
       }
@@ -2226,7 +2265,9 @@ export default function AnnotateImageSimple(container, props) {
           rotation: 0,
           color: ts.color, width: ts.width, fill_color: ts.fill_color || "",
         };
+        // Discrete object: select and return to select mode (same as arrow/ellipse).
         currentValue = { ...currentValue, annotations: [...(currentValue.annotations || []), ann], selected_ids: [ann.id] };
+        setTool("select");
         _emit(); rebuildSettings();
       }
       renderCanvas();
@@ -2243,7 +2284,9 @@ export default function AnnotateImageSimple(container, props) {
           rotation: 0,
           color: ts.color, width: ts.width, fill_color: ts.fill_color || "",
         };
+        // Discrete object: select and return to select mode (same as arrow/rect).
         currentValue = { ...currentValue, annotations: [...(currentValue.annotations || []), ann], selected_ids: [ann.id] };
+        setTool("select");
         _emit(); rebuildSettings();
       }
       renderCanvas();
@@ -2340,8 +2383,14 @@ export default function AnnotateImageSimple(container, props) {
     if (isPointerDown) return;
     const [cx, cy] = screenToCanvas(e);
     const prevHoverId = hoverId;
-    const hit = hitTest(cx, cy);
-    hoverId = hit ? hit.id : null;
+    // Hover highlights only make sense in select mode — in drawing modes the user
+    // is placing new content, not inspecting existing objects.
+    if (activeTool === "select") {
+      const hit = hitTest(cx, cy);
+      hoverId = hit ? hit.id : null;
+    } else {
+      hoverId = null;
+    }
     canvas.style.cursor = _cursorForPos(cx, cy);
     if (hoverId !== prevHoverId) renderCanvas();
   }

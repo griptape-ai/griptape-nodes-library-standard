@@ -65,7 +65,7 @@
     },
     {
       "name": "AnnotateImageSimple",
-      "path": "widgets/AnnotateImageSimple.js",
+      "path": "widgets/AnnotateImage/AnnotateImage.js",
       "description": "Simple single-image annotation canvas with toolbar and inline tool settings."
     }
   ],
