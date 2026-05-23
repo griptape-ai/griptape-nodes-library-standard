@@ -68,6 +68,13 @@ export const DASH_LASSO            = [4, 3];  // selection lasso
 // Hover padding (extra pixels around annotation bounding box)
 export const HOVER_PAD             = 4;
 
+// ── Context HUD (floating action bar over canvas) ────────────────────────────
+export const HUD_BG             = "rgba(18,18,20,0.88)";
+export const HUD_BORDER         = "rgba(255,255,255,0.10)";
+export const HUD_SHADOW         = "0 2px 16px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.06)";
+export const HUD_BTN_HOVER_BG   = "rgba(255,255,255,0.10)";
+export const HUD_SEP_COLOR      = "rgba(255,255,255,0.12)";
+
 export function defaultData() {
   return {
     image_url: "",
@@ -105,5 +112,12 @@ export function injectStyles() {
     .ais-color-btn { width:22px; height:22px; border-radius:4px; border:2px solid var(--border,#555); cursor:pointer; flex-shrink:0; }
     .ais-color-input { position:absolute; opacity:0; width:0; height:0; pointer-events:none; }
     .ais-val-label { font-size:11px; color:var(--foreground); min-width:20px; text-align:right; flex-shrink:0; }
+    .ais-hud { position:absolute; top:10px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:2px; padding:3px; border-radius:10px; background:rgba(18,18,20,0.88); border:1px solid rgba(255,255,255,0.10); box-shadow:0 2px 16px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.06); pointer-events:auto; z-index:20; transition:opacity 0.12s; white-space:nowrap; }
+    .ais-hud-btn { display:flex; align-items:center; justify-content:center; width:28px; height:28px; padding:0; border:none; border-radius:7px; background:transparent; color:#e0e0e0; cursor:pointer; line-height:1; transition:background 0.12s,color 0.12s; flex-shrink:0; }
+    .ais-hud-btn:hover { background:rgba(255,255,255,0.10); color:#fff; }
+    .ais-hud-btn.imp { color:#e8a040; }
+    .ais-hud-btn.imp:hover { background:rgba(201,131,10,0.18); color:#f0b050; }
+    .ais-hud-btn.danger:hover { background:rgba(220,60,60,0.22); color:#ff7070; }
+    .ais-hud-sep { width:1px; height:18px; background:rgba(255,255,255,0.12); margin:0 2px; flex-shrink:0; }
   `;
 }

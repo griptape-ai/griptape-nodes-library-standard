@@ -72,8 +72,6 @@ export default function AnnotateImageSimple(container, props) {
   let panStartX = 0, panStartY = 0;
   let isAltHeld = false;
   let resetViewBtn = null;
-  let deleteSelectedBtn = null;
-  let resetAllOverridesBtn = null;
 
   // ── Tooltip system ────────────────────────────────────────────────────────
   const _tooltip = createTooltip();
@@ -363,107 +361,6 @@ export default function AnnotateImageSimple(container, props) {
   ];
 
   // Build inline action buttons wrapped in a group div
-  const actionsGroup = document.createElement("div");
-  actionsGroup.style.cssText = "display:flex;align-items:center;gap:0;flex-shrink:0;";
-  const _inlineBtns = {};
-  // Small gap between the two pairs
-  ACTION_DESCS.forEach((desc, i) => {
-    if (i === 2) {
-      const g = document.createElement("div");
-      g.style.cssText = "width:4px;flex-shrink:0;";
-      actionsGroup.appendChild(g);
-    }
-    const btn = document.createElement("button");
-    btn.className = "ais-tool-btn";
-    if (desc.color) btn.style.color = desc.color;
-    btn.innerHTML = desc.icon;
-    _addTooltip(btn, desc.label);
-    btn.addEventListener("pointerdown", (e) => { e.stopPropagation(); e.preventDefault(); btn.blur(); desc.trigger(btn); });
-    actionsGroup.appendChild(btn);
-    _inlineBtns[desc.id] = btn;
-  });
-  toolbar.appendChild(actionsGroup);
-
-  // Overflow button — shown when actionsGroup doesn't fit
-  const overflowBtn = document.createElement("button");
-  overflowBtn.className = "ais-tool-btn";
-  overflowBtn.style.cssText = "display:none;font-size:16px;letter-spacing:1px;width:32px;";
-  overflowBtn.textContent = "···";
-  _addTooltip(overflowBtn, "Actions");
-  let overflowMenuEl = null;
-  function _dismissOverflowMenu() {
-    if (overflowMenuEl) { overflowMenuEl.remove(); overflowMenuEl = null; }
-    document.removeEventListener("pointerdown", _outsideOverflowHandler, true);
-  }
-  function _outsideOverflowHandler(e) {
-    if (overflowMenuEl && !overflowMenuEl.contains(e.target) && e.target !== overflowBtn) _dismissOverflowMenu();
-  }
-  overflowBtn.addEventListener("pointerdown", (e) => {
-    e.stopPropagation(); e.preventDefault(); overflowBtn.blur();
-    if (overflowMenuEl) { _dismissOverflowMenu(); return; }
-    const rect = overflowBtn.getBoundingClientRect();
-    overflowMenuEl = document.createElement("div");
-    overflowMenuEl.style.cssText =
-      "position:fixed;z-index:99999;background:var(--card);border:1px solid var(--border);" +
-      "border-radius:8px;padding:4px;box-shadow:0 4px 16px rgba(0,0,0,0.4);min-width:220px;" +
-      `left:${rect.left}px;top:${rect.bottom + 6}px;`;
-    ACTION_DESCS.forEach((desc, i) => {
-      if (i === 2) {
-        const sep = document.createElement("div");
-        sep.style.cssText = "height:1px;background:var(--border);margin:3px 0;";
-        overflowMenuEl.appendChild(sep);
-      }
-      const enabled = desc.isEnabled();
-      const row = document.createElement("button");
-      row.style.cssText =
-        `display:flex;align-items:center;gap:10px;width:100%;padding:7px 10px;` +
-        `border:none;border-radius:5px;background:transparent;cursor:${enabled ? "pointer" : "default"};` +
-        `color:${desc.color || "var(--foreground)"};opacity:${enabled ? "1" : "0.35"};` +
-        `font-size:12px;text-align:left;pointer-events:${enabled ? "auto" : "none"};`;
-      row.innerHTML = desc.icon + `<span>${desc.label}</span>`;
-      row.addEventListener("pointerdown", (e) => {
-        e.stopPropagation();
-        _dismissOverflowMenu();
-        if (enabled) desc.trigger(overflowBtn);
-      });
-      overflowMenuEl.appendChild(row);
-    });
-    document.body.appendChild(overflowMenuEl);
-    setTimeout(() => document.addEventListener("pointerdown", _outsideOverflowHandler, true), 0);
-  });
-  toolbar.appendChild(overflowBtn);
-
-  // Enabled-state update functions referenced in rebuildSettings
-  function _updateDeleteSelectedBtn() {
-    const on = _canDeleteSelected();
-    _inlineBtns.deleteSelected.style.opacity = on ? "1" : "0.4";
-    _inlineBtns.deleteSelected.style.pointerEvents = on ? "auto" : "none";
-  }
-  function _updateResetOverridesBtn() {
-    const on = _canResetSelected();
-    _inlineBtns.resetSelected.style.opacity = on ? "1" : "0.4";
-    _inlineBtns.resetSelected.style.pointerEvents = on ? "auto" : "none";
-  }
-  function _updateResetAllOverridesBtn() {
-    const on = _canResetAll();
-    _inlineBtns.resetAll.style.opacity = on ? "1" : "0.4";
-    _inlineBtns.resetAll.style.pointerEvents = on ? "auto" : "none";
-  }
-  // Initial state
-  _updateDeleteSelectedBtn(); _updateResetOverridesBtn(); _updateResetAllOverridesBtn();
-
-  // ResizeObserver — collapse action group into overflow button when toolbar is too narrow
-  const _actionsRO = new ResizeObserver(() => {
-    // Temporarily force both visible to measure natural width
-    actionsGroup.style.display = "flex";
-    overflowBtn.style.display = "none";
-    const collapsed = toolbar.scrollWidth > toolbar.clientWidth + 2;
-    actionsGroup.style.display = collapsed ? "none" : "flex";
-    overflowBtn.style.display = collapsed ? "flex" : "none";
-    if (!collapsed && overflowMenuEl) _dismissOverflowMenu();
-  });
-  _actionsRO.observe(toolbar);
-
   // Divider before settings area
   const divider2 = document.createElement("div");
   divider2.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
@@ -493,6 +390,53 @@ export default function AnnotateImageSimple(container, props) {
   canvas.height = DEFAULT_CANVAS_HEIGHT;
 
   canvasWrap.appendChild(canvas);
+
+  // ── Context HUD (top-center of canvas, select mode only) ─────────────────
+  const hudEl = document.createElement("div");
+  hudEl.className = "ais-hud";
+  hudEl.style.display = "none";
+  canvasWrap.appendChild(hudEl);
+
+  function _updateHud() {
+    const selIds = currentValue.selected_ids || [];
+    const hasSelection = activeTool === "select" && selIds.length > 0;
+    if (!hasSelection) { hudEl.style.display = "none"; return; }
+
+    hudEl.innerHTML = "";
+
+    function _hudBtn(desc, extraClass = "") {
+      const btn = document.createElement("button");
+      btn.className = "ais-hud-btn" + (extraClass ? " " + extraClass : "");
+      btn.innerHTML = desc.icon;
+      _addTooltip(btn, desc.label);
+      btn.addEventListener("pointerdown", (e) => { e.stopPropagation(); e.preventDefault(); desc.trigger(btn); });
+      hudEl.appendChild(btn);
+    }
+    function _hudSep() { const s = document.createElement("div"); s.className = "ais-hud-sep"; hudEl.appendChild(s); }
+
+    // Layer order — always shown when something is selected
+    _buildLayerOrderButton(selIds, hudEl, "ais-hud-btn");
+    _hudSep();
+
+    // Delete selected + delete all
+    _hudBtn(ACTION_DESCS.find((d) => d.id === "deleteSelected"), "danger");
+    _hudBtn(ACTION_DESCS.find((d) => d.id === "deleteAll"), "danger");
+
+    // Reset overrides for selected — only when applicable
+    if (_canResetSelected()) {
+      _hudSep();
+      _hudBtn(ACTION_DESCS.find((d) => d.id === "resetSelected"), "imp");
+    }
+
+    // Reset all overrides — only when any overrides exist
+    if (_canResetAll()) {
+      _hudSep();
+      _hudBtn(ACTION_DESCS.find((d) => d.id === "resetAll"), "imp");
+    }
+
+    hudEl.style.display = "flex";
+  }
+
   wrapper.appendChild(toolbar);
   wrapper.appendChild(canvasWrap);
   container.appendChild(wrapper);
@@ -588,21 +532,13 @@ export default function AnnotateImageSimple(container, props) {
 
   function rebuildSettings(keepLayerPopup = false) {
     if (!keepLayerPopup) _dismissLayerPopup();
-    _updateDeleteSelectedBtn();
-    _updateResetOverridesBtn();
-    _updateResetAllOverridesBtn();
     _buildTxFrame();
+    _updateHud();
     settingsArea.innerHTML = "";
     colorPickerEl = null;
 
     if (activeTool === "select") {
       const selIds = currentValue.selected_ids || [];
-      if (selIds.length > 0) {
-        _buildLayerOrderButton(selIds);
-        const sep = document.createElement("div");
-        sep.style.cssText = "width:1px;height:16px;background:var(--border);flex-shrink:0;";
-        settingsArea.appendChild(sep);
-      }
       if (selIds.length === 1) {
         const selAnn = _effectiveAnnotations().find((a) => a.id === selIds[0]);
         if (selAnn) {
@@ -996,16 +932,16 @@ export default function AnnotateImageSimple(container, props) {
     });
   }
 
-  function _buildLayerOrderButton(selIds) {
+  function _buildLayerOrderButton(selIds, container, btnClass = "ais-tool-btn") {
     const btn = document.createElement("button");
-    btn.className = "ais-tool-btn";
+    btn.className = btnClass;
     _addTooltip(btn, "Layer order");
     btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/>
       <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/>
       <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/>
     </svg>`;
-    settingsArea.appendChild(btn);
+    container.appendChild(btn);
 
     btn.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
@@ -2477,8 +2413,6 @@ export default function AnnotateImageSimple(container, props) {
   function cleanup() {
     commitTextEdit();
     _dismissLayerPopup();
-    _dismissOverflowMenu();
-    _actionsRO.disconnect();
     _tooltip.cleanup();
     _cleanupHotkeys();
     resizeObserver.disconnect();
