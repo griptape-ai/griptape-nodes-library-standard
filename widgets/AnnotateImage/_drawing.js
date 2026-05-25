@@ -13,6 +13,11 @@ import {
 
 export function createDrawing(getState) {
 
+  function isHovered(ann) {
+    const { hoverId, hoverGroupId } = getState();
+    return ann.id === hoverId || (hoverGroupId && ann.group_id === hoverGroupId);
+  }
+
   function renderStrokes(strokes, sizeScale = 1) {
     const { ctx } = getState();
     for (const stroke of strokes) {
@@ -51,7 +56,7 @@ export function createDrawing(getState) {
     ctx.translate(-cx, -cy);
     renderStrokes(ann.strokes || [], ann.sizeScale ?? 1);
     ctx.restore();
-    if (ann.id === hoverId && !selected) {
+    if (isHovered(ann) && !selected) {
       const corners = getTransformedCorners(ann, HOVER_PAD + 2);
       if (corners.length === 4) {
         ctx.save();
@@ -81,7 +86,7 @@ export function createDrawing(getState) {
     for (let i = 0; i < lines.length; i++) {
       ctx.fillText(lines[i], 0, i * lineHeight);
     }
-    if (ann.id === hoverId && !selected) {
+    if (isHovered(ann) && !selected) {
       const w = Math.max(1, ...lines.map((l) => ctx.measureText(l).width));
       const h = lineHeight * lines.length;
       ctx.strokeStyle = `rgba(${SEL_COLOR_RGB},${HOVER_OPACITY})`;
@@ -219,7 +224,7 @@ export function createDrawing(getState) {
       }
       ctx.restore();
     }
-    if (ann.id === hoverId && !selected) {
+    if (isHovered(ann) && !selected) {
       const r = CP_HANDLE_RADIUS / displayScale;
       ctx.save();
       ctx.strokeStyle = `rgba(${SEL_COLOR_RGB},${HOVER_OPACITY})`;
@@ -241,7 +246,7 @@ export function createDrawing(getState) {
     ctx.strokeStyle = ann.color || DEFAULT_COLOR;
     if (ann.fill_color) { ctx.fillStyle = ann.fill_color; ctx.fillRect(-hw, -hh, hw * 2, hh * 2); }
     ctx.strokeRect(-hw, -hh, hw * 2, hh * 2);
-    if (ann.id === hoverId && !selected) {
+    if (isHovered(ann) && !selected) {
       const pad = HOVER_PAD / displayScale;
       ctx.strokeStyle = `rgba(${SEL_COLOR_RGB},${HOVER_OPACITY})`;
       ctx.lineWidth = LINE_WIDTH_PRIMARY / displayScale;
@@ -262,7 +267,7 @@ export function createDrawing(getState) {
     ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
     if (ann.fill_color) { ctx.fillStyle = ann.fill_color; ctx.fill(); }
     ctx.stroke();
-    if (ann.id === hoverId && !selected) {
+    if (isHovered(ann) && !selected) {
       const pad = HOVER_PAD / displayScale;
       ctx.strokeStyle = `rgba(${SEL_COLOR_RGB},${HOVER_OPACITY})`;
       ctx.lineWidth = LINE_WIDTH_PRIMARY / displayScale;

@@ -95,7 +95,8 @@ export default function AnnotateImageSimple(container, props) {
   // text edit state
   let textInput = null;
   let textEditId = null;
-  let hoverId = null;  // annotation id being hovered (text tool)
+  let hoverId = null;       // annotation id being hovered
+  let hoverGroupId = null;  // group_id of hoverId's annotation (null if ungrouped)
 
   // ── import/override helpers ───────────────────────────────────────────────
 
@@ -330,6 +331,49 @@ export default function AnnotateImageSimple(container, props) {
   }
   function _canResetAll() { return Object.keys(currentValue.overrides || {}).length > 0; }
 
+  // ── Group / ungroup ───────────────────────────────────────────────────────────
+
+  // Returns the shared group_id when ALL selected annotations are in the same group; else null.
+  function _selectionGroupId() {
+    const selIds = currentValue.selected_ids || [];
+    if (!selIds.length) return null;
+    const anns = _effectiveAnnotations();
+    const gid = anns.find((a) => a.id === selIds[0])?.group_id;
+    if (!gid) return null;
+    return selIds.every((id) => anns.find((a) => a.id === id)?.group_id === gid) ? gid : null;
+  }
+  function _canGroup() {
+    const selIds = currentValue.selected_ids || [];
+    return selIds.length >= 2 && !_selectionGroupId();
+  }
+  function _canUngroup() {
+    const selIds = currentValue.selected_ids || [];
+    return _effectiveAnnotations().some((a) => selIds.includes(a.id) && a.group_id);
+  }
+  // Given a hit annotation id, returns all IDs in its group (or just [hitId] if ungrouped).
+  function _expandGroupSelection(hitId) {
+    const anns = _effectiveAnnotations();
+    const gid = anns.find((a) => a.id === hitId)?.group_id;
+    if (!gid) return [hitId];
+    return anns.filter((a) => a.group_id === gid).map((a) => a.id);
+  }
+  function _executeGroup() {
+    const selIds = currentValue.selected_ids || [];
+    if (selIds.length < 2) return;
+    const gid = _uid("grp");
+    const { annotations, overrides } = _applyAnnotationMap(selIds, (a) => ({ ...a, group_id: gid }));
+    currentValue = { ...currentValue, annotations, overrides };
+    _emit(); _updateHud(); renderCanvas();
+  }
+  function _executeUngroup() {
+    const selIds = currentValue.selected_ids || [];
+    const { annotations, overrides } = _applyAnnotationMap(selIds, (a) => {
+      const b = { ...a }; delete b.group_id; return b;
+    });
+    currentValue = { ...currentValue, annotations, overrides };
+    _emit(); _updateHud(); renderCanvas();
+  }
+
   // Action descriptors — single source of truth for icon, label, enabled, run
   const ACTION_DESCS = [
     {
@@ -413,6 +457,13 @@ export default function AnnotateImageSimple(container, props) {
       hudEl.appendChild(btn);
     }
     function _hudSep() { const s = document.createElement("div"); s.className = "ais-hud-sep"; hudEl.appendChild(s); }
+
+    // Group / ungroup — contextual to selection
+    const _groupIcon   = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5c0-1.1.9-2 2-2h2"/><path d="M17 3h2c1.1 0 2 .9 2 2v2"/><path d="M21 17v2c0 1.1-.9 2-2 2h-2"/><path d="M7 21H5c-1.1 0-2-.9-2-2v-2"/><rect width="7" height="5" x="7" y="7" rx="1"/><rect width="7" height="5" x="10" y="12" rx="1"/></svg>';
+    const _ungroupIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="6" x="5" y="4" rx="1"/><rect width="8" height="6" x="11" y="14" rx="1"/></svg>';
+    if (_canGroup())   _hudBtn({ label: "Group",   icon: _groupIcon,   trigger: _executeGroup });
+    if (_canUngroup()) _hudBtn({ label: "Ungroup", icon: _ungroupIcon, trigger: _executeUngroup });
+    if (_canGroup() || _canUngroup()) _hudSep();
 
     // Layer order — always shown when something is selected
     _buildLayerOrderButton(selIds, hudEl, "ais-hud-btn");
@@ -823,7 +874,7 @@ export default function AnnotateImageSimple(container, props) {
       if (a.type === "paint") origSizes[a.id] = a.sizeScale ?? 1;
       else if (a.type === "text") origSizes[a.id] = a.font_size ?? DEFAULT_TEXT_SIZE;
       else if (a.type === "arrow") origSizes[a.id] = a.width ?? 3;
-      else if (a.type === "rect" || a.type === "ellipse") origSizes[a.id] = { w: a.w ?? 100, h: a.h ?? 100 };
+      else if (a.type === "rect" || a.type === "ellipse") origSizes[a.id] = a.width ?? DEFAULT_SHAPE_WIDTH;
     }
     _buildSizeSlider("Scale %", 25, 400, 100, (val, emit) => {
       const ratio = val / 100;
@@ -831,10 +882,7 @@ export default function AnnotateImageSimple(container, props) {
         if (a.type === "paint") return { ...a, sizeScale: (origSizes[a.id] ?? 1) * ratio };
         if (a.type === "text") return { ...a, font_size: Math.max(MIN_TEXT_SIZE, Math.round((origSizes[a.id] ?? DEFAULT_TEXT_SIZE) * ratio)) };
         if (a.type === "arrow") return { ...a, width: Math.max(1, (origSizes[a.id] ?? 3) * ratio) };
-        if (a.type === "rect" || a.type === "ellipse") {
-          const orig = origSizes[a.id] || { w: 100, h: 100 };
-          return { ...a, w: Math.max(2, orig.w * ratio), h: Math.max(2, orig.h * ratio) };
-        }
+        if (a.type === "rect" || a.type === "ellipse") return { ...a, width: Math.max(1, (origSizes[a.id] ?? DEFAULT_SHAPE_WIDTH) * ratio) };
         return a;
       });
       currentValue = { ...currentValue, annotations, overrides };
@@ -1008,7 +1056,7 @@ export default function AnnotateImageSimple(container, props) {
 
   function setTool(id) {
     commitTextEdit();
-    hoverId = null;
+    hoverId = null; hoverGroupId = null;
     activeTool = id;
     currentValue = { ...currentValue, active_tool: id };
     for (const [tid, btn] of Object.entries(toolBtns)) {
@@ -1212,7 +1260,7 @@ export default function AnnotateImageSimple(container, props) {
   }
 
   // ── drawing functions (bound to live state via factory) ───────────────────
-  const drawing = createDrawing(() => ({ ctx, displayScale, hoverId }));
+  const drawing = createDrawing(() => ({ ctx, displayScale, hoverId, hoverGroupId }));
   const { renderStrokes, drawPaint, drawText, drawArrowLine, drawArrowAnnotation, drawRect, drawEllipse } = drawing;
 
   // ── hit testing ───────────────────────────────────────────────────────────
@@ -1605,7 +1653,7 @@ export default function AnnotateImageSimple(container, props) {
   canvas.addEventListener("pointercancel", onPointerUp);
   canvas.addEventListener("mousemove", onMouseHover);
   canvas.addEventListener("mouseleave", () => {
-    if (hoverId) { hoverId = null; renderCanvas(); }
+    if (hoverId || hoverGroupId) { hoverId = null; hoverGroupId = null; renderCanvas(); }
   });
 
   container.addEventListener("mouseenter", () => { _mouseIsOver = true; });
@@ -1778,18 +1826,21 @@ export default function AnnotateImageSimple(container, props) {
 
       const hit = hitTest(cx, cy);
       if (hit) {
+        // Expand to the full group if the hit annotation is grouped
+        const hitGroupIds = _expandGroupSelection(hit.id);
         let newSelIds;
         if (e.shiftKey) {
-          // Shift+click: toggle in/out of selection
-          newSelIds = selIds.includes(hit.id)
-            ? selIds.filter((id) => id !== hit.id)
-            : [...selIds, hit.id];
-        } else if (selIds.includes(hit.id)) {
-          // Click on already-selected annotation: keep selection for drag
+          // Shift+click: toggle the entire group in/out as a unit
+          const allSelected = hitGroupIds.every((id) => selIds.includes(id));
+          newSelIds = allSelected
+            ? selIds.filter((id) => !hitGroupIds.includes(id))
+            : [...new Set([...selIds, ...hitGroupIds])];
+        } else if (hitGroupIds.every((id) => selIds.includes(id))) {
+          // All group members already selected: keep selection for drag
           newSelIds = selIds;
         } else {
-          // Click on new annotation: replace selection
-          newSelIds = [hit.id];
+          // Click on annotation or group: replace selection with group members
+          newSelIds = hitGroupIds;
         }
         currentValue = { ...currentValue, selected_ids: newSelIds };
         // Rebuild frame immediately so origPivotX/Y captures the NEW selection's pivot, not the old one
@@ -2276,9 +2327,17 @@ export default function AnnotateImageSimple(container, props) {
         const x2 = Math.max(dragState.startCx, dragState.x2);
         const y2 = Math.max(dragState.startCy, dragState.y2);
         if (x2 - x1 > 5 || y2 - y1 > 5) {
-          const inRect = _effectiveAnnotations()
+          const directHits = _effectiveAnnotations()
             .filter((a) => _annotationIntersectsRect(a, x1, y1, x2, y2))
             .map((a) => a.id);
+          // Expand: if any member of a group is hit, include all members
+          const groupsHit = new Set(_effectiveAnnotations()
+            .filter((a) => directHits.includes(a.id) && a.group_id)
+            .map((a) => a.group_id));
+          const inRect = [...new Set([
+            ...directHits,
+            ..._effectiveAnnotations().filter((a) => groupsHit.has(a.group_id)).map((a) => a.id),
+          ])];
           const merged = dragState.additive
             ? [...new Set([...(currentValue.selected_ids || []), ...inRect])]
             : inRect;
@@ -2359,16 +2418,19 @@ export default function AnnotateImageSimple(container, props) {
     if (isPointerDown) return;
     const [cx, cy] = screenToCanvas(e);
     const prevHoverId = hoverId;
+    const prevHoverGroupId = hoverGroupId;
     // Hover highlights only make sense in select mode — in drawing modes the user
     // is placing new content, not inspecting existing objects.
     if (activeTool === "select") {
       const hit = hitTest(cx, cy);
       hoverId = hit ? hit.id : null;
+      hoverGroupId = hit?.group_id || null;
     } else {
       hoverId = null;
+      hoverGroupId = null;
     }
     canvas.style.cursor = _cursorForPos(cx, cy);
-    if (hoverId !== prevHoverId) renderCanvas();
+    if (hoverId !== prevHoverId || hoverGroupId !== prevHoverGroupId) renderCanvas();
   }
 
   // Double-click to edit text (works in both text and select tools)
