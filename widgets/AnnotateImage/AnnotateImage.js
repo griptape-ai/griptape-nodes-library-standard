@@ -964,15 +964,15 @@ export default function AnnotateImageSimple(container, props) {
       ].join(";");
 
       const ACTIONS = [
-        { label: "↑   Bring Forward",  action: "forward"  },
-        { label: "⬆   Bring to Front", action: "front"    },
-        { label: "↓   Send Backward",  action: "backward" },
-        { label: "⬇   Send to Back",   action: "back"     },
+        { label: "Bring to Front", action: "front",    icon: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/></svg>' },
+        { label: "Bring Forward",  action: "forward",  icon: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>' },
+        { label: "Send Backward",  action: "backward", icon: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>' },
+        { label: "Send to Back",   action: "back",     icon: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg>' },
       ];
-      for (const { label, action } of ACTIONS) {
+      for (const { label, action, icon } of ACTIONS) {
         const item = document.createElement("div");
-        item.style.cssText = "padding:7px 14px;cursor:pointer;color:var(--foreground,#eee);white-space:nowrap;";
-        item.textContent = label;
+        item.style.cssText = "padding:6px 14px;cursor:pointer;color:var(--foreground,#eee);white-space:nowrap;display:flex;align-items:center;gap:8px;";
+        item.innerHTML = `<span style="flex-shrink:0;display:flex;align-items:center;">${icon}</span><span>${label}</span>`;
         item.addEventListener("pointerover",  () => { item.style.background = `rgba(${SEL_COLOR_RGB},${LAYER_HOVER_OPACITY})`; });
         item.addEventListener("pointerout",   () => { item.style.background = ""; });
         item.addEventListener("pointerdown",  (ev) => {
