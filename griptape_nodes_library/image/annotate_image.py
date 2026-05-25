@@ -54,10 +54,19 @@ class AnnotateImage(DataNode):
 
         self.add_parameter(
             ParameterImage(
-                name="image",
+                name="input_image",
                 default_value=None,
                 tooltip="Input image to annotate",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
+                hide_property=True
+            )
+        )
+
+        self.add_parameter(
+            ParameterImage(
+                name="output_image",
+                tooltip="Image with annotations composited",
+                allowed_modes={ParameterMode.OUTPUT},
                 hide_property=True
             )
         )
@@ -69,15 +78,6 @@ class AnnotateImage(DataNode):
                 tooltip="Canvas annotations (paint, text, arrows)",
                 allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT},
                 traits={Widget(name="AnnotateImageSimple", library="Griptape Nodes Library")},
-            )
-        )
-
-        self.add_parameter(
-            ParameterImage(
-                name="output_image",
-                tooltip="Image with annotations composited",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide_property=True
             )
         )
 
@@ -125,7 +125,7 @@ class AnnotateImage(DataNode):
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        if parameter.name == "image" and value:
+        if parameter.name == "input_image" and value:
             raw, browser_url = self._resolve_url(value)
             if not browser_url:
                 return super().after_value_set(parameter, value)
@@ -371,7 +371,7 @@ class AnnotateImage(DataNode):
         return merged_imported + local
 
     def process(self) -> None:
-        image_artifact = self.get_parameter_value("image")
+        image_artifact = self.get_parameter_value("input_image")
 
         annotation_data = self.get_parameter_value("output_annotation_data") or _default_annotation_data()
         if not isinstance(annotation_data, dict):
@@ -421,8 +421,8 @@ class AnnotateImage(DataNode):
         self.publish_update_to_parameter("output_image", artifact)
 
         if image_artifact:
-            self.parameter_output_values["image"] = image_artifact
-            self.publish_update_to_parameter("image", image_artifact)
+            self.parameter_output_values["input_image"] = image_artifact
+            self.publish_update_to_parameter("input_image", image_artifact)
 
         self.parameter_output_values["output_annotation_data"] = annotation_data
         self.publish_update_to_parameter("output_annotation_data", annotation_data)
