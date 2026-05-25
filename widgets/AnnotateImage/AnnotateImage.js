@@ -97,6 +97,7 @@ export default function AnnotateImageSimple(container, props) {
   let textEditId = null;
   let hoverId = null;       // annotation id being hovered
   let hoverGroupId = null;  // group_id of hoverId's annotation (null if ungrouped)
+  let marqueePreviewIds = null; // ids that would be selected by the current marquee drag
 
   // ── import/override helpers ───────────────────────────────────────────────
 
@@ -1265,7 +1266,7 @@ export default function AnnotateImageSimple(container, props) {
   }
 
   // ── drawing functions (bound to live state via factory) ───────────────────
-  const drawing = createDrawing(() => ({ ctx, displayScale, hoverId, hoverGroupId }));
+  const drawing = createDrawing(() => ({ ctx, displayScale, hoverId, hoverGroupId, marqueePreviewIds }));
   const { renderStrokes, drawPaint, drawText, drawArrowLine, drawArrowAnnotation, drawRect, drawEllipse } = drawing;
 
   // ── hit testing ───────────────────────────────────────────────────────────
@@ -1811,6 +1812,25 @@ export default function AnnotateImageSimple(container, props) {
             canvas.style.cursor = "grabbing"; renderCanvas(); return;
           }
         }
+        // Click anywhere inside the frame body → translate the selection
+        const fdx = cx - txFrame.pivotX, fdy = cy - txFrame.pivotY;
+        const fcos = Math.cos(-txFrame.rotation), fsin = Math.sin(-txFrame.rotation);
+        const flx = fdx * fcos - fdy * fsin, fly = fdx * fsin + fdy * fcos;
+        if (Math.abs(flx) <= txFrame.halfW && Math.abs(fly) <= txFrame.halfH) {
+          const origPositions = {};
+          for (const id of selIds) {
+            const a = _effectiveAnnotations().find((ann) => ann.id === id);
+            if (!a) continue;
+            if (a.type === "arrow") {
+              const cps = defaultCps(a);
+              origPositions[id] = { x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2,
+                cp1x: cps.cp1x, cp1y: cps.cp1y, cp2x: cps.cp2x, cp2y: cps.cp2y };
+            } else origPositions[id] = { x: a.x ?? 0, y: a.y ?? 0 };
+          }
+          dragState = { type: "translate", startCx: cx, startCy: cy, origPositions,
+            origPivotX: txFrame.pivotX, origPivotY: txFrame.pivotY };
+          canvas.style.cursor = "grabbing"; renderCanvas(); return;
+        }
       }
 
       // Control point handle detection: only when single arrow already selected
@@ -2205,6 +2225,17 @@ export default function AnnotateImageSimple(container, props) {
         }
       } else if (dragState.type === "marquee") {
         dragState = { ...dragState, x2: cx, y2: cy };
+        // Compute which annotations would be selected so they can be previewed
+        const mx1 = Math.min(dragState.startCx, cx), mx2 = Math.max(dragState.startCx, cx);
+        const my1 = Math.min(dragState.startCy, cy), my2 = Math.max(dragState.startCy, cy);
+        const directHits = _effectiveAnnotations()
+          .filter((a) => _annotationIntersectsRect(a, mx1, my1, mx2, my2)).map((a) => a.id);
+        const groupsHit = new Set(_effectiveAnnotations()
+          .filter((a) => directHits.includes(a.id) && a.group_id).map((a) => a.group_id));
+        marqueePreviewIds = new Set([
+          ...directHits,
+          ..._effectiveAnnotations().filter((a) => groupsHit.has(a.group_id)).map((a) => a.id),
+        ]);
       }
       renderCanvas();
     }
@@ -2349,6 +2380,7 @@ export default function AnnotateImageSimple(container, props) {
           currentValue = { ...currentValue, selected_ids: merged };
         }
         dragState = null;
+        marqueePreviewIds = null;
         rebuildSettings();
         renderCanvas();
       } else {
@@ -2384,6 +2416,12 @@ export default function AnnotateImageSimple(container, props) {
             const ar = Math.max(10 / displayScale, 8);
             if (Math.hypot(cx - sa.x1, cy - sa.y1) <= ar || Math.hypot(cx - sa.x2, cy - sa.y2) <= ar) return "grab";
           }
+        }
+        if (txFrame) {
+          const fdx = cx - txFrame.pivotX, fdy = cy - txFrame.pivotY;
+          const fcos = Math.cos(-txFrame.rotation), fsin = Math.sin(-txFrame.rotation);
+          if (Math.abs(fdx * fcos - fdy * fsin) <= txFrame.halfW &&
+              Math.abs(fdx * fsin + fdy * fcos) <= txFrame.halfH) return "grab";
         }
         return hitTest(cx, cy) ? "grab" : "default";
       }
@@ -2470,8 +2508,10 @@ export default function AnnotateImageSimple(container, props) {
     // Stale-roundtrip guard: if we've emitted more recently than this incoming
     // value, the framework is echoing back an old snapshot. Accept only
     // image/dimension fields (set externally by Python), not annotations.
+    // Also block full updates during any active pointer drag — local state is
+    // authoritative mid-drag and the correct state will be emitted on pointerup.
     const incomingSeq = rawNv._emitSeq || 0;
-    if (incomingSeq > 0 && incomingSeq < _emitSeq) {
+    if ((isPointerDown) || (incomingSeq > 0 && incomingSeq < _emitSeq)) {
       const urlChanged = (rawNv.image_url || "") !== currentValue.image_url;
       const dimsChanged = (rawNv.canvas_width || 0) !== currentValue.canvas_width ||
                           (rawNv.canvas_height || 0) !== currentValue.canvas_height;

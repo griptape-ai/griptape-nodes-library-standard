@@ -14,8 +14,10 @@ import {
 export function createDrawing(getState) {
 
   function isHovered(ann) {
-    const { hoverId, hoverGroupId } = getState();
-    return ann.id === hoverId || (hoverGroupId && ann.group_id === hoverGroupId);
+    const { hoverId, hoverGroupId, marqueePreviewIds } = getState();
+    return ann.id === hoverId
+      || (hoverGroupId && ann.group_id === hoverGroupId)
+      || (marqueePreviewIds && marqueePreviewIds.has(ann.id));
   }
 
   function renderStrokes(strokes, sizeScale = 1) {
