@@ -5,9 +5,9 @@ from typing import Any
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
-from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.widget import Widget
@@ -43,22 +43,22 @@ class AnnotateImage(DataNode):
         super().__init__(**kwargs)
 
         self.add_parameter(
-            ParameterImage(
-                name="image",
-                default_value=None,
-                tooltip="Input image to annotate",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
-                hide_property=True
-            )
-        )
-
-        self.add_parameter(
             ParameterDict(
                 name="import_annotations",
                 default_value=None,
                 tooltip="Annotation data to import from another node (overrides can be applied in canvas)",
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
+            )
+        )
+
+        self.add_parameter(
+            ParameterImage(
+                name="image",
+                default_value=None,
+                tooltip="Input image to annotate",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
+                hide_property=True
             )
         )
 
