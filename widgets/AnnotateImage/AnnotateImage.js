@@ -1067,6 +1067,7 @@ export default function AnnotateImageSimple(container, props) {
     canvas.focus({ preventScroll: true });
     rebuildSettings();
     renderCanvas();
+    _emit();
   }
 
   // ── rendering ─────────────────────────────────────────────────────────────
@@ -2383,6 +2384,7 @@ export default function AnnotateImageSimple(container, props) {
         marqueePreviewIds = null;
         rebuildSettings();
         renderCanvas();
+        _emit();
       } else {
         dragState = null;
         _buildTxFrame();
