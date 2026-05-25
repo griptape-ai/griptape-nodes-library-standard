@@ -1191,6 +1191,11 @@ export default function AnnotateImageSimple(container, props) {
       ctx.restore();
     }
 
+    // In-progress paint stroke
+    if (currentStroke) {
+      renderStrokes([currentStroke], 1);
+    }
+
     // In-progress arrow
     if (currentArrow) {
       const ts = toolSettings.arrow;
