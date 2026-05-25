@@ -215,19 +215,32 @@ class AnnotateImage(DataNode):
                     w = max(1, int((sz + sz2) / 2))
                     draw.line([ppx, ppy, px, py], fill=color, width=w)
 
-    def _draw_text(self, draw: ImageDraw.ImageDraw, ann: dict) -> None:
+    def _draw_text(self, draw: ImageDraw.ImageDraw, ann: dict, overlay: Image.Image | None = None) -> None:
         text = ann.get("text", "")
         if not text:
             return
         x = float(ann.get("x", 0))
         y = float(ann.get("y", 0))
+        rotation = float(ann.get("rotation", 0))
         font_size = max(8, int(ann.get("font_size", 48)))
         color = self._parse_color(ann.get("color", "#ff0000"))
         try:
             font = ImageFont.load_default(size=font_size)
         except TypeError:
             font = ImageFont.load_default()
-        draw.text((x, y), text, font=font, fill=color, spacing=int(font_size * 0.2))
+
+        if not rotation or overlay is None:
+            draw.text((x, y), text, font=font, fill=color, spacing=int(font_size * 0.2))
+            return
+
+        # Rotated text: render onto a transparent temp image, rotate, composite back.
+        # PIL rotates counter-clockwise; canvas rotates clockwise — negate the angle.
+        temp = Image.new("RGBA", overlay.size, (0, 0, 0, 0))
+        temp_draw = ImageDraw.Draw(temp)
+        temp_draw.text((x, y), text, font=font, fill=color, spacing=int(font_size * 0.2))
+        degrees = -math.degrees(rotation)
+        rotated = temp.rotate(degrees, resample=Image.Resampling.BICUBIC, expand=False, center=(x, y))
+        overlay.alpha_composite(rotated)
 
     def _draw_arrow(self, draw: ImageDraw.ImageDraw, ann: dict) -> None:
         x1, y1 = float(ann.get("x1", 0)), float(ann.get("y1", 0))
@@ -387,7 +400,7 @@ class AnnotateImage(DataNode):
             if ann_type == "paint":
                 self._draw_paint(draw, ann)
             elif ann_type == "text":
-                self._draw_text(draw, ann)
+                self._draw_text(draw, ann, overlay)
             elif ann_type == "arrow":
                 self._draw_arrow(draw, ann)
             elif ann_type == "rect":

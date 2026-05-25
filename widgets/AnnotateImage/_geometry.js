@@ -87,6 +87,7 @@ export function snapshotAnn(ann) {
     x1: ann.x1 ?? 0, y1: ann.y1 ?? 0, x2: ann.x2 ?? 0, y2: ann.y2 ?? 0,
     cp1x: cps.cp1x, cp1y: cps.cp1y, cp2x: cps.cp2x, cp2y: cps.cp2y,
     font_size: ann.font_size ?? 48,
+    text: ann.text || "",
     width: ann.width ?? 3,
     sizeScale: ann.sizeScale ?? 1,
     w: ann.w ?? 100, h: ann.h ?? 100,

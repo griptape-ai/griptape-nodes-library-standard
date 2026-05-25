@@ -1381,18 +1381,40 @@ export default function AnnotateImageSimple(container, props) {
         };
         return;
       }
-      // text: fall through to AABB (rotation not supported for text)
+      if (ann.type === "text") {
+        const fontSize = Math.max(MIN_TEXT_SIZE, ann.font_size || DEFAULT_TEXT_SIZE);
+        const lineHeight = fontSize * 1.2;
+        const lines = (ann.text || "").split("\n");
+        ctx.save(); ctx.font = `${fontSize}px sans-serif`;
+        const textW = Math.max(1, ...lines.map((l) => ctx.measureText(l).width));
+        ctx.restore();
+        const hw = textW / 2, hh = (lineHeight * lines.length) / 2;
+        const r = ann.rotation || 0, cos = Math.cos(r), sin = Math.sin(r);
+        txFrame = {
+          pivotX: (ann.x || 0) + hw * cos - hh * sin,
+          pivotY: (ann.y || 0) + hw * sin + hh * cos,
+          rotation: r,
+          halfW: hw + pad, halfH: hh + pad,
+          _selIds: [...selIds],
+        };
+        return;
+      }
+    }
+    // If the selection hasn't changed and we already have a frame, keep it.
+    // The frame is maintained live during all drag types (txRotate, txScale, translate),
+    // so it is always correct at this point. Recomputing from the AABB would give the
+    // wrong extents for a group that has been rotated (AABB grows; OBB doesn't).
+    if (!selChanged && txFrame) {
+      txFrame = { ...txFrame, _selIds: [...selIds] };
+      return;
     }
     const gb = _getGroupBounds(selIds);
     if (!gb) { txFrame = null; return; }
-    const isSingleText = selIds.length === 1 &&
-      _effectiveAnnotations().find((a) => a.id === selIds[0])?.type === "text";
     txFrame = {
       pivotX: gb.centerX, pivotY: gb.centerY,
-      rotation: selChanged ? 0 : (txFrame?.rotation ?? 0),
+      rotation: 0,
       halfW: (gb.maxX - gb.minX) / 2 + pad,
       halfH: (gb.maxY - gb.minY) / 2 + pad,
-      noRotate: isSingleText,
       _selIds: [...selIds],
     };
   }
@@ -1463,6 +1485,8 @@ export default function AnnotateImageSimple(container, props) {
       "padding:0",
       "margin:0",
       "line-height:1",
+      `transform:rotate(${ann.rotation || 0}rad)`,
+      "transform-origin:0px 0px",
     ].join(";");
 
     canvasWrap.appendChild(textInput);
@@ -1540,7 +1564,7 @@ export default function AnnotateImageSimple(container, props) {
     const id = _uid("text");
     const ann = {
       id, type: "text", text: "",
-      x: cx, y: cy,
+      x: cx, y: cy, rotation: 0,
       color: toolSettings.text.color,
       font_size: toolSettings.text.font_size,
     };
@@ -2010,8 +2034,26 @@ export default function AnnotateImageSimple(container, props) {
               x: dx*cos - dy*sin + pivot.x, y: dx*sin + dy*cos + pivot.y,
               rotation: snap.rotation + dAngle };
           } else if (a.type === "text") {
-            const dx = snap.x - pivot.x, dy = snap.y - pivot.y;
-            return { ...a, x: dx*cos - dy*sin + pivot.x, y: dx*sin + dy*cos + pivot.y };
+            const r = snap.rotation + dAngle;
+            const fontSize = Math.max(MIN_TEXT_SIZE, snap.font_size || DEFAULT_TEXT_SIZE);
+            const lineHeight = fontSize * 1.2;
+            const lines = (snap.text || "").split("\n");
+            ctx.save(); ctx.font = `${fontSize}px sans-serif`;
+            const hw = Math.max(1, ...lines.map((l) => ctx.measureText(l).width)) / 2;
+            ctx.restore();
+            const hh = (lineHeight * lines.length) / 2;
+            // Compute text's original world-space center from snap TL + snap rotation
+            const origR = snap.rotation;
+            const origCx = snap.x + hw * Math.cos(origR) - hh * Math.sin(origR);
+            const origCy = snap.y + hw * Math.sin(origR) + hh * Math.cos(origR);
+            // Orbit that center around the group pivot by dAngle
+            const dcx = origCx - pivot.x, dcy = origCy - pivot.y;
+            const newCx = pivot.x + dcx * cos - dcy * sin;
+            const newCy = pivot.y + dcx * sin + dcy * cos;
+            // Derive new TL from new center + new rotation
+            return { ...a, rotation: r,
+              x: newCx - hw * Math.cos(r) + hh * Math.sin(r),
+              y: newCy - hw * Math.sin(r) - hh * Math.cos(r) };
           } else if (a.type === "arrow") {
             const d1x = snap.x1 - pivot.x, d1y = snap.y1 - pivot.y;
             const d2x = snap.x2 - pivot.x, d2y = snap.y2 - pivot.y;
@@ -2247,10 +2289,8 @@ export default function AnnotateImageSimple(container, props) {
         renderCanvas();
       } else {
         dragState = null;
-        // Rebuild frame from new annotation state.
-        // _buildTxFrame reads txFrame?.rotation for groups (preserving accumulated rotation)
-        // and ann.rotation for single paint (which was updated live during txRotate).
         _buildTxFrame();
+        renderCanvas();
         _emit();
       }
     }
