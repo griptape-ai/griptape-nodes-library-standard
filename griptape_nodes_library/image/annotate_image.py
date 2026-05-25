@@ -44,7 +44,7 @@ class AnnotateImage(DataNode):
 
         self.add_parameter(
             ParameterDict(
-                name="import_annotations",
+                name="input_annotation_data",
                 default_value=None,
                 tooltip="Annotation data to import from another node (overrides can be applied in canvas)",
                 allowed_modes={ParameterMode.INPUT},
@@ -64,7 +64,7 @@ class AnnotateImage(DataNode):
 
         self.add_parameter(
             ParameterDict(
-                name="annotation_data",
+                name="output_annotation_data",
                 default_value=_default_annotation_data(),
                 tooltip="Canvas annotations (paint, text, arrows)",
                 allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT},
@@ -130,7 +130,7 @@ class AnnotateImage(DataNode):
             if not browser_url:
                 return super().after_value_set(parameter, value)
             w, h = self._get_dimensions(raw)
-            data = self.get_parameter_value("annotation_data") or _default_annotation_data()
+            data = self.get_parameter_value("output_annotation_data") or _default_annotation_data()
             if not isinstance(data, dict):
                 data = _default_annotation_data()
             new_data = {
@@ -140,19 +140,19 @@ class AnnotateImage(DataNode):
                 "canvas_width": w or data.get("canvas_width", 0),
                 "canvas_height": h or data.get("canvas_height", 0),
             }
-            self.set_parameter_value("annotation_data", new_data)
-            self.publish_update_to_parameter("annotation_data", new_data)
+            self.set_parameter_value("output_annotation_data", new_data)
+            self.publish_update_to_parameter("output_annotation_data", new_data)
 
-        if parameter.name == "import_annotations" and isinstance(value, dict):
+        if parameter.name == "input_annotation_data" and isinstance(value, dict):
             # Accept full annotation_data dict from an upstream node's annotation_data output.
             # Compute the effective (merged) annotations so overrides and deletions are resolved.
             imported = self._effective_annotations(value)
-            data = self.get_parameter_value("annotation_data") or _default_annotation_data()
+            data = self.get_parameter_value("output_annotation_data") or _default_annotation_data()
             if not isinstance(data, dict):
                 data = _default_annotation_data()
             new_data = {**data, "imported_annotations": imported}
-            self.set_parameter_value("annotation_data", new_data)
-            self.publish_update_to_parameter("annotation_data", new_data)
+            self.set_parameter_value("output_annotation_data", new_data)
+            self.publish_update_to_parameter("output_annotation_data", new_data)
 
         return super().after_value_set(parameter, value)
 
@@ -373,7 +373,7 @@ class AnnotateImage(DataNode):
     def process(self) -> None:
         image_artifact = self.get_parameter_value("image")
 
-        annotation_data = self.get_parameter_value("annotation_data") or _default_annotation_data()
+        annotation_data = self.get_parameter_value("output_annotation_data") or _default_annotation_data()
         if not isinstance(annotation_data, dict):
             annotation_data = _default_annotation_data()
 
@@ -424,7 +424,7 @@ class AnnotateImage(DataNode):
             self.parameter_output_values["image"] = image_artifact
             self.publish_update_to_parameter("image", image_artifact)
 
-        self.parameter_output_values["annotation_data"] = annotation_data
-        self.publish_update_to_parameter("annotation_data", annotation_data)
+        self.parameter_output_values["output_annotation_data"] = annotation_data
+        self.publish_update_to_parameter("output_annotation_data", annotation_data)
 
         logger.debug(f"{self.name}: Output saved to {artifact.value}")
