@@ -1447,8 +1447,8 @@ export default function AnnotateImageSimple(container, props) {
     textInput.rows = 1;
     textInput.style.cssText = [
       "position:absolute",
-      `left:${(ann.x || 0) * totalScale + panX}px`,
-      `top:${(ann.y || 0) * totalScale + panY}px`,
+      `left:${(ann.x || 0) * totalScale + centerOffsetX + panX}px`,
+      `top:${(ann.y || 0) * totalScale + centerOffsetY + panY}px`,
       "min-width:60px",
       "background:transparent",
       `color:${ann.color || "#ffffff"}`,
