@@ -11,7 +11,7 @@ from griptape_nodes.exe_types.core_types import (
     ParameterTypeBuiltin,
 )
 from griptape_nodes.exe_types.node_groups import BaseIterativeNodeGroup
-from griptape_nodes.exe_types.node_groups.base_iterative_node_group import LEFT_PARAMETERS_KEY
+from griptape_nodes.exe_types.node_groups.subflow_node_group import LEFT_PARAMETERS_KEY
 from griptape_nodes.traits.clamp import Clamp
 
 logger = logging.getLogger("griptape_nodes")

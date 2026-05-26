@@ -65,19 +65,19 @@ class TestGetAllIterationValues:
 
 class TestLeftParametersMetadata:
     def test_start_in_left_parameters(self, default_node: ForLoopGroupNode) -> None:
-        from griptape_nodes.exe_types.node_groups.base_iterative_node_group import LEFT_PARAMETERS_KEY
+        from griptape_nodes.exe_types.node_groups.subflow_node_group import LEFT_PARAMETERS_KEY
 
         left = default_node.metadata.get(LEFT_PARAMETERS_KEY, [])
         assert "start" in left
 
     def test_end_in_left_parameters(self, default_node: ForLoopGroupNode) -> None:
-        from griptape_nodes.exe_types.node_groups.base_iterative_node_group import LEFT_PARAMETERS_KEY
+        from griptape_nodes.exe_types.node_groups.subflow_node_group import LEFT_PARAMETERS_KEY
 
         left = default_node.metadata.get(LEFT_PARAMETERS_KEY, [])
         assert "end" in left
 
     def test_step_in_left_parameters(self, default_node: ForLoopGroupNode) -> None:
-        from griptape_nodes.exe_types.node_groups.base_iterative_node_group import LEFT_PARAMETERS_KEY
+        from griptape_nodes.exe_types.node_groups.subflow_node_group import LEFT_PARAMETERS_KEY
 
         left = default_node.metadata.get(LEFT_PARAMETERS_KEY, [])
         assert "step" in left
