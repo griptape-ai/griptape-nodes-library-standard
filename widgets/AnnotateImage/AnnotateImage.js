@@ -186,14 +186,14 @@ export default function AnnotateImageSimple(container, props) {
   const wrapper = document.createElement("div");
   wrapper.className = "nodrag nowheel ais-wrapper";
   wrapper.style.cssText =
-    "display:flex;flex-direction:column;width:100%;height:100%;background:var(--background);border-radius:6px;" +
+    "display:flex;flex-direction:row;width:100%;height:100%;background:var(--background);border-radius:6px;" +
     "font-family:sans-serif;box-sizing:border-box;overflow:hidden;";
 
-  // Toolbar
-  const toolbar = document.createElement("div");
-  toolbar.style.cssText =
-    "display:flex;align-items:center;gap:4px;padding:5px 8px;" +
-    "background:var(--card);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;min-height:38px;";
+  // ── Sidebar (left, vertical tool buttons) ─────────────────────────────────
+  const sidebar = document.createElement("div");
+  sidebar.style.cssText =
+    "display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 5px;" +
+    "background:var(--card);border-right:1px solid var(--border);flex-shrink:0;";
 
   // Tool buttons — navigation group
   const NAV_TOOLS = [
@@ -212,20 +212,51 @@ export default function AnnotateImageSimple(container, props) {
   const TOOLS = [...NAV_TOOLS, ...DRAW_TOOLS];
   const toolBtns = {};
 
-  // Creates a toolbar tool button, registers it in toolBtns, and appends it to the toolbar.
+  // Creates a sidebar tool button, registers it in toolBtns, and appends it to the sidebar.
   const _mkToolBtn = (t) => {
     const btn = document.createElement("button");
     btn.className = "ais-tool-btn" + (t.id === activeTool ? " active" : "");
     _addTooltip(btn, t.title);
     btn.appendChild(mkIcon(t.id));
     btn.addEventListener("pointerdown", (e) => { e.stopPropagation(); setTool(t.id); btn.blur(); });
-    toolbar.appendChild(btn);
+    sidebar.appendChild(btn);
     toolBtns[t.id] = btn;
   };
 
   for (const t of NAV_TOOLS) _mkToolBtn(t);
 
-  // Fit-to-window button sits with the nav group
+  // Horizontal divider between nav and drawing tools
+  const sideDiv = document.createElement("div");
+  sideDiv.style.cssText = "width:20px;height:1px;background:var(--border);margin:2px 0;flex-shrink:0;";
+  sidebar.appendChild(sideDiv);
+
+  for (const t of DRAW_TOOLS) _mkToolBtn(t);
+
+  // ── Settings bar (above canvas, three sections) ────────────────────────────
+  // grid-template-columns:1fr auto 1fr keeps the center column geometrically centred
+  // regardless of how wide the left settings grow.
+  const settingsBar = document.createElement("div");
+  settingsBar.style.cssText =
+    "display:grid;grid-template-columns:1fr auto 1fr;align-items:center;" +
+    "padding:4px 8px;background:var(--card);" +
+    "border-bottom:1px solid var(--border);flex-shrink:0;min-height:38px;column-gap:8px;";
+
+  // Left: tool-dependent settings (size, color, alignment, etc.)
+  const settingsArea = document.createElement("div");
+  settingsArea.style.cssText =
+    "display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;justify-content:flex-start;";
+  settingsBar.appendChild(settingsArea);
+
+  // Center: HUD actions (group, layer, delete) — shown only when selection exists
+  const hudEl = document.createElement("div");
+  hudEl.className = "ais-hud";
+  hudEl.style.display = "none";
+  settingsBar.appendChild(hudEl);
+
+  // Right: fit-to-canvas + expand
+  const rightControls = document.createElement("div");
+  rightControls.style.cssText = "display:flex;align-items:center;gap:2px;justify-content:flex-end;";
+
   resetViewBtn = document.createElement("button");
   resetViewBtn.className = "ais-tool-btn";
   _addTooltip(resetViewBtn, "Fit canvas to window  [F]");
@@ -243,29 +274,12 @@ export default function AnnotateImageSimple(container, props) {
     resetView();
     resetViewBtn.blur();
   });
-  toolbar.appendChild(resetViewBtn);
+  rightControls.appendChild(resetViewBtn);
 
-  // Divider between nav and drawing tools
-  const divider = document.createElement("div");
-  divider.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
-  toolbar.appendChild(divider);
-
-  for (const t of DRAW_TOOLS) _mkToolBtn(t);
-
-  // Divider before settings area
-  const divider2 = document.createElement("div");
-  divider2.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
-  toolbar.appendChild(divider2);
-
-  // Settings area (right of divider, grows to fill)
-  const settingsArea = document.createElement("div");
-  settingsArea.style.cssText = "display:flex;align-items:center;gap:6px;flex:1;min-width:0;overflow:hidden;justify-content:flex-end;";
-  toolbar.appendChild(settingsArea);
-
-  // Expand button — always at the far right of the toolbar, after the settings area
   const fsDivider = document.createElement("div");
   fsDivider.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
-  toolbar.appendChild(fsDivider);
+  rightControls.appendChild(fsDivider);
+
   const fsBtn = document.createElement("button");
   fsBtn.className = "ais-tool-btn";
   _addTooltip(fsBtn, "Expand to modal");
@@ -275,9 +289,11 @@ export default function AnnotateImageSimple(container, props) {
     if (_modalEl) { _closeModal(); } else { _openModal(); }
     fsBtn.blur();
   });
-  toolbar.appendChild(fsBtn);
+  rightControls.appendChild(fsBtn);
 
-  // While editing text, don't let toolbar controls steal focus from the textarea.
+  settingsBar.appendChild(rightControls);
+
+  // While editing text, don't let settings controls steal focus from the textarea.
   // Range sliders are excluded so they can still gain focus (the blur handler re-focuses).
   settingsArea.addEventListener("mousedown", (e) => {
     if (!textEditId) return;
@@ -298,14 +314,14 @@ export default function AnnotateImageSimple(container, props) {
 
   canvasWrap.appendChild(canvas);
 
-  // ── Context HUD (top-center of canvas, select mode only) ─────────────────
-  const hudEl = document.createElement("div");
-  hudEl.className = "ais-hud";
-  hudEl.style.display = "none";
-  canvasWrap.appendChild(hudEl);
+  // ── Main area (right side: settings bar + canvas) ─────────────────────────
+  const mainArea = document.createElement("div");
+  mainArea.style.cssText = "display:flex;flex-direction:column;flex:1;min-width:0;";
+  mainArea.appendChild(settingsBar);
+  mainArea.appendChild(canvasWrap);
 
-  wrapper.appendChild(toolbar);
-  wrapper.appendChild(canvasWrap);
+  wrapper.appendChild(sidebar);
+  wrapper.appendChild(mainArea);
   container.appendChild(wrapper);
 
   const ctx = canvas.getContext("2d");
@@ -959,7 +975,7 @@ export default function AnnotateImageSimple(container, props) {
       // If focus moves to a toolbar control (slider, button, etc.), don't commit —
       // re-focus the textarea after the control interaction so the user can keep typing.
       const toEl = e.relatedTarget;
-      if (toEl && toolbar.contains(toEl)) {
+      if (toEl && settingsBar.contains(toEl)) {
         setTimeout(() => { if (textInput) textInput.focus(); }, 0);
         return;
       }
