@@ -29,7 +29,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.76.0",
+    "library_version": "0.77.0",
     "engine_version": "0.82.0",
     "tags": [
       "Griptape",
@@ -1152,6 +1152,17 @@
         "display_name": "Flip Video",
         "icon": "flip-horizontal",
         "group": "edit"
+      }
+    },
+    {
+      "class_name": "BlurVideo",
+      "file_path": "griptape_nodes_library/video/blur_video.py",
+      "metadata": {
+        "category": "video",
+        "description": "Blur a video using fast ffmpeg filters (boxblur, gblur, avgblur) with adjustable radius/sigma",
+        "display_name": "Blur Video",
+        "icon": "droplets",
+        "group": "effects"
       }
     },
     {

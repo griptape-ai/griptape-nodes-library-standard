@@ -54,6 +54,13 @@ class OpenAiImageGeneration(GriptapeProxyNode):
     GPT_IMAGE_2_DEFAULT_CUSTOM_HEIGHT: ClassVar[int] = 1024
     QUALITY_OPTIONS: ClassVar[list[str]] = ["low", "medium", "high"]
     BACKGROUND_OPTIONS: ClassVar[list[str]] = ["auto", "opaque", "transparent"]
+    # Only gpt-image-1 supports transparent backgrounds; gpt-image-1.5 and gpt-image-2 reject
+    # background="transparent" at the API level.
+    BACKGROUND_OPTIONS_BY_MODEL: ClassVar[dict[str, list[str]]] = {
+        GPT_IMAGE_1_MODEL_NAME: ["auto", "opaque", "transparent"],
+        GPT_IMAGE_1_5_MODEL_NAME: ["auto", "opaque"],
+        GPT_IMAGE_2_MODEL_NAME: ["auto", "opaque"],
+    }
     MODERATION_OPTIONS: ClassVar[list[str]] = ["auto", "low"]
     OUTPUT_FORMAT_OPTIONS: ClassVar[list[str]] = ["png", "jpeg", "webp"]
     MAX_REFERENCE_IMAGES: ClassVar[int] = 16
@@ -176,12 +183,16 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                 traits={Options(choices=self.QUALITY_OPTIONS)},
             )
 
+            initial_background_choices = self._background_choices_for_model(self.DEFAULT_MODEL)
             ParameterString(
                 name="background",
-                default_value="auto",
-                tooltip="Background handling. Transparent backgrounds require PNG or WEBP output.",
+                default_value=initial_background_choices[0],
+                tooltip=(
+                    "Background handling. Transparent backgrounds are only supported on GPT Image 1 "
+                    "and require PNG or WEBP output."
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=self.BACKGROUND_OPTIONS)},
+                traits={Options(choices=initial_background_choices)},
             )
 
             ParameterString(
@@ -269,6 +280,10 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             return list(cls.GPT_IMAGE_2_SIZE_OPTIONS)
         return list(cls.GPT_IMAGE_SIZE_OPTIONS)
 
+    @classmethod
+    def _background_choices_for_model(cls, model_name: str) -> list[str]:
+        return list(cls.BACKGROUND_OPTIONS_BY_MODEL.get(model_name, cls.BACKGROUND_OPTIONS))
+
     def _get_payload_model_id(self) -> str:
         model_name = self.get_parameter_value("model") or self.DEFAULT_MODEL
         return self.MODEL_NAME_MAP[model_name]
@@ -311,6 +326,25 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         self.set_parameter_value("size", choices[0])
         self.publish_update_to_parameter("size", choices[0])
         self._sync_custom_size_visibility(model_name, choices[0])
+
+    def _sync_background_options_for_model(self, model_name: str) -> None:
+        background_param = self.get_parameter_by_name("background")
+        if background_param is None:
+            return
+
+        choices = self._background_choices_for_model(model_name)
+
+        existing_traits = background_param.find_elements_by_type(Options)
+        if existing_traits:
+            background_param.remove_trait(trait_type=existing_traits[0])
+        background_param.add_trait(Options(choices=choices))
+
+        current_background = self.get_parameter_value("background")
+        if current_background in choices:
+            return
+
+        self.set_parameter_value("background", choices[0])
+        self.publish_update_to_parameter("background", choices[0])
 
     def _sync_custom_size_visibility(self, model_name: str, size_value: Any) -> None:
         show_custom = model_name == GPT_IMAGE_2_MODEL_NAME and size_value == self.GPT_IMAGE_2_CUSTOM_SIZE
@@ -385,6 +419,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
     def _react_to_parameter_change(self, param_name: str, value: Any, *, sync_only: bool) -> None:
         if param_name == "model" and isinstance(value, str):
             self._sync_size_options_for_model(value)
+            self._sync_background_options_for_model(value)
 
         if param_name == "size" and isinstance(value, str):
             current_model = self.get_parameter_value("model") or self.DEFAULT_MODEL
