@@ -235,6 +235,9 @@ export function createSettings(settingsArea, {
       const currentSize = Math.max(MIN_PAINT_SIZE, Math.round(baseSize * (ann.sizeScale ?? 1)));
       _buildSizeSlider("Size", MIN_PAINT_SIZE, MAX_PAINT_SIZE, currentSize, (sz, doEmit) => {
         applySingleUpdate(ann.id, (a) => ({ ...a, sizeScale: sz / baseSize }));
+        const s = getState();
+        s.toolSettings.paint.size = sz;
+        setCurrentValue({ ...s.currentValue, tool_settings: { ...s.toolSettings } });
         renderCanvas();
         if (doEmit) emit();
       });
