@@ -9,21 +9,19 @@ from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.config.image.base_image_driver import BaseImageDriver
+from griptape_nodes_library.config.prompt.cloud_models import (
+    IMAGE_DEPRECATED_MODELS as DEPRECATED_MODELS,
+    IMAGE_MODEL_CHOICES as MODEL_CHOICES,
+)
 
 # --- Constants ---
 
 SERVICE = "Griptape"
 API_KEY_URL = "https://cloud.griptape.ai/configuration/api-keys"
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
-MODEL_CHOICES = ["gpt-image-1-mini", "gpt-image-1.5"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 AVAILABLE_SIZES = ["1024x1024", "1536x1024", "1024x1536"]
 DEFAULT_SIZE = AVAILABLE_SIZES[0]
-
-# Deprecated models and their replacements
-DEPRECATED_MODELS = {
-    "dall-e-3": "gpt-image-1-mini",
-}
 
 
 class GriptapeCloudImage(BaseImageDriver):

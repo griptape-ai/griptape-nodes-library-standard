@@ -17,29 +17,13 @@ from griptape_nodes.traits.options import Options
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
+from griptape_nodes_library.config.prompt.cloud_models import VISION_MODEL_CHOICES as MODEL_CHOICES
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
 
 SERVICE = "Griptape"
 API_KEY_URL = "https://cloud.griptape.ai/configuration/api-keys"
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
-MODEL_CHOICES = [
-    "gpt-5.2",
-    "gpt-5.1",
-    "gpt-5",
-    "gpt-5-mini",
-    "gpt-4.1",
-    "gpt-4.1-mini",
-    "gpt-4.1-nano",
-    "gpt-4o",
-    "o4-mini",
-    "o3",
-    "claude-opus-4-7",
-    "claude-sonnet-4-6",
-    "claude-4-5-sonnet",
-    "gemini-3.1-pro",
-    "gemini-2.5-pro",
-]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 
 
