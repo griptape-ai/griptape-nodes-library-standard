@@ -873,7 +873,6 @@ export default function AnnotateImageSimple(container, props) {
     const origSizes = {};
     for (const a of anns) {
       if (a.type === "paint") origSizes[a.id] = a.sizeScale ?? 1;
-      else if (a.type === "text") origSizes[a.id] = a.font_size ?? DEFAULT_TEXT_SIZE;
       else if (a.type === "arrow") origSizes[a.id] = a.width ?? 3;
       else if (a.type === "rect" || a.type === "ellipse") origSizes[a.id] = a.width ?? DEFAULT_SHAPE_WIDTH;
     }
@@ -881,7 +880,7 @@ export default function AnnotateImageSimple(container, props) {
       const ratio = val / 100;
       const { annotations, overrides } = _applyAnnotationMap(selIds, (a) => {
         if (a.type === "paint") return { ...a, sizeScale: (origSizes[a.id] ?? 1) * ratio };
-        if (a.type === "text") return { ...a, font_size: Math.max(MIN_TEXT_SIZE, Math.round((origSizes[a.id] ?? DEFAULT_TEXT_SIZE) * ratio)) };
+        if (a.type === "text") return a;
         if (a.type === "arrow") return { ...a, width: Math.max(1, (origSizes[a.id] ?? 3) * ratio) };
         if (a.type === "rect" || a.type === "ellipse") return { ...a, width: Math.max(1, (origSizes[a.id] ?? DEFAULT_SHAPE_WIDTH) * ratio) };
         return a;
@@ -1277,10 +1276,14 @@ export default function AnnotateImageSimple(container, props) {
       if (ann.type === "text") {
         const fontSize = Math.max(MIN_TEXT_SIZE, ann.font_size || DEFAULT_TEXT_SIZE);
         ctx.font = `${fontSize}px sans-serif`;
-        const w = ctx.measureText(ann.text || "").width;
-        const h = fontSize * 1.2;
-        const ax = (ann.x || 0) - 4, ay = (ann.y || 0) - 4;
-        if (cx >= ax && cx <= ax + w + 8 && cy >= ay && cy <= ay + h + 8) return ann;
+        const lines = (ann.text || "").split("\n");
+        const w = Math.max(1, ...lines.map((l) => ctx.measureText(l).width));
+        const h = fontSize * 1.2 * lines.length;
+        const r = -(ann.rotation || 0);
+        const cos = Math.cos(r), sin = Math.sin(r);
+        const dx = cx - (ann.x || 0), dy = cy - (ann.y || 0);
+        const lx = dx * cos - dy * sin, ly = dx * sin + dy * cos;
+        if (lx >= -4 && lx <= w + 4 && ly >= -4 && ly <= h + 4) return ann;
       } else if (ann.type === "arrow") {
         const { cp1x, cp1y, cp2x, cp2y } = defaultCps(ann);
         const tol = Math.max(12 / displayScale, (ann.width || 3) + 6);
@@ -2179,9 +2182,26 @@ export default function AnnotateImageSimple(container, props) {
             return { ...a, x: nx, y: ny,
               w: Math.max(2, snap.w * ratioX), h: Math.max(2, snap.h * ratioY) };
           } else if (a.type === "text") {
-            const [nx, ny] = scaleAnchor(snap.x, snap.y);
-            return { ...a, x: nx, y: ny,
-              font_size: Math.max(8, Math.round(snap.font_size * (ratioX + ratioY) / 2)) };
+            // Text can only scale uniformly (font_size is one number).
+            // Scale the text's world-space center, then recompute TL from new metrics.
+            const r = snap.rotation || 0, cos = Math.cos(r), sin = Math.sin(r);
+            const origFontSize = Math.max(MIN_TEXT_SIZE, snap.font_size || DEFAULT_TEXT_SIZE);
+            const lines = (snap.text || "").split("\n");
+            ctx.save(); ctx.font = `${origFontSize}px sans-serif`;
+            const origTextW = Math.max(1, ...lines.map((l) => ctx.measureText(l).width));
+            ctx.restore();
+            const origHw = origTextW / 2, origHh = (origFontSize * 1.2 * lines.length) / 2;
+            const [ncx, ncy] = scaleAnchor(snap.x + origHw * cos - origHh * sin,
+                                            snap.y + origHw * sin + origHh * cos);
+            const ratio = Math.sqrt(ratioX * ratioY);
+            const newFontSize = Math.max(MIN_TEXT_SIZE, Math.round(origFontSize * ratio));
+            ctx.save(); ctx.font = `${newFontSize}px sans-serif`;
+            const newTextW = Math.max(1, ...lines.map((l) => ctx.measureText(l).width));
+            ctx.restore();
+            const newHw = newTextW / 2, newHh = (newFontSize * 1.2 * lines.length) / 2;
+            return { ...a, font_size: newFontSize,
+              x: ncx - newHw * cos + newHh * sin,
+              y: ncy - newHw * sin - newHh * cos };
           } else if (a.type === "arrow") {
             const [nx1, ny1] = scaleAnchor(snap.x1, snap.y1);
             const [nx2, ny2] = scaleAnchor(snap.x2, snap.y2);
@@ -2394,15 +2414,26 @@ export default function AnnotateImageSimple(container, props) {
     }
   }
 
+  const _ROTATE_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='9' fill='none' stroke='white' stroke-width='2.5'/%3E%3Ccircle cx='10' cy='10' r='9' fill='none' stroke='%23333' stroke-width='1'/%3E%3Cpolygon points='10,1 14,6 10,4 6,6' fill='white' stroke='%23333' stroke-width='0.5'/%3E%3C/svg%3E") 10 10, grab`;
+
   function _cursorForPos(cx, cy) {
     const handleR = 8 / displayScale;
     const selIds = currentValue.selected_ids || [];
 
     if (_frameActiveTools.includes(activeTool)) {
       if (txFrame) {
-        if (!txFrame.noRotate && Math.hypot(cx - frameRotHandle(txFrame, displayScale)[0], cy - frameRotHandle(txFrame, displayScale)[1]) <= handleR) return "grab";
-        for (const [hx, hy] of frameCorners(txFrame))
-          if (Math.hypot(cx - hx, cy - hy) <= handleR) return "grab";
+        if (!txFrame.noRotate && Math.hypot(cx - frameRotHandle(txFrame, displayScale)[0], cy - frameRotHandle(txFrame, displayScale)[1]) <= handleR) return _ROTATE_CURSOR;
+        const corners = frameCorners(txFrame);
+        const localCornerSigns = [[-1,-1],[1,-1],[1,1],[-1,1]];
+        for (let i = 0; i < corners.length; i++) {
+          const [hx, hy] = corners[i];
+          if (Math.hypot(cx - hx, cy - hy) <= handleR) {
+            const [sx, sy] = localCornerSigns[i];
+            const angle = Math.atan2(sy, sx) + txFrame.rotation;
+            const deg = ((angle * 180 / Math.PI) % 180 + 180) % 180;
+            return deg < 90 ? "nwse-resize" : "nesw-resize";
+          }
+        }
         if (Math.hypot(cx - txFrame.pivotX, cy - txFrame.pivotY) <= handleR) return "grab";
       }
       if (activeTool === "paint") return "crosshair";
