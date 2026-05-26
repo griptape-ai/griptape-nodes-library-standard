@@ -261,6 +261,22 @@ export default function AnnotateImageSimple(container, props) {
   const settingsArea = document.createElement("div");
   settingsArea.style.cssText = "display:flex;align-items:center;gap:6px;flex:1;min-width:0;overflow:hidden;justify-content:flex-end;";
   toolbar.appendChild(settingsArea);
+
+  // Expand button — always at the far right of the toolbar, after the settings area
+  const fsDivider = document.createElement("div");
+  fsDivider.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
+  toolbar.appendChild(fsDivider);
+  const fsBtn = document.createElement("button");
+  fsBtn.className = "ais-tool-btn";
+  _addTooltip(fsBtn, "Expand to modal");
+  fsBtn.appendChild(mkIcon("expand", 15));
+  fsBtn.addEventListener("pointerdown", (e) => {
+    e.stopPropagation();
+    if (_modalEl) { _closeModal(); } else { _openModal(); }
+    fsBtn.blur();
+  });
+  toolbar.appendChild(fsBtn);
+
   // While editing text, don't let toolbar controls steal focus from the textarea.
   // Range sliders are excluded so they can still gain focus (the blur handler re-focuses).
   settingsArea.addEventListener("mousedown", (e) => {
@@ -287,21 +303,6 @@ export default function AnnotateImageSimple(container, props) {
   hudEl.className = "ais-hud";
   hudEl.style.display = "none";
   canvasWrap.appendChild(hudEl);
-
-  // ── Expand HUD (top-right of canvas) ─────────────────────────────────────
-  const fsHudEl = document.createElement("div");
-  fsHudEl.className = "ais-fs-hud";
-  const fsBtn = document.createElement("button");
-  fsBtn.className = "ais-hud-btn";
-  _addTooltip(fsBtn, "Expand to modal");
-  fsBtn.appendChild(mkIcon("expand", 15));
-  fsBtn.addEventListener("pointerdown", (e) => {
-    e.stopPropagation();
-    if (_modalEl) { _closeModal(); } else { _openModal(); }
-    fsBtn.blur();
-  });
-  fsHudEl.appendChild(fsBtn);
-  canvasWrap.appendChild(fsHudEl);
 
   wrapper.appendChild(toolbar);
   wrapper.appendChild(canvasWrap);

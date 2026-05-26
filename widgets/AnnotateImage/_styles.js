@@ -119,6 +119,5 @@ export function injectStyles() {
     .ais-hud-btn.imp:hover { background:rgba(201,131,10,0.18); color:#f0b050; }
     .ais-hud-btn.danger:hover { background:rgba(220,60,60,0.22); color:#ff7070; }
     .ais-hud-sep { width:1px; height:18px; background:rgba(255,255,255,0.12); margin:0 2px; flex-shrink:0; }
-    .ais-fs-hud { position:absolute; top:10px; right:10px; display:flex; align-items:center; background:rgba(18,18,20,0.88); border:1px solid rgba(255,255,255,0.10); box-shadow:0 2px 16px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.06); border-radius:7px; padding:2px; pointer-events:auto; z-index:20; }
   `;
 }
