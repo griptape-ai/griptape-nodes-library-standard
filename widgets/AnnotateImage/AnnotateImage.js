@@ -359,9 +359,10 @@ export default function AnnotateImageSimple(container, props) {
 
   // Base CSS cursor for the active tool when not hovering a specific handle.
   function _currentToolCursor() {
+    if (activeTool === "zoom") return isAltHeld ? "zoom-out" : "zoom-in";
+    if (isAltHeld) return "grab";
     if (activeTool === "select") return "default";
     if (activeTool === "hand") return "grab";
-    if (activeTool === "zoom") return "zoom-in";
     return "crosshair";
   }
 
@@ -1070,8 +1071,41 @@ export default function AnnotateImageSimple(container, props) {
     if (hoverId || hoverGroupId) { hoverId = null; hoverGroupId = null; renderCanvas(); }
   });
 
-  container.addEventListener("mouseenter", () => { _mouseIsOver = true; });
-  container.addEventListener("mouseleave", () => { _mouseIsOver = false; });
+  // Track on wrapper (not container) so hotkeys still fire when widget is reparented into the modal.
+  wrapper.addEventListener("mouseenter", () => { _mouseIsOver = true; });
+  wrapper.addEventListener("mouseleave", () => { _mouseIsOver = false; });
+
+  // Pan intercept: alt+drag OR hand tool, anywhere inside the widget.
+  // Capture phase so this fires before any child (toolbar buttons, canvas) and we
+  // can own the drag cleanly with document-level move/up — no setPointerCapture needed.
+  wrapper.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    if (!isAltHeld && activeTool !== "hand") return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX - panX;
+    const startY = e.clientY - panY;
+    canvas.style.cursor = "grabbing";
+
+    function _panMove(me) {
+      panX = me.clientX - startX;
+      panY = me.clientY - startY;
+      _applyViewTransform();
+      const isDefault = viewScale === 1 && panX === 0 && panY === 0;
+      resetViewBtn.style.opacity = isDefault ? "0.4" : "1";
+      resetViewBtn.style.pointerEvents = isDefault ? "none" : "auto";
+    }
+    function _panUp() {
+      canvas.style.cursor = isAltHeld ? "grab" : _currentToolCursor();
+      document.removeEventListener("pointermove", _panMove);
+      document.removeEventListener("pointerup",   _panUp);
+      document.removeEventListener("pointercancel", _panUp);
+    }
+    document.addEventListener("pointermove",   _panMove);
+    document.addEventListener("pointerup",     _panUp);
+    document.addEventListener("pointercancel", _panUp);
+  }, { capture: true });
 
   // ── pointer events ────────────────────────────────────────────────────────
 
