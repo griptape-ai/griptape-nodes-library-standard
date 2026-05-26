@@ -248,6 +248,23 @@ export function createSettings(settingsArea, {
         if (doEmit) emit();
       });
     }
+    if (activeTool === "text") {
+      _buildFillColorSwatch(ts.bg_color || "", (col, doEmit) => {
+        const s = getState();
+        s.toolSettings.text.bg_color = col;
+        setCurrentValue({ ...s.currentValue, tool_settings: { ...s.toolSettings } });
+        if (s.textEditId) {
+          setCurrentValue({
+            ...getState().currentValue,
+            annotations: getState().currentValue.annotations.map((a) =>
+              a.id === s.textEditId ? { ...a, bg_color: col } : a
+            ),
+          });
+        }
+        renderCanvas();
+        if (doEmit) emit();
+      });
+    }
   }
 
   // Builds settings for a single selected annotation (size/width, color, fill, arrow toggles).
@@ -345,6 +362,16 @@ export function createSettings(settingsArea, {
         applySingleUpdate(ann.id, (a) => ({ ...a, fill_color: col }));
         const s = getState();
         s.toolSettings[ann.type].fill_color = col;
+        setCurrentValue({ ...s.currentValue, tool_settings: { ...s.toolSettings } });
+        renderCanvas();
+        if (doEmit) emit();
+      });
+    }
+    if (ann.type === "text") {
+      _buildFillColorSwatch(ann.bg_color || "", (col, doEmit) => {
+        applySingleUpdate(ann.id, (a) => ({ ...a, bg_color: col }));
+        const s = getState();
+        s.toolSettings.text.bg_color = col;
         setCurrentValue({ ...s.currentValue, tool_settings: { ...s.toolSettings } });
         renderCanvas();
         if (doEmit) emit();

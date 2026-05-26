@@ -85,6 +85,11 @@ export function createDrawing(getState) {
     const maxW = Math.max(1, ...lines.map((l) => ctx.measureText(l).width));
     ctx.translate(ann.x || 0, ann.y || 0);
     ctx.rotate(ann.rotation || 0);
+    if (ann.bg_color) {
+      const pad = fontSize * 0.15;
+      ctx.fillStyle = ann.bg_color;
+      ctx.fillRect(-pad, -pad, maxW + pad * 2, lineHeight * lines.length + pad * 2);
+    }
     ctx.fillStyle = ann.color || DEFAULT_COLOR;
     ctx.textBaseline = "top";
     ctx.textAlign = textAlign;

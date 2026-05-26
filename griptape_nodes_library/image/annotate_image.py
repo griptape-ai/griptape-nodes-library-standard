@@ -231,7 +231,17 @@ class AnnotateImage(DataNode):
         except TypeError:
             font = ImageFont.load_default()
 
+        bg_color_str = ann.get("bg_color", "") or ""
+        bg_color = self._parse_color(bg_color_str) if bg_color_str else None
+        pad = font_size * 0.15
+
         if not rotation or overlay is None:
+            if bg_color:
+                bbox = draw.multiline_textbbox((x, y), text, font=font, spacing=spacing, align=text_align)
+                draw.rectangle(
+                    [bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad],
+                    fill=bg_color,
+                )
             draw.text((x, y), text, font=font, fill=color, spacing=spacing, align=text_align)
             return
 
@@ -239,6 +249,12 @@ class AnnotateImage(DataNode):
         # PIL rotates counter-clockwise; canvas rotates clockwise — negate the angle.
         temp = Image.new("RGBA", overlay.size, (0, 0, 0, 0))
         temp_draw = ImageDraw.Draw(temp)
+        if bg_color:
+            bbox = temp_draw.multiline_textbbox((x, y), text, font=font, spacing=spacing, align=text_align)
+            temp_draw.rectangle(
+                [bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad],
+                fill=bg_color,
+            )
         temp_draw.text((x, y), text, font=font, fill=color, spacing=spacing, align=text_align)
         degrees = -math.degrees(rotation)
         rotated = temp.rotate(degrees, resample=Image.Resampling.BICUBIC, expand=False, center=(x, y))
