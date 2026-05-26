@@ -29,6 +29,8 @@ import {
 import { createDrawing } from './_drawing.js';
 import { createTooltip } from './_tooltip.js';
 import { setupHotkeys } from './_hotkeys.js';
+import { createSettings } from './_settings.js';
+import { createHud, expandGroupSelection } from './_hud.js';
 
 // ── main widget ───────────────────────────────────────────────────────────────
 
@@ -85,7 +87,6 @@ export default function AnnotateImageSimple(container, props) {
   let isPointerDown = false;
   let _mouseIsOver = false;
   let currentStroke = null;
-  let strokeLastMid = null; // tracks last bezier midpoint for incremental draw
   let currentArrow = null;
   let currentRect = null;
   let currentEllipse = null;
@@ -101,6 +102,7 @@ export default function AnnotateImageSimple(container, props) {
 
   // ── import/override helpers ───────────────────────────────────────────────
 
+  // True if id belongs to an imported annotation (not created locally in this session).
   function _isImported(id) {
     return (currentValue.imported_annotations || []).some((a) => a.id === id);
   }
@@ -163,9 +165,10 @@ export default function AnnotateImageSimple(container, props) {
     };
   }
 
-  // image cache
+  // image cache — strip query strings so the same base URL always hits the same entry
   const imageCache = {};
   function urlCacheKey(url) { return url ? url.split("?")[0] : url; }
+  // Loads an image from url, caches it, and returns a promise resolving to the HTMLImageElement.
   function loadImage(url) {
     const key = urlCacheKey(url);
     return new Promise((resolve, reject) => {
@@ -209,6 +212,7 @@ export default function AnnotateImageSimple(container, props) {
   const TOOLS = [...NAV_TOOLS, ...DRAW_TOOLS];
   const toolBtns = {};
 
+  // Creates a toolbar tool button, registers it in toolBtns, and appends it to the toolbar.
   const _mkToolBtn = (t) => {
     const btn = document.createElement("button");
     btn.className = "ais-tool-btn" + (t.id === activeTool ? " active" : "");
@@ -253,159 +257,6 @@ export default function AnnotateImageSimple(container, props) {
   divider1b.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
   toolbar.appendChild(divider1b);
 
-  // ── Action button group ────────────────────────────────────────────────────
-  // Shared confirm popup
-  let actionPopup = null;
-  function _dismissActionPopup() {
-    if (actionPopup) { actionPopup.remove(); actionPopup = null; }
-    document.removeEventListener("pointerdown", _outsideActionHandler, true);
-  }
-  function _outsideActionHandler(e) {
-    if (actionPopup && !actionPopup.contains(e.target)) _dismissActionPopup();
-  }
-  function _showActionPopup(anchorEl, message, confirmLabel, confirmStyle, onConfirm) {
-    if (actionPopup) { _dismissActionPopup(); return; }
-    const rect = anchorEl.getBoundingClientRect();
-    actionPopup = document.createElement("div");
-    actionPopup.style.cssText =
-      "position:fixed;z-index:99999;background:var(--card);border:1px solid var(--border);" +
-      "border-radius:8px;padding:12px 14px;box-shadow:0 4px 16px rgba(0,0,0,0.4);" +
-      "display:flex;flex-direction:column;gap:10px;min-width:200px;" +
-      `left:${rect.left}px;top:${rect.bottom + 6}px;`;
-    actionPopup.innerHTML = `
-      <div style="font-size:12px;color:var(--foreground);line-height:1.4;">
-        ${message}<br>
-        <span style="color:var(--muted-foreground);font-size:11px;">This cannot be undone.</span>
-      </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;">
-        <button id="_ais-cancel" style="font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);background:var(--muted);color:var(--muted-foreground);cursor:pointer;">Cancel</button>
-        <button id="_ais-confirm" style="font-size:11px;padding:3px 10px;border-radius:5px;border:none;${confirmStyle};cursor:pointer;">${confirmLabel}</button>
-      </div>`;
-    document.body.appendChild(actionPopup);
-    actionPopup.querySelector("#_ais-cancel").addEventListener("pointerdown", (e) => { e.stopPropagation(); _dismissActionPopup(); });
-    actionPopup.querySelector("#_ais-confirm").addEventListener("pointerdown", (e) => { e.stopPropagation(); _dismissActionPopup(); onConfirm(); });
-    setTimeout(() => document.addEventListener("pointerdown", _outsideActionHandler, true), 0);
-  }
-
-  // Action logic functions (shared by inline buttons + overflow menu)
-  function _executeDeleteSelected() {
-    if (textEditId) commitTextEdit();
-    const selIds = currentValue.selected_ids || [];
-    if (!selIds.length) return;
-    const importedIds = (currentValue.imported_annotations || []).map((a) => a.id);
-    const newOverrides = { ...(currentValue.overrides || {}) };
-    for (const id of selIds) {
-      if (importedIds.includes(id)) newOverrides[id] = { ...(newOverrides[id] || {}), deleted: true };
-    }
-    const newAnnotations = (currentValue.annotations || []).filter((a) => !selIds.includes(a.id));
-    currentValue = { ...currentValue, annotations: newAnnotations, overrides: newOverrides, selected_ids: [] };
-    _emit(); rebuildSettings(); renderCanvas();
-  }
-  function _executeDeleteAll() {
-    if (textEditId) commitTextEdit();
-    const importedIds = (currentValue.imported_annotations || []).map((a) => a.id);
-    const newOverrides = { ...(currentValue.overrides || {}) };
-    for (const id of importedIds) newOverrides[id] = { ...(newOverrides[id] || {}), deleted: true };
-    currentValue = { ...currentValue, annotations: [], overrides: newOverrides, selected_ids: [] };
-    _emit(); rebuildSettings(); renderCanvas();
-  }
-  function _executeResetSelected() {
-    const selId = (currentValue.selected_ids || [])[0];
-    if (!selId) return;
-    const newOverrides = { ...(currentValue.overrides || {}) };
-    delete newOverrides[selId];
-    currentValue = { ...currentValue, overrides: newOverrides };
-    _emit(); rebuildSettings(); renderCanvas();
-  }
-  function _executeResetAll() {
-    currentValue = { ...currentValue, overrides: {} };
-    _emit(); rebuildSettings(); renderCanvas();
-  }
-
-  // Eligibility checks (used to dim buttons + menu rows)
-  function _canDeleteSelected() { return (currentValue.selected_ids || []).length > 0; }
-  function _canResetSelected() {
-    const selIds = currentValue.selected_ids || [];
-    const overrides = currentValue.overrides || {};
-    return selIds.length === 1 && _isImported(selIds[0]) &&
-      overrides[selIds[0]] && Object.keys(overrides[selIds[0]]).length > 0;
-  }
-  function _canResetAll() { return Object.keys(currentValue.overrides || {}).length > 0; }
-
-  // ── Group / ungroup ───────────────────────────────────────────────────────────
-
-  // Returns the shared group_id when ALL selected annotations are in the same group; else null.
-  function _selectionGroupId() {
-    const selIds = currentValue.selected_ids || [];
-    if (!selIds.length) return null;
-    const anns = _effectiveAnnotations();
-    const gid = anns.find((a) => a.id === selIds[0])?.group_id;
-    if (!gid) return null;
-    return selIds.every((id) => anns.find((a) => a.id === id)?.group_id === gid) ? gid : null;
-  }
-  function _canGroup() {
-    const selIds = currentValue.selected_ids || [];
-    return selIds.length >= 2 && !_selectionGroupId();
-  }
-  function _canUngroup() {
-    const selIds = currentValue.selected_ids || [];
-    return _effectiveAnnotations().some((a) => selIds.includes(a.id) && a.group_id);
-  }
-  // Given a hit annotation id, returns all IDs in its group (or just [hitId] if ungrouped).
-  function _expandGroupSelection(hitId) {
-    const anns = _effectiveAnnotations();
-    const gid = anns.find((a) => a.id === hitId)?.group_id;
-    if (!gid) return [hitId];
-    return anns.filter((a) => a.group_id === gid).map((a) => a.id);
-  }
-  function _executeGroup() {
-    const selIds = currentValue.selected_ids || [];
-    if (selIds.length < 2) return;
-    const gid = _uid("grp");
-    const { annotations, overrides } = _applyAnnotationMap(selIds, (a) => ({ ...a, group_id: gid }));
-    currentValue = { ...currentValue, annotations, overrides };
-    _emit(); _updateHud(); renderCanvas();
-  }
-  function _executeUngroup() {
-    const selIds = currentValue.selected_ids || [];
-    const { annotations, overrides } = _applyAnnotationMap(selIds, (a) => {
-      const b = { ...a }; delete b.group_id; return b;
-    });
-    currentValue = { ...currentValue, annotations, overrides };
-    _emit(); _updateHud(); renderCanvas();
-  }
-
-  // Action descriptors — single source of truth for icon, label, enabled, run
-  const ACTION_DESCS = [
-    {
-      id: "deleteSelected", label: "Delete selected", color: null,
-      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
-      isEnabled: _canDeleteSelected,
-      trigger: (anchor) => _executeDeleteSelected(),
-    },
-    {
-      id: "deleteAll", label: "Delete all annotations", color: null,
-      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18" fill="none"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" fill="none"/></svg>`,
-      isEnabled: () => true,
-      trigger: (anchor) => _showActionPopup(anchor, "Delete all annotations?", "Delete all",
-        "background:var(--destructive);color:#fff", _executeDeleteAll),
-    },
-    {
-      id: "resetSelected", label: "Reset overrides for selected", color: IMP_COLOR,
-      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`,
-      isEnabled: _canResetSelected,
-      trigger: (anchor) => _executeResetSelected(),
-    },
-    {
-      id: "resetAll", label: "Reset all overrides", color: IMP_COLOR,
-      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v6h6"/><path d="M21 12A9 9 0 0 0 6 5.3L3 8"/><path d="M21 22v-6h-6"/><path d="M3 12a9 9 0 0 0 15 6.7l3-2.7"/></svg>`,
-      isEnabled: _canResetAll,
-      trigger: (anchor) => _showActionPopup(anchor, "Reset all overrides?", "Reset all",
-        `background:${IMP_COLOR};color:#fff`, _executeResetAll),
-    },
-  ];
-
-  // Build inline action buttons wrapped in a group div
   // Divider before settings area
   const divider2 = document.createElement("div");
   divider2.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
@@ -441,53 +292,6 @@ export default function AnnotateImageSimple(container, props) {
   hudEl.className = "ais-hud";
   hudEl.style.display = "none";
   canvasWrap.appendChild(hudEl);
-
-  function _updateHud() {
-    const selIds = currentValue.selected_ids || [];
-    const hasSelection = activeTool === "select" && selIds.length > 0;
-    if (!hasSelection) { hudEl.style.display = "none"; return; }
-
-    hudEl.innerHTML = "";
-
-    function _hudBtn(desc, extraClass = "") {
-      const btn = document.createElement("button");
-      btn.className = "ais-hud-btn" + (extraClass ? " " + extraClass : "");
-      btn.innerHTML = desc.icon;
-      _addTooltip(btn, desc.label);
-      btn.addEventListener("pointerdown", (e) => { e.stopPropagation(); e.preventDefault(); desc.trigger(btn); });
-      hudEl.appendChild(btn);
-    }
-    function _hudSep() { const s = document.createElement("div"); s.className = "ais-hud-sep"; hudEl.appendChild(s); }
-
-    // Group / ungroup — contextual to selection
-    const _groupIcon   = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5c0-1.1.9-2 2-2h2"/><path d="M17 3h2c1.1 0 2 .9 2 2v2"/><path d="M21 17v2c0 1.1-.9 2-2 2h-2"/><path d="M7 21H5c-1.1 0-2-.9-2-2v-2"/><rect width="7" height="5" x="7" y="7" rx="1"/><rect width="7" height="5" x="10" y="12" rx="1"/></svg>';
-    const _ungroupIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="6" x="5" y="4" rx="1"/><rect width="8" height="6" x="11" y="14" rx="1"/></svg>';
-    if (_canGroup())   _hudBtn({ label: "Group",   icon: _groupIcon,   trigger: _executeGroup });
-    if (_canUngroup()) _hudBtn({ label: "Ungroup", icon: _ungroupIcon, trigger: _executeUngroup });
-    if (_canGroup() || _canUngroup()) _hudSep();
-
-    // Layer order — always shown when something is selected
-    _buildLayerOrderButton(selIds, hudEl, "ais-hud-btn");
-    _hudSep();
-
-    // Delete selected + delete all
-    _hudBtn(ACTION_DESCS.find((d) => d.id === "deleteSelected"), "danger");
-    _hudBtn(ACTION_DESCS.find((d) => d.id === "deleteAll"), "danger");
-
-    // Reset overrides for selected — only when applicable
-    if (_canResetSelected()) {
-      _hudSep();
-      _hudBtn(ACTION_DESCS.find((d) => d.id === "resetSelected"), "imp");
-    }
-
-    // Reset all overrides — only when any overrides exist
-    if (_canResetAll()) {
-      _hudSep();
-      _hudBtn(ACTION_DESCS.find((d) => d.id === "resetAll"), "imp");
-    }
-
-    hudEl.style.display = "flex";
-  }
 
   wrapper.appendChild(toolbar);
   wrapper.appendChild(canvasWrap);
@@ -534,6 +338,7 @@ export default function AnnotateImageSimple(container, props) {
   // ── Alt key state for pan cursor ──────────────────────────────────────────
   // Registered via setupHotkeys below — these callbacks update canvas cursor
 
+  // Base CSS cursor for the active tool when not hovering a specific handle.
   function _currentToolCursor() {
     if (activeTool === "select") return "default";
     if (activeTool === "hand") return "grab";
@@ -541,11 +346,14 @@ export default function AnnotateImageSimple(container, props) {
     return "crosshair";
   }
 
+  // Applies the current viewScale + pan offset as a CSS transform on the canvas element.
   function _applyViewTransform() {
     const totalScale = displayScale * viewScale;
     canvas.style.transform = `translate(${centerOffsetX + panX}px, ${centerOffsetY + panY}px) scale(${totalScale})`;
   }
 
+  // Fits the canvas to the container, updates displayScale, and recenters the canvas.
+  // Called on resize and whenever canvas_width/height change.
   function applyCanvasScale() {
     const cw = currentValue.canvas_width || DEFAULT_CANVAS_WIDTH;
     const ch = currentValue.canvas_height || DEFAULT_CANVAS_HEIGHT;
@@ -568,6 +376,7 @@ export default function AnnotateImageSimple(container, props) {
     }
   }
 
+  // Resets zoom and pan to defaults (viewScale=1, panX/Y=0).
   function resetView() {
     viewScale = 1;
     panX = 0;
@@ -579,25 +388,30 @@ export default function AnnotateImageSimple(container, props) {
     }
   }
 
-  // ── tool settings panel ───────────────────────────────────────────────────
-  let colorPickerEl = null;
+  // ── settings and HUD module handles (wired at init, before setTool) ─────────
+  // Declared as let so rebuildSettings can reference them before the factories run.
+  let updateHud = null;
+  let dismissLayerPopup = null;
+  let buildToolSettings = null;
+  let buildAnnotationSettings = null;
+  let buildMultiSettings = null;
 
+  // Rebuilds the settings area (right of toolbar) to match the active tool and current selection.
+  // Also rebuilds the transform frame and HUD. Pass keepLayerPopup=true to avoid closing the
+  // layer order popup when a reorder action triggers a rebuild.
   function rebuildSettings(keepLayerPopup = false) {
-    if (!keepLayerPopup) _dismissLayerPopup();
+    if (!keepLayerPopup) dismissLayerPopup?.();
     _buildTxFrame();
-    _updateHud();
+    updateHud?.();
     settingsArea.innerHTML = "";
-    colorPickerEl = null;
 
     if (activeTool === "select") {
       const selIds = currentValue.selected_ids || [];
       if (selIds.length === 1) {
         const selAnn = _effectiveAnnotations().find((a) => a.id === selIds[0]);
-        if (selAnn) {
-          _buildAnnotationSettings(selAnn);
-        }
+        if (selAnn) buildAnnotationSettings(selAnn);
       } else if (selIds.length > 1) {
-        _buildMultiSettings(selIds);
+        buildMultiSettings(selIds);
       }
       return;
     }
@@ -608,452 +422,18 @@ export default function AnnotateImageSimple(container, props) {
       if (selIds.length === 1) {
         const selAnn = _effectiveAnnotations().find((a) => a.id === selIds[0]);
         if (selAnn?.type === activeTool) {
-          _buildAnnotationSettings(selAnn);
+          buildAnnotationSettings(selAnn);
           return;
         }
       }
     }
 
     // All other tools: always show tool settings (brush size, color, etc.)
-    _buildToolSettings();
+    buildToolSettings();
   }
 
-  // onChange(color, emit) — emit=false during drag, emit=true on commit
-  function _buildColorSwatch(color, onChange) {
-    const wrap = document.createElement("div");
-    wrap.style.cssText = "position:relative;display:flex;align-items:center;";
-    const swatch = document.createElement("div");
-    swatch.className = "ais-color-btn"; swatch.style.background = color;
-    colorPickerEl = document.createElement("input");
-    colorPickerEl.type = "color"; colorPickerEl.value = color;
-    colorPickerEl.className = "ais-color-input";
-    colorPickerEl.addEventListener("input", () => {
-      swatch.style.background = colorPickerEl.value;
-      onChange(colorPickerEl.value, false);
-    });
-    colorPickerEl.addEventListener("change", () => onChange(colorPickerEl.value, true));
-    swatch.addEventListener("click", () => colorPickerEl.click());
-    wrap.appendChild(swatch); wrap.appendChild(colorPickerEl);
-    settingsArea.appendChild(wrap);
-  }
-
-  function _fmtNum(v) {
-    const n = Number(v);
-    if (!isFinite(n)) return "0";
-    if (Number.isInteger(n)) return String(n);
-    const r = Math.round(n * 100) / 100;
-    return Number.isInteger(r) ? String(r) : r.toFixed(2).replace(/0+$/, "");
-  }
-
-  function _buildSizeSlider(label, min, max, value, onChange) {
-    const wrap = document.createElement("div");
-    wrap.style.cssText = "display:flex;align-items:center;gap:3px;flex-shrink:1;min-width:0;";
-    const lbl = document.createElement("span");
-    lbl.className = "ais-setting-label"; lbl.textContent = label;
-    const slider = document.createElement("input");
-    slider.type = "range"; slider.className = "ais-range";
-    slider.min = min; slider.max = max; slider.value = value;
-    const valLbl = document.createElement("span");
-    valLbl.className = "ais-val-label"; valLbl.textContent = _fmtNum(value);
-    slider.addEventListener("input", () => { const sz = Number(slider.value); valLbl.textContent = _fmtNum(sz); onChange(sz, false); });
-    slider.addEventListener("change", () => onChange(Number(slider.value), true));
-    wrap.appendChild(lbl); wrap.appendChild(slider); wrap.appendChild(valLbl);
-    settingsArea.appendChild(wrap);
-  }
-
-  function _buildFillColorSwatch(fillColor, onChangeColor) {
-    const wrap = document.createElement("div");
-    wrap.style.cssText = "position:relative;display:flex;align-items:center;gap:2px;";
-    const swatch = document.createElement("div");
-    swatch.className = "ais-color-btn";
-    _addTooltip(swatch, "Fill color");
-    if (fillColor) {
-      swatch.style.background = fillColor;
-    } else {
-      swatch.style.background = "repeating-conic-gradient(#888 0% 25%,#333 0% 50%) 0 0/8px 8px";
-    }
-    const pickerInput = document.createElement("input");
-    pickerInput.type = "color";
-    pickerInput.value = fillColor || "#ffffff";
-    pickerInput.className = "ais-color-input";
-    pickerInput.addEventListener("input", () => {
-      swatch.style.background = pickerInput.value;
-      onChangeColor(pickerInput.value, false);
-    });
-    pickerInput.addEventListener("change", () => onChangeColor(pickerInput.value, true));
-    swatch.addEventListener("click", () => pickerInput.click());
-    const clearBtn = document.createElement("button");
-    clearBtn.className = "ais-tool-btn";
-    _addTooltip(clearBtn, "No fill");
-    clearBtn.style.cssText = "width:16px;height:16px;font-size:11px;padding:0;";
-    clearBtn.textContent = "✕";
-    clearBtn.addEventListener("pointerdown", (e) => {
-      e.stopPropagation();
-      swatch.style.background = "repeating-conic-gradient(#888 0% 25%,#333 0% 50%) 0 0/8px 8px";
-      onChangeColor("", true);
-    });
-    wrap.appendChild(swatch);
-    wrap.appendChild(pickerInput);
-    wrap.appendChild(clearBtn);
-    settingsArea.appendChild(wrap);
-  }
-
-  function _buildArrowToggles(source, onToggle) {
-    const makeToggleBtn = (content, title, active, onClick) => {
-      const btn = document.createElement("button");
-      btn.className = "ais-toggle-btn" + (active ? " active" : "");
-      _addTooltip(btn, title);
-      btn.style.cssText = "font-size:14px;font-weight:bold;width:26px;height:26px;line-height:1;";
-      if (typeof content === "string") { btn.textContent = content; } else { btn.appendChild(content); }
-      btn.addEventListener("pointerdown", (e) => { e.stopPropagation(); onClick(); });
-      return btn;
-    };
-    const row = document.createElement("div");
-    row.style.cssText = "display:flex;align-items:center;gap:2px;";
-    row.appendChild(makeToggleBtn("←", "Start arrowhead", source.has_start_arrow ?? false, () => {
-      onToggle({ has_start_arrow: !(source.has_start_arrow ?? false) });
-    }));
-    row.appendChild(makeToggleBtn("→", "End arrowhead", source.has_end_arrow ?? true, () => {
-      onToggle({ has_end_arrow: !(source.has_end_arrow ?? true) });
-    }));
-    row.appendChild(makeToggleBtn(mkIcon("bezier", 14), "Bezier curve", source.is_bezier ?? false, () => {
-      onToggle({ is_bezier: !(source.is_bezier ?? false) });
-    }));
-    // Taper: variable-width stroke, thin at tail and full-width at arrowhead.
-    // Off by default — uniform width is cleaner for most annotation use cases.
-    row.appendChild(makeToggleBtn(mkIcon("taper", 14), "Taper stroke width", source.taper ?? false, () => {
-      onToggle({ taper: !(source.taper ?? false) });
-    }));
-    settingsArea.appendChild(row);
-  }
-
-  function _buildToolSettings() {
-    const ts = toolSettings[activeTool] || {};
-    if (activeTool === "arrow") {
-      _buildArrowToggles(toolSettings.arrow, (changes) => {
-        toolSettings.arrow = { ...toolSettings.arrow, ...changes };
-        currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
-        rebuildSettings();
-        renderCanvas();
-        _emit();
-      });
-    }
-    const isShape = activeTool === "rect" || activeTool === "ellipse";
-    const sizeKey = activeTool === "text" ? "font_size"
-      : (activeTool === "arrow" || isShape) ? "width"
-      : "size";
-    const sizeVal = ts[sizeKey] ?? (activeTool === "text" ? DEFAULT_TEXT_SIZE : (activeTool === "arrow") ? DEFAULT_ARROW_WIDTH : isShape ? DEFAULT_SHAPE_WIDTH : DEFAULT_PAINT_SIZE);
-    const sizeMin = activeTool === "text" ? MIN_TEXT_SIZE : (activeTool === "arrow" || isShape) ? MIN_ARROW_WIDTH : MIN_PAINT_SIZE;
-    const sizeMax = activeTool === "text" ? MAX_TEXT_SIZE : (activeTool === "arrow" || isShape) ? MAX_ARROW_WIDTH : MAX_PAINT_SIZE;
-    const sizeLbl = (activeTool === "arrow" || isShape) ? "Width" : "Size";
-    _buildSizeSlider(sizeLbl, sizeMin, sizeMax, sizeVal, (sz, emit) => {
-      toolSettings[activeTool][sizeKey] = sz;
-      currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
-      // While editing text, apply font size change live to the textarea and annotation
-      if (activeTool === "text" && textEditId) {
-        textInput.style.fontSize = sz * displayScale * viewScale + "px";
-        _autoResizeTextarea();
-        currentValue = {
-          ...currentValue,
-          annotations: currentValue.annotations.map((a) =>
-            a.id === textEditId ? { ...a, font_size: sz } : a
-          ),
-        };
-      }
-      renderCanvas();
-      if (emit) _emit();
-    });
-    const color = ts.color || DEFAULT_COLOR;
-    _buildColorSwatch(color, (col, emit) => {
-      toolSettings[activeTool].color = col;
-      currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
-      if (activeTool === "text" && textEditId) {
-        textInput.style.color = col;
-        currentValue = {
-          ...currentValue,
-          annotations: currentValue.annotations.map((a) =>
-            a.id === textEditId ? { ...a, color: col } : a
-          ),
-        };
-        renderCanvas();
-      }
-      if (emit) _emit();
-    });
-    if (isShape) {
-      _buildFillColorSwatch(ts.fill_color || "", (col, emit) => {
-        toolSettings[activeTool].fill_color = col;
-        currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
-        renderCanvas();
-        if (emit) _emit();
-      });
-    }
-  }
-
-  function _buildAnnotationSettings(ann) {
-    if (ann.type === "arrow") {
-      _buildArrowToggles(ann, (changes) => {
-        _applySingleUpdate(ann.id, (a) => ({ ...a, ...changes }));
-        // Sync arrow-style toggles to tool settings so next arrow uses same style
-        toolSettings.arrow = { ...toolSettings.arrow, ...changes };
-        currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
-        renderCanvas();
-        rebuildSettings();
-        _emit();
-      });
-    }
-
-    let color;
-    if (ann.type === "paint") {
-      color = (ann.strokes && ann.strokes[0]) ? ann.strokes[0].color : DEFAULT_COLOR;
-    } else {
-      color = ann.color || DEFAULT_COLOR;
-    }
-
-    if (ann.type === "paint") {
-      const baseSize = (ann.strokes && ann.strokes[0]) ? (ann.strokes[0].size ?? DEFAULT_PAINT_SIZE) : DEFAULT_PAINT_SIZE;
-      const currentSize = Math.max(MIN_PAINT_SIZE, Math.round(baseSize * (ann.sizeScale ?? 1)));
-      _buildSizeSlider("Size", MIN_PAINT_SIZE, MAX_PAINT_SIZE, currentSize, (sz, emit) => {
-        _applySingleUpdate(ann.id, (a) => ({ ...a, sizeScale: sz / baseSize }));
-        renderCanvas();
-        if (emit) _emit();
-      });
-    }
-
-    const isShape = ann.type === "rect" || ann.type === "ellipse";
-    const sizeKey = ann.type === "text" ? "font_size" : (ann.type === "arrow" || isShape) ? "width" : null;
-    if (sizeKey) {
-      const sizeVal = ann[sizeKey] ?? (ann.type === "text" ? DEFAULT_TEXT_SIZE : isShape ? DEFAULT_SHAPE_WIDTH : DEFAULT_ARROW_WIDTH);
-      const sizeMin = ann.type === "text" ? MIN_TEXT_SIZE : MIN_ARROW_WIDTH;
-      const sizeMax = ann.type === "text" ? MAX_TEXT_SIZE : MAX_ARROW_WIDTH;
-      const sizeLbl = ann.type === "text" ? "Size" : "Width";
-      _buildSizeSlider(sizeLbl, sizeMin, sizeMax, sizeVal, (sz, emit) => {
-        _applySingleUpdate(ann.id, (a) => ({ ...a, [sizeKey]: sz }));
-        if (ann.type === "arrow") { toolSettings.arrow.width = sz; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
-        if (ann.type === "text") { toolSettings.text.font_size = sz; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
-        if (isShape) { toolSettings[ann.type].width = sz; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
-        if (textInput && textEditId === ann.id && sizeKey === "font_size") {
-          textInput.style.fontSize = sz * displayScale * viewScale + "px"; _autoResizeTextarea();
-        }
-        renderCanvas();
-        if (emit) _emit();
-      });
-    }
-
-    _buildColorSwatch(color, (col, emit) => {
-      _applySingleUpdate(ann.id, (a) => {
-        if (a.type === "paint") return { ...a, strokes: (a.strokes || []).map((s) => ({ ...s, color: col })) };
-        return { ...a, color: col };
-      });
-      if (ann.type === "arrow") { toolSettings.arrow.color = col; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
-      if (ann.type === "text") { toolSettings.text.color = col; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
-      if (ann.type === "paint") { toolSettings.paint.color = col; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
-      if (isShape) { toolSettings[ann.type].color = col; currentValue = { ...currentValue, tool_settings: { ...toolSettings } }; }
-      if (textInput && textEditId === ann.id) {
-        textInput.style.color = col; textInput.style.borderBottomColor = col;
-      }
-      renderCanvas();
-      if (emit) _emit();
-    });
-
-    if (isShape) {
-      _buildFillColorSwatch(ann.fill_color || "", (col, emit) => {
-        _applySingleUpdate(ann.id, (a) => ({ ...a, fill_color: col }));
-        toolSettings[ann.type].fill_color = col;
-        currentValue = { ...currentValue, tool_settings: { ...toolSettings } };
-        renderCanvas();
-        if (emit) _emit();
-      });
-    }
-
-  }
-
-  function _buildMultiSettings(selIds) {
-    const anns = _effectiveAnnotations().filter((a) => selIds.includes(a.id));
-    // Capture original sizes when the panel is built; slider applies ratio to these originals
-    const origSizes = {};
-    for (const a of anns) {
-      if (a.type === "paint") origSizes[a.id] = a.sizeScale ?? 1;
-      else if (a.type === "arrow") origSizes[a.id] = a.width ?? 3;
-      else if (a.type === "rect" || a.type === "ellipse") origSizes[a.id] = a.width ?? DEFAULT_SHAPE_WIDTH;
-    }
-    _buildSizeSlider("Scale %", 25, 400, 100, (val, emit) => {
-      const ratio = val / 100;
-      const { annotations, overrides } = _applyAnnotationMap(selIds, (a) => {
-        if (a.type === "paint") return { ...a, sizeScale: (origSizes[a.id] ?? 1) * ratio };
-        if (a.type === "text") return a;
-        if (a.type === "arrow") return { ...a, width: Math.max(1, (origSizes[a.id] ?? 3) * ratio) };
-        if (a.type === "rect" || a.type === "ellipse") return { ...a, width: Math.max(1, (origSizes[a.id] ?? DEFAULT_SHAPE_WIDTH) * ratio) };
-        return a;
-      });
-      currentValue = { ...currentValue, annotations, overrides };
-      renderCanvas();
-      if (emit) _emit();
-    });
-    let firstColor = DEFAULT_COLOR;
-    for (const a of anns) {
-      if (a.type === "paint" && a.strokes?.[0]) { firstColor = a.strokes[0].color; break; }
-      if (a.color) { firstColor = a.color; break; }
-    }
-    _buildColorSwatch(firstColor, (col, emit) => {
-      const { annotations, overrides } = _applyAnnotationMap(selIds, (a) => {
-        if (a.type === "paint") return { ...a, strokes: (a.strokes || []).map((s) => ({ ...s, color: col })) };
-        return { ...a, color: col };
-      });
-      currentValue = { ...currentValue, annotations, overrides };
-      renderCanvas();
-      if (emit) _emit();
-    });
-  }
-
-  function _reorderAnnotations(selIds, action) {
-    const anns = [...(currentValue.annotations || [])];
-    const selSet = new Set(selIds);
-    const sIdxs = anns.map((a, i) => (selSet.has(a.id) ? i : -1)).filter((i) => i >= 0);
-    if (!sIdxs.length) return anns;
-    if (action === "front") {
-      return [...anns.filter((a) => !selSet.has(a.id)), ...anns.filter((a) => selSet.has(a.id))];
-    }
-    if (action === "back") {
-      return [...anns.filter((a) => selSet.has(a.id)), ...anns.filter((a) => !selSet.has(a.id))];
-    }
-    if (action === "forward") {
-      const result = [...anns];
-      const idxs = result.map((a, i) => (selSet.has(a.id) ? i : -1)).filter((i) => i >= 0);
-      const lastSel = Math.max(...idxs);
-      let swapIdx = lastSel + 1;
-      while (swapIdx < result.length && selSet.has(result[swapIdx].id)) swapIdx++;
-      if (swapIdx < result.length) {
-        const [item] = result.splice(swapIdx, 1);
-        result.splice(Math.min(...idxs), 0, item);
-      }
-      return result;
-    }
-    if (action === "backward") {
-      const result = [...anns];
-      const idxs = result.map((a, i) => (selSet.has(a.id) ? i : -1)).filter((i) => i >= 0);
-      const firstSel = Math.min(...idxs);
-      let swapIdx = firstSel - 1;
-      while (swapIdx >= 0 && selSet.has(result[swapIdx].id)) swapIdx--;
-      if (swapIdx >= 0) {
-        const lastSel = Math.max(...idxs);
-        const [item] = result.splice(swapIdx, 1);
-        result.splice(lastSel, 0, item);
-      }
-      return result;
-    }
-    return anns;
-  }
-
-  function _dismissLayerPopup() {
-    const p = document.getElementById("ais-layer-popup");
-    if (p) p.remove();
-  }
-
-  function _buildResetOverrideButton(id) {
-    const overrides = currentValue.overrides || {};
-    const hasOverrides = overrides[id] && Object.keys(overrides[id]).length > 0;
-    if (!hasOverrides) return;
-
-    const sep = document.createElement("div");
-    sep.style.cssText = "width:1px;height:16px;background:var(--border);flex-shrink:0;";
-    settingsArea.appendChild(sep);
-
-    const btn = document.createElement("button");
-    btn.className = "ais-tool-btn";
-    _addTooltip(btn, "Reset overrides");
-    btn.style.color = IMP_COLOR;
-    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-      <path d="M3 3v5h5"/>
-    </svg>`;
-    settingsArea.appendChild(btn);
-
-    btn.addEventListener("pointerdown", (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      const newOverrides = { ...(currentValue.overrides || {}) };
-      delete newOverrides[id];
-      currentValue = { ...currentValue, overrides: newOverrides };
-      _emit();
-      rebuildSettings();
-      renderCanvas();
-    });
-  }
-
-  function _buildLayerOrderButton(selIds, container, btnClass = "ais-tool-btn") {
-    const btn = document.createElement("button");
-    btn.className = btnClass;
-    _addTooltip(btn, "Layer order");
-    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/>
-      <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/>
-      <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/>
-    </svg>`;
-    container.appendChild(btn);
-
-    btn.addEventListener("pointerdown", (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      btn.blur();
-
-      const popup = document.createElement("div");
-      popup.id = "ais-layer-popup";
-      popup.style.cssText = [
-        "position:fixed",
-        "background:var(--popover,#1e1e1e)",
-        "border:1px solid var(--border,#444)",
-        "border-radius:6px",
-        "box-shadow:0 4px 16px rgba(0,0,0,0.5)",
-        "z-index:10000",
-        "overflow:hidden",
-        "min-width:160px",
-        "font-family:sans-serif",
-        "font-size:12px",
-      ].join(";");
-
-      const ACTIONS = [
-        { label: "Bring to Front", action: "front",    icon: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/></svg>' },
-        { label: "Bring Forward",  action: "forward",  icon: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>' },
-        { label: "Send Backward",  action: "backward", icon: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>' },
-        { label: "Send to Back",   action: "back",     icon: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg>' },
-      ];
-      for (const { label, action, icon } of ACTIONS) {
-        const item = document.createElement("div");
-        item.style.cssText = "padding:6px 14px;cursor:pointer;color:var(--foreground,#eee);white-space:nowrap;display:flex;align-items:center;gap:8px;";
-        item.innerHTML = `<span style="flex-shrink:0;display:flex;align-items:center;">${icon}</span><span>${label}</span>`;
-        item.addEventListener("pointerover",  () => { item.style.background = `rgba(${SEL_COLOR_RGB},${LAYER_HOVER_OPACITY})`; });
-        item.addEventListener("pointerout",   () => { item.style.background = ""; });
-        item.addEventListener("pointerdown",  (ev) => {
-          ev.stopPropagation();
-          currentValue = { ...currentValue, annotations: _reorderAnnotations(selIds, action) };
-          _emit(); rebuildSettings(true); renderCanvas();
-        });
-        popup.appendChild(item);
-      }
-
-      document.body.appendChild(popup);
-      const bRect = btn.getBoundingClientRect();
-      // Right-align popup to button, open downward
-      popup.style.top  = `${bRect.bottom + 4}px`;
-      popup.style.left = `${bRect.right}px`;  // temp; adjust after paint
-      requestAnimationFrame(() => {
-        const pw = popup.offsetWidth;
-        let left = bRect.right - pw;
-        if (left < 8) left = 8;
-        popup.style.left = `${left}px`;
-      });
-
-      // Dismiss on outside click
-      const dismiss = (ev) => {
-        if (!popup.contains(ev.target)) {
-          _dismissLayerPopup();
-          document.removeEventListener("pointerdown", dismiss, { capture: true });
-        }
-      };
-      setTimeout(() => document.addEventListener("pointerdown", dismiss, { capture: true }), 0);
-    });
-  }
-
+  // Switches the active tool: commits any open text edit, updates button highlight,
+  // resets hover state, rebuilds settings, and emits.
   function setTool(id) {
     commitTextEdit();
     hoverId = null; hoverGroupId = null;
@@ -1072,11 +452,14 @@ export default function AnnotateImageSimple(container, props) {
   // ── rendering ─────────────────────────────────────────────────────────────
   let renderGen = 0;
 
+  // Schedules a canvas redraw via RAF. Increments renderGen so any in-flight render is cancelled.
   function renderCanvas() {
     const gen = ++renderGen;
     requestAnimationFrame(() => { if (gen === renderGen) _doRender(gen); });
   }
 
+  // Performs the actual canvas redraw: loads image (async, cached), clears, draws annotations,
+  // transform frame, in-progress shapes, and the marquee lasso.
   async function _doRender(gen) {
     const cw = canvas.width, ch = canvas.height;
     const imgUrl = currentValue.image_url;
@@ -1257,6 +640,7 @@ export default function AnnotateImageSimple(container, props) {
     }
   }
 
+  // Dispatches to the type-specific draw function for a committed annotation.
   function drawAnnotation(ann, selected) {
     if (ann.type === "paint")   drawPaint(ann, selected);
     else if (ann.type === "text")   drawText(ann, selected);
@@ -1380,6 +764,7 @@ export default function AnnotateImageSimple(container, props) {
     return null;
   }
 
+  // Returns the axis-aligned bounding box enclosing all annotations in selIds, plus center coords.
   function _getGroupBounds(selIds) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     let found = false;
@@ -1394,8 +779,6 @@ export default function AnnotateImageSimple(container, props) {
     if (!found) return null;
     return { minX, minY, maxX, maxY, centerX: (minX + maxX) / 2, centerY: (minY + maxY) / 2 };
   }
-
-  // snapshotAnn, defaultCps, paintCenter etc. imported from _geometry.js
 
   // ── unified transform frame (OBB) ────────────────────────────────────────────
   // The frame is an oriented bounding box (pivot + rotation + half-extents).
@@ -1477,8 +860,6 @@ export default function AnnotateImageSimple(container, props) {
     };
   }
 
-  // frameCorners, frameTopMid, frameRotHandle imported from _geometry.js
-
   // Returns true if annotation overlaps the given canvas-space rectangle
   function _annotationIntersectsRect(ann, x1, y1, x2, y2) {
     if (ann.type === "text") {
@@ -1515,6 +896,8 @@ export default function AnnotateImageSimple(container, props) {
   }
 
   // ── text editing ──────────────────────────────────────────────────────────
+
+  // Overlays a positioned, rotated <textarea> on top of the canvas for inline text editing.
   function startTextEdit(ann) {
     commitTextEdit();
     textEditId = ann.id;
@@ -1581,6 +964,7 @@ export default function AnnotateImageSimple(container, props) {
     renderCanvas();
   }
 
+  // Shrinks textarea to 1px then expands to scrollWidth/scrollHeight so it fits its content exactly.
   function _autoResizeTextarea() {
     if (!textInput) return;
     textInput.style.width = "1px";
@@ -1589,6 +973,8 @@ export default function AnnotateImageSimple(container, props) {
     textInput.style.height = textInput.scrollHeight + "px";
   }
 
+  // Saves the textarea's text to the annotation and removes the textarea.
+  // Deletes the annotation if the text is empty; switches to select mode in either case.
   function commitTextEdit() {
     if (!textInput) return;
     const id = textEditId;
@@ -1618,6 +1004,7 @@ export default function AnnotateImageSimple(container, props) {
     renderCanvas();
   }
 
+  // Creates a new text annotation at canvas position (cx, cy) and immediately opens it for editing.
   function placeNewText(cx, cy) {
     const id = _uid("text");
     const ann = {
@@ -1637,8 +1024,6 @@ export default function AnnotateImageSimple(container, props) {
   }
 
   // ── pointer events ────────────────────────────────────────────────────────
-  // React Flow intercepts Shift+click via a capture-phase listener on its node element,
-  // which fires before any bubble-phase handler on our canvas.  The only way to beat it
   // ── hotkeys (all document-level keyboard listeners) ───────────────────────
   const _cleanupHotkeys = setupHotkeys(
     () => ({ mouseIsOver: _mouseIsOver, textEditId, activeTool, currentValue, toolSettings }),
@@ -1669,6 +1054,9 @@ export default function AnnotateImageSimple(container, props) {
   container.addEventListener("mouseenter", () => { _mouseIsOver = true; });
   container.addEventListener("mouseleave", () => { _mouseIsOver = false; });
 
+  // ── pointer events ────────────────────────────────────────────────────────
+
+  // Handles pointerdown: pan, zoom drag, transform handles, hit selection, shape drawing.
   function onPointerDown(e) {
     if (e.button !== 0) return;
     e.stopPropagation();
@@ -1856,7 +1244,7 @@ export default function AnnotateImageSimple(container, props) {
       const hit = hitTest(cx, cy);
       if (hit) {
         // Expand to the full group if the hit annotation is grouped
-        const hitGroupIds = _expandGroupSelection(hit.id);
+        const hitGroupIds = expandGroupSelection(_effectiveAnnotations(), hit.id);
         let newSelIds;
         if (e.shiftKey) {
           // Shift+click: toggle the entire group in/out as a unit
@@ -1921,7 +1309,6 @@ export default function AnnotateImageSimple(container, props) {
       currentValue = { ...currentValue, selected_ids: [] };
       rebuildSettings();
       const sz = toolSettings.paint.size;
-      strokeLastMid = null;
       currentStroke = { color: toolSettings.paint.color, size: sz, points: [[cx, cy, sz]] };
       lastPtTime = performance.now(); lastPtX = cx; lastPtY = cy; velSmoothed = 0;
       // Draw initial dot directly without a full re-render
@@ -2016,6 +1403,8 @@ export default function AnnotateImageSimple(container, props) {
     }
   }
 
+  // Handles pointermove: panning, zoom drag, paint stroke extension, shape preview,
+  // transform drag (rotate/scale/translate/arrow handles), and marquee preview.
   function onPointerMove(e) {
     if (!isPointerDown) return;
     e.stopPropagation();
@@ -2262,6 +1651,7 @@ export default function AnnotateImageSimple(container, props) {
     }
   }
 
+  // Handles pointerup: commits in-progress shapes as annotations, finalises drags, emits state.
   function onPointerUp(e) {
     if (!isPointerDown) return;
     isPointerDown = false;
@@ -2284,7 +1674,6 @@ export default function AnnotateImageSimple(container, props) {
 
     if (activeTool === "paint" && currentStroke && currentStroke.points.length >= 1) {
       currentStroke.points = decimatePoints(currentStroke.points);
-      strokeLastMid = null;
       const stroke = currentStroke;
       currentStroke = null;
       // Each stroke = its own paint annotation with independent transform
@@ -2416,6 +1805,8 @@ export default function AnnotateImageSimple(container, props) {
 
   const _ROTATE_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='9' fill='none' stroke='white' stroke-width='2.5'/%3E%3Ccircle cx='10' cy='10' r='9' fill='none' stroke='%23333' stroke-width='1'/%3E%3Cpolygon points='10,1 14,6 10,4 6,6' fill='white' stroke='%23333' stroke-width='0.5'/%3E%3C/svg%3E") 10 10, grab`;
 
+  // Returns the CSS cursor string for canvas position (cx, cy), accounting for which handle
+  // (rotate, scale corner, translate body) is under the pointer and the active tool.
   function _cursorForPos(cx, cy) {
     const handleR = 8 / displayScale;
     const selIds = currentValue.selected_ids || [];
@@ -2490,6 +1881,8 @@ export default function AnnotateImageSimple(container, props) {
     return "crosshair";
   }
 
+  // Tracks which annotation is hovered and updates hoverId/hoverGroupId for highlight rendering.
+  // Also updates the canvas cursor on every mouse move (not just during drags).
   function onMouseHover(e) {
     if (isPointerDown) return;
     const [cx, cy] = screenToCanvas(e);
@@ -2525,16 +1918,22 @@ export default function AnnotateImageSimple(container, props) {
   // ── emit / uid ─────────────────────────────────────────────────────────────
   let _emitSeq = 0;
 
+  // Increments _emitSeq and calls onChange with the full current state.
+  // _emitSeq lets handleUpdate detect and discard stale roundtrip echoes.
   function _emit() {
     _emitSeq++;
     if (onChange) onChange({ ...currentValue, tool_settings: { ...toolSettings }, _emitSeq });
   }
 
+  // Generates a collision-resistant unique id with a human-readable type prefix.
   function _uid(prefix) {
     return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   }
 
   // ── update from props ──────────────────────────────────────────────────────
+
+  // Receives new props from the parent framework. Stale roundtrip echoes (same or older _emitSeq)
+  // are ignored for annotation data but still accepted for image URL / dimension changes.
   function handleUpdate(newProps) {
     const rawNv = (newProps?.value && typeof newProps.value === "object") ? newProps.value : {};
 
@@ -2590,9 +1989,11 @@ export default function AnnotateImageSimple(container, props) {
   }
 
   // ── cleanup ────────────────────────────────────────────────────────────────
+
+  // Tears down all event listeners, observers, and DOM nodes. Called when the widget is unmounted.
   function cleanup() {
     commitTextEdit();
-    _dismissLayerPopup();
+    dismissLayerPopup?.();
     _tooltip.cleanup();
     _cleanupHotkeys();
     resizeObserver.disconnect();
@@ -2606,6 +2007,37 @@ export default function AnnotateImageSimple(container, props) {
   }
 
   // ── init ──────────────────────────────────────────────────────────────────
+  const _settingsMod = createSettings(settingsArea, {
+    addTooltip: _addTooltip,
+    getState: () => ({ activeTool, toolSettings, currentValue, textEditId, textInput, displayScale, viewScale }),
+    setCurrentValue: (v) => { currentValue = v; },
+    applySingleUpdate: _applySingleUpdate,
+    applyAnnotationMap: _applyAnnotationMap,
+    effectiveAnnotations: _effectiveAnnotations,
+    autoResizeTextarea: _autoResizeTextarea,
+    renderCanvas,
+    emit: _emit,
+    rebuild: () => rebuildSettings(),
+  });
+  buildToolSettings = _settingsMod.buildToolSettings;
+  buildAnnotationSettings = _settingsMod.buildAnnotationSettings;
+  buildMultiSettings = _settingsMod.buildMultiSettings;
+
+  const _hudMod = createHud(hudEl, {
+    addTooltip: _addTooltip,
+    getState: () => ({ activeTool, currentValue }),
+    setCurrentValue: (v) => { currentValue = v; },
+    effectiveAnnotations: _effectiveAnnotations,
+    applyAnnotationMap: _applyAnnotationMap,
+    commitTextEdit,
+    uid: _uid,
+    emit: _emit,
+    renderCanvas,
+    rebuildSettings: (keepLayerPopup) => rebuildSettings(keepLayerPopup),
+  });
+  updateHud = _hudMod.update;
+  dismissLayerPopup = _hudMod.dismissLayerPopup;
+
   setTool(activeTool);
   applyCanvasScale();
   renderCanvas();
