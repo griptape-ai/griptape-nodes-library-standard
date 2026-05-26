@@ -288,21 +288,12 @@ export default function AnnotateImageSimple(container, props) {
   hudEl.style.display = "none";
   canvasWrap.appendChild(hudEl);
 
-  // ── Fullscreen HUD (top-right of canvas) ──────────────────────────────────
+  // ── Expand HUD (top-right of canvas) ─────────────────────────────────────
   const fsHudEl = document.createElement("div");
-  fsHudEl.style.cssText =
-    "position:absolute;top:10px;right:10px;display:flex;align-items:center;" +
-    "background:rgba(18,18,20,0.88);border:1px solid rgba(255,255,255,0.10);" +
-    "box-shadow:0 2px 16px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.06);" +
-    "border-radius:7px;padding:2px;pointer-events:auto;z-index:21;";
+  fsHudEl.className = "ais-fs-hud";
   const fsBtn = document.createElement("button");
-  fsBtn.style.cssText =
-    "display:flex;align-items:center;justify-content:center;width:28px;height:28px;" +
-    "padding:0;border:none;border-radius:7px;background:transparent;color:#e0e0e0;" +
-    "cursor:pointer;line-height:1;transition:background 0.12s,color 0.12s;flex-shrink:0;";
-  fsBtn.addEventListener("mouseenter", () => { fsBtn.style.background = "rgba(255,255,255,0.10)"; fsBtn.style.color = "#fff"; });
-  fsBtn.addEventListener("mouseleave", () => { fsBtn.style.background = "transparent"; fsBtn.style.color = "#e0e0e0"; });
-  _addTooltip(fsBtn, "Fullscreen");
+  fsBtn.className = "ais-hud-btn";
+  _addTooltip(fsBtn, "Expand to modal");
   fsBtn.appendChild(mkIcon("expand", 15));
   fsBtn.addEventListener("pointerdown", (e) => {
     e.stopPropagation();
