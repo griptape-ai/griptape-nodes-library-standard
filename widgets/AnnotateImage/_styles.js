@@ -87,7 +87,7 @@ export function defaultData() {
     active_tool: "select",
     tool_settings: {
       paint:   { color: DEFAULT_COLOR, size: DEFAULT_PAINT_SIZE },
-      text:    { color: DEFAULT_COLOR, font_size: DEFAULT_TEXT_SIZE },
+      text:    { color: DEFAULT_COLOR, font_size: DEFAULT_TEXT_SIZE, text_align: "left" },
       arrow:   { color: DEFAULT_COLOR, width: DEFAULT_ARROW_WIDTH, has_start_arrow: false, has_end_arrow: true, is_bezier: false, taper: false },
       rect:    { color: DEFAULT_COLOR, width: DEFAULT_SHAPE_WIDTH, fill_color: "" },
       ellipse: { color: DEFAULT_COLOR, width: DEFAULT_SHAPE_WIDTH, fill_color: "" },

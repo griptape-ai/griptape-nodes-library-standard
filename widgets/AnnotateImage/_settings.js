@@ -108,6 +108,32 @@ export function createSettings(settingsArea, {
     settingsArea.appendChild(wrap);
   }
 
+  // Appends left/center/right alignment toggle buttons to settingsArea (text only).
+  function _buildTextAlignButtons(currentAlign, onChange) {
+    const ALIGNS = [
+      { value: "left",   icon: "align-left",   title: "Align left"   },
+      { value: "center", icon: "align-center",  title: "Align center" },
+      { value: "right",  icon: "align-right",   title: "Align right"  },
+    ];
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;align-items:center;gap:2px;";
+    for (const a of ALIGNS) {
+      const btn = document.createElement("button");
+      btn.className = "ais-toggle-btn" + (currentAlign === a.value ? " active" : "");
+      addTooltip(btn, a.title);
+      btn.style.cssText = "width:26px;height:26px;";
+      btn.appendChild(mkIcon(a.icon, 14));
+      btn.addEventListener("pointerdown", (e) => {
+        e.stopPropagation();
+        row.querySelectorAll(".ais-toggle-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        onChange(a.value);
+      });
+      row.appendChild(btn);
+    }
+    settingsArea.appendChild(row);
+  }
+
   // Appends arrow-specific toggles (start/end arrowhead, bezier, taper) to settingsArea.
   // source is either a tool-settings object or a single arrow annotation.
   function _buildArrowToggles(source, onToggle) {
@@ -153,6 +179,24 @@ export function createSettings(settingsArea, {
       });
     }
     const isShape = activeTool === "rect" || activeTool === "ellipse";
+    if (activeTool === "text") {
+      _buildTextAlignButtons(ts.text_align || "left", (align) => {
+        const s = getState();
+        s.toolSettings.text.text_align = align;
+        setCurrentValue({ ...s.currentValue, tool_settings: { ...s.toolSettings } });
+        if (s.textEditId) {
+          s.textInput.style.textAlign = align;
+          setCurrentValue({
+            ...getState().currentValue,
+            annotations: getState().currentValue.annotations.map((a) =>
+              a.id === s.textEditId ? { ...a, text_align: align } : a
+            ),
+          });
+        }
+        renderCanvas();
+        emit();
+      });
+    }
     const sizeKey = activeTool === "text" ? "font_size"
       : (activeTool === "arrow" || isShape) ? "width"
       : "size";
@@ -244,6 +288,17 @@ export function createSettings(settingsArea, {
     }
 
     const isShape = ann.type === "rect" || ann.type === "ellipse";
+    if (ann.type === "text") {
+      _buildTextAlignButtons(ann.text_align || "left", (align) => {
+        applySingleUpdate(ann.id, (a) => ({ ...a, text_align: align }));
+        const s = getState();
+        s.toolSettings.text.text_align = align;
+        setCurrentValue({ ...s.currentValue, tool_settings: { ...s.toolSettings } });
+        if (s.textInput && s.textEditId === ann.id) s.textInput.style.textAlign = align;
+        renderCanvas();
+        emit();
+      });
+    }
     const sizeKey = ann.type === "text" ? "font_size" : (ann.type === "arrow" || isShape) ? "width" : null;
     if (sizeKey) {
       const sizeVal = ann[sizeKey] ?? (ann.type === "text" ? DEFAULT_TEXT_SIZE : isShape ? DEFAULT_SHAPE_WIDTH : DEFAULT_ARROW_WIDTH);

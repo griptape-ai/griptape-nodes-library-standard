@@ -224,20 +224,22 @@ class AnnotateImage(DataNode):
         rotation = float(ann.get("rotation", 0))
         font_size = max(8, int(ann.get("font_size", 48)))
         color = self._parse_color(ann.get("color", "#ff0000"))
+        text_align = ann.get("text_align", "left")
+        spacing = int(font_size * 0.2)
         try:
             font = ImageFont.load_default(size=font_size)
         except TypeError:
             font = ImageFont.load_default()
 
         if not rotation or overlay is None:
-            draw.text((x, y), text, font=font, fill=color, spacing=int(font_size * 0.2))
+            draw.text((x, y), text, font=font, fill=color, spacing=spacing, align=text_align)
             return
 
         # Rotated text: render onto a transparent temp image, rotate, composite back.
         # PIL rotates counter-clockwise; canvas rotates clockwise — negate the angle.
         temp = Image.new("RGBA", overlay.size, (0, 0, 0, 0))
         temp_draw = ImageDraw.Draw(temp)
-        temp_draw.text((x, y), text, font=font, fill=color, spacing=int(font_size * 0.2))
+        temp_draw.text((x, y), text, font=font, fill=color, spacing=spacing, align=text_align)
         degrees = -math.degrees(rotation)
         rotated = temp.rotate(degrees, resample=Image.Resampling.BICUBIC, expand=False, center=(x, y))
         overlay.alpha_composite(rotated)

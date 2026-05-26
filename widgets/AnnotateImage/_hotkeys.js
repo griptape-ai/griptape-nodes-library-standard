@@ -59,7 +59,7 @@ export function setupHotkeys(getState, actions) {
     if (!(currentValue.selected_ids || []).length) return;
     if (activeTool !== "select" && activeTool !== "arrow" && activeTool !== "rect" && activeTool !== "ellipse") return;
     deleteAnnotations(currentValue.selected_ids);
-    setCurrentValue({ ...currentValue, selected_ids: [] });
+    setCurrentValue({ ...getState().currentValue, selected_ids: [] });
     setTxFrame(null);
     emit();
     rebuildSettings();

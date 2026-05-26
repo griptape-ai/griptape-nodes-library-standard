@@ -938,6 +938,7 @@ export default function AnnotateImageSimple(container, props) {
       "padding:0",
       "margin:0",
       "line-height:1",
+      `text-align:${ann.text_align || "left"}`,
       `transform:rotate(${ann.rotation || 0}rad)`,
       "transform-origin:0px 0px",
     ].join(";");
@@ -1024,6 +1025,7 @@ export default function AnnotateImageSimple(container, props) {
       x: cx, y: cy, rotation: 0,
       color: toolSettings.text.color,
       font_size: toolSettings.text.font_size,
+      text_align: toolSettings.text.text_align || "left",
     };
     currentValue = {
       ...currentValue,

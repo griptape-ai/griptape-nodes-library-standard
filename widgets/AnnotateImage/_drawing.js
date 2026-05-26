@@ -79,21 +79,24 @@ export function createDrawing(getState) {
     const fontSize = Math.max(MIN_TEXT_SIZE, ann.font_size || DEFAULT_TEXT_SIZE);
     const lineHeight = fontSize * 1.2;
     const lines = (ann.text || "").split("\n");
+    const textAlign = ann.text_align || "left";
     ctx.save();
     ctx.font = `${fontSize}px sans-serif`;
+    const maxW = Math.max(1, ...lines.map((l) => ctx.measureText(l).width));
     ctx.translate(ann.x || 0, ann.y || 0);
     ctx.rotate(ann.rotation || 0);
     ctx.fillStyle = ann.color || DEFAULT_COLOR;
     ctx.textBaseline = "top";
+    ctx.textAlign = textAlign;
+    const tx = textAlign === "center" ? maxW / 2 : textAlign === "right" ? maxW : 0;
     for (let i = 0; i < lines.length; i++) {
-      ctx.fillText(lines[i], 0, i * lineHeight);
+      ctx.fillText(lines[i], tx, i * lineHeight);
     }
     if (isHovered(ann) && !selected) {
-      const w = Math.max(1, ...lines.map((l) => ctx.measureText(l).width));
-      const h = lineHeight * lines.length;
+      ctx.textAlign = "left";
       ctx.strokeStyle = `rgba(${SEL_COLOR_RGB},${HOVER_OPACITY})`;
       ctx.lineWidth = LINE_WIDTH_PRIMARY / displayScale;
-      ctx.strokeRect(-HOVER_PAD, -HOVER_PAD, w + HOVER_PAD * 2, h + HOVER_PAD * 2);
+      ctx.strokeRect(-HOVER_PAD, -HOVER_PAD, maxW + HOVER_PAD * 2, lineHeight * lines.length + HOVER_PAD * 2);
     }
     ctx.restore();
   }
