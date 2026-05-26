@@ -184,7 +184,7 @@ export default function AnnotateImageSimple(container, props) {
   // ── DOM ───────────────────────────────────────────────────────────────────
 
   const wrapper = document.createElement("div");
-  wrapper.className = "nodrag nowheel";
+  wrapper.className = "nodrag nowheel ais-wrapper";
   wrapper.style.cssText =
     "display:flex;flex-direction:column;width:100%;height:100%;background:var(--background);border-radius:6px;" +
     "font-family:sans-serif;box-sizing:border-box;overflow:hidden;";
@@ -252,11 +252,6 @@ export default function AnnotateImageSimple(container, props) {
 
   for (const t of DRAW_TOOLS) _mkToolBtn(t);
 
-  // Divider before action buttons
-  const divider1b = document.createElement("div");
-  divider1b.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
-  toolbar.appendChild(divider1b);
-
   // Divider before settings area
   const divider2 = document.createElement("div");
   divider2.style.cssText = "width:1px;height:20px;background:var(--border);margin:0 4px;flex-shrink:0;";
@@ -292,6 +287,30 @@ export default function AnnotateImageSimple(container, props) {
   hudEl.className = "ais-hud";
   hudEl.style.display = "none";
   canvasWrap.appendChild(hudEl);
+
+  // ── Fullscreen HUD (top-right of canvas) ──────────────────────────────────
+  const fsHudEl = document.createElement("div");
+  fsHudEl.style.cssText =
+    "position:absolute;top:10px;right:10px;display:flex;align-items:center;" +
+    "background:rgba(18,18,20,0.88);border:1px solid rgba(255,255,255,0.10);" +
+    "box-shadow:0 2px 16px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.06);" +
+    "border-radius:7px;padding:2px;pointer-events:auto;z-index:21;";
+  const fsBtn = document.createElement("button");
+  fsBtn.style.cssText =
+    "display:flex;align-items:center;justify-content:center;width:28px;height:28px;" +
+    "padding:0;border:none;border-radius:7px;background:transparent;color:#e0e0e0;" +
+    "cursor:pointer;line-height:1;transition:background 0.12s,color 0.12s;flex-shrink:0;";
+  fsBtn.addEventListener("mouseenter", () => { fsBtn.style.background = "rgba(255,255,255,0.10)"; fsBtn.style.color = "#fff"; });
+  fsBtn.addEventListener("mouseleave", () => { fsBtn.style.background = "transparent"; fsBtn.style.color = "#e0e0e0"; });
+  _addTooltip(fsBtn, "Fullscreen");
+  fsBtn.appendChild(mkIcon("expand", 15));
+  fsBtn.addEventListener("pointerdown", (e) => {
+    e.stopPropagation();
+    if (_modalEl) { _closeModal(); } else { _openModal(); }
+    fsBtn.blur();
+  });
+  fsHudEl.appendChild(fsBtn);
+  canvasWrap.appendChild(fsHudEl);
 
   wrapper.appendChild(toolbar);
   wrapper.appendChild(canvasWrap);
@@ -1988,10 +2007,75 @@ export default function AnnotateImageSimple(container, props) {
     renderCanvas();
   }
 
+  // ── Expand modal ───────────────────────────────────────────────────────────
+
+  let _modalEl = null;
+
+  function _openModal() {
+    const backdrop = document.createElement("div");
+    backdrop.style.cssText =
+      "position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.6);" +
+      "backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);" +
+      "display:flex;align-items:center;justify-content:center;";
+
+    const dialog = document.createElement("div");
+    dialog.style.cssText =
+      "position:relative;width:90%;height:90%;" +
+      "background:var(--background);border:1px solid var(--border);border-radius:8px;" +
+      "overflow:hidden;display:flex;flex-direction:column;" +
+      "box-shadow:0 10px 40px rgba(0,0,0,0.5),0 0 0 1px rgba(255,255,255,0.04);";
+
+    const modalHeader = document.createElement("div");
+    modalHeader.style.cssText =
+      "display:flex;align-items:center;justify-content:space-between;padding:0 16px;" +
+      "height:48px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--card);";
+
+    const modalTitle = document.createElement("span");
+    modalTitle.style.cssText = "font-size:13px;font-weight:600;color:var(--foreground);letter-spacing:0.01em;";
+    modalTitle.textContent = "Annotate Image";
+
+    const closeBtn = document.createElement("button");
+    closeBtn.style.cssText =
+      "display:flex;align-items:center;justify-content:center;width:28px;height:28px;" +
+      "padding:0;border:none;border-radius:6px;background:transparent;" +
+      "color:var(--muted-foreground);opacity:0.7;cursor:pointer;transition:opacity 0.15s;";
+    closeBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`;
+    closeBtn.addEventListener("mouseenter", () => { closeBtn.style.opacity = "1"; });
+    closeBtn.addEventListener("mouseleave", () => { closeBtn.style.opacity = "0.7"; });
+    closeBtn.addEventListener("pointerdown", (e) => { e.stopPropagation(); _closeModal(); });
+
+    modalHeader.appendChild(modalTitle);
+    modalHeader.appendChild(closeBtn);
+    dialog.appendChild(modalHeader);
+    dialog.appendChild(wrapper);
+    backdrop.appendChild(dialog);
+    document.body.appendChild(backdrop);
+    _modalEl = backdrop;
+
+    fsBtn.innerHTML = "";
+    fsBtn.appendChild(mkIcon("contract", 15));
+    requestAnimationFrame(applyCanvasScale);
+
+    backdrop.addEventListener("pointerdown", (e) => {
+      if (e.target === backdrop) _closeModal();
+    });
+  }
+
+  function _closeModal() {
+    if (!_modalEl) return;
+    container.appendChild(wrapper);
+    _modalEl.remove();
+    _modalEl = null;
+    fsBtn.innerHTML = "";
+    fsBtn.appendChild(mkIcon("expand", 15));
+    requestAnimationFrame(applyCanvasScale);
+  }
+
   // ── cleanup ────────────────────────────────────────────────────────────────
 
   // Tears down all event listeners, observers, and DOM nodes. Called when the widget is unmounted.
   function cleanup() {
+    _closeModal();
     commitTextEdit();
     dismissLayerPopup?.();
     _tooltip.cleanup();
