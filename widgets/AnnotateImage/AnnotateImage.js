@@ -859,11 +859,12 @@ export default function AnnotateImageSimple(container, props) {
         ctx.restore();
         const hw = textW / 2, hh = (lineHeight * lines.length) / 2;
         const r = ann.rotation || 0, cos = Math.cos(r), sin = Math.sin(r);
+        const textPad = fontSize * 0.15; // matches drawText bg rect and Python _draw_text
         txFrame = {
           pivotX: (ann.x || 0) + hw * cos - hh * sin,
           pivotY: (ann.y || 0) + hw * sin + hh * cos,
           rotation: r,
-          halfW: hw + pad, halfH: hh + pad,
+          halfW: hw + textPad, halfH: hh + textPad,
           _selIds: [...selIds],
         };
         return;
@@ -933,15 +934,16 @@ export default function AnnotateImageSimple(container, props) {
 
     const fontSize = Math.max(MIN_TEXT_SIZE, ann.font_size || DEFAULT_TEXT_SIZE);
     const totalScale = displayScale * viewScale;
+    const padPx = fontSize * 0.15 * totalScale; // matches drawText bg rect and Python _draw_text
     textInput = document.createElement("textarea");
     textInput.value = ann.text || "";
     textInput.rows = 1;
     textInput.style.cssText = [
       "position:absolute",
-      `left:${(ann.x || 0) * totalScale + centerOffsetX + panX}px`,
-      `top:${(ann.y || 0) * totalScale + centerOffsetY + panY}px`,
+      `left:${(ann.x || 0) * totalScale + centerOffsetX + panX - padPx}px`,
+      `top:${(ann.y || 0) * totalScale + centerOffsetY + panY - padPx}px`,
       "min-width:60px",
-      "background:transparent",
+      `background:${ann.bg_color || "transparent"}`,
       `color:${ann.color || "#ffffff"}`,
       `font-size:${fontSize * totalScale}px`,
       "font-family:sans-serif",
@@ -951,12 +953,13 @@ export default function AnnotateImageSimple(container, props) {
       "overflow:hidden",
       "white-space:nowrap",
       "z-index:100",
-      "padding:0",
+      `padding:${padPx}px`,
+      "box-sizing:border-box",
       "margin:0",
-      "line-height:1",
+      "line-height:1.2",
       `text-align:${ann.text_align || "left"}`,
       `transform:rotate(${ann.rotation || 0}rad)`,
-      "transform-origin:0px 0px",
+      `transform-origin:${padPx}px ${padPx}px`,
     ].join(";");
 
     canvasWrap.appendChild(textInput);
@@ -1042,6 +1045,7 @@ export default function AnnotateImageSimple(container, props) {
       color: toolSettings.text.color,
       font_size: toolSettings.text.font_size,
       text_align: toolSettings.text.text_align || "left",
+      bg_color: toolSettings.text.bg_color || "",
     };
     currentValue = {
       ...currentValue,

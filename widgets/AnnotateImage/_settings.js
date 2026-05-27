@@ -70,41 +70,41 @@ export function createSettings(settingsArea, {
     settingsArea.appendChild(wrap);
   }
 
-  // Appends a fill-color swatch + "no fill" clear button to settingsArea (rect/ellipse only).
-  function _buildFillColorSwatch(fillColor, onChangeColor) {
+  // Appends a color swatch + opacity slider + clear button, encoding result as #rrggbbaa.
+  // colorTip / clearTip control the tooltip labels so it works for both fill and background.
+  function _buildAlphaColorSwatch(color, colorTip, clearTip, onChange) {
+    let hexRgb = "#ffffff";
+    let alpha = 100;
+    if (color && color.length === 9) {
+      hexRgb = color.slice(0, 7);
+      alpha = Math.round(parseInt(color.slice(7, 9), 16) / 255 * 100);
+    } else if (color && color.length === 7) {
+      hexRgb = color;
+    }
+    const buildHexa = () => hexRgb + Math.round(alpha / 100 * 255).toString(16).padStart(2, "0");
     const wrap = document.createElement("div");
     wrap.style.cssText = "position:relative;display:flex;align-items:center;gap:2px;";
     const swatch = document.createElement("div");
     swatch.className = "ais-color-btn";
-    addTooltip(swatch, "Fill color");
-    if (fillColor) {
-      swatch.style.background = fillColor;
-    } else {
-      swatch.style.background = "repeating-conic-gradient(#888 0% 25%,#333 0% 50%) 0 0/8px 8px";
-    }
+    addTooltip(swatch, colorTip);
+    swatch.style.background = color || "repeating-conic-gradient(#888 0% 25%,#333 0% 50%) 0 0/8px 8px";
     const pickerInput = document.createElement("input");
-    pickerInput.type = "color";
-    pickerInput.value = fillColor || "#ffffff";
-    pickerInput.className = "ais-color-input";
-    pickerInput.addEventListener("input", () => {
-      swatch.style.background = pickerInput.value;
-      onChangeColor(pickerInput.value, false);
-    });
-    pickerInput.addEventListener("change", () => onChangeColor(pickerInput.value, true));
+    pickerInput.type = "color"; pickerInput.value = hexRgb; pickerInput.className = "ais-color-input";
+    pickerInput.addEventListener("input", () => { hexRgb = pickerInput.value; swatch.style.background = buildHexa(); onChange(buildHexa(), false); });
+    pickerInput.addEventListener("change", () => onChange(buildHexa(), true));
     swatch.addEventListener("click", () => pickerInput.click());
+    const opacitySlider = document.createElement("input");
+    opacitySlider.type = "range"; opacitySlider.className = "ais-range";
+    opacitySlider.min = 0; opacitySlider.max = 100; opacitySlider.value = alpha;
+    opacitySlider.style.width = "50px";
+    opacitySlider.addEventListener("input", () => { alpha = Number(opacitySlider.value); swatch.style.background = buildHexa(); onChange(buildHexa(), false); });
+    opacitySlider.addEventListener("change", () => onChange(buildHexa(), true));
     const clearBtn = document.createElement("button");
-    clearBtn.className = "ais-tool-btn";
-    addTooltip(clearBtn, "No fill");
+    clearBtn.className = "ais-tool-btn"; addTooltip(clearBtn, clearTip);
     clearBtn.style.cssText = "width:16px;height:16px;font-size:11px;padding:0;";
     clearBtn.textContent = "✕";
-    clearBtn.addEventListener("pointerdown", (e) => {
-      e.stopPropagation();
-      swatch.style.background = "repeating-conic-gradient(#888 0% 25%,#333 0% 50%) 0 0/8px 8px";
-      onChangeColor("", true);
-    });
-    wrap.appendChild(swatch);
-    wrap.appendChild(pickerInput);
-    wrap.appendChild(clearBtn);
+    clearBtn.addEventListener("pointerdown", (e) => { e.stopPropagation(); swatch.style.background = "repeating-conic-gradient(#888 0% 25%,#333 0% 50%) 0 0/8px 8px"; onChange("", true); });
+    wrap.appendChild(swatch); wrap.appendChild(pickerInput); wrap.appendChild(opacitySlider); wrap.appendChild(clearBtn);
     settingsArea.appendChild(wrap);
   }
 
@@ -240,7 +240,7 @@ export function createSettings(settingsArea, {
       if (doEmit) emit();
     });
     if (isShape) {
-      _buildFillColorSwatch(ts.fill_color || "", (col, doEmit) => {
+      _buildAlphaColorSwatch(ts.fill_color || "", "Fill color", "No fill", (col, doEmit) => {
         const s = getState();
         s.toolSettings[activeTool].fill_color = col;
         setCurrentValue({ ...s.currentValue, tool_settings: { ...s.toolSettings } });
@@ -249,7 +249,7 @@ export function createSettings(settingsArea, {
       });
     }
     if (activeTool === "text") {
-      _buildFillColorSwatch(ts.bg_color || "", (col, doEmit) => {
+      _buildAlphaColorSwatch(ts.bg_color || "", "Background color", "No background", (col, doEmit) => {
         const s = getState();
         s.toolSettings.text.bg_color = col;
         setCurrentValue({ ...s.currentValue, tool_settings: { ...s.toolSettings } });
@@ -260,6 +260,7 @@ export function createSettings(settingsArea, {
               a.id === s.textEditId ? { ...a, bg_color: col } : a
             ),
           });
+          if (s.textInput) s.textInput.style.background = col || "transparent";
         }
         renderCanvas();
         if (doEmit) emit();
@@ -358,7 +359,7 @@ export function createSettings(settingsArea, {
     });
 
     if (isShape) {
-      _buildFillColorSwatch(ann.fill_color || "", (col, doEmit) => {
+      _buildAlphaColorSwatch(ann.fill_color || "", "Fill color", "No fill", (col, doEmit) => {
         applySingleUpdate(ann.id, (a) => ({ ...a, fill_color: col }));
         const s = getState();
         s.toolSettings[ann.type].fill_color = col;
@@ -368,11 +369,12 @@ export function createSettings(settingsArea, {
       });
     }
     if (ann.type === "text") {
-      _buildFillColorSwatch(ann.bg_color || "", (col, doEmit) => {
+      _buildAlphaColorSwatch(ann.bg_color || "", "Background color", "No background", (col, doEmit) => {
         applySingleUpdate(ann.id, (a) => ({ ...a, bg_color: col }));
         const s = getState();
         s.toolSettings.text.bg_color = col;
         setCurrentValue({ ...s.currentValue, tool_settings: { ...s.toolSettings } });
+        if (s.textInput && s.textEditId === ann.id) s.textInput.style.background = col || "transparent";
         renderCanvas();
         if (doEmit) emit();
       });

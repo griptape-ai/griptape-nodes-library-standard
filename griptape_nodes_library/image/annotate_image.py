@@ -234,31 +234,41 @@ class AnnotateImage(DataNode):
         bg_color_str = ann.get("bg_color", "") or ""
         bg_color = self._parse_color(bg_color_str) if bg_color_str else None
         pad = font_size * 0.15
+        n_lines = len(text.split("\n"))
+        line_height = font_size * 1.2  # matches JS lineHeight = fontSize * 1.2
 
-        if not rotation or overlay is None:
+        def _draw_on(d: ImageDraw.ImageDraw, tx: float, ty: float) -> None:
+            """Draw bg rect + text at (tx, ty) on draw surface d."""
             if bg_color:
-                bbox = draw.multiline_textbbox((x, y), text, font=font, spacing=spacing, align=text_align)
-                draw.rectangle(
-                    [bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad],
+                bbox = d.multiline_textbbox((tx, ty), text, font=font, spacing=spacing, align=text_align)
+                d.rectangle(
+                    [bbox[0] - pad, ty - pad, bbox[2] + pad, ty + line_height * n_lines + pad],
                     fill=bg_color,
                 )
-            draw.text((x, y), text, font=font, fill=color, spacing=spacing, align=text_align)
+            d.text((tx, ty), text, font=font, fill=color, spacing=spacing, align=text_align)
+
+        if not rotation or overlay is None:
+            _draw_on(draw, x, y)
             return
 
-        # Rotated text: render onto a transparent temp image, rotate, composite back.
-        # PIL rotates counter-clockwise; canvas rotates clockwise — negate the angle.
-        temp = Image.new("RGBA", overlay.size, (0, 0, 0, 0))
+        # Rotated text: draw onto an oversized temp so long text isn't clipped before
+        # rotation. The padding must be at least the longest text dimension so the text
+        # can extend past any canvas edge without being cropped pre-rotation.
+        _bbox_check = draw.multiline_textbbox((0, 0), text, font=font, spacing=spacing, align=text_align)
+        text_w = _bbox_check[2] - _bbox_check[0]
+        rot_pad = int(math.ceil(max(text_w, line_height * n_lines))) + int(pad) + 4
+
+        temp = Image.new("RGBA", (overlay.width + 2 * rot_pad, overlay.height + 2 * rot_pad), (0, 0, 0, 0))
         temp_draw = ImageDraw.Draw(temp)
-        if bg_color:
-            bbox = temp_draw.multiline_textbbox((x, y), text, font=font, spacing=spacing, align=text_align)
-            temp_draw.rectangle(
-                [bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad],
-                fill=bg_color,
-            )
-        temp_draw.text((x, y), text, font=font, fill=color, spacing=spacing, align=text_align)
+        _draw_on(temp_draw, x + rot_pad, y + rot_pad)
+
         degrees = -math.degrees(rotation)
-        rotated = temp.rotate(degrees, resample=Image.Resampling.BICUBIC, expand=False, center=(x, y))
-        overlay.alpha_composite(rotated)
+        rotated = temp.rotate(
+            degrees, resample=Image.Resampling.BICUBIC, expand=False,
+            center=(x + rot_pad, y + rot_pad),
+        )
+        cropped = rotated.crop((rot_pad, rot_pad, rot_pad + overlay.width, rot_pad + overlay.height))
+        overlay.alpha_composite(cropped)
 
     def _draw_arrow(self, draw: ImageDraw.ImageDraw, ann: dict) -> None:
         x1, y1 = float(ann.get("x1", 0)), float(ann.get("y1", 0))

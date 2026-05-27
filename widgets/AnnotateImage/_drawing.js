@@ -82,7 +82,12 @@ export function createDrawing(getState) {
     const textAlign = ann.text_align || "left";
     ctx.save();
     ctx.font = `${fontSize}px sans-serif`;
+    ctx.textBaseline = "top";
     const maxW = Math.max(1, ...lines.map((l) => ctx.measureText(l).width));
+    const { actualBoundingBoxDescent: bgDesc } = ctx.measureText(lines[0] || " ");
+    // Shift glyphs down within the bg rect so they appear vertically centered (leading distributed equally above and below).
+    // The bg rect stays anchored at ann.x,ann.y so it matches the tx frame exactly.
+    const topShift = (lineHeight - bgDesc) / 2;
     ctx.translate(ann.x || 0, ann.y || 0);
     ctx.rotate(ann.rotation || 0);
     if (ann.bg_color) {
@@ -91,11 +96,10 @@ export function createDrawing(getState) {
       ctx.fillRect(-pad, -pad, maxW + pad * 2, lineHeight * lines.length + pad * 2);
     }
     ctx.fillStyle = ann.color || DEFAULT_COLOR;
-    ctx.textBaseline = "top";
     ctx.textAlign = textAlign;
     const tx = textAlign === "center" ? maxW / 2 : textAlign === "right" ? maxW : 0;
     for (let i = 0; i < lines.length; i++) {
-      ctx.fillText(lines[i], tx, i * lineHeight);
+      ctx.fillText(lines[i], tx, topShift + i * lineHeight);
     }
     if (isHovered(ann) && !selected) {
       ctx.textAlign = "left";
