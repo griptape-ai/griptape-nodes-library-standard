@@ -202,6 +202,31 @@ async def get_video_duration(video_url: str) -> float:
     Raises:
         ValueError: If the video cannot be parsed or ffprobe fails
     """
+    cmd = _build_ffprobe_duration_cmd(video_url)
+    try:
+        result = await subprocess_run(cmd, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        msg = f"ffprobe failed for {video_url}: {e.stderr}"
+        raise ValueError(msg) from e
+    return _parse_ffprobe_duration(result.stdout, video_url)
+
+
+def get_video_duration_sync(video_url: str) -> float:
+    """Synchronous variant of :func:`get_video_duration`.
+
+    Suitable for use from sync contexts such as ``validate_before_node_run``,
+    where awaiting the async helper isn't possible.
+    """
+    cmd = _build_ffprobe_duration_cmd(video_url)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)  # noqa: S603
+    except subprocess.CalledProcessError as e:
+        msg = f"ffprobe failed for {video_url}: {e.stderr}"
+        raise ValueError(msg) from e
+    return _parse_ffprobe_duration(result.stdout, video_url)
+
+
+def _build_ffprobe_duration_cmd(video_url: str) -> list[str]:
     try:
         _ffmpeg_path, ffprobe_path = static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()
     except Exception as e:
@@ -214,7 +239,7 @@ async def get_video_duration(video_url: str) -> float:
         msg = f"Could not resolve video path {video_url!r}: {e}"
         raise ValueError(msg) from e
 
-    cmd = [
+    return [
         ffprobe_path,
         "-v",
         "quiet",
@@ -226,24 +251,22 @@ async def get_video_duration(video_url: str) -> float:
         resolved_path,
     ]
 
+
+def _parse_ffprobe_duration(stdout: str, video_url: str) -> float:
     try:
-        result = await subprocess_run(cmd, capture_output=True, text=True, check=True)
-        streams_data = json.loads(result.stdout)
-
-        if streams_data.get("streams") and len(streams_data["streams"]) > 0:
-            video_stream = streams_data["streams"][0]
-            duration_str = video_stream.get("duration", "0")
-            if duration_str and duration_str != "N/A":
-                return float(duration_str)
-
-    except subprocess.CalledProcessError as e:
-        msg = f"ffprobe failed for {video_url}: {e.stderr}"
-        raise ValueError(msg) from e
+        streams_data = json.loads(stdout)
     except json.JSONDecodeError as e:
         msg = f"ffprobe returned invalid JSON for {video_url}"
         raise ValueError(msg) from e
 
-    return 0.0
+    streams = streams_data.get("streams") or []
+    if not streams:
+        return 0.0
+
+    duration_str = streams[0].get("duration", "0")
+    if not duration_str or duration_str == "N/A":
+        return 0.0
+    return float(duration_str)
 
 
 def smpte_to_seconds(tc: str, rate: float, *, drop_frame: bool | None = None) -> float:

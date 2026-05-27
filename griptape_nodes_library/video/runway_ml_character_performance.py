@@ -21,7 +21,7 @@ from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.cloud_upload import upload_artifact_with_content_type
-from griptape_nodes_library.utils.video_utils import get_video_duration
+from griptape_nodes_library.utils.video_utils import get_video_duration_sync
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -428,13 +428,7 @@ class RunwayMLCharacterPerformance(GriptapeProxyNode):
             return None
 
         try:
-            import asyncio
-
-            duration = asyncio.run(get_video_duration(url))
-        except RuntimeError:
-            # Already inside a running loop; the duration check is best-effort
-            # and can be skipped — server-side validation will catch out-of-range cases.
-            return None
+            duration = get_video_duration_sync(url)
         except Exception as e:
             logger.debug("%s could not determine reference video duration: %s", self.name, e)
             return None
