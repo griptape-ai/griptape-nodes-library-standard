@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import threading
 from abc import ABC, abstractmethod
 from contextlib import suppress
 from typing import Any
@@ -13,7 +14,9 @@ from urllib.parse import urljoin
 import httpx
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
+from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.proxy.proxy_api_key_providers import get_proxy_api_key_provider_config
@@ -29,6 +32,7 @@ STATUS_RUNNING = "RUNNING"
 STATUS_ERRORED = "ERRORED"
 STATUS_FAILED = "FAILED"
 STATUS_COMPLETED = "COMPLETED"
+STATUS_TIMED_OUT = "TIMED_OUT"
 
 
 class GriptapeProxyNode(SuccessFailureNode, ABC):
@@ -87,6 +91,54 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         self._api_key_provider = ProxyAuthProviderParameter(node=self, provider_config=provider_config)
         self._api_key_provider.add_parameters()
+
+    def _create_status_parameters(
+        self,
+        *,
+        result_details_tooltip: str = "Details about the operation result",
+        result_details_placeholder: str = "Details on the operation will be presented here.",
+        parameter_group_initially_collapsed: bool = True,
+    ) -> None:
+        super()._create_status_parameters(
+            result_details_tooltip=result_details_tooltip,
+            result_details_placeholder=result_details_placeholder,
+            parameter_group_initially_collapsed=parameter_group_initially_collapsed,
+        )
+        # Inject generation_id, generation_status, and a Refresh button into the Status group.
+        # The button is the affordance that lets users recover a result after timeout
+        # without re-running the workflow.
+        status_group = self.status_component.get_parameter_group()
+        status_group.add_child(
+            ParameterString(
+                name="generation_id",
+                default_value="",
+                tooltip="Griptape Cloud generation ID. Preserved across timeouts and failures so the result can be recovered via the Refresh button.",
+                allowed_modes={ParameterMode.OUTPUT},
+                settable=False,
+                hide=True,
+                hide_property=True,
+            )
+        )
+        status_group.add_child(
+            ParameterString(
+                name="generation_status",
+                default_value="",
+                tooltip="Latest known status of the generation (e.g., RUNNING, COMPLETED, TIMED_OUT).",
+                allowed_modes={ParameterMode.OUTPUT},
+                settable=False,
+            )
+        )
+        status_group.add_child(
+            ParameterButton(
+                name="generation_refresh",
+                label="Refresh / Retrieve Result",
+                icon="refresh-cw",
+                variant="secondary",
+                full_width=True,
+                tooltip="Re-check the generation status and pull the result onto the node if completed.",
+                on_click=self._on_refresh_clicked,
+            )
+        )
 
     def register_user_auth_info(self, user_auth_info: str | None) -> None:
         """Register optional user auth info to send with generation submissions."""
@@ -339,10 +391,14 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         if status == STATUS_COMPLETED:
             return True, result_json
 
+        generation_id = self.parameter_output_values.get("generation_id", "") or ""
+
         if status in [STATUS_FAILED, STATUS_ERRORED]:
             logger.error("%s: Generation failed with status: %s", self.name, status)
             logger.error("%s: Error response: %s", self.name, result_json)
             self._set_safe_defaults()
+            self.parameter_output_values["generation_id"] = generation_id
+            self.parameter_output_values["generation_status"] = status
             error_message = self._extract_error_message(result_json)
             logger.error("%s: Extracted error message: %s", self.name, error_message)
             if not error_message:
@@ -355,6 +411,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         if status == STATUS_CANCELLED:
             logger.info("%s: Generation cancelled.", self.name)
             self._set_safe_defaults()
+            self.parameter_output_values["generation_id"] = generation_id
+            self.parameter_output_values["generation_status"] = status
             status_detail = result_json.get("status_detail", {})
             details = ""
             if isinstance(status_detail, dict):
@@ -406,6 +464,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
                     status = result_json.get("status", "unknown")
                     self._log(f"Status: {status}")
+                    self.parameter_output_values["generation_status"] = status
 
                     is_terminal, terminal_result = self._handle_terminal_status(status, result_json)
                     if is_terminal:
@@ -439,12 +498,18 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                         return None
                     await asyncio.sleep(poll_interval)
 
-        # Timeout reached
+        # Timeout reached — preserve generation_id so the user can recover via Refresh
         self._log("Polling timed out waiting for result")
         self._set_safe_defaults()
+        self.parameter_output_values["generation_id"] = generation_id
+        self.parameter_output_values["generation_status"] = STATUS_TIMED_OUT
         self._set_status_results(
             was_successful=False,
-            result_details=f"Generation timed out after {timeout_s} seconds waiting for result.",
+            result_details=(
+                f"Generation `{generation_id}` did not finish within {timeout_s} seconds. "
+                f"It may still be running on Griptape Cloud — click the refresh icon on the "
+                f"`generation_status` parameter to re-check and pull the result onto this node."
+            ),
         )
         return None
 
@@ -566,9 +631,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._handle_submission_error(e)
             return None
 
-        # Store generation_id if output parameter exists
-        if "generation_id" in self.parameter_output_values:
-            self.parameter_output_values["generation_id"] = generation_id
+        # Store generation_id so the Refresh affordance can recover the result on timeout/failure.
+        # Subclasses declare a `generation_id` output parameter; writing here surfaces the value to the UI.
+        self.parameter_output_values["generation_id"] = generation_id
 
         # Poll for completion
         status_response = await self._poll_generation_status(generation_id, headers)
@@ -589,6 +654,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         # Clear execution status at the start
         self._clear_execution_status()
+        self.parameter_output_values["generation_id"] = ""
+        self.parameter_output_values["generation_status"] = ""
 
         try:
             self._prepare_user_auth_info()
@@ -620,6 +687,139 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             await self._parse_result(result_json, generation_id)
         except Exception as e:
             self._handle_result_parsing_error(e)
+
+    def _on_refresh_clicked(self, _button: Any, _details: Any) -> None:
+        """Sync entry point for the Refresh button — bridges into the async refresh flow.
+
+        Button.on_click_callback is invoked synchronously from a thread that may already
+        have a running event loop, so we run the coroutine on a dedicated worker thread
+        with its own fresh loop to avoid `RuntimeError: This event loop is already running`.
+        """
+
+        def _runner() -> None:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self._refresh_async())
+            finally:
+                loop.close()
+
+        thread = threading.Thread(target=_runner, name=f"{self.name}-refresh", daemon=True)
+        thread.start()
+        thread.join()
+
+    async def _fetch_status_for_refresh(self, generation_id: str, headers: dict[str, str]) -> dict[str, Any] | None:
+        """Single GET against the generations status endpoint for the Refresh flow.
+
+        Sets failure status and returns None on HTTP/transport errors.
+        """
+        get_url = urljoin(self._proxy_base, f"generations/{generation_id}")
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(get_url, headers=headers, timeout=60)
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPStatusError as e:
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"Failed to fetch status for `{generation_id}`: HTTP {e.response.status_code}",
+            )
+        except Exception as e:
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"Failed to fetch status for `{generation_id}`: {e}",
+            )
+        return None
+
+    async def _refresh_completed(self, generation_id: str) -> None:
+        """Fetch and parse the result onto the node."""
+        result_json = await self._fetch_generation_result(generation_id)
+        if not result_json:
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"Generation `{generation_id}` is COMPLETED, but fetching the result failed. See node logs.",
+            )
+            return
+        if "provider_response" in self.parameter_output_values:
+            self.parameter_output_values["provider_response"] = result_json
+        try:
+            await self._parse_result(result_json, generation_id)
+        except Exception as e:
+            self._handle_result_parsing_error(e)
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"Generation `{generation_id}` completed, but parsing the result failed: {e}",
+            )
+            return
+        self._set_status_results(
+            was_successful=True,
+            result_details=f"Refreshed: generation `{generation_id}` completed and result was retrieved.",
+        )
+
+    def _refresh_render_status(self, generation_id: str, status: str, status_json: dict[str, Any]) -> None:
+        """Update result_details for non-completed states."""
+        if status in (STATUS_FAILED, STATUS_ERRORED):
+            error_message = self._extract_error_message(status_json)
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"Generation `{generation_id}` ended with status {status}.\n\n{error_message}",
+            )
+            return
+
+        if status == STATUS_CANCELLED:
+            status_detail = status_json.get("status_detail", {})
+            details = ""
+            if isinstance(status_detail, dict):
+                details = status_detail.get("details") or ""
+            body = (
+                f"Generation `{generation_id}` was cancelled.\n\n{details}"
+                if details
+                else f"Generation `{generation_id}` was cancelled."
+            )
+            self._set_status_results(was_successful=False, result_details=body)
+            return
+
+        # QUEUED / RUNNING / unknown — still in flight
+        self._set_status_results(
+            was_successful=False,
+            result_details=(
+                f"Generation `{generation_id}` is still in progress (status: {status}). "
+                f"Click the refresh icon again to re-check."
+            ),
+        )
+
+    async def _refresh_async(self) -> None:
+        """Re-check the generation status and pull the result if it has completed.
+
+        A single GET to /generations/{id}; never re-enters the polling loop.
+        """
+        generation_id = (self.parameter_output_values.get("generation_id") or "").strip()
+        if not generation_id:
+            self._set_status_results(
+                was_successful=False,
+                result_details="No generation ID is available on this node yet. Run the node first to submit a generation.",
+            )
+            return
+
+        try:
+            api_key = self._validate_api_key()
+        except ValueError as e:
+            self._set_status_results(was_successful=False, result_details=f"Cannot refresh: {e}")
+            return
+
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        status_json = await self._fetch_status_for_refresh(generation_id, headers)
+        if status_json is None:
+            return
+
+        status = status_json.get("status", "unknown")
+        self.parameter_output_values["generation_status"] = status
+
+        if status == STATUS_COMPLETED:
+            await self._refresh_completed(generation_id)
+            return
+
+        self._refresh_render_status(generation_id, status, status_json)
 
     async def aprocess(self) -> None:
         """Async processing entry point."""

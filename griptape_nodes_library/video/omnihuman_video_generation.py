@@ -167,15 +167,6 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
 
         # OUTPUTS
         self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Griptape Cloud generation identifier",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide=True,
-            )
-        )
-
-        self.add_parameter(
             ParameterVideo(
                 name="video_url",
                 tooltip="Generated video URL artifact",

@@ -128,15 +128,6 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
 
         # OUTPUTS
         self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Griptape Cloud generation id",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide=True,
-            )
-        )
-
-        self.add_parameter(
             Parameter(
                 name="provider_response",
                 output_type="dict",

@@ -88,16 +88,6 @@ class ElevenLabsSoundEffectGeneration(GriptapeProxyNode):
 
         # OUTPUTS
         self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Generation ID from the API",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide_property=True,
-                hide=True,
-            )
-        )
-
-        self.add_parameter(
             ParameterAudio(
                 name="audio_url",
                 tooltip="Generated sound effect audio as URL artifact",

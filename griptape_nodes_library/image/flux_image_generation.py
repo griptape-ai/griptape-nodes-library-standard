@@ -162,18 +162,6 @@ class FluxImageGeneration(GriptapeProxyNode):
 
         # OUTPUTS
         self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Generation ID from the API",
-                allow_input=False,
-                allow_property=False,
-                allow_output=True,
-                hide_property=True,
-                hide=True,
-            )
-        )
-
-        self.add_parameter(
             ParameterDict(
                 name="provider_response",
                 tooltip="Verbatim response from the API",
