@@ -1095,6 +1095,8 @@ export default function AnnotateImageSimple(container, props) {
   wrapper.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     if (!isAltHeld && activeTool !== "hand") return;
+    // Let clicks on the sidebar and settings bar through so tool buttons remain clickable.
+    if (sidebar.contains(e.target) || settingsBar.contains(e.target)) return;
     e.preventDefault();
     e.stopPropagation();
 

@@ -63,21 +63,21 @@ class AnnotateImage(DataNode):
         )
 
         self.add_parameter(
-            ParameterImage(
-                name="output_image",
-                tooltip="Image with annotations composited",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide_property=True
-            )
-        )
-
-        self.add_parameter(
             ParameterDict(
                 name="output_annotation_data",
                 default_value=_default_annotation_data(),
                 tooltip="Canvas annotations (paint, text, arrows)",
                 allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT},
                 traits={Widget(name="AnnotateImageSimple", library="Griptape Nodes Library")},
+            )
+        )
+
+        self.add_parameter(
+            ParameterImage(
+                name="output_image",
+                tooltip="Image with annotations composited",
+                allowed_modes={ParameterMode.OUTPUT},
+                hide_property=True
             )
         )
 
