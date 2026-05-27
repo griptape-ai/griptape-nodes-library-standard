@@ -419,6 +419,18 @@ export function createSettings(settingsArea, {
       renderCanvas();
       if (doEmit) emit();
     });
+
+    const shapeAnns = anns.filter((a) => a.type === "rect" || a.type === "ellipse");
+    if (shapeAnns.length) {
+      const firstFill = shapeAnns.find((a) => a.fill_color)?.fill_color || "";
+      _buildAlphaColorSwatch(firstFill, "Fill color", "No fill", (col, doEmit) => {
+        const shapeIds = shapeAnns.map((a) => a.id);
+        const { annotations, overrides } = applyAnnotationMap(shapeIds, (a) => ({ ...a, fill_color: col }));
+        setCurrentValue({ ...getState().currentValue, annotations, overrides });
+        renderCanvas();
+        if (doEmit) emit();
+      });
+    }
   }
 
   return { buildToolSettings, buildAnnotationSettings, buildMultiSettings };

@@ -409,6 +409,10 @@ export default function AnnotateImageSimple(container, props) {
     viewScale = 1;
     panX = 0;
     panY = 0;
+    // Recompute center offsets from current canvasWrap dimensions, then apply.
+    // applyCanvasScale only calls _applyViewTransform conditionally, so call it again
+    // to guarantee the reset values are always applied.
+    applyCanvasScale();
     _applyViewTransform();
     if (resetViewBtn) {
       resetViewBtn.style.opacity = "0.4";

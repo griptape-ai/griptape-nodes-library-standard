@@ -43,22 +43,22 @@ class AnnotateImage(DataNode):
         super().__init__(**kwargs)
 
         self.add_parameter(
-            ParameterDict(
-                name="input_annotation_data",
-                default_value=None,
-                tooltip="Annotation data to import from another node (overrides can be applied in canvas)",
-                allowed_modes={ParameterMode.INPUT},
-                hide_property=True,
-            )
-        )
-
-        self.add_parameter(
             ParameterImage(
                 name="input_image",
                 default_value=None,
                 tooltip="Input image to annotate",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
                 hide_property=True
+            )
+        )
+        
+        self.add_parameter(
+            ParameterDict(
+                name="input_annotation_data",
+                default_value=None,
+                tooltip="Annotation data to import from another node (overrides can be applied in canvas)",
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
             )
         )
 
