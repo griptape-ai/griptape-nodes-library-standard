@@ -80,15 +80,6 @@ class OmnihumanSubjectRecognition(GriptapeProxyNode):
 
         # OUTPUTS
         self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Griptape Cloud generation identifier",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide=True,
-            )
-        )
-
-        self.add_parameter(
             ParameterBool(
                 name="contains_subject",
                 tooltip="Whether the image contains human or human-like subjects",
