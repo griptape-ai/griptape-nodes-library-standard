@@ -237,25 +237,25 @@ export default function AnnotateImageSimple(container, props) {
   // regardless of how wide the left settings grow.
   const settingsBar = document.createElement("div");
   settingsBar.style.cssText =
-    "display:grid;grid-template-columns:1fr auto 1fr;align-items:center;" +
+    "position:relative;display:flex;align-items:center;" +
     "padding:4px 8px;background:var(--card);" +
-    "border-bottom:1px solid var(--border);flex-shrink:0;min-height:38px;column-gap:8px;";
+    "border-bottom:1px solid var(--border);flex-shrink:0;min-height:38px;";
 
   // Left: tool-dependent settings (size, color, alignment, etc.)
   const settingsArea = document.createElement("div");
   settingsArea.style.cssText =
-    "display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;justify-content:flex-start;";
+    "display:flex;align-items:center;gap:6px;flex:1;min-width:0;overflow:hidden;";
   settingsBar.appendChild(settingsArea);
 
-  // Center: HUD actions (group, layer, delete) — shown only when selection exists
+  // Center: HUD actions — absolutely centered so it never displaces left/right sections.
   const hudEl = document.createElement("div");
   hudEl.className = "ais-hud";
-  hudEl.style.display = "none";
+  hudEl.style.cssText = "position:absolute;left:50%;transform:translateX(-50%);display:none;";
   settingsBar.appendChild(hudEl);
 
   // Right: fit-to-canvas + expand
   const rightControls = document.createElement("div");
-  rightControls.style.cssText = "display:flex;align-items:center;gap:2px;justify-content:flex-end;";
+  rightControls.style.cssText = "display:flex;align-items:center;gap:2px;flex-shrink:0;";
 
   resetViewBtn = document.createElement("button");
   resetViewBtn.className = "ais-tool-btn";
