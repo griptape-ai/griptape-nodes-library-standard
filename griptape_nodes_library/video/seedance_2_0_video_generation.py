@@ -51,7 +51,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         - prompt (str): Text prompt for the video
         - model_id (str): Model to use (default: Seedance 2.0)
         - input_mode (str): "Text Only", "First/Last Frame", or "Multimodal References" (default: Text Only)
-        - resolution (str): Output resolution (default: 720p, options: 480p, 720p)
+        - resolution (str): Output resolution (default: 720p, options: 480p, 720p, 1080p [Seedance 2.0 only])
         - ratio (str): Output aspect ratio (default: adaptive)
         - duration (int): Video duration in seconds (default: 5, range: 4-15 or -1 for smart)
         - generate_audio (bool): Generate audio with video (default: False)
@@ -225,9 +225,9 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             ParameterString(
                 name="resolution",
                 default_value="720p",
-                tooltip="Output resolution (480p or 720p)",
+                tooltip="Output resolution (480p, 720p, or 1080p; 1080p is Seedance 2.0 only)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["480p", "720p"])},
+                traits={Options(choices=["480p", "720p", "1080p"])},
             )
 
             ParameterString(
@@ -335,6 +335,8 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         input_mode = self.get_parameter_value("input_mode") or INPUT_MODE_TEXT_ONLY
         model_id = self._get_api_model_id()
 
+        self._update_resolution_options(model_id)
+
         if input_mode == INPUT_MODE_MULTIMODAL_REFERENCES:
             # Show multimodal inputs, hide first/last frame
             self.hide_parameter_by_name("first_frame")
@@ -391,6 +393,23 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         else:
             self.hide_parameter_by_name("reference_video_3")
             self.hide_message_by_name("artifact_url_parameter_message_reference_video_3")
+
+    def _update_resolution_options(self, model_id: str) -> None:
+        """Update resolution choices based on selected model (1080p is Seedance 2.0 only)."""
+        resolution_param = self.get_parameter_by_name("resolution")
+        if resolution_param is None:
+            return
+
+        available_resolutions = ["480p", "720p", "1080p"] if self._supports_1080p(model_id) else ["480p", "720p"]
+
+        existing_traits = resolution_param.find_elements_by_type(Options)
+        if existing_traits:
+            resolution_param.remove_trait(trait_type=existing_traits[0])
+        resolution_param.add_trait(Options(choices=available_resolutions))
+
+        current_resolution = self.get_parameter_value("resolution")
+        if current_resolution not in available_resolutions:
+            self.set_parameter_value("resolution", "720p")
 
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation."""
@@ -547,9 +566,12 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             msg = f"{self.name}: Seedance 2.0 supports duration between 4-15 seconds or -1 for smart selection, got {duration}."
             raise ValueError(msg)
 
-        # 2.0 doesn't support 1080p
-        if params.get("resolution") == "1080p":
-            msg = f"{self.name}: Seedance 2.0 models do not support 1080p resolution. Use 480p or 720p."
+        # 1080p is only supported on Seedance 2.0 (not Fast)
+        if params.get("resolution") == "1080p" and not self._supports_1080p(params["model_id"]):
+            msg = (
+                f"{self.name}: Seedance 2.0 Fast does not support 1080p resolution. "
+                "Use 480p or 720p, or switch to Seedance 2.0 for 1080p generation."
+            )
             raise ValueError(msg)
 
     async def _build_payload(self) -> dict[str, Any]:
@@ -863,6 +885,10 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
 
     @staticmethod
     def _supports_last_frame(model_id: str) -> bool:
+        return model_id == SEEDANCE_2_0_MODEL_ID
+
+    @staticmethod
+    def _supports_1080p(model_id: str) -> bool:
         return model_id == SEEDANCE_2_0_MODEL_ID
 
     @staticmethod
