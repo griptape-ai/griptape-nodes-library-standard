@@ -74,6 +74,8 @@ class XmlExtractValue(DataNode):
                     msg = f"{self.name}: Invalid XPath expression '{path}': {e}"
                     raise ValueError(msg) from e
 
+                if not isinstance(results, list):
+                    results = [results]
                 if not results:
                     result_str = ""
                 elif len(results) == 1:

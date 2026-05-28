@@ -70,15 +70,18 @@ class XmlReplace(ControlNode):
                     msg = f"{self.name}: Invalid XPath expression '{path}': {e}"
                     raise ValueError(msg) from e
 
+                if not isinstance(targets, list):
+                    targets = [targets]
                 for target in targets:
                     if isinstance(target, etree._Element):
                         for child in list(target):
                             target.remove(child)
                         target.text = replacement
-                    elif hasattr(target, "getparent"):
-                        parent = target.getparent()
-                        if parent is not None:
-                            parent.set(target.attrname, replacement)
+                    elif isinstance(target, str) and hasattr(target, "attrname"):
+                        parent = target.getparent()  # type: ignore[union-attr]
+                        attrname = target.attrname  # type: ignore[union-attr]
+                        if parent is not None and attrname is not None:
+                            parent.set(attrname, replacement)
 
             result_str = etree.tostring(root, encoding="unicode", pretty_print=True).strip()
 
