@@ -57,7 +57,9 @@ class LocalPublisher:
                         f"Attempted to publish workflow '{self._workflow_name}'. "
                         f"Failed because the workflow has not been saved to disk."
                     ),
-                    exception=ValueError(f"Workflow '{self._workflow_name}' has no file_path; save it before publishing."),
+                    exception=ValueError(
+                        f"Workflow '{self._workflow_name}' has no file_path; save it before publishing."
+                    ),
                 )
             destination = Path(str(destination_path).strip()) / self._workflow_name
 
