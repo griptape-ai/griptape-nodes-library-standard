@@ -79,7 +79,9 @@ def build_ffmpeg_cmd(
 
     - stream_copy=True uses -c copy (fast, keyframe-aligned)
     - accurate_seek=True places -ss/-to AFTER -i (decode-based seek, more accurate)
-    - keep_all_streams=True adds -map 0 to keep audio/subs/timecode.
+    - keep_all_streams=True adds -map 0 to keep audio/subs, while dropping
+      data streams (e.g. mov/mp4 tmcd timecode tracks) that the mp4 muxer
+      cannot write and that otherwise fail header writing with -c copy.
     """
     Path(outdir).mkdir(parents=True, exist_ok=True)
     base = sanitize_filename(seg.title)
@@ -103,7 +105,10 @@ def build_ffmpeg_cmd(
         cmd += ["-i", input_path, "-ss", ss, "-to", to]
 
     if config.keep_all_streams:
-        cmd += ["-map", "0"]
+        # Keep all streams but exclude data streams (e.g. tmcd timecode tracks
+        # produced by mov/mp4 sources), which the mp4 muxer cannot write under
+        # -c copy and would otherwise abort with "Could not write header".
+        cmd += ["-map", "0", "-map", "-0:d"]
 
     if use_stream_copy:
         cmd += ["-c", "copy"]
