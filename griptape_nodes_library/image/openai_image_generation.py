@@ -6,7 +6,7 @@ import re
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, ParameterMessage, ParameterMode
+from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -54,6 +54,13 @@ class OpenAiImageGeneration(GriptapeProxyNode):
     GPT_IMAGE_2_DEFAULT_CUSTOM_HEIGHT: ClassVar[int] = 1024
     QUALITY_OPTIONS: ClassVar[list[str]] = ["low", "medium", "high"]
     BACKGROUND_OPTIONS: ClassVar[list[str]] = ["auto", "opaque", "transparent"]
+    # Only gpt-image-1 supports transparent backgrounds; gpt-image-1.5 and gpt-image-2 reject
+    # background="transparent" at the API level.
+    BACKGROUND_OPTIONS_BY_MODEL: ClassVar[dict[str, list[str]]] = {
+        GPT_IMAGE_1_MODEL_NAME: ["auto", "opaque", "transparent"],
+        GPT_IMAGE_1_5_MODEL_NAME: ["auto", "opaque"],
+        GPT_IMAGE_2_MODEL_NAME: ["auto", "opaque"],
+    }
     MODERATION_OPTIONS: ClassVar[list[str]] = ["auto", "low"]
     OUTPUT_FORMAT_OPTIONS: ClassVar[list[str]] = ["png", "jpeg", "webp"]
     MAX_REFERENCE_IMAGES: ClassVar[int] = 16
@@ -145,24 +152,6 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             )
         )
 
-        self.add_node_element(
-            ParameterMessage(
-                name="custom_size_help",
-                title="GPT Image 2 custom width and height rules",
-                variant="info",
-                value=(
-                    f"* Multiples of {self.GPT_IMAGE_2_EDGE_MULTIPLE}px\n"
-                    f"* Max edge length of {self.GPT_IMAGE_2_MAX_EDGE_LENGTH}px\n"
-                    f"* Aspect ratio ≤ {self.GPT_IMAGE_2_MAX_ASPECT_RATIO}:1\n"
-                    f"* Total pixels between {self.GPT_IMAGE_2_MIN_PIXELS:,} and "
-                    f"{self.GPT_IMAGE_2_MAX_PIXELS:,}.\n"
-                    "\nThe aspect-ratio and total-pixel rules are checked at execution time and will list every rule that fails."
-                ),
-                ui_options={"markdown": True},
-                hide=not is_initial_custom,
-            )
-        )
-
         self.add_parameter(
             ParameterList(
                 name="input_images",
@@ -194,12 +183,16 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                 traits={Options(choices=self.QUALITY_OPTIONS)},
             )
 
+            initial_background_choices = self._background_choices_for_model(self.DEFAULT_MODEL)
             ParameterString(
                 name="background",
-                default_value="auto",
-                tooltip="Background handling. Transparent backgrounds require PNG or WEBP output.",
+                default_value=initial_background_choices[0],
+                tooltip=(
+                    "Background handling. Transparent backgrounds are only supported on GPT Image 1 "
+                    "and require PNG or WEBP output."
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=self.BACKGROUND_OPTIONS)},
+                traits={Options(choices=initial_background_choices)},
             )
 
             ParameterString(
@@ -229,16 +222,6 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             )
 
         self.add_node_element(generation_settings_group)
-
-        self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Generation ID from the API",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide_property=True,
-                hide=True,
-            )
-        )
 
         self.add_parameter(
             ParameterDict(
@@ -287,6 +270,10 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             return list(cls.GPT_IMAGE_2_SIZE_OPTIONS)
         return list(cls.GPT_IMAGE_SIZE_OPTIONS)
 
+    @classmethod
+    def _background_choices_for_model(cls, model_name: str) -> list[str]:
+        return list(cls.BACKGROUND_OPTIONS_BY_MODEL.get(model_name, cls.BACKGROUND_OPTIONS))
+
     def _get_payload_model_id(self) -> str:
         model_name = self.get_parameter_value("model") or self.DEFAULT_MODEL
         return self.MODEL_NAME_MAP[model_name]
@@ -330,6 +317,25 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         self.publish_update_to_parameter("size", choices[0])
         self._sync_custom_size_visibility(model_name, choices[0])
 
+    def _sync_background_options_for_model(self, model_name: str) -> None:
+        background_param = self.get_parameter_by_name("background")
+        if background_param is None:
+            return
+
+        choices = self._background_choices_for_model(model_name)
+
+        existing_traits = background_param.find_elements_by_type(Options)
+        if existing_traits:
+            background_param.remove_trait(trait_type=existing_traits[0])
+        background_param.add_trait(Options(choices=choices))
+
+        current_background = self.get_parameter_value("background")
+        if current_background in choices:
+            return
+
+        self.set_parameter_value("background", choices[0])
+        self.publish_update_to_parameter("background", choices[0])
+
     def _sync_custom_size_visibility(self, model_name: str, size_value: Any) -> None:
         show_custom = model_name == GPT_IMAGE_2_MODEL_NAME and size_value == self.GPT_IMAGE_2_CUSTOM_SIZE
         for param_name in ("custom_width", "custom_height"):
@@ -337,10 +343,22 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                 self.show_parameter_by_name(param_name)
             else:
                 self.hide_parameter_by_name(param_name)
-        if show_custom:
-            self.show_message_by_name("custom_size_help")
-        else:
-            self.hide_message_by_name("custom_size_help")
+        size_param = self.get_parameter_by_name("size")
+        if size_param is not None:
+            if show_custom:
+                size_param.set_badge(
+                    "help",
+                    title="Custom size rules",
+                    message=(
+                        f"- Multiples of `{self.GPT_IMAGE_2_EDGE_MULTIPLE}px`\n"
+                        f"- Max edge length: `{self.GPT_IMAGE_2_MAX_EDGE_LENGTH}px`\n"
+                        f"- Aspect ratio ≤ `{self.GPT_IMAGE_2_MAX_ASPECT_RATIO}:1`\n"
+                        f"- Total pixels: `{self.GPT_IMAGE_2_MIN_PIXELS:,}` – `{self.GPT_IMAGE_2_MAX_PIXELS:,}`\n\n"
+                        "*Aspect-ratio and pixel rules are validated at run time.*"
+                    ),
+                )
+            else:
+                size_param.clear_badge()
 
     def _resolve_effective_size(self) -> str:
         size_value = (self.get_parameter_value("size") or "").strip()
@@ -391,6 +409,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
     def _react_to_parameter_change(self, param_name: str, value: Any, *, sync_only: bool) -> None:
         if param_name == "model" and isinstance(value, str):
             self._sync_size_options_for_model(value)
+            self._sync_background_options_for_model(value)
 
         if param_name == "size" and isinstance(value, str):
             current_model = self.get_parameter_value("model") or self.DEFAULT_MODEL

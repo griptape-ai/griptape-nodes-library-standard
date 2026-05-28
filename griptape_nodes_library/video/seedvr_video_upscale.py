@@ -13,7 +13,6 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
-from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
@@ -141,29 +140,9 @@ class SeedVRVideoUpscale(GriptapeProxyNode):
             self._seed_parameter = SeedParameter(self)
             self._seed_parameter.add_input_parameters(inside_param_group=True)
 
-            # Polling timeout (0 = no timeout)
-            ParameterInt(
-                name="timeout",
-                default_value=1000,
-                tooltip="Polling timeout in seconds. Set to 0 for no timeout.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                min_val=0,
-                max_val=86400,
-            )
-
         self.add_node_element(generation_settings_group)
 
         # OUTPUTS
-        self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                output_type="str",
-                tooltip="Griptape Cloud generation id",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide=True,
-            )
-        )
-
         self.add_parameter(
             ParameterDict(
                 name="provider_response",
@@ -226,11 +205,6 @@ class SeedVRVideoUpscale(GriptapeProxyNode):
 
     async def _process_generation(self) -> None:
         self.preprocess()
-        timeout_s = float(self.get_parameter_value("timeout") or 0)
-        if timeout_s > 0:
-            poll_interval = self.DEFAULT_POLL_INTERVAL
-            self.DEFAULT_MAX_ATTEMPTS = max(1, int((timeout_s + poll_interval - 1) // poll_interval))
-
         try:
             await super()._process_generation()
         finally:

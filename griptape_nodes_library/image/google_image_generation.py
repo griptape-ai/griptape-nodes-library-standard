@@ -225,15 +225,6 @@ class GoogleImageGeneration(GriptapeProxyNode):
         self.add_node_element(generation_settings_group)
         # OUTPUTS
         self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Griptape Cloud generation ID",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide=True,
-            )
-        )
-
-        self.add_parameter(
             ParameterDict(
                 name="provider_response",
                 tooltip="Verbatim response from API (final result)",

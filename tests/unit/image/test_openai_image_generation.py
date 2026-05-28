@@ -73,6 +73,7 @@ def test_validate_rejects_invalid_gpt_image_1_size(node: OpenAiImageGeneration) 
 
 
 def test_validate_rejects_transparent_jpeg(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", "GPT Image 1")
     node.set_parameter_value("prompt", "A red circle")
     node.set_parameter_value("background", "transparent")
     node.set_parameter_value("output_format", "jpeg")
@@ -259,6 +260,51 @@ async def test_parse_result_saves_base64_images(
     assert Path(first_artifact.value).read_bytes() == image_1_bytes
     assert Path(second_artifact.value).read_bytes() == image_2_bytes
     assert node.parameter_output_values["was_successful"] is True
+
+
+def _background_choices(node: OpenAiImageGeneration) -> list[str]:
+    background_param = node.get_parameter_by_name("background")
+    assert background_param is not None
+    options_traits = background_param.find_elements_by_type(Options)
+    assert options_traits, "background parameter is missing an Options trait"
+    return list(options_traits[0].choices)
+
+
+@pytest.mark.parametrize(
+    ("model_name", "expected_choices"),
+    [
+        ("GPT Image 1", ["auto", "opaque", "transparent"]),
+        ("GPT Image 1.5", ["auto", "opaque"]),
+        ("GPT Image 2", ["auto", "opaque"]),
+    ],
+)
+def test_background_options_update_when_model_changes(
+    node: OpenAiImageGeneration, model_name: str, expected_choices: list[str]
+) -> None:
+    node.set_parameter_value("model", model_name)
+
+    assert _background_choices(node) == expected_choices
+
+
+def test_default_model_omits_transparent_background(node: OpenAiImageGeneration) -> None:
+    assert "transparent" not in _background_choices(node)
+
+
+def test_switching_to_unsupported_model_resets_transparent_background(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_1_MODEL_NAME)
+    node.set_parameter_value("background", "transparent")
+
+    node.set_parameter_value("model", GPT_IMAGE_2_MODEL_NAME)
+
+    assert node.get_parameter_value("background") == "auto"
+
+
+def test_switching_to_supported_model_preserves_opaque_background(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("background", "opaque")
+
+    node.set_parameter_value("model", GPT_IMAGE_1_MODEL_NAME)
+
+    assert node.get_parameter_value("background") == "opaque"
 
 
 def test_default_model_uses_display_name(node: OpenAiImageGeneration) -> None:

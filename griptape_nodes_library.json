@@ -29,7 +29,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.75.0",
+    "library_version": "0.78.0",
     "engine_version": "0.82.0",
     "tags": [
       "Griptape",
@@ -1175,6 +1175,17 @@
         "display_name": "Flip Video",
         "icon": "flip-horizontal",
         "group": "edit"
+      }
+    },
+    {
+      "class_name": "BlurVideo",
+      "file_path": "griptape_nodes_library/video/blur_video.py",
+      "metadata": {
+        "category": "video",
+        "description": "Blur a video using fast ffmpeg filters (boxblur, gblur, avgblur) with adjustable radius/sigma",
+        "display_name": "Blur Video",
+        "icon": "droplets",
+        "group": "effects"
       }
     },
     {
@@ -2798,6 +2809,18 @@
         "category": "execution_flow",
         "description": "Group node that iterates over a list or dictionary, executing child nodes for each item",
         "display_name": "ForEach Group",
+        "icon": "repeat",
+        "group": "iteration",
+        "is_node_group": true
+      }
+    },
+    {
+      "class_name": "ForLoopGroupNode",
+      "file_path": "griptape_nodes_library/execution/for_loop_group.py",
+      "metadata": {
+        "category": "execution_flow",
+        "description": "Group node that iterates over a numeric range, executing child nodes for each iteration",
+        "display_name": "For Loop Group",
         "icon": "repeat",
         "group": "iteration",
         "is_node_group": true

@@ -277,16 +277,6 @@ class Rodin23DGeneration(GriptapeProxyNode):
 
         # OUTPUTS
         self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Generation ID from the API",
-                allow_input=False,
-                allow_property=False,
-                hide=True,
-            )
-        )
-
-        self.add_parameter(
             ParameterDict(
                 name="provider_response",
                 tooltip="Verbatim response from Griptape model proxy",
