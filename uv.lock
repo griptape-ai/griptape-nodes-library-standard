@@ -554,7 +554,25 @@ loaders-pdf = [
 
 [[package]]
 name = "griptape-nodes"
-version = "0.82.0"
+version = "0.85.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "griptape-nodes-engine" },
+    { name = "websockets" },
+    { name = "xdg-base-dirs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/66/56/7c99079d149a5fcd3e8cb36d0b7b71ff4d310eb4104526ba61a3dbd8e15c/griptape_nodes-0.85.2.tar.gz", hash = "sha256:0cff59687e0c937eb60e13dceb656c5faa40350c1104623c0c6b0556e71010e6", size = 346590, upload-time = "2026-05-27T21:10:21.254Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/db/29/b76c35e1303207254acde253a010a16ccc9d2521b6a5f77da03752eebec0/griptape_nodes-0.85.2-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:bb8e6a27bffb229a5281973b7ad800b0ebbcb6f3dfafa94a79cf6a00cd3dd596", size = 4350083, upload-time = "2026-05-27T21:10:18.357Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/49/4c2072869c99cfd12458a98400b23c7efc586b00cba353e50dadb06c8e5e/griptape_nodes-0.85.2-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:bcc529ae764e8a1befbb2b38c7bcc5699f26e95de5ef1183c196cdab9045c843", size = 4211622, upload-time = "2026-05-27T21:10:12.234Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/0d/11a0e329acdc893f7bdf9ac5e8cfcac419af9613c2b3c78fa6a94229082c/griptape_nodes-0.85.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:d2d240754fe92fbef5891c2618acb6427c3b3d38a4763c7c32d4c84bc9906ed8", size = 7234183, upload-time = "2026-05-27T21:10:14.538Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/03/b3225d8a4d3c4d693007de26f83282697bae129e74edd406382c235ce473/griptape_nodes-0.85.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:97cb4317a3c0c014862b72970aecb67b916dfb90224d5511828657c0f1c30b85", size = 6815415, upload-time = "2026-05-27T21:10:16.488Z" },
+    { url = "https://files.pythonhosted.org/packages/e3/e4/b9f60cf8d07a6de90832863403528a5419dec6e16bd8728b7a31639b85b7/griptape_nodes-0.85.2-cp312-cp312-win_amd64.whl", hash = "sha256:c9e84c5080d38ccc72b5ea60fb436cdabf6b6686e8d98bd4df4b5bdc01709eea", size = 3692518, upload-time = "2026-05-27T21:10:20.039Z" },
+]
+
+[[package]]
+name = "griptape-nodes-engine"
+version = "0.85.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -589,9 +607,9 @@ dependencies = [
     { name = "websockets" },
     { name = "xdg-base-dirs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/75/c5/5c4b04f2178288227bd99d07a1aab748a3f5522f22b2e524b23720a1aaf2/griptape_nodes-0.82.0.tar.gz", hash = "sha256:956b4c39868d1682b6058f16b08234ba72523496b74b088cd8c2e1e3b656c71a", size = 743745, upload-time = "2026-04-29T16:23:47.474Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/25/65/6d78b2c7ab27824189a8c49d7313ae1a0a5f4e98e7c4ca8a1d374d36422b/griptape_nodes_engine-0.85.1.tar.gz", hash = "sha256:d78cc4861a961fd3d02e565bfaf4d18efb8a9e1b82cd0eb2cf738acb5508380b", size = 789730, upload-time = "2026-05-27T20:50:36.759Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6d/ae/26917005879cf06851794dd02174d037059c99317d6ed406bbd2c4b401dc/griptape_nodes-0.82.0-py3-none-any.whl", hash = "sha256:31dfc4ee5b598df8bb26686a102ddd69c6818666cb1ef2398a7e2afb51868d54", size = 952156, upload-time = "2026-04-29T16:23:49.216Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/50/a4511e0824b5491c6ff04a00f3ebb6aae2214084e41d081b06446ca892f6/griptape_nodes_engine-0.85.1-py3-none-any.whl", hash = "sha256:475e98f30f0cdfdcae1121dfabb8ec91b470e1ff6fb53ce6aba1dc0d3db72c94", size = 1004082, upload-time = "2026-05-27T20:50:35.2Z" },
 ]
 
 [[package]]
@@ -606,6 +624,7 @@ dependencies = [
     { name = "jmespath" },
     { name = "json-repair" },
     { name = "json-schema-to-pydantic" },
+    { name = "lxml" },
     { name = "numpy" },
     { name = "pillow" },
     { name = "scikit-learn" },
@@ -616,6 +635,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "lxml-stubs" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -627,10 +647,11 @@ requires-dist = [
     { name = "asteval", specifier = ">=1.0.8" },
     { name = "color-matcher" },
     { name = "griptape", extras = ["drivers-prompt-amazon-bedrock", "drivers-prompt-anthropic", "drivers-prompt-cohere", "drivers-prompt-ollama", "drivers-web-scraper-trafilatura", "drivers-web-search-duckduckgo", "drivers-web-search-exa", "loaders-image", "loaders-pdf"], specifier = ">=1.9.4" },
-    { name = "griptape-nodes", specifier = ">=0.82.0" },
+    { name = "griptape-nodes", specifier = ">=0.85.1" },
     { name = "jmespath", specifier = ">=1.0.1" },
     { name = "json-repair", specifier = ">=0.46.1" },
     { name = "json-schema-to-pydantic", specifier = ">=0.4.6" },
+    { name = "lxml", specifier = ">=5.0.0" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "pillow", specifier = ">=11.2.1" },
     { name = "scikit-learn", specifier = ">=1.3.0" },
@@ -641,6 +662,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "lxml-stubs", specifier = ">=0.5.1" },
     { name = "pyright", specifier = ">=1.1.396" },
     { name = "pytest" },
     { name = "pytest-asyncio", specifier = ">=0.21.0" },
@@ -1030,6 +1052,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/9a/a4/5c62acfacd69ff4f5db395100f5cfb9b54e7ac8c69a235e4e939fd13f021/lxml_html_clean-0.4.4.tar.gz", hash = "sha256:58f39a9d632711202ed1d6d0b9b47a904e306c85de5761543b90e3e3f736acfb", size = 23899, upload-time = "2026-02-27T09:35:52.911Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d9/76/7ffc1d3005cf7749123bc47cb3ea343cd97b0ac2211bab40f57283577d0e/lxml_html_clean-0.4.4-py3-none-any.whl", hash = "sha256:ce2ef506614ecb85ee1c5fe0a2aa45b06a19514ec7949e9c8f34f06925cfabcb", size = 14565, upload-time = "2026-02-27T09:35:51.86Z" },
+]
+
+[[package]]
+name = "lxml-stubs"
+version = "0.5.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/99/da/1a3a3e5d159b249fc2970d73437496b908de8e4716a089c69591b4ffa6fd/lxml-stubs-0.5.1.tar.gz", hash = "sha256:e0ec2aa1ce92d91278b719091ce4515c12adc1d564359dfaf81efa7d4feab79d", size = 14778, upload-time = "2024-01-10T09:37:46.521Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1f/c9/e0f8e4e6e8a69e5959b06499582dca6349db6769cc7fdfb8a02a7c75a9ae/lxml_stubs-0.5.1-py3-none-any.whl", hash = "sha256:1f689e5dbc4b9247cb09ae820c7d34daeb1fdbd1db06123814b856dae7787272", size = 13584, upload-time = "2024-01-10T09:37:44.931Z" },
 ]
 
 [[package]]

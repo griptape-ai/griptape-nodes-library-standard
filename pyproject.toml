@@ -17,7 +17,8 @@ dependencies = [
   "asteval>=1.0.8",
   "color-matcher",
   "zstandard>=0.22.0",
-  "griptape-nodes>=0.82.0",
+  "griptape-nodes>=0.85.1",
+  "lxml>=5.0.0",
 ]
 
 [build-system]
@@ -53,7 +54,7 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [dependency-groups]
-dev = ["pyright>=1.1.396", "pytest-asyncio>=0.21.0", "ruff>=0.8.0", "pytest"]
+dev = ["pyright>=1.1.396", "pytest-asyncio>=0.21.0", "ruff>=0.8.0", "pytest", "lxml-stubs>=0.5.1"]
 
 [tool.pyright]
 venvPath = "."
