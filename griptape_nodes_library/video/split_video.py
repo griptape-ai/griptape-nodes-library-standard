@@ -79,6 +79,7 @@ def build_ffmpeg_cmd(
 
     - stream_copy=True uses -c copy (fast, keyframe-aligned)
     - accurate_seek=True places -ss/-to AFTER -i (decode-based seek, more accurate)
+      when re-encoding. With -c copy this is forced to input-side seek (see below).
     - keep_all_streams=True adds -map 0 to keep audio/subs, while dropping
       data streams (e.g. mov/mp4 tmcd timecode tracks) that the mp4 muxer
       cannot write and that otherwise fail header writing with -c copy.
@@ -98,8 +99,13 @@ def build_ffmpeg_cmd(
     use_stream_copy = config.stream_copy and duration >= MIN_SEGMENT_DURATION_FOR_STREAM_COPY and seg.start_sec == 0.0
 
     cmd = ["ffmpeg", "-hide_banner", "-y"]
-    # accurate seek puts -ss/-to after -i; fast seek places before
-    if not config.accurate_seek:
+    # Seek placement: input-side (-ss/-to before -i) vs output-side (after -i).
+    # Output-side seek is more accurate when re-encoding, but with -c copy it
+    # silently drops every video packet on current ffmpeg builds (even at -ss 0),
+    # leaving an audio-only file that reports NaN resolution. The copy path only
+    # runs when seg.start_sec == 0.0, where input-side seek is already exact, so
+    # force input-side seek whenever we stream-copy.
+    if use_stream_copy or not config.accurate_seek:
         cmd += ["-ss", ss, "-to", to, "-i", input_path]
     else:
         cmd += ["-i", input_path, "-ss", ss, "-to", to]
