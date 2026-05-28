@@ -6,7 +6,7 @@ from contextlib import suppress
 from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -15,6 +15,7 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
@@ -60,6 +61,15 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         "Seedance 1.0 Pro Fast": "seedance-1-0-pro-fast-251015",
     }
 
+    # Deprecated models and their replacements (covers both friendly names and raw provider IDs
+    # so saved workflows in either format are migrated)
+    DEPRECATED_MODELS: ClassVar[dict[str, str]] = {
+        "Seedance 1.0 Lite T2V": "Seedance 1.0 Pro Fast",
+        "seedance-1-0-lite-t2v-250428": "Seedance 1.0 Pro Fast",
+        "Seedance 1.0 Lite I2V": "Seedance 1.0 Pro Fast",
+        "seedance-1-0-lite-i2v-250428": "Seedance 1.0 Pro Fast",
+    }
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.category = "API Nodes"
@@ -85,6 +95,23 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
                         ]
                     )
                 },
+            )
+        )
+
+        self.add_node_element(
+            ParameterMessage(
+                name="model_deprecation_notice",
+                title="Model Deprecation Notice",
+                variant="info",
+                value="",
+                traits={
+                    Button(
+                        full_width=True,
+                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
+                    )
+                },
+                button_text="Dismiss",
+                hide=True,
             )
         )
 
@@ -206,6 +233,24 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         # Set initial parameter visibility based on default model
         default_provider_model_id = self._get_provider_model_id("Seedance 1.5 Pro")
         self._update_parameter_visibility(default_provider_model_id)
+
+    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
+        """Migrate deprecated model selections to their replacement."""
+        if parameter.name == "model_id" and isinstance(value, str) and value in self.DEPRECATED_MODELS:
+            replacement = self.DEPRECATED_MODELS[value]
+            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
+            if message is None:
+                raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
+            message.value = (
+                f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. "
+                "Please save your workflow to apply this change."
+            )
+            self.show_message_by_name("model_deprecation_notice")
+            value = replacement
+        elif parameter.name == "model_id" and isinstance(value, str):
+            self.hide_message_by_name("model_deprecation_notice")
+
+        return super().before_value_set(parameter, value)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to show/hide dependent parameters based on model capabilities.

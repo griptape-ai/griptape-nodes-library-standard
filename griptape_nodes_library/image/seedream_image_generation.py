@@ -9,13 +9,20 @@ from io import BytesIO
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import (
+    Parameter,
+    ParameterGroup,
+    ParameterList,
+    ParameterMessage,
+    ParameterMode,
+)
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 from PIL import Image
@@ -91,6 +98,15 @@ MAX_IMAGES_PER_MODEL = {
     "Seedream 4.0": 10,
 }
 
+# Deprecated models and their replacements (covers both friendly names and raw provider IDs
+# so saved workflows in either format are migrated)
+DEPRECATED_MODELS = {
+    "Seedream 3.0 T2I": "Seedream 5.0 Lite",
+    "seedream-3-0-t2i-250415": "Seedream 5.0 Lite",
+    "Seedream 3.0 I2I": "Seedream 4.0",
+    "seededit-3-0-i2i-250628": "Seedream 4.0",
+}
+
 
 class SeedreamImageGeneration(GriptapeProxyNode):
     """Generate images using Seedream models via Griptape model proxy.
@@ -145,6 +161,23 @@ class SeedreamImageGeneration(GriptapeProxyNode):
                         ]
                     )
                 },
+            )
+        )
+
+        self.add_node_element(
+            ParameterMessage(
+                name="model_deprecation_notice",
+                title="Model Deprecation Notice",
+                variant="info",
+                value="",
+                traits={
+                    Button(
+                        full_width=True,
+                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
+                    )
+                },
+                button_text="Dismiss",
+                hide=True,
             )
         )
 
@@ -297,6 +330,24 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         else:  # Seedream 4.5
             self.hide_parameter_by_name("output_format")
             self.hide_parameter_by_name("optimize_prompt_mode")
+
+    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
+        """Migrate deprecated model selections to their replacement."""
+        if parameter.name == "model" and isinstance(value, str) and value in DEPRECATED_MODELS:
+            replacement = DEPRECATED_MODELS[value]
+            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
+            if message is None:
+                raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
+            message.value = (
+                f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. "
+                "Please save your workflow to apply this change."
+            )
+            self.show_message_by_name("model_deprecation_notice")
+            value = replacement
+        elif parameter.name == "model" and isinstance(value, str):
+            self.hide_message_by_name("model_deprecation_notice")
+
+        return super().before_value_set(parameter, value)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Update size options and parameter visibility based on parameter changes."""
