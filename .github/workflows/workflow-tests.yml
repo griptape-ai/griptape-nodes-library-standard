@@ -2,7 +2,11 @@ name: Workflow Tests
 
 on:
   push:
-    branches: ["main"]
+    # TEMP: feat/runwayml-proxy-node added to validate the new RunwayML nodes
+    # against the Cloud proxy via real workflow tests. Remove before merge.
+    branches: ["main", "feat/runwayml-proxy-node"]
+  pull_request:
+    branches: ["feat/runwayml-proxy-node"]
   merge_group:
     types: [checks_requested]
 
@@ -47,4 +51,6 @@ jobs:
         # --timeout-method=signal so a single hung provider fails one test
         # rather than killing the whole pytest run; --timeout-method=thread
         # cannot preempt the asyncio event loop.
-        run: pytest -v --timeout=600 --timeout-method=signal tests/workflows/test_integration_workflows.py
+        # TEMP: -k runway scopes the run to the new RunwayML nodes on
+        # feat/runwayml-proxy-node. Remove before merge.
+        run: pytest -v --timeout=600 --timeout-method=signal -k runway tests/workflows/test_integration_workflows.py

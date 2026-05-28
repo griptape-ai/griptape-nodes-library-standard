@@ -24,4 +24,9 @@ FLOW_INPUTS: dict[str, dict] = {
     "test_elevenlabs_music_generation.py": {"Start Flow": {"prompt": "Upbeat jazz"}},
     "test_seedance_2_0.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_seedance_2_0_fast.py": {"Start Flow": {"prompt": "A ball bouncing"}},
+    "test_runway_ml_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
+    "test_runway_ml_video_to_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
+    "test_runway_ml_character_performance.py": {
+        "Start Flow": {"prompt": "A person speaking and gesturing toward the camera"}
+    },
 }

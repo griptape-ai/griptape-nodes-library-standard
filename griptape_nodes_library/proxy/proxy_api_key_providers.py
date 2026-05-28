@@ -90,6 +90,11 @@ TRIPO = ProxyApiKeyProviderConfig(
     provider_name="Tripo 3D",
     api_key_url="https://platform.tripo3d.ai/api-keys",
 )
+RUNWAYML = ProxyApiKeyProviderConfig(
+    api_key_name="RUNWAYML_API_KEY",
+    provider_name="RunwayML",
+    api_key_url="https://app.runwayml.com/",
+)
 
 _NODE_PROVIDER_CONFIGS = {
     "ElevenLabsMusicGeneration": ELEVENLABS,
@@ -119,6 +124,10 @@ _NODE_PROVIDER_CONFIGS = {
     "QwenImageEdit": DASHSCOPE,
     "QwenImageGeneration": DASHSCOPE,
     "Rodin23DGeneration": RODIN,
+    "RunwayMLCharacterPerformance": RUNWAYML,
+    "RunwayMLImageGeneration": RUNWAYML,
+    "RunwayMLVideoGeneration": RUNWAYML,
+    "RunwayMLVideoToVideoGeneration": RUNWAYML,
     "SeedanceVideoGeneration": SEED,
     "Seedance20VideoGeneration": SEED,
     "SeedreamImageGeneration": SEED,
