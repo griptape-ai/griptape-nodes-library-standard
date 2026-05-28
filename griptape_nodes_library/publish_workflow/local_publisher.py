@@ -51,6 +51,14 @@ class LocalPublisher:
                 )
 
             workflow = WorkflowRegistry.get_workflow_by_name(self._workflow_name)
+            if workflow.file_path is None:
+                return PublishWorkflowResultFailure(
+                    result_details=(
+                        f"Attempted to publish workflow '{self._workflow_name}'. "
+                        f"Failed because the workflow has not been saved to disk."
+                    ),
+                    exception=ValueError(f"Workflow '{self._workflow_name}' has no file_path; save it before publishing."),
+                )
             destination = Path(str(destination_path).strip()) / self._workflow_name
 
             self._packager.emit_progress(5.0, "Preparing output directory...")
