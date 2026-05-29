@@ -24,11 +24,11 @@ __all__ = ["TripoTextTo3DGeneration"]
 TRIPO_MODEL_ID = "tripo-text-to-3d"
 
 MODEL_VERSION_OPTIONS = [
-    "v2.5-20250123",
-    "v3.0-20250812",
-    "v3.1-20260211",
-    "Turbo-v1.0-20250506",
     "P1-20260311",
+    "Turbo-v1.0-20250506",
+    "v3.1-20260211",
+    "v3.0-20250812",
+    "v2.5-20250123",
     "v2.0-20240919",
     "v1.4-20240625",
 ]
@@ -39,6 +39,19 @@ DEFAULT_TEXTURE_QUALITY = "standard"
 
 GEOMETRY_QUALITY_OPTIONS = ["standard", "detailed"]
 DEFAULT_GEOMETRY_QUALITY = "standard"
+
+# Parameters only available on certain model versions
+GEOMETRY_QUALITY_SUPPORTED_VERSIONS = {"v3.0-20250812", "v3.1-20260211"}
+TEXTURE_PARAMS_SUPPORTED_VERSIONS = {"P1-20260311", "Turbo-v1.0-20250506", "v3.1-20260211", "v3.0-20250812", "v2.5-20250123", "v2.0-20240919"}
+
+_MODEL_VERSION_BADGE = (
+    "**P1-20260311** — Premium flagship model\n"
+    "**Turbo-v1.0-20250506** — Fastest generation\n"
+    "**v3.1-20260211** / **v3.0-20250812** — High quality with geometry control\n"
+    "**v2.5-20250123** / **v2.0-20240919** — Standard quality (default)\n"
+    "**v1.4-20240625** — Legacy; prompt only\n\n"
+    "[Model docs](https://docs.tripo3d.ai/model-generation/text-to-model-p1-20260311.html)"
+)
 
 
 class TripoTextTo3DGeneration(GriptapeProxyNode):
@@ -51,7 +64,7 @@ class TripoTextTo3DGeneration(GriptapeProxyNode):
         - texture (bool): Whether to generate textures (default True)
         - pbr (bool): Whether to produce a PBR material (default True)
         - texture_quality (str): "standard" or "detailed" (HD)
-        - geometry_quality (str): "standard" or "detailed" (v3.0+ only)
+        - geometry_quality (str): "standard" or "detailed" (v3.0/v3.1 only)
 
     Outputs:
         - generation_id (str): Generation ID from the proxy
@@ -86,19 +99,20 @@ class TripoTextTo3DGeneration(GriptapeProxyNode):
             )
         )
 
-        self.add_parameter(
-            ParameterString(
-                name="model_version",
-                default_value=DEFAULT_MODEL_VERSION,
-                tooltip=(
-                    "Tripo model version. v2.5-20250123 is the default. P1-20260311 is the latest "
-                    "premium model (costs more per generation)."
-                ),
-                allow_output=False,
-                traits={Options(choices=MODEL_VERSION_OPTIONS)},
-                ui_options={"display_name": "Model Version"},
-            )
+        model_version_param = ParameterString(
+            name="model_version",
+            default_value=DEFAULT_MODEL_VERSION,
+            tooltip="Tripo model version. See badge for details on what each version supports.",
+            allow_output=False,
+            traits={Options(choices=MODEL_VERSION_OPTIONS)},
+            ui_options={"display_name": "Model Version"},
         )
+        model_version_param.set_badge(
+            variant="info",
+            title="Model Versions",
+            message=_MODEL_VERSION_BADGE,
+        )
+        self.add_parameter(model_version_param)
 
         self.add_parameter(
             ParameterBool(
@@ -135,7 +149,7 @@ class TripoTextTo3DGeneration(GriptapeProxyNode):
             ParameterString(
                 name="geometry_quality",
                 default_value=DEFAULT_GEOMETRY_QUALITY,
-                tooltip="Geometry quality (only honored by model version v3.0 and above).",
+                tooltip="Geometry quality (v3.0 and v3.1 only). 'detailed' costs more.",
                 allow_output=False,
                 traits={Options(choices=GEOMETRY_QUALITY_OPTIONS)},
                 ui_options={"display_name": "Geometry Quality"},
@@ -185,9 +199,32 @@ class TripoTextTo3DGeneration(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
 
+        self._update_parameter_visibility_for_model(DEFAULT_MODEL_VERSION)
+
     def _log(self, message: str) -> None:
         with suppress(Exception):
             logger.info(message)
+
+    def _update_parameter_visibility_for_model(self, model_version: str) -> None:
+        if model_version in TEXTURE_PARAMS_SUPPORTED_VERSIONS:
+            self.show_parameter_by_name("texture")
+            self.show_parameter_by_name("pbr")
+            self.show_parameter_by_name("texture_quality")
+            self.show_parameter_by_name("negative_prompt")
+        else:
+            self.hide_parameter_by_name("texture")
+            self.hide_parameter_by_name("pbr")
+            self.hide_parameter_by_name("texture_quality")
+            self.hide_parameter_by_name("negative_prompt")
+
+        if model_version in GEOMETRY_QUALITY_SUPPORTED_VERSIONS:
+            self.show_parameter_by_name("geometry_quality")
+        else:
+            self.hide_parameter_by_name("geometry_quality")
+
+    def after_value_set(self, parameter: Any, value: Any) -> None:
+        if parameter.name == "model_version":
+            self._update_parameter_visibility_for_model(value)
 
     def _get_api_model_id(self) -> str:
         return TRIPO_MODEL_ID
@@ -198,18 +235,22 @@ class TripoTextTo3DGeneration(GriptapeProxyNode):
             msg = "Prompt is required for Tripo text-to-3D generation."
             raise ValueError(msg)
 
+        model_version = self.get_parameter_value("model_version") or DEFAULT_MODEL_VERSION
         payload: dict[str, Any] = {
             "prompt": prompt,
-            "model_version": self.get_parameter_value("model_version") or DEFAULT_MODEL_VERSION,
-            "texture": bool(self.get_parameter_value("texture")),
-            "pbr": bool(self.get_parameter_value("pbr")),
-            "texture_quality": self.get_parameter_value("texture_quality") or DEFAULT_TEXTURE_QUALITY,
-            "geometry_quality": self.get_parameter_value("geometry_quality") or DEFAULT_GEOMETRY_QUALITY,
+            "model_version": model_version,
         }
 
-        negative_prompt = (self.get_parameter_value("negative_prompt") or "").strip()
-        if negative_prompt:
-            payload["negative_prompt"] = negative_prompt
+        if model_version in TEXTURE_PARAMS_SUPPORTED_VERSIONS:
+            payload["texture"] = bool(self.get_parameter_value("texture"))
+            payload["pbr"] = bool(self.get_parameter_value("pbr"))
+            payload["texture_quality"] = self.get_parameter_value("texture_quality") or DEFAULT_TEXTURE_QUALITY
+            negative_prompt = (self.get_parameter_value("negative_prompt") or "").strip()
+            if negative_prompt:
+                payload["negative_prompt"] = negative_prompt
+
+        if model_version in GEOMETRY_QUALITY_SUPPORTED_VERSIONS:
+            payload["geometry_quality"] = self.get_parameter_value("geometry_quality") or DEFAULT_GEOMETRY_QUALITY
 
         return payload
 

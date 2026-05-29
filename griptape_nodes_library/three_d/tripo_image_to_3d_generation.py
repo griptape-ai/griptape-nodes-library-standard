@@ -25,11 +25,11 @@ __all__ = ["TripoImageTo3DGeneration"]
 TRIPO_MODEL_ID = "tripo-image-to-3d"
 
 MODEL_VERSION_OPTIONS = [
-    "v2.5-20250123",
-    "v3.0-20250812",
-    "v3.1-20260211",
-    "Turbo-v1.0-20250506",
     "P1-20260311",
+    "Turbo-v1.0-20250506",
+    "v3.1-20260211",
+    "v3.0-20250812",
+    "v2.5-20250123",
     "v2.0-20240919",
     "v1.4-20240625",
 ]
@@ -44,6 +44,20 @@ DEFAULT_GEOMETRY_QUALITY = "standard"
 TEXTURE_ALIGNMENT_OPTIONS = ["original_image", "geometry"]
 DEFAULT_TEXTURE_ALIGNMENT = "original_image"
 
+# Parameters only available on certain model versions
+GEOMETRY_QUALITY_SUPPORTED_VERSIONS = {"v3.0-20250812", "v3.1-20260211"}
+TEXTURE_ALIGNMENT_SUPPORTED_VERSIONS = {"P1-20260311", "v3.1-20260211", "v3.0-20250812", "v2.5-20250123", "v2.0-20240919"}
+TEXTURE_PARAMS_SUPPORTED_VERSIONS = {"P1-20260311", "Turbo-v1.0-20250506", "v3.1-20260211", "v3.0-20250812", "v2.5-20250123", "v2.0-20240919"}
+
+_MODEL_VERSION_BADGE = (
+    "**P1-20260311** — Premium flagship model\n"
+    "**Turbo-v1.0-20250506** — Fastest; no texture alignment\n"
+    "**v3.1-20260211** / **v3.0-20250812** — High quality with geometry control\n"
+    "**v2.5-20250123** / **v2.0-20240919** — Standard quality (default)\n"
+    "**v1.4-20240625** — Legacy; basic parameters only\n\n"
+    "[Model docs](https://docs.tripo3d.ai/model-generation/image-to-model-p1-20260311.html)"
+)
+
 
 class TripoImageTo3DGeneration(GriptapeProxyNode):
     """Generate 3D models from a reference image using Tripo via the Griptape model proxy.
@@ -54,7 +68,7 @@ class TripoImageTo3DGeneration(GriptapeProxyNode):
         - texture (bool): Generate textures
         - pbr (bool): Produce a PBR material
         - texture_quality (str): "standard" or "detailed" (HD)
-        - geometry_quality (str): "standard" or "detailed" (v3.0+ only)
+        - geometry_quality (str): "standard" or "detailed" (v3.0/v3.1 only)
         - texture_alignment (str): "original_image" or "geometry"
         - enable_image_autofix (bool): Let Tripo auto-correct the input image
 
@@ -79,19 +93,20 @@ class TripoImageTo3DGeneration(GriptapeProxyNode):
             )
         )
 
-        self.add_parameter(
-            ParameterString(
-                name="model_version",
-                default_value=DEFAULT_MODEL_VERSION,
-                tooltip=(
-                    "Tripo model version. v2.5-20250123 is the default. P1-20260311 is the latest "
-                    "premium model (costs more per generation)."
-                ),
-                allow_output=False,
-                traits={Options(choices=MODEL_VERSION_OPTIONS)},
-                ui_options={"display_name": "Model Version"},
-            )
+        model_version_param = ParameterString(
+            name="model_version",
+            default_value=DEFAULT_MODEL_VERSION,
+            tooltip="Tripo model version. See badge for details on what each version supports.",
+            allow_output=False,
+            traits={Options(choices=MODEL_VERSION_OPTIONS)},
+            ui_options={"display_name": "Model Version"},
         )
+        model_version_param.set_badge(
+            variant="info",
+            title="Model Versions",
+            message=_MODEL_VERSION_BADGE,
+        )
+        self.add_parameter(model_version_param)
 
         self.add_parameter(
             ParameterBool(
@@ -128,7 +143,7 @@ class TripoImageTo3DGeneration(GriptapeProxyNode):
             ParameterString(
                 name="geometry_quality",
                 default_value=DEFAULT_GEOMETRY_QUALITY,
-                tooltip="Geometry quality (only honored by model version v3.0 and above).",
+                tooltip="Geometry quality (v3.0 and v3.1 only). 'detailed' costs more.",
                 allow_output=False,
                 traits={Options(choices=GEOMETRY_QUALITY_OPTIONS)},
                 ui_options={"display_name": "Geometry Quality"},
@@ -203,9 +218,35 @@ class TripoImageTo3DGeneration(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
 
+        self._update_parameter_visibility_for_model(DEFAULT_MODEL_VERSION)
+
     def _log(self, message: str) -> None:
         with suppress(Exception):
             logger.info(message)
+
+    def _update_parameter_visibility_for_model(self, model_version: str) -> None:
+        if model_version in TEXTURE_PARAMS_SUPPORTED_VERSIONS:
+            self.show_parameter_by_name("texture")
+            self.show_parameter_by_name("pbr")
+            self.show_parameter_by_name("texture_quality")
+        else:
+            self.hide_parameter_by_name("texture")
+            self.hide_parameter_by_name("pbr")
+            self.hide_parameter_by_name("texture_quality")
+
+        if model_version in TEXTURE_ALIGNMENT_SUPPORTED_VERSIONS:
+            self.show_parameter_by_name("texture_alignment")
+        else:
+            self.hide_parameter_by_name("texture_alignment")
+
+        if model_version in GEOMETRY_QUALITY_SUPPORTED_VERSIONS:
+            self.show_parameter_by_name("geometry_quality")
+        else:
+            self.hide_parameter_by_name("geometry_quality")
+
+    def after_value_set(self, parameter: Any, value: Any) -> None:
+        if parameter.name == "model_version":
+            self._update_parameter_visibility_for_model(value)
 
     def _get_api_model_id(self) -> str:
         return TRIPO_MODEL_ID
@@ -217,16 +258,23 @@ class TripoImageTo3DGeneration(GriptapeProxyNode):
             msg = "A reference image is required for Tripo image-to-3D generation."
             raise ValueError(msg)
 
+        model_version = self.get_parameter_value("model_version") or DEFAULT_MODEL_VERSION
         payload: dict[str, Any] = {
             "image": data_uri,
-            "model_version": self.get_parameter_value("model_version") or DEFAULT_MODEL_VERSION,
-            "texture": bool(self.get_parameter_value("texture")),
-            "pbr": bool(self.get_parameter_value("pbr")),
-            "texture_quality": self.get_parameter_value("texture_quality") or DEFAULT_TEXTURE_QUALITY,
-            "geometry_quality": self.get_parameter_value("geometry_quality") or DEFAULT_GEOMETRY_QUALITY,
-            "texture_alignment": self.get_parameter_value("texture_alignment") or DEFAULT_TEXTURE_ALIGNMENT,
+            "model_version": model_version,
             "enable_image_autofix": bool(self.get_parameter_value("enable_image_autofix")),
         }
+
+        if model_version in TEXTURE_PARAMS_SUPPORTED_VERSIONS:
+            payload["texture"] = bool(self.get_parameter_value("texture"))
+            payload["pbr"] = bool(self.get_parameter_value("pbr"))
+            payload["texture_quality"] = self.get_parameter_value("texture_quality") or DEFAULT_TEXTURE_QUALITY
+
+        if model_version in TEXTURE_ALIGNMENT_SUPPORTED_VERSIONS:
+            payload["texture_alignment"] = self.get_parameter_value("texture_alignment") or DEFAULT_TEXTURE_ALIGNMENT
+
+        if model_version in GEOMETRY_QUALITY_SUPPORTED_VERSIONS:
+            payload["geometry_quality"] = self.get_parameter_value("geometry_quality") or DEFAULT_GEOMETRY_QUALITY
 
         return payload
 
