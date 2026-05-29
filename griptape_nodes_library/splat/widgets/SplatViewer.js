@@ -7,7 +7,8 @@ import {
 } from "https://esm.sh/@sparkjsdev/spark?deps=three@0.180.0";
 
 const VIEWER_HEIGHT = 640;
-const PRIORITY = ["full_res", "500k", "100k"];
+const PRIORITY = ["full_res", "500k", "100k"];      // auto-select: highest fidelity first
+const DISPLAY_ORDER = ["100k", "500k", "full_res"];  // dropdown: matches parameter order
 const RESOLUTION_LABELS = { "100k": "100k", "500k": "500k", "full_res": "Full Res" };
 const TAG = "[SplatViewer]";
 
@@ -66,7 +67,7 @@ export default function SplatViewer(container, props) {
     border:1px solid #333; border-radius:3px;
     cursor:pointer;
   `;
-  PRIORITY.forEach((key) => {
+  DISPLAY_ORDER.forEach((key) => {
     const opt = document.createElement("option");
     opt.value = key;
     opt.textContent = RESOLUTION_LABELS[key];
