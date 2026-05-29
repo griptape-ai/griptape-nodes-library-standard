@@ -41,6 +41,104 @@ ACTUAL_RATE_30FPS = 30000 / 1001  # ≈ 29.97 fps (NTSC)
 ACTUAL_RATE_60FPS = 60000 / 1001  # ≈ 59.94 fps (NTSC)
 
 
+MIN_SEGMENT_DURATION_FOR_STREAM_COPY = 2.0  # seconds — below this stream copy is unreliable
+MIN_VIDEO_FILE_SIZE = 1024  # bytes — smaller output is suspicious for any real video
+VIDEO_DURATION_BUFFER = 0.1  # seconds — trim end slightly inside duration to avoid keyframe issues
+
+
+def get_ffmpeg_paths() -> tuple[str, str]:
+    """Return (ffmpeg_path, ffprobe_path) from static_ffmpeg."""
+    try:
+        return static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()
+    except Exception as e:
+        error_msg = f"FFmpeg not found. Please ensure static-ffmpeg is properly installed. Error: {e!s}"
+        raise ValueError(error_msg) from e
+
+
+def detect_video_properties(input_url: str, ffprobe_path: str) -> tuple[float, bool, float]:
+    """Return (frame_rate, drop_frame, duration) for a video via ffprobe.
+
+    Falls back to (24.0, False, 0.0) if detection fails.
+    """
+    try:
+        cmd = [
+            ffprobe_path,
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_streams",
+            "-show_format",
+            "-select_streams", "v:0",
+            input_url,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)  # noqa: S603
+        data = json.loads(result.stdout)
+
+        if not data.get("streams"):
+            return 24.0, False, 0.0
+
+        stream = data["streams"][0]
+        r_frame_rate = stream.get("r_frame_rate", "24/1")
+        if "/" in r_frame_rate:
+            num, den = map(int, r_frame_rate.split("/"))
+            frame_rate = num / den
+        else:
+            frame_rate = float(r_frame_rate)
+
+        drop_frame = abs(frame_rate - 29.97) < RATE_TOLERANCE or abs(frame_rate - 59.94) < RATE_TOLERANCE
+
+        duration = 0.0
+        if "format" in data and "duration" in data["format"]:
+            duration = float(data["format"]["duration"])
+        elif "duration" in stream:
+            duration = float(stream["duration"])
+
+        return frame_rate, drop_frame, duration
+
+    except Exception:
+        return 24.0, False, 0.0
+
+
+def build_video_segment_cmd(
+    ffmpeg_path: str,
+    input_path: str,
+    start_sec: float,
+    end_sec: float,
+    output_path: str,
+) -> list[str]:
+    """Build an ffmpeg command to extract a video segment.
+
+    Uses stream copy with fast seek (pre-input -ss/-to) for segments starting at 0
+    with sufficient duration. Uses re-encoding with accurate seek (post-input) otherwise.
+
+    Stream copy requires fast seek — post-input accurate seek with -c copy silently
+    drops video frames for many codecs/containers (e.g. H.264 in MOV/MP4).
+    Data streams like timecode tracks (tmcd) are excluded since MP4 doesn't support them.
+    """
+    ss = seconds_to_ts(start_sec)
+    to = seconds_to_ts(end_sec)
+    duration = end_sec - start_sec
+
+    if duration >= MIN_SEGMENT_DURATION_FOR_STREAM_COPY and start_sec == 0.0:
+        return [
+            ffmpeg_path, "-hide_banner", "-y",
+            "-ss", ss, "-to", to, "-i", input_path,
+            "-map", "0:v", "-map", "0:a?",
+            "-c", "copy",
+            "-movflags", "+faststart",
+            output_path,
+        ]
+
+    return [
+        ffmpeg_path, "-hide_banner", "-y",
+        "-i", input_path, "-ss", ss, "-to", to,
+        "-map", "0:v", "-map", "0:a?",
+        "-c:v", "libx264", "-crf", "18", "-preset", "medium",
+        "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
+        output_path,
+    ]
+
+
 def detect_video_format(video: Any | dict) -> str | None:
     """Detect the video format from the video data.
 
