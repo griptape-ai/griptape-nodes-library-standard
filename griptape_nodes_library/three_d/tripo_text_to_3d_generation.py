@@ -42,7 +42,14 @@ DEFAULT_GEOMETRY_QUALITY = "standard"
 
 # Parameters only available on certain model versions
 GEOMETRY_QUALITY_SUPPORTED_VERSIONS = {"v3.0-20250812", "v3.1-20260211"}
-TEXTURE_PARAMS_SUPPORTED_VERSIONS = {"P1-20260311", "Turbo-v1.0-20250506", "v3.1-20260211", "v3.0-20250812", "v2.5-20250123", "v2.0-20240919"}
+TEXTURE_PARAMS_SUPPORTED_VERSIONS = {
+    "P1-20260311",
+    "Turbo-v1.0-20250506",
+    "v3.1-20260211",
+    "v3.0-20250812",
+    "v2.5-20250123",
+    "v2.0-20240919",
+}
 
 _MODEL_VERSION_BADGE = (
     "**P1-20260311** — Premium flagship model\n"
