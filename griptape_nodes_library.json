@@ -299,6 +299,14 @@
       }
     },
     {
+      "sequence": {
+        "color": "border-slate-500",
+        "title": "Sequence",
+        "description": "Nodes for parsing and inspecting numbered file sequences",
+        "icon": "List-Ordered"
+      }
+    },
+    {
       "workflows": {
         "color": "border-gray-500",
         "title": "Workflows",
@@ -569,6 +577,36 @@
         "description": "Takes a list input and creates output parameters for each item in the list",
         "display_name": "Display List",
         "group": "display"
+      }
+    },
+    {
+      "class_name": "ScanSequenceNode",
+      "file_path": "griptape_nodes_library/sequence/scan_sequence.py",
+      "metadata": {
+        "category": "sequence",
+        "description": "Scan a fileseq template into a flat list of file paths.",
+        "display_name": "Scan Sequence",
+        "group": "scan"
+      }
+    },
+    {
+      "class_name": "ScanSplitSequenceNode",
+      "file_path": "griptape_nodes_library/sequence/scan_split_sequence.py",
+      "metadata": {
+        "category": "sequence",
+        "description": "Scan a fileseq template into one Sequence per contiguous run of present items.",
+        "display_name": "Scan Split Sequence",
+        "group": "scan"
+      }
+    },
+    {
+      "class_name": "InspectSequenceNode",
+      "file_path": "griptape_nodes_library/sequence/inspect_sequence.py",
+      "metadata": {
+        "category": "sequence",
+        "description": "Inspect a Sequence and surface its structural primitives. Pass-through input/output.",
+        "display_name": "Inspect Sequence",
+        "group": "inspect"
       }
     },
     {
