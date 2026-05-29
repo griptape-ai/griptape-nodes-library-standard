@@ -1,578 +1,386 @@
-/**
- * SplatViewer Widget
- *
- * Self-contained Gaussian splat viewer: owns resolution selection, LoD knobs,
- * and the Load trigger button. Receives a `viewer_state` dict from Python:
- *
- *   {
- *     splats: {
- *       "100k":     {url, meta} | null,
- *       "500k":     {url, meta} | null,
- *       "full_res": {url, meta} | null,
- *     },
- *     defaults: { flip_coordinates, enable_lod, lod_scale, max_sh },
- *   }
- *
- * UX flow: user wires splats from upstream or picks local files via the
- * parameter file pickers → widget shows the resolution dropdown (greyed out
- * for resolutions not populated) → user picks a resolution and clicks Load →
- * widget mounts SparkRenderer + SplatMesh and renders. Switching resolution
- * or tweaking options requires another Load click.
- */
-
 import * as THREE from "https://esm.sh/three@0.180.0";
 import {
-  SparkRenderer,
+  SplatFileType,
   SplatMesh,
   SparkControls,
+  SparkRenderer,
 } from "https://esm.sh/@sparkjsdev/spark?deps=three@0.180.0";
 
-const WIDGET_VERSION = "0.5.0";
 const VIEWER_HEIGHT = 640;
-const STAGE_MESSAGE_CLASS = "splat-stage-overlay-msg";
-
-// Module-level counter to confirm whether the framework is re-invoking the
-// widget on value changes. If the widget IS being called multiple times but
-// we're treating each as a fresh mount, that's a us bug. If it's only called
-// once, that's a framework propagation issue.
-let __MOUNT_COUNTER = 0;
-
-const RESOLUTION_KEYS = ["100k", "500k", "full_res"];
+const PRIORITY = ["full_res", "500k", "100k"];
 const RESOLUTION_LABELS = { "100k": "100k", "500k": "500k", "full_res": "Full Res" };
+const TAG = "[SplatViewer]";
 
 export default function SplatViewer(container, props) {
-  const { value, onChange, disabled } = props;
-  const state = parseViewerState(value);
-
-  // UI state — kept in closure so re-renders don't lose user selections.
-  let selectedResolution = pickDefaultResolution(state);
-  let options = { ...state.defaults };
-  let viewerCleanup = null;
-  let loadedFor = null; // {resolution, options} of the currently mounted viewer
-
-  __MOUNT_COUNTER += 1;
-  const myInvocation = __MOUNT_COUNTER;
-  console.log(`[SplatViewer] invocation #${myInvocation}`, {
-    valueType: typeof value,
-    splatsWired: state.splats ? Object.entries(state.splats).filter(([, v]) => v).map(([k]) => k) : [],
-    diagCount: (state.diag || []).length,
-    selectedResolution,
+  console.info(TAG, "mount called", {
+    valueSnippet: typeof props.value === "string" ? props.value.slice(0, 120) : props.value,
+    propsHeight: props.height,
+    containerSize: { w: container.clientWidth, h: container.clientHeight },
   });
 
-  // resolutionSelect is exposed so applyUpdatedState can patch it in-place.
-  let resolutionSelect = null;
+  const { value } = props;
+  const height = (props.height && props.height > 0) ? props.height : VIEWER_HEIGHT;
 
-  const wrapper = el("div", {
-    className: "splat-viewer-lab nodrag nowheel",
-    style: `
-      display: flex; flex-direction: column;
-      width: 100%;
-      background: #0a0a0a;
-      border-radius: 6px;
-      overflow: hidden;
-      user-select: none;
-      box-sizing: border-box;
-    `,
-  });
+  let currentUrl = null;
+  let currentRefreshKey = null;
+  let sceneCleanup = null;
+  let selectedKey = null;   // user's current picker selection
+  let currentSplats = {};   // latest parsed splats map
+  let selectEl = null;      // reference to the <select> element
+
+  // ---------- outer wrapper -------------------------------------------------
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "splat-viewer-widget nodrag nowheel";
+  wrapper.style.cssText = `
+    position:relative; width:100%; height:${height}px;
+    overflow:hidden; display:flex; flex-direction:column;
+  `;
   ["pointerdown", "mousedown", "wheel", "keydown"].forEach((evt) =>
     wrapper.addEventListener(evt, (e) => e.stopPropagation()),
   );
   container.innerHTML = "";
   container.appendChild(wrapper);
 
-  // Build sections.
-  const controls = el("div", {
-    style: `
-      display: grid; grid-template-columns: 1fr 1fr;
-      gap: 8px; padding: 10px;
-      background: #141414;
-      border-bottom: 1px solid #222;
-    `,
-  });
-  controls.appendChild(buildResolutionPicker());
-  controls.appendChild(buildLodScaleControl());
-  controls.appendChild(buildMaxShControl());
-  controls.appendChild(buildFlipControl());
-  controls.appendChild(buildEnableLodControl());
-  controls.appendChild(buildLoadButton());
-  wrapper.appendChild(controls);
+  // ---------- picker bar ---------------------------------------------------
 
-  const stage = el("div", {
-    className: "splat-viewer-stage",
-    style: `
-      position: relative;
-      width: 100%;
-      height: ${VIEWER_HEIGHT}px;
-      background: #050505;
-    `,
-  });
-  wrapper.appendChild(stage);
-
-  showStageMessage(
-    selectedResolution
-      ? `Click "Load" to render ${RESOLUTION_LABELS[selectedResolution]} splat.`
-      : "Wire a splat input upstream, then pick a resolution and click Load.",
+  const pickerBar = document.createElement("div");
+  pickerBar.style.cssText = `
+    display:flex; align-items:center; gap:8px; padding:4px 8px;
+    background:rgba(0,0,0,0.35); border-bottom:1px solid rgba(255,255,255,0.08);
+    flex-shrink:0; z-index:2;
+  `;
+  ["pointerdown", "mousedown", "wheel", "keydown"].forEach((evt) =>
+    pickerBar.addEventListener(evt, (e) => e.stopPropagation()),
   );
 
-  // Diagnostics panel — visible when there's a `diag` array on the value.
-  // Header line shows widget invocation count: if this stays at #1 after
-  // wiring, the framework isn't re-invoking us; if it climbs, the framework
-  // IS calling us with new data.
-  const dbg = el("div", {
-    style: `
-      font: 10px ui-monospace, monospace; color: #6c6;
-      padding: 6px 10px; background: #0f0f0f; border-top: 1px solid #222;
-      max-height: 110px; overflow-y: auto; white-space: pre;
-    `,
+  const pickerLabel = document.createElement("span");
+  pickerLabel.style.cssText = "font:11px system-ui; color:#999; white-space:nowrap;";
+  pickerLabel.textContent = "Resolution";
+  pickerBar.appendChild(pickerLabel);
+
+  selectEl = document.createElement("select");
+  selectEl.style.cssText = `
+    padding:2px 4px; font:11px system-ui;
+    background:#1a1a1a; color:#ddd;
+    border:1px solid #333; border-radius:3px;
+    cursor:pointer;
+  `;
+  PRIORITY.forEach((key) => {
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = RESOLUTION_LABELS[key];
+    selectEl.appendChild(opt);
   });
-  const lines = [`widget invocation #${myInvocation}, diag entries: ${(state.diag || []).length}`];
-  if (Array.isArray(state.diag) && state.diag.length > 0) {
-    state.diag.forEach((d, i) => lines.push(`${i + 1}. ${JSON.stringify(d)}`));
-  } else {
-    lines.push("(no connection/value events recorded yet)");
-  }
-  dbg.textContent = lines.join("\n");
-  wrapper.appendChild(dbg);
+  selectEl.addEventListener("pointerdown", (e) => e.stopPropagation());
+  selectEl.addEventListener("change", () => {
+    const chosen = selectEl.value;
+    console.info(TAG, `picker changed to "${chosen}"`);
+    selectedKey = chosen;
+    loadSelected();
+  });
+  pickerBar.appendChild(selectEl);
+  wrapper.appendChild(pickerBar);
 
-  // ---------- controls -----------------------------------------------------
+  // ---------- stage (canvas lives here) ------------------------------------
 
-  function buildResolutionPicker() {
-    const w = el("div", { style: "display: flex; flex-direction: column; gap: 4px;" });
-    w.appendChild(labelText("Resolution"));
-    const sel = el("select", { style: selectStyle() });
-    resolutionSelect = sel;
-    sel.disabled = !!disabled;
-    populateResolutionOptions(sel, state.splats);
-    sel.addEventListener("pointerdown", (e) => e.stopPropagation());
-    sel.addEventListener("change", () => {
-      selectedResolution = sel.value;
-    });
-    w.appendChild(sel);
-    return w;
-  }
+  const stage = document.createElement("div");
+  stage.style.cssText = "flex:1; position:relative; overflow:hidden;";
+  wrapper.appendChild(stage);
 
-  function populateResolutionOptions(sel, splats) {
-    const currentVal = sel.value || selectedResolution;
-    sel.innerHTML = "";
-    RESOLUTION_KEYS.forEach((key) => {
-      const opt = document.createElement("option");
-      opt.value = key;
-      const wired = !!(splats && splats[key]);
-      opt.textContent = `${RESOLUTION_LABELS[key]}${wired ? "" : "  (not wired)"}`;
-      opt.disabled = !wired;
-      if (key === currentVal) opt.selected = true;
-      sel.appendChild(opt);
-    });
-    // If saved selection is now wired but wasn't before, keep it; otherwise pick best available.
-    if (!splats[sel.value]) {
-      const best = pickDefaultResolution({ splats });
-      if (best) sel.value = best;
-      selectedResolution = sel.value;
-    }
-  }
+  // ---------- helpers -------------------------------------------------------
 
-  function buildLodScaleControl() {
-    const w = el("div", { style: "display: flex; flex-direction: column; gap: 4px;" });
-    const lbl = labelText(`LoD Scale: ${options.lod_scale.toFixed(2)}`);
-    w.appendChild(lbl);
-    const input = el("input", {
-      type: "range",
-      min: "0.25",
-      max: "2.0",
-      step: "0.05",
-      value: String(options.lod_scale),
-      style: "width: 100%;",
-    });
-    input.disabled = !!disabled;
-    input.addEventListener("pointerdown", (e) => e.stopPropagation());
-    input.addEventListener("input", (e) => {
-      options.lod_scale = parseFloat(e.target.value);
-      lbl.textContent = `LoD Scale: ${options.lod_scale.toFixed(2)}`;
-    });
-    w.appendChild(input);
-    return w;
-  }
-
-  function buildMaxShControl() {
-    const w = el("div", { style: "display: flex; flex-direction: column; gap: 4px;" });
-    w.appendChild(labelText("Max SH"));
-    const sel = el("select", { style: selectStyle() });
-    sel.disabled = !!disabled;
-    [0, 1, 2, 3].forEach((n) => {
-      const opt = document.createElement("option");
-      opt.value = String(n);
-      opt.textContent = `SH${n}${n === 3 ? " (full)" : n === 0 ? " (base color)" : ""}`;
-      if (n === options.max_sh) opt.selected = true;
-      sel.appendChild(opt);
-    });
-    sel.addEventListener("pointerdown", (e) => e.stopPropagation());
-    sel.addEventListener("change", () => {
-      options.max_sh = parseInt(sel.value, 10);
-    });
-    w.appendChild(sel);
-    return w;
-  }
-
-  function buildFlipControl() {
-    return buildCheckbox("Flip Y/Z (Marble OpenCV)", "flip_coordinates");
-  }
-
-  function buildEnableLodControl() {
-    return buildCheckbox("Enable LoD", "enable_lod");
-  }
-
-  function buildCheckbox(labelTextStr, key) {
-    const w = el("label", {
-      style: `
-        display: flex; align-items: center; gap: 8px;
-        font: 12px system-ui; color: #ccc;
-        padding-top: 16px; cursor: pointer;
-      `,
-    });
-    const cb = el("input", { type: "checkbox", style: "cursor: pointer;" });
-    cb.checked = !!options[key];
-    cb.disabled = !!disabled;
-    cb.addEventListener("pointerdown", (e) => e.stopPropagation());
-    cb.addEventListener("change", () => {
-      options[key] = cb.checked;
-    });
-    const txt = document.createElement("span");
-    txt.textContent = labelTextStr;
-    w.appendChild(cb);
-    w.appendChild(txt);
-    return w;
-  }
-
-  function buildLoadButton() {
-    const w = el("div", { style: "grid-column: 1 / -1; display: flex; gap: 8px; align-items: center;" });
-    const btn = el("button", {
-      type: "button",
-      style: `
-        flex: 1; padding: 8px 12px;
-        background: #7c3aed; color: #fff;
-        border: 1px solid #7c3aed; border-radius: 4px;
-        font: 13px system-ui; cursor: pointer;
-        opacity: ${disabled ? 0.5 : 1};
-      `,
-    });
-    btn.textContent = "Load";
-    btn.disabled = !!disabled;
-    btn.addEventListener("pointerdown", (e) => {
-      e.stopPropagation();
-      if (btn.disabled) return;
-      const entry = state.splats && state.splats[selectedResolution];
-      if (!entry || !entry.url) {
-        showStageMessage(
-          `${RESOLUTION_LABELS[selectedResolution] || "Selected"} splat is not wired. Wire it from upstream.`,
-          "warn",
-        );
-        return;
+  function parseState(raw) {
+    if (typeof raw === "string") {
+      try { raw = JSON.parse(raw); } catch (e) {
+        console.warn(TAG, "JSON.parse failed:", e);
+        return null;
       }
-      loadInto(entry.url, { ...options }, selectedResolution);
-    });
-    const status = el("div", {
-      style: "font: 11px ui-monospace, monospace; color: #888;",
-    });
-    status.textContent = `widget v${WIDGET_VERSION}`;
-    w.appendChild(btn);
-    w.appendChild(status);
-    return w;
+    }
+    if (!raw || typeof raw !== "object") return null;
+    if (!raw.splats || typeof raw.splats !== "object") return null;
+    return raw.splats;
   }
 
-  // ---------- viewer mount -------------------------------------------------
-
-  function loadInto(url, opts, resolution) {
-    if (viewerCleanup) {
-      try { viewerCleanup(); } catch (_) { /* noop */ }
-      viewerCleanup = null;
+  function pickHighest(splats) {
+    if (!splats) return null;
+    for (const key of PRIORITY) {
+      if (splats[key]?.url) return key;
     }
+    return null;
+  }
+
+  function getEntry(splats, key) {
+    if (!splats || !key) return null;
+    const entry = splats[key];
+    if (!entry || typeof entry.url !== "string" || !entry.url) return null;
+    const meta = (entry.meta && typeof entry.meta === "object") ? entry.meta : {};
+    const refreshKey = meta.created_at ?? meta.content_hash ?? entry.url;
+    return { url: entry.url, refreshKey };
+  }
+
+  function getFileTypeOverride(url) {
+    if (!url) return undefined;
+    const ext = url.split("?")[0].slice(url.lastIndexOf(".") + 1).toLowerCase();
+    if (ext === "splat") return SplatFileType.SPLAT;
+    if (ext === "ksplat") return SplatFileType.KSPLAT;
+    return undefined;
+  }
+
+  function findRealWidth(el) {
+    let node = el;
+    while (node) {
+      const w = node.getBoundingClientRect().width;
+      if (w > 1) return Math.round(w);
+      node = node.parentElement;
+    }
+    return 400;
+  }
+
+  // ---------- dropdown state ------------------------------------------------
+
+  function refreshDropdown(splats) {
+    Array.from(selectEl.options).forEach((opt) => {
+      const wired = !!(splats && splats[opt.value]?.url);
+      opt.disabled = !wired;
+      opt.textContent = RESOLUTION_LABELS[opt.value] + (wired ? "" : " (not wired)");
+    });
+    if (selectedKey) selectEl.value = selectedKey;
+  }
+
+  // ---------- placeholder ---------------------------------------------------
+
+  function showPlaceholder(text) {
+    console.info(TAG, "showPlaceholder:", text);
+    teardownScene();
     stage.innerHTML = "";
-    showStageMessage(`Loading ${RESOLUTION_LABELS[resolution] || ""} splat...`);
-    viewerCleanup = mountViewer(stage, url, opts);
-    loadedFor = { resolution, options: opts };
+    const msg = document.createElement("div");
+    msg.style.cssText = `
+      position:absolute; inset:0;
+      display:flex; align-items:center; justify-content:center;
+      color:#888; font:12px ui-monospace,monospace; pointer-events:none;
+    `;
+    msg.textContent = text;
+    stage.appendChild(msg);
   }
 
-  function showStageMessage(text, kind) {
+  // ---------- scene lifecycle -----------------------------------------------
+
+  function teardownScene() {
+    if (sceneCleanup) {
+      try { sceneCleanup(); } catch (_) {}
+      sceneCleanup = null;
+    }
+  }
+
+  function mountScene(url) {
+    console.info(TAG, `mountScene url="${url.slice(0, 100)}"`);
+    teardownScene();
     stage.innerHTML = "";
-    const div = el("div", {
-      className: STAGE_MESSAGE_CLASS,
-      style: `
-        position: absolute; inset: 0;
-        display: flex; align-items: center; justify-content: center;
-        color: ${kind === "warn" ? "#fbbf24" : "#888"};
-        font: 12px ui-monospace, monospace;
-        pointer-events: none;
-        white-space: pre-line; text-align: center; padding: 12px;
-      `,
+
+    const overlay = document.createElement("div");
+    overlay.style.cssText = `
+      position:absolute; inset:0; z-index:1;
+      display:flex; align-items:center; justify-content:center;
+      color:#888; font:12px ui-monospace,monospace; pointer-events:none;
+    `;
+    overlay.textContent = "Loading splat…";
+    stage.appendChild(overlay);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 1000);
+    camera.position.set(0, 0, 2);
+
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+    } catch (e) {
+      console.error(TAG, "WebGLRenderer creation failed:", e);
+      overlay.textContent = `WebGL error: ${e?.message || e}`;
+      return;
+    }
+    renderer.setClearColor(0x000000, 0);
+    renderer.setPixelRatio(window.devicePixelRatio || 1);
+    renderer.domElement.style.cssText = "display:block; width:100%; height:100%;";
+    stage.appendChild(renderer.domElement);
+
+    ["pointerdown", "mousedown", "wheel", "keydown"].forEach((evt) =>
+      renderer.domElement.addEventListener(evt, (e) => e.stopPropagation()),
+    );
+
+    const spark = new SparkRenderer({ renderer });
+    scene.add(spark);
+
+    let controls;
+    try {
+      controls = new SparkControls({ canvas: renderer.domElement });
+    } catch (e) {
+      console.error(TAG, "SparkControls creation failed:", e);
+    }
+
+    const resize = () => {
+      const w = stage.clientWidth > 1 ? stage.clientWidth : findRealWidth(stage);
+      const h = stage.clientHeight || (height - 36);
+      console.info(TAG, `resize: ${w}x${h}`);
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    };
+
+    const ro = new ResizeObserver(resize);
+    ro.observe(stage);
+    const realWidthAncestor = (() => {
+      let n = container.parentElement;
+      while (n) { if (n.clientWidth > 1) return n; n = n.parentElement; }
+      return null;
+    })();
+    if (realWidthAncestor) ro.observe(realWidthAncestor);
+
+    resize();
+    setTimeout(resize, 0);
+    setTimeout(resize, 200);
+
+    let disposed = false;
+    let splat;
+
+    function fitCamera() {
+      try {
+        let box = null;
+        if (splat.boundingBox) {
+          box = splat.boundingBox.clone();
+        } else if (splat.geometry?.boundingBox) {
+          box = splat.geometry.boundingBox.clone();
+        } else if (typeof splat.geometry?.computeBoundingBox === "function") {
+          splat.geometry.computeBoundingBox();
+          box = splat.geometry.boundingBox?.clone() ?? null;
+        }
+        if (!box) { console.warn(TAG, "fitCamera: no bounding box"); return; }
+        box.applyMatrix4(splat.matrixWorld);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z);
+        if (!Number.isFinite(maxDim) || maxDim <= 0) { console.warn(TAG, "fitCamera: maxDim unusable:", maxDim); return; }
+        const distance = maxDim * 1.5;
+        camera.position.set(center.x, center.y, center.z + distance);
+        camera.near = Math.max(distance / 1000, 0.01);
+        camera.far = distance * 100;
+        camera.updateProjectionMatrix();
+        console.info(TAG, `fitCamera: z=${center.z + distance}`);
+      } catch (e) {
+        console.warn(TAG, "fitCamera error:", e);
+      }
+    }
+
+    try {
+      splat = new SplatMesh({
+        url,
+        fileType: getFileTypeOverride(url),
+        onLoad: () => {
+          console.info(TAG, "SplatMesh onLoad");
+          if (disposed) return;
+          if (overlay.parentNode) overlay.remove();
+          splat.rotation.x = Math.PI;
+          fitCamera();
+        },
+      });
+    } catch (e) {
+      console.error(TAG, "SplatMesh constructor threw:", e);
+      overlay.textContent = `SplatMesh error: ${e?.message || e}`;
+      return;
+    }
+
+    splat.initialized
+      .then(() => { console.info(TAG, "initialized resolved — re-fitting"); if (!disposed) fitCamera(); })
+      .catch((err) => {
+        console.error(TAG, "initialized rejected:", err);
+        if (disposed) return;
+        if (overlay.parentNode) overlay.remove();
+        const errDiv = document.createElement("div");
+        errDiv.style.cssText = `
+          position:absolute; inset:0;
+          display:flex; align-items:center; justify-content:center;
+          color:#f87171; font:12px ui-monospace,monospace;
+          padding:12px; text-align:center; pointer-events:none;
+        `;
+        errDiv.textContent = `Failed to load splat: ${err?.message || err}`;
+        stage.appendChild(errDiv);
+      });
+
+    scene.add(splat);
+
+    renderer.setAnimationLoop(() => {
+      if (disposed) return;
+      if (controls) controls.update(camera);
+      renderer.render(scene, camera);
     });
-    div.textContent = text;
-    stage.appendChild(div);
+
+    sceneCleanup = () => {
+      console.info(TAG, "sceneCleanup");
+      disposed = true;
+      renderer.setAnimationLoop(null);
+      ro.disconnect();
+      scene.remove(splat);
+      if (typeof splat.dispose === "function") try { splat.dispose(); } catch (_) {}
+      try { scene.remove(spark); } catch (_) {}
+      renderer.dispose();
+      if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
+    };
   }
 
-  // Track the last applied value string so `update` can short-circuit cheaply.
-  let lastAppliedValueJson = typeof value === "string" ? value : null;
+  // ---------- load the currently selected resolution -----------------------
 
-  function applyUpdatedState(newState) {
-    // Update live splats reference so the Load button always uses the latest.
-    Object.assign(state.splats, newState.splats || {});
+  function loadSelected() {
+    const entry = getEntry(currentSplats, selectedKey);
+    if (!entry) {
+      showPlaceholder(selectedKey
+        ? `"${RESOLUTION_LABELS[selectedKey]}" is not wired. Wire it upstream.`
+        : "Wire a splat input to render.");
+      currentUrl = null;
+      currentRefreshKey = null;
+      return;
+    }
+    if (entry.url === currentUrl && entry.refreshKey === currentRefreshKey) {
+      console.info(TAG, "loadSelected: short-circuit");
+      return;
+    }
+    currentUrl = entry.url;
+    currentRefreshKey = entry.refreshKey;
+    mountScene(entry.url);
+  }
 
-    // Patch resolution dropdown without resetting user's current choice.
-    if (resolutionSelect) {
-      populateResolutionOptions(resolutionSelect, state.splats);
+  // ---------- state application ---------------------------------------------
+
+  function applyState(raw) {
+    console.info(TAG, "applyState");
+    const splats = parseState(raw) ?? {};
+    currentSplats = splats;
+
+    // Refresh dropdown enabled/disabled state.
+    refreshDropdown(splats);
+
+    // Determine which key to show:
+    // - If previously selected key is still wired, keep it.
+    // - Otherwise fall back to highest-fidelity wired.
+    if (!selectedKey || !splats[selectedKey]?.url) {
+      selectedKey = pickHighest(splats);
+      if (selectedKey) selectEl.value = selectedKey;
+      console.info(TAG, `applyState: resolved selectedKey="${selectedKey}"`);
     }
 
-    // Update diag panel.
-    const newDiag = Array.isArray(newState.diag) ? newState.diag : [];
-    state.diag = newDiag;
-    const newLines = [`diag entries: ${newDiag.length} (live)`];
-    if (newDiag.length > 0) {
-      newDiag.forEach((d, i) => newLines.push(`${i + 1}. ${JSON.stringify(d)}`));
-    } else {
-      newLines.push("(no events yet)");
-    }
-    dbg.textContent = newLines.join("\n");
+    loadSelected();
   }
 
-  function update(nextProps) {
-    const next = typeof nextProps?.value === "string" ? nextProps.value : null;
-    if (!next || next === lastAppliedValueJson) return;
-    lastAppliedValueJson = next;
-    let parsed;
-    try { parsed = parseViewerState(next); } catch (_) { return; }
-    applyUpdatedState(parsed);
-  }
+  applyState(value);
 
   return {
     cleanup() {
-      if (viewerCleanup) {
-        try { viewerCleanup(); } catch (_) { /* noop */ }
-        viewerCleanup = null;
-      }
+      console.info(TAG, "cleanup");
+      teardownScene();
       container.innerHTML = "";
     },
-    update,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Spark mount (canvas + SplatMesh + controls)
-// ---------------------------------------------------------------------------
-
-function mountViewer(stage, url, opts) {
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x050505);
-  const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 1000);
-  camera.position.set(0, 0, 8);
-
-  const spark = new SparkRenderer({ renderer });
-  scene.add(spark);
-
-  const canvas = renderer.domElement;
-  canvas.style.cssText = "display:block; width:100%; height:100%;";
-  stage.appendChild(canvas);
-  ["pointerdown", "mousedown", "wheel", "keydown"].forEach((evt) =>
-    canvas.addEventListener(evt, (e) => e.stopPropagation()),
-  );
-
-  const resize = () => {
-    const w = stage.clientWidth || 1;
-    const h = stage.clientHeight || 1;
-    renderer.setSize(w, h, false);
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
-  };
-  resize();
-  const ro = new ResizeObserver(resize);
-  ro.observe(stage);
-
-  let splat = null;
-  let disposed = false;
-
-  function clearOverlay() {
-    if (disposed) return;
-    stage.querySelectorAll(`.${STAGE_MESSAGE_CLASS}`).forEach((n) => n.remove());
-  }
-
-  try {
-    const splatOpts = {
-      url,
-      onLoad: () => {
-        clearOverlay();
-        try { fitCameraToSplat(camera, splat); } catch (_) { /* noop */ }
-      },
-    };
-    if (opts.enable_lod !== false) splatOpts.lod = true;
-    if (typeof opts.lod_scale === "number" && opts.lod_scale !== 1.0) {
-      splatOpts.lodScale = opts.lod_scale;
-    }
-    splat = new SplatMesh(splatOpts);
-    if (typeof opts.max_sh === "number" && opts.max_sh >= 0 && opts.max_sh <= 3) {
-      splat.maxSh = opts.max_sh;
-    }
-    if (opts.flip_coordinates) {
-      splat.scale.set(1, -1, -1);
-    }
-    scene.add(splat);
-
-    // Also await .initialized so errors surface in the console.
-    splat.initialized.catch((err) => {
-      if (!disposed) {
-        console.error("[SplatViewer] load failed:", err);
-        clearOverlay();
-        stage.innerHTML = "";
-        const errDiv = document.createElement("div");
-        errDiv.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#f87171;font:12px ui-monospace,monospace;padding:12px;text-align:center;";
-        errDiv.textContent = `Failed to load splat: ${err?.message || err}`;
-        stage.appendChild(errDiv);
-      }
-    });
-  } catch (err) {
-    console.error("[SplatViewer] init failed:", err);
-  }
-
-  const controls = new SparkControls({ canvas });
-
-  renderer.setAnimationLoop(() => {
-    if (disposed) return;
-    try { controls.update(camera); } catch (_) { /* noop */ }
-    renderer.render(scene, camera);
-  });
-
-  return () => {
-    disposed = true;
-    try { renderer.setAnimationLoop(null); } catch (_) { /* noop */ }
-    try { ro.disconnect(); } catch (_) { /* noop */ }
-    if (splat) {
-      try {
-        scene.remove(splat);
-        if (typeof splat.dispose === "function") splat.dispose();
-      } catch (_) { /* noop */ }
-    }
-    try { scene.remove(spark); } catch (_) { /* noop */ }
-    try { renderer.dispose(); } catch (_) { /* noop */ }
-    if (canvas.parentNode === stage) stage.removeChild(canvas);
-  };
-}
-
-function fitCameraToSplat(camera, splat) {
-  let box = null;
-  if (splat.boundingBox) {
-    box = splat.boundingBox.clone();
-  } else if (splat.geometry && splat.geometry.boundingBox) {
-    box = splat.geometry.boundingBox.clone();
-  } else if (splat.geometry && typeof splat.geometry.computeBoundingBox === "function") {
-    splat.geometry.computeBoundingBox();
-    box = splat.geometry.boundingBox ? splat.geometry.boundingBox.clone() : null;
-  }
-  if (!box) return;
-  box.applyMatrix4(splat.matrixWorld);
-  const center = box.getCenter(new THREE.Vector3());
-  const size = box.getSize(new THREE.Vector3());
-  const maxDim = Math.max(size.x, size.y, size.z);
-  if (!Number.isFinite(maxDim) || maxDim <= 0) return;
-  const fov = (camera.fov * Math.PI) / 180;
-  const distance = (maxDim / 2) / Math.tan(fov / 2);
-  const padded = distance * 1.6;
-  camera.position.copy(center.clone().add(new THREE.Vector3(0, 0, padded)));
-  camera.near = Math.max(padded / 1000, 0.01);
-  camera.far = padded * 100;
-  camera.updateProjectionMatrix();
-  camera.lookAt(center);
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function parseViewerState(value) {
-  const empty = {
-    splats: { "100k": null, "500k": null, "full_res": null },
-    defaults: { flip_coordinates: true, enable_lod: true, lod_scale: 1.0, max_sh: 3 },
-    diag: [],
-  };
-  // viewer_state is now a JSON-serialized string (Python switched away from
-  // type="dict" because dict-typed params don't seem to push value updates to
-  // mounted widgets at edit time). Parse it on this end.
-  if (typeof value === "string") {
-    if (!value) return empty;
-    try {
-      value = JSON.parse(value);
-    } catch (_) {
-      return empty;
-    }
-  }
-  if (!value || typeof value !== "object") return empty;
-  const splatsIn = value.splats && typeof value.splats === "object" ? value.splats : {};
-  const defaultsIn = value.defaults && typeof value.defaults === "object" ? value.defaults : {};
-  return {
-    splats: {
-      "100k": normalizeSplatEntry(splatsIn["100k"]),
-      "500k": normalizeSplatEntry(splatsIn["500k"]),
-      "full_res": normalizeSplatEntry(splatsIn["full_res"]),
+    update(nextProps) {
+      console.info(TAG, "update");
+      applyState(nextProps?.value);
     },
-    defaults: {
-      flip_coordinates:
-        typeof defaultsIn.flip_coordinates === "boolean" ? defaultsIn.flip_coordinates : true,
-      enable_lod:
-        typeof defaultsIn.enable_lod === "boolean" ? defaultsIn.enable_lod : true,
-      lod_scale:
-        typeof defaultsIn.lod_scale === "number" && Number.isFinite(defaultsIn.lod_scale)
-          ? defaultsIn.lod_scale
-          : 1.0,
-      max_sh:
-        typeof defaultsIn.max_sh === "number" && Number.isFinite(defaultsIn.max_sh)
-          ? Math.max(0, Math.min(3, Math.round(defaultsIn.max_sh)))
-          : 3,
-    },
-    diag: Array.isArray(value.diag) ? value.diag : [],
   };
 }
-
-function normalizeSplatEntry(entry) {
-  if (!entry || typeof entry !== "object") return null;
-  const url = typeof entry.url === "string" ? entry.url : null;
-  if (!url) return null;
-  const meta = entry.meta && typeof entry.meta === "object" ? entry.meta : {};
-  return { url, meta };
-}
-
-function pickDefaultResolution(state) {
-  if (state.splats["100k"]) return "100k";
-  if (state.splats["500k"]) return "500k";
-  if (state.splats["full_res"]) return "full_res";
-  return "100k";
-}
-
-function selectStyle() {
-  return `
-    padding: 4px 6px; font: 12px system-ui;
-    background: #0e0e0e; color: #ddd;
-    border: 1px solid #333; border-radius: 4px;
-    cursor: pointer;
-  `;
-}
-
-function labelText(text) {
-  return el("div", {
-    style: "font: 11px system-ui; color: #888;",
-    textContent: text,
-  });
-}
-
-function el(tag, attrs) {
-  const node = document.createElement(tag);
-  if (!attrs) return node;
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === "style") node.style.cssText = v;
-    else if (k === "textContent") node.textContent = v;
-    else if (k === "className") node.className = v;
-    else if (k === "disabled") node.disabled = !!v;
-    else node.setAttribute(k, v);
-  }
-  return node;
-}
-
-SplatViewer.WIDGET_VERSION = WIDGET_VERSION;

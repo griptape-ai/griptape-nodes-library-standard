@@ -17,12 +17,6 @@ logger = logging.getLogger("griptape_nodes")
 
 VIEWER_STATE_DEFAULTS: dict[str, Any] = {
     "splats": {"100k": None, "500k": None, "full_res": None},
-    "defaults": {
-        "flip_coordinates": True,
-        "enable_lod": True,
-        "lod_scale": 1.0,
-        "max_sh": 3,
-    },
 }
 
 INPUT_TO_RESOLUTION_KEY = {
@@ -89,10 +83,10 @@ class LoadSplat(DataNode):
                 type="str",
                 output_type="str",
                 default_value=json.dumps(VIEWER_STATE_DEFAULTS),
-                tooltip="Aggregated splat URLs + viewer defaults (JSON). Driven by the wired inputs.",
+                tooltip="Aggregated splat URLs (JSON). Driven by the wired inputs.",
                 allowed_modes={ParameterMode.PROPERTY},
                 traits={Widget(name="SplatViewer", library="Griptape Nodes Library")},
-                ui_options={"display_name": "Viewer", "is_full_width": True},
+                ui_options={"display_name": "Viewer", "is_full_width": True, "height": 640, "multiline": True},
             )
         )
 
@@ -184,10 +178,7 @@ class LoadSplat(DataNode):
         for input_name, key in INPUT_TO_RESOLUTION_KEY.items():
             raw = self.get_parameter_value(input_name)
             splats[key] = self._splat_to_widget_entry(raw)
-        return {
-            "splats": splats,
-            "defaults": dict(VIEWER_STATE_DEFAULTS["defaults"]),
-        }
+        return {"splats": splats}
 
     @staticmethod
     def _splat_to_widget_entry(raw: Any) -> dict[str, Any] | None:
