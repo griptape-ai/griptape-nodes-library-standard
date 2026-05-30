@@ -30,7 +30,6 @@ from PIL import Image
 from griptape_nodes_library.utils.color_utils import NAMED_COLORS, parse_color_to_rgba
 from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
-    dict_to_image_url_artifact,
     load_pil_from_url,
     validate_pil_format,
 )
@@ -222,7 +221,7 @@ class CropImage(ControlNode):
             CreateStaticFileDownloadUrlFromPathResultSuccess,
         )
 
-        raw = getattr(artifact, "value", "") or ""
+        raw = artifact if isinstance(artifact, str) else (getattr(artifact, "value", "") or "")
         if not raw:
             return ""
         if isinstance(raw, str) and raw.startswith(("http://", "https://", "data:")):
@@ -284,20 +283,6 @@ class CropImage(ControlNode):
         if target_parameter.name in self._CROP_PARAMS:
             self._refresh_locked_in_widget()
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
-
-    def _update_widget_from_image(self, artifact: Any) -> None:
-        """Resolve image URL + dimensions and push them into the crop_editor widget."""
-        try:
-            img = load_pil_from_url(artifact.value)
-        except Exception:
-            return
-        url = self._resolve_image_url(artifact)
-        new_dict = self._build_widget_dict(image_url=url, img_width=img.width, img_height=img.height)
-        self._syncing_to_widget = True
-        try:
-            self._push_widget(new_dict)
-        finally:
-            self._syncing_to_widget = False
 
     def _update_widget_coords(self) -> None:
         """Refresh the crop_editor widget with current coordinate parameter values.
@@ -376,15 +361,35 @@ class CropImage(ControlNode):
         finally:
             self._syncing_to_params = False
 
+    # ── Input normalization ────────────────────────────────────────────────────
+
+    def _extract_image_path(self, value: Any) -> str | None:
+        """Extract string path/URL from str, ImageUrlArtifact, or similar inputs."""
+        if isinstance(value, str):
+            return value
+        try:
+            if hasattr(value, "value"):
+                v = getattr(value, "value", None)
+                if isinstance(v, str):
+                    return v
+        except Exception:
+            pass
+        return None
+
     # ── Crop logic ─────────────────────────────────────────────────────────────
 
     def _crop(self) -> None:
         # Get parameters
         params = self._get_crop_parameters()
 
+        path = self._extract_image_path(params["input_artifact"])
+        if not path:
+            logger.error("%s: No valid input image to crop", self.name)
+            return
+
         # Load image
         try:
-            img = load_pil_from_url(params["input_artifact"].value)
+            img = load_pil_from_url(path)
         except Exception as e:
             msg = f"{self.name}: Error loading image: {e}"
             logger.error(msg)
@@ -641,11 +646,13 @@ class CropImage(ControlNode):
         if parameter.name == "input_image":
             if not value:
                 return super().after_value_set(parameter, value)
+            path = self._extract_image_path(value)
+            if not path:
+                return super().after_value_set(parameter, value)
             try:
-                img = load_pil_from_url(value.value)
+                img = load_pil_from_url(path)
             except Exception as e:
-                msg = f"{self.name}: Error loading image: {e}"
-                logger.error(msg)
+                logger.error("%s: Error loading image: %s", self.name, e)
                 return super().after_value_set(parameter, value)
 
             if img.width and img.height:
@@ -662,7 +669,7 @@ class CropImage(ControlNode):
                 if height_param:
                     height_param.update_ui_options({"slider": {"max_val": img.height, "min_val": 0}})
 
-                url = self._resolve_image_url(value)
+                url = self._resolve_image_url(path)
                 new_dict = self._build_widget_dict(image_url=url, img_width=img.width, img_height=img.height)
                 self._syncing_to_widget = True
                 try:
@@ -691,18 +698,8 @@ class CropImage(ControlNode):
             exceptions.append(Exception(msg))
             return exceptions
 
-        # Validate input artifact type
-        if isinstance(input_artifact, dict):
-            # Convert dict to ImageUrlArtifact for validation
-            try:
-                input_artifact = dict_to_image_url_artifact(input_artifact)
-            except Exception as e:
-                msg = f"{self.name} - Invalid image dictionary: {e}"
-                exceptions.append(Exception(msg))
-                return exceptions
-
-        if not isinstance(input_artifact, ImageUrlArtifact):
-            msg = f"{self.name} - Input must be an ImageUrlArtifact, got {type(input_artifact).__name__}"
+        if not self._extract_image_path(input_artifact):
+            msg = f"{self.name} - Input image could not be resolved to a valid path"
             exceptions.append(Exception(msg))
 
         return exceptions
