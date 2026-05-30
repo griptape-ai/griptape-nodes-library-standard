@@ -22,7 +22,7 @@ from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 NO_ZOOM = 100.0
 
 
-class CropVideo(BaseVideoProcessor):
+class CropVideoInteractive(BaseVideoProcessor):
     """Crop a video to a pixel-precise area using an interactive drag-handle editor."""
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:

@@ -62,7 +62,7 @@ def parse_size_string(size_str: str) -> tuple[int, int] | None:
     return None
 
 
-class CropVideoLegacy(BaseVideoProcessor):
+class CropVideo(BaseVideoProcessor):
     """Legacy preset-based crop node. Use CropVideo for interactive pixel-level control."""
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
@@ -113,7 +113,7 @@ class CropVideoLegacy(BaseVideoProcessor):
         pos = self.metadata.get("position", {"x": 0, "y": 0})
         result = GriptapeNodes.handle_request(
             CreateNodeRequest(
-                node_type="CropVideo",
+                node_type="CropVideoInteractive",
                 specific_library_name="Griptape Nodes Library",
                 metadata={"position": {"x": pos.get("x", 0), "y": pos.get("y", 0) + 350}},
             )
