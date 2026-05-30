@@ -73,6 +73,11 @@
       "name": "CropImageEditor",
       "path": "widgets/CropImageEditor/CropImageEditor.js",
       "description": "Interactive crop editor — drag to move/resize the crop rectangle, draw a new crop area, with rule-of-thirds guides and live coordinate readout."
+    },
+    {
+      "name": "CropVideoEditor",
+      "path": "widgets/CropVideoEditor/CropVideoEditor.js",
+      "description": "Interactive video crop editor — drag handles on a live video frame with frame scrubber, aspect ratio, resolution, and position presets."
     }
   ],
   "categories": [
@@ -774,8 +779,19 @@
       "file_path": "griptape_nodes_library/video/crop_video.py",
       "metadata": {
         "category": "video",
-        "description": "Crop a video to a specific size with preview visualization showing the crop area",
+        "description": "Interactively crop a video with drag handles, frame scrubber, and aspect ratio presets",
         "display_name": "Crop Video",
+        "icon": "crop",
+        "group": "edit"
+      }
+    },
+    {
+      "class_name": "CropVideoLegacy",
+      "file_path": "griptape_nodes_library/video/crop_video_legacy.py",
+      "metadata": {
+        "category": "video",
+        "description": "Legacy preset-based crop node. Use the new Crop Video node for interactive pixel-level control.",
+        "display_name": "Crop Video (Legacy)",
         "icon": "crop",
         "group": "edit"
       }
