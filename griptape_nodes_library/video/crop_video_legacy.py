@@ -14,6 +14,11 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
 from griptape_nodes.files.project_file import ProjectFileDestination
+from griptape_nodes.retained_mode.events.connection_events import (
+    CreateConnectionRequest,
+    ListConnectionsForNodeRequest,
+    ListConnectionsForNodeResultSuccess,
+)
 from griptape_nodes.retained_mode.events.node_events import CreateNodeRequest, CreateNodeResultSuccess
 from griptape_nodes.retained_mode.events.parameter_events import SetParameterValueRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
@@ -118,22 +123,52 @@ class CropVideo(BaseVideoProcessor):
                 metadata={"position": {"x": pos.get("x", 0), "y": pos.get("y", 0) + 350}},
             )
         )
-        if isinstance(result, CreateNodeResultSuccess):
-            crop_size = self.get_parameter_value("crop_size")
-            if crop_size in RESOLUTION_PRESETS:
-                w, h = RESOLUTION_PRESETS[crop_size]
-            elif crop_size == "Custom":
-                w = self.get_parameter_value("custom_width") or 0
-                h = self.get_parameter_value("custom_height") or 0
-            else:
-                w, h = 0, 0
-            if w and h:
-                GriptapeNodes.handle_request(
-                    SetParameterValueRequest(parameter_name="width", value=w, node_name=result.node_name)
-                )
-                GriptapeNodes.handle_request(
-                    SetParameterValueRequest(parameter_name="height", value=h, node_name=result.node_name)
-                )
+        if not isinstance(result, CreateNodeResultSuccess):
+            return
+        new_node = result.node_name
+
+        # Re-wire the video input if one exists on this node
+        connections = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=self.name))
+        if isinstance(connections, ListConnectionsForNodeResultSuccess):
+            for conn in connections.incoming_connections:
+                if conn.target_parameter_name == "video":
+                    GriptapeNodes.handle_request(
+                        CreateConnectionRequest(
+                            source_node_name=conn.source_node_name,
+                            source_parameter_name=conn.source_parameter_name,
+                            target_node_name=new_node,
+                            target_parameter_name="video",
+                        )
+                    )
+                    break
+
+        # Convert crop_size → width/height
+        crop_dims = self._get_crop_dimensions()
+        w, h = crop_dims if crop_dims else (0, 0)
+
+        # Convert crop_position → left/top using video dimensions
+        left, top = 0, 0
+        if w and h:
+            video_dims = self._get_video_dimensions_for_preview()
+            if video_dims:
+                vw, vh = video_dims
+                cw = min(w, vw)
+                ch = min(h, vh)
+                left, top = self._calculate_crop_coordinates(vw, vh, cw, ch)
+
+        if w and h:
+            GriptapeNodes.handle_request(
+                SetParameterValueRequest(parameter_name="width", value=w, node_name=new_node)
+            )
+            GriptapeNodes.handle_request(
+                SetParameterValueRequest(parameter_name="height", value=h, node_name=new_node)
+            )
+        GriptapeNodes.handle_request(
+            SetParameterValueRequest(parameter_name="left", value=left, node_name=new_node)
+        )
+        GriptapeNodes.handle_request(
+            SetParameterValueRequest(parameter_name="top", value=top, node_name=new_node)
+        )
 
     def _get_processing_description(self) -> str:
         return "cropping video"
@@ -296,9 +331,10 @@ class CropVideo(BaseVideoProcessor):
         preview_image = self._create_preview_image_with_overlay(preview_size, crop_rect, scale_factor)
         try:
             preview_bytes = image_to_bytes(preview_image, "PNG")
+            safe_name = self.name.replace(" ", "_").replace("/", "_")
             dest = ProjectFileDestination.from_situation(
                 filename="preview.png", situation="save_griptape_nodes_preview",
-                source_file_name="crop_video_preview", preview_format="png",
+                source_file_name=f"crop_video_preview_{safe_name}", preview_format="png",
             )
             preview_saved = dest.write_bytes(preview_bytes)
             self.parameter_output_values["preview"] = ImageUrlArtifact(preview_saved.location)

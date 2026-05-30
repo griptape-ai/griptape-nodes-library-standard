@@ -78,6 +78,11 @@ class CropVideoInteractive(BaseVideoProcessor):
             )
         self.add_node_element(crop_coordinates)
 
+        # hide the input video
+        video_param = self.get_parameter_by_name("video")
+        if video_param:
+            video_param.ui_options["hide_parameter"] = True
+
     def _get_processing_description(self) -> str:
         return "cropping video"
 
@@ -214,7 +219,7 @@ class CropVideoInteractive(BaseVideoProcessor):
                 total_frames = max(0, int(duration * frame_rate))
             except Exception as e:
                 logger.error("%s: Could not read video properties: %s", self.name, e)
-                return super().after_value_set(parameter, value)
+                vw, vh, total_frames = 0, 0, 0  # widget fills dims from <video> loadedmetadata
 
             # Update slider max values to match video dimensions
             for pname, max_val in [("left", vw), ("top", vh), ("width", vw), ("height", vh)]:

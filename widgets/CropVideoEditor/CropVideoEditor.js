@@ -115,6 +115,9 @@ export default function CropVideoEditor(container, props) {
 
   video.addEventListener("loadedmetadata", () => {
     videoLoaded = true;
+    // Fill in dims from the video element if Python couldn't probe them
+    if (!vidNatW) vidNatW = video.videoWidth;
+    if (!vidNatH) vidNatH = video.videoHeight;
     syncCanvasSize();
     // Default crop to full frame if not yet set
     if (!ecW) ecW = vidNatW;
@@ -238,7 +241,9 @@ export default function CropVideoEditor(container, props) {
   // ── Drag interaction ───────────────────────────────────────────────────────
   function canvasXY(e) {
     const rect = canvas.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const sx = canvas.width  / (rect.width  || canvas.width);
+    const sy = canvas.height / (rect.height || canvas.height);
+    return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy };
   }
 
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -343,8 +348,14 @@ export default function CropVideoEditor(container, props) {
   // ── Emit ───────────────────────────────────────────────────────────────────
   function emitAll() {
     if (typeof onChangeRef !== "function") return;
+    // Build from live state vars — NOT the stale initial `value` closure,
+    // which would lose video_url whenever the user drags after connecting.
     onChangeRef({
-      ...(value || {}),
+      video_url: videoUrl,
+      video_width: vidNatW,
+      video_height: vidNatH,
+      total_frames: totalFrames,
+      locked: lockedParams,
       left: ecL, top: ecT, width: ecW, height: ecH,
     });
   }

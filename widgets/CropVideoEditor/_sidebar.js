@@ -21,11 +21,11 @@ const RESOLUTION_PRESETS = [
 ];
 
 const POSITION_PRESETS = [
-  { label: "⊕",    title: "Center",        pos: "center"        },
   { label: "↖",    title: "Top Left",       pos: "top-left"      },
   { label: "↑",    title: "Top Center",     pos: "top-center"    },
   { label: "↗",    title: "Top Right",      pos: "top-right"     },
   { label: "←",    title: "Left Center",    pos: "left-center"   },
+  { label: "⊕",    title: "Center",         pos: "center"        },
   { label: "→",    title: "Right Center",   pos: "right-center"  },
   { label: "↙",    title: "Bottom Left",    pos: "bottom-left"   },
   { label: "↓",    title: "Bottom Center",  pos: "bottom-center" },
@@ -78,7 +78,7 @@ export function createSidebar({ getImgSize, getCropRect, onApply }) {
   el.className = "nodrag nowheel";
   el.style.cssText = [
     "display:flex", "flex-direction:column", "gap:3px",
-    "width:56px", "flex-shrink:0",
+    "width:108px", "flex-shrink:0",
     "background:var(--muted)", "border-radius:6px", "padding:4px",
     "overflow-y:auto", "box-sizing:border-box",
   ].join(";");
@@ -128,24 +128,32 @@ export function createSidebar({ getImgSize, getCropRect, onApply }) {
   // ── Aspect ratios ─────────────────────────────────────────────────────────────
   el.appendChild(makeDivider());
   el.appendChild(makeLabel("Ratio"));
+  const ratioGrid = document.createElement("div");
+  ratioGrid.style.cssText = "display:grid;grid-template-columns:repeat(2,1fr);gap:2px;";
   for (const { label, rw, rh } of RATIO_PRESETS) {
-    el.appendChild(makeBtn({ label, title: label, onClick: () => {
+    const btn = makeBtn({ label, title: label, onClick: () => {
       const { imgNatW: vw, imgNatH: vh } = getImgSize();
       const { l, t, w, h } = getCropRect();
       onApply(calcRatioRect(rw, rh, vw, vh, l, t, w, h));
-    }}));
+    }});
+    ratioGrid.appendChild(btn);
   }
+  el.appendChild(ratioGrid);
 
   // ── Resolutions ───────────────────────────────────────────────────────────────
   el.appendChild(makeDivider());
   el.appendChild(makeLabel("Res"));
+  const resGrid = document.createElement("div");
+  resGrid.style.cssText = "display:grid;grid-template-columns:repeat(2,1fr);gap:2px;";
   for (const { label, w: pw, h: ph } of RESOLUTION_PRESETS) {
-    el.appendChild(makeBtn({ label, title: `${pw}×${ph}`, onClick: () => {
+    const btn = makeBtn({ label, title: `${pw}×${ph}`, onClick: () => {
       const { imgNatW: vw, imgNatH: vh } = getImgSize();
       const { l, t, w, h } = getCropRect();
       onApply(calcResolutionRect(pw, ph, vw, vh, l, t, w, h));
-    }}));
+    }});
+    resGrid.appendChild(btn);
   }
+  el.appendChild(resGrid);
 
   // ── Positions ─────────────────────────────────────────────────────────────────
   el.appendChild(makeDivider());
