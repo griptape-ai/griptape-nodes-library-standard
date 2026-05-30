@@ -76,6 +76,13 @@ class CropVideo(BaseVideoProcessor):
         self._cached_video_url: str | None = None
 
     def _setup_custom_parameters(self) -> None:
+        msg = DeprecationMessage(
+            value="This node uses legacy preset-based cropping. Use the new Crop Video node for interactive pixel-level control.",
+            button_text="Create New Crop Video",
+            migrate_function=self._migrate_to_new_crop_video,
+        )
+        self.add_node_element(msg)
+
         size_param = ParameterString(
             name="crop_size",
             default_value="Custom",
@@ -106,13 +113,6 @@ class CropVideo(BaseVideoProcessor):
                 ui_options={"expander": True},
             )
         )
-
-        msg = DeprecationMessage(
-            value="This node uses legacy preset-based cropping. Use the new Crop Video node for interactive pixel-level control.",
-            button_text="Create New Crop Video",
-            migrate_function=self._migrate_to_new_crop_video,
-        )
-        self.add_node_element(msg)
 
     def _migrate_to_new_crop_video(self, button: Any, details: Any) -> None:
         pos = self.metadata.get("position", {"x": 0, "y": 0})

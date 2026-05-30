@@ -78,10 +78,9 @@ class CropVideoInteractive(BaseVideoProcessor):
             )
         self.add_node_element(crop_coordinates)
 
-        # hide the input video
         video_param = self.get_parameter_by_name("video")
         if video_param:
-            video_param.ui_options["hide_parameter"] = True
+            video_param.hide_property = True
 
     def _get_processing_description(self) -> str:
         return "cropping video"

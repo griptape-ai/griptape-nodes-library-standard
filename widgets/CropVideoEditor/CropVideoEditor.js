@@ -197,7 +197,14 @@ export default function CropVideoEditor(container, props) {
   function render() {
     const cw = canvas.width, ch = canvas.height;
     ctx.clearRect(0, 0, cw, ch);
-    if (!videoLoaded) return;
+    if (!videoLoaded) {
+      ctx.fillStyle = "rgba(255,255,255,0.25)";
+      ctx.font = `${Math.max(11, Math.round(cw / 22))}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("Connect a video to begin", cw / 2, ch / 2);
+      return;
+    }
 
     const l = ecL * scale, t = ecT * scale;
     const w = ecW * scale, h = ecH * scale;
@@ -263,8 +270,10 @@ export default function CropVideoEditor(container, props) {
       return;
     }
 
-    const posLocked = lockedParams.includes("left") || lockedParams.includes("top");
-    if (insideCrop(x, y) && !posLocked) {
+    const leftLocked = lockedParams.includes("left");
+    const topLocked  = lockedParams.includes("top");
+    const posLocked  = leftLocked && topLocked;   // both axes must be locked to block move
+    if (insideCrop(x, y) && !(leftLocked && topLocked)) {
       mode = "moving";
       dragStart = { x, y };
       rectAtDrag = { l: ecL, t: ecT, w: ecW, h: ecH };
@@ -273,7 +282,7 @@ export default function CropVideoEditor(container, props) {
     }
 
     const sizeLocked = lockedParams.includes("width") || lockedParams.includes("height");
-    if (!posLocked && !sizeLocked) {
+    if (!(leftLocked || topLocked) && !sizeLocked) {
       mode = "drawing";
       dragStart = { x: x / scale, y: y / scale };
       canvas.setPointerCapture(e.pointerId);
@@ -294,8 +303,8 @@ export default function CropVideoEditor(container, props) {
 
     if (mode === "moving") {
       const dx = (x - dragStart.x) / scale, dy = (y - dragStart.y) / scale;
-      ecL = clamp(Math.round(rectAtDrag.l + dx), 0, vidNatW - ecW);
-      ecT = clamp(Math.round(rectAtDrag.t + dy), 0, vidNatH - ecH);
+      if (!lockedParams.includes("left")) ecL = clamp(Math.round(rectAtDrag.l + dx), 0, vidNatW - ecW);
+      if (!lockedParams.includes("top"))  ecT = clamp(Math.round(rectAtDrag.t + dy), 0, vidNatH - ecH);
       render();
       return;
     }
