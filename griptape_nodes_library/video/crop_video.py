@@ -8,6 +8,10 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
+from griptape_nodes.retained_mode.events.connection_events import (
+    ListConnectionsForNodeRequest,
+    ListConnectionsForNodeResultSuccess,
+)
 from griptape_nodes.retained_mode.events.static_file_events import (
     CreateStaticFileDownloadUrlFromPathRequest,
     CreateStaticFileDownloadUrlFromPathResultSuccess,
@@ -162,6 +166,43 @@ class CropVideo(BaseVideoProcessor):
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError):
             return None
 
+    # ── Lock detection ─────────────────────────────────────────────────────────
+
+    _LOCKABLE_PARAMS = frozenset({"crop_size", "crop_position", "custom_width", "custom_height", "custom_left", "custom_top"})
+
+    def _get_locked_params(self) -> list[str]:
+        """Return widget lock keys for any connected wires on crop-affecting params."""
+        try:
+            result = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=self.name))
+            if not isinstance(result, ListConnectionsForNodeResultSuccess):
+                return []
+            connected = {c.target_parameter_name for c in result.incoming_connections}
+        except Exception:
+            return []
+        locked: set[str] = set()
+        if "crop_size" in connected or "custom_width" in connected:
+            locked |= {"width", "height"}
+        if "custom_height" in connected:
+            locked.add("height")
+        if "crop_position" in connected or "custom_left" in connected:
+            locked.add("left")
+        if "crop_position" in connected or "custom_top" in connected:
+            locked.add("top")
+        return list(locked)
+
+    def _refresh_locked_in_widget(self) -> None:
+        existing = self.get_parameter_value("crop_editor") or {}
+        new_locked = self._get_locked_params()
+        if set(existing.get("locked") or []) == set(new_locked):
+            return
+        self._syncing_to_widget = True
+        try:
+            updated = {**existing, "locked": new_locked}
+            self.set_parameter_value("crop_editor", updated)
+            self.publish_update_to_parameter("crop_editor", updated)
+        finally:
+            self._syncing_to_widget = False
+
     # ── Widget sync ────────────────────────────────────────────────────────────
 
     def _resolve_video_url(self, artifact: Any) -> str:
@@ -224,7 +265,7 @@ class CropVideo(BaseVideoProcessor):
             "width": w,
             "height": h,
             "total_frames": total_frames,
-            "locked": [],
+            "locked": self._get_locked_params(),
         }
         self._syncing_to_widget = True
         try:
@@ -317,7 +358,14 @@ class CropVideo(BaseVideoProcessor):
                 saved_path = (self.get_parameter_value("crop_editor") or {}).get("video_path") or ""
                 if saved_path:
                     self._reinitialize_from_path(saved_path)
+        elif target_parameter.name in self._LOCKABLE_PARAMS:
+            self._refresh_locked_in_widget()
         return super().after_incoming_connection(source_node, source_parameter, target_parameter)
+
+    def after_incoming_connection_removed(self, source_node, source_parameter, target_parameter) -> None:
+        if target_parameter.name in self._LOCKABLE_PARAMS:
+            self._refresh_locked_in_widget()
+        return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
     def _reinitialize_from_path(self, path: str) -> None:
         existing = self.get_parameter_value("crop_editor") or {}
@@ -338,7 +386,8 @@ class CropVideo(BaseVideoProcessor):
         except Exception:
             url = ""
         new_dict = {**existing, "video_url": url, "video_path": path,
-                    "video_width": vw, "video_height": vh, "total_frames": total_frames, "locked": []}
+                    "video_width": vw, "video_height": vh, "total_frames": total_frames,
+                    "locked": self._get_locked_params()}
         self._syncing_to_widget = True
         try:
             self.set_parameter_value("crop_editor", new_dict)
