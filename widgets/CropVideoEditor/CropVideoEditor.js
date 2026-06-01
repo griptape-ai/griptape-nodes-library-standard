@@ -23,6 +23,7 @@ export default function CropVideoEditor(container, props) {
   let totalFrames  = value?.total_frames || 0;
   let lockedParams = value?.locked       || [];
   let isDisabled   = !!disabled;
+  let currentFrame = 0;
 
   // Crop rect in natural video pixels
   let ecL = value?.left   || 0;
@@ -103,15 +104,20 @@ export default function CropVideoEditor(container, props) {
   container.appendChild(wrapper);
 
   // ── Video loading ──────────────────────────────────────────────────────────
+  // Compare by pathname only so token refreshes in signed URLs don't cause reloads.
+  function urlPathname(u) {
+    if (!u) return "";
+    try { return new URL(u, location.href).pathname; }
+    catch { return u.split("?")[0]; }
+  }
+
   function loadVideo(url) {
     if (!url) return;
-    if (video.src && stripQuery(video.src) === stripQuery(url)) return;
+    if (video.src && urlPathname(video.src) === urlPathname(url)) return;
     videoLoaded = false;
     video.src = url;
     video.load();
   }
-
-  function stripQuery(u) { return u ? u.split("?")[0] : ""; }
 
   video.addEventListener("loadedmetadata", () => {
     videoLoaded = true;
@@ -123,6 +129,10 @@ export default function CropVideoEditor(container, props) {
     if (!ecW) ecW = vidNatW;
     if (!ecH) ecH = vidNatH;
     footerInst.sync(totalFrames, isDisabled);
+    // Restore the previously viewed frame (no-op for first load where currentFrame=0)
+    if (currentFrame > 0 && video.duration) {
+      video.currentTime = (currentFrame / totalFrames) * video.duration;
+    }
     syncUI();
     render();
   });
@@ -156,6 +166,7 @@ export default function CropVideoEditor(container, props) {
   // ── Frame scrubbing ────────────────────────────────────────────────────────
   function seekToFrame(frame) {
     if (!video.duration || totalFrames <= 0) return;
+    currentFrame = frame;
     video.currentTime = (frame / totalFrames) * video.duration;
     footerInst.setFrame(frame, totalFrames);
   }
@@ -383,28 +394,35 @@ export default function CropVideoEditor(container, props) {
     isDisabled  = !!newProps.disabled;
 
     const newUrl = v.video_url || "";
-    if (newUrl !== videoUrl) {
+    const videoChanged = urlPathname(newUrl) !== urlPathname(videoUrl);
+    if (videoChanged) {
       videoUrl = newUrl;
       vidNatW  = v.video_width  || 0;
       vidNatH  = v.video_height || 0;
       totalFrames = v.total_frames || 0;
+      currentFrame = 0;
       videoLoaded = false;
       loadVideo(newUrl);
     } else {
-      // Video unchanged — just update dimensions if they arrived
+      // Same video — update token + dims without reloading or resetting the frame
+      if (newUrl) videoUrl = newUrl;
       if (v.video_width)  vidNatW = v.video_width;
       if (v.video_height) vidNatH = v.video_height;
       if (v.total_frames !== undefined) totalFrames = v.total_frames;
     }
 
     lockedParams = v.locked || [];
-    ecL = v.left   ?? ecL;
-    ecT = v.top    ?? ecT;
-    ecW = v.width  ?? ecW;
-    ecH = v.height ?? ecH;
+
+    // Only accept incoming crop coords when idle — don't clobber an in-progress drag.
+    if (mode === "idle") {
+      if ("left"   in v) ecL = v.left;
+      if ("top"    in v) ecT = v.top;
+      if ("width"  in v) ecW = v.width;
+      if ("height" in v) ecH = v.height;
+    }
 
     syncUI();
-    render();
+    if (videoLoaded) render();
   }
 
   // ── Cleanup ────────────────────────────────────────────────────────────────

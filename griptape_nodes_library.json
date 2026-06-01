@@ -776,20 +776,6 @@
     },
     {
       "class_name": "CropVideo",
-      "file_path": "griptape_nodes_library/video/crop_video_legacy.py",
-      "metadata": {
-        "category": "video",
-        "description": "Legacy preset-based crop node. Use the new Crop Video node for interactive pixel-level control.",
-        "display_name": "Crop Video (Legacy)",
-        "icon": "crop",
-        "group": "edit",
-        "declarations": [
-          { "type": "lifecycle_stage", "stage": "DEPRECATED" }
-        ]
-      }
-    },
-    {
-      "class_name": "CropVideoInteractive",
       "file_path": "griptape_nodes_library/video/crop_video.py",
       "metadata": {
         "category": "video",
