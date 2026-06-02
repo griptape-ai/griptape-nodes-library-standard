@@ -11,12 +11,15 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.utils.ffmpeg_utils import get_ffmpeg_paths, run_ffmpeg_cmd
+from griptape_nodes_library.utils.ffmpeg_utils import (
+    build_video_segment_cmd,
+    detect_video_properties,
+    get_ffmpeg_paths,
+    run_ffmpeg_cmd,
+)
 from griptape_nodes_library.utils.video_utils import (
     MIN_VIDEO_FILE_SIZE,
     VIDEO_DURATION_BUFFER,
-    build_video_segment_cmd,
-    detect_video_properties,
     smpte_to_seconds,
     to_video_artifact,
     validate_url,

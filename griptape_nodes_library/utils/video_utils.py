@@ -4,10 +4,9 @@ import logging
 import re
 import subprocess
 import tempfile
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -15,7 +14,7 @@ from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.utils.async_utils import subprocess_run
-from griptape_nodes_library.utils.ffmpeg_utils import get_ffmpeg_paths
+from griptape_nodes_library.utils.ffmpeg_utils import RATE_TOLERANCE, get_ffmpeg_paths
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -25,7 +24,6 @@ DOWNLOAD_CHUNK_SIZE = 8192
 # Supported video file extensions
 SUPPORTED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv", ".m4v"}
 
-RATE_TOLERANCE = 0.1
 NOMINAL_30FPS = 30
 NOMINAL_60FPS = 60
 
@@ -42,105 +40,8 @@ ACTUAL_RATE_30FPS = 30000 / 1001  # ≈ 29.97 fps (NTSC)
 ACTUAL_RATE_60FPS = 60000 / 1001  # ≈ 59.94 fps (NTSC)
 
 
-MIN_SEGMENT_DURATION_FOR_STREAM_COPY = 2.0  # seconds — below this stream copy is unreliable
 MIN_VIDEO_FILE_SIZE = 1024  # bytes — smaller output is suspicious for any real video
 VIDEO_DURATION_BUFFER = 0.1  # seconds — trim end slightly inside duration to avoid keyframe issues
-
-
-class VideoProperties(NamedTuple):
-    frame_rate: float
-    drop_frame: bool
-    duration: float
-
-
-def detect_video_properties(
-    input_url: str,
-    ffprobe_path: str,
-    *,
-    log: Callable[[str], None] | None = None,
-) -> VideoProperties:
-    """Return VideoProperties(frame_rate, drop_frame, duration) for a video via ffprobe.
-
-    Falls back to VideoProperties(24.0, False, 0.0) if ffprobe fails to run, logging a
-    warning via `log`. Raises ValueError if ffprobe succeeds but finds no video streams.
-    """
-    _DEFAULTS = VideoProperties(24.0, False, 0.0)
-    _DEFAULT_MSG = "24 fps, non-drop-frame, duration 0.0s"
-
-    cmd = [
-        ffprobe_path,
-        "-v",
-        "quiet",
-        "-print_format",
-        "json",
-        "-show_streams",
-        "-show_format",
-        "-select_streams",
-        "v:0",
-        input_url,
-    ]
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)  # noqa: S603
-        data = json.loads(result.stdout)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError, OSError) as e:
-        if log:
-            log(
-                f"WARNING: Could not detect video properties ({e}) — using defaults: {_DEFAULT_MSG}. Timecode/frame-range calculations may be inaccurate.\n"
-            )
-        return _DEFAULTS
-
-    if not data.get("streams"):
-        msg = f"Attempted to detect video properties for {input_url!r}. Failed because ffprobe found no video streams — the file may not be a valid video or may be corrupt."
-        raise ValueError(msg)
-
-    stream = data["streams"][0]
-    r_frame_rate = stream.get("r_frame_rate", "24/1")
-    if "/" in r_frame_rate:
-        num, den = map(int, r_frame_rate.split("/"))
-        frame_rate = num / den
-    else:
-        frame_rate = float(r_frame_rate)
-
-    drop_frame = abs(frame_rate - 29.97) < RATE_TOLERANCE or abs(frame_rate - 59.94) < RATE_TOLERANCE
-
-    duration = 0.0
-    if "format" in data and "duration" in data["format"]:
-        duration = float(data["format"]["duration"])
-    elif "duration" in stream:
-        duration = float(stream["duration"])
-
-    return VideoProperties(frame_rate, drop_frame, duration)
-
-
-def build_video_segment_cmd(
-    ffmpeg_path: str,
-    input_path: str,
-    start_sec: float,
-    end_sec: float,
-    output_path: str,
-) -> list[str]:
-    """Build an ffmpeg command to extract a video segment.
-
-    Uses stream copy with fast seek (pre-input -ss/-to) for segments starting at 0
-    with sufficient duration. Uses re-encoding with accurate seek (post-input) otherwise.
-
-    Stream copy requires fast seek — post-input accurate seek with -c copy silently
-    drops video frames for many codecs/containers (e.g. H.264 in MOV/MP4).
-    Data streams like timecode tracks (tmcd) are excluded since MP4 doesn't support them.
-    """
-    ss = seconds_to_ts(start_sec)
-    to = seconds_to_ts(end_sec)
-    duration = end_sec - start_sec
-
-    base = [ffmpeg_path, "-hide_banner", "-y"]
-    maps = ["-map", "0:v", "-map", "0:a?"]
-    tail = ["-movflags", "+faststart", output_path]
-
-    if duration >= MIN_SEGMENT_DURATION_FOR_STREAM_COPY and start_sec < 1e-5:
-        return base + ["-ss", ss, "-to", to, "-i", input_path] + maps + ["-c", "copy"] + tail
-
-    return base + ["-i", input_path, "-ss", ss, "-to", to] + maps + ["-c:v", "libx264", "-crf", "18", "-preset", "medium", "-c:a", "aac", "-b:a", "192k"] + tail
 
 
 def detect_video_format(video: Any | dict) -> str | None:
@@ -390,16 +291,6 @@ def smpte_to_seconds(tc: str, rate: float, *, drop_frame: bool | None = None) ->
     actual_rate = ACTUAL_RATE_30FPS if nominal == NOMINAL_30FPS else ACTUAL_RATE_60FPS
     return frame_number / actual_rate
 
-
-def seconds_to_ts(sec: float) -> str:
-    """Return HH:MM:SS.mmm for ffmpeg."""
-    sec = max(sec, 0)
-    whole = int(sec)
-    ms = round((sec - whole) * 1000)
-    h = whole // 3600
-    m = (whole % 3600) // 60
-    s = whole % 60
-    return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
 
 
 def sanitize_filename(name: str) -> str:
