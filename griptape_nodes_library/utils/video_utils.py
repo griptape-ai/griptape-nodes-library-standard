@@ -87,7 +87,9 @@ def detect_video_properties(
 
         if not data.get("streams"):
             if log:
-                log(f"WARNING: ffprobe found no video streams — using defaults: {_DEFAULT_MSG}. Timecode/frame-range calculations may be inaccurate.\n")
+                log(
+                    f"WARNING: ffprobe found no video streams — using defaults: {_DEFAULT_MSG}. Timecode/frame-range calculations may be inaccurate.\n"
+                )
             return _DEFAULTS
 
         stream = data["streams"][0]
@@ -110,7 +112,9 @@ def detect_video_properties(
 
     except Exception as e:
         if log:
-            log(f"WARNING: Could not detect video properties ({e}) — using defaults: {_DEFAULT_MSG}. Timecode/frame-range calculations may be inaccurate.\n")
+            log(
+                f"WARNING: Could not detect video properties ({e}) — using defaults: {_DEFAULT_MSG}. Timecode/frame-range calculations may be inaccurate.\n"
+            )
         return _DEFAULTS
 
 
