@@ -5,6 +5,7 @@ from typing import Any
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
@@ -125,16 +126,19 @@ class TrimVideo(ControlNode):
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "trim_by":
-            if value == "timecode":
-                self.show_parameter_by_name("start_timecode")
-                self.show_parameter_by_name("end_timecode")
-                self.hide_parameter_by_name("start_frame")
-                self.hide_parameter_by_name("end_frame")
-            elif value == "frame range":
-                self.hide_parameter_by_name("start_timecode")
-                self.hide_parameter_by_name("end_timecode")
-                self.show_parameter_by_name("start_frame")
-                self.show_parameter_by_name("end_frame")
+            match value:
+                case "timecode":
+                    self.show_parameter_by_name("start_timecode")
+                    self.show_parameter_by_name("end_timecode")
+                    self.hide_parameter_by_name("start_frame")
+                    self.hide_parameter_by_name("end_frame")
+                case "frame range":
+                    self.hide_parameter_by_name("start_timecode")
+                    self.hide_parameter_by_name("end_timecode")
+                    self.show_parameter_by_name("start_frame")
+                    self.show_parameter_by_name("end_frame")
+                case _:
+                    logger.warning("%s: unrecognised trim_by value %r — UI state unchanged", self.name, value)
         return super().after_value_set(parameter, value)
 
     def validate_before_node_run(self) -> list[Exception] | None:

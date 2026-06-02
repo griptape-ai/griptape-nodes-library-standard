@@ -137,12 +137,15 @@ class SplitVideo(ControlNode):
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "split_by":
-            if value == "timecode":
-                self.show_parameter_by_name("timecodes")
-                self.hide_parameter_by_name("frame_ranges")
-            elif value == "frame range":
-                self.hide_parameter_by_name("timecodes")
-                self.show_parameter_by_name("frame_ranges")
+            match value:
+                case "timecode":
+                    self.show_parameter_by_name("timecodes")
+                    self.hide_parameter_by_name("frame_ranges")
+                case "frame range":
+                    self.hide_parameter_by_name("timecodes")
+                    self.show_parameter_by_name("frame_ranges")
+                case _:
+                    logger.warning("%s: unrecognised split_by value %r — UI state unchanged", self.name, value)
         return super().after_value_set(parameter, value)
 
     def validate_before_node_run(self) -> list[Exception] | None:
