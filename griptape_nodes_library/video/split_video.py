@@ -1,3 +1,4 @@
+import asyncio
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,7 +9,7 @@ from griptape.drivers.prompt.griptape_cloud_prompt_driver import GriptapeCloudPr
 from griptape.structures import Agent as GriptapeAgent
 from griptape.tasks import PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
-from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
+from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
@@ -527,7 +528,7 @@ If no title is provided, just use "Segment X:" format.
             self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
             raise ValueError(msg) from e
 
-    def process(self) -> AsyncResult[None]:
+    async def aprocess(self) -> None:
         """Executes the main logic of the node asynchronously."""
         self._clear_execution_status()
 
@@ -611,7 +612,7 @@ If no title is provided, just use "Segment X:" format.
 
             # Run the video processing asynchronously
             self.append_value_to_parameter("logs", "[Started video processing..]\n")
-            yield lambda: self._process(input_url, segments)
+            await asyncio.to_thread(self._process, input_url, segments)
             self.append_value_to_parameter("logs", "[Finished video processing.]\n")
 
         except Exception as e:

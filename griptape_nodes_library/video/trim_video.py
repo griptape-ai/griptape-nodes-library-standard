@@ -1,10 +1,11 @@
+import asyncio
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
-from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
+from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
@@ -206,7 +207,7 @@ class TrimVideo(SuccessFailureNode):
         self.parameter_output_values["video_out"] = video_artifact
         self.append_value_to_parameter("logs", f"Saved trimmed video: {saved.name}\n")
 
-    def process(self) -> AsyncResult[None]:
+    async def aprocess(self) -> None:
         """Executes the main logic of the node asynchronously."""
         self._clear_execution_status()
 
@@ -261,7 +262,7 @@ class TrimVideo(SuccessFailureNode):
                     raise ValueError("After clamping to video duration, end is not after start")  # noqa: TRY301
 
             self.append_value_to_parameter("logs", f"Trimming {start_sec:.3f}s → {end_sec:.3f}s\n")
-            yield lambda: self._process(input_url, start_sec, end_sec)
+            await asyncio.to_thread(self._process, input_url, start_sec, end_sec)
             self.append_value_to_parameter("logs", "[Finished video trim.]\n")
 
         except Exception as e:
