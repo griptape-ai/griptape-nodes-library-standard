@@ -4,7 +4,7 @@ from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
-from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
@@ -27,7 +27,7 @@ from griptape_nodes_library.utils.video_utils import (
 )
 
 
-class TrimVideo(ControlNode):
+class TrimVideo(SuccessFailureNode):
     """Trim a video to a specific start and end point using ffmpeg."""
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
@@ -124,6 +124,11 @@ class TrimVideo(ControlNode):
         logs_group.ui_options = {"hide": True}
         self.add_node_element(logs_group)
 
+        self._create_status_parameters(
+            result_details_tooltip="Details about the video trim operation result",
+            result_details_placeholder="Details on the trim attempt will be presented here.",
+        )
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "trim_by":
             match value:
@@ -203,6 +208,8 @@ class TrimVideo(ControlNode):
 
     def process(self) -> AsyncResult[None]:
         """Executes the main logic of the node asynchronously."""
+        self._clear_execution_status()
+
         video = self.get_parameter_value("video")
         trim_by = self.get_parameter_value("trim_by") or "timecode"
 
@@ -260,4 +267,10 @@ class TrimVideo(ControlNode):
         except Exception as e:
             msg = f"{self.name}: Error trimming video: {e!s}"
             self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
-            raise ValueError(msg) from e
+            self._set_status_results(was_successful=False, result_details=f"Video trim failed: {e!s}")
+            self._handle_failure_exception(ValueError(msg))
+            return
+
+        self._set_status_results(
+            was_successful=True, result_details=f"Successfully trimmed video: {start_sec:.3f}s → {end_sec:.3f}s"
+        )

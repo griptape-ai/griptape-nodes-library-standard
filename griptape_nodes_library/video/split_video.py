@@ -8,7 +8,7 @@ from griptape.drivers.prompt.griptape_cloud_prompt_driver import GriptapeCloudPr
 from griptape.structures import Agent as GriptapeAgent
 from griptape.tasks import PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
-from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
@@ -54,7 +54,7 @@ def build_ffmpeg_cmd(input_path: str, seg: Segment, outdir: str) -> list[str]:
     return build_video_segment_cmd("ffmpeg", input_path, seg.start_sec, seg.end_sec, str(out_path))
 
 
-class SplitVideo(ControlNode):
+class SplitVideo(SuccessFailureNode):
     """Split a video into multiple parts using ffmpeg."""
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
@@ -134,6 +134,11 @@ class SplitVideo(ControlNode):
         logs_group.ui_options = {"hide": True}  # Hide the logs group by default
 
         self.add_node_element(logs_group)
+
+        self._create_status_parameters(
+            result_details_tooltip="Details about the video split operation result",
+            result_details_placeholder="Details on the split attempt will be presented here.",
+        )
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "split_by":
@@ -524,6 +529,8 @@ If no title is provided, just use "Segment X:" format.
 
     def process(self) -> AsyncResult[None]:
         """Executes the main logic of the node asynchronously."""
+        self._clear_execution_status()
+
         # Clear the parameter list
         self._clear_list()
 
@@ -611,4 +618,10 @@ If no title is provided, just use "Segment X:" format.
             error_message = str(e)
             msg = f"{self.name}: Error splitting video: {error_message}"
             self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
-            raise ValueError(msg) from e
+            self._set_status_results(was_successful=False, result_details=f"Video split failed: {error_message}")
+            self._handle_failure_exception(ValueError(msg))
+            return
+
+        self._set_status_results(
+            was_successful=True, result_details=f"Successfully split into {len(segments)} segments"
+        )
