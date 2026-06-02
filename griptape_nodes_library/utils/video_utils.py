@@ -7,7 +7,7 @@ import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import urlparse
 
 import httpx
@@ -47,17 +47,23 @@ MIN_VIDEO_FILE_SIZE = 1024  # bytes — smaller output is suspicious for any rea
 VIDEO_DURATION_BUFFER = 0.1  # seconds — trim end slightly inside duration to avoid keyframe issues
 
 
+class VideoProperties(NamedTuple):
+    frame_rate: float
+    drop_frame: bool
+    duration: float
+
+
 def detect_video_properties(
     input_url: str,
     ffprobe_path: str,
     *,
     log: Callable[[str], None] | None = None,
-) -> tuple[float, bool, float]:
-    """Return (frame_rate, drop_frame, duration) for a video via ffprobe.
+) -> VideoProperties:
+    """Return VideoProperties(frame_rate, drop_frame, duration) for a video via ffprobe.
 
     Falls back to (24.0, False, 0.0) if detection fails, logging a warning via `log`.
     """
-    _DEFAULTS = (24.0, False, 0.0)
+    _DEFAULTS = VideoProperties(24.0, False, 0.0)
     _DEFAULT_MSG = "24 fps, non-drop-frame, duration 0.0s"
 
     try:
@@ -99,7 +105,7 @@ def detect_video_properties(
         elif "duration" in stream:
             duration = float(stream["duration"])
 
-        return frame_rate, drop_frame, duration
+        return VideoProperties(frame_rate, drop_frame, duration)
 
     except Exception as e:
         if log:

@@ -2,8 +2,14 @@
 
 import subprocess
 from collections.abc import Callable
+from typing import NamedTuple
 
 import static_ffmpeg.run  # type: ignore[import-untyped]
+
+
+class FfmpegPaths(NamedTuple):
+    ffmpeg: str
+    ffprobe: str
 
 
 def get_ffmpeg_path() -> str:
@@ -56,14 +62,14 @@ def get_ffprobe_path() -> str:
     return ffprobe_path
 
 
-def get_ffmpeg_paths() -> tuple[str, str]:
+def get_ffmpeg_paths() -> FfmpegPaths:
     """Get both ffmpeg and ffprobe executable paths using static_ffmpeg.
 
     This is a convenience function that returns both paths in a single call,
     which is useful when you need both executables.
 
     Returns:
-        Tuple of (ffmpeg_path, ffprobe_path)
+        FfmpegPaths(ffmpeg, ffprobe)
 
     Raises:
         RuntimeError: If either executable is not found or static-ffmpeg is not properly installed
@@ -76,7 +82,7 @@ def get_ffmpeg_paths() -> tuple[str, str]:
         raise RuntimeError(error_msg) from e
 
     # SUCCESS PATH AT END
-    return ffmpeg_path, ffprobe_path
+    return FfmpegPaths(ffmpeg_path, ffprobe_path)
 
 
 def run_ffmpeg_cmd(
