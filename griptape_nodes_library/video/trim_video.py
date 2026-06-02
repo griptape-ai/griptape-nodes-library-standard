@@ -207,12 +207,16 @@ class TrimVideo(ControlNode):
 
             self.append_value_to_parameter("logs", "Detecting video properties...\n")
             _, ffprobe_path = get_ffmpeg_paths()
-            frame_rate, drop_frame, video_duration = detect_video_properties(input_url, ffprobe_path)
+            frame_rate, drop_frame, video_duration = detect_video_properties(
+                input_url, ffprobe_path, log=lambda msg: self.append_value_to_parameter("logs", msg)
+            )
             self.append_value_to_parameter("logs", f"Frame rate: {frame_rate} fps, Duration: {video_duration:.2f}s\n")
 
             if trim_by == "frame range":
-                start_frame = self.get_parameter_value("start_frame") or 0
-                end_frame = self.get_parameter_value("end_frame") or 100
+                start_frame_val = self.get_parameter_value("start_frame")
+                end_frame_val = self.get_parameter_value("end_frame")
+                start_frame = int(start_frame_val) if start_frame_val is not None else 0
+                end_frame = int(end_frame_val) if end_frame_val is not None else 100
                 start_sec = start_frame / frame_rate
                 end_sec = end_frame / frame_rate
                 self.append_value_to_parameter(

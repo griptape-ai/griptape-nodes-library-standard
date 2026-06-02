@@ -56,11 +56,19 @@ def get_ffmpeg_paths() -> tuple[str, str]:
         raise ValueError(error_msg) from e
 
 
-def detect_video_properties(input_url: str, ffprobe_path: str) -> tuple[float, bool, float]:
+def detect_video_properties(
+    input_url: str,
+    ffprobe_path: str,
+    *,
+    log: Callable[[str], None] | None = None,
+) -> tuple[float, bool, float]:
     """Return (frame_rate, drop_frame, duration) for a video via ffprobe.
 
-    Falls back to (24.0, False, 0.0) if detection fails.
+    Falls back to (24.0, False, 0.0) if detection fails, logging a warning via `log`.
     """
+    _DEFAULTS = (24.0, False, 0.0)
+    _DEFAULT_MSG = "24 fps, non-drop-frame, duration 0.0s"
+
     try:
         cmd = [
             ffprobe_path,
@@ -78,7 +86,9 @@ def detect_video_properties(input_url: str, ffprobe_path: str) -> tuple[float, b
         data = json.loads(result.stdout)
 
         if not data.get("streams"):
-            return 24.0, False, 0.0
+            if log:
+                log(f"WARNING: ffprobe found no video streams — using defaults: {_DEFAULT_MSG}. Timecode/frame-range calculations may be inaccurate.\n")
+            return _DEFAULTS
 
         stream = data["streams"][0]
         r_frame_rate = stream.get("r_frame_rate", "24/1")
@@ -98,8 +108,10 @@ def detect_video_properties(input_url: str, ffprobe_path: str) -> tuple[float, b
 
         return frame_rate, drop_frame, duration
 
-    except Exception:
-        return 24.0, False, 0.0
+    except Exception as e:
+        if log:
+            log(f"WARNING: Could not detect video properties ({e}) — using defaults: {_DEFAULT_MSG}. Timecode/frame-range calculations may be inaccurate.\n")
+        return _DEFAULTS
 
 
 def build_video_segment_cmd(
@@ -122,7 +134,7 @@ def build_video_segment_cmd(
     to = seconds_to_ts(end_sec)
     duration = end_sec - start_sec
 
-    if duration >= MIN_SEGMENT_DURATION_FOR_STREAM_COPY and start_sec == 0.0:
+    if duration >= MIN_SEGMENT_DURATION_FOR_STREAM_COPY and start_sec < 1e-5:
         return [
             ffmpeg_path,
             "-hide_banner",

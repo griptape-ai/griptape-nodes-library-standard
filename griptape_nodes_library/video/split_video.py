@@ -539,7 +539,9 @@ If no title is provided, just use "Segment X:" format.
             # Always detect video properties for best results
             self.append_value_to_parameter("logs", "Detecting video properties...\n")
             _, ffprobe_path = get_ffmpeg_paths()
-            frame_rate, drop_frame, video_duration = detect_video_properties(input_url, ffprobe_path)
+            frame_rate, drop_frame, video_duration = detect_video_properties(
+                input_url, ffprobe_path, log=lambda msg: self.append_value_to_parameter("logs", msg)
+            )
 
             self.append_value_to_parameter("logs", f"Detected frame rate: {frame_rate} fps\n")
             self.append_value_to_parameter("logs", f"Detected drop frame: {drop_frame}\n")
