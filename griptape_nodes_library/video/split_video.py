@@ -1,4 +1,3 @@
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +23,7 @@ from griptape_nodes_library.utils.video_utils import (
     detect_video_format,
     detect_video_properties,
     get_ffmpeg_paths,
+    run_ffmpeg_cmd,
     sanitize_filename,
     smpte_to_seconds,
     to_video_artifact,
@@ -433,20 +433,10 @@ If no title is provided, just use "Segment X:" format.
 
         cmd = build_ffmpeg_cmd(input_url, segment, temp_dir)
         cmd[0] = ffmpeg_path
-        self.append_value_to_parameter("logs", f"Running ffmpeg command: {' '.join(cmd)}\n")
-
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)  # noqa: S603
-            if result.stderr:
-                self.append_value_to_parameter("logs", f"FFmpeg stderr: {result.stderr}\n")
-        except subprocess.TimeoutExpired as e:
-            error_msg = f"FFmpeg timed out after 5 minutes for segment {segment.title}"
-            self.append_value_to_parameter("logs", f"ERROR: {error_msg}\n")
-            raise ValueError(error_msg) from e
-        except subprocess.CalledProcessError as e:
-            error_msg = f"FFmpeg error for segment {segment.title}: {e.stderr}"
-            self.append_value_to_parameter("logs", f"ERROR: {error_msg}\n")
-            raise ValueError(error_msg) from e
+            run_ffmpeg_cmd(cmd, log=lambda msg: self.append_value_to_parameter("logs", msg))
+        except ValueError as e:
+            raise ValueError(f"{self.name}: segment '{segment.title}': {e}") from e
 
         output_path = Path(temp_dir) / f"{sanitize_filename(segment.title)}.mp4"
         if not output_path.exists():

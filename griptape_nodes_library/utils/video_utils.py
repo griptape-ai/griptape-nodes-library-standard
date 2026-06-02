@@ -4,6 +4,7 @@ import logging
 import re
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -171,6 +172,38 @@ def build_video_segment_cmd(
         "+faststart",
         output_path,
     ]
+
+
+def run_ffmpeg_cmd(
+    cmd: list[str],
+    *,
+    log: Callable[[str], None] | None = None,
+    timeout: int = 300,
+) -> None:
+    """Run an ffmpeg command with standard error handling and optional logging.
+
+    Args:
+        cmd: The complete ffmpeg command as a list (first element is the binary path).
+        log: Optional callable that receives log lines (e.g. a node's append_value_to_parameter).
+        timeout: Seconds before the process is killed (default 300).
+    """
+    if log:
+        log(f"Running ffmpeg command: {' '.join(cmd)}\n")
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=timeout)  # noqa: S603
+        if result.stderr and log:
+            log(f"FFmpeg stderr: {result.stderr}\n")
+    except subprocess.TimeoutExpired as e:
+        error_msg = f"FFmpeg timed out after {timeout}s"
+        if log:
+            log(f"ERROR: {error_msg}\n")
+        raise ValueError(error_msg) from e
+    except subprocess.CalledProcessError as e:
+        error_msg = f"FFmpeg error: {e.stderr}"
+        if log:
+            log(f"ERROR: {error_msg}\n")
+        raise ValueError(error_msg) from e
 
 
 def detect_video_format(video: Any | dict) -> str | None:

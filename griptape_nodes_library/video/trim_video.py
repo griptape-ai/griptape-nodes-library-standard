@@ -1,4 +1,3 @@
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,7 @@ from griptape_nodes_library.utils.video_utils import (
     build_video_segment_cmd,
     detect_video_properties,
     get_ffmpeg_paths,
+    run_ffmpeg_cmd,
     smpte_to_seconds,
     to_video_artifact,
     validate_url,
@@ -171,24 +171,15 @@ class TrimVideo(ControlNode):
         with tempfile.TemporaryDirectory() as temp_dir:
             out_path = Path(temp_dir) / "trimmed.mp4"
             cmd = build_video_segment_cmd(ffmpeg_path, input_url, start_sec, end_sec, str(out_path))
-            self.append_value_to_parameter("logs", f"Running ffmpeg command: {' '.join(cmd)}\n")
-
-            try:
-                result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)  # noqa: S603
-                if result.stderr:
-                    self.append_value_to_parameter("logs", f"FFmpeg stderr: {result.stderr}\n")
-            except subprocess.TimeoutExpired as e:
-                raise ValueError("FFmpeg timed out after 5 minutes") from e
-            except subprocess.CalledProcessError as e:
-                raise ValueError(f"FFmpeg error: {e.stderr}") from e
+            run_ffmpeg_cmd(cmd, log=lambda msg: self.append_value_to_parameter("logs", msg))
 
             if not out_path.exists():
-                raise ValueError(f"Expected output file not found: {out_path}")
+                raise ValueError(f"{self.name}: expected output file not found: {out_path}")
 
             file_size = out_path.stat().st_size
             self.append_value_to_parameter("logs", f"Output file size: {file_size} bytes\n")
             if file_size < MIN_VIDEO_FILE_SIZE:
-                raise ValueError(f"Output too small ({file_size} bytes) — likely empty or invalid")
+                raise ValueError(f"{self.name}: output too small ({file_size} bytes) — likely empty or invalid")
 
             video_bytes = out_path.read_bytes()
 
