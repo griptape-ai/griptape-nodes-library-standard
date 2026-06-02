@@ -133,56 +133,14 @@ def build_video_segment_cmd(
     to = seconds_to_ts(end_sec)
     duration = end_sec - start_sec
 
-    if duration >= MIN_SEGMENT_DURATION_FOR_STREAM_COPY and start_sec < 1e-5:
-        return [
-            ffmpeg_path,
-            "-hide_banner",
-            "-y",
-            "-ss",
-            ss,
-            "-to",
-            to,
-            "-i",
-            input_path,
-            "-map",
-            "0:v",
-            "-map",
-            "0:a?",
-            "-c",
-            "copy",
-            "-movflags",
-            "+faststart",
-            output_path,
-        ]
+    base = [ffmpeg_path, "-hide_banner", "-y"]
+    maps = ["-map", "0:v", "-map", "0:a?"]
+    tail = ["-movflags", "+faststart", output_path]
 
-    return [
-        ffmpeg_path,
-        "-hide_banner",
-        "-y",
-        "-i",
-        input_path,
-        "-ss",
-        ss,
-        "-to",
-        to,
-        "-map",
-        "0:v",
-        "-map",
-        "0:a?",
-        "-c:v",
-        "libx264",
-        "-crf",
-        "18",
-        "-preset",
-        "medium",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
-        "-movflags",
-        "+faststart",
-        output_path,
-    ]
+    if duration >= MIN_SEGMENT_DURATION_FOR_STREAM_COPY and start_sec < 1e-5:
+        return base + ["-ss", ss, "-to", to, "-i", input_path] + maps + ["-c", "copy"] + tail
+
+    return base + ["-i", input_path, "-ss", ss, "-to", to] + maps + ["-c:v", "libx264", "-crf", "18", "-preset", "medium", "-c:a", "aac", "-b:a", "192k"] + tail
 
 
 def detect_video_format(video: Any | dict) -> str | None:
