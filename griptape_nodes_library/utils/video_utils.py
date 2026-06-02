@@ -14,6 +14,7 @@ from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.utils.async_utils import subprocess_run
+
 from griptape_nodes_library.utils.ffmpeg_utils import RATE_TOLERANCE, get_ffmpeg_paths
 
 logger = logging.getLogger("griptape_nodes")
