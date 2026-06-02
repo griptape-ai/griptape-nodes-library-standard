@@ -11,11 +11,11 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
-import static_ffmpeg.run  # type: ignore[import-untyped]  # static_ffmpeg is dynamically installed by the library loader at runtime
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.utils.async_utils import subprocess_run
+from griptape_nodes_library.utils.ffmpeg_utils import get_ffmpeg_paths
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -45,15 +45,6 @@ ACTUAL_RATE_60FPS = 60000 / 1001  # ≈ 59.94 fps (NTSC)
 MIN_SEGMENT_DURATION_FOR_STREAM_COPY = 2.0  # seconds — below this stream copy is unreliable
 MIN_VIDEO_FILE_SIZE = 1024  # bytes — smaller output is suspicious for any real video
 VIDEO_DURATION_BUFFER = 0.1  # seconds — trim end slightly inside duration to avoid keyframe issues
-
-
-def get_ffmpeg_paths() -> tuple[str, str]:
-    """Return (ffmpeg_path, ffprobe_path) from static_ffmpeg."""
-    try:
-        return static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()
-    except Exception as e:
-        error_msg = f"FFmpeg not found. Please ensure static-ffmpeg is properly installed. Error: {e!s}"
-        raise ValueError(error_msg) from e
 
 
 def detect_video_properties(
@@ -188,38 +179,6 @@ def build_video_segment_cmd(
         "+faststart",
         output_path,
     ]
-
-
-def run_ffmpeg_cmd(
-    cmd: list[str],
-    *,
-    log: Callable[[str], None] | None = None,
-    timeout: int = 300,
-) -> None:
-    """Run an ffmpeg command with standard error handling and optional logging.
-
-    Args:
-        cmd: The complete ffmpeg command as a list (first element is the binary path).
-        log: Optional callable that receives log lines (e.g. a node's append_value_to_parameter).
-        timeout: Seconds before the process is killed (default 300).
-    """
-    if log:
-        log(f"Running ffmpeg command: {' '.join(cmd)}\n")
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=timeout)  # noqa: S603
-        if result.stderr and log:
-            log(f"FFmpeg stderr: {result.stderr}\n")
-    except subprocess.TimeoutExpired as e:
-        error_msg = f"FFmpeg timed out after {timeout}s"
-        if log:
-            log(f"ERROR: {error_msg}\n")
-        raise ValueError(error_msg) from e
-    except subprocess.CalledProcessError as e:
-        error_msg = f"FFmpeg error: {e.stderr}"
-        if log:
-            log(f"ERROR: {error_msg}\n")
-        raise ValueError(error_msg) from e
 
 
 def detect_video_format(video: Any | dict) -> str | None:
@@ -384,8 +343,8 @@ async def get_video_duration(video_url: str) -> float:
         ValueError: If the video cannot be parsed or ffprobe fails
     """
     try:
-        _ffmpeg_path, ffprobe_path = static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()
-    except Exception as e:
+        _, ffprobe_path = get_ffmpeg_paths()
+    except RuntimeError as e:
         msg = f"FFprobe not available: {e}"
         raise ValueError(msg) from e
 

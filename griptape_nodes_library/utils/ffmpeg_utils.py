@@ -1,5 +1,8 @@
 """FFmpeg utility functions for cross-platform executable path resolution."""
 
+import subprocess
+from collections.abc import Callable
+
 import static_ffmpeg.run  # type: ignore[import-untyped]
 
 
@@ -74,3 +77,29 @@ def get_ffmpeg_paths() -> tuple[str, str]:
 
     # SUCCESS PATH AT END
     return ffmpeg_path, ffprobe_path
+
+
+def run_ffmpeg_cmd(
+    cmd: list[str],
+    *,
+    log: Callable[[str], None] | None = None,
+    timeout: int = 300,
+) -> None:
+    """Run an ffmpeg command with standard error handling and optional logging."""
+    if log:
+        log(f"Running ffmpeg command: {' '.join(cmd)}\n")
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=timeout)  # noqa: S603
+        if result.stderr and log:
+            log(f"FFmpeg stderr: {result.stderr}\n")
+    except subprocess.TimeoutExpired as e:
+        error_msg = f"FFmpeg timed out after {timeout}s"
+        if log:
+            log(f"ERROR: {error_msg}\n")
+        raise ValueError(error_msg) from e
+    except subprocess.CalledProcessError as e:
+        error_msg = f"FFmpeg error: {e.stderr}"
+        if log:
+            log(f"ERROR: {error_msg}\n")
+        raise ValueError(error_msg) from e
