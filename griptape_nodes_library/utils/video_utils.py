@@ -61,58 +61,56 @@ def detect_video_properties(
 ) -> VideoProperties:
     """Return VideoProperties(frame_rate, drop_frame, duration) for a video via ffprobe.
 
-    Falls back to (24.0, False, 0.0) if detection fails, logging a warning via `log`.
+    Falls back to VideoProperties(24.0, False, 0.0) if ffprobe fails to run, logging a
+    warning via `log`. Raises ValueError if ffprobe succeeds but finds no video streams.
     """
     _DEFAULTS = VideoProperties(24.0, False, 0.0)
     _DEFAULT_MSG = "24 fps, non-drop-frame, duration 0.0s"
 
+    cmd = [
+        ffprobe_path,
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-show_streams",
+        "-show_format",
+        "-select_streams",
+        "v:0",
+        input_url,
+    ]
+
     try:
-        cmd = [
-            ffprobe_path,
-            "-v",
-            "quiet",
-            "-print_format",
-            "json",
-            "-show_streams",
-            "-show_format",
-            "-select_streams",
-            "v:0",
-            input_url,
-        ]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)  # noqa: S603
         data = json.loads(result.stdout)
-
-        if not data.get("streams"):
-            if log:
-                log(
-                    f"WARNING: ffprobe found no video streams — using defaults: {_DEFAULT_MSG}. Timecode/frame-range calculations may be inaccurate.\n"
-                )
-            return _DEFAULTS
-
-        stream = data["streams"][0]
-        r_frame_rate = stream.get("r_frame_rate", "24/1")
-        if "/" in r_frame_rate:
-            num, den = map(int, r_frame_rate.split("/"))
-            frame_rate = num / den
-        else:
-            frame_rate = float(r_frame_rate)
-
-        drop_frame = abs(frame_rate - 29.97) < RATE_TOLERANCE or abs(frame_rate - 59.94) < RATE_TOLERANCE
-
-        duration = 0.0
-        if "format" in data and "duration" in data["format"]:
-            duration = float(data["format"]["duration"])
-        elif "duration" in stream:
-            duration = float(stream["duration"])
-
-        return VideoProperties(frame_rate, drop_frame, duration)
-
-    except Exception as e:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError, OSError) as e:
         if log:
             log(
                 f"WARNING: Could not detect video properties ({e}) — using defaults: {_DEFAULT_MSG}. Timecode/frame-range calculations may be inaccurate.\n"
             )
         return _DEFAULTS
+
+    if not data.get("streams"):
+        msg = f"Attempted to detect video properties for {input_url!r}. Failed because ffprobe found no video streams — the file may not be a valid video or may be corrupt."
+        raise ValueError(msg)
+
+    stream = data["streams"][0]
+    r_frame_rate = stream.get("r_frame_rate", "24/1")
+    if "/" in r_frame_rate:
+        num, den = map(int, r_frame_rate.split("/"))
+        frame_rate = num / den
+    else:
+        frame_rate = float(r_frame_rate)
+
+    drop_frame = abs(frame_rate - 29.97) < RATE_TOLERANCE or abs(frame_rate - 59.94) < RATE_TOLERANCE
+
+    duration = 0.0
+    if "format" in data and "duration" in data["format"]:
+        duration = float(data["format"]["duration"])
+    elif "duration" in stream:
+        duration = float(stream["duration"])
+
+    return VideoProperties(frame_rate, drop_frame, duration)
 
 
 def build_video_segment_cmd(
