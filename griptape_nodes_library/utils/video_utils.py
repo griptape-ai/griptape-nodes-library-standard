@@ -292,7 +292,6 @@ def smpte_to_seconds(tc: str, rate: float, *, drop_frame: bool | None = None) ->
     return frame_number / actual_rate
 
 
-
 def sanitize_filename(name: str) -> str:
     """Sanitize filename by removing invalid characters and replacing spaces with underscores."""
     name = re.sub(r"[^\w\s\-.]+", "_", name.strip())

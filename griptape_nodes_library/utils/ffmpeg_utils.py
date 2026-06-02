@@ -219,4 +219,10 @@ def build_video_segment_cmd(
     if duration >= MIN_SEGMENT_DURATION_FOR_STREAM_COPY and start_sec < 1e-5:
         return base + ["-ss", ss, "-to", to, "-i", input_path] + maps + ["-c", "copy"] + tail
 
-    return base + ["-i", input_path, "-ss", ss, "-to", to] + maps + ["-c:v", "libx264", "-crf", "18", "-preset", "medium", "-c:a", "aac", "-b:a", "192k"] + tail
+    return (
+        base
+        + ["-i", input_path, "-ss", ss, "-to", to]
+        + maps
+        + ["-c:v", "libx264", "-crf", "18", "-preset", "medium", "-c:a", "aac", "-b:a", "192k"]
+        + tail
+    )
