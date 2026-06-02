@@ -138,7 +138,11 @@ class TrimVideo(ControlNode):
                     self.show_parameter_by_name("start_frame")
                     self.show_parameter_by_name("end_frame")
                 case _:
-                    logger.warning("%s: unrecognised trim_by value %r — UI state unchanged", self.name, value)
+                    logger.warning("%s: unrecognised trim_by value %r — defaulting to timecode", self.name, value)
+                    self.show_parameter_by_name("start_timecode")
+                    self.show_parameter_by_name("end_timecode")
+                    self.hide_parameter_by_name("start_frame")
+                    self.hide_parameter_by_name("end_frame")
         return super().after_value_set(parameter, value)
 
     def validate_before_node_run(self) -> list[Exception] | None:
