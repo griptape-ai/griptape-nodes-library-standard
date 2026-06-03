@@ -48,6 +48,14 @@ MAX_HEIGHT = MAX_IMAGE_DIMENSION
 ROTATION_MIN = -180.0
 ROTATION_MAX = 180.0
 
+# Parameter defaults
+DEFAULT_LEFT = 0
+DEFAULT_TOP = 0
+DEFAULT_WIDTH = 0   # 0 = use full image width
+DEFAULT_HEIGHT = 0  # 0 = use full image height
+DEFAULT_ZOOM = NO_ZOOM
+DEFAULT_ROTATE = 0.0
+
 
 @dataclass
 class CropArea:
@@ -113,28 +121,28 @@ class CropImage(ControlNode):
         with ParameterGroup(name="crop_coordinates", ui_options={"collapsed": True}) as crop_coordinates:
             ParameterInt(
                 name="left",
-                default_value=0,
+                default_value=DEFAULT_LEFT,
                 tooltip="Left edge of crop area in pixels",
                 traits={Slider(min_val=0, max_val=self.MAX_WIDTH)},
             )
 
             ParameterInt(
                 name="top",
-                default_value=0,
+                default_value=DEFAULT_TOP,
                 tooltip="Top edge of crop area in pixels",
                 traits={Slider(min_val=0, max_val=self.MAX_HEIGHT)},
             )
 
             ParameterInt(
                 name="width",
-                default_value=0,
+                default_value=DEFAULT_WIDTH,
                 tooltip="Width of crop area in pixels (0 = use full width)",
                 traits={Slider(min_val=0, max_val=self.MAX_WIDTH)},
             )
 
             ParameterInt(
                 name="height",
-                default_value=0,
+                default_value=DEFAULT_HEIGHT,
                 tooltip="Height of crop area in pixels (0 = use full height)",
                 traits={Slider(min_val=0, max_val=self.MAX_HEIGHT)},
             )
@@ -143,13 +151,13 @@ class CropImage(ControlNode):
         with ParameterGroup(name="transform_options", ui_options={"collapsed": True}) as transform_options:
             ParameterFloat(
                 name="zoom",
-                default_value=NO_ZOOM,
+                default_value=DEFAULT_ZOOM,
                 tooltip="Zoom percentage (100 = no zoom, 200 = 2x zoom in, 50 = 0.5x zoom out)",
                 traits={Slider(min_val=0.0, max_val=MAX_ZOOM)},
             )
             ParameterFloat(
                 name="rotate",
-                default_value=0.0,
+                default_value=DEFAULT_ROTATE,
                 tooltip="Rotation in degrees (-180 to 180)",
                 traits={Slider(min_val=ROTATION_MIN, max_val=ROTATION_MAX)},
             )
@@ -245,12 +253,12 @@ class CropImage(ControlNode):
             "image_url": image_url,
             "img_width": img_width,
             "img_height": img_height,
-            "left": self.get_parameter_value("left") or 0,
-            "top": self.get_parameter_value("top") or 0,
-            "width": self.get_parameter_value("width") or 0,
-            "height": self.get_parameter_value("height") or 0,
-            "zoom": self.get_parameter_value("zoom") or NO_ZOOM,
-            "rotate": self.get_parameter_value("rotate") or 0.0,
+            "left": self.get_parameter_value("left") or DEFAULT_LEFT,
+            "top": self.get_parameter_value("top") or DEFAULT_TOP,
+            "width": self.get_parameter_value("width") or DEFAULT_WIDTH,
+            "height": self.get_parameter_value("height") or DEFAULT_HEIGHT,
+            "zoom": self.get_parameter_value("zoom") or DEFAULT_ZOOM,
+            "rotate": self.get_parameter_value("rotate") or DEFAULT_ROTATE,
             "locked": self._get_locked_params(),
         }
 
