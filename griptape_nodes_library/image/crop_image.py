@@ -77,7 +77,6 @@ class CropImage(ControlNode):
 
         self.MAX_WIDTH = MAX_WIDTH
         self.MAX_HEIGHT = MAX_HEIGHT
-        self._processing = False  # Lock to prevent live cropping during process()
         self._syncing_to_widget = False  # Prevent loop: param → widget → param
         self._syncing_to_params = False  # Prevent loop: widget → param → widget
 
@@ -626,12 +625,7 @@ class CropImage(ControlNode):
         return img
 
     def process(self) -> None:
-        # Set processing lock to prevent live cropping during actual processing
-        self._processing = True
-        try:
-            self._crop()
-        finally:
-            self._processing = False
+        self._crop()
 
     def _parse_color(self, color_str: str) -> tuple[int, int, int, int]:
         """Parse color string to RGBA tuple."""
