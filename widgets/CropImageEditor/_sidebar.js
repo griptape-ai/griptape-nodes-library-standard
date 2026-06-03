@@ -1,4 +1,4 @@
-// Preset sidebar for CropImageEditor — aspect-ratio shortcuts and reset.
+// Preset sidebar for CropImageEditor — aspect ratio, resolution, and position shortcuts.
 
 import { mkIcon } from './_icons.js';
 
@@ -12,24 +12,65 @@ const RATIO_PRESETS = [
   { label: "3:4",  rw: 3,  rh: 4  },
 ];
 
+const RESOLUTION_PRESETS = [
+  { label: "480p",  w: 854,  h: 480  },
+  { label: "720p",  w: 1280, h: 720  },
+  { label: "1080p", w: 1920, h: 1080 },
+  { label: "1440p", w: 2560, h: 1440 },
+  { label: "4K",    w: 3840, h: 2160 },
+];
+
+const POSITION_PRESETS = [
+  { label: "↖",    title: "Top Left",       pos: "top-left"      },
+  { label: "↑",    title: "Top Center",     pos: "top-center"    },
+  { label: "↗",    title: "Top Right",      pos: "top-right"     },
+  { label: "←",    title: "Left Center",    pos: "left-center"   },
+  { label: "⊕",    title: "Center",         pos: "center"        },
+  { label: "→",    title: "Right Center",   pos: "right-center"  },
+  { label: "↙",    title: "Bottom Left",    pos: "bottom-left"   },
+  { label: "↓",    title: "Bottom Center",  pos: "bottom-center" },
+  { label: "↘",    title: "Bottom Right",   pos: "bottom-right"  },
+];
+
 // Scale from the shortest side of the current crop to the new ratio.
-// If the result exceeds the image boundary, clamp that dimension and
-// recalculate the other to maintain the ratio (i.e. as large as possible).
-// Always re-centers on the current crop center.
 function calcRatioRect(rw, rh, imgW, imgH, curL, curT, curW, curH) {
   const s = Math.min(curW, curH) / Math.min(rw, rh);
   let w = Math.round(rw * s);
   let h = Math.round(rh * s);
-
-  // Clamp to image bounds while preserving ratio
   if (w > imgW) { w = imgW; h = Math.round(w * rh / rw); }
   if (h > imgH) { h = imgH; w = Math.round(h * rw / rh); }
-
-  const cx = curL + curW / 2;
-  const cy = curT + curH / 2;
+  const cx = curL + curW / 2, cy = curT + curH / 2;
   const l = Math.max(0, Math.min(Math.round(cx - w / 2), imgW - w));
   const t = Math.max(0, Math.min(Math.round(cy - h / 2), imgH - h));
   return { left: l, top: t, width: w, height: h };
+}
+
+// Center the new resolution on the current crop center, clamped to image bounds.
+function calcResolutionRect(newW, newH, imgW, imgH, curL, curT, curW, curH) {
+  const w = Math.min(newW, imgW);
+  const h = Math.min(newH, imgH);
+  const cx = curL + curW / 2, cy = curT + curH / 2;
+  const l = Math.max(0, Math.min(Math.round(cx - w / 2), imgW - w));
+  const t = Math.max(0, Math.min(Math.round(cy - h / 2), imgH - h));
+  return { left: l, top: t, width: w, height: h };
+}
+
+// Compute left/top for a named position, keeping current crop size.
+function calcPositionRect(posName, imgW, imgH, curL, curT, curW, curH) {
+  const w = curW, h = curH;
+  const positions = {
+    "center":        { l: Math.round((imgW - w) / 2), t: Math.round((imgH - h) / 2) },
+    "top-left":      { l: 0,           t: 0            },
+    "top-center":    { l: Math.round((imgW - w) / 2), t: 0 },
+    "top-right":     { l: imgW - w,    t: 0            },
+    "left-center":   { l: 0,           t: Math.round((imgH - h) / 2) },
+    "right-center":  { l: imgW - w,    t: Math.round((imgH - h) / 2) },
+    "bottom-left":   { l: 0,           t: imgH - h     },
+    "bottom-center": { l: Math.round((imgW - w) / 2), t: imgH - h },
+    "bottom-right":  { l: imgW - w,    t: imgH - h     },
+  };
+  const { l, t } = positions[posName] || positions["center"];
+  return { left: Math.max(0, l), top: Math.max(0, t), width: w, height: h };
 }
 
 export function createSidebar({ getImgSize, getCropRect, onApply }) {
@@ -37,7 +78,7 @@ export function createSidebar({ getImgSize, getCropRect, onApply }) {
   el.className = "nodrag nowheel";
   el.style.cssText = [
     "display:flex", "flex-direction:column", "gap:3px",
-    "width:56px", "flex-shrink:0",
+    "width:108px", "flex-shrink:0",
     "background:var(--muted)", "border-radius:6px", "padding:4px",
     "overflow-y:auto", "box-sizing:border-box",
   ].join(";");
@@ -65,22 +106,70 @@ export function createSidebar({ getImgSize, getCropRect, onApply }) {
     return btn;
   }
 
+  function makeDivider() {
+    const hr = document.createElement("div");
+    hr.style.cssText = "height:1px;background:var(--border);margin:2px 0;flex-shrink:0;";
+    return hr;
+  }
+
+  function makeLabel(text) {
+    const lbl = document.createElement("div");
+    lbl.textContent = text;
+    lbl.style.cssText = "font-size:9px;color:var(--muted-foreground);text-align:center;padding:2px 0;";
+    return lbl;
+  }
+
+  // ── Reset ────────────────────────────────────────────────────────────────────
   el.appendChild(makeBtn({ icon: "rotate-ccw", label: "Reset", title: "Reset crop to full image", onClick: () => {
     const { imgNatW, imgNatH } = getImgSize();
-    onApply({ left: 0, top: 0, width: imgNatW, height: imgNatH });
+    onApply({ left: 0, top: 0, width: imgNatW, height: imgNatH, zoom: 100, rotate: 0 });
   }}));
 
-  const hr = document.createElement("div");
-  hr.style.cssText = "height:1px;background:var(--border);margin:2px 0;flex-shrink:0;";
-  el.appendChild(hr);
-
+  // ── Aspect ratios ─────────────────────────────────────────────────────────────
+  el.appendChild(makeDivider());
+  el.appendChild(makeLabel("Ratio"));
+  const ratioGrid = document.createElement("div");
+  ratioGrid.style.cssText = "display:grid;grid-template-columns:repeat(2,1fr);gap:2px;";
   for (const { label, rw, rh } of RATIO_PRESETS) {
-    el.appendChild(makeBtn({ label, title: label, onClick: () => {
+    const btn = makeBtn({ label, title: label, onClick: () => {
       const { imgNatW, imgNatH } = getImgSize();
       const { l, t, w, h } = getCropRect();
       onApply(calcRatioRect(rw, rh, imgNatW, imgNatH, l, t, w, h));
-    }}));
+    }});
+    ratioGrid.appendChild(btn);
   }
+  el.appendChild(ratioGrid);
+
+  // ── Resolutions ───────────────────────────────────────────────────────────────
+  el.appendChild(makeDivider());
+  el.appendChild(makeLabel("Res"));
+  const resGrid = document.createElement("div");
+  resGrid.style.cssText = "display:grid;grid-template-columns:repeat(2,1fr);gap:2px;";
+  for (const { label, w: pw, h: ph } of RESOLUTION_PRESETS) {
+    const btn = makeBtn({ label, title: `${pw}×${ph}`, onClick: () => {
+      const { imgNatW, imgNatH } = getImgSize();
+      const { l, t, w, h } = getCropRect();
+      onApply(calcResolutionRect(pw, ph, imgNatW, imgNatH, l, t, w, h));
+    }});
+    resGrid.appendChild(btn);
+  }
+  el.appendChild(resGrid);
+
+  // ── Positions ─────────────────────────────────────────────────────────────────
+  el.appendChild(makeDivider());
+  el.appendChild(makeLabel("Pos"));
+  const posGrid = document.createElement("div");
+  posGrid.style.cssText = "display:grid;grid-template-columns:repeat(3,1fr);gap:2px;";
+  for (const { label, title, pos } of POSITION_PRESETS) {
+    const btn = makeBtn({ label, title, onClick: () => {
+      const { imgNatW, imgNatH } = getImgSize();
+      const { l, t, w, h } = getCropRect();
+      onApply(calcPositionRect(pos, imgNatW, imgNatH, l, t, w, h));
+    }});
+    btn.style.width = "100%";
+    posGrid.appendChild(btn);
+  }
+  el.appendChild(posGrid);
 
   function syncDisabled(lockedParams, disabled) {
     const coordLocked = ["left", "top", "width", "height"].some(f => lockedParams.includes(f));

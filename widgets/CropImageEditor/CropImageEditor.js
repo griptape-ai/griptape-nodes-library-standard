@@ -1,7 +1,7 @@
 import {
   WIDGET_VERSION,
   HANDLE_R,
-  OVERLAY, CROP_BORDER, GUIDE, TRANSFORM_PREVIEW,
+  OVERLAY, CROP_BORDER, GUIDE, TRANSFORM_PREVIEW, TRANSFORM_OVERLAY,
   HANDLE_FILL, HANDLE_STROKE, HANDLE_STROKE_HOVER, HANDLE_LOCKED,
 } from './_styles.js';
 import { createSidebar } from './_sidebar.js';
@@ -89,7 +89,10 @@ export default function CropImageEditor(container, props) {
       if (isDisabled || !imageLoaded || !imgNatW || !imgNatH) return;
       mode = "idle"; activeHandle = null; dragStart = null; hoveredHandle = null;
       cropL = crop.left; cropT = crop.top; cropW = crop.width; cropH = crop.height;
+      if ("zoom"   in crop) cropZoom   = crop.zoom;
+      if ("rotate" in crop) cropRotate = crop.rotate;
       commit();
+      syncUI();
     },
   });
 
@@ -211,7 +214,7 @@ export default function CropImageEditor(container, props) {
     ctx.stroke();
     ctx.restore();
 
-    // Zoom/rotate preview: dashed blue rect = actual pixel-capture area
+    // Zoom/rotate preview: dashed rect = actual pixel-capture area
     const hasTransform = (cropZoom !== 100 && cropZoom > 0) || cropRotate !== 0;
     if (hasTransform) {
       const zoomFactor = Math.max(0.01, cropZoom / 100);
@@ -219,6 +222,19 @@ export default function CropImageEditor(container, props) {
       const cy_px = (ecT() + ecH() / 2) * scale;
       const pw = (ecW() / zoomFactor) * scale;
       const ph = (ecH() / zoomFactor) * scale;
+
+      // Darken everything outside the capture zone using even-odd hole punch
+      ctx.save();
+      ctx.fillStyle = TRANSFORM_OVERLAY;
+      ctx.beginPath();
+      ctx.rect(0, 0, cw, ch);           // outer: full canvas
+      ctx.translate(cx_px, cy_px);
+      ctx.rotate(cropRotate * Math.PI / 180);
+      ctx.rect(-pw / 2, -ph / 2, pw, ph); // inner hole: the capture rect
+      ctx.restore();                     // restore transform; path coords are already baked
+      ctx.fill("evenodd");
+
+      // Dashed preview border + up-arrow indicator
       ctx.save();
       ctx.translate(cx_px, cy_px);
       ctx.rotate(cropRotate * Math.PI / 180);

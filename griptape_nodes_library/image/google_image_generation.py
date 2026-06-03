@@ -46,11 +46,11 @@ class GoogleImageGeneration(GriptapeProxyNode):
     API_KEY_NAME = "GT_CLOUD_API_KEY"
     DEFAULT_MODEL: ClassVar[str] = "Nano Banana Pro"
     SUPPORTED_MODELS_TO_API_MODELS: ClassVar[dict[str, str]] = {
-        "Nano Banana Pro": "gemini-3-pro-image-preview",
-        "Nano Banana 2": "gemini-3.1-flash-image-preview",
+        "Nano Banana Pro": "gemini-3-pro-image",
+        "Nano Banana 2": "gemini-3.1-flash-image",
     }
     DEPRECATED_MODELS_TO_API_MODELS: ClassVar[dict[str, str]] = {
-        "nano-banana-3-pro": "gemini-3-pro-image-preview",
+        "nano-banana-3-pro": "gemini-3-pro-image",
     }
     ALL_MODELS_TO_API_MODELS: ClassVar[dict[str, str]] = {
         **SUPPORTED_MODELS_TO_API_MODELS,
