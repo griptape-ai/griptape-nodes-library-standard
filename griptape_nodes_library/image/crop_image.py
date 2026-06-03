@@ -51,7 +51,7 @@ ROTATION_MAX = 180.0
 # Parameter defaults
 DEFAULT_LEFT = 0
 DEFAULT_TOP = 0
-DEFAULT_WIDTH = 0   # 0 = use full image width
+DEFAULT_WIDTH = 0  # 0 = use full image width
 DEFAULT_HEIGHT = 0  # 0 = use full image height
 DEFAULT_ZOOM = NO_ZOOM
 DEFAULT_ROTATE = 0.0
