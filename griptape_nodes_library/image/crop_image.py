@@ -207,8 +207,8 @@ class CropImage(ControlNode):
                     for conn in result.incoming_connections
                     if conn.target_parameter_name in crop_params
                 ]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("%s: could not fetch connections: %s", self.name, e)
         return []
 
     # ── Image URL resolution ───────────────────────────────────────────────────
@@ -233,8 +233,8 @@ class CropImage(ControlNode):
             result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved))
             if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
                 return result.url
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("%s: could not resolve static file URL for %r: %s", self.name, resolved, e)
         return raw
 
     # ── Widget ↔ parameter sync ────────────────────────────────────────────────
