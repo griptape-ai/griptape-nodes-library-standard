@@ -122,7 +122,7 @@ export function createSidebar({ getImgSize, getCropRect, onApply }) {
   // ── Reset ────────────────────────────────────────────────────────────────────
   el.appendChild(makeBtn({ icon: "rotate-ccw", label: "Reset", title: "Reset crop to full image", onClick: () => {
     const { imgNatW, imgNatH } = getImgSize();
-    onApply({ left: 0, top: 0, width: imgNatW, height: imgNatH });
+    onApply({ left: 0, top: 0, width: imgNatW, height: imgNatH, zoom: 100, rotate: 0 });
   }}));
 
   // ── Aspect ratios ─────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 // Zoom + rotate slider controls and status bar for CropImageEditor.
 
 import { mkIcon } from './_icons.js';
+import { SLIDER_ACCENT } from './_styles.js';
 
 function makeSliderRow({ label, min, max, step, getVal, setVal, format, paramKey, defaultVal, isLocked, isDisabled, onRender, onEmit }) {
   const row = document.createElement("div");
@@ -14,7 +15,7 @@ function makeSliderRow({ label, min, max, step, getVal, setVal, format, paramKey
   slider.type = "range";
   slider.min = min; slider.max = max; slider.step = step;
   slider.value = getVal();
-  slider.style.cssText = "flex:1;accent-color:#2563eb;";
+  slider.style.cssText = `flex:1;accent-color:${SLIDER_ACCENT};`;
 
   const display = document.createElement("span");
   display.textContent = format(getVal());
