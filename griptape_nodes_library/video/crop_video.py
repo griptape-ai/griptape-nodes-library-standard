@@ -2,7 +2,7 @@ import subprocess
 from contextlib import suppress
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterGroup
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
@@ -77,31 +77,34 @@ class CropVideo(BaseVideoProcessor):
             )
         )
 
-        size_param = ParameterString(
-            name="crop_size",
-            default_value="Custom",
-            tooltip="Target crop size — choose a preset or use Custom to set dimensions freely",
-        )
-        size_param.add_trait(Options(choices=[*list(RESOLUTION_PRESETS.keys()), "Custom"]))
-        self.add_parameter(size_param)
+        with ParameterGroup(name="crop_coordinates", ui_options={"collapsed": True}) as crop_coordinates:
+            size_param = ParameterString(
+                name="crop_size",
+                default_value="Custom",
+                tooltip="Target crop size — choose a preset or use Custom to set dimensions freely",
+            )
+            size_param.add_trait(Options(choices=[*list(RESOLUTION_PRESETS.keys()), "Custom"]))
 
-        self.add_parameter(ParameterInt(name="custom_width", default_value=0, tooltip="Crop width in pixels"))
-        self.add_parameter(ParameterInt(name="custom_height", default_value=0, tooltip="Crop height in pixels"))
+            ParameterInt(name="custom_width", default_value=0, tooltip="Crop width in pixels").add_trait(Widget(name="WidthInput", library="Griptape Nodes Library"))
+            ParameterInt(name="custom_height", default_value=0, tooltip="Crop height in pixels").add_trait(Widget(name="HeightInput", library="Griptape Nodes Library"))
 
-        position_param = ParameterString(
-            name="crop_position",
-            default_value="center",
-            tooltip="Where to position the crop area — use Custom to set position freely",
-        )
-        position_param.add_trait(
-            Options(choices=["center", "top-left", "top-right", "bottom-left", "bottom-right",
-                              "top-center", "bottom-center", "left-center", "right-center", "Custom"])
-        )
-        self.add_parameter(position_param)
+    
+            position_param = ParameterString(
+                name="crop_position",
+                default_value="center",
+                tooltip="Where to position the crop area — use Custom to set position freely",
+            )
+            position_param.add_trait(
+                Options(choices=["center", "top-left", "top-right", "bottom-left", "bottom-right",
+                                "top-center", "bottom-center", "left-center", "right-center", "Custom"])
+            )
+    
+            ParameterInt(name="custom_left", default_value=0, tooltip="Left edge of crop area in pixels")
+            ParameterInt(name="custom_top", default_value=0, tooltip="Top edge of crop area in pixels")
 
-        self.add_parameter(ParameterInt(name="custom_left", default_value=0, tooltip="Left edge of crop area in pixels"))
-        self.add_parameter(ParameterInt(name="custom_top", default_value=0, tooltip="Top edge of crop area in pixels"))
+        self.add_node_element(crop_coordinates)
 
+    
         # Hide custom fields unless their respective preset is set to "Custom"
         self.hide_parameter_by_name("custom_left")
         self.hide_parameter_by_name("custom_top")
