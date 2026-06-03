@@ -1100,6 +1100,17 @@
       }
     },
     {
+      "class_name": "TrimVideo",
+      "file_path": "griptape_nodes_library/video/trim_video.py",
+      "metadata": {
+        "category": "video",
+        "description": "Trim a video to a specific start and end point using timecodes or frame ranges",
+        "display_name": "Trim Video",
+        "icon": "scissors",
+        "group": "edit"
+      }
+    },
+    {
       "class_name": "ConcatenateVideos",
       "file_path": "griptape_nodes_library/video/concatenate_videos.py",
       "metadata": {
