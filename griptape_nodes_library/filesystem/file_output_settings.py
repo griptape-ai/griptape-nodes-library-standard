@@ -128,10 +128,12 @@ class FileOutputSettings(BaseNode):
             return self._build_file_from_template(classified.normalized_path, {})
 
         create_dirs = bool(self.get_parameter_value(self.auto_create_path.name))
+        coerce_ext = bool(self.get_parameter_value(self.coerce_extension_to_match_bytes.name))
         return FileDestination(
             classified.normalized_path,
             existing_file_policy=self._get_file_policy(),
             create_parents=create_dirs,
+            coerce_extension_to_match_bytes=coerce_ext,
         )
 
     def _fetch_available_situations(self) -> list[str]:
@@ -178,6 +180,18 @@ class FileOutputSettings(BaseNode):
                 name="auto_create_path",
                 default_value=True,
                 tooltip="Whether to create parent directories automatically when saving",
+                allowed_modes={ParameterMode.PROPERTY},
+                settable=True,
+            )
+
+            self.coerce_extension_to_match_bytes = ParameterBool(
+                name="coerce_extension_to_match_bytes",
+                default_value=True,
+                tooltip=(
+                    "When the bytes being saved don't match the file extension, rewrite "
+                    "the extension to match (e.g. JPEG bytes saved as 'image.png' become "
+                    "'image.jpeg'). Disable for strict validation that errors on mismatch."
+                ),
                 allowed_modes={ParameterMode.PROPERTY},
                 settable=True,
             )
@@ -333,8 +347,12 @@ class FileOutputSettings(BaseNode):
         """
         macro_path = MacroPath(ParsedMacro(macro_template), variables)
         create_dirs = bool(self.get_parameter_value(self.auto_create_path.name))
+        coerce_ext = bool(self.get_parameter_value(self.coerce_extension_to_match_bytes.name))
         return ProjectFileDestination(
-            macro_path, existing_file_policy=self._get_file_policy(), create_parents=create_dirs
+            macro_path,
+            existing_file_policy=self._get_file_policy(),
+            create_parents=create_dirs,
+            coerce_extension_to_match_bytes=coerce_ext,
         )
 
     def _build_relative_variables(self, classified: ClassifiedPath) -> dict[str, str | int]:
@@ -444,6 +462,7 @@ class FileOutputSettings(BaseNode):
             self.macro.name,
             self.if_file_exists.name,
             self.auto_create_path.name,
+            self.coerce_extension_to_match_bytes.name,
         ):
             self._updating_lock = True
             try:
