@@ -39,7 +39,6 @@ export default function CropVideoEditor(container, props) {
   let dragStart = null;
   let rectAtDrag = null;
   let hoverHandle = null;
-  let shiftDown = false;
 
   const hitR = HANDLE_R + 5;
 
@@ -331,7 +330,7 @@ export default function CropVideoEditor(container, props) {
       if (id.includes("w")) { const r = nl + nw; nl = clamp(Math.round(nx), 0, r - 1); nw = r - nl; }
       if (id.includes("n")) { const b = nt + nh; nt = clamp(Math.round(ny), 0, b - 1); nh = b - nt; }
 
-      if (shiftDown && (id === "se" || id === "nw" || id === "ne" || id === "sw")) {
+      if (e.shiftKey && (id === "se" || id === "nw" || id === "ne" || id === "sw")) {
         const asp = rectAtDrag.w / rectAtDrag.h;
         if (nw / nh > asp) nh = Math.round(nw / asp); else nw = Math.round(nh * asp);
       }
@@ -346,7 +345,7 @@ export default function CropVideoEditor(container, props) {
       ecL = Math.round(Math.min(dragStart.x, nx));
       ecT = Math.round(Math.min(dragStart.y, ny));
       ecW = Math.max(1, Math.round(Math.abs(nx - dragStart.x)));
-      ecH = shiftDown ? ecW : Math.max(1, Math.round(Math.abs(ny - dragStart.y)));
+      ecH = e.shiftKey ? ecW : Math.max(1, Math.round(Math.abs(ny - dragStart.y)));
       render();
     }
   });
@@ -360,10 +359,6 @@ export default function CropVideoEditor(container, props) {
     }
   });
 
-  canvas.addEventListener("keydown", (e) => { if (e.key === "Shift") shiftDown = true; });
-  canvas.addEventListener("keyup",   (e) => { if (e.key === "Shift") shiftDown = false; });
-  window.addEventListener("keydown", (e) => { if (e.key === "Shift") shiftDown = true; });
-  window.addEventListener("keyup",   (e) => { if (e.key === "Shift") shiftDown = false; });
 
   // ── Emit ───────────────────────────────────────────────────────────────────
   function emitAll() {
