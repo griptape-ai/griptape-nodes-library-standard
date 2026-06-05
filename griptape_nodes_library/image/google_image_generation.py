@@ -272,7 +272,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
         self._output_file = ProjectFileParameter(
             node=self,
             name="output_file",
-            default_filename="google_image.png",
+            default_filename="google_image.jpeg",
         )
         self._output_file.add_parameter()
 
