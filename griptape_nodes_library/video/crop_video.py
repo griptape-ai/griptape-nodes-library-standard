@@ -67,9 +67,16 @@ class CropVideo(BaseVideoProcessor):
             ParameterDict(
                 name="crop_editor",
                 default_value={
-                    "video_url": "", "video_path": "", "video_width": 0, "video_height": 0,
-                    "left": 0, "top": 0, "width": 0, "height": 0,
-                    "total_frames": 0, "locked": [],
+                    "video_url": "",
+                    "video_path": "",
+                    "video_width": 0,
+                    "video_height": 0,
+                    "left": 0,
+                    "top": 0,
+                    "width": 0,
+                    "height": 0,
+                    "total_frames": 0,
+                    "locked": [],
                 },
                 tooltip="Interactive crop editor — drag to set crop area, or use the preset controls below",
                 allowed_modes={ParameterMode.PROPERTY},
@@ -88,23 +95,33 @@ class CropVideo(BaseVideoProcessor):
             ParameterInt(name="custom_width", default_value=0, tooltip="Crop width in pixels")
             ParameterInt(name="custom_height", default_value=0, tooltip="Crop height in pixels")
 
-    
             position_param = ParameterString(
                 name="crop_position",
                 default_value="center",
                 tooltip="Where to position the crop area — use Custom to set position freely",
             )
             position_param.add_trait(
-                Options(choices=["center", "top-left", "top-right", "bottom-left", "bottom-right",
-                                "top-center", "bottom-center", "left-center", "right-center", "Custom"])
+                Options(
+                    choices=[
+                        "center",
+                        "top-left",
+                        "top-right",
+                        "bottom-left",
+                        "bottom-right",
+                        "top-center",
+                        "bottom-center",
+                        "left-center",
+                        "right-center",
+                        "Custom",
+                    ]
+                )
             )
-    
+
             ParameterInt(name="custom_left", default_value=0, tooltip="Left edge of crop area in pixels")
             ParameterInt(name="custom_top", default_value=0, tooltip="Top edge of crop area in pixels")
 
         self.add_node_element(crop_coordinates)
 
-    
         # Hide custom fields unless their respective preset is set to "Custom"
         self.hide_parameter_by_name("custom_left")
         self.hide_parameter_by_name("custom_top")
@@ -130,22 +147,24 @@ class CropVideo(BaseVideoProcessor):
             return RESOLUTION_PRESETS[crop_size]
         return parse_size_string(crop_size)
 
-    def _calculate_crop_coordinates(self, video_width: int, video_height: int, crop_width: int, crop_height: int) -> tuple[int, int]:
+    def _calculate_crop_coordinates(
+        self, video_width: int, video_height: int, crop_width: int, crop_height: int
+    ) -> tuple[int, int]:
         position = self.get_parameter_value("crop_position") or "center"
         if position == "Custom":
             x = self.get_parameter_value("custom_left") or 0
             y = self.get_parameter_value("custom_top") or 0
             return (max(0, min(x, video_width - crop_width)), max(0, min(y, video_height - crop_height)))
         positions = {
-            "center":        ((video_width - crop_width) // 2,  (video_height - crop_height) // 2),
-            "top-left":      (0,                                 0),
-            "top-right":     (video_width - crop_width,          0),
-            "bottom-left":   (0,                                 video_height - crop_height),
-            "bottom-right":  (video_width - crop_width,          video_height - crop_height),
-            "top-center":    ((video_width - crop_width) // 2,   0),
-            "bottom-center": ((video_width - crop_width) // 2,   video_height - crop_height),
-            "left-center":   (0,                                 (video_height - crop_height) // 2),
-            "right-center":  (video_width - crop_width,          (video_height - crop_height) // 2),
+            "center": ((video_width - crop_width) // 2, (video_height - crop_height) // 2),
+            "top-left": (0, 0),
+            "top-right": (video_width - crop_width, 0),
+            "bottom-left": (0, video_height - crop_height),
+            "bottom-right": (video_width - crop_width, video_height - crop_height),
+            "top-center": ((video_width - crop_width) // 2, 0),
+            "bottom-center": ((video_width - crop_width) // 2, video_height - crop_height),
+            "left-center": (0, (video_height - crop_height) // 2),
+            "right-center": (video_width - crop_width, (video_height - crop_height) // 2),
         }
         x, y = positions.get(position, ((video_width - crop_width) // 2, (video_height - crop_height) // 2))
         return (max(0, min(x, video_width - crop_width)), max(0, min(y, video_height - crop_height)))
@@ -171,7 +190,9 @@ class CropVideo(BaseVideoProcessor):
 
     # ── Lock detection ─────────────────────────────────────────────────────────
 
-    _LOCKABLE_PARAMS = frozenset({"crop_size", "crop_position", "custom_width", "custom_height", "custom_left", "custom_top"})
+    _LOCKABLE_PARAMS = frozenset(
+        {"crop_size", "crop_position", "custom_width", "custom_height", "custom_left", "custom_top"}
+    )
 
     def _get_locked_params(self) -> list[str]:
         """Return widget lock keys for any connected wires on crop-affecting params."""
@@ -281,10 +302,10 @@ class CropVideo(BaseVideoProcessor):
 
     def _sync_from_widget(self, widget_dict: dict) -> None:
         """User dragged the widget — switch both dropdowns to Custom and store pixel values."""
-        w    = widget_dict.get("width")  or 0
-        h    = widget_dict.get("height") or 0
-        left = widget_dict.get("left")   or 0
-        top  = widget_dict.get("top")    or 0
+        w = widget_dict.get("width") or 0
+        h = widget_dict.get("height") or 0
+        left = widget_dict.get("left") or 0
+        top = widget_dict.get("top") or 0
 
         # Pre-publish crop_editor so the frontend's stored value is authoritative
         # before individual param publishes arrive (mirrors CropImage pattern).
@@ -307,8 +328,7 @@ class CropVideo(BaseVideoProcessor):
             self.show_parameter_by_name("custom_top")
 
             # Publish values before dropdowns for the same reason.
-            for pname in ("custom_width", "custom_height", "custom_left", "custom_top",
-                          "crop_size", "crop_position"):
+            for pname in ("custom_width", "custom_height", "custom_left", "custom_top", "crop_size", "crop_position"):
                 self.publish_update_to_parameter(pname, self.get_parameter_value(pname))
         finally:
             self._syncing_to_params = False
@@ -390,9 +410,15 @@ class CropVideo(BaseVideoProcessor):
             url = result.url if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess) else ""
         except Exception:
             url = ""
-        new_dict = {**existing, "video_url": url, "video_path": path,
-                    "video_width": vw, "video_height": vh, "total_frames": total_frames,
-                    "locked": self._get_locked_params()}
+        new_dict = {
+            **existing,
+            "video_url": url,
+            "video_path": path,
+            "video_width": vw,
+            "video_height": vh,
+            "total_frames": total_frames,
+            "locked": self._get_locked_params(),
+        }
         self._syncing_to_widget = True
         try:
             self.set_parameter_value("crop_editor", new_dict)
