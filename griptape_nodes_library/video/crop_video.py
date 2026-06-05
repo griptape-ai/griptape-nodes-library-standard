@@ -85,8 +85,8 @@ class CropVideo(BaseVideoProcessor):
             )
             size_param.add_trait(Options(choices=[*list(RESOLUTION_PRESETS.keys()), "Custom"]))
 
-            ParameterInt(name="custom_width", default_value=0, tooltip="Crop width in pixels").add_trait(Widget(name="WidthInput", library="Griptape Nodes Library"))
-            ParameterInt(name="custom_height", default_value=0, tooltip="Crop height in pixels").add_trait(Widget(name="HeightInput", library="Griptape Nodes Library"))
+            ParameterInt(name="custom_width", default_value=0, tooltip="Crop width in pixels")
+            ParameterInt(name="custom_height", default_value=0, tooltip="Crop height in pixels")
 
     
             position_param = ParameterString(
@@ -183,8 +183,10 @@ class CropVideo(BaseVideoProcessor):
         except Exception:
             return []
         locked: set[str] = set()
-        if "crop_size" in connected or "custom_width" in connected:
+        if "crop_size" in connected:
             locked |= {"width", "height"}
+        if "custom_width" in connected:
+            locked.add("width")
         if "custom_height" in connected:
             locked.add("height")
         if "crop_position" in connected or "custom_left" in connected:
