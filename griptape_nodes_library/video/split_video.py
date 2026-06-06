@@ -1,30 +1,33 @@
-import json
-import subprocess
+import asyncio
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import static_ffmpeg.run  # type: ignore[import-untyped]
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape.drivers.prompt.griptape_cloud_prompt_driver import GriptapeCloudPromptDriver
 from griptape.structures import Agent as GriptapeAgent
 from griptape.tasks import PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
-from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-
-# static_ffmpeg is dynamically installed by the library loader at runtime
-# into the library's own virtual environment, but not available during type checking
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.utils.ffmpeg_utils import (
+    build_video_segment_cmd,
+    detect_video_properties,
+    get_ffmpeg_paths,
+    run_ffmpeg_cmd,
+)
 from griptape_nodes_library.utils.video_utils import (
+    MIN_VIDEO_FILE_SIZE,
+    VIDEO_DURATION_BUFFER,
     detect_video_format,
     sanitize_filename,
-    seconds_to_ts,
     smpte_to_seconds,
     to_video_artifact,
     validate_url,
@@ -34,17 +37,7 @@ API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
 MODEL = "gpt-4.1-mini"
 
-# Constants
 TIMECODE_SEGMENT_PARTS = 2
-FRAME_RATE_TOLERANCE = 0.1
-MIN_SEGMENT_DURATION_FOR_STREAM_COPY = 2.0  # seconds
-MIN_VIDEO_FILE_SIZE = 1024  # bytes
-VIDEO_DURATION_BUFFER = 0.1  # seconds - small buffer to avoid keyframe issues
-
-
-# ----------------------------
-# Input parsing
-# ----------------------------
 
 
 @dataclass
@@ -55,78 +48,14 @@ class Segment:
     raw_id: str | None = None
 
 
-# ----------------------------
-# Command generation / execution
-# ----------------------------
-
-
-@dataclass
-class FfmpegConfig:
-    """Configuration for FFmpeg command generation."""
-
-    stream_copy: bool = True
-    accurate_seek: bool = True
-    keep_all_streams: bool = True
-
-
-def build_ffmpeg_cmd(
-    input_path: str,
-    seg: Segment,
-    outdir: str,
-    config: FfmpegConfig,
-) -> list[str]:
-    """Return a single ffmpeg command as a list (safe for subprocess).
-
-    - stream_copy=True uses -c copy (fast, keyframe-aligned)
-    - accurate_seek=True places -ss/-to AFTER -i (decode-based seek, more accurate)
-      when re-encoding. With -c copy this is forced to input-side seek (see below).
-    - keep_all_streams=True adds -map 0 to keep audio/subs, while dropping
-      data streams (e.g. mov/mp4 tmcd timecode tracks) that the mp4 muxer
-      cannot write and that otherwise fail header writing with -c copy.
-    """
+def build_ffmpeg_cmd(input_path: str, seg: Segment, outdir: str) -> list[str]:
+    """Return a single ffmpeg command as a list for the given segment."""
     Path(outdir).mkdir(parents=True, exist_ok=True)
-    base = sanitize_filename(seg.title)
-    out_path = Path(outdir) / f"{base}.mp4"
-
-    ss = seconds_to_ts(seg.start_sec)
-    to = seconds_to_ts(seg.end_sec)
-
-    # Calculate segment duration
-    duration = seg.end_sec - seg.start_sec
-
-    # For very short segments (< 2 seconds) or segments that don't start at 0,
-    # use re-encoding instead of stream copy to avoid keyframe alignment issues
-    use_stream_copy = config.stream_copy and duration >= MIN_SEGMENT_DURATION_FOR_STREAM_COPY and seg.start_sec == 0.0
-
-    cmd = ["ffmpeg", "-hide_banner", "-y"]
-    # Seek placement: input-side (-ss/-to before -i) vs output-side (after -i).
-    # Output-side seek is more accurate when re-encoding, but with -c copy it
-    # silently drops every video packet on current ffmpeg builds (even at -ss 0),
-    # leaving an audio-only file that reports NaN resolution. The copy path only
-    # runs when seg.start_sec == 0.0, where input-side seek is already exact, so
-    # force input-side seek whenever we stream-copy.
-    if use_stream_copy or not config.accurate_seek:
-        cmd += ["-ss", ss, "-to", to, "-i", input_path]
-    else:
-        cmd += ["-i", input_path, "-ss", ss, "-to", to]
-
-    if config.keep_all_streams:
-        # Keep all streams but exclude data streams (e.g. tmcd timecode tracks
-        # produced by mov/mp4 sources), which the mp4 muxer cannot write under
-        # -c copy and would otherwise abort with "Could not write header".
-        cmd += ["-map", "0", "-map", "-0:d"]
-
-    if use_stream_copy:
-        cmd += ["-c", "copy"]
-    else:
-        # Re-encode path (example: H.264 video, copy audio)
-        cmd += ["-c:v", "libx264", "-crf", "18", "-preset", "medium", "-c:a", "aac", "-b:a", "192k"]
-
-    cmd += ["-movflags", "+faststart", str(out_path)]
-    return cmd
+    out_path = Path(outdir) / f"{sanitize_filename(seg.title)}.mp4"
+    return build_video_segment_cmd("ffmpeg", input_path, seg.start_sec, seg.end_sec, str(out_path))
 
 
-class SplitVideo(ControlNode):
+class SplitVideo(SuccessFailureNode):
     """Split a video into multiple parts using ffmpeg."""
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
@@ -141,6 +70,17 @@ class SplitVideo(ControlNode):
             )
         )
 
+        # Add split_by dropdown
+        split_by_parameter = Parameter(
+            name="split_by",
+            tooltip="Choose whether to split by timecodes or frame ranges",
+            input_types=["str"],
+            allowed_modes={ParameterMode.PROPERTY},
+            default_value="timecode",
+        )
+        split_by_parameter.add_trait(Options(choices=["timecode", "frame range"]))
+        self.add_parameter(split_by_parameter)
+
         # Add timecodes parameter
         timecodes_parameter = Parameter(
             name="timecodes",
@@ -152,6 +92,22 @@ class SplitVideo(ControlNode):
             ui_options={"multiline": True, "placeholder_text": "Enter timecodes or JSON..."},
         )
         self.add_parameter(timecodes_parameter)
+
+        # Add frame_ranges parameter (hidden by default since timecode is the default mode)
+        frame_ranges_parameter = Parameter(
+            name="frame_ranges",
+            input_types=["str"],
+            type="str",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            default_value="0-100",
+            tooltip="Frame ranges to split the video at. Format: start-end or start-end|Title, one per line.",
+            ui_options={
+                "multiline": True,
+                "placeholder_text": "Enter frame ranges, e.g.\n0-100|Intro\n100-250|Main Content",
+                "hide": True,
+            },
+        )
+        self.add_parameter(frame_ranges_parameter)
 
         # Add output videos parameter list
         self.split_videos_list = ParameterList(
@@ -180,6 +136,26 @@ class SplitVideo(ControlNode):
 
         self.add_node_element(logs_group)
 
+        self._create_status_parameters(
+            result_details_tooltip="Details about the video split operation result",
+            result_details_placeholder="Details on the split attempt will be presented here.",
+        )
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter.name == "split_by":
+            match value:
+                case "timecode":
+                    self.show_parameter_by_name("timecodes")
+                    self.hide_parameter_by_name("frame_ranges")
+                case "frame range":
+                    self.hide_parameter_by_name("timecodes")
+                    self.show_parameter_by_name("frame_ranges")
+                case _:
+                    logger.warning("%s: unrecognised split_by value %r — defaulting to timecode", self.name, value)
+                    self.show_parameter_by_name("timecodes")
+                    self.hide_parameter_by_name("frame_ranges")
+        return super().after_value_set(parameter, value)
+
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = []
 
@@ -199,11 +175,17 @@ class SplitVideo(ControlNode):
             msg = f"{self.name}: Video parameter must have a value"
             exceptions.append(ValueError(msg))
 
-        # Validate timecodes
-        timecodes = self.get_parameter_value("timecodes")
-        if not timecodes:
-            msg = f"{self.name}: Timecodes parameter is required"
-            exceptions.append(ValueError(msg))
+        split_by = self.get_parameter_value("split_by") or "timecode"
+        if split_by == "timecode":
+            timecodes = self.get_parameter_value("timecodes")
+            if not timecodes:
+                msg = f"{self.name}: Timecodes parameter is required"
+                exceptions.append(ValueError(msg))
+        else:
+            frame_ranges = self.get_parameter_value("frame_ranges")
+            if not frame_ranges:
+                msg = f"{self.name}: Frame Ranges parameter is required"
+                exceptions.append(ValueError(msg))
 
         return exceptions
 
@@ -417,162 +399,86 @@ If no title is provided, just use "Segment X:" format.
             error_msg = f"Error parsing timecodes with agent: {e!s}"
             raise ValueError(error_msg) from e
 
-    def _validate_ffmpeg_paths(self) -> tuple[str, str]:
-        """Validate and return FFmpeg and FFprobe paths."""
-        try:
-            ffmpeg_path, ffprobe_path = static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()
-            return ffmpeg_path, ffprobe_path  # noqa: TRY300
-        except Exception as e:
-            error_msg = f"FFmpeg not found. Please ensure static-ffmpeg is properly installed. Error: {e!s}"
-            raise ValueError(error_msg) from e
+    def _parse_frame_ranges(self, frame_ranges_str: str, frame_rate: float) -> list[Segment]:
+        """Parse frame ranges into segments. Format: start-end or start-end|Title, one per line."""
+        segments = []
+        for line_raw in frame_ranges_str.strip().split("\n"):
+            line = line_raw.strip()
+            if not line:
+                continue
 
-    def _detect_video_properties(self, input_url: str, ffprobe_path: str) -> tuple[float, bool, float]:
-        """Detect frame rate, drop frame, and duration from video using ffprobe."""
-        try:
-            cmd = [
-                ffprobe_path,
-                "-v",
-                "quiet",
-                "-print_format",
-                "json",
-                "-show_streams",
-                "-show_format",
-                "-select_streams",
-                "v:0",  # Select first video stream
-                input_url,
-            ]
-
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)  # noqa: S603
-            data = json.loads(result.stdout)
-
-            if not data.get("streams"):
-                return 24.0, False, 0.0  # Default fallback
-
-            stream = data["streams"][0]
-            r_frame_rate = stream.get("r_frame_rate", "24/1")
-
-            # Parse frame rate (e.g., "30000/1001" -> 29.97)
-            if "/" in r_frame_rate:
-                num, den = map(int, r_frame_rate.split("/"))
-                frame_rate = num / den
+            parts = line.split("|", 1)
+            if len(parts) == TIMECODE_SEGMENT_PARTS:
+                range_part, title = parts
             else:
-                frame_rate = float(r_frame_rate)
+                range_part = line
+                title = f"Segment {len(segments) + 1}"
 
-            # Determine if drop frame based on frame rate
-            drop_frame = (
-                abs(frame_rate - 29.97) < FRAME_RATE_TOLERANCE or abs(frame_rate - 59.94) < FRAME_RATE_TOLERANCE
-            )
+            range_parts = range_part.strip().split("-")
+            if len(range_parts) != TIMECODE_SEGMENT_PARTS:
+                self.append_value_to_parameter("logs", f"Warning: Could not parse frame range '{line}', skipping\n")
+                continue
 
-            # Get video duration from format or stream
-            duration = 0.0
-            if "format" in data and "duration" in data["format"]:
-                duration = float(data["format"]["duration"])
-            elif "duration" in stream:
-                duration = float(stream["duration"])
+            try:
+                start_frame = int(range_parts[0].strip())
+                end_frame = int(range_parts[1].strip())
+            except ValueError:
+                self.append_value_to_parameter("logs", f"Warning: Invalid frame numbers in '{line}', skipping\n")
+                continue
 
-            return frame_rate, drop_frame, duration  # noqa: TRY300
+            if end_frame <= start_frame:
+                self.append_value_to_parameter(
+                    "logs",
+                    f"Warning: End frame {end_frame} must be greater than start frame {start_frame} in '{line}', skipping\n",
+                )
+                continue
 
-        except Exception as e:
-            self.append_value_to_parameter("logs", f"Warning: Could not detect video properties, using defaults: {e}\n")
-            return 24.0, False, 0.0  # Default fallback
+            start_sec = start_frame / frame_rate
+            end_sec = end_frame / frame_rate
+            segments.append(Segment(start_sec=start_sec, end_sec=end_sec, title=title.strip()))
 
-    def _process_segment(
-        self, segment: Segment, input_url: str, temp_dir: str, ffmpeg_path: str, config: FfmpegConfig
-    ) -> str:
-        """Process a single video segment."""
+        return segments
+
+    def _process_segment(self, segment: Segment, input_url: str, temp_dir: str, ffmpeg_path: str) -> str:
+        """Process a single video segment and return the output file path."""
         duration = segment.end_sec - segment.start_sec
         self.append_value_to_parameter("logs", f"Processing segment: {segment.title} (duration: {duration:.2f}s)\n")
 
-        # Build ffmpeg command
-        cmd = build_ffmpeg_cmd(input_url, segment, temp_dir, config)
-
-        # Replace ffmpeg with actual path
+        cmd = build_ffmpeg_cmd(input_url, segment, temp_dir)
         cmd[0] = ffmpeg_path
-
-        # Log whether we're using stream copy or re-encoding
-        use_stream_copy = "-c" in cmd and "copy" in cmd
-        encoding_mode = "stream copy" if use_stream_copy else "re-encoding"
-        self.append_value_to_parameter("logs", f"Using {encoding_mode} for segment {segment.title}\n")
-        self.append_value_to_parameter("logs", f"Segment duration: {duration:.3f}s\n")
-        self.append_value_to_parameter("logs", f"Running ffmpeg command: {' '.join(cmd)}\n")
-
-        # Run ffmpeg with timeout
         try:
-            result = subprocess.run(  # noqa: S603
-                cmd, capture_output=True, text=True, check=True, timeout=300
-            )
-            self.append_value_to_parameter("logs", f"FFmpeg stdout: {result.stdout}\n")
-            if result.stderr:
-                self.append_value_to_parameter("logs", f"FFmpeg stderr: {result.stderr}\n")
-        except subprocess.TimeoutExpired as e:
-            error_msg = f"FFmpeg process timed out after 5 minutes for segment {segment.title}"
-            self.append_value_to_parameter("logs", f"ERROR: {error_msg}\n")
-            raise ValueError(error_msg) from e
-        except subprocess.CalledProcessError as e:
-            error_msg = f"FFmpeg error for segment {segment.title}: {e.stderr}"
-            self.append_value_to_parameter("logs", f"ERROR: {error_msg}\n")
-            self.append_value_to_parameter("logs", f"FFmpeg return code: {e.returncode}\n")
-            raise ValueError(error_msg) from e
+            run_ffmpeg_cmd(cmd, log=lambda msg: self.append_value_to_parameter("logs", msg))
+        except ValueError as e:
+            raise ValueError(f"{self.name}: segment '{segment.title}': {e}") from e
 
-        # Find the output file
-        base = sanitize_filename(segment.title)
-        output_path = Path(temp_dir) / f"{base}.mp4"
+        output_path = Path(temp_dir) / f"{sanitize_filename(segment.title)}.mp4"
+        if not output_path.exists():
+            raise ValueError(f"Expected output file not found: {output_path}")
 
-        if output_path.exists():
-            file_size = output_path.stat().st_size
-            self.append_value_to_parameter(
-                "logs", f"Successfully created segment: {output_path} (size: {file_size} bytes)\n"
-            )
+        file_size = output_path.stat().st_size
+        self.append_value_to_parameter("logs", f"Created segment: {output_path} ({file_size} bytes)\n")
+        if file_size < MIN_VIDEO_FILE_SIZE:
+            self.append_value_to_parameter("logs", f"WARNING: output is suspiciously small ({file_size} bytes)\n")
 
-            # Check if file is too small (likely empty/invalid)
-            if file_size < MIN_VIDEO_FILE_SIZE:  # Less than 1KB is suspicious for a video file
-                error_msg = f"Output file is too small ({file_size} bytes) - likely empty or invalid: {output_path}"
-                self.append_value_to_parameter("logs", f"WARNING: {error_msg}\n")
-                # Don't raise error here, let it continue and see if it's actually valid
+        return str(output_path)
 
-            return str(output_path)
-
-        error_msg = f"Expected output file not found: {output_path}"
-        raise ValueError(error_msg)
-
-    def _split_video_with_ffmpeg(
-        self,
-        input_url: str,
-        segments: list[Segment],
-        *,
-        stream_copy: bool = True,
-        accurate_seek: bool = True,
-    ) -> list[bytes]:
-        """Split video using static_ffmpeg and ffmpeg."""
-
-        def _validate_and_raise_if_invalid(url: str) -> None:
-            if not validate_url(url):
-                msg = f"{self.name}: Invalid or unsafe URL provided: {url}"
-                raise ValueError(msg)
+    def _split_video_with_ffmpeg(self, input_url: str, segments: list[Segment]) -> list[bytes]:
+        """Split video into segments using ffmpeg, returning raw bytes for each."""
+        if not validate_url(input_url):
+            raise ValueError(f"{self.name}: Invalid or unsafe URL provided: {input_url}")
 
         try:
-            # Validate URL before using in subprocess
-            _validate_and_raise_if_invalid(input_url)
+            ffmpeg_path, _ = get_ffmpeg_paths()
 
-            # Get ffmpeg executable paths
-            ffmpeg_path, _ffprobe_path = self._validate_ffmpeg_paths()
-
-            # Create temporary directory for output files
             with tempfile.TemporaryDirectory() as temp_dir:
                 output_files = []
-                config = FfmpegConfig(stream_copy=stream_copy, accurate_seek=accurate_seek)
-
                 for i, segment in enumerate(segments):
                     self.append_value_to_parameter(
                         "logs", f"Processing segment {i + 1}/{len(segments)}: {segment.title}\n"
                     )
-
-                    output_file = self._process_segment(segment, input_url, temp_dir, ffmpeg_path, config)
-
-                    # Read the file content before the temp directory is cleaned up
+                    output_file = self._process_segment(segment, input_url, temp_dir, ffmpeg_path)
                     with Path(output_file).open("rb") as f:
-                        video_bytes = f.read()
-                    output_files.append(video_bytes)
+                        output_files.append(f.read())
 
                 return output_files
 
@@ -581,22 +487,12 @@ If no title is provided, just use "Segment X:" format.
             self.append_value_to_parameter("logs", f"ERROR: {error_msg}\n")
             raise ValueError(error_msg) from e
 
-    def _process(
-        self,
-        input_url: str,
-        segments: list[Segment],
-        *,
-        stream_copy: bool,
-        accurate_seek: bool,
-    ) -> None:
+    def _process(self, input_url: str, segments: list[Segment]) -> None:
         """Performs the synchronous video splitting operation."""
         try:
             self.append_value_to_parameter("logs", f"Splitting video into {len(segments)} segments\n")
 
-            # Split video using ffmpeg
-            output_files = self._split_video_with_ffmpeg(
-                input_url, segments, stream_copy=stream_copy, accurate_seek=accurate_seek
-            )
+            output_files = self._split_video_with_ffmpeg(input_url, segments)
 
             # Convert output files to artifacts
             split_video_artifacts = []
@@ -632,14 +528,18 @@ If no title is provided, just use "Segment X:" format.
             self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
             raise ValueError(msg) from e
 
-    def process(self) -> AsyncResult[None]:
+    async def aprocess(self) -> None:
         """Executes the main logic of the node asynchronously."""
+        self._clear_execution_status()
+
         # Clear the parameter list
         self._clear_list()
 
-        # Get the video and timecodes
+        # Get the video and split mode
         video = self.get_parameter_value("video")
+        split_by = self.get_parameter_value("split_by") or "timecode"
         timecodes = self.get_parameter_value("timecodes") or ""
+        frame_ranges = self.get_parameter_value("frame_ranges") or ""
 
         # Initialize logs
         self.append_value_to_parameter("logs", "[Processing video split..]\n")
@@ -653,16 +553,22 @@ If no title is provided, just use "Segment X:" format.
 
             # Always detect video properties for best results
             self.append_value_to_parameter("logs", "Detecting video properties...\n")
-            _ffmpeg_path, ffprobe_path = self._validate_ffmpeg_paths()
-            frame_rate, drop_frame, video_duration = self._detect_video_properties(input_url, ffprobe_path)
+            _, ffprobe_path = get_ffmpeg_paths()
+            frame_rate, drop_frame, video_duration = detect_video_properties(
+                input_url, ffprobe_path, log=lambda msg: self.append_value_to_parameter("logs", msg)
+            )
 
             self.append_value_to_parameter("logs", f"Detected frame rate: {frame_rate} fps\n")
             self.append_value_to_parameter("logs", f"Detected drop frame: {drop_frame}\n")
             self.append_value_to_parameter("logs", f"Detected video duration: {video_duration:.2f} seconds\n")
 
-            # Parse timecodes
-            self.append_value_to_parameter("logs", "Parsing timecodes...\n")
-            segments = self._parse_timecodes(timecodes, frame_rate, drop_frame=drop_frame)
+            # Parse segments based on split mode
+            if split_by == "frame range":
+                self.append_value_to_parameter("logs", "Parsing frame ranges...\n")
+                segments = self._parse_frame_ranges(frame_ranges, frame_rate)
+            else:
+                self.append_value_to_parameter("logs", "Parsing timecodes...\n")
+                segments = self._parse_timecodes(timecodes, frame_rate, drop_frame=drop_frame)
             self.append_value_to_parameter("logs", f"Parsed {len(segments)} segments\n")
 
             # Trim segments that exceed video duration
@@ -706,16 +612,17 @@ If no title is provided, just use "Segment X:" format.
 
             # Run the video processing asynchronously
             self.append_value_to_parameter("logs", "[Started video processing..]\n")
-            yield lambda: self._process(
-                input_url,
-                segments,
-                stream_copy=True,  # Always use best quality
-                accurate_seek=True,  # Always use best quality
-            )
+            await asyncio.to_thread(self._process, input_url, segments)
             self.append_value_to_parameter("logs", "[Finished video processing.]\n")
 
         except Exception as e:
             error_message = str(e)
             msg = f"{self.name}: Error splitting video: {error_message}"
             self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
-            raise ValueError(msg) from e
+            self._set_status_results(was_successful=False, result_details=f"Video split failed: {error_message}")
+            self._handle_failure_exception(ValueError(msg))
+            return
+
+        self._set_status_results(
+            was_successful=True, result_details=f"Successfully split into {len(segments)} segments"
+        )
