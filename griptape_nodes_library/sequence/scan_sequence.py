@@ -1,20 +1,23 @@
-"""ScanSequenceNode: scan a fileseq template into a flat list of file paths.
+"""ScanSequenceNode: scan a path or pattern into a list of file paths.
 
 The 80% artist-facing entry point for sequence work. Inputs:
-- a macro / fileseq template (with `{inputs}` etc. resolvable through the project)
-- a missing-item policy (default: SKIP)
+- a path or pattern (`{inputs}/render.####.png`, `/work/render.####.png`,
+  or even a literal single file like `/work/photo.png`).
+- a missing-item policy (default: SKIP).
 
-Default output:
-- `paths: list[str]` — the file paths in ascending number order, ready for
-  a for-loop / Load Image / Video Player.
+Top-level outputs:
+- `paths: list[str]` — file paths in item-number order, ready for a
+  for-loop / Load Image / Video Player. Macro-form inputs round-trip with
+  the macro head intact.
+- `sequence: Sequence` — the structured Sequence object, ready for Inspect
+  Sequence and any other `type="Sequence"` consumer.
 
-The full structured `Sequence` object is available under an "Advanced Sequence
-Control" group (collapsed by default), alongside `Item range` controls for
-sub-setting the discovered range. Multi-sequence (SPLIT) work lives in
-ScanSplitSequenceNode.
+`Item range` sub-setting controls live in the collapsed "Advanced Sequence
+Control" group. Multi-sequence (SPLIT) work lives in ScanSplitSequenceNode.
 
-Disk I/O and fileseq parsing run via `ScanSequencesRequest` on the engine's
-event bus, so they happen on a worker thread without blocking the event loop.
+Disk I/O, fileseq parsing, and macro resolution all run inside
+`ScanSequencesRequest` on the engine's event bus, so they happen on a
+worker thread without blocking the event loop.
 """
 
 from __future__ import annotations
@@ -22,12 +25,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from griptape_nodes.common.macro_parser import (
-    MacroSyntaxError,
-    ParsedMacro,
-)
 from griptape_nodes.common.sequences import MissingItemPolicy, Sequence
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode, SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.events.os_events import (
@@ -38,11 +37,7 @@ from griptape_nodes.retained_mode.events.os_events import (
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.sequence.advanced_sequence_component import (
-    ItemRangeGroup,
-    resolve_project_macro,
-    split_resolved_path,
-)
+from griptape_nodes_library.sequence.advanced_sequence_component import AdvancedSequenceControls
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -59,44 +54,75 @@ _LABEL_TO_POLICY: dict[str, MissingItemPolicy] = {label: policy for policy, labe
 
 
 class ScanSequenceNode(SuccessFailureNode):
-    """Scan a fileseq template into a flat list of file paths.
+    """Scan a path or pattern into a list of file paths.
 
-    Visible by default: `template`, `missing_item_policy`, `paths`. The full
-    structured `Sequence` object lives in the collapsed Advanced Sequence
-    Control group, along with the Item range controls.
+    Top-level outputs: `paths` (convenience flat list) and `sequence` (the
+    structured Sequence object). `Item range` controls live in the collapsed
+    Advanced Sequence Control group.
 
-    On total failure (bad template, unresolvable project vars, missing
-    directory, no matches, ABORT-policy gap), the node emits empty outputs
-    and routes through the Failure control-flow edge.
+    On total failure (bad path or pattern, missing directory, no matches,
+    ABORT-policy gap), the node emits an empty Sequence and routes through
+    the Failure control-flow edge.
     """
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
 
-        self._template_param = ParameterString(
+        self._path_param = ParameterString(
             name="template",
             default_value="",
             tooltip=(
-                "Macro template. May contain a fileseq sequence token (`####` or `%04d`). "
-                "Non-sequence templates are NOT supported here."
+                "A path to a numbered file sequence. Use a token like `####`, `%04d`, or `@@@` "
+                "where the frame number goes — for example `render.####.png` matches "
+                "`render.0001.png`, `render.0002.png`, … A plain path with no token works too; "
+                "it's read as a sequence of one. Project macros like `{inputs}/render.####.png` "
+                "are accepted and preserved end-to-end (the items you get back keep the "
+                "`{inputs}` form), so workflows stay portable across machines."
             ),
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            ui_options={"display_name": "Sequence path"},
+            ui_options={"display_name": "Path or pattern"},
         )
-        self.add_parameter(self._template_param)
+        self.add_parameter(self._path_param)
 
         self._policy_param = ParameterString(
             name="missing_item_policy",
             default_value=_POLICY_LABELS[MissingItemPolicy.SKIP],
             tooltip=(
-                "How to handle gaps inside a sequence's range. "
-                "`Skip over gaps` returns only present items. "
-                "`Fill gaps with nearest` replaces each missing slot with the nearest neighbor's path. "
-                "`Abort on sequence gaps` fails the node on the first gap, reporting the offending item number."
+                "Choose how to handle missing items inside the range — for example, when "
+                "items 1, 2, 4, 6, 7 exist on disk but 3 and 5 don't.\n"
+                "- *Skip over gaps* keeps only what's on disk.\n"
+                "- *Fill gaps with nearest* fills missing items by reusing the nearest existing "
+                "item's file path.\n"
+                "- *Abort on sequence gaps* fails the node at the first missing item.\n"
+                "\n"
+                "Need each contiguous run as its own sequence instead? Use the **Scan Split "
+                "Sequence** node — it returns one sequence per run."
             ),
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             traits={Options(choices=list(_POLICY_LABELS.values()))},
-            ui_options={"display_name": "How to handle missing sequence entries"},
+            ui_options={"display_name": "What to do at gaps"},
+        )
+        self._policy_param.set_badge(
+            variant="help",
+            title="What happens at gaps",
+            message=(
+                "You have items 1, 2, 4, 6, 7 on disk — items 3 and 5 are missing."
+                "\n\n"
+                "**Skip over gaps**\n"
+                "Returns only what's on disk.\n"
+                "→ `[1, 2, 4, 6, 7]`"
+                "\n\n"
+                "**Fill gaps with nearest**\n"
+                "Fills the missing slots by reusing the nearest existing item's file path.\n"
+                "→ `[1, 2, 2(=3), 4, 4(=5), 6, 7]` — slot 3 reuses item 2, slot 5 reuses item 4."
+                "\n\n"
+                "**Abort on sequence gaps**\n"
+                "Fails the node at the first missing item; routes through the Failure edge.\n"
+                '→ Status: *"sequence has a gap at item 3."*'
+                "\n\n"
+                "If you'd rather get one sequence per contiguous run (`[1, 2]`, `[4]`, `[6, 7]`) "
+                "instead of a single sequence with a gap policy, use the **Scan Split Sequence** node."
+            ),
         )
         self.add_parameter(self._policy_param)
 
@@ -107,43 +133,48 @@ class ScanSequenceNode(SuccessFailureNode):
             output_type="bool",
             default_value=True,
             tooltip=(
-                "Fail the node when the scan returns no items. Most artists want this — an empty result almost "
-                "always means a misconfigured template, range, or path. Turn off if your workflow legitimately "
-                "tolerates empty scans (e.g. a sweep that may find nothing)."
+                "When on, the node reports a failure if the scan finds nothing — usually a sign "
+                "the path, range, or pattern is off. When off, the node succeeds with an empty "
+                "sequence; useful for sweeps that may legitimately come up empty."
             ),
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            ui_options={"display_name": "Treat empty sequence as a failure"},
+            ui_options={"display_name": "Fail when no items are found"},
         )
         self.add_parameter(self._fail_on_empty_param)
 
         self._paths_param = Parameter(
             name="paths",
             tooltip=(
-                "File paths in the active range, in ascending item-number order. "
-                "Wires directly into a for-loop, Load Image, Video Player, etc."
+                "The matched file paths in item-number order. If the input was a macro like "
+                "`{inputs}/render.####.png`, these stay in macro form (`{inputs}/render.0001.png`, "
+                "…). Wire into anything that takes a list of file paths."
             ),
             type="list",
             output_type="list[str]",
             default_value=[],
             allowed_modes={ParameterMode.OUTPUT},
+            ui_options={"display_name": "File paths"},
         )
         self.add_parameter(self._paths_param)
 
-        with ParameterGroup(name="Advanced Sequence Control", collapsed=True) as advanced_group:
-            self._item_range = ItemRangeGroup()
+        self._sequence_param = Parameter(
+            name="sequence",
+            tooltip=(
+                "The full sequence — items, range, and metadata in one object. Wire into any "
+                "node that consumes a sequence directly, or into a list-aware node like "
+                "**ForEach Group**. The `File paths` output above is a flat view of the same "
+                "data for nodes that just want strings."
+            ),
+            type="Sequence",
+            output_type="Sequence",
+            default_value=None,
+            allowed_modes={ParameterMode.OUTPUT},
+            ui_options={"display_name": "Sequence"},
+        )
+        self.add_parameter(self._sequence_param)
 
-            self._sequence_param = Parameter(
-                name="sequence",
-                tooltip=(
-                    "The full structured Sequence object (Pydantic model). "
-                    'Use this for technical nodes that consume `type="Sequence"` directly.'
-                ),
-                type="Sequence",
-                output_type="Sequence",
-                default_value=None,
-                allowed_modes={ParameterMode.OUTPUT},
-            )
-        self.add_node_element(advanced_group)
+        self._advanced = AdvancedSequenceControls()
+        self.add_node_element(self._advanced.group)
 
         self._create_status_parameters(
             result_details_tooltip="Details about the sequence scan",
@@ -166,7 +197,7 @@ class ScanSequenceNode(SuccessFailureNode):
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Forward item-range mode toggles to the shared helper."""
-        self._item_range.handle_after_value_set(self, parameter, value)
+        self._advanced.handle_after_value_set(self, parameter, value)
         return super().after_value_set(parameter, value)
 
     async def aprocess(self) -> None:
@@ -174,64 +205,32 @@ class ScanSequenceNode(SuccessFailureNode):
 
         policy = _LABEL_TO_POLICY[self.get_parameter_value(self._policy_param.name)]
 
-        template = self.get_parameter_value(self._template_param.name).strip()
-        if not template:
-            self._emit_failure("No template provided.", policy=policy)
+        path = self.get_parameter_value(self._path_param.name).strip()
+        if not path:
+            self._emit_failure("No path or pattern provided.", policy=policy)
             return
 
-        try:
-            parsed = ParsedMacro(template)
-        except MacroSyntaxError as e:
-            self._emit_failure(f"Invalid template: {e}", policy=policy)
-            return
-
-        resolved_path = resolve_project_macro(parsed)
-        if resolved_path is None:
-            self._emit_failure(f"Could not resolve project variables for template: {template}", policy=policy)
-            return
-
-        split = split_resolved_path(resolved_path)
-        if split.filename_pattern is None:
-            self._emit_failure(
-                f"Resolved template '{resolved_path}' has no filename component.",
-                policy=policy,
-                directory=split.directory,
-            )
-            return
-
-        bounds_or_error = await self._item_range.resolve_bounds(self, split.directory, split.filename_pattern)
+        bounds_or_error = await self._advanced.resolve_bounds(self, path)
         if isinstance(bounds_or_error, str):
-            self._emit_failure(
-                bounds_or_error,
-                policy=policy,
-                directory=split.directory,
-                pattern=split.filename_pattern,
-            )
+            self._emit_failure(bounds_or_error, policy=policy)
             return
 
         scan_result = await GriptapeNodes.ahandle_request(
             ScanSequencesRequest(
-                directory=split.directory,
-                pattern=split.filename_pattern,
+                path=path,
                 policy=policy,
+                no_token_behavior=self._advanced.behavior_for_request(self),
                 start_number=bounds_or_error.start_number,
                 end_number=bounds_or_error.end_number,
             )
         )
         if isinstance(scan_result, ScanSequencesResultFailure):
-            self._emit_failure(
-                str(scan_result.result_details),
-                policy=policy,
-                directory=split.directory,
-                pattern=split.filename_pattern,
-            )
+            self._emit_failure(str(scan_result.result_details), policy=policy)
             return
         if not isinstance(scan_result, ScanSequencesResultSuccess):
             self._emit_failure(
                 f"Unexpected scan result type: {type(scan_result).__name__}",
                 policy=policy,
-                directory=split.directory,
-                pattern=split.filename_pattern,
             )
             return
 
@@ -243,20 +242,16 @@ class ScanSequenceNode(SuccessFailureNode):
                 discovered_last=scan_result.discovered_last,
                 active_first=bounds_or_error.start_number,
                 active_last=bounds_or_error.end_number,
-                pattern=split.filename_pattern,
+                path=path,
             )
-            empty_sequence = self._make_empty_sequence(
-                policy=policy,
-                directory=split.directory,
-                pattern=split.filename_pattern,
-            )
+            empty_sequence = self._make_empty_sequence(policy=policy)
             if fail_on_empty:
                 self._emit_outputs(empty_sequence, was_successful=False, details=details)
             else:
                 self._emit_outputs(
                     empty_sequence,
                     was_successful=True,
-                    details=f"{details} (fail_on_empty_result=False)",
+                    details=f"{details} (*Fail when no items are found* is off.)",
                 )
             return
 
@@ -267,22 +262,15 @@ class ScanSequenceNode(SuccessFailureNode):
     def _emit_success(self, sequence: Sequence) -> None:
         """Populate outputs and mark the node successful."""
         paths = [entry.path for entry in sequence.entries]
+        policy_label = _POLICY_LABELS[sequence.policy] if sequence.policy in _POLICY_LABELS else sequence.policy.value
         details = (
-            f"Scanned sequence: items {sequence.first}..{sequence.last} "
-            f"({len(paths)} paths, policy={sequence.policy.value})."
+            f"Scanned sequence: items {sequence.first}–{sequence.last} ({len(paths)} items, {policy_label.lower()})."
         )
         if sequence.dropped_negative_number_count:
             details += f" Dropped {sequence.dropped_negative_number_count} negative number(s)."
         self._emit_outputs(sequence, was_successful=True, details=details)
 
-    def _emit_failure(
-        self,
-        details: str,
-        *,
-        policy: MissingItemPolicy,
-        directory: str = "",
-        pattern: str = "",
-    ) -> None:
+    def _emit_failure(self, details: str, *, policy: MissingItemPolicy) -> None:
         """Emit an empty Sequence and mark the node failed.
 
         Downstream consumers (Inspect Sequence, etc.) treat `None` as "no sequence
@@ -290,7 +278,7 @@ class ScanSequenceNode(SuccessFailureNode):
         their normal "0 entries" view instead, so the artist can still see the
         diagnostic flow downstream.
         """
-        empty_sequence = self._make_empty_sequence(policy=policy, directory=directory, pattern=pattern)
+        empty_sequence = self._make_empty_sequence(policy=policy)
         self._emit_outputs(empty_sequence, was_successful=False, details=details)
 
     def _emit_outputs(self, sequence: Sequence, *, was_successful: bool, details: str) -> None:
@@ -300,13 +288,14 @@ class ScanSequenceNode(SuccessFailureNode):
         self._set_status_results(was_successful=was_successful, result_details=details)
 
     @staticmethod
-    def _make_empty_sequence(*, policy: MissingItemPolicy, directory: str = "", pattern: str = "") -> Sequence:
+    def _make_empty_sequence(*, policy: MissingItemPolicy) -> Sequence:
         """Build an empty Sequence — `first > last` so the integer range is empty.
 
         Used as the output payload whenever the node produces no items (failures
-        and `fail_on_empty_result=False` both qualify). Downstream nodes can
-        introspect padding/pattern/directory to render their own context, but
-        `entries`, `present_numbers`, and `missing_numbers` are all empty.
+        and `fail_on_empty_result=False` both qualify). Downstream nodes get
+        `entries`, `present_numbers`, and `missing_numbers` all empty;
+        `directory` and `pattern` are blank since neither is meaningful for an
+        empty result.
         """
         return Sequence(
             entries=[],
@@ -315,8 +304,8 @@ class ScanSequenceNode(SuccessFailureNode):
             discovered_first=0,
             discovered_last=-1,
             padding=0,
-            pattern=pattern,
-            directory=directory,
+            pattern="",
+            directory="",
             policy=policy,
         )
 
@@ -328,7 +317,7 @@ class ScanSequenceNode(SuccessFailureNode):
         discovered_last: int | None,
         active_first: int | None,
         active_last: int | None,
-        pattern: str,
+        path: str,
     ) -> str:
         """Pick the most informative status string for an empty scan result.
 
@@ -338,15 +327,16 @@ class ScanSequenceNode(SuccessFailureNode):
         3. discovered_first/last set → subset clipped every present item
         """
         if not directory_had_matching_files:
-            return f"Scan found no items: directory contains no files matching '{pattern}'."
+            return f"No items matched `{path}` — nothing in that location matches that name and extension."
         if discovered_first is None or discovered_last is None:
             return (
-                f"Scan found no items: directory contains files matching '{pattern}', but their numbering "
-                f"padding does not match the template's padding."
+                f"No items matched `{path}` — files exist with that name, but their numbering "
+                "width doesn't match the token (e.g. 3-digit numbers against `####`)."
             )
         if active_first is not None and active_last is not None:
             return (
-                f"Scan found no items: discovered range is {discovered_first}..{discovered_last}, "
-                f"but the active subset is {active_first}..{active_last}."
+                "No items in the active range. "
+                f"Items {discovered_first}–{discovered_last} exist on disk; "
+                f"you asked for {active_first}–{active_last}."
             )
-        return f"Scan found no items: discovered range is {discovered_first}..{discovered_last}."
+        return f"No items in the active range. Items {discovered_first}–{discovered_last} exist on disk."

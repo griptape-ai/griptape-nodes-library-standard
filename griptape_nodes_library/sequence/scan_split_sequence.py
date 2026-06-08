@@ -1,14 +1,16 @@
-"""ScanSplitSequenceNode: scan a fileseq template into one Sequence per contiguous run.
+"""ScanSplitSequenceNode: scan a path or pattern into one Sequence per contiguous run.
 
 Multi-sequence scanner. Always uses `MissingItemPolicy.SPLIT` internally, so
-a directory like `[1..5, 8..12, 15]` produces three Sequence objects covering each
+items 1..5, 8..12, 15 on disk produce three Sequence objects covering each
 contiguous run. There is no policy dropdown — picking this node IS the policy.
 
-Output is `sequences: list[Sequence]`. The artist who wants paths-per-sub-sequence
-iterates over `sequences` and pulls `seq.entries` themselves.
+Output is `sequences: list[Sequence]`. Wire it into any list-aware node
+(ForEach Group, Get From List, etc.) — pulling out a single sub-sequence
+goes into Inspect Sequence or any other `type="Sequence"` consumer.
 
-Disk I/O and fileseq parsing run via `ScanSequencesRequest` on the engine's
-event bus, so they happen on a worker thread without blocking the event loop.
+Disk I/O, fileseq parsing, and macro resolution all run inside
+`ScanSequencesRequest` on the engine's event bus, so they happen on a
+worker thread without blocking the event loop.
 """
 
 from __future__ import annotations
@@ -16,12 +18,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from griptape_nodes.common.macro_parser import (
-    MacroSyntaxError,
-    ParsedMacro,
-)
 from griptape_nodes.common.sequences import MissingItemPolicy
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode, SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.events.os_events import (
@@ -31,48 +29,53 @@ from griptape_nodes.retained_mode.events.os_events import (
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
-from griptape_nodes_library.sequence.advanced_sequence_component import (
-    ItemRangeGroup,
-    resolve_project_macro,
-    split_resolved_path,
-)
+from griptape_nodes_library.sequence.advanced_sequence_component import AdvancedSequenceControls
 
 logger = logging.getLogger("griptape_nodes")
 
 
 class ScanSplitSequenceNode(SuccessFailureNode):
-    """Scan a fileseq template into one Sequence per contiguous run of present items.
+    """Scan a path or pattern into one Sequence per contiguous run of present items.
 
     Visible by default: `template`, `sequences`. The Item range controls live in
     the collapsed Advanced Sequence Control group.
 
-    On total failure (bad template, unresolvable project vars, missing directory,
-    no matches), the node emits an empty list and routes through the Failure
-    control-flow edge.
+    On total failure (bad path or pattern, missing directory, no matches),
+    the node emits an empty list and routes through the Failure control-flow
+    edge.
     """
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
 
-        self._template_param = ParameterString(
+        self._path_param = ParameterString(
             name="template",
             default_value="",
             tooltip=(
-                "Macro template. May contain a fileseq sequence token (`####` or `%04d`). "
-                "Non-sequence templates are NOT supported here."
+                "A path to a numbered file sequence. Use a token like `####`, `%04d`, or `@@@` "
+                "where the frame number goes — for example `render.####.png` matches "
+                "`render.0001.png`, `render.0002.png`, … A plain path with no token works too; "
+                "it's read as a sequence of one. Project macros like `{inputs}/render.####.png` "
+                "are accepted and preserved end-to-end (the items you get back keep the "
+                "`{inputs}` form), so workflows stay portable across machines."
             ),
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            ui_options={"display_name": "Sequence path"},
+            ui_options={"display_name": "Path or pattern"},
         )
-        self.add_parameter(self._template_param)
+        self.add_parameter(self._path_param)
 
         self._sequences_param = Parameter(
             name="sequences",
-            tooltip=("List of Sequence objects, one per contiguous run of present items in the active range."),
+            tooltip=(
+                "One sequence per contiguous run of items found on disk. Wire into any node "
+                "that consumes sequences directly, or into a list-aware node "
+                "(**ForEach Group**, **Get From List**, etc.)."
+            ),
             type="list",
             output_type="list[Sequence]",
             default_value=[],
             allowed_modes={ParameterMode.OUTPUT},
+            ui_options={"display_name": "Sequences"},
         )
         self.add_parameter(self._sequences_param)
 
@@ -83,21 +86,20 @@ class ScanSplitSequenceNode(SuccessFailureNode):
             output_type="bool",
             default_value=True,
             tooltip=(
-                "Fail the node when the scan returns no items. Most artists want this — an empty result almost "
-                "always means a misconfigured template, range, or path. Turn off if your workflow legitimately "
-                "tolerates empty scans (e.g. a sweep that may find nothing)."
+                "When on, the node reports a failure if the scan finds nothing — usually a sign "
+                "the path, range, or pattern is off. When off, the node succeeds with an empty "
+                "list; useful for sweeps that may legitimately come up empty."
             ),
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            ui_options={"display_name": "Treat empty sequence as a failure"},
+            ui_options={"display_name": "Fail when no items are found"},
         )
         self.add_parameter(self._fail_on_empty_param)
 
-        with ParameterGroup(name="Advanced Sequence Control", collapsed=True) as advanced_group:
-            self._item_range = ItemRangeGroup()
-        self.add_node_element(advanced_group)
+        self._advanced = AdvancedSequenceControls()
+        self.add_node_element(self._advanced.group)
 
         self._create_status_parameters(
-            result_details_tooltip="Details about the split-sequence scan",
+            result_details_tooltip="Details about the scan",
             result_details_placeholder="Scan results will appear here.",
         )
 
@@ -117,43 +119,27 @@ class ScanSplitSequenceNode(SuccessFailureNode):
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Forward item-range mode toggles to the shared helper."""
-        self._item_range.handle_after_value_set(self, parameter, value)
+        self._advanced.handle_after_value_set(self, parameter, value)
         return super().after_value_set(parameter, value)
 
     async def aprocess(self) -> None:
         self._clear_execution_status()
 
-        template = self.get_parameter_value(self._template_param.name).strip()
-        if not template:
-            self._emit_failure("No template provided.")
+        path = self.get_parameter_value(self._path_param.name).strip()
+        if not path:
+            self._emit_failure("No path or pattern provided.")
             return
 
-        try:
-            parsed = ParsedMacro(template)
-        except MacroSyntaxError as e:
-            self._emit_failure(f"Invalid template: {e}")
-            return
-
-        resolved_path = resolve_project_macro(parsed)
-        if resolved_path is None:
-            self._emit_failure(f"Could not resolve project variables for template: {template}")
-            return
-
-        split = split_resolved_path(resolved_path)
-        if split.filename_pattern is None:
-            self._emit_failure(f"Resolved template '{resolved_path}' has no filename component.")
-            return
-
-        bounds_or_error = await self._item_range.resolve_bounds(self, split.directory, split.filename_pattern)
+        bounds_or_error = await self._advanced.resolve_bounds(self, path)
         if isinstance(bounds_or_error, str):
             self._emit_failure(bounds_or_error)
             return
 
         scan_result = await GriptapeNodes.ahandle_request(
             ScanSequencesRequest(
-                directory=split.directory,
-                pattern=split.filename_pattern,
+                path=path,
                 policy=MissingItemPolicy.SPLIT,
+                no_token_behavior=self._advanced.behavior_for_request(self),
                 start_number=bounds_or_error.start_number,
                 end_number=bounds_or_error.end_number,
             )
@@ -173,12 +159,12 @@ class ScanSplitSequenceNode(SuccessFailureNode):
                 discovered_last=scan_result.discovered_last,
                 active_first=bounds_or_error.start_number,
                 active_last=bounds_or_error.end_number,
-                pattern=split.filename_pattern,
+                path=path,
             )
             if fail_on_empty:
                 self._emit_failure(details)
             else:
-                self._emit_empty_success(f"{details} (fail_on_empty_result=False)")
+                self._emit_empty_success(f"{details} (*Fail when no items are found* is off.)")
             return
 
         self._emit_success(scan_result.sequences)
@@ -196,8 +182,8 @@ class ScanSplitSequenceNode(SuccessFailureNode):
     def _emit_success(self, sequences: list[Any]) -> None:
         """Populate outputs and mark the node successful."""
         self.parameter_output_values[self._sequences_param.name] = sequences
-        ranges = ", ".join(f"{s.first}-{s.last}" for s in sequences)
-        details = f"Scanned {len(sequences)} sub-sequence(s): {ranges}."
+        ranges = ", ".join(_format_run(s) for s in sequences)
+        details = f"Found {len(sequences)} sub-sequence(s): {ranges}."
         if any(s.dropped_negative_number_count for s in sequences):
             total_dropped = sum(s.dropped_negative_number_count for s in sequences)
             details += f" Dropped {total_dropped} negative number(s)."
@@ -211,7 +197,7 @@ class ScanSplitSequenceNode(SuccessFailureNode):
         discovered_last: int | None,
         active_first: int | None,
         active_last: int | None,
-        pattern: str,
+        path: str,
     ) -> str:
         """Pick the most informative status string for an empty scan result.
 
@@ -221,15 +207,27 @@ class ScanSplitSequenceNode(SuccessFailureNode):
         3. discovered_first/last set → subset clipped every present item
         """
         if not directory_had_matching_files:
-            return f"Scan found no items: directory contains no files matching '{pattern}'."
+            return f"No items matched `{path}` — nothing in that location matches that name and extension."
         if discovered_first is None or discovered_last is None:
             return (
-                f"Scan found no items: directory contains files matching '{pattern}', but their numbering "
-                f"padding does not match the template's padding."
+                f"No items matched `{path}` — files exist with that name, but their numbering "
+                "width doesn't match the token (e.g. 3-digit numbers against `####`)."
             )
         if active_first is not None and active_last is not None:
             return (
-                f"Scan found no items: discovered range is {discovered_first}..{discovered_last}, "
-                f"but the active subset is {active_first}..{active_last}."
+                "No items in the active range. "
+                f"Items {discovered_first}–{discovered_last} exist on disk; "
+                f"you asked for {active_first}–{active_last}."
             )
-        return f"Scan found no items: discovered range is {discovered_first}..{discovered_last}."
+        return f"No items in the active range. Items {discovered_first}–{discovered_last} exist on disk."
+
+
+def _format_run(sequence: Any) -> str:
+    """Render a single sub-sequence's run for the status detail line.
+
+    Singletons render as `item N` rather than `N–N` so the status reads
+    naturally — e.g. *Found 3 sub-sequences: items 1–2, item 4, items 6–7.*
+    """
+    if sequence.first == sequence.last:
+        return f"item {sequence.first}"
+    return f"items {sequence.first}–{sequence.last}"
