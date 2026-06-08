@@ -15,7 +15,6 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.image_utils import extract_image_url
 
@@ -131,16 +130,14 @@ class OmnihumanSubjectDetection(GriptapeProxyNode):
 
     async def _build_payload(self) -> dict[str, Any]:
         model_id = self.get_parameter_value("model_id")
-        image_input = self.get_parameter_value("image_url")
-        image_value = extract_image_url(image_input)
+        image_value = extract_image_url(self.get_parameter_value("image_url"))
         if not image_value:
             msg = "Image URL is required"
             raise ValueError(msg)
 
-        image_url = await self._prepare_image_data_url_async(image_value)
-        if not image_url:
-            msg = "Failed to process input image"
-            raise ValueError(msg)
+        # OmniHuman downloads the image server-side, so it needs a publicly
+        # reachable URL rather than an inline data URI.
+        image_url = self._public_image_url_parameter.get_public_url_for_parameter()
 
         return {
             "req_key": self._get_req_key(model_id),
@@ -149,9 +146,6 @@ class OmnihumanSubjectDetection(GriptapeProxyNode):
 
     async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
         self._process_response(result_json)
-
-    async def _prepare_image_data_url_async(self, image_input: Any) -> str | None:
-        return await prepare_media_data_uri(image_input, kind="image", node_name=self.name, fallback_mime="image/jpeg")
 
     def _get_req_key(self, model_id: str) -> str:
         """Get the request key based on model_id."""
