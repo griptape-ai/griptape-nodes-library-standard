@@ -73,6 +73,11 @@
       "name": "CropImageEditor",
       "path": "widgets/CropImageEditor/CropImageEditor.js",
       "description": "Interactive crop editor — drag to move/resize the crop rectangle, draw a new crop area, with rule-of-thirds guides and live coordinate readout."
+    },
+    {
+      "name": "CropVideoEditor",
+      "path": "widgets/CropVideoEditor/CropVideoEditor.js",
+      "description": "Interactive video crop editor — drag handles on a live video frame with frame scrubber, aspect ratio, resolution, and position presets."
     }
   ],
   "categories": [
@@ -774,7 +779,7 @@
       "file_path": "griptape_nodes_library/video/crop_video.py",
       "metadata": {
         "category": "video",
-        "description": "Crop a video to a specific size with preview visualization showing the crop area",
+        "description": "Interactively crop a video with drag handles, frame scrubber, and aspect ratio presets",
         "display_name": "Crop Video",
         "icon": "crop",
         "group": "edit"
@@ -1085,7 +1090,10 @@
         "description": "Upscale video using SeedVR models via Griptape Cloud model proxy",
         "display_name": "SeedVR Video Upscale",
         "icon": "Sparkles",
-        "group": "edit"
+        "group": "edit",
+        "deprecation": {
+          "deprecation_message": "Use the FAL SeedVR Video Upscale node from the FAL library (https://github.com/griptape-ai/griptape-nodes-library-fal), which calls fal.ai directly instead of routing through the Griptape Cloud proxy."
+        }
       }
     },
     {
@@ -2000,7 +2008,10 @@
         "description": "Upscales an image using SeedVR models (seedvr-2.0) via Griptape model proxy",
         "display_name": "SeedVR Image Upscale",
         "group": "edit",
-        "icon": "Sparkles"
+        "icon": "Sparkles",
+        "deprecation": {
+          "deprecation_message": "Use the FAL SeedVR Image Upscale node from the FAL library (https://github.com/griptape-ai/griptape-nodes-library-fal), which calls fal.ai directly instead of routing through the Griptape Cloud proxy."
+        }
       }
     },
     {
