@@ -1513,7 +1513,11 @@
           "ai",
           "api",
           "seedvr"
-        ]
+        ],
+        "deprecation": {
+          "deprecation_message": "Use the FAL SeedVR Video Upscale node from the FAL library (https://github.com/griptape-ai/griptape-nodes-library-fal), which calls fal.ai directly instead of routing through the Griptape Cloud proxy.",
+          "removal_version": "0.80.0"
+        }
       }
     },
     {
@@ -2908,7 +2912,11 @@
           "ai",
           "api",
           "seedvr"
-        ]
+        ],
+        "deprecation": {
+          "deprecation_message": "Use the FAL SeedVR Image Upscale node from the FAL library (https://github.com/griptape-ai/griptape-nodes-library-fal), which calls fal.ai directly instead of routing through the Griptape Cloud proxy.",
+          "removal_version": "0.80.0"
+        }
       }
     },
     {
