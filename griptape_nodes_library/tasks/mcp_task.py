@@ -4,6 +4,7 @@ from typing import Any
 from griptape.artifacts import BaseArtifact
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.events import ActionChunkEvent, FinishStructureRunEvent, StartStructureRunEvent, TextChunkEvent
+from griptape.rules import Rule, Ruleset
 from griptape.structures import Agent
 from griptape.tasks import PromptTask
 from griptape.tools import MCPTool
@@ -12,7 +13,6 @@ from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
-from griptape_nodes.retained_mode.managers.agent_manager import AgentManager
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
@@ -22,6 +22,21 @@ from griptape_nodes_library.utils.mcp_utils import (
     get_server_config,
     validate_mcp_server,
 )
+
+
+def _create_ruleset_from_rules_string(rules_string: str | None, server_name: str) -> Ruleset | None:
+    """Build a Ruleset from an MCP server's rules-string config.
+
+    Returns None when the string is missing or whitespace-only so the caller
+    can skip without conditional ladders. Mirrors the helper that used to
+    live on `AgentManager._create_ruleset_from_rules_string` (removed in
+    engine 0.86.0); inlined here because the original was a pure Griptape
+    SDK call with a small naming convention — no reason to depend on a
+    private engine method to compose it. Closes #307.
+    """
+    if not rules_string or not rules_string.strip():
+        return None
+    return Ruleset(name=f"mcp_{server_name}_rules", rules=[Rule(rules_string.strip())])
 
 
 class MCPTaskNode(SuccessFailureNode):
@@ -220,7 +235,7 @@ class MCPTaskNode(SuccessFailureNode):
         # Get MCP server rules and create ruleset
         rules_string = server_config.get("rules")
         if rules_string:
-            mcp_ruleset = AgentManager._create_ruleset_from_rules_string(rules_string, mcp_server_name)
+            mcp_ruleset = _create_ruleset_from_rules_string(rules_string, mcp_server_name)
             if mcp_ruleset is not None:
                 rulesets = [*list(rulesets), mcp_ruleset]
 
