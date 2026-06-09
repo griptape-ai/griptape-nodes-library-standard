@@ -702,6 +702,24 @@ loaders-pdf = [
 ]
 
 [[package]]
+name = "griptape-nodes"
+version = "0.86.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "griptape-nodes-engine" },
+    { name = "websockets" },
+    { name = "xdg-base-dirs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3f/3a/97beac1c42dd29919b7b86591c33a93c059a89286beddad7377a9b8580f6/griptape_nodes-0.86.0.tar.gz", hash = "sha256:8efb8de8a7de6db7c0e98b04814d611211890716e8158efb5021bebfc7bfc88a", size = 375682, upload-time = "2026-06-09T19:09:39.189Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9a/ee/9c8412394064a7c69c63d371e08835e06f2f8dd37ac68cc2c955d4eb9143/griptape_nodes-0.86.0-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:6b9e779728b8e75006388c1dbf7677050c743979dd5508583c606b97919fc0d1", size = 6144343, upload-time = "2026-06-09T19:09:40.385Z" },
+    { url = "https://files.pythonhosted.org/packages/9c/ee/1150bf8f5babe5cd665c8d1657b85b969545b2c2eae6d6a31134a99e5b34/griptape_nodes-0.86.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:f3e8711d0dc73c13e6c16ca0122e116ca5d906155e355f64913d8a6a1a6144de", size = 5941195, upload-time = "2026-06-09T19:09:34.035Z" },
+    { url = "https://files.pythonhosted.org/packages/58/a3/3b3a69ce6cf6a7b2a155e24b9d514f167eee7d9fe1b98f5775eb518e8960/griptape_nodes-0.86.0-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:d406f95d9f1da85aba174f81a2a96e36a0075b5cc7a6938e46001be1d280e513", size = 9192193, upload-time = "2026-06-09T19:09:35.602Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/d0/0c5fcad96e33340ed170cd114a50b048a7ebb729783d6f89337f46073ac7/griptape_nodes-0.86.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f545eb160c848452a13c6ab793160d947154c35838647bea1af11d21c2f3637a", size = 9010779, upload-time = "2026-06-09T19:09:37.294Z" },
+    { url = "https://files.pythonhosted.org/packages/25/68/0d91633e06868ef294b3e0e8c86cfa0175563d2188c6b5e0957bc87f414e/griptape_nodes-0.86.0-cp312-cp312-win_amd64.whl", hash = "sha256:220c310e2b15d22b16e264af833a4dce2ba53eaae039ad745c0653decafd4911", size = 5408437, upload-time = "2026-06-09T19:09:32.318Z" },
+]
+
+[[package]]
 name = "griptape-nodes-engine"
 version = "0.86.0"
 source = { registry = "https://pypi.org/simple" }
@@ -754,7 +772,7 @@ dependencies = [
     { name = "asteval" },
     { name = "color-matcher" },
     { name = "griptape", extra = ["drivers-prompt-amazon-bedrock", "drivers-prompt-anthropic", "drivers-prompt-cohere", "drivers-prompt-ollama", "drivers-web-scraper-trafilatura", "drivers-web-search-duckduckgo", "drivers-web-search-exa", "loaders-image", "loaders-pdf"] },
-    { name = "griptape-nodes-engine" },
+    { name = "griptape-nodes" },
     { name = "jmespath" },
     { name = "json-repair" },
     { name = "json-schema-to-pydantic" },
@@ -781,7 +799,7 @@ requires-dist = [
     { name = "asteval", specifier = ">=1.0.8" },
     { name = "color-matcher" },
     { name = "griptape", extras = ["drivers-prompt-amazon-bedrock", "drivers-prompt-anthropic", "drivers-prompt-cohere", "drivers-prompt-ollama", "drivers-web-scraper-trafilatura", "drivers-web-search-duckduckgo", "drivers-web-search-exa", "loaders-image", "loaders-pdf"], specifier = ">=1.9.4" },
-    { name = "griptape-nodes-engine", specifier = ">=0.86.0" },
+    { name = "griptape-nodes", specifier = ">=0.86.0" },
     { name = "jmespath", specifier = ">=1.0.1" },
     { name = "json-repair", specifier = ">=0.46.1" },
     { name = "json-schema-to-pydantic", specifier = ">=0.4.6" },
@@ -1187,11 +1205,11 @@ wheels = [
 
 [[package]]
 name = "logfire-api"
-version = "4.35.0"
+version = "4.36.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/d1/25/016b7d5e0433ae28d8a8bcb18681c48da2a0cdbf0ca8f7b2acdac2f16f4a/logfire_api-4.35.0.tar.gz", hash = "sha256:dcc073c7e337b0005f63075cf89951bacf00944b7c7420c2422b18133c8d2605", size = 83091, upload-time = "2026-06-02T14:55:58.573Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/73/d6/250d4f099cf72f508f168d6a5a481a7f00482703b6bd7da6ea169c28f4b7/logfire_api-4.36.0.tar.gz", hash = "sha256:02167aa9e689f4807c633051eaf989577155553bf0f9f2a54c8c739f8a2646c6", size = 88881, upload-time = "2026-06-09T19:16:02.224Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d2/3a/861f2040b251aa12b653b104c314b7d140cb44a6ab19cb141535aa72beb9/logfire_api-4.35.0-py3-none-any.whl", hash = "sha256:c8eb8f49c261c09b3d815b22ecba1c5224e8ba9aa9b546b0afcdb13a89fa6bfe", size = 131026, upload-time = "2026-06-02T14:55:55.252Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/81/4b3b994c9649daa3af426c1199a9b4145685eb2d602048b7d7dd79073e18/logfire_api-4.36.0-py3-none-any.whl", hash = "sha256:e2898270969d05b654366b8179576a741065bb22a031078088045ff6ffead0e7", size = 138676, upload-time = "2026-06-09T19:15:59.565Z" },
 ]
 
 [[package]]
