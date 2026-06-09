@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
 import io
 import json as _json
@@ -9,7 +8,7 @@ import logging
 from typing import Any, ClassVar
 
 import httpx
-from griptape.artifacts import VideoUrlArtifact
+from griptape.artifacts import ImageUrlArtifact, VideoUrlArtifact
 from griptape.artifacts.url_artifact import UrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
@@ -27,9 +26,12 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from PIL import Image
 
-from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.utils.image_utils import resize_image_for_resolution, shrink_image_to_size
+from griptape_nodes_library.utils.image_utils import (
+    extract_image_url,
+    resize_image_for_resolution,
+    shrink_image_to_size,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -218,8 +220,35 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
             self._public_image_url_parameter.delete_uploaded_artifact()
             self._public_audio_url_parameter.delete_uploaded_artifact()
 
-    async def _get_image_for_api(self) -> bytes | None:
-        """Get the image bytes to use for the API call, shrinking if needed."""
+    async def _resolve_public_image_url(self) -> str:
+        """Return a public URL for the input image, resizing first if it exceeds limits.
+
+        OmniHuman downloads the image server-side, so the request must carry a
+        publicly reachable URL. When the image fits within the size/resolution
+        limits the input is uploaded as-is; when it exceeds them the resized
+        bytes are written to the workspace and uploaded in its place so the
+        auto_image_resize behavior is preserved.
+        """
+        resized_bytes = await self._resize_image_if_needed()
+        if resized_bytes is not None:
+            resized_file = File(self._resized_image_path())
+            await resized_file.awrite_bytes(resized_bytes)
+            self.set_parameter_value("image_url", ImageUrlArtifact(resized_file.location))
+
+        return self._public_image_url_parameter.get_public_url_for_parameter()
+
+    def _resized_image_path(self) -> str:
+        """Workspace path for the resized copy of the input image."""
+        return f"omnihuman_resized_input_{self.name}.png"
+
+    async def _resize_image_if_needed(self) -> bytes | None:
+        """Validate the input image against OmniHuman limits, resizing if enabled.
+
+        Returns the resized image bytes when a resize was performed, or None when
+        the original image already fits within the limits (so it can be uploaded
+        as-is). Raises ValueError when the image exceeds a limit and
+        auto_image_resize is disabled.
+        """
         # Get the image file contents
         file_contents = await self._get_image_file_contents()
         if file_contents is None:
@@ -238,7 +267,7 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
 
         # If neither constraint is exceeded, use original
         if not exceeds_size and not exceeds_resolution:
-            return file_contents
+            return None
 
         # Check if auto resize is enabled
         auto_image_resize = self.get_parameter_value("auto_image_resize")
@@ -273,7 +302,7 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         if len(shrunk_bytes) >= len(file_contents):
             # Shrinking didn't help
             self._log("Could not shrink image, using original")
-            return file_contents
+            return None
 
         self._log(f"Resized image to {len(shrunk_bytes) / (1024 * 1024):.2f}MB")
         return shrunk_bytes
@@ -323,17 +352,10 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
             msg = "audio_url parameter is required."
             raise ValueError(msg)
 
-        image_bytes = await self._get_image_for_api()
-        if not image_bytes:
-            msg = "Failed to read image contents."
-            raise ValueError(msg)
-
-        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-        image_url = f"data:image/png;base64,{image_b64}"
-        audio_url = await self._prepare_audio_data_url_async(audio_input)
-        if not audio_url:
-            msg = "Failed to process audio input."
-            raise ValueError(msg)
+        # OmniHuman downloads the image and audio server-side, so they need
+        # publicly reachable URLs rather than inline data URIs.
+        image_url = await self._resolve_public_image_url()
+        audio_url = self._public_audio_url_parameter.get_public_url_for_parameter()
 
         # Handle artifacts
         if hasattr(mask_image_urls, "value"):
@@ -347,18 +369,20 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
             if mask_image_urls:
                 self._log(f"Auto-detected {len(mask_image_urls)} mask(s)")
 
-        mask_data_urls = []
+        # Mask URLs (auto-detected or user-supplied) are already public URLs that
+        # OmniHuman downloads server-side; pass them through directly.
+        mask_urls = []
         if mask_image_urls:
-            for mask_url in mask_image_urls:
-                data_url = await self._prepare_image_data_url_async(mask_url)
-                if data_url:
-                    mask_data_urls.append(data_url)
+            for mask_item in mask_image_urls:
+                mask_url = extract_image_url(mask_item)
+                if mask_url:
+                    mask_urls.append(mask_url)
 
         body = {
             "req_key": self._get_req_key(model_id),
             "image_url": image_url,
             "audio_url": audio_url,
-            "mask_url": "; ".join(mask_data_urls) if mask_data_urls else None,
+            "mask_url": "; ".join(mask_urls) if mask_urls else None,
             "prompt": prompt if prompt else None,
             "seed": seed if seed else None,
             "fast_mode": fast_mode if fast_mode else None,
@@ -468,42 +492,6 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
             self._set_status_results(
                 was_successful=False, result_details=f"Video generation completed but failed to save: {e}"
             )
-
-    async def _prepare_audio_data_url_async(self, audio_input: Any) -> str | None:
-        if not audio_input:
-            return None
-
-        audio_url = coerce_media_url_or_data_uri(audio_input, kind="audio")
-        if not audio_url:
-            return None
-
-        # Already a data URI — return as-is
-        if audio_url.startswith("data:audio/"):
-            return audio_url
-
-        try:
-            return await File(audio_url).aread_data_uri(fallback_mime="audio/mpeg")
-        except FileLoadError as e:
-            self._log(f"Failed to load audio from {audio_url}: {e}")
-            return None
-
-    async def _prepare_image_data_url_async(self, image_input: Any) -> str | None:
-        if not image_input:
-            return None
-
-        image_url = coerce_media_url_or_data_uri(image_input, kind="image")
-        if not image_url:
-            return None
-
-        # Already a data URI — return as-is
-        if image_url.startswith("data:image/"):
-            return image_url
-
-        try:
-            return await File(image_url).aread_data_uri(fallback_mime="image/png")
-        except FileLoadError as e:
-            self._log(f"Failed to load image from {image_url}: {e}")
-            return None
 
     async def _handle_completion(self, response_json: dict[str, Any]) -> None:
         """Handle successful completion of video generation."""
