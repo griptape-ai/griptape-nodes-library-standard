@@ -44,9 +44,9 @@ class ExecutePython(SuccessFailureNode):
             Parameter(
                 name="result",
                 allowed_modes={ParameterMode.OUTPUT},
-                output_type="str",
+                output_type="any",
                 default_value="",
-                tooltip="The printed value from the executed Python code.",
+                tooltip="The value of the result variable in the executed Python code.",
             )
         )
         self._create_status_parameters(
@@ -81,7 +81,7 @@ class ExecutePython(SuccessFailureNode):
         full_code = self._assign_vars(python_code, input_variables)
 
         # Create the request
-        request = RunArbitraryPythonStringRequest(python_string=full_code)
+        request = RunArbitraryPythonStringRequest(python_string=full_code, variable_names_to_capture=["result"])
 
         response = GriptapeNodes.handle_request(request)
 
@@ -99,8 +99,14 @@ class ExecutePython(SuccessFailureNode):
                 result_details=f"Failure: Unexpected response type from RunArbitraryPythonStringRequest: {type(response)}",
             )
         elif isinstance(response, RunArbitraryPythonStringResultSuccess):
-            output = response.python_output
-            self.set_parameter_value("result", output)
-            self._set_status_results(
-                was_successful=True, result_details="The Python code executed successfully with no exceptions."
-            )
+            if "result" in response.missing_variables:
+                self._set_status_results(
+                    was_successful=False,
+                    result_details="Failure: The executed Python code did not assign a 'result' variable.",
+                )
+                self.set_parameter_value("result", "")
+            else:
+                self.set_parameter_value("result", response.found_variable_values["result"])
+                self._set_status_results(
+                    was_successful=True, result_details="The Python code executed successfully with no exceptions."
+                )
