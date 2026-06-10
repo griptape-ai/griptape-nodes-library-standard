@@ -78,6 +78,11 @@
       "name": "CropVideoEditor",
       "path": "widgets/CropVideoEditor/CropVideoEditor.js",
       "description": "Interactive video crop editor — drag handles on a live video frame with frame scrubber, aspect ratio, resolution, and position presets."
+    },
+    {
+      "name": "SelectFromGrid",
+      "path": "widgets/SelectFromGrid/SelectFromGrid.js",
+      "description": "Interactive grid selector — displays list items as thumbnails (images, video, audio, text) and lets the user click to select one or more."
     }
   ],
   "categories": [
@@ -544,6 +549,23 @@
           "list",
           "data",
           "logic"
+        ]
+      }
+    },
+    {
+      "class_name": "SelectFromGrid",
+      "file_path": "griptape_nodes_library/lists/select_from_grid.py",
+      "metadata": {
+        "category": "lists",
+        "description": "Displays list items as a clickable grid of thumbnails. Supports images, video, audio, text, and dicts. Selected items are passed to the output.",
+        "display_name": "Select From Grid",
+        "group": "describe",
+        "tags": [
+          "list",
+          "data",
+          "image",
+          "grid",
+          "select"
         ]
       }
     },
