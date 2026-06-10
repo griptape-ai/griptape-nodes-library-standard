@@ -64,6 +64,12 @@ class DisplayList(ControlNode):
         # values have flowed. None means fall back to per-value detection
         # (the historical behavior). Reset on `items` disconnect.
         self._declared_element_type: str | None = None
+        # True while `items` has an active incoming connection. Drives the
+        # `settable` lock on the dynamic children (the connection owns
+        # their values, so manual edits / adds shouldn't be exposed).
+        # Tracked alongside the connection events instead of querying the
+        # FlowManager on each rebuild.
+        self._items_connected: bool = False
         # We'll create output parameters dynamically during processing
 
     def process(self) -> None:
@@ -129,6 +135,9 @@ class DisplayList(ControlNode):
                 self._update_existing_parameter(self.items_list[i], item, item_specific_type)
             else:
                 self._create_new_parameter(item, item_specific_type)
+        # Newly created or re-typed children inherit settable from the current
+        # connection state, not from whatever the parent had a moment ago.
+        self._apply_settable_state()
         self._updating_display_list = False
 
     def _update_existing_parameter(self, parameter: Parameter, item: Any, item_specific_type: str) -> None:
@@ -297,6 +306,18 @@ class DisplayList(ControlNode):
             return self._declared_element_type
         return self._determine_item_type(item)
 
+    def _apply_settable_state(self) -> None:
+        """Sync `settable` on the container and existing children to the connection state.
+
+        Locked while `items` has an incoming connection, unlocked otherwise.
+        Called from connection / disconnect events and after every rebuild
+        so freshly created children inherit the right state.
+        """
+        locked = self._items_connected
+        self.items_list.settable = not locked
+        for child in self.items_list.find_elements_by_type(Parameter):
+            child.settable = not locked
+
     def _determine_item_type(self, item: Any) -> str:
         """Determine the type of an item for parameter type assignment."""
         # Builtin types - use type mapping for efficiency
@@ -416,32 +437,39 @@ class DisplayList(ControlNode):
         source_parameter: Parameter,
         target_parameter: Parameter,
     ) -> None:
-        """Capture the upstream element type when something connects to `items`.
+        """Capture the upstream element type and lock children when something connects to `items`.
 
         When the source declares `output_type="list[X]"` for a concrete X,
         we stash X as the declared element type and rebuild — that re-types
         every existing child, and the rebuild's `_validate_and_remove_incompatible_connections`
         prunes any outgoing connection from a child whose type just changed
         out from under it. When the source declares only `list` or `list[any]`,
-        the cache stays None and we fall through to per-value detection
-        (today's behavior).
+        the cache stays None and we fall through to per-value detection.
+        Either way, while `items` is connected, children become read-only —
+        the connection owns their values.
         """
         if target_parameter == self.items:
             self._declared_element_type = self._extract_inner_list_type(source_parameter.output_type)
+            self._items_connected = True
             self._update_display_list()
+            self._apply_settable_state()
         return super().after_incoming_connection(source_node, source_parameter, target_parameter)
 
     def after_incoming_connection_removed(
         self, source_node: BaseNode, source_parameter: Parameter, target_parameter: Parameter
     ) -> None:
-        """Reset the declared element type when `items` is disconnected.
+        """Reset declared element type and unlock children when `items` is disconnected.
 
         Drops back to per-value detection so a subsequent reconnect (or any
         cached value the artist set as a property) re-evaluates from scratch.
-        Other parameters' disconnects are ignored — DisplayList only narrows
-        based on `items`.
+        Children become editable again so the artist can hand-edit any
+        cached values. Other parameters' disconnects are ignored —
+        DisplayList only narrows based on `items`.
         """
         if target_parameter == self.items:
             self._declared_element_type = None
+            self._items_connected = False
         self._update_display_list()
+        if target_parameter == self.items:
+            self._apply_settable_state()
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
