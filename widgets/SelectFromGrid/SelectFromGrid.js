@@ -66,7 +66,7 @@ export default function SelectFromGrid(container, props) {
   wrapper.className = "sfg-widget nodrag nowheel";
 
   // ── Toolbar ───────────────────────────────────────────────────────────────
-  const { controls, colSlider, colVal, squareBtn, masonryBtn, countEl, clearBtn, setDisabled } =
+  const { controls, colSlider, colVal, gridBtn, masonryBtn, countEl, clearBtn, setDisabled } =
     createToolbar({
       layout, columns, isDisabled,
       onColumnsChange(n) { columns = n; renderGrid(/* skeleton */ true); },
@@ -227,6 +227,15 @@ export default function SelectFromGrid(container, props) {
       spinner.addEventListener("transitionend", () => spinner.remove(), { once: true });
     };
 
+    const showError = () => {
+      inner.classList.remove("sfg-loading");
+      if (spinner) spinner.remove();
+      const card = document.createElement("div");
+      card.className = "sfg-error-card";
+      card.appendChild(mkIcon("alert-circle", 28));
+      inner.appendChild(card);
+    };
+
     switch (item.type) {
       case "image": {
         const img    = document.createElement("img");
@@ -238,10 +247,7 @@ export default function SelectFromGrid(container, props) {
           img.classList.add("sfg-loaded");
           fadeOutSpinner();
         });
-        img.addEventListener("error", () => {
-          inner.classList.remove("sfg-loading");
-          if (spinner) spinner.remove();
-        });
+        img.addEventListener("error", showError);
         inner.appendChild(img);
         break;
       }
@@ -258,10 +264,7 @@ export default function SelectFromGrid(container, props) {
           vid.classList.add("sfg-loaded");
           fadeOutSpinner();
         });
-        vid.addEventListener("error", () => {
-          inner.classList.remove("sfg-loading");
-          if (spinner) spinner.remove();
-        });
+        vid.addEventListener("error", showError);
         cell.addEventListener("mouseenter", () => void vid.play().catch(() => {}));
         cell.addEventListener("mouseleave", () => { vid.pause(); vid.currentTime = 0; });
         inner.appendChild(vid);
@@ -279,6 +282,14 @@ export default function SelectFromGrid(container, props) {
           audio.controls = true;
           audio.addEventListener("pointerdown", (e) => e.stopPropagation());
           audio.addEventListener("click",       (e) => e.stopPropagation());
+          audio.addEventListener("error", () => {
+            card.replaceWith((() => {
+              const e = document.createElement("div");
+              e.className = "sfg-error-card";
+              e.appendChild(mkIcon("alert-circle", 28));
+              return e;
+            })());
+          });
           card.appendChild(audio);
         }
         inner.appendChild(card);
@@ -550,7 +561,7 @@ export default function SelectFromGrid(container, props) {
     }
     if (newLayout !== layout) {
       layout = newLayout;
-      squareBtn.classList.toggle("active",  layout === "grid");
+      gridBtn.classList.toggle("active",  layout === "grid");
       masonryBtn.classList.toggle("active", layout === "masonry");
       needsRender = true;
     }

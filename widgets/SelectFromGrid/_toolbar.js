@@ -4,7 +4,7 @@
 //   [Columns ──●── N]  [Grid] [Masonry]  · · ·  [N selected]  [Clear]
 //
 // createToolbar(opts) →
-//   { controls, colSlider, colVal, squareBtn, masonryBtn, countEl, clearBtn, setDisabled }
+//   { controls, colSlider, colVal, gridBtn, masonryBtn, countEl, clearBtn, setDisabled }
 
 export function createToolbar({ layout, columns, isDisabled, onColumnsChange, onColumnsCommit, onLayoutChange, onClear }) {
 
@@ -35,11 +35,11 @@ export function createToolbar({ layout, columns, isDisabled, onColumnsChange, on
   const layoutBtns = document.createElement("div");
   layoutBtns.className = "sfg-layout-btns";
 
-  const squareBtn = document.createElement("button");
-  squareBtn.type = "button";
-  squareBtn.className = "sfg-layout-btn" + (layout === "grid" ? " active" : "");
-  squareBtn.textContent = "Grid";
-  squareBtn.disabled = isDisabled;
+  const gridBtn = document.createElement("button");
+  gridBtn.type = "button";
+  gridBtn.className = "sfg-layout-btn" + (layout === "grid" ? " active" : "");
+  gridBtn.textContent = "Grid";
+  gridBtn.disabled = isDisabled;
 
   const masonryBtn = document.createElement("button");
   masonryBtn.type = "button";
@@ -47,7 +47,7 @@ export function createToolbar({ layout, columns, isDisabled, onColumnsChange, on
   masonryBtn.textContent = "Masonry";
   masonryBtn.disabled = isDisabled;
 
-  layoutBtns.appendChild(squareBtn);
+  layoutBtns.appendChild(gridBtn);
   layoutBtns.appendChild(masonryBtn);
 
   // ── Selection count + clear ────────────────────────────────────────────────
@@ -79,10 +79,10 @@ export function createToolbar({ layout, columns, isDisabled, onColumnsChange, on
     if (onColumnsCommit) onColumnsCommit(parseInt(colSlider.value, 10));
   });
 
-  squareBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
-  squareBtn.addEventListener("click", (e) => {
+  gridBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+  gridBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    squareBtn.classList.add("active");
+    gridBtn.classList.add("active");
     masonryBtn.classList.remove("active");
     onLayoutChange("grid");
   });
@@ -91,7 +91,7 @@ export function createToolbar({ layout, columns, isDisabled, onColumnsChange, on
   masonryBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     masonryBtn.classList.add("active");
-    squareBtn.classList.remove("active");
+    gridBtn.classList.remove("active");
     onLayoutChange("masonry");
   });
 
@@ -105,10 +105,10 @@ export function createToolbar({ layout, columns, isDisabled, onColumnsChange, on
 
   function setDisabled(disabled) {
     colSlider.disabled  = disabled;
-    squareBtn.disabled  = disabled;
+    gridBtn.disabled  = disabled;
     masonryBtn.disabled = disabled;
     clearBtn.disabled   = disabled;
   }
 
-  return { controls, colSlider, colVal, squareBtn, masonryBtn, countEl, clearBtn, setDisabled };
+  return { controls, colSlider, colVal, gridBtn, masonryBtn, countEl, clearBtn, setDisabled };
 }

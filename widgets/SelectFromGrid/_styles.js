@@ -210,6 +210,17 @@ export const STYLES = `
 
 .sfg-spinner { transition: opacity 0.2s ease; }
 
+/* ── Error card (failed media load) ──────────────────────────── */
+.sfg-error-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: var(--muted-foreground);
+  opacity: 0.35;
+}
+
 /* ── Audio card ───────────────────────────────────────────────── */
 .sfg-audio-card {
   display: flex;
