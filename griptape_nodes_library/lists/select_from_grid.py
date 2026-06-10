@@ -181,7 +181,7 @@ class SelectFromGrid(ControlNode):
 
         # Video artifacts
         if is_video_url_artifact(item):
-            url = self._resolve_url_string(item.value)
+            url = self._resolve_url_string(getattr(item, "value", ""))
             return {"type": "video", "url": url}
 
         # Audio artifacts
