@@ -25,6 +25,9 @@ _VIDEO_EXTENSIONS = frozenset({".mp4", ".webm", ".mov", ".avi", ".mkv"})
 _AUDIO_EXTENSIONS = frozenset({".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a"})
 
 _THUMBNAIL_MAX_DIM = 300
+# Thumbnails are resolved in chunks so the browser receives incremental updates
+# rather than waiting for all items to be processed in one silent blocking pass.
+_RESOLVE_CHUNK_SIZE = 100
 
 
 class SelectFromGrid(ControlNode):
@@ -116,12 +119,17 @@ class SelectFromGrid(ControlNode):
             {**base, "items": placeholder_items, "selected_indices": kept_indices},
         )
 
-        # Phase 2 — resolve each item's thumbnail/URL and push the completed list.
-        widget_items = [self._serialize_item(item) for item in list_values]
-        self.set_parameter_value(
-            self.grid_param.name,
-            {**base, "items": widget_items, "selected_indices": kept_indices},
-        )
+        # Phase 2 — resolve thumbnails in chunks and push after each chunk so the
+        # browser receives incremental updates instead of waiting for all items.
+        widget_items = list(placeholder_items)
+        for chunk_start in range(0, len(list_values), _RESOLVE_CHUNK_SIZE):
+            chunk_end = min(chunk_start + _RESOLVE_CHUNK_SIZE, len(list_values))
+            for i in range(chunk_start, chunk_end):
+                widget_items[i] = self._serialize_item(list_values[i])
+            self.set_parameter_value(
+                self.grid_param.name,
+                {**base, "items": list(widget_items), "selected_indices": kept_indices},
+            )
 
     def _update_output_from_grid(self, grid_value: Any) -> None:
         """Update the output parameter when the user changes the selection in the widget."""
