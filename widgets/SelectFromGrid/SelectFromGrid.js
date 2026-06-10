@@ -133,6 +133,14 @@ export default function SelectFromGrid(container, props) {
   const gridRO = new ResizeObserver(() => { if (layout !== "masonry") updateGridRows(); });
   gridRO.observe(grid);
 
+  // Lazy-hydrate media cells as they scroll into view
+  const cellObserver = new IntersectionObserver(
+    (entries) => entries.forEach(({ isIntersecting, target }) => {
+      if (isIntersecting) hydrateCell(target);
+    }),
+    { root: grid, rootMargin: "300px 0px", threshold: 0 }
+  );
+
   function mkSpinner() {
     const s = document.createElement("div");
     s.className = "sfg-spinner";
@@ -146,103 +154,40 @@ export default function SelectFromGrid(container, props) {
     inner.className = "sfg-cell-inner";
 
     if (skeleton) {
-      // During column-slider drag: hued placeholder only — no media loading.
       inner.style.background = `hsla(${CARD_HUES[idx % CARD_HUES.length]}, 22%, 50%, 0.09)`;
-      if (layout === "masonry") {
-        inner.style.minHeight = CARD_HEIGHTS[idx % CARD_HEIGHTS.length] + "px";
-      }
-      // Grid cells get their height from grid-auto-rows; no extra class needed.
+      if (layout === "masonry") inner.style.minHeight = CARD_HEIGHTS[idx % CARD_HEIGHTS.length] + "px";
       cell.appendChild(inner);
       return;
     }
 
-    switch (item.type) {
-      case "image": {
-        inner.classList.add("sfg-loading");
-        const spinner = mkSpinner();
-        inner.appendChild(spinner);
-        if (item.url) {
-          const img = document.createElement("img");
-          img.src      = item.url;
-          img.alt      = item.label || "";
-          img.loading  = "lazy";
-          img.decoding = "async";
-          const fadeIn = () => {
-            inner.classList.remove("sfg-loading");
-            img.classList.add("sfg-loaded");
-            spinner.style.opacity = "0";
-            spinner.addEventListener("transitionend", () => spinner.remove(), { once: true });
-          };
-          img.addEventListener("load",  fadeIn);
-          img.addEventListener("error", () => { inner.classList.remove("sfg-loading"); spinner.remove(); });
-          inner.appendChild(img);
-        }
-        break;
-      }
-      case "video": {
-        inner.classList.add("sfg-loading");
-        const spinner = mkSpinner();
-        inner.appendChild(spinner);
-        if (item.url) {
-          const vid = document.createElement("video");
-          vid.src         = item.url;
-          vid.muted       = true;
-          vid.loop        = true;
-          vid.playsInline = true;
-          vid.preload     = "metadata";
-          vid.addEventListener("loadedmetadata", () => {
-            inner.classList.remove("sfg-loading");
-            vid.currentTime = 0.001;
-            vid.classList.add("sfg-loaded");
-            spinner.style.opacity = "0";
-            spinner.addEventListener("transitionend", () => spinner.remove(), { once: true });
-          });
-          vid.addEventListener("error", () => { inner.classList.remove("sfg-loading"); spinner.remove(); });
-          cell.addEventListener("mouseenter", () => void vid.play().catch(() => {}));
-          cell.addEventListener("mouseleave", () => { vid.pause(); vid.currentTime = 0; });
-          inner.appendChild(vid);
-        }
-        break;
-      }
-      case "audio": {
-        const card = document.createElement("div");
-        card.className = "sfg-audio-card";
-        card.appendChild(mkIcon("music", 28));
-        if (item.url) {
-          const audio = document.createElement("audio");
-          audio.src      = item.url;
-          audio.controls = true;
-          audio.addEventListener("pointerdown", (e) => e.stopPropagation());
-          audio.addEventListener("click",       (e) => e.stopPropagation());
-          card.appendChild(audio);
-        }
-        inner.appendChild(card);
-        break;
-      }
-      case "dict": {
-        const dictEl = document.createElement("div");
-        dictEl.className   = "sfg-dict-card";
-        dictEl.textContent = item.value || "{}";
-        inner.appendChild(dictEl);
-        break;
-      }
-      default: {
-        const displayText = item.value !== undefined ? String(item.value) : (item.label || "");
+    const isMedia = item.type === "image" || item.type === "video" || item.type === "audio";
 
-        const hue  = CARD_HUES[idx % CARD_HUES.length];
-        const card = document.createElement("div");
-        card.className        = "sfg-quote-card";
-        card.style.background = `hsla(${hue}, 22%, 50%, 0.09)`;
-        if (layout === "masonry") {
-          card.style.minHeight = CARD_HEIGHTS[idx % CARD_HEIGHTS.length] + "px";
+    if (isMedia) {
+      // Spinner placeholder only — media element created lazily by cellObserver
+      inner.classList.add("sfg-loading");
+      inner.appendChild(mkSpinner());
+    } else {
+      switch (item.type) {
+        case "dict": {
+          const dictEl = document.createElement("div");
+          dictEl.className   = "sfg-dict-card";
+          dictEl.textContent = item.value || "{}";
+          inner.appendChild(dictEl);
+          break;
         }
-
-        const textEl = document.createElement("div");
-        textEl.className   = "sfg-quote-text";
-        textEl.textContent = displayText;
-        card.appendChild(textEl);
-        inner.appendChild(card);
-        break;
+        default: {
+          const hue  = CARD_HUES[idx % CARD_HUES.length];
+          const card = document.createElement("div");
+          card.className        = "sfg-quote-card";
+          card.style.background = `hsla(${hue}, 22%, 50%, 0.09)`;
+          if (layout === "masonry") card.style.minHeight = CARD_HEIGHTS[idx % CARD_HEIGHTS.length] + "px";
+          const textEl = document.createElement("div");
+          textEl.className   = "sfg-quote-text";
+          textEl.textContent = item.value !== undefined ? String(item.value) : (item.label || "");
+          card.appendChild(textEl);
+          inner.appendChild(card);
+          break;
+        }
       }
     }
 
@@ -253,6 +198,92 @@ export default function SelectFromGrid(container, props) {
       lbl.className   = "sfg-item-label";
       lbl.textContent = item.label;
       cell.appendChild(lbl);
+    }
+
+    if (isMedia) cellObserver.observe(cell);
+  }
+
+  function hydrateCell(cell) {
+    if (cell.dataset.hydrated === "true") return;
+
+    const idx  = parseInt(cell.dataset.idx, 10);
+    const item = items[idx];
+    if (!item) return;
+
+    // If the URL hasn't arrived yet (phase-1 placeholder), wait — phase 2 will
+    // trigger a full renderGrid() which rebuilds the cell with the real URL.
+    if ((item.type === "image" || item.type === "video") && !item.url) return;
+
+    cell.dataset.hydrated = "true";
+    cellObserver.unobserve(cell);
+
+    const inner   = cell.querySelector(".sfg-cell-inner");
+    if (!inner) return;
+    const spinner = inner.querySelector(".sfg-spinner");
+
+    const fadeOutSpinner = () => {
+      if (!spinner) return;
+      spinner.style.opacity = "0";
+      spinner.addEventListener("transitionend", () => spinner.remove(), { once: true });
+    };
+
+    switch (item.type) {
+      case "image": {
+        const img    = document.createElement("img");
+        img.src      = item.url;
+        img.alt      = item.label || "";
+        img.decoding = "async";
+        img.addEventListener("load", () => {
+          inner.classList.remove("sfg-loading");
+          img.classList.add("sfg-loaded");
+          fadeOutSpinner();
+        });
+        img.addEventListener("error", () => {
+          inner.classList.remove("sfg-loading");
+          if (spinner) spinner.remove();
+        });
+        inner.appendChild(img);
+        break;
+      }
+      case "video": {
+        const vid       = document.createElement("video");
+        vid.src         = item.url;
+        vid.muted       = true;
+        vid.loop        = true;
+        vid.playsInline = true;
+        vid.preload     = "metadata";
+        vid.addEventListener("loadedmetadata", () => {
+          inner.classList.remove("sfg-loading");
+          vid.currentTime = 0.001;
+          vid.classList.add("sfg-loaded");
+          fadeOutSpinner();
+        });
+        vid.addEventListener("error", () => {
+          inner.classList.remove("sfg-loading");
+          if (spinner) spinner.remove();
+        });
+        cell.addEventListener("mouseenter", () => void vid.play().catch(() => {}));
+        cell.addEventListener("mouseleave", () => { vid.pause(); vid.currentTime = 0; });
+        inner.appendChild(vid);
+        break;
+      }
+      case "audio": {
+        inner.classList.remove("sfg-loading");
+        if (spinner) spinner.remove();
+        const card = document.createElement("div");
+        card.className = "sfg-audio-card";
+        card.appendChild(mkIcon("music", 28));
+        if (item.url) {
+          const audio    = document.createElement("audio");
+          audio.src      = item.url;
+          audio.controls = true;
+          audio.addEventListener("pointerdown", (e) => e.stopPropagation());
+          audio.addEventListener("click",       (e) => e.stopPropagation());
+          card.appendChild(audio);
+        }
+        inner.appendChild(card);
+        break;
+      }
     }
   }
 
@@ -347,13 +378,37 @@ export default function SelectFromGrid(container, props) {
     return null;
   }
 
+  // Convert a viewport point to the grid's local (pre-transform) coordinate space.
+  // When React Flow zooms the canvas it applies a CSS scale to an ancestor; all
+  // getBoundingClientRect values are in post-scale screen pixels, but CSS position
+  // values (left/top) and scrollLeft/scrollTop are in pre-scale local pixels.
+  function clientToLocal(clientX, clientY) {
+    const gr    = grid.getBoundingClientRect();
+    const scale = gr.width > 0 ? gr.width / grid.offsetWidth : 1;
+    return {
+      x: (clientX - gr.left) / scale + grid.scrollLeft,
+      y: (clientY - gr.top)  / scale + grid.scrollTop,
+    };
+  }
+
+  // Return a cell's rect in the same local coordinate space as clientToLocal.
+  function cellLocalRect(cell) {
+    const cr    = cell.getBoundingClientRect();
+    const gr    = grid.getBoundingClientRect();
+    const scale = gr.width > 0 ? gr.width / grid.offsetWidth : 1;
+    return {
+      left:   (cr.left - gr.left) / scale + grid.scrollLeft,
+      top:    (cr.top  - gr.top)  / scale + grid.scrollTop,
+      width:  cr.width  / scale,
+      height: cr.height / scale,
+    };
+  }
+
   grid.addEventListener("pointerdown", (e) => {
     if (isDisabled || e.button !== 0) return;
     e.stopPropagation();
 
-    const gridRect = grid.getBoundingClientRect();
-    const startX   = e.clientX - gridRect.left + grid.scrollLeft;
-    const startY   = e.clientY - gridRect.top  + grid.scrollTop;
+    const { x: startX, y: startY } = clientToLocal(e.clientX, e.clientY);
 
     // Lasso is only created in multi-select mode
     let lasso = null;
@@ -370,11 +425,9 @@ export default function SelectFromGrid(container, props) {
 
   grid.addEventListener("pointermove", (e) => {
     if (!dragState) return;
-    const gridRect = grid.getBoundingClientRect();
-    const curX = e.clientX - gridRect.left + grid.scrollLeft;
-    const curY = e.clientY - gridRect.top  + grid.scrollTop;
-    const dx   = curX - dragState.startX;
-    const dy   = curY - dragState.startY;
+    const { x: curX, y: curY } = clientToLocal(e.clientX, e.clientY);
+    const dx = curX - dragState.startX;
+    const dy = curY - dragState.startY;
 
     if (!dragState.dragging && Math.hypot(dx, dy) > DRAG_THRESHOLD) dragState.dragging = true;
 
@@ -392,12 +445,9 @@ export default function SelectFromGrid(container, props) {
       });
 
       grid.querySelectorAll(".sfg-cell").forEach((cell) => {
-        const r     = cell.getBoundingClientRect();
-        const gRect = grid.getBoundingClientRect();
-        const cLeft = r.left - gRect.left + grid.scrollLeft;
-        const cTop  = r.top  - gRect.top  + grid.scrollTop;
-        const overlaps = cLeft < selRight  && (cLeft + r.width)  > selLeft &&
-                         cTop  < selBottom && (cTop  + r.height) > selTop;
+        const { left: cLeft, top: cTop, width: cW, height: cH } = cellLocalRect(cell);
+        const overlaps = cLeft < selRight  && (cLeft + cW) > selLeft &&
+                         cTop  < selBottom && (cTop  + cH) > selTop;
         const idx = parseInt(cell.dataset.idx, 10);
         cell.classList.toggle("pending", overlaps && !selectedIndices.includes(idx));
       });
@@ -411,9 +461,7 @@ export default function SelectFromGrid(container, props) {
 
     if (dragState.dragging && dragState.lasso) {
       // Multi-select lasso: add all cells in the rect to the selection
-      const gridRect  = grid.getBoundingClientRect();
-      const curX      = e.clientX - gridRect.left + grid.scrollLeft;
-      const curY      = e.clientY - gridRect.top  + grid.scrollTop;
+      const { x: curX, y: curY } = clientToLocal(e.clientX, e.clientY);
       const selLeft   = Math.min(dragState.startX, curX);
       const selTop    = Math.min(dragState.startY, curY);
       const selRight  = Math.max(dragState.startX, curX);
@@ -421,12 +469,9 @@ export default function SelectFromGrid(container, props) {
 
       let changed = false;
       grid.querySelectorAll(".sfg-cell").forEach((cell) => {
-        const r      = cell.getBoundingClientRect();
-        const gRect2 = grid.getBoundingClientRect();
-        const cLeft  = r.left - gRect2.left + grid.scrollLeft;
-        const cTop   = r.top  - gRect2.top  + grid.scrollTop;
-        if (cLeft < selRight && (cLeft + r.width) > selLeft &&
-            cTop  < selBottom && (cTop  + r.height) > selTop) {
+        const { left: cLeft, top: cTop, width: cW, height: cH } = cellLocalRect(cell);
+        if (cLeft < selRight && (cLeft + cW) > selLeft &&
+            cTop  < selBottom && (cTop  + cH) > selTop) {
           const idx = parseInt(cell.dataset.idx, 10);
           if (!isNaN(idx) && !selectedIndices.includes(idx)) {
             selectedIndices = [...selectedIndices, idx];
@@ -525,6 +570,7 @@ export default function SelectFromGrid(container, props) {
   // ── Cleanup ───────────────────────────────────────────────────────────────
   function cleanup() {
     gridRO.disconnect();
+    cellObserver.disconnect();
     wrapper.remove();
     delete container._sfgInst;
   }
