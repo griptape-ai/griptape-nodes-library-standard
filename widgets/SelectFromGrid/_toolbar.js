@@ -1,12 +1,12 @@
 // _toolbar.js — Controls bar for the SelectFromGrid widget.
 //
 // Layout:
-//   [Columns ──●── N]  [Square] [Masonry]  · · ·  [N selected]  [Clear]
+//   [Columns ──●── N]  [Grid] [Masonry]  · · ·  [N selected]  [Clear]
 //
 // createToolbar(opts) →
 //   { controls, colSlider, colVal, squareBtn, masonryBtn, countEl, clearBtn, setDisabled }
 
-export function createToolbar({ layout, columns, isDisabled, onColumnsChange, onLayoutChange, onClear }) {
+export function createToolbar({ layout, columns, isDisabled, onColumnsChange, onColumnsCommit, onLayoutChange, onClear }) {
 
   const controls = document.createElement("div");
   controls.className = "sfg-controls";
@@ -37,8 +37,8 @@ export function createToolbar({ layout, columns, isDisabled, onColumnsChange, on
 
   const squareBtn = document.createElement("button");
   squareBtn.type = "button";
-  squareBtn.className = "sfg-layout-btn" + (layout === "square" ? " active" : "");
-  squareBtn.textContent = "Square";
+  squareBtn.className = "sfg-layout-btn" + (layout === "grid" ? " active" : "");
+  squareBtn.textContent = "Grid";
   squareBtn.disabled = isDisabled;
 
   const masonryBtn = document.createElement("button");
@@ -75,13 +75,16 @@ export function createToolbar({ layout, columns, isDisabled, onColumnsChange, on
     colVal.textContent = colSlider.value;
     onColumnsChange(parseInt(colSlider.value, 10));
   });
+  colSlider.addEventListener("change", () => {
+    if (onColumnsCommit) onColumnsCommit(parseInt(colSlider.value, 10));
+  });
 
   squareBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
   squareBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     squareBtn.classList.add("active");
     masonryBtn.classList.remove("active");
-    onLayoutChange("square");
+    onLayoutChange("grid");
   });
 
   masonryBtn.addEventListener("pointerdown", (e) => e.stopPropagation());

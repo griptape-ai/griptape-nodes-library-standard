@@ -1,4 +1,4 @@
-import { ACCENT, ACCENT_RGB, CARD_HUES, CARD_HEIGHTS, injectStyles } from './_styles.js';
+import { CARD_HUES, CARD_HEIGHTS, injectStyles } from './_styles.js';
 import { mkIcon } from './_icons.js';
 import { createToolbar } from './_toolbar.js';
 
@@ -13,7 +13,7 @@ import { createToolbar } from './_toolbar.js';
 //   items            array   Serialised list items (set by the Python node).
 //   selected_indices array   Zero-based indices of currently selected items.
 //   columns          number  Number of columns (1–8). User-adjustable via slider.
-//   layout           string  "square" | "masonry". User-adjustable via toggle.
+//   layout           string  "grid" | "masonry". User-adjustable via toggle.
 //   settings         object  Node-author configuration — not shown to the user.
 //
 // SETTINGS (set once in the Python node, preserved across list updates)
@@ -58,7 +58,7 @@ export default function SelectFromGrid(container, props) {
   let items           = latestValue.items           || [];
   let selectedIndices = latestValue.selected_indices || [];
   let columns         = latestValue.columns          || 3;
-  let layout          = latestValue.layout           || "square";
+  let layout          = latestValue.layout           || "grid";
   let multiSelect     = (latestValue.settings?.multi_select) !== false;
 
   // ── DOM: wrapper ──────────────────────────────────────────────────────────
@@ -69,8 +69,9 @@ export default function SelectFromGrid(container, props) {
   const { controls, colSlider, colVal, squareBtn, masonryBtn, countEl, clearBtn, setDisabled } =
     createToolbar({
       layout, columns, isDisabled,
-      onColumnsChange(n) { columns = n; renderGrid(); emitChange(); },
-      onLayoutChange(l)  { layout  = l; renderGrid(); emitChange(); },
+      onColumnsChange(n) { columns = n; renderGrid(/* skeleton */ true); },
+      onColumnsCommit(n) { columns = n; animateGridChange(); emitChange(); },
+      onLayoutChange(l)  { layout = l; animateGridChange(); emitChange(); },
       onClear()          {
         if (selectedIndices.length === 0) return;
         selectedIndices = [];
@@ -107,11 +108,30 @@ export default function SelectFromGrid(container, props) {
     clearBtn.classList.toggle("active", has);
   }
 
+  function updateGridRows() {
+    // Set grid-auto-rows to the pixel column width so cells are always 1:1.
+    // CSS aspect-ratio on grid items is unreliable for row-track sizing cross-browser.
+    const gap = 5;
+    const w   = grid.clientWidth;
+    const rowH = (w - (columns - 1) * gap) / columns;
+    grid.style.gridAutoRows = rowH > 0 ? `${rowH}px` : "";
+  }
+
   function applyGridLayout() {
     const isMasonry = layout === "masonry";
     grid.classList.toggle("layout-masonry", isMasonry);
-    grid.style.gridTemplateColumns = isMasonry ? "" : `repeat(${columns}, 1fr)`;
+    if (isMasonry) {
+      grid.style.gridTemplateColumns = "";
+      grid.style.gridAutoRows = "";
+    } else {
+      grid.style.gridTemplateColumns = `repeat(${columns}, 1fr)`;
+      updateGridRows();
+    }
   }
+
+  // Keep grid rows square when the node is resized
+  const gridRO = new ResizeObserver(() => { if (layout !== "masonry") updateGridRows(); });
+  gridRO.observe(grid);
 
   function mkSpinner() {
     const s = document.createElement("div");
@@ -120,10 +140,21 @@ export default function SelectFromGrid(container, props) {
     return s;
   }
 
-  function buildCellContent(cell, item, idx) {
+  function buildCellContent(cell, item, idx, skeleton = false) {
     cell.dataset.idx = idx;
     const inner = document.createElement("div");
     inner.className = "sfg-cell-inner";
+
+    if (skeleton) {
+      // During column-slider drag: hued placeholder only — no media loading.
+      inner.style.background = `hsla(${CARD_HUES[idx % CARD_HUES.length]}, 22%, 50%, 0.09)`;
+      if (layout === "masonry") {
+        inner.style.minHeight = CARD_HEIGHTS[idx % CARD_HEIGHTS.length] + "px";
+      }
+      // Grid cells get their height from grid-auto-rows; no extra class needed.
+      cell.appendChild(inner);
+      return;
+    }
 
     switch (item.type) {
       case "image": {
@@ -225,7 +256,45 @@ export default function SelectFromGrid(container, props) {
     }
   }
 
-  function renderGrid() {
+  function animateGridChange() {
+    const cells = [...grid.querySelectorAll(".sfg-cell")];
+    const EXIT_MS = 110;
+
+    // Phase 1 — scale + fade existing cells out with a short stagger
+    cells.forEach((cell, i) => {
+      const delay = Math.min(i * 6, 40);
+      cell.style.transition =
+        `opacity ${EXIT_MS}ms ease ${delay}ms, transform ${EXIT_MS}ms ease ${delay}ms`;
+      cell.style.opacity   = "0";
+      cell.style.transform = "scale(0.82)";
+    });
+
+    setTimeout(() => {
+      renderGrid();
+
+      // Phase 3 — start new cells invisible/shrunk, then animate in with stagger
+      const entering = [...grid.querySelectorAll(".sfg-cell")];
+      entering.forEach((cell) => {
+        cell.style.transition = "none";
+        cell.style.opacity    = "0";
+        cell.style.transform  = "scale(0.88)";
+      });
+
+      // Two rAF passes ensure the browser has committed the hidden state
+      // before we start the entering transition.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        entering.forEach((cell, i) => {
+          const delay = Math.min(i * 12, 90);
+          cell.style.transition =
+            `opacity 0.2s ease ${delay}ms, transform 0.22s cubic-bezier(0.34,1.56,0.64,1) ${delay}ms`;
+          cell.style.opacity   = "";
+          cell.style.transform = "";
+        });
+      }));
+    }, EXIT_MS + Math.min(cells.length * 6, 40) + 20);
+  }
+
+  function renderGrid(skeleton = false) {
     grid.innerHTML = "";
     applyGridLayout();
 
@@ -248,14 +317,14 @@ export default function SelectFromGrid(container, props) {
       items.forEach((item, idx) => {
         const cell = document.createElement("div");
         cell.className = "sfg-cell" + (selectedIndices.includes(idx) ? " selected" : "");
-        buildCellContent(cell, item, idx);
+        buildCellContent(cell, item, idx, skeleton);
         cols[idx % columns].appendChild(cell);
       });
     } else {
       items.forEach((item, idx) => {
         const cell = document.createElement("div");
         cell.className = "sfg-cell" + (selectedIndices.includes(idx) ? " selected" : "");
-        buildCellContent(cell, item, idx);
+        buildCellContent(cell, item, idx, skeleton);
         grid.appendChild(cell);
       });
     }
@@ -415,7 +484,7 @@ export default function SelectFromGrid(container, props) {
     const newItems      = newVal.items             || [];
     const newSelected   = newVal.selected_indices   || [];
     const newColumns    = newVal.columns            || 3;
-    const newLayout     = newVal.layout             || "square";
+    const newLayout     = newVal.layout             || "grid";
     const newMultiSelect = (newVal.settings?.multi_select) !== false;
 
     let needsRender = false;
@@ -436,7 +505,7 @@ export default function SelectFromGrid(container, props) {
     }
     if (newLayout !== layout) {
       layout = newLayout;
-      squareBtn.classList.toggle("active",  layout === "square");
+      squareBtn.classList.toggle("active",  layout === "grid");
       masonryBtn.classList.toggle("active", layout === "masonry");
       needsRender = true;
     }
@@ -455,6 +524,7 @@ export default function SelectFromGrid(container, props) {
 
   // ── Cleanup ───────────────────────────────────────────────────────────────
   function cleanup() {
+    gridRO.disconnect();
     wrapper.remove();
     delete container._sfgInst;
   }

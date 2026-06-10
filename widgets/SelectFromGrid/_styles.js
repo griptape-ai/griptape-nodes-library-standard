@@ -1,13 +1,20 @@
 export const WIDGET_VERSION = "1.1.0";
 
-export const ACCENT     = "#7a9db8";
-export const ACCENT_RGB = "122,157,184";
-
 // Hue palette + masonry heights for text/quote cards — cycled by item index
 export const CARD_HUES    = [202, 162, 267, 322, 42, 82, 132, 232];
 export const CARD_HEIGHTS = [95, 125, 105, 145, 85, 130, 115, 155];
 
 export const STYLES = `
+/* ── Theme-aware accent colour ────────────────────────────────── */
+:root {
+  --sfg-accent: #2563eb;
+  --sfg-accent-rgb: 37, 99, 235;
+}
+.dark {
+  --sfg-accent: #7a9db8;
+  --sfg-accent-rgb: 122, 157, 184;
+}
+
 .sfg-widget {
   display: flex;
   flex-direction: column;
@@ -40,7 +47,7 @@ export const STYLES = `
 
 .sfg-slider {
   width: 80px;
-  accent-color: ${ACCENT};
+  accent-color: var(--sfg-accent);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -60,8 +67,8 @@ export const STYLES = `
 }
 .sfg-layout-btn:hover { background: var(--muted); color: var(--foreground); }
 .sfg-layout-btn.active {
-  background: rgba(${ACCENT_RGB},0.2);
-  border-color: ${ACCENT};
+  background: rgba(var(--sfg-accent-rgb), 0.2);
+  border-color: var(--sfg-accent);
   color: var(--foreground);
 }
 .sfg-layout-btn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -82,7 +89,7 @@ export const STYLES = `
   flex-shrink: 0;
 }
 .sfg-clear-btn:hover { background: var(--muted); color: var(--foreground); }
-.sfg-clear-btn.active { color: var(--foreground); border-color: rgba(${ACCENT_RGB},0.5); }
+.sfg-clear-btn.active { color: var(--foreground); border-color: rgba(var(--sfg-accent-rgb), 0.5); }
 .sfg-clear-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── Grid layouts ─────────────────────────────────────────────── */
@@ -97,6 +104,7 @@ export const STYLES = `
   overflow-x: hidden;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
+  align-content: start;
 }
 .sfg-grid::-webkit-scrollbar { width: 6px; }
 .sfg-grid::-webkit-scrollbar-track { background: transparent; }
@@ -118,7 +126,7 @@ export const STYLES = `
   pointer-events: none;
 }
 .sfg-spinner svg {
-  color: ${ACCENT};
+  color: var(--sfg-accent);
   opacity: 0.7;
   animation: sfg-spin 0.9s linear infinite;
 }
@@ -126,8 +134,8 @@ export const STYLES = `
 /* ── Lasso / box-select rect ──────────────────────────────────── */
 .sfg-lasso {
   position: absolute;
-  border: 1.5px dashed ${ACCENT};
-  background: rgba(${ACCENT_RGB},0.10);
+  border: 1.5px dashed var(--sfg-accent);
+  background: rgba(var(--sfg-accent-rgb), 0.10);
   border-radius: 3px;
   pointer-events: none;
   z-index: 10;
@@ -144,9 +152,9 @@ export const STYLES = `
   transition: border-color 0.12s;
   box-sizing: border-box;
 }
-.sfg-cell:hover  { border-color: rgba(${ACCENT_RGB},0.45); }
-.sfg-cell.pending  { border-color: rgba(${ACCENT_RGB},0.7); background: rgba(${ACCENT_RGB},0.08); }
-.sfg-cell.selected { border-color: ${ACCENT}; }
+.sfg-cell:hover   { border-color: rgba(var(--sfg-accent-rgb), 0.45); }
+.sfg-cell.pending { border-color: rgba(var(--sfg-accent-rgb), 0.7); background: rgba(var(--sfg-accent-rgb), 0.08); }
+.sfg-cell.selected { border-color: var(--sfg-accent); }
 
 /* Checkmark badge */
 .sfg-cell.selected::after {
@@ -155,24 +163,28 @@ export const STYLES = `
   top: 4px; right: 4px;
   width: 18px; height: 18px;
   border-radius: 50%;
-  background: ${ACCENT}
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='white'%3E%3Cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3E%3C/svg%3E")
-    no-repeat center / 11px;
+  background-color: var(--sfg-accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='white'%3E%3Cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 11px;
   z-index: 3;
   pointer-events: none;
 }
 
-/* ── Square inner frame ───────────────────────────────────────── */
+/* ── Grid inner frame ─────────────────────────────────────────── */
 .sfg-cell-inner {
   width: 100%;
-  aspect-ratio: 1 / 1;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   background: #111;
 }
-.layout-masonry .sfg-cell-inner { aspect-ratio: unset; }
+
+/* Grid mode: grid-auto-rows (set via JS ResizeObserver) makes rows = column width.
+   The inner fills the measured square cell completely. */
+.sfg-grid:not(.layout-masonry) .sfg-cell-inner { height: 100%; }
 
 /* Placeholder shape for masonry cells while their media is loading.
    Keeps the cell from collapsing to 0 so the spinner is visible and
@@ -181,20 +193,20 @@ export const STYLES = `
 
 /* ── Media elements ───────────────────────────────────────────── */
 .sfg-cell img {
-  width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none;
+  width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none;
   opacity: 0;
   transition: opacity 0.25s ease;
 }
 .sfg-cell img.sfg-loaded { opacity: 1; }
-.layout-masonry .sfg-cell img { height: auto; }
+.layout-masonry .sfg-cell img { height: auto; object-fit: cover; }
 
 .sfg-cell video {
-  width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none;
+  width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none;
   opacity: 0;
   transition: opacity 0.25s ease;
 }
 .sfg-cell video.sfg-loaded { opacity: 1; }
-.layout-masonry .sfg-cell video { height: auto; }
+.layout-masonry .sfg-cell video { height: auto; object-fit: cover; }
 
 .sfg-spinner { transition: opacity 0.2s ease; }
 
@@ -211,7 +223,7 @@ export const STYLES = `
   background: rgba(0,0,0,0.3);
   color: var(--muted-foreground);
 }
-.sfg-audio-card audio { width: 100%; height: 28px; accent-color: ${ACCENT}; }
+.sfg-audio-card audio { width: 100%; height: 28px; accent-color: var(--sfg-accent); }
 
 /* ── Quote card (text items) ──────────────────────────────────── */
 .sfg-quote-card {

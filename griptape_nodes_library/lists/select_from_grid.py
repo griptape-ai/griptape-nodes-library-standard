@@ -52,7 +52,7 @@ class SelectFromGrid(ControlNode):
                 "items": [],
                 "selected_indices": [],
                 "columns": 3,
-                "layout": "square",
+                "layout": "masonry",
                 "settings": {"multi_select": True},
             },
             tooltip="Interactive grid selector — click items to select them.",
@@ -90,7 +90,7 @@ class SelectFromGrid(ControlNode):
 
         base: dict = {
             "columns": current.get("columns", 3),
-            "layout": current.get("layout", "square"),
+            "layout": current.get("layout", "grid"),
             "settings": current.get("settings", {"multi_select": True}),
         }
 
@@ -238,9 +238,7 @@ class SelectFromGrid(ControlNode):
         if isinstance(artifact, ImageArtifact):
             try:
                 thumb, ext = self._make_thumbnail(artifact.value)
-                return GriptapeNodes.StaticFilesManager().save_static_file(
-                    thumb, f"grid_thumb_{id(artifact)}.{ext}"
-                )
+                return GriptapeNodes.StaticFilesManager().save_static_file(thumb, f"grid_thumb_{id(artifact)}.{ext}")
             except Exception:
                 return ""
         # ImageUrlArtifact — value is a URL string (possibly macro://)
@@ -262,16 +260,12 @@ class SelectFromGrid(ControlNode):
 
             image_bytes = pathlib.Path(resolved).read_bytes()
             thumb, ext = self._make_thumbnail(image_bytes)
-            return GriptapeNodes.StaticFilesManager().save_static_file(
-                thumb, f"grid_thumb_{hash(resolved)}.{ext}"
-            )
+            return GriptapeNodes.StaticFilesManager().save_static_file(thumb, f"grid_thumb_{hash(resolved)}.{ext}")
         except Exception:
             pass
         # Fallback: resolve to a static download URL without thumbnailing
         try:
-            result = GriptapeNodes.handle_request(
-                CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved)
-            )
+            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved))
             if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
                 return result.url
         except Exception:
@@ -289,9 +283,7 @@ class SelectFromGrid(ControlNode):
         except Exception:
             resolved = path
         try:
-            result = GriptapeNodes.handle_request(
-                CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved)
-            )
+            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved))
             if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
                 return result.url
         except Exception:
