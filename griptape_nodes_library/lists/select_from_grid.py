@@ -48,7 +48,13 @@ class SelectFromGrid(ControlNode):
 
         self.grid_param = ParameterDict(
             name="grid",
-            default_value={"items": [], "selected_indices": [], "columns": 3, "layout": "square"},
+            default_value={
+                "items": [],
+                "selected_indices": [],
+                "columns": 3,
+                "layout": "square",
+                "settings": {"multi_select": True},
+            },
             tooltip="Interactive grid selector — click items to select them.",
             allowed_modes={ParameterMode.PROPERTY},
             traits={Widget(name="SelectFromGrid", library="Griptape Nodes Library")},
@@ -82,34 +88,38 @@ class SelectFromGrid(ControlNode):
         """Serialize the incoming list to widget-friendly items and push to the grid parameter."""
         current = self.get_parameter_value(self.grid_param.name) or {}
 
+        base: dict = {
+            "columns": current.get("columns", 3),
+            "layout": current.get("layout", "square"),
+            "settings": current.get("settings", {"multi_select": True}),
+        }
+
         if not isinstance(list_values, list):
             self.set_parameter_value(
                 self.grid_param.name,
-                {
-                    "columns": current.get("columns", 3),
-                    "layout": current.get("layout", "square"),
-                    "items": [],
-                    "selected_indices": [],
-                },
+                {**base, "items": [], "selected_indices": []},
             )
             return
-
-        widget_items = [self._serialize_item(item) for item in list_values]
 
         # Preserve the selection when the list length is unchanged (e.g. node re-run
         # with the same inputs). Reset only when items are added or removed, because
         # existing selected indices may no longer point to the right items.
         current_len = len(current.get("items", []))
-        kept_indices = current.get("selected_indices", []) if len(widget_items) == current_len else []
+        placeholder_items = [self._serialize_item_placeholder(item) for item in list_values]
+        kept_indices = current.get("selected_indices", []) if len(placeholder_items) == current_len else []
 
+        # Phase 1 — push placeholders immediately so the widget shows spinners
+        # while thumbnail generation is in progress.
         self.set_parameter_value(
             self.grid_param.name,
-            {
-                "columns": current.get("columns", 3),
-                "layout": current.get("layout", "square"),
-                "items": widget_items,
-                "selected_indices": kept_indices,
-            },
+            {**base, "items": placeholder_items, "selected_indices": kept_indices},
+        )
+
+        # Phase 2 — resolve each item's thumbnail/URL and push the completed list.
+        widget_items = [self._serialize_item(item) for item in list_values]
+        self.set_parameter_value(
+            self.grid_param.name,
+            {**base, "items": widget_items, "selected_indices": kept_indices},
         )
 
     def _update_output_from_grid(self, grid_value: Any) -> None:
@@ -121,6 +131,39 @@ class SelectFromGrid(ControlNode):
         selected = [list_values[i] for i in selected_indices if isinstance(i, int) and i < len(list_values)]
         self.parameter_output_values[self.selected_items.name] = selected
         self.publish_update_to_parameter(self.selected_items.name, selected)
+
+    def _serialize_item_placeholder(self, item: Any) -> dict[str, Any]:
+        """Return a lightweight placeholder for an item with no resolved URL.
+
+        The JS widget renders a loading spinner for any image/video item whose
+        url is absent, allowing the grid to appear immediately while Phase 2
+        resolves thumbnails.
+        """
+        if isinstance(item, dict) and "value" in item:
+            result = self._serialize_item_placeholder(item["value"])
+            if "label" in item:
+                result["label"] = str(item["label"])
+            return result
+        if isinstance(item, (ImageUrlArtifact, ImageArtifact)):
+            return {"type": "image", "url": ""}
+        if is_video_url_artifact(item):
+            return {"type": "video", "url": ""}
+        if is_audio_url_artifact(item) or isinstance(item, AudioArtifact):
+            return {"type": "audio", "url": ""}
+        if isinstance(item, str):
+            lower = item.lower()
+            dot = lower.rfind(".")
+            ext = lower[dot:] if dot != -1 else ""
+            if ext in _IMAGE_EXTENSIONS:
+                return {"type": "image", "url": ""}
+            if ext in _VIDEO_EXTENSIONS:
+                return {"type": "video", "url": ""}
+            if ext in _AUDIO_EXTENSIONS:
+                return {"type": "audio", "url": ""}
+            return {"type": "text", "value": item}
+        if isinstance(item, dict):
+            return {"type": "dict", "value": ""}
+        return {"type": "text", "value": str(item)}
 
     def _serialize_item(self, item: Any) -> dict[str, Any]:
         """Convert a Python item to a JSON-serializable dict for the grid widget."""
