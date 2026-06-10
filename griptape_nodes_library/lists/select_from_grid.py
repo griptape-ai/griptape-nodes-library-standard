@@ -19,6 +19,7 @@ from griptape_nodes.traits.widget import Widget
 from griptape_nodes_library.utils.audio_utils import is_audio_url_artifact
 from griptape_nodes_library.utils.video_utils import is_video_url_artifact
 
+# Used only when list items are plain strings — artifacts are detected by type, not extension.
 _IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"})
 _VIDEO_EXTENSIONS = frozenset({".mp4", ".webm", ".mov", ".avi", ".mkv"})
 _AUDIO_EXTENSIONS = frozenset({".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a"})
@@ -221,7 +222,7 @@ class SelectFromGrid(ControlNode):
 
             img = Image.open(io.BytesIO(image_bytes))
             if max(img.width, img.height) > _THUMBNAIL_MAX_DIM:
-                img.thumbnail((_THUMBNAIL_MAX_DIM, _THUMBNAIL_MAX_DIM), Image.LANCZOS)
+                img.thumbnail((_THUMBNAIL_MAX_DIM, _THUMBNAIL_MAX_DIM), Image.Resampling.LANCZOS)
             out = io.BytesIO()
             try:
                 img.save(out, format="WEBP", quality=75)
