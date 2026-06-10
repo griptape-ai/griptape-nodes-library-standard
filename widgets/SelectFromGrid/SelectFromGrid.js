@@ -70,6 +70,7 @@ const STYLES = `
   font-size: 10px;
   color: var(--muted-foreground);
 }
+.sfg-count.active { color: var(--foreground); }
 
 .sfg-clear-btn {
   padding: 2px 8px;
@@ -84,6 +85,7 @@ const STYLES = `
   flex-shrink: 0;
 }
 .sfg-clear-btn:hover { background: var(--muted); color: var(--foreground); }
+.sfg-clear-btn.active { color: var(--foreground); border-color: rgba(${ACCENT_RGB},0.5); }
 .sfg-clear-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── Grid layouts ─────────────────────────────────────────────── */
@@ -137,6 +139,7 @@ const STYLES = `
   box-sizing: border-box;
 }
 .sfg-cell:hover { border-color: rgba(${ACCENT_RGB},0.45); }
+.sfg-cell.pending { border-color: rgba(${ACCENT_RGB},0.7); background: rgba(${ACCENT_RGB},0.08); }
 .sfg-cell.selected { border-color: ${ACCENT}; }
 
 /* Checkmark badge on selected cells */
@@ -372,7 +375,10 @@ export default function SelectFromGrid(container, props) {
   }
 
   function updateCount() {
-    countEl.textContent = selectedIndices.length > 0 ? `${selectedIndices.length} selected` : "";
+    const has = selectedIndices.length > 0;
+    countEl.textContent = has ? `${selectedIndices.length} selected` : "";
+    countEl.classList.toggle("active", has);
+    clearBtn.classList.toggle("active", has);
   }
 
   function applyGridLayout() {
@@ -539,11 +545,28 @@ export default function SelectFromGrid(container, props) {
       dragState.dragging = true;
     }
     if (dragState.dragging) {
+      const selLeft = Math.min(dragState.startX, curX);
+      const selTop = Math.min(dragState.startY, curY);
+      const selRight = Math.max(dragState.startX, curX);
+      const selBottom = Math.max(dragState.startY, curY);
+
       Object.assign(dragState.lasso.style, {
-        left: Math.min(dragState.startX, curX) + "px",
-        top: Math.min(dragState.startY, curY) + "px",
+        left: selLeft + "px",
+        top: selTop + "px",
         width: Math.abs(dx) + "px",
         height: Math.abs(dy) + "px",
+      });
+
+      // Mark cells that the lasso covers (and aren't already selected) as pending
+      grid.querySelectorAll(".sfg-cell").forEach((cell) => {
+        const r = cell.getBoundingClientRect();
+        const gRect = grid.getBoundingClientRect();
+        const cLeft = r.left - gRect.left + grid.scrollLeft;
+        const cTop = r.top - gRect.top + grid.scrollTop;
+        const overlaps = cLeft < selRight && (cLeft + r.width) > selLeft &&
+                         cTop < selBottom && (cTop + r.height) > selTop;
+        const idx = parseInt(cell.dataset.idx, 10);
+        cell.classList.toggle("pending", overlaps && !selectedIndices.includes(idx));
       });
     }
   });
@@ -551,6 +574,7 @@ export default function SelectFromGrid(container, props) {
   grid.addEventListener("pointerup", (e) => {
     if (!dragState) return;
     dragState.lasso.remove();
+    grid.querySelectorAll(".sfg-cell.pending").forEach((c) => c.classList.remove("pending"));
 
     if (dragState.dragging) {
       const gridRect = grid.getBoundingClientRect();
@@ -597,7 +621,11 @@ export default function SelectFromGrid(container, props) {
   });
 
   grid.addEventListener("pointercancel", () => {
-    if (dragState) { dragState.lasso.remove(); dragState = null; }
+    if (dragState) {
+      dragState.lasso.remove();
+      grid.querySelectorAll(".sfg-cell.pending").forEach((c) => c.classList.remove("pending"));
+      dragState = null;
+    }
   });
 
   // ── Wire controls ─────────────────────────────────────────────────────────
@@ -605,7 +633,7 @@ export default function SelectFromGrid(container, props) {
   colSlider.addEventListener("input", () => {
     columns = parseInt(colSlider.value, 10);
     colVal.textContent = columns;
-    applyGridLayout();
+    renderGrid();
     emitChange();
   });
 

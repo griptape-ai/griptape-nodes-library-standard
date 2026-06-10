@@ -95,13 +95,20 @@ class SelectFromGrid(ControlNode):
             return
 
         widget_items = [self._serialize_item(item) for item in list_values]
+
+        # Preserve the selection when the list length is unchanged (e.g. node re-run
+        # with the same inputs). Reset only when items are added or removed, because
+        # existing selected indices may no longer point to the right items.
+        current_len = len(current.get("items", []))
+        kept_indices = current.get("selected_indices", []) if len(widget_items) == current_len else []
+
         self.set_parameter_value(
             self.grid_param.name,
             {
                 "columns": current.get("columns", 3),
                 "layout": current.get("layout", "square"),
                 "items": widget_items,
-                "selected_indices": [],
+                "selected_indices": kept_indices,
             },
         )
 
