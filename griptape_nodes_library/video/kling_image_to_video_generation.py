@@ -1032,9 +1032,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             supports_tail = capabilities.get("supports_tail_frame", False)
             if not supports_tail:
                 exceptions.append(
-                    ValueError(
-                        f"{self.name}: Model {model_name} does not support end frame (image_tail)."
-                    )
+                    ValueError(f"{self.name}: Model {model_name} does not support end frame (image_tail).")
                 )
 
             if supports_tail and mode != "pro":
