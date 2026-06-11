@@ -321,7 +321,7 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
             self._update_parameter_visibility_for_model(value)
             self._update_multi_shot_parameter_visibility()
             # Update duration choices inline (WAN pattern)
-            model_id = self.MODEL_NAME_MAP.get(value, value)
+            model_id = self.MODEL_NAME_MAP.get(str(value), str(value))
             capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
             new_durations = capabilities.get("durations", [5, 10])
             current_duration = self.get_parameter_value("duration")
