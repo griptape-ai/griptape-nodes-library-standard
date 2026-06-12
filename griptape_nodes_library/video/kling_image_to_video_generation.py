@@ -80,33 +80,43 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         "Kling v2.1 Master": "kling-v2-1-master",
         "Kling v2.1": "kling-v2-1",
         "Kling v2 Master": "kling-v2-master",
+        "Kling v1.6": "kling-v1-6",
         "Kling v1.5": "kling-v1-5",
         "Kling v1": "kling-v1",
     }
 
     # Model capability definitions
+    # modes: [] means no mode selection (model has a single fixed quality tier)
     MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
         "kling-v3": {
             "modes": V3_MODE_CHOICES,
-            "durations": [5, 10],
+            "durations": list(range(3, 16)),
             "supports_sound": False,
-            "supports_tail_frame": False,
+            "supports_tail_frame": True,
             "supports_multi_shot": True,
         },
         "kling-v1": {
             "modes": BASE_MODE_CHOICES,
-            "durations": [5],
-            "supports_sound": False,
-            "supports_tail_frame": False,
-        },
-        "kling-v1-5": {
-            "modes": [MODE_PRO],
             "durations": [5, 10],
             "supports_sound": False,
-            "supports_tail_frame": False,
+            "supports_tail_frame": True,
+            # tail frame only works at 5s — enforced in validation
+            "tail_frame_durations": [5],
+        },
+        "kling-v1-5": {
+            "modes": BASE_MODE_CHOICES,
+            "durations": [5, 10],
+            "supports_sound": False,
+            "supports_tail_frame": True,  # pro mode only — enforced by existing pro-mode validation
+        },
+        "kling-v1-6": {
+            "modes": BASE_MODE_CHOICES,
+            "durations": [5, 10],
+            "supports_sound": False,
+            "supports_tail_frame": True,  # pro mode only
         },
         "kling-v2-master": {
-            "modes": BASE_MODE_CHOICES,
+            "modes": [],
             "durations": [5, 10],
             "supports_sound": False,
             "supports_tail_frame": False,
@@ -115,25 +125,25 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             "modes": BASE_MODE_CHOICES,
             "durations": [5, 10],
             "supports_sound": False,
-            "supports_tail_frame": True,  # Only with pro mode
+            "supports_tail_frame": True,  # pro mode only
         },
         "kling-v2-1-master": {
-            "modes": BASE_MODE_CHOICES,
+            "modes": [],
             "durations": [5, 10],
             "supports_sound": False,
             "supports_tail_frame": False,
         },
         "kling-v2-5-turbo": {
-            "modes": [MODE_PRO],
+            "modes": BASE_MODE_CHOICES,
             "durations": [5, 10],
             "supports_sound": False,
-            "supports_tail_frame": True,  # Only with pro mode
+            "supports_tail_frame": True,  # pro mode only
         },
         "kling-v2-6": {
-            "modes": [MODE_PRO],
+            "modes": BASE_MODE_CHOICES,
             "durations": [5, 10],
             "supports_sound": True,
-            "supports_tail_frame": False,
+            "supports_tail_frame": True,  # pro mode only, no audio
         },
     }
 
@@ -156,6 +166,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                             "Kling v2.1 Master",
                             "Kling v2.1",
                             "Kling v2 Master",
+                            "Kling v1.6",
                             "Kling v1.5",
                             "Kling v1",
                         ]
@@ -261,7 +272,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             ParameterImage(
                 name="image_tail",
                 default_value=None,
-                tooltip="End frame image (optional). Supported on kling-v2-1 and kling-v2-5-turbo with pro mode.",
+                tooltip="End frame image (optional). Requires pro mode. See model capabilities for per-model support.",
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "End Frame"},
             )
@@ -285,9 +296,9 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             ParameterInt(
                 name="duration",
                 default_value=5,
-                tooltip="Video length in seconds",
+                tooltip="Video length in seconds. Range varies by model.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=[5, 10])},
+                traits={Options(choices=list(range(3, 16)))},
             )
             ParameterString(
                 name="sound",
@@ -372,19 +383,38 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         if parameter.name == "model_name":
             self._update_parameter_visibility_for_model(value)
             self._update_multi_shot_parameter_visibility()
+            self._update_duration_choices()
+        elif parameter.name == "image_tail":
+            self._update_duration_choices()
         elif parameter.name in {"multi_shot", "shot_type", "shot_count"}:
             self._update_multi_shot_parameter_visibility()
+        elif parameter.name == "mode":
+            self._update_mode_dependent_features()
+
+    def _update_duration_choices(self) -> None:
+        """Update duration dropdown based on current model and image_tail state."""
+        model_name = self.get_parameter_value("model_name") or "Kling v3.0"
+        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
+        new_durations = list(capabilities.get("durations", [5, 10]))
+        # kling-v1: end frame restricts to 5s only
+        if self.get_parameter_value("image_tail") and capabilities.get("tail_frame_durations"):
+            new_durations = list(capabilities["tail_frame_durations"])
+        current_duration = self.get_parameter_value("duration")
+        if current_duration in new_durations:
+            self._update_option_choices("duration", new_durations, current_duration)  # type: ignore[arg-type]
+        else:
+            self._update_option_choices("duration", new_durations, new_durations[0])  # type: ignore[arg-type]
 
     def _update_parameter_visibility_for_model(self, model_name: str) -> None:
         """Update parameter visibility based on selected model."""
-        # Map user-facing name to model ID
         model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
 
         # Show mask features for all models
         self.show_parameter_by_name(["static_mask", "dynamic_masks"])
 
         # Show/hide image_tail (end frame) based on model support
-        capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
         if capabilities.get("supports_tail_frame", False):
             self.show_parameter_by_name("image_tail")
         else:
@@ -401,33 +431,23 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
     def _apply_generation_settings_visibility(self, model_id: str) -> None:
         """Apply mode/duration/sound visibility for selected model."""
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
-        self._update_mode_choices(capabilities.get("modes", BASE_MODE_CHOICES))
+        modes = capabilities.get("modes", BASE_MODE_CHOICES)
 
-        if model_id == "kling-v1":
-            self.show_parameter_by_name("mode")
-            self.hide_parameter_by_name(["duration", "sound"])
-            if self.get_parameter_value("duration") != DEFAULT_DURATION_5S:
-                self.set_parameter_value("duration", DEFAULT_DURATION_5S)
-            return
+        self.show_parameter_by_name("duration")
 
-        if model_id in {"kling-v1-5", "kling-v2-5-turbo"}:
-            self.hide_parameter_by_name(["mode", "sound"])
-            self.show_parameter_by_name("duration")
-            if self.get_parameter_value("mode") != "pro":
-                self.set_parameter_value("mode", "pro")
-            return
-
-        if model_id == "kling-v2-6":
+        if not modes:
+            # No mode selection for this model — hide selector, keep value as pro
             self.hide_parameter_by_name("mode")
-            self.show_parameter_by_name(["duration", "sound"])
-            if self.get_parameter_value("mode") != "pro":
-                self.set_parameter_value("mode", "pro")
-            if self.get_parameter_value("duration") not in [5, 10]:
-                self.set_parameter_value("duration", 5)
-            return
+            if self.get_parameter_value("mode") != MODE_PRO:
+                self.set_parameter_value("mode", MODE_PRO)
+        else:
+            self.show_parameter_by_name("mode")
+            self._update_mode_choices(modes)
 
-        self.show_parameter_by_name(["mode", "duration"])
-        self.hide_parameter_by_name("sound")
+        if capabilities.get("supports_sound", False):
+            self._update_mode_dependent_features()
+        else:
+            self.hide_parameter_by_name("sound")
 
     def _update_mode_choices(self, supported_modes: list[str]) -> None:
         """Keep the mode dropdown aligned with the selected model."""
@@ -437,6 +457,19 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             next_mode = supported_modes[0]
 
         self._update_option_choices("mode", supported_modes, next_mode)
+
+    def _update_mode_dependent_features(self) -> None:
+        """Show/hide features that depend on the current mode (e.g. sound for kling-v2-6)."""
+        model_name = self.get_parameter_value("model_name") or ""
+        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        if model_id == "kling-v2-6":
+            mode = self.get_parameter_value("mode") or MODE_PRO
+            if mode == MODE_PRO:
+                self.show_parameter_by_name("sound")
+            else:
+                self.hide_parameter_by_name("sound")
+                if self.get_parameter_value("sound") != "off":
+                    self.set_parameter_value("sound", "off")
 
     def _hide_multi_shot_inputs(self) -> None:
         """Hide multi-shot-specific UI inputs."""
@@ -973,13 +1006,14 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
         # Validate model-specific constraints
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
+        model_modes = capabilities.get("modes", BASE_MODE_CHOICES)
 
-        if mode not in capabilities.get("modes", BASE_MODE_CHOICES):
-            valid_modes = capabilities.get("modes", [])
+        # Skip mode validation for no-mode models (modes: []) — mode is always pro internally
+        if model_modes and mode not in model_modes:
             exceptions.append(
                 ValueError(
                     f"{self.name}: Model {model_name} does not support mode '{mode}'. "
-                    f"Valid modes: {', '.join(valid_modes)}"
+                    f"Valid modes: {', '.join(model_modes)}"
                 )
             )
 
@@ -998,14 +1032,21 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             supports_tail = capabilities.get("supports_tail_frame", False)
             if not supports_tail:
                 exceptions.append(
-                    ValueError(
-                        f"{self.name}: Model {model_name} does not support end frame (image_tail). "
-                        f"Only Kling v2.1 and Kling v2.5 Turbo with pro mode support end frames."
-                    )
+                    ValueError(f"{self.name}: Model {model_name} does not support end frame (image_tail).")
                 )
 
             if supports_tail and mode != "pro":
                 exceptions.append(ValueError(f"{self.name}: End frame (image_tail) requires pro mode."))
+
+            # kling-v1 tail frame only works at 5s
+            tail_frame_durations = capabilities.get("tail_frame_durations")
+            if supports_tail and tail_frame_durations and duration not in tail_frame_durations:
+                exceptions.append(
+                    ValueError(
+                        f"{self.name}: {model_name} end frame only supports "
+                        f"{tail_frame_durations}s duration (got {duration}s)."
+                    )
+                )
 
         # Validate dynamic_masks JSON if provided
         if dynamic_masks:

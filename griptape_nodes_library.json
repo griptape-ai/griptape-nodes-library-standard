@@ -319,6 +319,15 @@
       }
     },
     {
+      "sequence": {
+        "color": "border-slate-500",
+        "title": "Sequence",
+        "description": "Nodes for parsing and inspecting numbered file sequences",
+        "icon": "List-Ordered",
+        "group": "create"
+      }
+    },
+    {
       "workflows": {
         "color": "border-gray-500",
         "title": "Workflows",
@@ -367,6 +376,55 @@
           "list",
           "data",
           "logic"
+        ]
+      }
+    },
+    {
+      "class_name": "ScanSequenceNode",
+      "file_path": "griptape_nodes_library/sequence/scan_sequence.py",
+      "metadata": {
+        "category": "sequence",
+        "description": "Scan a path or pattern into a single Sequence covering every present item.",
+        "display_name": "Scan Sequence",
+        "icon": "List-Ordered",
+        "group": "create",
+        "tags": [
+          "sequence",
+          "files",
+          "scan"
+        ]
+      }
+    },
+    {
+      "class_name": "ScanSplitSequenceNode",
+      "file_path": "griptape_nodes_library/sequence/scan_split_sequence.py",
+      "metadata": {
+        "category": "sequence",
+        "description": "Scan a path or pattern into one Sequence per contiguous run of present items.",
+        "display_name": "Scan Split Sequence",
+        "icon": "List-Ordered",
+        "group": "create",
+        "tags": [
+          "sequence",
+          "files",
+          "scan",
+          "split"
+        ]
+      }
+    },
+    {
+      "class_name": "InspectSequenceNode",
+      "file_path": "griptape_nodes_library/sequence/inspect_sequence.py",
+      "metadata": {
+        "category": "sequence",
+        "description": "Inspect a Sequence and surface its template, range, and item paths.",
+        "display_name": "Inspect Sequence",
+        "icon": "Search",
+        "group": "edit",
+        "tags": [
+          "sequence",
+          "files",
+          "inspect"
         ]
       }
     },

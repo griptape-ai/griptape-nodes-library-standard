@@ -53,8 +53,20 @@ MODEL_NAME_MAP: dict[str, dict[str, str]] = {
     },
 }
 MODEL_CAPABILITIES: dict[str, dict[str, Any]] = {
-    "kling-video-o1": {"modes": BASE_MODE_CHOICES, "supports_4k_with_reference_video": False},
-    "kling-v3-omni": {"modes": [MODE_STD, MODE_PRO, MODE_4K], "supports_4k_with_reference_video": False},
+    "kling-video-o1": {
+        "modes": BASE_MODE_CHOICES,
+        "durations": list(range(3, 11)),
+        # Text-to-video and start-frame-only generation restrict to 5s or 10s
+        "restricted_durations": [5, 10],
+        "supports_4k_with_reference_video": False,
+    },
+    "kling-v3-omni": {
+        "modes": [MODE_STD, MODE_PRO, MODE_4K],
+        "durations": list(range(3, 16)),
+        # When reference video is set (std/pro), duration caps at 10s
+        "reference_video_max_duration": 10,
+        "supports_4k_with_reference_video": False,
+    },
 }
 
 
@@ -208,7 +220,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             artifact_url_parameter=ParameterVideo(
                 name="reference_video",
                 tooltip="Reference video for editing or style reference (optional, max 1)",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={"placeholder_text": "https://example.com/video.mp4"},
             ),
             disclaimer_message="The Kling Omni service utilizes this URL to access the video for generation.",
@@ -248,9 +260,9 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             ParameterInt(
                 name="duration",
                 default_value=5,
-                tooltip="Video length in seconds (3-10s). Only 5/10s for text-to-video and first-frame generation.",
+                tooltip="Video length in seconds. Range and restrictions vary by model.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=[3, 4, 5, 6, 7, 8, 9, 10])},
+                traits={Options(choices=list(range(3, 16)))},
             )
         self.add_node_element(gen_settings_group)
 
@@ -304,8 +316,30 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         """Handle parameter value changes to normalize image inputs."""
         super().after_value_set(parameter, value)
 
-        if parameter.name in {"model_name", "reference_video"}:
+        if parameter.name in {"model_name", "reference_video", "end_frame_image"}:
             self._update_mode_choices()
+            # Update duration choices inline (WAN pattern)
+            model_name = self.get_parameter_value("model_name") or "Kling v3.0 Omni"
+            model_config = MODEL_NAME_MAP.get(model_name, MODEL_NAME_MAP["Kling v3.0 Omni"])
+            capabilities = MODEL_CAPABILITIES.get(model_config["payload_model_name"], {})
+            has_reference_video = bool(self.get_parameter_value("reference_video"))
+            has_end_frame = bool(self.get_parameter_value("end_frame_image"))
+            new_durations = list(capabilities.get("durations", list(range(3, 11))))
+            # kling-video-o1: text/start-frame-only → [5, 10]; end frame or reference video → full [3–10]
+            restricted_durations = capabilities.get("restricted_durations")
+            if restricted_durations and not has_reference_video and not has_end_frame:
+                new_durations = list(restricted_durations)
+            # kling-v3-omni: reference video with std/pro mode caps at 10s
+            ref_video_max = capabilities.get("reference_video_max_duration")
+            if ref_video_max and has_reference_video:
+                new_durations = [d for d in new_durations if d <= ref_video_max]
+            if not new_durations:
+                new_durations = [5]
+            current_duration = self.get_parameter_value("duration")
+            if current_duration in new_durations:
+                self._update_option_choices("duration", new_durations, current_duration)  # type: ignore[arg-type]
+            else:
+                self._update_option_choices("duration", new_durations, new_durations[0])  # type: ignore[arg-type]
 
         if parameter.name in {"multi_shot", "shot_count"}:
             self._update_multi_shot_parameter_visibility()
@@ -749,14 +783,34 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 )
             )
 
-        # Validate duration constraints for text/first-frame generation
-        is_text_or_first_frame = not has_base_video
-        if is_text_or_first_frame and duration not in [5, 10]:
-            exceptions.append(
-                ValueError(
-                    f"{self.name} text-to-video and first-frame generation only support 5 or 10 second durations (got {duration}s)."
+        # kling-video-o1: text-to-video and start-frame-only generation restrict to 5s or 10s
+        model_name = self.get_parameter_value("model_name") or "Kling v3.0 Omni"
+        payload_model = MODEL_NAME_MAP.get(model_name, MODEL_NAME_MAP["Kling v3.0 Omni"])["payload_model_name"]
+        capabilities = MODEL_CAPABILITIES.get(payload_model, {})
+
+        if payload_model == "kling-video-o1":
+            is_text_or_first_frame = not has_base_video and not end_frame_image
+            restricted = capabilities.get("restricted_durations", [5, 10])
+            if is_text_or_first_frame and duration not in restricted:
+                exceptions.append(
+                    ValueError(
+                        f"{self.name} kling-video-o1 text-to-video and start-frame-only generation "
+                        f"only support {restricted} second durations (got {duration}s)."
+                    )
                 )
-            )
+
+        # kling-v3-omni: reference video with std/pro mode caps duration at 10s
+        if payload_model == "kling-v3-omni" and has_video:
+            video_refer_type = self.get_parameter_value("video_refer_type") or "base"
+            mode = self.get_parameter_value("mode") or DEFAULT_MODE
+            ref_video_max = capabilities.get("reference_video_max_duration", 10)
+            if mode != MODE_4K and duration > ref_video_max:
+                exceptions.append(
+                    ValueError(
+                        f"{self.name} kling-v3-omni with reference video (std/pro mode) "
+                        f"supports a maximum duration of {ref_video_max}s (got {duration}s)."
+                    )
+                )
 
         return exceptions if exceptions else None
 
