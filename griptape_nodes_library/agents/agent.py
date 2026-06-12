@@ -12,8 +12,15 @@ from typing import Any
 from griptape.artifacts import BaseArtifact, ModelArtifact, TextArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
-from griptape.events import ActionChunkEvent, FinishStructureRunEvent, StartStructureRunEvent, TextChunkEvent
+from griptape.events import (
+    ActionChunkEvent,
+    FinishActionsSubtaskEvent,
+    FinishStructureRunEvent,
+    StartStructureRunEvent,
+    TextChunkEvent,
+)
 from griptape.memory.structure import ConversationMemory, Run
+from griptape.rules import Rule, Ruleset
 from griptape.structures import Structure
 from griptape.tasks import PromptTask
 from griptape_nodes.exe_types.core_types import (
@@ -170,6 +177,7 @@ class Agent(ControlNode):
                 default_value=[],
                 tooltip="Connect Griptape Tools for the agent to use.\nOr connect individual tools.",
                 allowed_modes={ParameterMode.INPUT},
+                collapsed=True,
             )
         )
         self.add_parameter(
@@ -179,6 +187,7 @@ class Agent(ControlNode):
                 tooltip="Rulesets to apply to the agent to control its behavior.",
                 default_value=[],
                 allowed_modes={ParameterMode.INPUT},
+                collapsed=True,
             )
         )
 
@@ -246,6 +255,103 @@ class Agent(ControlNode):
             parameter,
             value,
         )
+
+    def _build_tool_exchange(self, subtask_events: list) -> str:
+        """Build a verified tool-use record from FinishActionsSubtaskEvents.
+
+        This is prepended to the stored run output so memory faithfully reflects
+        every tool call that happened, giving downstream agents clear evidence.
+        """
+        lines = ["[Verified tool use:"]
+        for event in subtask_events:
+            if event.subtask_thought:
+                lines.append(f"  Thought: {event.subtask_thought}")
+            for action in event.subtask_actions or []:
+                name = action.get("name", "?")
+                path = action.get("path", "")
+                tool_input = action.get("input", {})
+                prefix = f"{path}/" if path else ""
+                lines.append(f"  Tool: {prefix}{name}")
+                if tool_input:
+                    lines.append(f"  Input: {json.dumps(tool_input)}")
+            if event.task_output:
+                result = event.task_output.to_text()
+                if len(result) > 400:
+                    result = result[:400] + "…"
+                lines.append(f"  Result: {result}")
+        lines.append("]")
+        return "\n".join(lines) + "\n\n"
+
+    # --- Tool config helpers ---
+
+    def _ruleset_to_config(self, ruleset: object) -> dict | None:
+        """Convert a live Ruleset object to a serializable config dict."""
+        if isinstance(ruleset, dict):
+            return ruleset
+        try:
+            return {"name": ruleset.name, "rules": [r.value for r in ruleset.rules]}  # type: ignore[union-attr]
+        except AttributeError:
+            return None
+
+    def _build_rulesets_from_configs(self, configs: list) -> list:
+        """Build live griptape Ruleset objects from serializable config dicts."""
+        result = []
+        for config in configs:
+            if isinstance(config, dict):
+                rules = [Rule(r) for r in config.get("rules", [])]
+                result.append(Ruleset(name=config["name"], rules=rules))
+            else:
+                result.append(config)
+        return result
+
+    def _build_tool_from_config(self, config: dict) -> object:
+        """Build a live griptape tool from a serializable config dict."""
+        tool_type = config.get("tool_type")
+        if tool_type == "MCPTool":
+            from griptape_nodes_library.utils.mcp_utils import create_mcp_tool
+
+            return create_mcp_tool(config["mcp_server_name"], config["server_config"])
+        msg = f"Unknown tool_type in config: {tool_type}"
+        raise ValueError(msg)
+
+    def _build_tools(self, tool_inputs: list) -> tuple[list, list]:
+        """Split mixed tool inputs into live tools and config dicts.
+
+        Returns (live_tools, tool_configs) where live_tools are ready to pass to GtAgent
+        and tool_configs are serializable dicts for wrapping the agent output.
+        """
+        live_tools: list = []
+        tool_configs: list = []
+        for item in tool_inputs:
+            if isinstance(item, dict) and "tool_type" in item:
+                tool_configs.append(item)
+                live_tools.append(self._build_tool_from_config(item))
+            else:
+                live_tools.append(item)
+        return live_tools, tool_configs
+
+    def _unwrap_agent(self, value: dict) -> tuple[dict, list, list]:
+        """Detect new wrapper format vs old raw agent dict.
+
+        Returns (agent_core_dict, tool_configs, ruleset_configs).
+        """
+        if "agent" in value and "tools" in value:
+            return value["agent"], value.get("tools", []), value.get("rulesets", [])
+        return value, [], []
+
+    def _wrap_agent(self, agent_dict: dict, tool_configs: list, ruleset_configs: list) -> dict:
+        """Strip non-serializable fields from agent dict and wrap with config lists."""
+        for task in agent_dict.get("tasks", []):
+            task["tools"] = []
+            task.pop("rulesets", None)
+            task.pop("rules", None)
+        agent_dict.pop("rulesets", None)
+        agent_dict.pop("rules", None)
+        return {
+            "agent": agent_dict,
+            "tools": tool_configs,
+            "rulesets": ruleset_configs,
+        }
 
     # --- Helper Methods ---
 
@@ -675,18 +781,27 @@ class Agent(ControlNode):
         # Initialize the logs parameter
         self.append_value_to_parameter("logs", "[Processing..]\n")
 
-        # Get any tools
-        # tools = self.get_parameter_value("tools")  # noqa: ERA001
-        tools = self.get_parameter_list_value("tools")
-        if include_details and tools:
-            self.append_value_to_parameter("logs", f"[Tools]: {', '.join([tool.name for tool in tools])}\n")
+        # Get any tools — may be live objects or serializable config dicts (e.g. MCPTool)
+        raw_tool_inputs = self.get_parameter_list_value("tools")
+        live_tools, tool_configs = self._build_tools(raw_tool_inputs)
+        tools = live_tools
+        if include_details and live_tools:
+            names = []
+            for item in raw_tool_inputs:
+                if isinstance(item, dict):
+                    names.append(item.get("mcp_server_name", item.get("tool_type", "unknown")))
+                else:
+                    names.append(item.name)
+            self.append_value_to_parameter("logs", f"[Tools]: {', '.join(names)}\n")
 
-        # Get any rulesets
-        rulesets = self.get_parameter_list_value("rulesets")
+        # Get any rulesets — convert live objects to serializable configs so they survive chaining.
+        raw_rulesets = self.get_parameter_list_value("rulesets")
+        ruleset_configs: list = [c for c in (self._ruleset_to_config(r) for r in raw_rulesets) if c]
+        rulesets = self._build_rulesets_from_configs(ruleset_configs)
         if include_details and rulesets:
             self.append_value_to_parameter(
                 "logs",
-                f"\n[Rulesets]: {', '.join([ruleset.name for ruleset in rulesets])}\n",
+                f"\n[Rulesets]: {', '.join([r.name for r in rulesets])}\n",
             )
 
         # Get the output schema
@@ -720,10 +835,20 @@ class Agent(ControlNode):
         # If a prompt_driver is provided, we'll use that
         # If neither are provided, we'll create a new one with the selected model.
         # Otherwise, we'll just use the default model
-        agent = self.get_parameter_value("agent")
-        if isinstance(agent, dict):
-            # The agent is connected. We'll use that.
-            agent = GtAgent().from_dict(agent)
+        agent_input = self.get_parameter_value("agent")
+        if isinstance(agent_input, dict):
+            # Unwrap the new-format wrapper (or handle old raw agent dict gracefully).
+            agent_core_dict, incoming_tool_configs, incoming_ruleset_configs = self._unwrap_agent(agent_input)
+            agent = GtAgent().from_dict(agent_core_dict)
+            # Rebuild tools from the incoming config so the live connection is fresh.
+            if incoming_tool_configs:
+                incoming_live_tools, _ = self._build_tools(incoming_tool_configs)
+                if incoming_live_tools and agent.tasks:
+                    agent.tasks[0].tools = incoming_live_tools
+                tool_configs = incoming_tool_configs  # carry forward for output wrap
+            # Merge incoming rulesets with any rulesets connected at this node; set directly on _rulesets.
+            ruleset_configs = incoming_ruleset_configs + ruleset_configs
+            agent._rulesets = self._build_rulesets_from_configs(ruleset_configs)
             # make sure the agent is using a PromptTask
             if not isinstance(agent.tasks[0], PromptTask):
                 agent.add_task(PromptTask(prompt_driver=default_prompt_driver, output_schema=pydantic_schema))
@@ -756,11 +881,20 @@ class Agent(ControlNode):
             yield lambda: self._process(agent, prompt)
             self.append_value_to_parameter("logs", "\n[Finished processing agent.]\n")
             try_throw_error(agent.output)
+            # Streaming accumulates all tokens including intermediate monologue before tool
+            # calls. Settle the output parameter to the final stored answer so what the
+            # artist sees and what is in memory are always the same.
+            if agent is not None and agent.conversation_memory and agent.conversation_memory.runs:
+                final_output = agent.conversation_memory.runs[-1].output.to_text()
+                self.set_parameter_value("output", final_output)
         else:
             self.append_value_to_parameter("logs", "[No prompt provided, creating Agent.]\n")
             self.parameter_output_values["output"] = "Agent created."
-        # Set the agent
-        self.parameter_output_values["agent"] = agent.to_dict()
+        # Clear tools from the live agent before serializing — MCPTool connections are not
+        # serializable. They're rebuilt from tool_configs when the next node unwraps.
+        if agent.tasks:
+            agent.tasks[0].tools = []
+        self.parameter_output_values["agent"] = self._wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
 
     def _process(self, agent: GtAgent, prompt: BaseArtifact | str) -> Structure:  # noqa: C901, PLR0912
         """Performs the synchronous, streaming interaction with the Griptape Agent.
@@ -786,6 +920,7 @@ class Agent(ControlNode):
         args = [prompt] if prompt else []
         structure_id_stack = []
         active_structure_id = None
+        subtask_events: list[FinishActionsSubtaskEvent] = []
 
         task = agent.tasks[0]
         if not isinstance(task, PromptTask):
@@ -795,7 +930,14 @@ class Agent(ControlNode):
         prompt_driver.stream = True
         if prompt_driver.stream:
             for event in agent.run_stream(
-                *args, event_types=[StartStructureRunEvent, TextChunkEvent, ActionChunkEvent, FinishStructureRunEvent]
+                *args,
+                event_types=[
+                    StartStructureRunEvent,
+                    TextChunkEvent,
+                    ActionChunkEvent,
+                    FinishActionsSubtaskEvent,
+                    FinishStructureRunEvent,
+                ],
             ):
                 if isinstance(event, StartStructureRunEvent):
                     active_structure_id = event.structure_id
@@ -813,15 +955,29 @@ class Agent(ControlNode):
                         self.append_value_to_parameter("logs", "\n[Agent execution cancelled by user.]\n")
                         return agent
 
-                    # If the artifact is a TextChunkEvent, append it to the output parameter.
                     if isinstance(event, TextChunkEvent):
                         self.append_value_to_parameter("output", value=event.token)
                         if include_details:
                             self.append_value_to_parameter("logs", value=event.token)
 
-                    # If the artifact is an ActionChunkEvent, append it to the logs parameter.
-                    if include_details and isinstance(event, ActionChunkEvent) and event.name:
-                        self.append_value_to_parameter("logs", f"\n[Using tool {event.name}: ({event.path})]\n")
+                    if isinstance(event, ActionChunkEvent) and event.name and event.tag:
+                        if include_details:
+                            self.append_value_to_parameter("logs", f"\n[Using tool {event.name}: ({event.path})]\n")
+
+                    # Capture completed subtask exchanges for faithful memory reconstruction.
+                    if isinstance(event, FinishActionsSubtaskEvent) and event.subtask_parent_task_id == task.id:
+                        subtask_events.append(event)
+
+            # Prepend verified tool-use record to memory so output and memory match
+            # and downstream agents have clear evidence of every tool call.
+            if subtask_events and agent.conversation_memory and agent.conversation_memory.runs:
+                exchange = self._build_tool_exchange(subtask_events)
+                last_run = agent.conversation_memory.runs[-1]
+                agent.conversation_memory.runs[-1] = Run(
+                    input=TextArtifact(value=last_run.input.to_text()),
+                    output=TextArtifact(value=exchange + last_run.output.to_text()),
+                )
+
         else:
             agent.run(*args)
             agent_output = agent.output
@@ -830,4 +986,5 @@ class Agent(ControlNode):
             else:
                 self.set_parameter_value("output", str(agent_output))
             try_throw_error(agent.output)
+
         return agent
