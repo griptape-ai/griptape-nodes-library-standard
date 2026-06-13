@@ -126,6 +126,7 @@ _NODE_PROVIDER_CONFIGS = {
     "SeedVRVideoUpscale": SEED,
     "SoraVideoGeneration": OPENAI,
     "TopazImageEnhance": TOPAZ,
+    "TranscribeAudio": OPENAI,
     "TripoImageTo3DGeneration": TRIPO,
     "TripoTextTo3DGeneration": TRIPO,
     "Veo3VideoGeneration": GOOGLE,
