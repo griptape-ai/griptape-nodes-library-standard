@@ -54,8 +54,9 @@ class WebSearch(BaseTool):
         if parameter.name == "search_engine":
             if value == "DuckDuckGo":
                 self.update_tool_info(
-                    value="Using DuckDuckGo for web search. Note: DuckDuckGo may return limited results.",
-                    title="WebSearch Tool",
+                    variant="warning",
+                    title="DuckDuckGo Currently Unavailable",
+                    value="DuckDuckGo is temporarily broken due to a package rename in the underlying library.\n\nTracked in [griptape-ai/griptape#2198](https://github.com/griptape-ai/griptape/issues/2198) — use Exa or Google in the meantime.",
                 )
             elif not self.check_api_keys():
                 self.update_tool_info(
