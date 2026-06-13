@@ -1,10 +1,11 @@
 import json
 from typing import Any
 
-from griptape.structures.agent import Agent
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
+
+from griptape_nodes_library.utils.agent_utils import unwrap_agent
 
 
 class DisplayAgentMemory(ControlNode):
@@ -29,34 +30,24 @@ class DisplayAgentMemory(ControlNode):
         self.add_parameter(self.memory_json)
 
     def _get_memory_dict(self) -> dict[str, Any] | None:
-        """Get and parse memory from agent, returning None if unavailable."""
-        agent_dict = self.get_parameter_value("agent")
-        if agent_dict is None:
+        """Get memory directly from the agent wire dict without full reconstruction."""
+        agent_value = self.get_parameter_value("agent")
+        if agent_value is None:
             return None
 
-        agent = Agent.from_dict(agent_dict)
-        if agent is None or agent.conversation_memory is None:
-            return None
-
-        memory = agent.conversation_memory.to_json()
-
-        # Handle case where to_json() returns a string
-        if isinstance(memory, str):
-            try:
-                memory = json.loads(memory)
-            except json.JSONDecodeError:
-                return None
-
-        # Ensure memory is a dict
+        agent_core_dict, _, _ = unwrap_agent(agent_value)
+        memory = agent_core_dict.get("conversation_memory")
         if not isinstance(memory, dict):
             return None
-
         return memory
 
     def _extract_value_from_artifact(self, artifact: Any) -> str:
         """Extract value from an artifact (dict with 'value' key or string)."""
         if isinstance(artifact, dict):
-            return artifact.get("value", "")
+            value = artifact.get("value", "")
+            if not isinstance(value, str):
+                return json.dumps(value)
+            return value
         if isinstance(artifact, str):
             return artifact
         return ""
@@ -88,12 +79,15 @@ class DisplayAgentMemory(ControlNode):
         self.publish_update_to_parameter("memory", transformed_memory)
 
     def process(self) -> None:
+        # Pass the agent wire through unchanged
+        agent_value = self.get_parameter_value("agent")
+        if agent_value is not None:
+            self.parameter_output_values["agent"] = agent_value
+
         memory = self._get_memory_dict()
         if memory is None:
             self._set_output({"runs": []})
             return
 
-        # Success path - transform and output memory
         transformed_runs = self._transform_runs(memory)
-        transformed_memory = {"runs": transformed_runs}
-        self._set_output(transformed_memory)
+        self._set_output({"runs": transformed_runs})

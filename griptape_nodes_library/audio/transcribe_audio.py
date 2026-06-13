@@ -1,9 +1,11 @@
+from typing import cast
+
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.drivers.audio_transcription.base_audio_transcription_driver import BaseAudioTranscriptionDriver
 from griptape.drivers.audio_transcription.openai import OpenAiAudioTranscriptionDriver
 from griptape.loaders import AudioLoader
 from griptape.structures import Structure
-from griptape.tasks import AudioTranscriptionTask
+from griptape.tasks import AudioTranscriptionTask, PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
@@ -13,6 +15,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
+from griptape_nodes_library.utils.agent_utils import unwrap_agent, wrap_agent
 from griptape_nodes_library.utils.audio_utils import dict_to_audio_url_artifact
 from griptape_nodes_library.utils.error_utils import try_throw_error
 
@@ -150,9 +153,12 @@ class TranscribeAudio(ControlNode):
         # If a prompt_driver is provided, we'll use that
         # If neither are provided, we'll create a new one with the selected model.
         # Otherwise, we'll just use the default model
-        agent = self.get_parameter_value("agent")
-        if isinstance(agent, dict):
-            agent = GtAgent().from_dict(agent)
+        tool_configs: list = []
+        ruleset_configs: list = []
+        agent_input = self.get_parameter_value("agent")
+        if isinstance(agent_input, dict):
+            agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_input)
+            agent = GtAgent().from_dict(agent_core_dict)
         else:
             agent = GtAgent()
 
@@ -205,4 +211,6 @@ class TranscribeAudio(ControlNode):
         agent.restore_task()
 
         # Set the output value for the agent
-        self.parameter_output_values["agent"] = agent.to_dict()
+        if agent.tasks:
+            cast(PromptTask, agent.tasks[0]).tools = []
+        self.parameter_output_values["agent"] = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
