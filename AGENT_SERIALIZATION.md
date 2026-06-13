@@ -1,4 +1,4 @@
-# Agent Wire Redesign — Phase 1 Complete
+# Agent Serialization — Phase 1 Complete
 
 ## Problem
 
