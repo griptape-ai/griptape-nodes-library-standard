@@ -1,9 +1,11 @@
+from typing import cast
+
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.drivers.audio_transcription.base_audio_transcription_driver import BaseAudioTranscriptionDriver
 from griptape.drivers.audio_transcription.openai import OpenAiAudioTranscriptionDriver
 from griptape.loaders import AudioLoader
 from griptape.structures import Structure
-from griptape.tasks import AudioTranscriptionTask
+from griptape.tasks import AudioTranscriptionTask, PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
@@ -210,5 +212,5 @@ class TranscribeAudio(ControlNode):
 
         # Set the output value for the agent
         if agent.tasks:
-            agent.tasks[0].tools = []
+            cast(PromptTask, agent.tasks[0]).tools = []
         self.parameter_output_values["agent"] = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)

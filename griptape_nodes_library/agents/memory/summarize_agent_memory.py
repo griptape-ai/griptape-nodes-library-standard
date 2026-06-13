@@ -1,7 +1,8 @@
-from typing import Any
+from typing import Any, cast
 
 from griptape.artifacts import ErrorArtifact, TextArtifact
 from griptape.memory.structure import Run
+from griptape.tasks import PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -87,7 +88,7 @@ class SummarizeAgentMemory(ControlNode):
         ]
 
         if agent.tasks:
-            agent.tasks[0].tools = []
+            cast(PromptTask, agent.tasks[0]).tools = []
         updated_agent_dict = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
         self.parameter_output_values["agent"] = updated_agent_dict
         self.publish_update_to_parameter("agent", updated_agent_dict)

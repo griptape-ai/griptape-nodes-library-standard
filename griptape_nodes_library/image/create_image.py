@@ -1,11 +1,11 @@
-from typing import Any
+from typing import Any, cast
 
 import requests
 from griptape.artifacts import BaseArtifact, ImageUrlArtifact
 from griptape.drivers.image_generation.base_image_generation_driver import BaseImageGenerationDriver
 from griptape.drivers.image_generation.griptape_cloud import GriptapeCloudImageGenerationDriver
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
-from griptape.tasks import PromptImageGenerationTask
+from griptape.tasks import PromptImageGenerationTask, PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
@@ -307,7 +307,7 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
 
         # Output the agent
         if agent.tasks:
-            agent.tasks[0].tools = []
+            cast(PromptTask, agent.tasks[0]).tools = []
         self.parameter_output_values["agent"] = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
 
     def after_incoming_connection(

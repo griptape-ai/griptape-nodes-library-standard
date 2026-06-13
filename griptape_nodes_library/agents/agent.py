@@ -7,7 +7,7 @@ for tools, rulesets, prompts, and streams output back to the user interface.
 """
 
 import json
-from typing import Any
+from typing import Any, cast
 
 from griptape.artifacts import BaseArtifact, ModelArtifact, TextArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
@@ -779,7 +779,7 @@ class Agent(ControlNode):
             if incoming_tool_configs:
                 incoming_live_tools, _ = build_tools(incoming_tool_configs)
                 if incoming_live_tools and agent.tasks:
-                    agent.tasks[0].tools = incoming_live_tools
+                    cast(PromptTask, agent.tasks[0]).tools = incoming_live_tools
                 tool_configs = incoming_tool_configs  # carry forward for output wrap
             # Merge incoming rulesets with any rulesets connected at this node; set directly on _rulesets.
             ruleset_configs = incoming_ruleset_configs + ruleset_configs
@@ -805,6 +805,10 @@ class Agent(ControlNode):
             )
             agent = GtAgent(prompt_driver=prompt_driver, tools=tools, rulesets=rulesets, output_schema=pydantic_schema)
 
+        if agent is None:
+            msg = "Agent was not initialized"
+            raise RuntimeError(msg)
+
         # Apply memory if provided
         agent_memory = self.get_parameter_value("agent_memory")
         if agent_memory is not None:
@@ -828,13 +832,10 @@ class Agent(ControlNode):
         else:
             self.append_value_to_parameter("logs", "[No prompt provided, creating Agent.]\n")
             self.parameter_output_values["output"] = "Agent created."
-        if agent is None:
-            msg = "Agent was not initialized"
-            raise RuntimeError(msg)
         # Clear tools from the live agent before serializing — MCPTool connections are not
         # serializable. They're rebuilt from tool_configs when the next node unwraps.
         if agent.tasks:
-            agent.tasks[0].tools = []
+            cast(PromptTask, agent.tasks[0]).tools = []
         self.parameter_output_values["agent"] = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
 
     def _process(self, agent: GtAgent, prompt: BaseArtifact | str) -> Structure:  # noqa: C901, PLR0912

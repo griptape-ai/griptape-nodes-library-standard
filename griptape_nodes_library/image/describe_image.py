@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, cast
 
 from griptape.artifacts import ImageUrlArtifact, ModelArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
@@ -351,12 +351,12 @@ class DescribeImage(ControlNode):
             if tool_configs:
                 live_tools, _ = build_tools(tool_configs)
                 if live_tools and agent.tasks:
-                    agent.tasks[0].tools = live_tools
+                    cast(PromptTask, agent.tasks[0]).tools = live_tools
             if ruleset_configs:
                 agent._rulesets = build_rulesets_from_configs(ruleset_configs)
-            # make sure the agent is using a PromptTask
+            # make sure the agent is using a PromptTask — replace rather than add to avoid two tasks
             if not isinstance(agent.tasks[0], PromptTask):
-                agent.add_task(PromptTask(prompt_driver=default_prompt_driver, output_schema=pydantic_schema))
+                agent.tasks[0] = PromptTask(prompt_driver=default_prompt_driver, output_schema=pydantic_schema)
             else:
                 agent.tasks[0].output_schema = pydantic_schema
         elif isinstance(model_input, BasePromptDriver):
@@ -410,5 +410,5 @@ class DescribeImage(ControlNode):
 
         # Clear live tools before serializing, then wrap with configs for downstream nodes.
         if agent.tasks:
-            agent.tasks[0].tools = []
+            cast(PromptTask, agent.tasks[0]).tools = []
         self.parameter_output_values["agent"] = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
