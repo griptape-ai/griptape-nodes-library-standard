@@ -7,6 +7,36 @@ consumes an Agent value imports from here so the logic lives in one place.
 
 from griptape.rules import Rule, Ruleset
 
+# ---------------------------------------------------------------------------
+# Temporary monkey-patch — remove when https://github.com/griptape-ai/griptape/pull/2200 is merged and released.
+# exa-py v2 dropped use_autoprompt from search_and_contents(); ExaWebSearchDriver still passes it.
+# ---------------------------------------------------------------------------
+def _patch_exa_driver() -> None:
+    try:
+        from griptape.artifacts import JsonArtifact, ListArtifact
+        from griptape.drivers.web_search.exa import ExaWebSearchDriver
+
+        def _search(self: object, query: str, **kwargs: object) -> ListArtifact:
+            response = self.client.search_and_contents(  # type: ignore[attr-defined]
+                highlights=self.highlights,  # type: ignore[attr-defined]
+                query=query,
+                num_results=self.results_count,  # type: ignore[attr-defined]
+                text=True,
+                **self.params,  # type: ignore[attr-defined]
+                **kwargs,
+            )
+            return ListArtifact([
+                JsonArtifact({"title": r.title, "url": r.url, "highlights": r.highlights, "text": r.text})
+                for r in response.results
+            ])
+
+        ExaWebSearchDriver.search = _search  # type: ignore[method-assign]
+    except ImportError:
+        pass  # exa extra not installed
+
+
+_patch_exa_driver()
+
 
 # ---------------------------------------------------------------------------
 # Wrap / unwrap
@@ -132,6 +162,34 @@ def build_tool_from_config(config: dict) -> object:
 
         driver = OpenAiAudioTranscriptionDriver(model=config.get("model", "whisper-1"))
         return AudioTranscriptionTool(audio_transcription_driver=driver)
+
+    if tool_type == "WebSearch":
+        from griptape.tools import WebSearchTool
+        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
+        engine = config.get("engine", "DuckDuckGo")
+        off_prompt = config.get("off_prompt", False)
+        if engine == "DuckDuckGo":
+            from griptape.drivers.web_search.duck_duck_go import DuckDuckGoWebSearchDriver
+
+            driver = DuckDuckGoWebSearchDriver()
+        elif engine == "Google":
+            from griptape.drivers.web_search.google import GoogleWebSearchDriver
+
+            driver = GoogleWebSearchDriver(
+                api_key=GriptapeNodes.SecretsManager().get_secret("GOOGLE_API_KEY"),
+                search_id=GriptapeNodes.SecretsManager().get_secret("GOOGLE_API_SEARCH_ID"),
+            )
+        elif engine == "Exa":
+            from griptape.drivers.web_search.exa import ExaWebSearchDriver
+
+            driver = ExaWebSearchDriver(
+                api_key=GriptapeNodes.SecretsManager().get_secret("EXA_API_KEY"),
+            )
+        else:
+            msg = f"Unknown WebSearch engine: {engine}"
+            raise ValueError(msg)
+        return WebSearchTool(web_search_driver=driver, off_prompt=off_prompt)
 
     if tool_type == "AgentTool":
         from griptape.drivers.structure_run.local import LocalStructureRunDriver
