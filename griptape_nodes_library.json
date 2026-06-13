@@ -904,7 +904,7 @@
       "file_path": "griptape_nodes_library/audio/transcribe_audio.py",
       "metadata": {
         "category": "audio",
-        "description": "Transcribe audio files into text.\nRequires an OpenAI API key.",
+        "description": "Transcribe audio files into text using OpenAI models via the Griptape Cloud proxy.\nNo OpenAI API key required.",
         "display_name": "Transcribe Audio",
         "icon": "ear",
         "group": "describe",
