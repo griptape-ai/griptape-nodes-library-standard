@@ -784,9 +784,9 @@ class Agent(ControlNode):
             # Merge incoming rulesets with any rulesets connected at this node; set directly on _rulesets.
             ruleset_configs = incoming_ruleset_configs + ruleset_configs
             agent._rulesets = build_rulesets_from_configs(ruleset_configs)
-            # make sure the agent is using a PromptTask
+            # make sure the agent is using a PromptTask — replace rather than add to avoid two tasks
             if not isinstance(agent.tasks[0], PromptTask):
-                agent.add_task(PromptTask(prompt_driver=default_prompt_driver, output_schema=pydantic_schema))
+                agent.tasks[0] = PromptTask(prompt_driver=default_prompt_driver, output_schema=pydantic_schema)
             else:
                 agent.tasks[0].output_schema = pydantic_schema
         elif isinstance(model_input, BasePromptDriver):

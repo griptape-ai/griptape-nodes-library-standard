@@ -51,7 +51,10 @@ def unwrap_agent(value: dict) -> tuple[dict, list, list]:
 
     Handles both the new wrapper format {"agent": {...}, "tools": [...], "rulesets": [...]}
     and the old raw griptape dict (backward compatibility — returns empty lists).
+    Returns ({}, [], []) for non-dict input.
     """
+    if not isinstance(value, dict):
+        return {}, [], []
     if "agent" in value and "tools" in value:
         return value["agent"], value.get("tools", []), value.get("rulesets", [])
     return value, [], []
