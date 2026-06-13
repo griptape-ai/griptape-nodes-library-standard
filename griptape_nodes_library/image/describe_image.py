@@ -17,6 +17,7 @@ from griptape_nodes.traits.options import Options
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
+from griptape_nodes_library.utils.agent_utils import build_rulesets_from_configs, build_tools, unwrap_agent, wrap_agent
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
 
@@ -340,9 +341,19 @@ class DescribeImage(ControlNode):
         # If a prompt_driver is provided, we'll use that
         # If neither are provided, we'll create a new one with the selected model.
         # Otherwise, we'll just use the default model
-        agent = self.get_parameter_value("agent")
-        if isinstance(agent, dict):
-            agent = GtAgent().from_dict(agent)
+        tool_configs: list = []
+        ruleset_configs: list = []
+        agent_value = self.get_parameter_value("agent")
+        if isinstance(agent_value, dict):
+            agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_value)
+            agent = GtAgent().from_dict(agent_core_dict)
+            # Rebuild tools and rulesets from configs so they're fresh for this run.
+            if tool_configs:
+                live_tools, _ = build_tools(tool_configs)
+                if live_tools and agent.tasks:
+                    agent.tasks[0].tools = live_tools
+            if ruleset_configs:
+                agent._rulesets = build_rulesets_from_configs(ruleset_configs)
             # make sure the agent is using a PromptTask
             if not isinstance(agent.tasks[0], PromptTask):
                 agent.add_task(PromptTask(prompt_driver=default_prompt_driver, output_schema=pydantic_schema))
@@ -397,5 +408,7 @@ class DescribeImage(ControlNode):
         agent.insert_false_memory(prompt=prompt, output=str(memory_output))
         try_throw_error(agent.output)
 
-        # Set the output value for the agent
-        self.parameter_output_values["agent"] = agent.to_dict()
+        # Clear live tools before serializing, then wrap with configs for downstream nodes.
+        if agent.tasks:
+            agent.tasks[0].tools = []
+        self.parameter_output_values["agent"] = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)

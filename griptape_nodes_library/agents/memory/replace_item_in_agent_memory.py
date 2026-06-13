@@ -9,6 +9,8 @@ from griptape_nodes.exe_types.node_types import BaseNode, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.utils.agent_utils import unwrap_agent, wrap_agent
+
 
 class ReplaceItemInAgentMemory(ControlNode):
     """ReplaceItemInAgentMemory Node that replaces an item in the memory of an agent."""
@@ -63,11 +65,12 @@ class ReplaceItemInAgentMemory(ControlNode):
 
     def _get_agent(self) -> Agent | None:
         """Get the agent object from the parameter value, returning None if unavailable."""
-        agent_dict = self.get_parameter_value("agent")
-        if agent_dict is None:
+        agent_value = self.get_parameter_value("agent")
+        if agent_value is None:
             return None
 
-        agent = Agent.from_dict(agent_dict)
+        agent_core_dict, _, _ = unwrap_agent(agent_value)
+        agent = Agent.from_dict(agent_core_dict)
         if agent is None or agent.conversation_memory is None:
             return None
 
@@ -269,6 +272,8 @@ class ReplaceItemInAgentMemory(ControlNode):
             output=TextArtifact(value=output_value),
         )
 
-        updated_agent_dict = agent.to_dict()
-        self.parameter_output_values["agent"] = updated_agent_dict
-        self.publish_update_to_parameter("agent", updated_agent_dict)
+        agent_value = self.get_parameter_value("agent")
+        _, tool_configs, ruleset_configs = unwrap_agent(agent_value) if isinstance(agent_value, dict) else ({}, [], [])
+        updated = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
+        self.parameter_output_values["agent"] = updated
+        self.publish_update_to_parameter("agent", updated)

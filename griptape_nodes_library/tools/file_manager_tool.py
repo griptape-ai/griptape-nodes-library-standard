@@ -93,23 +93,13 @@ class FileManager(BaseTool):
         off_prompt = self.parameter_values.get("off_prompt", True)
         file_location = cast("str", self.parameter_values.get("file_location"))
 
-        if file_location == LOCATIONS[0]:
-            # Get the setting for Workspace Directory
-            workdir = GriptapeNodes.ConfigManager().get_config_value("workspace_directory")
-            driver = LocalFileManagerDriver(workdir=workdir)
-        elif file_location == LOCATIONS[1]:
+        config: dict = {"tool_type": "FileManager", "off_prompt": off_prompt, "file_location": file_location}
+        if file_location == LOCATIONS[1]:
             bucket_name = cast("str", self.parameter_values.get("bucket_id"))
             bucket_id = self.bucket_map.get(bucket_name)
             if not bucket_id:
                 msg = f"Invalid bucket name: {bucket_name}"
                 raise ValueError(msg)
-            driver = GriptapeCloudFileManagerDriver(api_key=self.api_key, bucket_id=bucket_id)  # type: ignore[arg-type]
-        else:
-            msg = f"Invalid file location: {file_location}"
-            raise ValueError(msg)
+            config["bucket_id"] = bucket_id
 
-        # Create the tool
-        tool = GtFileManagerTool(file_manager_driver=driver, off_prompt=off_prompt)
-
-        # Set the output
-        self.parameter_output_values["tool"] = tool
+        self.parameter_output_values["tool"] = config

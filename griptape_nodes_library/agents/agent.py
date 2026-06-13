@@ -20,7 +20,6 @@ from griptape.events import (
     TextChunkEvent,
 )
 from griptape.memory.structure import ConversationMemory, Run
-from griptape.rules import Rule, Ruleset
 from griptape.structures import Structure
 from griptape.tasks import PromptTask
 from griptape_nodes.exe_types.core_types import (
@@ -46,6 +45,13 @@ from griptape_nodes_library.config.prompt.cloud_models import (
     DEPRECATED_MODELS,
     MODEL_CHOICES,
     MODEL_CHOICES_ARGS,
+)
+from griptape_nodes_library.utils.agent_utils import (
+    build_rulesets_from_configs,
+    build_tools,
+    ruleset_to_config,
+    unwrap_agent,
+    wrap_agent,
 )
 from griptape_nodes_library.utils.error_utils import try_throw_error
 
@@ -281,77 +287,6 @@ class Agent(ControlNode):
                 lines.append(f"  Result: {result}")
         lines.append("]")
         return "\n".join(lines) + "\n\n"
-
-    # --- Tool config helpers ---
-
-    def _ruleset_to_config(self, ruleset: object) -> dict | None:
-        """Convert a live Ruleset object to a serializable config dict."""
-        if isinstance(ruleset, dict):
-            return ruleset
-        try:
-            return {"name": ruleset.name, "rules": [r.value for r in ruleset.rules]}  # type: ignore[union-attr]
-        except AttributeError:
-            return None
-
-    def _build_rulesets_from_configs(self, configs: list) -> list:
-        """Build live griptape Ruleset objects from serializable config dicts."""
-        result = []
-        for config in configs:
-            if isinstance(config, dict):
-                rules = [Rule(r) for r in config.get("rules", [])]
-                result.append(Ruleset(name=config["name"], rules=rules))
-            else:
-                result.append(config)
-        return result
-
-    def _build_tool_from_config(self, config: dict) -> object:
-        """Build a live griptape tool from a serializable config dict."""
-        tool_type = config.get("tool_type")
-        if tool_type == "MCPTool":
-            from griptape_nodes_library.utils.mcp_utils import create_mcp_tool
-
-            return create_mcp_tool(config["mcp_server_name"], config["server_config"])
-        msg = f"Unknown tool_type in config: {tool_type}"
-        raise ValueError(msg)
-
-    def _build_tools(self, tool_inputs: list) -> tuple[list, list]:
-        """Split mixed tool inputs into live tools and config dicts.
-
-        Returns (live_tools, tool_configs) where live_tools are ready to pass to GtAgent
-        and tool_configs are serializable dicts for wrapping the agent output.
-        """
-        live_tools: list = []
-        tool_configs: list = []
-        for item in tool_inputs:
-            if isinstance(item, dict) and "tool_type" in item:
-                tool_configs.append(item)
-                live_tools.append(self._build_tool_from_config(item))
-            else:
-                live_tools.append(item)
-        return live_tools, tool_configs
-
-    def _unwrap_agent(self, value: dict) -> tuple[dict, list, list]:
-        """Detect new wrapper format vs old raw agent dict.
-
-        Returns (agent_core_dict, tool_configs, ruleset_configs).
-        """
-        if "agent" in value and "tools" in value:
-            return value["agent"], value.get("tools", []), value.get("rulesets", [])
-        return value, [], []
-
-    def _wrap_agent(self, agent_dict: dict, tool_configs: list, ruleset_configs: list) -> dict:
-        """Strip non-serializable fields from agent dict and wrap with config lists."""
-        for task in agent_dict.get("tasks", []):
-            task["tools"] = []
-            task.pop("rulesets", None)
-            task.pop("rules", None)
-        agent_dict.pop("rulesets", None)
-        agent_dict.pop("rules", None)
-        return {
-            "agent": agent_dict,
-            "tools": tool_configs,
-            "rulesets": ruleset_configs,
-        }
 
     # --- Helper Methods ---
 
@@ -783,7 +718,7 @@ class Agent(ControlNode):
 
         # Get any tools — may be live objects or serializable config dicts (e.g. MCPTool)
         raw_tool_inputs = self.get_parameter_list_value("tools")
-        live_tools, tool_configs = self._build_tools(raw_tool_inputs)
+        live_tools, tool_configs = build_tools(raw_tool_inputs)
         tools = live_tools
         if include_details and live_tools:
             names = []
@@ -796,8 +731,8 @@ class Agent(ControlNode):
 
         # Get any rulesets — convert live objects to serializable configs so they survive chaining.
         raw_rulesets = self.get_parameter_list_value("rulesets")
-        ruleset_configs: list = [c for c in (self._ruleset_to_config(r) for r in raw_rulesets) if c]
-        rulesets = self._build_rulesets_from_configs(ruleset_configs)
+        ruleset_configs: list = [c for c in (ruleset_to_config(r) for r in raw_rulesets) if c]
+        rulesets = build_rulesets_from_configs(ruleset_configs)
         if include_details and rulesets:
             self.append_value_to_parameter(
                 "logs",
@@ -838,17 +773,17 @@ class Agent(ControlNode):
         agent_input = self.get_parameter_value("agent")
         if isinstance(agent_input, dict):
             # Unwrap the new-format wrapper (or handle old raw agent dict gracefully).
-            agent_core_dict, incoming_tool_configs, incoming_ruleset_configs = self._unwrap_agent(agent_input)
+            agent_core_dict, incoming_tool_configs, incoming_ruleset_configs = unwrap_agent(agent_input)
             agent = GtAgent().from_dict(agent_core_dict)
             # Rebuild tools from the incoming config so the live connection is fresh.
             if incoming_tool_configs:
-                incoming_live_tools, _ = self._build_tools(incoming_tool_configs)
+                incoming_live_tools, _ = build_tools(incoming_tool_configs)
                 if incoming_live_tools and agent.tasks:
                     agent.tasks[0].tools = incoming_live_tools
                 tool_configs = incoming_tool_configs  # carry forward for output wrap
             # Merge incoming rulesets with any rulesets connected at this node; set directly on _rulesets.
             ruleset_configs = incoming_ruleset_configs + ruleset_configs
-            agent._rulesets = self._build_rulesets_from_configs(ruleset_configs)
+            agent._rulesets = build_rulesets_from_configs(ruleset_configs)
             # make sure the agent is using a PromptTask
             if not isinstance(agent.tasks[0], PromptTask):
                 agent.add_task(PromptTask(prompt_driver=default_prompt_driver, output_schema=pydantic_schema))
@@ -881,20 +816,26 @@ class Agent(ControlNode):
             yield lambda: self._process(agent, prompt)
             self.append_value_to_parameter("logs", "\n[Finished processing agent.]\n")
             try_throw_error(agent.output)
-            # Streaming accumulates all tokens including intermediate monologue before tool
-            # calls. Settle the output parameter to the final stored answer so what the
-            # artist sees and what is in memory are always the same.
-            if agent is not None and agent.conversation_memory and agent.conversation_memory.runs:
-                final_output = agent.conversation_memory.runs[-1].output.to_text()
-                self.set_parameter_value("output", final_output)
+            # Settle the output field to the final answer only — not the [Verified tool use: ...]
+            # block we prepend to memory for downstream agents.  _process() saves the raw answer
+            # in self._last_raw_output before modifying memory; fall back to memory when no tools ran.
+            raw_output = getattr(self, "_last_raw_output", None)
+            if raw_output is not None:
+                self.set_parameter_value("output", raw_output)
+                self._last_raw_output = None
+            elif agent is not None and agent.conversation_memory and agent.conversation_memory.runs:
+                self.set_parameter_value("output", agent.conversation_memory.runs[-1].output.to_text())
         else:
             self.append_value_to_parameter("logs", "[No prompt provided, creating Agent.]\n")
             self.parameter_output_values["output"] = "Agent created."
+        if agent is None:
+            msg = "Agent was not initialized"
+            raise RuntimeError(msg)
         # Clear tools from the live agent before serializing — MCPTool connections are not
         # serializable. They're rebuilt from tool_configs when the next node unwraps.
         if agent.tasks:
             agent.tasks[0].tools = []
-        self.parameter_output_values["agent"] = self._wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
+        self.parameter_output_values["agent"] = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
 
     def _process(self, agent: GtAgent, prompt: BaseArtifact | str) -> Structure:  # noqa: C901, PLR0912
         """Performs the synchronous, streaming interaction with the Griptape Agent.
@@ -968,14 +909,16 @@ class Agent(ControlNode):
                     if isinstance(event, FinishActionsSubtaskEvent) and event.subtask_parent_task_id == task.id:
                         subtask_events.append(event)
 
-            # Prepend verified tool-use record to memory so output and memory match
-            # and downstream agents have clear evidence of every tool call.
+            # Prepend verified tool-use record to memory so downstream agents have
+            # clear evidence of every tool call.  Save the raw final answer first so
+            # the output field shows just the answer, not the metadata block.
             if subtask_events and agent.conversation_memory and agent.conversation_memory.runs:
                 exchange = self._build_tool_exchange(subtask_events)
                 last_run = agent.conversation_memory.runs[-1]
+                self._last_raw_output = last_run.output.to_text()
                 agent.conversation_memory.runs[-1] = Run(
                     input=TextArtifact(value=last_run.input.to_text()),
-                    output=TextArtifact(value=exchange + last_run.output.to_text()),
+                    output=TextArtifact(value=exchange + self._last_raw_output),
                 )
 
         else:

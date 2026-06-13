@@ -1,10 +1,10 @@
 from typing import Literal
 
 from griptape.tools import BaseTool as GtBaseTool
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 
-VariantType = Literal["info", "warning", "error", "success", "tip", "none"]
+VariantType = Literal["info", "warning", "error", "success", "tip", "note", "help", "docs", "link", "cloud-upload"]
 
 
 class BaseTool(DataNode):
@@ -19,26 +19,24 @@ class BaseTool(DataNode):
 
     def __init__(self, name: str, metadata: dict | None = None) -> None:
         super().__init__(name, metadata)
-        self.add_node_element(
-            ParameterMessage(
-                name="tool_info",
-                variant="info",
-                value="This tool can be provided to an agent to help it perform tasks.",
-                ui_options={"full_width": True},
-            )
-        )
 
-        self.add_parameter(
-            Parameter(
-                name="tool",
-                input_types=["Tool"],
-                type="Tool",
-                output_type="Tool",
-                default_value=None,
-                allowed_modes={ParameterMode.OUTPUT},
-                tooltip="",
-            )
+        tool_param = Parameter(
+            name="tool",
+            input_types=["Tool"],
+            type="Tool",
+            output_type="Tool",
+            default_value=None,
+            allowed_modes={ParameterMode.OUTPUT},
+            tooltip="Connect this to an Agent's tools input.",
         )
+        tool_param.set_badge(
+            variant="info",
+            title="Tool",
+            message="This tool can be provided to an agent to help it perform tasks.",
+            hide_clear_button=True,
+        )
+        self.add_parameter(tool_param)
+
         self.add_parameter(
             Parameter(
                 name="off_prompt",
@@ -50,15 +48,16 @@ class BaseTool(DataNode):
             )
         )
 
-    def update_tool_info(self, value: str = "", title: str = "", variant: VariantType = "tip") -> None:
-        message = self.get_message_by_name_or_element_id("tool_info")
-        if message:
-            if value:
-                message.value = value
-            if title:
-                message.title = title
-            if variant:
-                message.variant = variant
+    def update_tool_info(self, value: str = "", title: str = "", variant: VariantType = "info") -> None:
+        tool_param = self.get_parameter_by_name("tool")
+        if tool_param is None:
+            return
+        tool_param.set_badge(
+            variant=variant,
+            title=title or None,
+            message=value or None,
+            hide_clear_button=True,
+        )
 
     def process(self) -> None:
         off_prompt = self.parameter_values.get("off_prompt", False)
