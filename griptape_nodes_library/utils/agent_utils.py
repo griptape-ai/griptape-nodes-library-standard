@@ -61,12 +61,30 @@ def wrap_agent(agent_dict: dict, tool_configs: list, ruleset_configs: list) -> d
     in the wrapper's tool_configs / ruleset_configs lists and are rebuilt fresh
     on the next node.
     """
+    import json as _json
+
     for task in agent_dict.get("tasks", []):
         task["tools"] = []
         task.pop("rulesets", None)
         task.pop("rules", None)
     agent_dict.pop("rulesets", None)
     agent_dict.pop("rules", None)
+
+    # Coerce any non-TextArtifact memory outputs to plain text.
+    # ModelArtifact (schema output) stores a dict as `value`, which the Anthropic
+    # API rejects when it's reconstructed as a message content block downstream.
+    memory = agent_dict.get("conversation_memory", {})
+    for run in memory.get("runs", []):
+        output = run.get("output", {})
+        if isinstance(output, dict) and output.get("type") != "TextArtifact":
+            value = output.get("value", "")
+            if not isinstance(value, str):
+                value = _json.dumps(value)
+            run["output"] = {
+                "type": "TextArtifact",
+                "value": value,
+            }
+
     return {
         "agent": agent_dict,
         "tools": tool_configs,
