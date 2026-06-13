@@ -3,12 +3,12 @@ from typing import Any
 
 from griptape.artifacts import TextArtifact
 from griptape.memory.structure import Run
-from griptape.structures.agent import Agent
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
 from griptape_nodes_library.utils.agent_utils import unwrap_agent, wrap_agent
 
 
@@ -63,14 +63,14 @@ class ReplaceItemInAgentMemory(ControlNode):
         )
         self.add_parameter(self.new_output)
 
-    def _get_agent(self) -> Agent | None:
+    def _get_agent(self) -> GtAgent | None:
         """Get the agent object from the parameter value, returning None if unavailable."""
         agent_value = self.get_parameter_value("agent")
         if agent_value is None:
             return None
 
         agent_core_dict, _, _ = unwrap_agent(agent_value)
-        agent = Agent.from_dict(agent_core_dict)
+        agent = GtAgent().from_dict(agent_core_dict)
         if agent is None or agent.conversation_memory is None:
             return None
 

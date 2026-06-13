@@ -1,9 +1,9 @@
 from typing import Any
 
-from griptape.structures.agent import Agent
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
 
+from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
 from griptape_nodes_library.utils.agent_utils import unwrap_agent, wrap_agent
 
 
@@ -28,7 +28,7 @@ class ClearAgentMemory(ControlNode):
             return
 
         agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_value)
-        agent = Agent.from_dict(agent_core_dict)
+        agent = GtAgent().from_dict(agent_core_dict)
         if agent is None or agent.conversation_memory is None:
             return
 
