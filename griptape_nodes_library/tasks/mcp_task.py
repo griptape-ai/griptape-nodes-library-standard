@@ -16,6 +16,8 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent
+from griptape_nodes_library.utils.agent_utils import build_tools, unwrap_agent, wrap_agent
 from griptape_nodes_library.utils.mcp_utils import (
     create_mcp_tool,
     get_available_mcp_servers,
@@ -264,13 +266,22 @@ class MCPTaskNode(SuccessFailureNode):
         try:
             rulesets = []
             tools = []
-            agent = self.get_parameter_value("agent")
-            if isinstance(agent, dict):
-                agent = Agent().from_dict(agent)
+            self._tool_configs: list = []
+            self._ruleset_configs: list = []
+            agent_input = self.get_parameter_value("agent")
+            if isinstance(agent_input, dict):
+                agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_input)
+                agent = GriptapeNodesAgent().from_dict(agent_core_dict)
                 task = agent.tasks[0]
                 driver = task.prompt_driver
-                tools = task.tools
+                if tool_configs:
+                    live_tools, _ = build_tools(tool_configs)
+                    tools = live_tools
+                else:
+                    tools = task.tools
                 rulesets = task.rulesets
+                self._tool_configs = tool_configs
+                self._ruleset_configs = ruleset_configs
             else:
                 driver = self._create_driver()
                 agent = Agent()
@@ -363,12 +374,15 @@ class MCPTaskNode(SuccessFailureNode):
     def _set_success_output_values(self, result: Agent) -> None:
         """Set output parameter values on success."""
         self.parameter_output_values["output"] = str(result.output) if result.output else ""
-        # Remove the MCP Tool from the agent
+        # Remove MCPTool from agent before serializing — not serializable, travels via tool_configs
         if isinstance(result.tasks[0], PromptTask) and result.tasks[0].tools:
-            # Filter out MCPTool instances, keep other tools
             result.tasks[0].tools = [tool for tool in result.tasks[0].tools if not isinstance(tool, MCPTool)]
 
-        self.parameter_output_values["agent"] = result.to_dict()
+        self.parameter_output_values["agent"] = wrap_agent(
+            result.to_dict(),
+            getattr(self, "_tool_configs", []),
+            getattr(self, "_ruleset_configs", []),
+        )
 
     def _set_failure_output_values(self) -> None:
         """Set output parameter values to defaults on failure."""
