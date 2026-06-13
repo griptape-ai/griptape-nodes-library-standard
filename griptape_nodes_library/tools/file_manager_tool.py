@@ -1,9 +1,6 @@
 from typing import Any, cast
 
 import httpx
-from griptape.drivers.file_manager.griptape_cloud import GriptapeCloudFileManagerDriver
-from griptape.drivers.file_manager.local import LocalFileManagerDriver
-from griptape.tools import FileManagerTool as GtFileManagerTool
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
