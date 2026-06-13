@@ -7,6 +7,7 @@ consumes an Agent value imports from here so the logic lives in one place.
 
 from griptape.rules import Rule, Ruleset
 
+
 # ---------------------------------------------------------------------------
 # Temporary monkey-patch — remove when https://github.com/griptape-ai/griptape/pull/2200 is merged and released.
 # exa-py v2 dropped use_autoprompt from search_and_contents(); ExaWebSearchDriver still passes it.
@@ -25,10 +26,12 @@ def _patch_exa_driver() -> None:
                 **self.params,  # type: ignore[attr-defined]
                 **kwargs,
             )
-            return ListArtifact([
-                JsonArtifact({"title": r.title, "url": r.url, "highlights": r.highlights, "text": r.text})
-                for r in response.results
-            ])
+            return ListArtifact(
+                [
+                    JsonArtifact({"title": r.title, "url": r.url, "highlights": r.highlights, "text": r.text})
+                    for r in response.results
+                ]
+            )
 
         ExaWebSearchDriver.search = _search  # type: ignore[method-assign]
     except ImportError:
