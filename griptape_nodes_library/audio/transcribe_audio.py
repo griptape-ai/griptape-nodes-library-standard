@@ -3,16 +3,21 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from griptape.artifacts import TextArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
+from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
+from griptape.memory.structure import Run
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
+from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger(__name__)
@@ -65,6 +70,17 @@ class TranscribeAudio(GriptapeProxyNode):
         self.description = "Transcribe audio to text using OpenAI models via Griptape Cloud proxy"
 
         # --- INPUT PARAMETERS ---
+        self.add_parameter(
+            Parameter(
+                name="agent",
+                type="Agent",
+                output_type="Agent",
+                tooltip="Optional agent to pass through the pipeline. The transcribed text is added to the agent's conversation memory.",
+                default_value=None,
+                allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
+            )
+        )
+
         self.add_parameter(
             ParameterAudio(
                 name="audio",
@@ -294,6 +310,30 @@ class TranscribeAudio(GriptapeProxyNode):
 
         self.parameter_output_values["output"] = text
 
+        # Thread the agent through (matching create_image.py: always output an agent)
+        try:
+            agent_input = self.get_parameter_value("agent")
+            if isinstance(agent_input, dict):
+                agent = GtAgent().from_dict(agent_input)
+            else:
+                api_key = GriptapeNodes.SecretsManager().get_secret(self.API_KEY_NAME)
+                agent = GtAgent(prompt_driver=GriptapeCloudPromptDriver(model="gpt-4o-mini", api_key=api_key))
+            # The transcription ran through the proxy, not through the agent's task system,
+            # so we append a run directly rather than using insert_false_memory (which replaces runs[-1]).
+            if agent.conversation_memory is not None:
+                agent.conversation_memory.runs.append(
+                    Run(
+                        input=TextArtifact("I'm passing you some audio to transcribe."),
+                        output=TextArtifact(
+                            f"<Thought>I temporarily used an Audio Transcription tool</Thought>{text}"
+                            '\n<THOUGHT>\nmeta={"used_tool": true, "tool": "AudioTranscriptionTool"}\n</THOUGHT>'
+                        ),
+                    )
+                )
+            self.parameter_output_values["agent"] = agent.to_dict()
+        except Exception as e:
+            logger.warning("TranscribeAudio: failed to thread agent: %s", e)
+
         # Verbose JSON fields
         words = result_json.get("words")
         if words is not None:
@@ -315,6 +355,7 @@ class TranscribeAudio(GriptapeProxyNode):
 
     def _set_safe_defaults(self) -> None:
         """Set safe default values for outputs."""
+        self.parameter_output_values["agent"] = None
         self.parameter_output_values["output"] = None
         self.parameter_output_values["words"] = None
         self.parameter_output_values["segments"] = None
