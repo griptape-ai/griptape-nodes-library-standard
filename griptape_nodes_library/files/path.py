@@ -90,6 +90,17 @@ class FilePathComponents(DataNode):
         )
 
         self.add_parameter(
+            Parameter(
+                name="parts",
+                type="list",
+                allow_input=False,
+                allow_property=False,
+                default_value=[],
+                tooltip="The parts of the path as a list (e.g., ['path', 'to', 'file.txt']).",
+            )
+        )
+
+        self.add_parameter(
             ParameterString(
                 name="query_params",
                 allow_input=False,
@@ -109,6 +120,7 @@ class FilePathComponents(DataNode):
         parent = ""
         parent_name = ""
         query_params = ""
+        parts = []
 
         # Extract components if path is provided
         if path_str:
@@ -129,6 +141,7 @@ class FilePathComponents(DataNode):
             extension = path_obj.suffix
             parent = str(path_obj.parent) if path_obj.parent else ""
             parent_name = path_obj.parent.name if path_obj.parent else ""
+            parts = list(path_obj.parts)
 
         # Set output values and publish updates
         self.parameter_output_values["filename"] = filename
@@ -137,6 +150,7 @@ class FilePathComponents(DataNode):
         self.parameter_output_values["parent"] = parent
         self.parameter_output_values["parent_name"] = parent_name
         self.parameter_output_values["query_params"] = query_params
+        self.parameter_output_values["parts"] = parts
 
         self.publish_update_to_parameter("filename", filename)
         self.publish_update_to_parameter("stem", stem)
@@ -144,6 +158,7 @@ class FilePathComponents(DataNode):
         self.publish_update_to_parameter("parent", parent)
         self.publish_update_to_parameter("parent_name", parent_name)
         self.publish_update_to_parameter("query_params", query_params)
+        self.publish_update_to_parameter("parts", parts)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "path":
