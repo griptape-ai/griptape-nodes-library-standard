@@ -458,7 +458,7 @@
       "file_path": "griptape_nodes_library/number/create_bool.py",
       "metadata": {
         "category": "number",
-        "description": "Creates a boolean value.",
+        "description": "Create a boolean (true/false) value with an input node.",
         "display_name": "Bool Input",
         "icon": "toggle-right",
         "group": "general",
@@ -466,7 +466,8 @@
           "boolean",
           "number",
           "input",
-          "logic"
+          "logic",
+          "create"
         ]
       }
     },
@@ -1955,14 +1956,15 @@
       "file_path": "griptape_nodes_library/json/json_input.py",
       "metadata": {
         "category": "json",
-        "description": "Create a JSON node from input data",
+        "description": "Create JSON data with an input node.",
         "display_name": "JSON Input",
         "icon": "file-json",
         "group": "create",
         "tags": [
           "json",
           "data",
-          "input"
+          "input",
+          "create"
         ]
       }
     },
@@ -2035,14 +2037,15 @@
       "file_path": "griptape_nodes_library/yaml/yaml_input.py",
       "metadata": {
         "category": "yaml",
-        "description": "Create a YAML node from input data",
+        "description": "Create YAML data with an input node.",
         "display_name": "YAML Input",
         "icon": "file-code",
         "group": "create",
         "tags": [
           "yaml",
           "data",
-          "input"
+          "input",
+          "create"
         ]
       }
     },
@@ -2098,14 +2101,15 @@
       "file_path": "griptape_nodes_library/xml/xml_input.py",
       "metadata": {
         "category": "xml",
-        "description": "Create an XML node from input data",
+        "description": "Create XML data with an input node.",
         "display_name": "XML Input",
         "icon": "file-code",
         "group": "create",
         "tags": [
           "xml",
           "data",
-          "input"
+          "input",
+          "create"
         ]
       }
     },
@@ -2161,14 +2165,15 @@
       "file_path": "griptape_nodes_library/html/html_input.py",
       "metadata": {
         "category": "html",
-        "description": "Create an HTML node from input data",
+        "description": "Create HTML data with an input node.",
         "display_name": "HTML Input",
         "icon": "file-code",
         "group": "create",
         "tags": [
           "html",
           "data",
-          "input"
+          "input",
+          "create"
         ]
       }
     },
@@ -3607,14 +3612,15 @@
       "file_path": "griptape_nodes_library/number/create_float.py",
       "metadata": {
         "category": "number",
-        "description": "Create a float value",
+        "description": "Create a float (decimal) value with an input node.",
         "display_name": "Float Input",
         "icon": "decimals-arrow-right",
         "group": "create",
         "tags": [
           "number",
           "input",
-          "float"
+          "float",
+          "create"
         ]
       }
     },
@@ -3623,13 +3629,14 @@
       "file_path": "griptape_nodes_library/number/create_int.py",
       "metadata": {
         "category": "number",
-        "description": "Create an integer value",
+        "description": "Create an integer (whole number) value with an input node.",
         "display_name": "Integer Input",
         "group": "create",
         "tags": [
           "number",
           "input",
-          "integer"
+          "integer",
+          "create"
         ]
       }
     },
@@ -3923,13 +3930,14 @@
       "file_path": "griptape_nodes_library/text/create_multiline_text.py",
       "metadata": {
         "category": "text",
-        "description": "TextInput node",
+        "description": "Create text with an input node.",
         "display_name": "Text Input",
         "icon": "text-cursor",
         "group": "create",
         "tags": [
           "text",
-          "input"
+          "input",
+          "create"
         ]
       }
     },
