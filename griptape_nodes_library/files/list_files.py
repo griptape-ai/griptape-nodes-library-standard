@@ -93,7 +93,7 @@ class ListFiles(SuccessFailureNode):
             name="sort_by",
             allow_output=False,
             default_value=SORT_OPTIONS[0],
-            tooltip="Sort results. 'None' preserves filesystem order; 'Alphabetical' sorts by name; 'Date Modified' sorts by last modification time.",
+            tooltip="Sort results. 'Unsorted' preserves filesystem order; 'Alphabetical' sorts by name; 'Date Modified' sorts by last modification time.",
             traits={Options(choices=SORT_OPTIONS)},
         )
 
@@ -101,7 +101,7 @@ class ListFiles(SuccessFailureNode):
             name="sort_order",
             allow_output=False,
             default_value=ORDER_OPTIONS[0],
-            tooltip="Sort direction: 'Ascending' (A→Z or oldest→newest) or 'Descending' (Z→A or newest→oldest). Ignored when sort_by is 'None'.",
+            tooltip="Sort direction: 'Ascending' (A→Z or oldest→newest) or 'Descending' (Z→A or newest→oldest). Ignored when sort_by is 'Unsorted'.",
             traits={Options(choices=ORDER_OPTIONS)},
         )
 
