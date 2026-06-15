@@ -56,7 +56,7 @@ class SelectFromGrid(ControlNode):
                 "items": [],
                 "selected_indices": [],
                 "columns": 3,
-                "layout": "masonry",
+                "layout": "grid",
                 "settings": {"multi_select": True},
             },
             tooltip="Interactive grid selector — click items to select them.",
