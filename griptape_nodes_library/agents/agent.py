@@ -594,13 +594,20 @@ class Agent(ControlNode):
     def validate_before_workflow_run(self) -> list[Exception] | None:
         """Performs pre-run validation checks for the node.
 
-        Currently checks if the Griptape Cloud API key is configured if the default
-        prompt driver is likely to be used.
+        The Griptape Cloud API key is only required when the node would fall back
+        to the default Griptape Cloud prompt driver. A connected agent carries its
+        own driver, and a connected prompt driver (Prompt Model Config) supplies its
+        own credentials, so neither needs the cloud key.
 
         Returns:
             A list of Exception objects if validation fails, otherwise None.
         """
         exceptions = []
+
+        # Mirror the driver-selection precedence in process(): a connected agent or a
+        # connected prompt driver bypass the default Griptape Cloud driver entirely.
+        if not self._uses_griptape_cloud_driver():
+            return None
 
         # Check to see if the API key is set.
         api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
@@ -612,6 +619,18 @@ class Agent(ControlNode):
 
         # Return any exceptions
         return exceptions if exceptions else None
+
+    def _uses_griptape_cloud_driver(self) -> bool:
+        """Return True when the node will build the default Griptape Cloud prompt driver.
+
+        A connected agent supplies its own driver, and a connected prompt driver
+        (``model`` resolved to a ``BasePromptDriver``) supplies its own credentials;
+        in both cases the Griptape Cloud API key is not needed.
+        """
+        if self.get_parameter_value("agent") is not None:
+            return False
+        model_input = self.get_parameter_value("model")
+        return not isinstance(model_input, BasePromptDriver)
 
     def _handle_additional_context(self, prompt: str, additional_context: str | int | float | dict[str, Any]) -> str:  # noqa: PYI041
         """Integrates additional context into the main prompt string.
