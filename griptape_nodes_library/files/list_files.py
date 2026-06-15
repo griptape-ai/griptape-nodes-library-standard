@@ -23,6 +23,8 @@ LIST_OPTIONS = [
     "List files only",
     "List folders only",
 ]
+SORT_OPTIONS = ["None", "Alphabetical", "Date Modified"]
+ORDER_OPTIONS = ["Ascending", "Descending"]
 
 
 class ListFiles(SuccessFailureNode):
@@ -87,6 +89,22 @@ class ListFiles(SuccessFailureNode):
             tooltip="Whether to return absolute paths. If False, returns paths as provided by the system (may be relative or absolute).",
         )
 
+        self.sort_by = ParameterString(
+            name="sort_by",
+            allow_output=False,
+            default_value=SORT_OPTIONS[0],
+            tooltip="Sort results. 'None' preserves filesystem order; 'Alphabetical' sorts by name; 'Date Modified' sorts by last modification time.",
+            traits={Options(choices=SORT_OPTIONS)},
+        )
+
+        self.sort_order = ParameterString(
+            name="sort_order",
+            allow_output=False,
+            default_value=ORDER_OPTIONS[0],
+            tooltip="Sort direction: 'Ascending' (A→Z or oldest→newest) or 'Descending' (Z→A or newest→oldest). Ignored when sort_by is 'None'.",
+            traits={Options(choices=ORDER_OPTIONS)},
+        )
+
         self.add_parameter(self.directory_path)
         self.add_parameter(self.match_pattern)
         self.add_parameter(self.match_pattern_case_sensitive)
@@ -94,6 +112,8 @@ class ListFiles(SuccessFailureNode):
         self.add_parameter(self.recursive)
         self.add_parameter(self.show_hidden)
         self.add_parameter(self.use_absolute_paths)
+        self.add_parameter(self.sort_by)
+        self.add_parameter(self.sort_order)
 
         # Add output parameters
         self.add_parameter(
@@ -305,6 +325,23 @@ class ListFiles(SuccessFailureNode):
                 match_pattern=match_pattern,
                 match_pattern_case_sensitive=match_pattern_case_sensitive,
             )
+        sort_by = self.get_parameter_value("sort_by")
+        sort_order = self.get_parameter_value("sort_order")
+
+        if sort_by != SORT_OPTIONS[0]:  # not "None"
+            reverse = sort_order == ORDER_OPTIONS[1]  # "Descending"
+            if sort_by == SORT_OPTIONS[1]:  # "Alphabetical"
+                filtered_entries.sort(key=lambda e: e.name.casefold(), reverse=reverse)
+            elif sort_by == SORT_OPTIONS[2]:  # "Date Modified"
+
+                def _mtime(e) -> float:
+                    try:
+                        return Path(e.absolute_path).stat().st_mtime
+                    except OSError:
+                        return 0.0
+
+                filtered_entries.sort(key=_mtime, reverse=reverse)
+
         file_paths = self._convert_paths(filtered_entries, use_absolute_paths=use_absolute_paths)
         file_names = [entry.name for entry in filtered_entries]
 
