@@ -1,3 +1,4 @@
+import hashlib
 import json
 from typing import Any
 
@@ -247,7 +248,11 @@ class SelectFromGrid(ControlNode):
         if isinstance(artifact, ImageArtifact):
             try:
                 thumb, ext = self._make_thumbnail(artifact.value)
-                return GriptapeNodes.StaticFilesManager().save_static_file(thumb, f"grid_thumb_{id(artifact)}.{ext}")
+                # Same image bytes always produce the same filename, so if the same image
+                # appears more than once it reuses the existing file instead of writing another.
+                # Follows the pattern in add_text_to_existing_image.py.
+                content_hash = hashlib.md5(artifact.value).hexdigest()[:16]  # noqa: S324
+                return GriptapeNodes.StaticFilesManager().save_static_file(thumb, f"grid_thumb_{content_hash}.{ext}")
             except Exception:
                 return ""
         # ImageUrlArtifact — value is a URL string (possibly macro://)
