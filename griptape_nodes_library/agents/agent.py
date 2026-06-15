@@ -194,7 +194,11 @@ class Agent(ControlNode):
                 default_value=[],
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 collapsed=True,
-                ui_options={"placeholder_text": "Agent behavior or rules."},
+                ui_options={
+                    "placeholder_text": "e.g. Always respond in a friendly tone",
+                    "child_prefix": "Behavior",
+                    "display_name": "Behaviors (Rulesets)",
+                },
             )
         )
 
