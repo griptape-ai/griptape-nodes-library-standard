@@ -5,13 +5,14 @@ from contextlib import suppress
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
+from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
@@ -19,6 +20,13 @@ from griptape_nodes_library.proxy import GriptapeProxyNode
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["GrokImageGeneration"]
+
+# Deprecated models and their replacements (covers both friendly names and raw provider IDs
+# so saved workflows in either format are migrated)
+DEPRECATED_MODELS = {
+    "Grok 2 Image": "Grok Imagine Image",
+    "grok-2-image-1212": "Grok Imagine Image",
+}
 
 
 class GrokImageGeneration(GriptapeProxyNode):
@@ -43,7 +51,6 @@ class GrokImageGeneration(GriptapeProxyNode):
 
     MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
         "Grok Imagine Image": "grok-imagine-image",
-        "Grok 2 Image": "grok-2-image-1212",
     }
 
     MIN_IMAGES: ClassVar[int] = 1
@@ -80,7 +87,24 @@ class GrokImageGeneration(GriptapeProxyNode):
                 default_value="Grok Imagine Image",
                 tooltip="Select the Grok image model to use",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["Grok Imagine Image", "Grok 2 Image"])},
+                traits={Options(choices=["Grok Imagine Image"])},
+            )
+        )
+
+        self.add_node_element(
+            ParameterMessage(
+                name="model_deprecation_notice",
+                title="Model Deprecation Notice",
+                variant="info",
+                value="",
+                traits={
+                    Button(
+                        full_width=True,
+                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
+                    )
+                },
+                button_text="Dismiss",
+                hide=True,
             )
         )
 
@@ -169,26 +193,24 @@ class GrokImageGeneration(GriptapeProxyNode):
             result_details_placeholder="Generation status and details will appear here.",
             parameter_group_initially_collapsed=True,
         )
-        self._initialize_parameter_visibility()
 
-    def _initialize_parameter_visibility(self) -> None:
-        model_name = self.get_parameter_value("model") or "Grok Imagine Image"
-        if self._supports_quality(model_name):
-            self.show_parameter_by_name("quality")
-        else:
-            self.hide_parameter_by_name("quality")
+    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
+        """Migrate deprecated model selections to their replacement."""
+        if parameter.name == "model" and isinstance(value, str) and value in DEPRECATED_MODELS:
+            replacement = DEPRECATED_MODELS[value]
+            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
+            if message is None:
+                raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
+            message.value = (
+                f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. "
+                "Please save your workflow to apply this change."
+            )
+            self.show_message_by_name("model_deprecation_notice")
+            value = replacement
+        elif parameter.name == "model" and isinstance(value, str):
+            self.hide_message_by_name("model_deprecation_notice")
 
-    @staticmethod
-    def _supports_quality(model_name: str) -> bool:
-        return model_name != "Grok 2 Image"
-
-    def after_value_set(self, parameter: Any, value: Any) -> None:
-        if parameter.name == "model":
-            if self._supports_quality(value):
-                self.show_parameter_by_name("quality")
-            else:
-                self.hide_parameter_by_name("quality")
-        return super().after_value_set(parameter, value)
+        return super().before_value_set(parameter, value)
 
     def _show_image_output_parameters(self, count: int) -> None:
         for i in range(1, 11):
@@ -234,9 +256,8 @@ class GrokImageGeneration(GriptapeProxyNode):
             "n": n_value,
             "resolution": resolution,
             "response_format": "url",
+            "quality": self.get_parameter_value("quality") or "medium",
         }
-        if self._supports_quality(self.get_parameter_value("model") or "Grok Imagine Image"):
-            payload["quality"] = self.get_parameter_value("quality") or "medium"
 
         return payload
 
