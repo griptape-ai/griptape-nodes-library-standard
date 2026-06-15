@@ -1,6 +1,4 @@
 import openai
-from griptape.drivers.audio_transcription.openai import OpenAiAudioTranscriptionDriver
-from griptape.tools.audio_transcription.tool import AudioTranscriptionTool as GtAudioTranscriptionTool
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.tools.base_tool import BaseTool
@@ -12,18 +10,8 @@ DEFAULT_MODEL = "whisper-1"
 
 class AudioTranscription(BaseTool):
     def process(self) -> None:
-        self.parameter_values.get("off_prompt", True)
-        driver = self.parameter_values.get("driver", None)
-
-        # Set default driver if none provided
-        if not driver:
-            driver = OpenAiAudioTranscriptionDriver(model=DEFAULT_MODEL)
-
-        # Create the tool with parameters
-        tool = GtAudioTranscriptionTool(audio_transcription_driver=driver)
-
-        # Set the output
-        self.parameter_output_values["tool"] = tool
+        model = self.parameter_values.get("model", DEFAULT_MODEL) or DEFAULT_MODEL
+        self.parameter_output_values["tool"] = {"tool_type": "AudioTranscription", "model": model}
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
         exceptions = []
