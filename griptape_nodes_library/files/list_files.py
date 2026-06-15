@@ -23,7 +23,7 @@ LIST_OPTIONS = [
     "List files only",
     "List folders only",
 ]
-SORT_OPTIONS = ["None", "Alphabetical", "Date Modified"]
+SORT_OPTIONS = ["Unsorted", "Alphabetical", "Date Modified"]
 ORDER_OPTIONS = ["Ascending", "Descending"]
 
 
@@ -328,7 +328,7 @@ class ListFiles(SuccessFailureNode):
         sort_by = self.get_parameter_value("sort_by")
         sort_order = self.get_parameter_value("sort_order")
 
-        if sort_by != SORT_OPTIONS[0]:  # not "None"
+        if sort_by != SORT_OPTIONS[0]:  # not "Unsorted"
             reverse = sort_order == ORDER_OPTIONS[1]  # "Descending"
             if sort_by == SORT_OPTIONS[1]:  # "Alphabetical"
                 filtered_entries.sort(key=lambda e: e.name.casefold(), reverse=reverse)
