@@ -189,11 +189,16 @@ class Agent(ControlNode):
         self.add_parameter(
             ParameterList(
                 name="rulesets",
-                input_types=["Ruleset", "list[Ruleset]"],
-                tooltip="Rulesets to apply to the agent to control its behavior.",
+                input_types=["str", "Ruleset", "list[Ruleset]"],
+                tooltip="Rulesets to apply to the agent to control its behavior.\nConnect Ruleset nodes, or connect a Text Input node to define behavior inline as plain text.",
                 default_value=[],
-                allowed_modes={ParameterMode.INPUT},
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 collapsed=True,
+                ui_options={
+                    "placeholder_text": "e.g. Always respond in a friendly tone",
+                    "child_prefix": "Behavior",
+                    "display_name": "Behaviors (Rulesets)",
+                },
             )
         )
 
@@ -586,6 +591,12 @@ class Agent(ControlNode):
             # When schema is connected, change output type to json and validate connections
             self._update_output_type_and_validate_connections("json")
 
+        # Hide the text field for connected non-string rulesets children to prevent [object Object].
+        rulesets_param = self.get_parameter_by_name("rulesets")
+        if rulesets_param and target_parameter in rulesets_param.children:
+            if source_parameter.output_type in ("Ruleset", "list[Ruleset]"):
+                target_parameter.hide_property = True
+
         return super().after_incoming_connection(source_node, source_parameter, target_parameter)
 
     def after_incoming_connection_removed(
@@ -628,6 +639,11 @@ class Agent(ControlNode):
         # NOTE: This is a workaround. Ideally this is done automatically.
         if target_parameter.name == "additional_context":
             target_parameter.allowed_modes = {ParameterMode.INPUT, ParameterMode.PROPERTY}
+
+        # Restore text field for disconnected rulesets children.
+        rulesets_param = self.get_parameter_by_name("rulesets")
+        if rulesets_param and target_parameter in rulesets_param.children:
+            target_parameter.hide_property = False
 
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
@@ -749,8 +765,17 @@ class Agent(ControlNode):
             self.append_value_to_parameter("logs", f"[Tools]: {', '.join(names)}\n")
 
         # Get any rulesets — convert live objects to serializable configs so they survive chaining.
+        # Strings are auto-promoted to single-rule rulesets named behavior_1, behavior_2, etc.
         raw_rulesets = self.get_parameter_list_value("rulesets")
-        ruleset_configs: list = [c for c in (ruleset_to_config(r) for r in raw_rulesets) if c]
+        str_counter = 0
+        promoted_rulesets = []
+        for r in raw_rulesets:
+            if isinstance(r, str) and r.strip():
+                str_counter += 1
+                promoted_rulesets.append({"name": f"behavior_{str_counter}", "rules": [r.strip()]})
+            else:
+                promoted_rulesets.append(r)
+        ruleset_configs: list = [c for c in (ruleset_to_config(r) for r in promoted_rulesets) if c]
         rulesets = build_rulesets_from_configs(ruleset_configs)
         if include_details and rulesets:
             self.append_value_to_parameter(
