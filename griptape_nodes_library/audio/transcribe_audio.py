@@ -5,7 +5,6 @@ from typing import Any
 
 from griptape.artifacts import TextArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
-from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.memory.structure import Run
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
@@ -13,12 +12,12 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
 from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.utils.agent_utils import unwrap_agent, wrap_agent
 
 logger = logging.getLogger(__name__)
 
@@ -310,16 +309,18 @@ class TranscribeAudio(GriptapeProxyNode):
 
         self.parameter_output_values["output"] = text
 
-        # Thread the agent through (matching create_image.py: always output an agent)
+        # Thread the agent through using the new wire format (unwrap_agent / wrap_agent).
+        # The proxy handles transcription so no agent.run() is called — we append a Run
+        # directly rather than using insert_false_memory (which replaces runs[-1]).
+        tool_configs: list = []
+        ruleset_configs: list = []
         try:
             agent_input = self.get_parameter_value("agent")
             if isinstance(agent_input, dict):
-                agent = GtAgent().from_dict(agent_input)
+                agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_input)
+                agent = GtAgent().from_dict(agent_core_dict)
             else:
-                api_key = GriptapeNodes.SecretsManager().get_secret(self.API_KEY_NAME)
-                agent = GtAgent(prompt_driver=GriptapeCloudPromptDriver(model="gpt-4o-mini", api_key=api_key))
-            # The transcription ran through the proxy, not through the agent's task system,
-            # so we append a run directly rather than using insert_false_memory (which replaces runs[-1]).
+                agent = GtAgent()
             if agent.conversation_memory is not None:
                 agent.conversation_memory.runs.append(
                     Run(
@@ -330,7 +331,7 @@ class TranscribeAudio(GriptapeProxyNode):
                         ),
                     )
                 )
-            self.parameter_output_values["agent"] = agent.to_dict()
+            self.parameter_output_values["agent"] = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
         except Exception as e:
             logger.warning("TranscribeAudio: failed to thread agent: %s", e)
 

@@ -5,7 +5,6 @@ from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.tools.base_tool import BaseTool
 from griptape_nodes_library.utils.mcp_utils import (
-    create_mcp_tool,
     get_available_mcp_servers,
     get_server_config,
 )
@@ -90,8 +89,9 @@ class MCPToolNode(BaseTool):
             logger.error(f"{self.name}: {error_details}")
             return
 
-        # Create MCP tool using utility function
-        tool = create_mcp_tool(mcp_server_name, server_config)
-
-        # Set the output
-        self.parameter_output_values["tool"] = tool
+        self.parameter_output_values["tool"] = {
+            "tool_type": "MCPTool",
+            "mcp_server_name": mcp_server_name,
+            "server_config": server_config,
+            "rules": server_config.get("rules", ""),
+        }
