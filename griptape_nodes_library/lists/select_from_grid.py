@@ -66,6 +66,15 @@ class SelectFromGrid(ControlNode):
         )
         self.add_parameter(self.grid_param)
 
+        self.multi_select = Parameter(
+            name="multi_select",
+            type="bool",
+            default_value=True,
+            allowed_modes={ParameterMode.PROPERTY},
+            tooltip="Allow selecting multiple items. When disabled, only one item can be selected at a time.",
+        )
+        self.add_parameter(self.multi_select)
+
         self.selected_items = Parameter(
             name="selected_items",
             type="list",
@@ -75,11 +84,22 @@ class SelectFromGrid(ControlNode):
         )
         self.add_parameter(self.selected_items)
 
+        self.selected_item = Parameter(
+            name="selected_item",
+            output_type="any",
+            allowed_modes={ParameterMode.OUTPUT},
+            tooltip="The selected item from the grid, in the same format as the input list.",
+        )
+        self.selected_item.hide_property = True
+        self.add_parameter(self.selected_item)
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == self.list_input.name:
             self._sync_grid_items(value)
         elif parameter.name == self.grid_param.name:
             self._update_output_from_grid(value)
+        elif parameter.name == self.multi_select.name:
+            self._apply_multi_select(bool(value))
         return super().after_value_set(parameter, value)
 
     def process(self) -> None:
@@ -87,7 +107,13 @@ class SelectFromGrid(ControlNode):
         selected_indices = grid_value.get("selected_indices", [])
         list_values = self.get_parameter_value(self.list_input.name) or []
         selected = [list_values[i] for i in selected_indices if isinstance(i, int) and i < len(list_values)]
-        self.parameter_output_values[self.selected_items.name] = selected
+        is_multi = self.get_parameter_value(self.multi_select.name)
+        if is_multi is None:
+            is_multi = True
+        if is_multi:
+            self.parameter_output_values[self.selected_items.name] = selected
+        else:
+            self.parameter_output_values[self.selected_item.name] = selected[0] if selected else None
 
     def _sync_grid_items(self, list_values: Any) -> None:
         """Serialize the incoming list to widget-friendly items and push to the grid parameter."""
@@ -132,6 +158,18 @@ class SelectFromGrid(ControlNode):
                 {**base, "items": list(widget_items), "selected_indices": kept_indices},
             )
 
+    def _apply_multi_select(self, is_multi: bool) -> None:
+        """Switch between multi-select and single-select mode."""
+        current = self.get_parameter_value(self.grid_param.name) or {}
+        settings = dict(current.get("settings", {}))
+        settings["multi_select"] = is_multi
+        self.set_parameter_value(
+            self.grid_param.name,
+            {**current, "settings": settings, "selected_indices": []},
+        )
+        self.selected_items.hide_property = not is_multi
+        self.selected_item.hide_property = is_multi
+
     def _update_output_from_grid(self, grid_value: Any) -> None:
         """Update the output parameter when the user changes the selection in the widget."""
         if not isinstance(grid_value, dict):
@@ -139,8 +177,16 @@ class SelectFromGrid(ControlNode):
         selected_indices = grid_value.get("selected_indices", [])
         list_values = self.get_parameter_value(self.list_input.name) or []
         selected = [list_values[i] for i in selected_indices if isinstance(i, int) and i < len(list_values)]
-        self.parameter_output_values[self.selected_items.name] = selected
-        self.publish_update_to_parameter(self.selected_items.name, selected)
+        is_multi = self.get_parameter_value(self.multi_select.name)
+        if is_multi is None:
+            is_multi = True
+        if is_multi:
+            self.parameter_output_values[self.selected_items.name] = selected
+            self.publish_update_to_parameter(self.selected_items.name, selected)
+        else:
+            item = selected[0] if selected else None
+            self.parameter_output_values[self.selected_item.name] = item
+            self.publish_update_to_parameter(self.selected_item.name, item)
 
     def _serialize_item_placeholder(self, item: Any) -> dict[str, Any]:
         """Return a lightweight placeholder for an item with no resolved URL.
