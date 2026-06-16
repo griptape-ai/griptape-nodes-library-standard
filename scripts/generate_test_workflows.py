@@ -160,13 +160,6 @@ ADVANCED_CONFIGS = [
     # single_image — API proxy nodes
     {
         "template": "single_image",
-        "node_type": "SeedVRImageUpscale",
-        "image_in": "image_url",
-        "output_param": "image",
-        "suffix": "seedvr_image_upscale",
-    },
-    {
-        "template": "single_image",
         "node_type": "TopazImageEnhance",
         "image_in": "image_input",
         "output_param": "image_output",
@@ -271,13 +264,6 @@ ADVANCED_CONFIGS = [
         "video_in": "video",
         "output_param": "resized_video",
         "suffix": "resize_video",
-    },
-    {
-        "template": "video_input",
-        "node_type": "SeedVRVideoUpscale",
-        "video_in": "video_url",
-        "output_param": "video",
-        "suffix": "seedvr_video_upscale",
     },
     # video_and_prompt — LTXTextToVideoGeneration video + a prompt set on the node
     {

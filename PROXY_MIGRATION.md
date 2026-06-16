@@ -189,14 +189,6 @@ def _extract_error_message(self, response_json: dict[str, Any]) -> str:
 - `omnihuman_subject_recognition.py`
 - `omnihuman_subject_detection.py`
 
-**Image Upscaling:**
-
-- `seedvr_image_upscale.py`
-
-**Video Upscaling:**
-
-- `seedvr_video_upscale.py`
-
 ## Common Patterns
 
 ### Handling SeedParameter
