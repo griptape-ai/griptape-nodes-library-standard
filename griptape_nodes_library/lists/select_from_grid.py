@@ -6,6 +6,7 @@ from griptape.artifacts import AudioArtifact, ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import (
     Parameter,
     ParameterMode,
+    ParameterTypeBuiltin,
 )
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -77,8 +78,7 @@ class SelectFromGrid(ControlNode):
 
         self.selected_items = Parameter(
             name="selected_items",
-            type="list",
-            output_type="list",
+            output_type=ParameterTypeBuiltin.ALL.value,
             allowed_modes={ParameterMode.OUTPUT},
             tooltip="The selected items from the grid, in the same format as the input list.",
         )
@@ -86,12 +86,13 @@ class SelectFromGrid(ControlNode):
 
         self.selected_item = Parameter(
             name="selected_item",
-            output_type="any",
+            output_type=ParameterTypeBuiltin.ALL.value,
             allowed_modes={ParameterMode.OUTPUT},
+            hide_property=True,
             tooltip="The selected item from the grid, in the same format as the input list.",
         )
-        self.selected_item.hide_property = True
         self.add_parameter(self.selected_item)
+        self.hide_parameter_by_name("selected_item")
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == self.list_input.name:
@@ -167,8 +168,12 @@ class SelectFromGrid(ControlNode):
             self.grid_param.name,
             {**current, "settings": settings, "selected_indices": []},
         )
-        self.selected_items.hide_property = not is_multi
-        self.selected_item.hide_property = is_multi
+        if is_multi:
+            self.show_parameter_by_name("selected_items")
+            self.hide_parameter_by_name("selected_item")
+        else:
+            self.hide_parameter_by_name("selected_items")
+            self.show_parameter_by_name("selected_item")
 
     def _update_output_from_grid(self, grid_value: Any) -> None:
         """Update the output parameter when the user changes the selection in the widget."""
