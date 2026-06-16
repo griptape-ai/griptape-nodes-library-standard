@@ -241,6 +241,18 @@ class TranscribeAudio(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
 
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter.name == "response_format":
+            if value == "verbose_json":
+                self.show_parameter_by_name("segments")
+                self.show_parameter_by_name("detected_language")
+                self.show_parameter_by_name("duration")
+            else:
+                self.hide_parameter_by_name("segments")
+                self.hide_parameter_by_name("detected_language")
+                self.hide_parameter_by_name("duration")
+        return super().after_value_set(parameter, value)
+
     def before_value_set(self, parameter: Parameter, value: Any) -> Any:
         if parameter.name == "model" and isinstance(value, str) and value in DEPRECATED_MODELS:
             replacement = DEPRECATED_MODELS[value]
@@ -324,9 +336,6 @@ class TranscribeAudio(GriptapeProxyNode):
 
         if temperature is not None and temperature != 0.0:
             payload["temperature"] = temperature
-
-        if response_format == "verbose_json":
-            payload["timestamp_granularities"] = ["word", "segment"]
 
         self._log("Built transcription payload")
         return payload
