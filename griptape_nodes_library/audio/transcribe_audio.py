@@ -1,216 +1,408 @@
-from typing import cast
+from __future__ import annotations
 
+import logging
+from typing import Any
+
+from griptape.artifacts import TextArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
-from griptape.drivers.audio_transcription.base_audio_transcription_driver import BaseAudioTranscriptionDriver
-from griptape.drivers.audio_transcription.openai import OpenAiAudioTranscriptionDriver
-from griptape.loaders import AudioLoader
-from griptape.structures import Structure
-from griptape.tasks import AudioTranscriptionTask, PromptTask
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, ParameterMode
-from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
+from griptape.memory.structure import Run
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
+from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
+from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
+from griptape_nodes.traits.slider import Slider
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
+from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.agent_utils import unwrap_agent, wrap_agent
-from griptape_nodes_library.utils.audio_utils import dict_to_audio_url_artifact
-from griptape_nodes_library.utils.error_utils import try_throw_error
 
-SERVICE = "OpenAI"
-API_KEY_URL = "https://platform.openai.com/api-keys"
-API_KEY_ENV_VAR = "OPENAI_API_KEY"
-MODEL_CHOICES = ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1"]
+logger = logging.getLogger(__name__)
+
+__all__ = ["TranscribeAudio"]
+
+MODEL_CHOICES = ["whisper-1"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 
+# Deprecated models and their replacements (kept for backward-compat with saved graphs)
+DEPRECATED_MODELS = {
+    "gpt-4o-mini-transcribe": "whisper-1",
+    "gpt-4o-transcribe": "whisper-1",
+}
 
-class TranscribeAudio(ControlNode):
-    def __init__(self, **kwargs) -> None:
+MODEL_MAPPING = {
+    "whisper-1": "whisper-1",
+}
+
+RESPONSE_FORMAT_CHOICES = ["json", "verbose_json"]
+DEFAULT_RESPONSE_FORMAT = "json"
+
+
+class TranscribeAudio(GriptapeProxyNode):
+    """Transcribe audio to text using OpenAI models via the Griptape Cloud model proxy.
+
+    Routing transcription through the proxy means users no longer need to set their own
+    ``OPENAI_API_KEY`` — the request is authenticated with the Griptape Cloud API key and
+    billed against Griptape Cloud credits. Supports GPT-4o transcription models and Whisper.
+
+    Inputs:
+        - audio: Audio file to transcribe (mp3, mp4, mpeg, mpga, m4a, wav, webm, flac)
+        - model: Transcription model to use
+        - language: ISO-639-1 language code to improve accuracy
+        - prompt: Optional text to guide transcription style
+        - response_format: Output format (json or verbose_json)
+        - temperature: Sampling temperature (0 = deterministic)
+
+    Outputs:
+        - output (str): Transcribed text from the audio
+        - words (list): Word-level timing data (only with verbose_json)
+        - segments (list): Segment-level data with timing (only with verbose_json)
+        - detected_language (str): Detected language of the audio
+        - duration (float): Duration of the audio in seconds
+        - generation_id (str): Generation ID from the proxy (in the Status group)
+        - provider_response (dict): Verbatim response from the proxy
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
+        self.category = "audio"
+        self.description = "Transcribe audio to text using OpenAI models via Griptape Cloud proxy"
 
+        # --- INPUT PARAMETERS ---
         self.add_parameter(
             Parameter(
                 name="agent",
                 type="Agent",
                 output_type="Agent",
-                tooltip="An agent that can be used to transcribe the audio.",
+                tooltip="Optional agent to pass through the pipeline. The transcribed text is added to the agent's conversation memory.",
                 default_value=None,
+                allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
             )
         )
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value=DEFAULT_MODEL,
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                tooltip="Choose a model, or connect an AudioTranscription Model Configuration or an Agent",
-                traits={Options(choices=MODEL_CHOICES)},
-                ui_options={"display_name": "audio transcription model"},
-            )
-        )
+
         self.add_parameter(
             ParameterAudio(
                 name="audio",
                 default_value=None,
+                tooltip="Audio to transcribe. Supported formats: mp3, mp4, mpeg, mpga, m4a, wav, webm, flac. Max 25MB.",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"clickable_file_browser": True, "expander": True},
-                tooltip="Audio to transcribe",
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
+                name="model",
+                default_value=DEFAULT_MODEL,
+                tooltip="Transcription model to use",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Options(choices=MODEL_CHOICES)},
+                ui_options={"display_name": "audio transcription model"},
+            )
+        )
+
+        self.add_node_element(
+            ParameterMessage(
+                name="model_deprecation_notice",
+                title="Model Deprecated",
+                variant="info",
+                value="",
+                traits={
+                    Button(
+                        full_width=True,
+                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
+                    )
+                },
+                button_text="Dismiss",
+                hide=True,
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
+                name="language",
+                default_value=None,
+                tooltip="ISO-639-1 language code (e.g. en, es, fr). Providing this improves accuracy and speed.",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                placeholder_text="Auto-detect",
+                ui_options={"display_name": "Language"},
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
+                name="prompt",
+                default_value=None,
+                tooltip="Optional text to guide transcription style or provide context. Should match the audio language.",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                multiline=True,
+                placeholder_text="Optional context for the transcription...",
+                ui_options={"display_name": "Prompt"},
+            )
+        )
+
+        # Advanced parameters
+        with ParameterGroup(name="Advanced", ui_options={"collapsed": True}) as advanced_group:
+            ParameterString(
+                name="response_format",
+                default_value=DEFAULT_RESPONSE_FORMAT,
+                tooltip="Output format. Use verbose_json for word/segment timestamps.",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Options(choices=RESPONSE_FORMAT_CHOICES)},
+                ui_options={"display_name": "Response Format"},
+            )
+
+            ParameterFloat(
+                name="temperature",
+                default_value=0.0,
+                tooltip="Sampling temperature between 0 and 1. Higher values produce more random output.",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Slider(min_val=0.0, max_val=1.0)},
+                ui_options={"display_name": "Temperature"},
+            )
+        self.add_node_element(advanced_group)
+
+        # --- OUTPUT PARAMETERS ---
+        self.add_parameter(
+            ParameterDict(
+                name="provider_response",
+                tooltip="Verbatim response from Griptape model proxy",
+                allowed_modes={ParameterMode.OUTPUT},
+                hide_property=True,
+                hide=True,
             )
         )
 
         self.add_parameter(
             ParameterString(
                 name="output",
-                tooltip="None",
+                tooltip="Transcribed text from the audio",
                 default_value=None,
-                allowed_modes={ParameterMode.OUTPUT},
+                allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
+                settable=False,
                 multiline=True,
                 placeholder_text="The transcribed text",
-                ui_options={"display_name": "output"},
+                ui_options={"display_name": "output", "pulse_on_run": True},
             )
         )
 
-        pm = ParameterMessage(
-            name="openai_api_key_message",
-            title="OPENAI_API_KEY Required",
-            variant="warning",
-            value="This node requires an OPENAI_API_KEY.\n\nPlease get an API key and set the key in your Griptape Settings.",
-            button_link=str(API_KEY_URL),
-            button_text="Get API Key",
+        self.add_parameter(
+            ParameterDict(
+                name="words",
+                tooltip="Word-level timing data (only with verbose_json response format)",
+                default_value=None,
+                allowed_modes={ParameterMode.OUTPUT},
+                hide_property=True,
+                hide=True,
+            )
         )
-        self.add_node_element(pm)
-        self.clear_api_key_check()
 
-        self.set_initial_node_size(height=480)
+        self.add_parameter(
+            ParameterDict(
+                name="segments",
+                tooltip="Segment-level data with timing (only with verbose_json response format)",
+                default_value=None,
+                allowed_modes={ParameterMode.OUTPUT},
+                hide_property=True,
+                hide=True,
+            )
+        )
 
-    def clear_api_key_check(self) -> bool:
-        # Check to see if the API key is set, if not we'll show the message
-        # TODO(jason): Implement a better way to check for the API key after https://github.com/griptape-ai/griptape-nodes/issues/1309
-        message_name = "openai_api_key_message"
-        api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
-        if api_key:
-            self.hide_message_by_name(message_name)
-            return True
-        self.show_message_by_name(message_name)
-        return False
+        self.add_parameter(
+            ParameterString(
+                name="detected_language",
+                tooltip="Detected language of the audio",
+                default_value=None,
+                allowed_modes={ParameterMode.OUTPUT},
+                hide_property=True,
+                hide=True,
+            )
+        )
 
-    def validate_before_workflow_run(self) -> list[Exception] | None:
-        # TODO: https://github.com/griptape-ai/griptape-nodes/issues/871
-        exceptions = []
-        api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
-        self.clear_api_key_check()
-        if not api_key:
-            msg = f"{API_KEY_ENV_VAR} is not defined"
-            exceptions.append(KeyError(msg))
-            return exceptions
-        return exceptions if exceptions else None
+        self.add_parameter(
+            ParameterFloat(
+                name="duration",
+                tooltip="Duration of the audio in seconds",
+                default_value=None,
+                allowed_modes={ParameterMode.OUTPUT},
+                hide_property=True,
+                hide=True,
+            )
+        )
 
-    def after_incoming_connection(
-        self,
-        source_node: BaseNode,
-        source_parameter: Parameter,
-        target_parameter: Parameter,
-    ) -> None:
-        if target_parameter.name == "agent":
-            self.hide_parameter_by_name("model")
+        # Status parameters MUST be last; this also injects generation_id, generation_status,
+        # and the Refresh affordance into the Status group.
+        self._create_status_parameters(
+            result_details_tooltip="Details about the transcription result or any errors",
+            result_details_placeholder="Transcription status will appear here...",
+            parameter_group_initially_collapsed=True,
+        )
 
-        if target_parameter.name == "model" and source_parameter.name == "text_to_speech_model_config":
-            # Check and see if the incoming connection is from a prompt model config or an agent.
-            target_parameter.type = source_parameter.type
-            target_parameter.remove_trait(trait_type=target_parameter.find_elements_by_type(Options)[0])
-            ui_options = target_parameter.ui_options
-            ui_options["display_name"] = source_parameter.ui_options.get("display_name", source_parameter.name)
-            target_parameter.ui_options = ui_options
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter.name == "response_format":
+            if value == "verbose_json":
+                self.show_parameter_by_name("segments")
+                self.show_parameter_by_name("detected_language")
+                self.show_parameter_by_name("duration")
+            else:
+                self.hide_parameter_by_name("segments")
+                self.hide_parameter_by_name("detected_language")
+                self.hide_parameter_by_name("duration")
+        return super().after_value_set(parameter, value)
 
-        return super().after_incoming_connection(source_node, source_parameter, target_parameter)
+    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
+        if parameter.name == "model" and isinstance(value, str) and value in DEPRECATED_MODELS:
+            replacement = DEPRECATED_MODELS[value]
+            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
+            if message is not None:
+                message.value = (
+                    f"The '{value}' model has been deprecated and replaced with '{replacement}'. "
+                    "Please save your workflow to apply this change."
+                )
+                self.show_message_by_name("model_deprecation_notice")
+            value = replacement
+        elif parameter.name == "model" and isinstance(value, str):
+            self.hide_message_by_name("model_deprecation_notice")
+        return super().before_value_set(parameter, value)
 
-    def after_incoming_connection_removed(
-        self,
-        source_node: BaseNode,
-        source_parameter: Parameter,
-        target_parameter: Parameter,
-    ) -> None:
-        if target_parameter.name == "agent":
-            self.show_parameter_by_name("model")
-        # Check and see if the incoming connection is from an agent. If so, we'll hide the model parameter
-        if target_parameter.name == "model":
-            target_parameter.type = "str"
-            target_parameter.add_trait(Options(choices=MODEL_CHOICES))
-            target_parameter.set_default_value(DEFAULT_MODEL)
-            ui_options = target_parameter.ui_options
-            ui_options["display_name"] = "text to speech model"
-            target_parameter.ui_options = ui_options
-            self.set_parameter_value("model", DEFAULT_MODEL)
+    def _get_api_model_id(self) -> str:
+        """Get the API model ID for this generation."""
+        model = self.get_parameter_value("model") or DEFAULT_MODEL
+        return MODEL_MAPPING.get(str(model), str(model))
 
-        return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
+    async def _resolve_audio_data_uri(self, audio_value: Any) -> str | None:
+        """Resolve an audio parameter value to a base64 data URI.
 
-    def process(self) -> AsyncResult[Structure]:
-        # Get the parameters from the node
-        model_input = self.get_parameter_value("model")
-        agent = None
+        Args:
+            audio_value: The value from the audio parameter (AudioUrlArtifact, dict, or string)
 
-        # If an agent is provided, we'll use and ensure it's using a PromptTask
-        # If a prompt_driver is provided, we'll use that
-        # If neither are provided, we'll create a new one with the selected model.
-        # Otherwise, we'll just use the default model
+        Returns:
+            str | None: The base64 data URI, or None if resolution failed
+        """
+        if audio_value is None:
+            return None
+
+        # Handle AudioUrlArtifact
+        if isinstance(audio_value, AudioUrlArtifact):
+            audio_url = audio_value.value
+        elif isinstance(audio_value, dict):
+            audio_url = audio_value.get("value") or audio_value.get("url", "")
+        elif isinstance(audio_value, str):
+            audio_url = audio_value
+        else:
+            return None
+
+        if not audio_url:
+            return None
+
+        try:
+            # ``File`` resolves project macro paths (e.g. ``{outputs}/clip.mp3``) emitted by
+            # upstream nodes, which a plain HTTP GET against the value would not.
+            return await File(audio_url).aread_data_uri(fallback_mime="audio/mpeg")
+        except FileLoadError as e:
+            self._log(f"Failed to load audio: {e}")
+            return None
+
+    async def _build_payload(self) -> dict[str, Any]:
+        """Build the request payload for OpenAI audio transcription."""
+        audio_value = self.get_parameter_value("audio")
+        if audio_value is None:
+            msg = "No audio provided. Please connect an audio source."
+            raise ValueError(msg)
+
+        audio_data_uri = await self._resolve_audio_data_uri(audio_value)
+        if not audio_data_uri:
+            msg = "Failed to load audio file. Please check the audio input."
+            raise ValueError(msg)
+
+        language = self.get_parameter_value("language")
+        prompt = self.get_parameter_value("prompt")
+        response_format = self.get_parameter_value("response_format") or DEFAULT_RESPONSE_FORMAT
+        temperature = self.get_parameter_value("temperature")
+
+        payload: dict[str, Any] = {
+            "file": audio_data_uri,
+            "response_format": response_format,
+        }
+
+        if language:
+            payload["language"] = language
+
+        if prompt:
+            payload["prompt"] = prompt
+
+        if temperature is not None and temperature != 0.0:
+            payload["temperature"] = temperature
+
+        self._log("Built transcription payload")
+        return payload
+
+    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:  # noqa: ARG002
+        """Parse the OpenAI transcription result and set output parameters."""
+        text = result_json.get("text")
+        if text is None:
+            self._set_safe_defaults()
+            self._set_status_results(
+                was_successful=False,
+                result_details="Transcription completed but no text was found in the response.",
+            )
+            return
+
+        self.parameter_output_values["output"] = text
+
+        # Thread the agent through using the new wire format (unwrap_agent / wrap_agent).
+        # The proxy handles transcription so no agent.run() is called — we append a Run
+        # directly rather than using insert_false_memory (which replaces runs[-1]).
         tool_configs: list = []
         ruleset_configs: list = []
-        agent_input = self.get_parameter_value("agent")
-        if isinstance(agent_input, dict):
-            agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_input)
-            agent = GtAgent().from_dict(agent_core_dict)
-        else:
-            agent = GtAgent()
+        try:
+            agent_input = self.get_parameter_value("agent")
+            if isinstance(agent_input, dict):
+                agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_input)
+                agent = GtAgent().from_dict(agent_core_dict)
+            else:
+                agent = GtAgent()
+            if agent.conversation_memory is not None:
+                agent.conversation_memory.runs.append(
+                    Run(
+                        input=TextArtifact("I'm passing you some audio to transcribe."),
+                        output=TextArtifact(
+                            f"<Thought>I temporarily used an Audio Transcription tool</Thought>{text}"
+                            '\n<THOUGHT>\nmeta={"used_tool": true, "tool": "AudioTranscriptionTool"}\n</THOUGHT>'
+                        ),
+                    )
+                )
+            self.parameter_output_values["agent"] = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
+        except Exception as e:
+            logger.warning("TranscribeAudio: failed to thread agent: %s", e)
 
-        #
-        # Get the audio_transcription_driver
-        if isinstance(model_input, BaseAudioTranscriptionDriver):
-            driver = model_input
-        else:
-            if model_input not in MODEL_CHOICES:
-                model_input = DEFAULT_MODEL
-            driver = OpenAiAudioTranscriptionDriver(
-                model=model_input, api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
-            )
-        audio = self.get_parameter_value("audio")
-        if audio is None:
-            self.parameter_output_values["output"] = "No audio provided"
-            return
-        if isinstance(audio, dict):
-            audio_artifact = dict_to_audio_url_artifact(audio)
-        else:
-            audio_artifact = audio
+        # Verbose JSON fields
+        words = result_json.get("words")
+        if words is not None:
+            self.parameter_output_values["words"] = words
 
-        if isinstance(audio_artifact, AudioUrlArtifact):
-            # ``AudioUrlArtifact.to_bytes()`` issues an HTTP GET against ``self.value``,
-            # which fails when the value is a project macro path (e.g. ``{outputs}/clip.mp3``)
-            # emitted by upstream nodes that write through ``ProjectFileParameter``.
-            try:
-                audio_bytes = File(audio_artifact.value).read_bytes()
-            except FileLoadError as e:
-                msg = f"{self.name}: Failed to read audio from {audio_artifact.value}: {e}"
-                raise ValueError(msg) from e
-            audio_artifact = AudioLoader().parse(audio_bytes)
-        task = AudioTranscriptionTask(audio_artifact, audio_transcription_driver=driver)
+        segments = result_json.get("segments")
+        if segments is not None:
+            self.parameter_output_values["segments"] = segments
 
-        # Set the new audio transcription task
-        agent.swap_task(task)
+        detected_language = result_json.get("language")
+        if detected_language is not None:
+            self.parameter_output_values["detected_language"] = detected_language
 
-        # Run the agent
-        yield lambda: agent.run([task])
-        self.parameter_output_values["output"] = agent.output.value
-        try_throw_error(agent.output)
+        duration = result_json.get("duration")
+        if duration is not None:
+            self.parameter_output_values["duration"] = duration
 
-        agent.insert_false_memory(
-            prompt="I'm passing you some audio to transcribe. /link/to/audiofile",
-            output=f"<Thought>I temporarily used an Audio Transcription tool</Thought>{agent.output.value}",
-            tool="AudioTranscriptionTool",
-        )
+        self._set_status_results(was_successful=True, result_details="Transcription completed successfully.")
 
-        # Reset the agent
-        agent.restore_task()
-
-        # Set the output value for the agent
-        if agent.tasks:
-            cast(PromptTask, agent.tasks[0]).tools = []
-        self.parameter_output_values["agent"] = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
+    def _set_safe_defaults(self) -> None:
+        """Set safe default values for outputs."""
+        self.parameter_output_values["agent"] = None
+        self.parameter_output_values["output"] = None
+        self.parameter_output_values["words"] = None
+        self.parameter_output_values["segments"] = None
+        self.parameter_output_values["detected_language"] = None
+        self.parameter_output_values["duration"] = None

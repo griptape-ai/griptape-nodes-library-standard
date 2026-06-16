@@ -148,6 +148,10 @@ def _extract_error_message(self, response_json: dict[str, Any]) -> str:
 - `eleven_labs_music_generation.py`
 - `eleven_labs_sound_effect.py`
 
+**Audio Transcription:**
+
+- `transcribe_audio.py` (replaces the previous driver-based node; no longer requires a user `OPENAI_API_KEY`)
+
 **Image Generation:**
 
 - `flux_2_image_generation.py`
