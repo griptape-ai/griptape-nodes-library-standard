@@ -121,6 +121,7 @@ class QwenImageEdit(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={
                     "display_name": "Images to Edit",
+                    "hide_property": True,
                 },
             )
         )

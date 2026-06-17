@@ -123,7 +123,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
                 default_value=[],
                 tooltip="Optional reference images for the generation",
                 allowed_modes={ParameterMode.INPUT},
-                ui_options={"display_name": "Input Images", "expander": True},
+                ui_options={"display_name": "Input Images", "expander": True, "hide_property": True},
                 max_items=MAX_INPUT_IMAGES,
             )
         )

@@ -158,9 +158,9 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                 input_types=["ImageUrlArtifact", "ImageArtifact", "str"],
                 default_value=[],
                 tooltip="Optional input images for reference-image generation or edits (up to 16)",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
                 max_items=self.MAX_REFERENCE_IMAGES,
-                ui_options={"display_name": "Input Images", "expander": True},
+                ui_options={"display_name": "Input Images", "expander": True, "hide_property": True},
             )
         )
 

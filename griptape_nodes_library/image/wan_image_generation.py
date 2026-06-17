@@ -106,6 +106,8 @@ class WanImageGeneration(GriptapeProxyNode):
                 allow_output=False,
                 min_val=1,
                 max_val=4,
+                slider=True,
+                display_name="Number of Images",
             )
         )
 

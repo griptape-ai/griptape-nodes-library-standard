@@ -173,6 +173,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 name="first_frame_image",
                 tooltip="First frame image (optional). Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "first frame"},
             )
         )
@@ -181,6 +182,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 name="end_frame_image",
                 tooltip="End frame image (optional). Requires first frame to be set.",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "end frame"},
             )
         )
@@ -198,7 +200,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 default_value=[],
                 tooltip="Reference images for generation. These appear first in the template (<<<image_1>>>, <<<image_2>>>, etc.)",
                 allowed_modes={ParameterMode.INPUT},
-                ui_options={"expander": True, "display_name": "reference images"},
+                ui_options={"expander": True, "display_name": "reference images", "hide_property": True},
             )
         )
 
@@ -222,6 +224,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 tooltip="Reference video for editing or style reference (optional, max 1)",
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"placeholder_text": "https://example.com/video.mp4"},
+                hide_property=True,
             ),
             disclaimer_message="The Kling Omni service utilizes this URL to access the video for generation.",
         )
@@ -311,6 +314,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         )
         self._update_mode_choices()
         self._update_multi_shot_parameter_visibility()
+        self.set_initial_node_size(height=1375)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to normalize image inputs."""
