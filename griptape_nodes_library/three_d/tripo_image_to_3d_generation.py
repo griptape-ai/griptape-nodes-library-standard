@@ -33,7 +33,7 @@ MODEL_VERSION_OPTIONS = [
     "v2.0-20240919",
     "v1.4-20240625",
 ]
-DEFAULT_MODEL_VERSION = "v2.5-20250123"
+DEFAULT_MODEL_VERSION = "v3.1-20260211"
 
 TEXTURE_QUALITY_OPTIONS = ["standard", "detailed"]
 DEFAULT_TEXTURE_QUALITY = "standard"
@@ -65,8 +65,8 @@ TEXTURE_PARAMS_SUPPORTED_VERSIONS = {
 _MODEL_VERSION_BADGE = (
     "**P1-20260311** — Premium flagship model\n"
     "**Turbo-v1.0-20250506** — Fastest; no texture alignment\n"
-    "**v3.1-20260211** / **v3.0-20250812** — High quality with geometry control\n"
-    "**v2.5-20250123** / **v2.0-20240919** — Standard quality (default)\n"
+    "**v3.1-20260211** / **v3.0-20250812** — High quality with geometry control (default)\n"
+    "**v2.5-20250123** / **v2.0-20240919** — Standard quality\n"
     "**v1.4-20240625** — Legacy; basic parameters only\n\n"
     "[Model docs](https://docs.tripo3d.ai/model-generation/image-to-model-p1-20260311.html)"
 )
