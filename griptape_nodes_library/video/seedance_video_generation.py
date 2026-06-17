@@ -133,7 +133,8 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
                 name="first_frame",
                 default_value=None,
                 tooltip="Optional first frame image (URL or base64 data URI)",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "First Frame"},
             )
         )
@@ -144,7 +145,8 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
                 name="last_frame",
                 default_value=None,
                 tooltip="Optional last frame image for 1.5 Pro and 1.0 Pro models (URL or base64 data URI)",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Last Frame"},
             )
         )

@@ -83,6 +83,7 @@ class GrokImageEdit(GriptapeProxyNode):
                 default_value="",
                 tooltip="Input image to edit",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Image"},
             )
         )

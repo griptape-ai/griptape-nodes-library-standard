@@ -123,6 +123,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 default_value=None,
                 tooltip="Optional first frame image",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "First Frame"},
             )
         )
@@ -133,6 +134,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 default_value=None,
                 tooltip="Optional last frame image (Seedance 2.0 only)",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Last Frame"},
             )
         )
@@ -145,7 +147,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 default_value=[],
                 tooltip="Optional reference images (0-9 images)",
                 allowed_modes={ParameterMode.INPUT},
-                ui_options={"display_name": "Reference Images", "expander": True},
+                ui_options={"display_name": "Reference Images", "expander": True, "hide_property": True},
                 max_items=9,
             )
         )
@@ -161,8 +163,9 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                     "Optional first reference video. Seedance only accepts public URLs or uploaded asset URLs "
                     "for videos."
                 ),
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Reference Video 1"},
+                hide_property=True,
             ),
             disclaimer_message="The Seedance 2.0 service utilizes this URL to access the reference video.",
         )
@@ -179,8 +182,9 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                     "Optional second reference video. Seedance only accepts public URLs or uploaded asset URLs "
                     "for videos."
                 ),
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Reference Video 2"},
+                hide_property=True,
                 hide=True,
             ),
             disclaimer_message="The Seedance 2.0 service utilizes this URL to access the reference video.",
@@ -199,8 +203,9 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                     "Optional third reference video. Seedance only accepts public URLs or uploaded asset URLs "
                     "for videos."
                 ),
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Reference Video 3"},
+                hide_property=True,
                 hide=True,
             ),
             disclaimer_message="The Seedance 2.0 service utilizes this URL to access the reference video.",
@@ -215,7 +220,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 default_value=[],
                 tooltip="Optional reference audio (0-3 audio files, 2-15s each, max 15s total). URLs, asset:// IDs, or base64/data URIs are supported.",
                 allowed_modes={ParameterMode.INPUT},
-                ui_options={"display_name": "Reference Audio", "expander": True},
+                ui_options={"display_name": "Reference Audio", "expander": True, "hide_property": True},
                 max_items=3,
             )
         )

@@ -71,7 +71,8 @@ class GrokVideoEdit(GriptapeProxyNode):
                 name="video",
                 default_value="",
                 tooltip="Input video to edit",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Video"},
             )
         )
@@ -109,6 +110,8 @@ class GrokVideoEdit(GriptapeProxyNode):
             result_details_placeholder="Editing status and details will appear here.",
             parameter_group_initially_collapsed=True,
         )
+
+        self.set_initial_node_size(height=1145)
 
     @staticmethod
     def _has_media_value(value: Any) -> bool:

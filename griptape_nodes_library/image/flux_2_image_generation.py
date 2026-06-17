@@ -127,8 +127,8 @@ class Flux2ImageGeneration(GriptapeProxyNode):
                 ],
                 default_value=[],
                 tooltip="Optional input images for image-to-image generation (supports up to 20MB or 20 megapixels)",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={"expander": True, "display_name": "Input Images"},
+                allowed_modes={ParameterMode.INPUT},
+                ui_options={"expander": True, "display_name": "Input Images", "hide_property": True},
             )
         )
         # Width parameter

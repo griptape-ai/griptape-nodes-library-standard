@@ -145,7 +145,8 @@ class Veo3VideoGeneration(GriptapeProxyNode):
                 name="start_frame",
                 default_value=None,
                 tooltip="Optional start frame image (URL or base64 data URI)",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "start frame"},
             )
         )
@@ -155,7 +156,8 @@ class Veo3VideoGeneration(GriptapeProxyNode):
                 name="last_frame",
                 default_value=None,
                 tooltip="Optional last frame image (URL or base64 data URI)",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "last frame"},
             )
         )
@@ -175,7 +177,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
                 default_value=[],
                 tooltip="Optional reference images for style and content (max 3 for asset, max 1 for style)",
                 allowed_modes={ParameterMode.INPUT},
-                ui_options={"expander": True, "display_name": "reference images"},
+                ui_options={"expander": True, "display_name": "reference images", "hide_property": True},
             )
         )
 

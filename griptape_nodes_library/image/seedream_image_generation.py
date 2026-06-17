@@ -211,7 +211,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
                 default_value=[],
                 tooltip="Input images for Seedream (up to 14 for Seedream 5.0 Lite/4.5, 10 for Seedream 4.0)",
                 allowed_modes={ParameterMode.INPUT},
-                ui_options={"expander": True, "display_name": "Input Images"},
+                ui_options={"expander": True, "display_name": "Input Images", "hide_property": True},
             )
         )
 

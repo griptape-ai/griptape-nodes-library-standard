@@ -120,6 +120,7 @@ class WanAnimateGeneration(GriptapeProxyNode):
                 default_value="",
                 tooltip="Source image to animate",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Image URL"},
             ),
             disclaimer_message="The WAN Animate service utilizes this URL to access the image for animation.",
@@ -133,7 +134,8 @@ class WanAnimateGeneration(GriptapeProxyNode):
                 name="video_url",
                 default_value="",
                 tooltip="Reference video for motion transfer",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Video URL"},
             ),
             disclaimer_message="The WAN Animate service utilizes this URL to access the reference video for motion transfer.",
@@ -174,6 +176,8 @@ class WanAnimateGeneration(GriptapeProxyNode):
             result_details_placeholder="Generation status and details will appear here.",
             parameter_group_initially_collapsed=True,
         )
+
+        self.set_initial_node_size(height=760)
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []

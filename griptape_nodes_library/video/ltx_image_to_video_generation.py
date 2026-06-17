@@ -132,7 +132,8 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
             ParameterImage(
                 name="image",
                 tooltip="Input image for video generation (required). Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Input Image"},
             )
         )

@@ -95,11 +95,10 @@ class SoraVideoGeneration(GriptapeProxyNode):
             ParameterImage(
                 name="start_frame",
                 tooltip="Optional: Starting frame image (auto-updates size if dimensions are supported)",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                clickable_file_browser=True,
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={
                     "display_name": "Start Frame",
-                    "expander": True,
                 },
             )
         )

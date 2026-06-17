@@ -85,7 +85,8 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
                 input_types=["AudioArtifact", "AudioUrlArtifact", "str"],
                 type="AudioArtifact",
                 tooltip="Input audio for video generation (required). Accepts AudioArtifact, AudioUrlArtifact, URL, or Base64.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Input Audio"},
             )
         )
@@ -96,7 +97,8 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
                 input_types=["ImageArtifact", "ImageUrlArtifact", "str"],
                 type="ImageArtifact",
                 tooltip="Input image for video generation (optional). Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Input Image"},
             )
         )

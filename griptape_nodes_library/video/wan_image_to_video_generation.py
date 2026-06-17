@@ -183,6 +183,7 @@ class WanImageToVideoGeneration(GriptapeProxyNode):
                 name="input_image",
                 tooltip="Input image for video generation (JPG, PNG, BMP, WEBP; 360-2000Px; max 10MB)",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Input Image"},
             )
         )
