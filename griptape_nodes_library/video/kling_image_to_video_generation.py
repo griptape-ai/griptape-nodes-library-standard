@@ -265,6 +265,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 default_value=None,
                 tooltip="Start frame image (required). Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Start Frame"},
             )
         )
@@ -274,6 +275,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 default_value=None,
                 tooltip="End frame image (optional). Requires pro mode. See model capabilities for per-model support.",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "End Frame"},
             )
         )
@@ -317,6 +319,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 default_value=None,
                 tooltip="Static brush application area. Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
             )
             ParameterString(
                 name="dynamic_masks",
@@ -375,6 +378,8 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         # Set initial parameter visibility based on default model
         self._update_parameter_visibility_for_model(self.get_parameter_value("model_name") or "Kling v3.0")
         self._update_multi_shot_parameter_visibility()
+
+        self.set_initial_node_size(height=1145)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to show/hide dependent parameters."""

@@ -74,7 +74,8 @@ class KlingMotionControl(GriptapeProxyNode):
             artifact_url_parameter=ParameterImage(
                 name="reference_image",
                 tooltip="Reference image with character (required). Supports .jpg/.jpeg/.png, max 10MB.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
             ),
             disclaimer_message="The Kling Motion Control service utilizes this URL to access the image for generation.",
         )
@@ -86,7 +87,8 @@ class KlingMotionControl(GriptapeProxyNode):
             artifact_url_parameter=ParameterVideo(
                 name="reference_video",
                 tooltip="Reference video with actions to transfer (required). Supports .mp4/.mov, max 100MB.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
             ),
             disclaimer_message="The Kling Motion Control service utilizes this URL to access the video for generation.",
         )

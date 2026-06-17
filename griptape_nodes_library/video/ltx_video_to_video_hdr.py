@@ -74,7 +74,8 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
             ParameterVideo(
                 name="video",
                 tooltip="SDR source video to upgrade to HDR",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "input video"},
             )
         )
@@ -110,6 +111,8 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
             result_details_placeholder="HDR upscale status and details will appear here.",
             parameter_group_initially_collapsed=True,
         )
+
+        self.set_initial_node_size(height=400)
 
     def _get_api_model_id(self) -> str:
         model_name = self.get_parameter_value("model") or "LTX 2.3 Pro"

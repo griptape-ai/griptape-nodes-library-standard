@@ -206,9 +206,10 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
                     name="input_audio",
                     default_value="",
                     tooltip="Input audio file (optional). WAV/MP3, 3-30s, max 15MB. Audio is used to generate video with matching sound. Only supported by wan2.6 and wan2.5 models.",
-                    allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                    allowed_modes={ParameterMode.INPUT},
                     ui_options={"display_name": "Input Audio"},
                     hide=self._should_hide_input_audio(),
+                    hide_property=True,
                 ),
                 disclaimer_message="The WAN Text-to-Video service utilizes this URL to access the audio file.",
             )

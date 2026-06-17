@@ -123,6 +123,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 default_value=None,
                 tooltip="Optional first frame image",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "First Frame"},
             )
         )
@@ -133,6 +134,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 default_value=None,
                 tooltip="Optional last frame image (Seedance 2.0 only)",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Last Frame"},
             )
         )
@@ -145,7 +147,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 default_value=[],
                 tooltip="Optional reference images (0-9 images)",
                 allowed_modes={ParameterMode.INPUT},
-                ui_options={"display_name": "Reference Images", "expander": True},
+                ui_options={"display_name": "Reference Images", "expander": True, "hide_property": True},
                 max_items=9,
             )
         )

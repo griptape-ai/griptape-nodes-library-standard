@@ -93,7 +93,8 @@ class LTXVideoRetake(GriptapeProxyNode):
             ParameterVideo(
                 name="video",
                 tooltip="Input video to edit (max 21 seconds, max resolution 3840x2160)",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "input video"},
             )
         )

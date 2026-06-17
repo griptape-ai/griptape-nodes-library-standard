@@ -105,6 +105,7 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
                 default_value="",
                 tooltip="Source image URL.",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"placeholder_text": "https://example.com/image.jpg"},
             ),
             disclaimer_message="The OmniHuman service utilizes this URL to access the image for video generation.",
@@ -117,7 +118,8 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
                 name="audio_url",
                 default_value="",
                 tooltip="Audio file URL.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                hide_property=True,
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={"placeholder_text": "https://example.com/audio.mp3"},
             ),
         )

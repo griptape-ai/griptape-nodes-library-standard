@@ -134,7 +134,8 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
                     "Supported formats: JPG, JPEG, PNG, WebP. Requirements: <20MB, short edge >300px, "
                     "aspect ratio between 2:5 and 5:2."
                 ),
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "First Frame Image"},
             )
         )
@@ -149,7 +150,8 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
                     "Supported formats: JPG, JPEG, PNG, WebP. Requirements: <20MB, short edge >300px, "
                     "aspect ratio between 2:5 and 5:2."
                 ),
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Last Frame Image", "hide": True},
             )
         )

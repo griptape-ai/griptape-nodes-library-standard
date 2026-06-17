@@ -91,7 +91,8 @@ class LTXVideoExtend(GriptapeProxyNode):
             ParameterVideo(
                 name="video",
                 tooltip="Source video to extend (16:9 or 9:16, at least 73 frames, up to 4K)",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "input video"},
             )
         )
