@@ -702,8 +702,26 @@ loaders-pdf = [
 ]
 
 [[package]]
+name = "griptape-nodes"
+version = "0.86.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "griptape-nodes-engine" },
+    { name = "websockets" },
+    { name = "xdg-base-dirs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3f/3a/97beac1c42dd29919b7b86591c33a93c059a89286beddad7377a9b8580f6/griptape_nodes-0.86.0.tar.gz", hash = "sha256:8efb8de8a7de6db7c0e98b04814d611211890716e8158efb5021bebfc7bfc88a", size = 375682, upload-time = "2026-06-09T19:09:39.189Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9a/ee/9c8412394064a7c69c63d371e08835e06f2f8dd37ac68cc2c955d4eb9143/griptape_nodes-0.86.0-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:6b9e779728b8e75006388c1dbf7677050c743979dd5508583c606b97919fc0d1", size = 6144343, upload-time = "2026-06-09T19:09:40.385Z" },
+    { url = "https://files.pythonhosted.org/packages/9c/ee/1150bf8f5babe5cd665c8d1657b85b969545b2c2eae6d6a31134a99e5b34/griptape_nodes-0.86.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:f3e8711d0dc73c13e6c16ca0122e116ca5d906155e355f64913d8a6a1a6144de", size = 5941195, upload-time = "2026-06-09T19:09:34.035Z" },
+    { url = "https://files.pythonhosted.org/packages/58/a3/3b3a69ce6cf6a7b2a155e24b9d514f167eee7d9fe1b98f5775eb518e8960/griptape_nodes-0.86.0-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:d406f95d9f1da85aba174f81a2a96e36a0075b5cc7a6938e46001be1d280e513", size = 9192193, upload-time = "2026-06-09T19:09:35.602Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/d0/0c5fcad96e33340ed170cd114a50b048a7ebb729783d6f89337f46073ac7/griptape_nodes-0.86.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f545eb160c848452a13c6ab793160d947154c35838647bea1af11d21c2f3637a", size = 9010779, upload-time = "2026-06-09T19:09:37.294Z" },
+    { url = "https://files.pythonhosted.org/packages/25/68/0d91633e06868ef294b3e0e8c86cfa0175563d2188c6b5e0957bc87f414e/griptape_nodes-0.86.0-cp312-cp312-win_amd64.whl", hash = "sha256:220c310e2b15d22b16e264af833a4dce2ba53eaae039ad745c0653decafd4911", size = 5408437, upload-time = "2026-06-09T19:09:32.318Z" },
+]
+
+[[package]]
 name = "griptape-nodes-engine"
-version = "0.87.0"
+version = "0.86.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -741,9 +759,9 @@ dependencies = [
     { name = "websockets" },
     { name = "xdg-base-dirs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5b/67/6ba3507209b6b12a2ecb814f15af33c3ed8db082b0122aef12b063833e6a/griptape_nodes_engine-0.87.0.tar.gz", hash = "sha256:1415f3597c6f709d87b3e81658335d636a245b830d5416f541050b4f1051cd67", size = 911352, upload-time = "2026-06-18T19:23:36.224Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d3/63/7576e18166d298b70b6f725c6f6122e83d4332c6c588b88cd16e1c3cf5b4/griptape_nodes_engine-0.86.0.tar.gz", hash = "sha256:d1fb3dff1d0bf1d853fe0c18e2a8494ef75733ae218d4005f90cbc3de11e6311", size = 861154, upload-time = "2026-06-09T17:37:13.045Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6d/eb/f2fc731c97bae08f67143026145da7ef7c42bb5dba0c8a25641c401b14c5/griptape_nodes_engine-0.87.0-py3-none-any.whl", hash = "sha256:04514f228e2655d215d14cf0163a9efa7a6b8fad18b77bfce0fe73bec1c11c87", size = 1141817, upload-time = "2026-06-18T19:23:37.506Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/4f/feba7a64450fb7a24c1d598d70903dfaab197710cfc1d99ce50c27ad2ca1/griptape_nodes_engine-0.86.0-py3-none-any.whl", hash = "sha256:65331096e669cdd138235e82c3ce60b411cd516009652854362e3def058b3143", size = 1083808, upload-time = "2026-06-09T17:37:14.536Z" },
 ]
 
 [[package]]
@@ -754,7 +772,7 @@ dependencies = [
     { name = "asteval" },
     { name = "color-matcher" },
     { name = "griptape", extra = ["drivers-prompt-amazon-bedrock", "drivers-prompt-anthropic", "drivers-prompt-cohere", "drivers-prompt-ollama", "drivers-web-scraper-trafilatura", "drivers-web-search-duckduckgo", "drivers-web-search-exa", "loaders-image", "loaders-pdf"] },
-    { name = "griptape-nodes-engine" },
+    { name = "griptape-nodes" },
     { name = "jmespath" },
     { name = "json-repair" },
     { name = "json-schema-to-pydantic" },
@@ -781,7 +799,7 @@ requires-dist = [
     { name = "asteval", specifier = ">=1.0.8" },
     { name = "color-matcher" },
     { name = "griptape", extras = ["drivers-prompt-amazon-bedrock", "drivers-prompt-anthropic", "drivers-prompt-cohere", "drivers-prompt-ollama", "drivers-web-scraper-trafilatura", "drivers-web-search-duckduckgo", "drivers-web-search-exa", "loaders-image", "loaders-pdf"], specifier = ">=1.9.4" },
-    { name = "griptape-nodes-engine", specifier = ">=0.87.0" },
+    { name = "griptape-nodes", specifier = ">=0.86.0" },
     { name = "jmespath", specifier = ">=1.0.1" },
     { name = "json-repair", specifier = ">=0.46.1" },
     { name = "json-schema-to-pydantic", specifier = ">=0.4.6" },

@@ -33,10 +33,6 @@ class ProxyAuthProviderParameter:
     def secret_name(self) -> str:
         return self._provider_config.api_key_name
 
-    @property
-    def provider_id(self) -> str:
-        return self._provider_config.provider_id
-
     def add_parameters(self) -> None:
         self._node.add_parameter(
             ParameterBool(
