@@ -230,8 +230,7 @@ class GriptapeCloudPrompt(BasePrompt):
         """Returns the list of available models from Griptape Cloud, and the default model.
 
         This method fetches the list of models from the Griptape Cloud API and
-        returns them. If the API call fails, it falls back to the default list
-        of models defined in the `MODEL_CHOICES` constant.
+        returns them. It raises if the API call fails.
 
         Returns:
             tuple: A tuple containing a list of available model names and the default model name.
