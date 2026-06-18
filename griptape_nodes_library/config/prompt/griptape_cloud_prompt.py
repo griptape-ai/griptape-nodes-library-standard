@@ -18,10 +18,9 @@ from griptape_nodes.traits.button import Button
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
 from griptape_nodes_library.config.prompt.cloud_models import (
     DEPRECATED_MODELS,
-    args_for_model,
-    model_choices,
-    model_choices_args,
-    o_series_model_ids,
+    MODEL_CHOICES,
+    MODEL_CHOICES_ARGS,
+    O_SERIES_MODELS,
 )
 
 # --- Constants ---
@@ -68,18 +67,10 @@ class GriptapeCloudPrompt(BasePrompt):
         logger.debug(f"All models on Griptape Cloud: {models}")
         logger.debug(f"Default model on Griptape Cloud: {default_model}")
 
-        # Source the model dropdown from the library's model_catalog. When the
-        # node is constructed outside a library context (e.g. the DescribeNodeType
-        # introspection probe, which bypasses create_node), the catalog can't be
-        # resolved and the roster comes back empty; leave the inherited empty
-        # dropdown rather than failing construction.
-        choices = model_choices(self)
-        if choices:
-            default = DEFAULT_MODEL if DEFAULT_MODEL in choices else choices[0]
-            self._update_option_choices(param="model", choices=choices, default=default)
-            model_param = self.get_parameter_by_name("model")
-            if model_param is not None:
-                model_param.ui_options = {"data": model_choices_args(self)}
+        self._update_option_choices(param="model", choices=MODEL_CHOICES, default=DEFAULT_MODEL)
+        model_param = self.get_parameter_by_name("model")
+        if model_param is not None:
+            model_param.ui_options = {"data": MODEL_CHOICES_ARGS}
 
         # Remove the 'seed' parameter as it's not directly used by GriptapeCloudPromptDriver.
         self.remove_parameter_element_by_name("seed")
@@ -137,7 +128,7 @@ class GriptapeCloudPrompt(BasePrompt):
                 self.show_parameter_by_name("top_p")
 
             # Check and see if max_tokens is defined in the model args
-            model_args = args_for_model(self, value)
+            model_args = next((model["args"] for model in MODEL_CHOICES_ARGS if model["name"] == value), {})
             if "max_tokens" in model_args:
                 self.parameter_output_values["max_tokens"] = model_args["max_tokens"]
             else:
@@ -177,7 +168,7 @@ class GriptapeCloudPrompt(BasePrompt):
 
         # Handle parameters that go into 'extra_params' for Griptape Cloud.
         extra_params = {}
-        if model not in o_series_model_ids(self):
+        if model not in O_SERIES_MODELS:
             top_p = self.get_parameter_value("top_p")
             if top_p is not None:
                 extra_params["top_p"] = top_p
@@ -192,7 +183,7 @@ class GriptapeCloudPrompt(BasePrompt):
 
         # Override with model specific args
         selected_model = self.get_parameter_value("model")
-        model_args = args_for_model(self, selected_model)
+        model_args = next((model["args"] for model in MODEL_CHOICES_ARGS if model["name"] == selected_model), {})
 
         # Update with model args and remove any that are None
         for arg, value in model_args.items():
@@ -230,7 +221,8 @@ class GriptapeCloudPrompt(BasePrompt):
         """Returns the list of available models from Griptape Cloud, and the default model.
 
         This method fetches the list of models from the Griptape Cloud API and
-        returns them. It raises if the API call fails.
+        returns them. If the API call fails, it falls back to the default list
+        of models defined in the `MODEL_CHOICES` constant.
 
         Returns:
             tuple: A tuple containing a list of available model names and the default model name.

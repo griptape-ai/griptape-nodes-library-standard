@@ -1,29 +1,13 @@
-"""Driver presets and per-family UI data for Griptape Cloud-backed chat models.
+"""Shared catalog of Griptape Cloud-backed chat models.
 
-The roster of available models -- which models exist, their provider model ids,
-and their family -- lives in the library's `model_catalog` declaration in
-`griptape_nodes_library.json`. That declaration is the single source of truth;
-this module never restates the model list.
+This module is the single source of truth for every node that offers a
+Griptape Cloud model dropdown (e.g. the `Agent` node, the `GriptapeCloudPrompt`
+node). It mirrors the active `model_type=chat` rows in Griptape Cloud's
+ServiceModelConfig table.
 
-What stays here is the library-specific data the catalog schema does not model:
-the Griptape prompt-driver arg presets and the provider logos. Both are keyed by
-the catalog `family` tag, so they are a small, stable mapping rather than a
-per-model list. The helpers join a node's declared catalog models
-(`get_declared_models`) to those presets, producing the `{name, icon, args}`
-rows the nodes feed to their model dropdowns.
-
-When Cloud's catalog changes (new model, deprecated model), update the
-`model_catalog` declaration; new families additionally need an entry here.
+When Cloud's catalog changes (new model added, deprecated model deactivated),
+update this file and every consumer picks up the change.
 """
-
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, Any
-
-from griptape_nodes.node_library.library_registry import get_declared_models
-
-if TYPE_CHECKING:
-    from griptape_nodes.exe_types.node_types import BaseNode
 
 # --- Per-family arg presets ---
 
@@ -34,25 +18,43 @@ _LLAMA_ARGS = {"stream": True, "structured_output_strategy": "tool"}
 _GEMINI_ARGS = {"stream": True}
 _OPENAI_ARGS = {"stream": True}
 
-_DEFAULT_ICON = "logos/griptape.svg"
 
-# Catalog `family` tag -> per-family driver args and provider logo. Keys must
-# match the `family` values declared on the Griptape Cloud models in the
-# `model_catalog`; a family with no entry falls back to no args and the default
-# icon.
-_FAMILY_PRESETS: dict[str, dict[str, Any]] = {
-    "Anthropic (via Griptape Cloud)": {"args": _CLAUDE_ARGS, "icon": "logos/anthropic.svg"},
-    "DeepSeek V3 (via Griptape Cloud)": {"args": _DEEPSEEK_V3_ARGS, "icon": "logos/deepseek.svg"},
-    "DeepSeek R1 (via Griptape Cloud)": {"args": _DEEPSEEK_R1_ARGS, "icon": "logos/deepseek.svg"},
-    "Meta Llama (via Griptape Cloud)": {"args": _LLAMA_ARGS, "icon": "logos/meta.svg"},
-    "Google Gemini (via Griptape Cloud)": {"args": _GEMINI_ARGS, "icon": "logos/google.svg"},
-    "OpenAI (via Griptape Cloud)": {"args": _OPENAI_ARGS, "icon": "logos/openai.svg"},
-    "OpenAI o-series (via Griptape Cloud)": {"args": _OPENAI_ARGS, "icon": "logos/openai.svg"},
-}
+MODEL_CHOICES_ARGS = [
+    # Anthropic / Bedrock-Claude
+    {"name": "claude-opus-4-7", "icon": "logos/anthropic.svg", "args": _CLAUDE_ARGS},
+    {"name": "claude-sonnet-4-6", "icon": "logos/anthropic.svg", "args": _CLAUDE_ARGS},
+    {"name": "claude-4-5-sonnet", "icon": "logos/anthropic.svg", "args": _CLAUDE_ARGS},
+    {"name": "claude-haiku-4-5", "icon": "logos/anthropic.svg", "args": _CLAUDE_ARGS},
+    # Bedrock non-Claude
+    {"name": "deepseek-v3", "icon": "logos/deepseek.svg", "args": _DEEPSEEK_V3_ARGS},
+    {"name": "deepseek.r1-v1", "icon": "logos/deepseek.svg", "args": _DEEPSEEK_R1_ARGS},
+    {"name": "llama3-3-70b-instruct-v1", "icon": "logos/meta.svg", "args": _LLAMA_ARGS},
+    {"name": "llama3-1-70b-instruct-v1", "icon": "logos/meta.svg", "args": _LLAMA_ARGS},
+    # Google
+    {"name": "gemini-3.1-pro", "icon": "logos/google.svg", "args": _GEMINI_ARGS},
+    {"name": "gemini-3.1-flash-lite", "icon": "logos/google.svg", "args": _GEMINI_ARGS},
+    {"name": "gemini-3-flash", "icon": "logos/google.svg", "args": _GEMINI_ARGS},
+    {"name": "gemini-2.5-pro", "icon": "logos/google.svg", "args": _GEMINI_ARGS},
+    {"name": "gemini-2.5-flash", "icon": "logos/google.svg", "args": _GEMINI_ARGS},
+    {"name": "gemini-2.5-flash-lite", "icon": "logos/google.svg", "args": _GEMINI_ARGS},
+    # Azure OpenAI
+    {"name": "gpt-5.2", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
+    {"name": "gpt-5.2-chat", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
+    {"name": "gpt-5.1", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
+    {"name": "gpt-5", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
+    {"name": "gpt-5-mini", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
+    {"name": "gpt-5-nano", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
+    {"name": "gpt-4.1", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
+    {"name": "gpt-4.1-mini", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
+    {"name": "gpt-4.1-nano", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
+    {"name": "gpt-4o", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
+    {"name": "o4-mini", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
+    {"name": "o3", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
+    {"name": "o3-mini", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
+    {"name": "o1", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
+]
 
-# The catalog family whose models reject the `top_p` parameter (the OpenAI
-# o-series). Drives whether `top_p` is forwarded to the driver.
-_O_SERIES_FAMILY = "OpenAI o-series (via Griptape Cloud)"
+MODEL_CHOICES = [model["name"] for model in MODEL_CHOICES_ARGS]
 
 
 # Maps deprecated model IDs that may appear in saved workflows to their live
@@ -77,40 +79,6 @@ DEPRECATED_MODELS = {
 }
 
 
-def model_choices_args(node: BaseNode) -> list[dict[str, Any]]:
-    """Per-model dropdown rows (`{name, icon, args}`) for `node`.
-
-    Joins the catalog models the node declares (via its `model_usage` /
-    `model_provider_usage` declarations) to their family presets, in the order
-    the catalog declares them.
-    """
-    rows: list[dict[str, Any]] = []
-    for resolved in get_declared_models(node):
-        preset = _FAMILY_PRESETS.get(resolved.model.family or "", {})
-        rows.append(
-            {
-                "name": resolved.model.provider_model_id,
-                "icon": preset.get("icon", _DEFAULT_ICON),
-                "args": preset.get("args", {}),
-            }
-        )
-    return rows
-
-
-def model_choices(node: BaseNode) -> list[str]:
-    """Provider model ids `node` offers, sourced from the catalog roster."""
-    return [row["name"] for row in model_choices_args(node)]
-
-
-def args_for_model(node: BaseNode, model_id: str) -> dict[str, Any]:
-    """Driver arg preset for a single model id, or an empty dict if unknown."""
-    return next((row["args"] for row in model_choices_args(node) if row["name"] == model_id), {})
-
-
-def o_series_model_ids(node: BaseNode) -> set[str]:
-    """Model ids that reject `top_p`, derived from the catalog o-series family."""
-    return {
-        resolved.model.provider_model_id
-        for resolved in get_declared_models(node)
-        if resolved.model.family == _O_SERIES_FAMILY and resolved.model.provider_model_id is not None
-    }
+# Model IDs whose backend does not accept top_p (the OpenAI o-series).
+# Kept in sync with the o-entries in MODEL_CHOICES_ARGS.
+O_SERIES_MODELS = {"o1", "o3", "o3-mini", "o4-mini"}
