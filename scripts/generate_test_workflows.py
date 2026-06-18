@@ -680,6 +680,7 @@ WORKFLOW_TEMPLATE = """\
 # node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
+# is_private = true
 # ///
 import argparse
 import asyncio
@@ -837,6 +838,7 @@ def generate_advanced_workflow(cfg: dict) -> str:
             f"# node_types_used = {node_types_list}",
             "# is_griptape_provided = false",
             "# is_template = false",
+            "# is_private = true",
             "# ///",
             _IMPORTS,
             "",
