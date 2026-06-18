@@ -134,20 +134,26 @@ class SeedanceHumanReferenceAsset(DataNode):
 
         self._update_media_visibility()
 
-        # Org-gated feature: probe access at construction so the error surfaces immediately in
-        # the editor as a badge. The probe is best-effort (suppressed, short timeout, fail-closed)
-        # so it never raises out of construction, though it can block for up to the probe timeout.
-        # It is re-probed at run time (validate_before_node_run) because entitlement can change
-        # after the graph is loaded.
+        # Org-gated feature. The access probe is deliberately NOT run from __init__: construction
+        # happens on graph load/add/paste and must stay cheap and non-blocking. Instead it runs
+        # lazily the first time the user interacts with the node (after_value_set) to surface an
+        # editor badge, and authoritatively at run time (validate_before_node_run).
         self._access: ProviderAssetAccess | None = None
-        self._refresh_access()
+        self._access_probed = False
+
+    def _ensure_access_probed(self) -> ProviderAssetAccess:
+        """Probe access once (lazily) and cache it; refresh the badge from the cached result."""
+        if not self._access_probed:
+            return self._refresh_access()
+        self._apply_access_badge(self._access)
+        return self._access  # type: ignore[return-value]
 
     def _refresh_access(self) -> ProviderAssetAccess:
-        """Re-probe provider-asset access, update the badge, and cache/return the result.
+        """Probe provider-asset access, cache it, refresh the badge, and return the result.
 
-        Never raises: a probe failure is reported as INDETERMINATE and surfaced as a badge
-        rather than breaking node construction. Only a confirmed denial (403) shows the
-        error/Foundry badge; an indeterminate probe shows a non-blocking warning.
+        Never raises: a probe failure is reported as INDETERMINATE and surfaced as a badge rather
+        than propagating. Only a confirmed denial (403) shows the error/Foundry badge; an
+        indeterminate probe shows a non-blocking warning.
         """
         access = ProviderAssetAccess(
             outcome=ProviderAssetAccessOutcome.INDETERMINATE,
@@ -156,20 +162,31 @@ class SeedanceHumanReferenceAsset(DataNode):
         with suppress(Exception):
             access = check_provider_asset_access()
         self._access = access
-
-        kind_param = self.get_parameter_by_name("asset_kind")
-        if kind_param is not None:
-            if access.outcome is ProviderAssetAccessOutcome.GRANTED:
-                kind_param.clear_badge()
-            elif access.outcome is ProviderAssetAccessOutcome.DENIED:
-                kind_param.set_badge(variant="error", title=_ACCESS_BADGE_TITLE, message=access.detail)
-            else:
-                # Indeterminate: real but non-entitlement cause — warn, don't assert no-access.
-                kind_param.set_badge(variant="warning", title="Provider-asset access unverified", message=access.detail)
+        self._access_probed = True
+        self._apply_access_badge(access)
         return access
+
+    def _apply_access_badge(self, access: ProviderAssetAccess | None) -> None:
+        """Reflect the access result as a badge on asset_kind (no-op until a probe has run)."""
+        if access is None:
+            return
+        kind_param = self.get_parameter_by_name("asset_kind")
+        if kind_param is None:
+            return
+        if access.outcome is ProviderAssetAccessOutcome.GRANTED:
+            kind_param.clear_badge()
+        elif access.outcome is ProviderAssetAccessOutcome.DENIED:
+            kind_param.set_badge(variant="error", title=_ACCESS_BADGE_TITLE, message=access.detail)
+        else:
+            # Indeterminate: real but non-entitlement cause — warn, don't assert no-access.
+            kind_param.set_badge(variant="warning", title="Provider-asset access unverified", message=access.detail)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Toggle the visible media input on kind change; normalize media; publish the output."""
+        # Probe access on first interaction (cached) so the editor shows an access badge without
+        # paying for a network call at construction time.
+        self._ensure_access_probed()
+
         if parameter.name == "asset_kind":
             self._update_media_visibility()
 

@@ -459,8 +459,10 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             self._public_reference_video_parameter_1.delete_uploaded_artifact()
             self._public_reference_video_parameter_2.delete_uploaded_artifact()
             self._public_reference_video_parameter_3.delete_uploaded_artifact()
-            # The backend deletes the provider asset on terminal generation state, but the
-            # transient GTC static-storage upload made to feed CreateProviderAsset is ours
+            # Provider assets are reclaimed by the backend: a submitted generation deletes its
+            # linked assets on terminal state, and assets we register but never submit (e.g. a
+            # build failure after registration) are reclaimed by the backend's orphan sweeper.
+            # The transient GTC static-storage upload made to feed CreateProviderAsset is ours
             # to clean up, along with the scratch parameter created to perform the upload (its
             # name is unique per call, so leaving it would accumulate parameters on the node).
             for helper, scratch_name in self._pending_asset_uploads:
@@ -921,7 +923,12 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         return await self._poll_provider_asset(str(provider_asset_id), headers)
 
     async def _poll_provider_asset(self, provider_asset_id: str, headers: dict[str, str]) -> str:
-        """Poll GET proxy/v2/assets/<id> until ACTIVE; return the provider asset id."""
+        """Poll GET proxy/v2/assets/<id> until ACTIVE; return the provider asset id.
+
+        Transient errors (a network blip, a 5xx, or the eventual-consistency 404 right after the
+        asset id is minted) are logged and retried until attempts are exhausted, mirroring the
+        base class's generation poll. Only a terminal status (FAILED/DELETED) fails immediately.
+        """
         get_url = urljoin(self._proxy_base, f"assets/{provider_asset_id}")
         async with httpx.AsyncClient() as client:
             for attempt in range(ASSET_MAX_ATTEMPTS):
@@ -930,8 +937,12 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                     response.raise_for_status()
                     result_json = response.json()
                 except Exception as e:
-                    msg = f"{self.name}: failed to poll private asset {provider_asset_id}: {e}"
-                    raise RuntimeError(msg) from e
+                    # Transient — log and retry rather than aborting an otherwise-successful run.
+                    self._log(
+                        f"{self.name} error polling private asset {provider_asset_id} (attempt {attempt + 1}): {e}"
+                    )
+                    await asyncio.sleep(ASSET_POLL_INTERVAL)
+                    continue
 
                 status = result_json.get("status", "unknown")
                 self._log(f"{self.name} private asset {provider_asset_id} status: {status} (attempt {attempt + 1})")
