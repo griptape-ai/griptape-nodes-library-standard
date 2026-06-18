@@ -228,6 +228,564 @@
                 "family": "OpenAI o-series (via Griptape Cloud)",
                 "provider_model_id": "o1",
                 "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_seedream_5_0_lite": {
+                "display_name": "Seedream 5.0 Lite (Griptape Cloud)",
+                "family": "Seedream (via Griptape Cloud)",
+                "provider_model_id": "seedream-5-0-260128",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedream_4_5": {
+                "display_name": "Seedream 4.5 (Griptape Cloud)",
+                "family": "Seedream (via Griptape Cloud)",
+                "provider_model_id": "seedream-4-5-251128",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedream_4_0": {
+                "display_name": "Seedream 4.0 (Griptape Cloud)",
+                "family": "Seedream (via Griptape Cloud)",
+                "provider_model_id": "seedream-4-0-250828",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedance_1_5_pro": {
+                "display_name": "Seedance 1.5 Pro (Griptape Cloud)",
+                "family": "Seedance (via Griptape Cloud)",
+                "provider_model_id": "seedance-1-5-pro-251215",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedance_1_0_pro": {
+                "display_name": "Seedance 1.0 Pro (Griptape Cloud)",
+                "family": "Seedance (via Griptape Cloud)",
+                "provider_model_id": "seedance-1-0-pro-250528",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedance_1_0_pro_fast": {
+                "display_name": "Seedance 1.0 Pro Fast (Griptape Cloud)",
+                "family": "Seedance (via Griptape Cloud)",
+                "provider_model_id": "seedance-1-0-pro-fast-251015",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedance_2_0": {
+                "display_name": "Seedance 2.0 (Griptape Cloud)",
+                "family": "Seedance (via Griptape Cloud)",
+                "provider_model_id": "dreamina-seedance-2-0-260128",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedance_2_0_fast": {
+                "display_name": "Seedance 2.0 Fast (Griptape Cloud)",
+                "family": "Seedance (via Griptape Cloud)",
+                "provider_model_id": "dreamina-seedance-2-0-fast-260128",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_flux_kontext_pro": {
+                "display_name": "FLUX Kontext Pro (Griptape Cloud)",
+                "family": "FLUX (via Griptape Cloud)",
+                "provider_model_id": "flux-kontext-pro",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_flux_2_pro": {
+                "display_name": "FLUX.2 [pro] (Griptape Cloud)",
+                "family": "FLUX (via Griptape Cloud)",
+                "provider_model_id": "flux-2-pro",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_flux_2_flex": {
+                "display_name": "FLUX.2 [flex] (Griptape Cloud)",
+                "family": "FLUX (via Griptape Cloud)",
+                "provider_model_id": "flux-2-flex",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_flux_2_max": {
+                "display_name": "FLUX.2 [max] (Griptape Cloud)",
+                "family": "FLUX (via Griptape Cloud)",
+                "provider_model_id": "flux-2-max",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_flux_2_klein_4b": {
+                "display_name": "FLUX.2 [klein] 4B (Griptape Cloud)",
+                "family": "FLUX (via Griptape Cloud)",
+                "provider_model_id": "flux-2-klein-4b",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_flux_2_klein_9b": {
+                "display_name": "FLUX.2 [klein] 9B (Griptape Cloud)",
+                "family": "FLUX (via Griptape Cloud)",
+                "provider_model_id": "flux-2-klein-9b",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gemini_3_pro_image": {
+                "display_name": "Nano Banana Pro (Griptape Cloud)",
+                "family": "Google (via Griptape Cloud)",
+                "provider_model_id": "gemini-3-pro-image",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gemini_3_1_flash_image": {
+                "display_name": "Nano Banana 2 (Griptape Cloud)",
+                "family": "Google (via Griptape Cloud)",
+                "provider_model_id": "gemini-3.1-flash-image",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_veo_3_1": {
+                "display_name": "Veo 3.1 (Griptape Cloud)",
+                "family": "Google Veo (via Griptape Cloud)",
+                "provider_model_id": "veo-3.1-generate-001",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_veo_3_1_fast": {
+                "display_name": "Veo 3.1 Fast (Griptape Cloud)",
+                "family": "Google Veo (via Griptape Cloud)",
+                "provider_model_id": "veo-3.1-fast-generate-001",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_veo_3_0": {
+                "display_name": "Veo 3.0 (Griptape Cloud)",
+                "family": "Google Veo (via Griptape Cloud)",
+                "provider_model_id": "veo-3.0-generate-001",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_veo_3_0_fast": {
+                "display_name": "Veo 3.0 Fast (Griptape Cloud)",
+                "family": "Google Veo (via Griptape Cloud)",
+                "provider_model_id": "veo-3.0-fast-generate-001",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_grok_imagine_image": {
+                "display_name": "Grok Imagine Image (Griptape Cloud)",
+                "family": "xAI Grok (via Griptape Cloud)",
+                "provider_model_id": "grok-imagine-image",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_grok_imagine_video": {
+                "display_name": "Grok Imagine Video (Griptape Cloud)",
+                "family": "xAI Grok (via Griptape Cloud)",
+                "provider_model_id": "grok-imagine-video",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_image_1": {
+                "display_name": "GPT Image 1 (Griptape Cloud)",
+                "family": "OpenAI Image (via Griptape Cloud)",
+                "provider_model_id": "gpt-image-1",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_image_1_5": {
+                "display_name": "GPT Image 1.5 (Griptape Cloud)",
+                "family": "OpenAI Image (via Griptape Cloud)",
+                "provider_model_id": "gpt-image-1.5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_image_2": {
+                "display_name": "GPT Image 2 (Griptape Cloud)",
+                "family": "OpenAI Image (via Griptape Cloud)",
+                "provider_model_id": "gpt-image-2",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_sora_2": {
+                "display_name": "Sora 2 (Griptape Cloud)",
+                "family": "OpenAI Sora (via Griptape Cloud)",
+                "provider_model_id": "sora-2",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_sora_2_pro": {
+                "display_name": "Sora 2 Pro (Griptape Cloud)",
+                "family": "OpenAI Sora (via Griptape Cloud)",
+                "provider_model_id": "sora-2-pro",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_whisper_1": {
+                "display_name": "Whisper 1 (Griptape Cloud)",
+                "family": "OpenAI Whisper (via Griptape Cloud)",
+                "provider_model_id": "whisper-1",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_qwen_image": {
+                "display_name": "Qwen Image (Griptape Cloud)",
+                "family": "Qwen (via Griptape Cloud)",
+                "provider_model_id": "qwen-image",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_qwen_image_plus": {
+                "display_name": "Qwen Image Plus (Griptape Cloud)",
+                "family": "Qwen (via Griptape Cloud)",
+                "provider_model_id": "qwen-image-plus",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_qwen_image_edit": {
+                "display_name": "Qwen Image Edit (Griptape Cloud)",
+                "family": "Qwen (via Griptape Cloud)",
+                "provider_model_id": "qwen-image-edit",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_qwen_image_edit_plus": {
+                "display_name": "Qwen Image Edit Plus (Griptape Cloud)",
+                "family": "Qwen (via Griptape Cloud)",
+                "provider_model_id": "qwen-image-edit-plus",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_qwen_image_edit_plus_2025_10_30": {
+                "display_name": "Qwen Image Edit Plus (2025-10-30) (Griptape Cloud)",
+                "family": "Qwen (via Griptape Cloud)",
+                "provider_model_id": "qwen-image-edit-plus-2025-10-30",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_7_image_pro": {
+                "display_name": "Wan 2.7 Image Pro (Griptape Cloud)",
+                "family": "Wan (via Griptape Cloud)",
+                "provider_model_id": "wan2.7-image-pro",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_7_image": {
+                "display_name": "Wan 2.7 Image (Griptape Cloud)",
+                "family": "Wan (via Griptape Cloud)",
+                "provider_model_id": "wan2.7-image",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_2_animate_mix": {
+                "display_name": "Wan 2.2 Animate Mix (Griptape Cloud)",
+                "family": "Wan (via Griptape Cloud)",
+                "provider_model_id": "wan2.2-animate-mix",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_2_animate_move": {
+                "display_name": "Wan 2.2 Animate Move (Griptape Cloud)",
+                "family": "Wan (via Griptape Cloud)",
+                "provider_model_id": "wan2.2-animate-move",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_6_i2v": {
+                "display_name": "Wan 2.6 I2V (Griptape Cloud)",
+                "family": "Wan (via Griptape Cloud)",
+                "provider_model_id": "wan2.6-i2v",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_5_i2v_preview": {
+                "display_name": "Wan 2.5 I2V Preview (Griptape Cloud)",
+                "family": "Wan (via Griptape Cloud)",
+                "provider_model_id": "wan2.5-i2v-preview",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_2_i2v_flash": {
+                "display_name": "Wan 2.2 I2V Flash (Griptape Cloud)",
+                "family": "Wan (via Griptape Cloud)",
+                "provider_model_id": "wan2.2-i2v-flash",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_2_i2v_plus": {
+                "display_name": "Wan 2.2 I2V Plus (Griptape Cloud)",
+                "family": "Wan (via Griptape Cloud)",
+                "provider_model_id": "wan2.2-i2v-plus",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wanx_2_1_i2v_plus": {
+                "display_name": "Wan 2.1 I2V Plus (Griptape Cloud)",
+                "family": "Wan (via Griptape Cloud)",
+                "provider_model_id": "wanx2.1-i2v-plus",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wanx_2_1_i2v_turbo": {
+                "display_name": "Wan 2.1 I2V Turbo (Griptape Cloud)",
+                "family": "Wan (via Griptape Cloud)",
+                "provider_model_id": "wanx2.1-i2v-turbo",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_6_r2v": {
+                "display_name": "Wan 2.6 R2V (Griptape Cloud)",
+                "family": "Wan (via Griptape Cloud)",
+                "provider_model_id": "wan2.6-r2v",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_6_t2v": {
+                "display_name": "Wan 2.6 T2V (Griptape Cloud)",
+                "family": "Wan (via Griptape Cloud)",
+                "provider_model_id": "wan2.6-t2v",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_5_t2v_preview": {
+                "display_name": "Wan 2.5 T2V Preview (Griptape Cloud)",
+                "family": "Wan (via Griptape Cloud)",
+                "provider_model_id": "wan2.5-t2v-preview",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_2_t2v_plus": {
+                "display_name": "Wan 2.2 T2V Plus (Griptape Cloud)",
+                "family": "Wan (via Griptape Cloud)",
+                "provider_model_id": "wan2.2-t2v-plus",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wanx_2_1_t2v_turbo": {
+                "display_name": "Wan 2.1 T2V Turbo (Griptape Cloud)",
+                "family": "Wan (via Griptape Cloud)",
+                "provider_model_id": "wanx2.1-t2v-turbo",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wanx_2_1_t2v_plus": {
+                "display_name": "Wan 2.1 T2V Plus (Griptape Cloud)",
+                "family": "Wan (via Griptape Cloud)",
+                "provider_model_id": "wanx2.1-t2v-plus",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_enhance": {
+                "display_name": "Topaz Enhance (Griptape Cloud)",
+                "family": "Topaz (via Griptape Cloud)",
+                "provider_model_id": "topaz-enhance",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_enhance_generative": {
+                "display_name": "Topaz Enhance Generative (Griptape Cloud)",
+                "family": "Topaz (via Griptape Cloud)",
+                "provider_model_id": "topaz-enhance-generative",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_sharpen": {
+                "display_name": "Topaz Sharpen (Griptape Cloud)",
+                "family": "Topaz (via Griptape Cloud)",
+                "provider_model_id": "topaz-sharpen",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_sharpen_generative": {
+                "display_name": "Topaz Sharpen Generative (Griptape Cloud)",
+                "family": "Topaz (via Griptape Cloud)",
+                "provider_model_id": "topaz-sharpen-generative",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_denoise": {
+                "display_name": "Topaz Denoise (Griptape Cloud)",
+                "family": "Topaz (via Griptape Cloud)",
+                "provider_model_id": "topaz-denoise",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_restore_generative": {
+                "display_name": "Topaz Restore Generative (Griptape Cloud)",
+                "family": "Topaz (via Griptape Cloud)",
+                "provider_model_id": "topaz-restore-generative",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_lighting": {
+                "display_name": "Topaz Lighting (Griptape Cloud)",
+                "family": "Topaz (via Griptape Cloud)",
+                "provider_model_id": "topaz-lighting",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_matting": {
+                "display_name": "Topaz Matting (Griptape Cloud)",
+                "family": "Topaz (via Griptape Cloud)",
+                "provider_model_id": "topaz-matting",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_tool": {
+                "display_name": "Topaz Tool (Griptape Cloud)",
+                "family": "Topaz (via Griptape Cloud)",
+                "provider_model_id": "topaz-tool",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_marble_1_1_plus": {
+                "display_name": "Marble 1.1 Plus (Griptape Cloud)",
+                "family": "World Labs (via Griptape Cloud)",
+                "provider_model_id": "marble-1.1-plus",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_marble_1_1": {
+                "display_name": "Marble 1.1 (Griptape Cloud)",
+                "family": "World Labs (via Griptape Cloud)",
+                "provider_model_id": "marble-1.1",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_marble_1_0": {
+                "display_name": "Marble 1.0 (Griptape Cloud)",
+                "family": "World Labs (via Griptape Cloud)",
+                "provider_model_id": "marble-1.0",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_marble_1_0_draft": {
+                "display_name": "Marble 1.0 Draft (Griptape Cloud)",
+                "family": "World Labs (via Griptape Cloud)",
+                "provider_model_id": "marble-1.0-draft",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_rodin_gen2": {
+                "display_name": "Rodin Gen-2 (Griptape Cloud)",
+                "family": "Rodin (via Griptape Cloud)",
+                "provider_model_id": "rodin-gen2",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_tripo_image_to_3d": {
+                "display_name": "Tripo Image to 3D (Griptape Cloud)",
+                "family": "Tripo (via Griptape Cloud)",
+                "provider_model_id": "tripo-image-to-3d",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_tripo_text_to_3d": {
+                "display_name": "Tripo Text to 3D (Griptape Cloud)",
+                "family": "Tripo (via Griptape Cloud)",
+                "provider_model_id": "tripo-text-to-3d",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v3": {
+                "display_name": "Kling v3.0 (Griptape Cloud)",
+                "family": "Kling (via Griptape Cloud)",
+                "provider_model_id": "kling-v3",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v2_6": {
+                "display_name": "Kling v2.6 (Griptape Cloud)",
+                "family": "Kling (via Griptape Cloud)",
+                "provider_model_id": "kling-v2-6",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v2_5_turbo": {
+                "display_name": "Kling v2.5 Turbo (Griptape Cloud)",
+                "family": "Kling (via Griptape Cloud)",
+                "provider_model_id": "kling-v2-5-turbo",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v2_1_master": {
+                "display_name": "Kling v2.1 Master (Griptape Cloud)",
+                "family": "Kling (via Griptape Cloud)",
+                "provider_model_id": "kling-v2-1-master",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v2_1": {
+                "display_name": "Kling v2.1 (Griptape Cloud)",
+                "family": "Kling (via Griptape Cloud)",
+                "provider_model_id": "kling-v2-1",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v2_master": {
+                "display_name": "Kling v2 Master (Griptape Cloud)",
+                "family": "Kling (via Griptape Cloud)",
+                "provider_model_id": "kling-v2-master",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v1_6": {
+                "display_name": "Kling v1.6 (Griptape Cloud)",
+                "family": "Kling (via Griptape Cloud)",
+                "provider_model_id": "kling-v1-6",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v1_5": {
+                "display_name": "Kling v1.5 (Griptape Cloud)",
+                "family": "Kling (via Griptape Cloud)",
+                "provider_model_id": "kling-v1-5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v1": {
+                "display_name": "Kling v1 (Griptape Cloud)",
+                "family": "Kling (via Griptape Cloud)",
+                "provider_model_id": "kling-v1",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_video_o1_omni": {
+                "display_name": "Kling Omni (Griptape Cloud)",
+                "family": "Kling (via Griptape Cloud)",
+                "provider_model_id": "kling-video-o1",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v3_omni": {
+                "display_name": "Kling v3.0 Omni (Griptape Cloud)",
+                "family": "Kling (via Griptape Cloud)",
+                "provider_model_id": "kling-v3-omni",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_motion_control": {
+                "display_name": "Kling Motion Control (Griptape Cloud)",
+                "family": "Kling (via Griptape Cloud)",
+                "provider_model_id": "kling:motion-control",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_video_extend": {
+                "display_name": "Kling Video Extension (Griptape Cloud)",
+                "family": "Kling (via Griptape Cloud)",
+                "provider_model_id": "kling:video-extend",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_ltx_2_pro": {
+                "display_name": "LTX 2 Pro (Griptape Cloud)",
+                "family": "LTX (via Griptape Cloud)",
+                "provider_model_id": "ltx-2-pro",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_ltx_2_fast": {
+                "display_name": "LTX 2 Fast (Griptape Cloud)",
+                "family": "LTX (via Griptape Cloud)",
+                "provider_model_id": "ltx-2-fast",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_ltx_2_3_pro": {
+                "display_name": "LTX 2.3 Pro (Griptape Cloud)",
+                "family": "LTX (via Griptape Cloud)",
+                "provider_model_id": "ltx-2-3-pro",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_ltx_2_3_fast": {
+                "display_name": "LTX 2.3 Fast (Griptape Cloud)",
+                "family": "LTX (via Griptape Cloud)",
+                "provider_model_id": "ltx-2-3-fast",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_minimax_hailuo_2_3": {
+                "display_name": "Hailuo 2.3 (Griptape Cloud)",
+                "family": "MiniMax Hailuo (via Griptape Cloud)",
+                "provider_model_id": "MiniMax-Hailuo-2.3",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_minimax_hailuo_02": {
+                "display_name": "Hailuo 02 (Griptape Cloud)",
+                "family": "MiniMax Hailuo (via Griptape Cloud)",
+                "provider_model_id": "MiniMax-Hailuo-02",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_minimax_hailuo_2_3_fast": {
+                "display_name": "Hailuo 2.3 Fast (Griptape Cloud)",
+                "family": "MiniMax Hailuo (via Griptape Cloud)",
+                "provider_model_id": "MiniMax-Hailuo-2.3-Fast",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_omnihuman_1_0": {
+                "display_name": "OmniHuman 1.0 (Griptape Cloud)",
+                "family": "OmniHuman (via Griptape Cloud)",
+                "provider_model_id": "omnihuman-1-0",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_omnihuman_1_5": {
+                "display_name": "OmniHuman 1.5 (Griptape Cloud)",
+                "family": "OmniHuman (via Griptape Cloud)",
+                "provider_model_id": "omnihuman-1-5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_omnihuman_1_5_subject_detection": {
+                "display_name": "OmniHuman 1.5 Subject Detection (Griptape Cloud)",
+                "family": "OmniHuman (via Griptape Cloud)",
+                "provider_model_id": "omnihuman-1-5-subject-detection",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_omnihuman_1_5_subject_recognition": {
+                "display_name": "OmniHuman 1.5 Subject Recognition (Griptape Cloud)",
+                "family": "OmniHuman (via Griptape Cloud)",
+                "provider_model_id": "omnihuman-1-5-subject-recognition",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_eleven_music_1_0": {
+                "display_name": "Eleven Music 1.0 (Griptape Cloud)",
+                "family": "ElevenLabs (via Griptape Cloud)",
+                "provider_model_id": "eleven-music-1-0",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_eleven_text_to_sound_v2": {
+                "display_name": "Eleven Text to Sound v2 (Griptape Cloud)",
+                "family": "ElevenLabs (via Griptape Cloud)",
+                "provider_model_id": "eleven_text_to_sound_v2",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_eleven_multilingual_v2": {
+                "display_name": "Eleven Multilingual v2 (Griptape Cloud)",
+                "family": "ElevenLabs (via Griptape Cloud)",
+                "provider_model_id": "eleven_multilingual_v2",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_eleven_v3": {
+                "display_name": "Eleven v3 (Griptape Cloud)",
+                "family": "ElevenLabs (via Griptape Cloud)",
+                "provider_model_id": "eleven_v3",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
           }
@@ -1154,6 +1712,14 @@
           "speech-to-text",
           "openai",
           "api"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_whisper_1"
+            ]
+          }
         ]
       }
     },
@@ -1172,6 +1738,15 @@
           "elevenlabs",
           "generation",
           "api"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_eleven_multilingual_v2",
+              "gtc_eleven_v3"
+            ]
+          }
         ]
       }
     },
@@ -1190,6 +1765,14 @@
           "elevenlabs",
           "generation",
           "api"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_eleven_text_to_sound_v2"
+            ]
+          }
         ]
       }
     },
@@ -1208,6 +1791,14 @@
           "elevenlabs",
           "generation",
           "api"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_eleven_music_1_0"
+            ]
+          }
         ]
       }
     },
@@ -1353,6 +1944,16 @@
           "ai",
           "api",
           "seedance"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_seedance_1_5_pro",
+              "gtc_seedance_1_0_pro",
+              "gtc_seedance_1_0_pro_fast"
+            ]
+          }
         ]
       }
     },
@@ -1371,6 +1972,15 @@
           "ai",
           "api",
           "seedance"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_seedance_2_0",
+              "gtc_seedance_2_0_fast"
+            ]
+          }
         ]
       }
     },
@@ -1390,6 +2000,14 @@
           "api",
           "grok",
           "xai"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_grok_imagine_video"
+            ]
+          }
         ]
       }
     },
@@ -1409,6 +2027,14 @@
           "api",
           "grok",
           "xai"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_grok_imagine_video"
+            ]
+          }
         ]
       }
     },
@@ -1428,6 +2054,14 @@
           "api",
           "omnihuman",
           "recognition"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_omnihuman_1_5_subject_recognition"
+            ]
+          }
         ]
       }
     },
@@ -1447,6 +2081,14 @@
           "api",
           "omnihuman",
           "detection"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_omnihuman_1_5_subject_detection"
+            ]
+          }
         ]
       }
     },
@@ -1466,6 +2108,15 @@
           "api",
           "omnihuman",
           "talking-head"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_omnihuman_1_0",
+              "gtc_omnihuman_1_5"
+            ]
+          }
         ]
       }
     },
@@ -1484,6 +2135,16 @@
           "ai",
           "api",
           "minimax"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_minimax_hailuo_2_3",
+              "gtc_minimax_hailuo_02",
+              "gtc_minimax_hailuo_2_3_fast"
+            ]
+          }
         ]
       }
     },
@@ -1502,6 +2163,19 @@
           "ai",
           "api",
           "kling"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_kling_v3",
+              "gtc_kling_v2_6",
+              "gtc_kling_v2_5_turbo",
+              "gtc_kling_v2_1_master",
+              "gtc_kling_v2_master",
+              "gtc_kling_v1_6"
+            ]
+          }
         ]
       }
     },
@@ -1520,6 +2194,22 @@
           "ai",
           "api",
           "kling"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_kling_v3",
+              "gtc_kling_v2_6",
+              "gtc_kling_v2_5_turbo",
+              "gtc_kling_v2_1_master",
+              "gtc_kling_v2_1",
+              "gtc_kling_v2_master",
+              "gtc_kling_v1_6",
+              "gtc_kling_v1_5",
+              "gtc_kling_v1"
+            ]
+          }
         ]
       }
     },
@@ -1538,6 +2228,17 @@
           "ai",
           "api",
           "ltx"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_ltx_2_pro",
+              "gtc_ltx_2_fast",
+              "gtc_ltx_2_3_pro",
+              "gtc_ltx_2_3_fast"
+            ]
+          }
         ]
       }
     },
@@ -1556,6 +2257,17 @@
           "ai",
           "api",
           "ltx"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_ltx_2_pro",
+              "gtc_ltx_2_fast",
+              "gtc_ltx_2_3_pro",
+              "gtc_ltx_2_3_fast"
+            ]
+          }
         ]
       }
     },
@@ -1574,6 +2286,15 @@
           "ai",
           "api",
           "ltx"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_ltx_2_pro",
+              "gtc_ltx_2_3_pro"
+            ]
+          }
         ]
       }
     },
@@ -1592,6 +2313,15 @@
           "ai",
           "api",
           "ltx"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_ltx_2_pro",
+              "gtc_ltx_2_3_pro"
+            ]
+          }
         ]
       }
     },
@@ -1610,6 +2340,15 @@
           "ai",
           "api",
           "ltx"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_ltx_2_pro",
+              "gtc_ltx_2_3_pro"
+            ]
+          }
         ]
       }
     },
@@ -1629,6 +2368,14 @@
           "ai",
           "api",
           "ltx"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_ltx_2_3_pro"
+            ]
+          }
         ]
       }
     },
@@ -1647,6 +2394,14 @@
           "ai",
           "api",
           "kling"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_kling_video_extend"
+            ]
+          }
         ]
       }
     },
@@ -1665,6 +2420,15 @@
           "ai",
           "api",
           "kling"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_kling_v3_omni",
+              "gtc_kling_video_o1_omni"
+            ]
+          }
         ]
       }
     },
@@ -1683,6 +2447,14 @@
           "ai",
           "api",
           "kling"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_kling_motion_control"
+            ]
+          }
         ]
       }
     },
@@ -1702,6 +2474,15 @@
           "api",
           "sora",
           "openai"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_sora_2",
+              "gtc_sora_2_pro"
+            ]
+          }
         ]
       }
     },
@@ -1720,6 +2501,18 @@
           "ai",
           "api",
           "wan"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_wan_2_6_t2v",
+              "gtc_wan_2_5_t2v_preview",
+              "gtc_wan_2_2_t2v_plus",
+              "gtc_wanx_2_1_t2v_turbo",
+              "gtc_wanx_2_1_t2v_plus"
+            ]
+          }
         ]
       }
     },
@@ -1739,6 +2532,17 @@
           "api",
           "veo",
           "google"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_veo_3_1",
+              "gtc_veo_3_1_fast",
+              "gtc_veo_3_0",
+              "gtc_veo_3_0_fast"
+            ]
+          }
         ]
       }
     },
@@ -1757,6 +2561,19 @@
           "ai",
           "api",
           "wan"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_wan_2_6_i2v",
+              "gtc_wan_2_5_i2v_preview",
+              "gtc_wan_2_2_i2v_flash",
+              "gtc_wan_2_2_i2v_plus",
+              "gtc_wanx_2_1_i2v_plus",
+              "gtc_wanx_2_1_i2v_turbo"
+            ]
+          }
         ]
       }
     },
@@ -1775,6 +2592,15 @@
           "ai",
           "api",
           "wan"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_wan_2_2_animate_mix",
+              "gtc_wan_2_2_animate_move"
+            ]
+          }
         ]
       }
     },
@@ -1793,6 +2619,14 @@
           "ai",
           "api",
           "wan"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_wan_2_6_r2v"
+            ]
+          }
         ]
       }
     },
@@ -3030,6 +3864,16 @@
           "ai",
           "api",
           "seedream"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_seedream_5_0_lite",
+              "gtc_seedream_4_5",
+              "gtc_seedream_4_0"
+            ]
+          }
         ]
       }
     },
@@ -3049,6 +3893,14 @@
           "api",
           "grok",
           "xai"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_grok_imagine_image"
+            ]
+          }
         ]
       }
     },
@@ -3068,6 +3920,14 @@
           "api",
           "grok",
           "xai"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_grok_imagine_image"
+            ]
+          }
         ]
       }
     },
@@ -3086,6 +3946,14 @@
           "ai",
           "api",
           "flux"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_flux_kontext_pro"
+            ]
+          }
         ]
       }
     },
@@ -3104,6 +3972,18 @@
           "ai",
           "api",
           "flux"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_flux_2_pro",
+              "gtc_flux_2_flex",
+              "gtc_flux_2_max",
+              "gtc_flux_2_klein_4b",
+              "gtc_flux_2_klein_9b"
+            ]
+          }
         ]
       }
     },
@@ -3122,6 +4002,15 @@
           "ai",
           "api",
           "qwen"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_qwen_image",
+              "gtc_qwen_image_plus"
+            ]
+          }
         ]
       }
     },
@@ -3140,6 +4029,16 @@
           "ai",
           "api",
           "qwen"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_qwen_image_edit",
+              "gtc_qwen_image_edit_plus",
+              "gtc_qwen_image_edit_plus_2025_10_30"
+            ]
+          }
         ]
       }
     },
@@ -3158,6 +4057,15 @@
           "ai",
           "api",
           "wan"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_wan_2_7_image_pro",
+              "gtc_wan_2_7_image"
+            ]
+          }
         ]
       }
     },
@@ -3665,6 +4573,15 @@
           "api",
           "google",
           "nano-banana"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gemini_3_pro_image",
+              "gtc_gemini_3_1_flash_image"
+            ]
+          }
         ]
       }
     },
@@ -3687,6 +4604,16 @@
           "gpt-image-2",
           "gpt-image-1",
           "gpt-image-1.5"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_image_1",
+              "gtc_gpt_image_1_5",
+              "gtc_gpt_image_2"
+            ]
+          }
         ]
       }
     },
@@ -4594,6 +5521,14 @@
           "ai",
           "api",
           "rodin"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_rodin_gen2"
+            ]
+          }
         ]
       }
     },
@@ -4611,6 +5546,14 @@
           "ai",
           "api",
           "tripo"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_tripo_text_to_3d"
+            ]
+          }
         ]
       }
     },
@@ -4628,6 +5571,14 @@
           "ai",
           "api",
           "tripo"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_tripo_image_to_3d"
+            ]
+          }
         ]
       }
     },
@@ -4646,6 +5597,17 @@
           "ai",
           "api",
           "world-labs"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_marble_1_1_plus",
+              "gtc_marble_1_1",
+              "gtc_marble_1_0",
+              "gtc_marble_1_0_draft"
+            ]
+          }
         ]
       }
     },
@@ -5003,6 +5965,22 @@
           "ai",
           "api",
           "topaz"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_topaz_enhance",
+              "gtc_topaz_enhance_generative",
+              "gtc_topaz_sharpen",
+              "gtc_topaz_sharpen_generative",
+              "gtc_topaz_denoise",
+              "gtc_topaz_restore_generative",
+              "gtc_topaz_lighting",
+              "gtc_topaz_matting",
+              "gtc_topaz_tool"
+            ]
+          }
         ]
       }
     },
