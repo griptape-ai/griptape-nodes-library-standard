@@ -2,6 +2,9 @@
 
 Produces one workflow .py file per node in tests/workflows/integration_tests/.
 Run with: python scripts/generate_test_workflows.py
+
+Each generated header sets `is_private = true` so the test workflow stays hidden
+from the GUI workflow picker. Hand-written test workflows must set it too.
 """
 
 from pathlib import Path

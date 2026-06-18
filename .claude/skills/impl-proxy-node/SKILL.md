@@ -340,7 +340,7 @@ The test should:
 5. Execute and verify a file was produced
 
 Study the existing test carefully and replicate its structure. Key patterns:
-- Script metadata header with `# /// script` block
+- Script metadata header with `# /// script` block. Set `is_private = true` in the `[tool.griptape-nodes]` table so the test workflow is hidden from the GUI workflow picker (test/internal workflows must always set this; templates and user workflows must not).
 - Library registration via `RegisterLibraryFromFileRequest`
 - Node creation via `CreateNodeRequest` with `resolution="resolved"` and `initial_setup=True`
 - Connection creation via `CreateConnectionRequest`
