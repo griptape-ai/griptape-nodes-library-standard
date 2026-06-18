@@ -43,8 +43,9 @@ from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissin
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
 from griptape_nodes_library.config.prompt.cloud_models import (
     DEPRECATED_MODELS,
-    MODEL_CHOICES,
-    MODEL_CHOICES_ARGS,
+    args_for_model,
+    model_choices,
+    model_choices_args,
 )
 from griptape_nodes_library.utils.agent_utils import (
     build_rulesets_from_configs,
@@ -136,8 +137,8 @@ class Agent(ControlNode):
                 default_value=DEFAULT_MODEL,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 tooltip="Choose a model, or connect a Prompt Model Configuration",
-                traits={Options(choices=MODEL_CHOICES)},
-                ui_options={"display_name": "prompt model", "data": MODEL_CHOICES_ARGS},
+                traits={Options(choices=model_choices(self))},
+                ui_options={"display_name": "prompt model", "data": model_choices_args(self)},
             )
         )
         self.add_parameter(
@@ -628,7 +629,7 @@ class Agent(ControlNode):
             self.set_parameter_value("model", DEFAULT_MODEL)
 
             # Add the options trait
-            target_parameter.add_trait(Options(choices=MODEL_CHOICES))
+            target_parameter.add_trait(Options(choices=model_choices(self)))
 
             # Change the display name to be appropriate
             ui_options = target_parameter.ui_options
@@ -836,10 +837,10 @@ class Agent(ControlNode):
         elif isinstance(model_input, BasePromptDriver):
             agent = GtAgent(prompt_driver=model_input, tools=tools, rulesets=rulesets, output_schema=pydantic_schema)
         elif isinstance(model_input, str):
-            if model_input not in MODEL_CHOICES:
+            if model_input not in model_choices(self):
                 model_input = DEFAULT_MODEL
             # Get the appropriate args
-            args = next((model["args"] for model in MODEL_CHOICES_ARGS if model["name"] == model_input), {})
+            args = args_for_model(self, model_input)
             # Remove any None values from args
             args = {k: v for k, v in args.items() if v is not None}
             prompt_driver = GriptapeCloudPromptDriver(

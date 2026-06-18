@@ -87,13 +87,13 @@
               },
               "gtc_deepseek_v3": {
                 "display_name": "DeepSeek V3 (Griptape Cloud)",
-                "family": "DeepSeek (via Griptape Cloud)",
+                "family": "DeepSeek V3 (via Griptape Cloud)",
                 "provider_model_id": "deepseek-v3",
                 "key_support": "REQUIRES_GRIPTAPE_KEY"
               },
               "gtc_deepseek_r1": {
                 "display_name": "DeepSeek R1 (Griptape Cloud)",
-                "family": "DeepSeek (via Griptape Cloud)",
+                "family": "DeepSeek R1 (via Griptape Cloud)",
                 "provider_model_id": "deepseek.r1-v1",
                 "key_support": "REQUIRES_GRIPTAPE_KEY"
               },
