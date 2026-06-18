@@ -12,7 +12,16 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
 from griptape_nodes.files.file import File
 
 import griptape_nodes_library.video.seedance_2_0_video_generation as seedance_2_0_module
-from griptape_nodes_library.video.seedance_2_0_video_generation import Seedance20VideoGeneration
+from griptape_nodes_library.assets import (
+    ASSET_KIND_AUDIO,
+    ASSET_KIND_IMAGE,
+    create_provider_asset_reference,
+)
+from griptape_nodes_library.video.seedance_2_0_video_generation import (
+    SEEDANCE_2_0_FAST_MODEL_ID,
+    SEEDANCE_2_0_MODEL_ID,
+    Seedance20VideoGeneration,
+)
 
 
 def _set_parameter_list_values(node: Seedance20VideoGeneration, parameter_name: str, values: list[object]) -> None:
@@ -268,3 +277,208 @@ async def test_build_payload_uses_public_artifact_url_parameter_for_reference_vi
             "role": "reference_video",
         },
     ]
+
+
+# --- Private-asset reference gating (Seedance 2.0 only) -------------------------------------
+
+
+def test_supports_private_assets_only_for_seedance_2_0() -> None:
+    assert Seedance20VideoGeneration._supports_private_assets(SEEDANCE_2_0_MODEL_ID) is True
+    assert Seedance20VideoGeneration._supports_private_assets(SEEDANCE_2_0_FAST_MODEL_ID) is False
+
+
+def test_seedance_2_fast_rejects_private_asset_reference() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0 Fast")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    _set_parameter_list_values(
+        node,
+        "reference_images",
+        [create_provider_asset_reference(value="https://public.example/portrait.png", asset_kind=ASSET_KIND_IMAGE)],
+    )
+
+    with pytest.raises(ValueError, match="Seedance 2.0 Fast does not support private-asset references"):
+        node._validate_parameters(node._get_parameters())
+
+
+def test_seedance_2_0_rejects_private_asset_reference_kind_mismatch() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    # An Audio-kind reference wired into a video input should be rejected.
+    node.set_parameter_value(
+        "reference_video_1",
+        create_provider_asset_reference(value="https://public.example/clip.wav", asset_kind=ASSET_KIND_AUDIO),
+    )
+
+    with pytest.raises(ValueError, match="private-asset reference is connected to a Video reference input"):
+        node._validate_parameters(node._get_parameters())
+
+
+def test_seedance_2_0_accepts_matching_private_asset_reference() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    _set_parameter_list_values(
+        node,
+        "reference_images",
+        [create_provider_asset_reference(value="https://public.example/portrait.png", asset_kind=ASSET_KIND_IMAGE)],
+    )
+
+    # Matching kind on a supported model validates without raising.
+    node._validate_parameters(node._get_parameters())
+
+
+@pytest.mark.asyncio
+async def test_build_payload_registers_private_asset_reference_for_seedance_2_0(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    node.set_parameter_value("prompt", "Animate the reference portrait")
+    _set_parameter_list_values(
+        node,
+        "reference_images",
+        [create_provider_asset_reference(value="https://public.example/portrait.png", asset_kind=ASSET_KIND_IMAGE)],
+    )
+
+    registered: list[tuple[str, str]] = []
+
+    async def fake_create_provider_asset(self, public_url: str, asset_kind: str, headers: dict[str, str]) -> str:
+        registered.append((public_url, asset_kind))
+        return "generated-asset-id"
+
+    monkeypatch.setattr(Seedance20VideoGeneration, "_create_provider_asset", fake_create_provider_asset)
+    monkeypatch.setattr(Seedance20VideoGeneration, "_validate_api_key", lambda self: "test-key")
+
+    payload = await node._build_payload()
+
+    assert registered == [("https://public.example/portrait.png", ASSET_KIND_IMAGE)]
+    assert payload["content"] == [
+        {"type": "text", "text": "Animate the reference portrait"},
+        {
+            "type": "image_url",
+            "image_url": {"url": "asset://generated-asset-id"},
+            "role": "reference_image",
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_build_payload_does_not_register_assets_for_seedance_2_fast(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0 Fast")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    node.set_parameter_value("prompt", "Use the reference video motion")
+    node.set_parameter_value("reference_video_1", VideoUrlArtifact("https://public.example/reference.mp4"))
+
+    def fail_if_called(self, *args, **kwargs):
+        raise AssertionError("Seedance 2.0 Fast must not register private assets")
+
+    monkeypatch.setattr(Seedance20VideoGeneration, "_create_provider_asset", fail_if_called)
+
+    payload = await node._build_payload()
+
+    # Normal media on Fast still flows through the standard (non-asset) path unchanged.
+    assert payload["content"] == [
+        {"type": "text", "text": "Use the reference video motion"},
+        {
+            "type": "video_url",
+            "video_url": {"url": "https://public.example/reference.mp4"},
+            "role": "reference_video",
+        },
+    ]
+
+
+# --- Private-asset reference gating (Griptape auth only, not BYOK) --------------------------
+
+
+def test_private_assets_inactive_when_byok_enabled() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0")
+
+    # Griptape auth (default): active on Seedance 2.0.
+    assert node._private_assets_active(SEEDANCE_2_0_MODEL_ID) is True
+
+    # BYOK (customer key): inactive even on Seedance 2.0.
+    node.set_parameter_value("api_key_provider", True)
+    assert node._is_byok_enabled() is True
+    assert node._private_assets_active(SEEDANCE_2_0_MODEL_ID) is False
+
+
+def test_byok_rejects_private_asset_reference() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    node.set_parameter_value("api_key_provider", True)
+    _set_parameter_list_values(
+        node,
+        "reference_images",
+        [create_provider_asset_reference(value="https://public.example/portrait.png", asset_kind=ASSET_KIND_IMAGE)],
+    )
+
+    with pytest.raises(ValueError, match="require Griptape authentication"):
+        node._validate_parameters(node._get_parameters())
+
+
+@pytest.mark.asyncio
+async def test_build_payload_does_not_register_assets_when_byok_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    node.set_parameter_value("api_key_provider", True)
+    node.set_parameter_value("prompt", "Use the reference video motion")
+    node.set_parameter_value("reference_video_1", VideoUrlArtifact("https://public.example/reference.mp4"))
+
+    def fail_if_called(self, *args, **kwargs):
+        raise AssertionError("BYOK must not register private assets")
+
+    monkeypatch.setattr(Seedance20VideoGeneration, "_create_provider_asset", fail_if_called)
+
+    payload = await node._build_payload()
+
+    # Normal media under BYOK still flows through the standard (non-asset) path unchanged.
+    assert payload["content"] == [
+        {"type": "text", "text": "Use the reference video motion"},
+        {
+            "type": "video_url",
+            "video_url": {"url": "https://public.example/reference.mp4"},
+            "role": "reference_video",
+        },
+    ]
+
+
+def test_scratch_upload_parameters_are_removed_after_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Registering an asset whose media needs uploading creates a uniquely-named scratch
+    # parameter. The cleanup must remove it so parameters don't accumulate across runs.
+    node = Seedance20VideoGeneration(name="Seedance20")
+
+    monkeypatch.setattr(
+        PublicArtifactUrlParameter,
+        "get_public_url_for_parameter",
+        lambda self: "https://public.example/uploaded.png",
+    )
+    monkeypatch.setattr(PublicArtifactUrlParameter, "delete_uploaded_artifact", lambda self: None)
+
+    # A non-public (data URI) value forces the upload path that mints a scratch parameter.
+    public_url = node._resolve_public_url_for_asset(
+        create_provider_asset_reference(value="data:image/png;base64,AAAA", asset_kind=ASSET_KIND_IMAGE),
+        asset_kind=ASSET_KIND_IMAGE,
+    )
+    assert public_url == "https://public.example/uploaded.png"
+
+    scratch_names = [name for _, name in node._pending_asset_uploads]
+    assert scratch_names, "expected a scratch upload parameter to be created"
+    assert all(node.get_parameter_by_name(name) is not None for name in scratch_names)
+
+    # Run the cleanup the way _process_generation's finally block does.
+    for helper, scratch_name in node._pending_asset_uploads:
+        helper.delete_uploaded_artifact()
+        node.remove_parameter_element_by_name(scratch_name)
+
+    assert all(node.get_parameter_by_name(name) is None for name in scratch_names)

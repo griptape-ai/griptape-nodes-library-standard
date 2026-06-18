@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import re
 import threading
 from abc import ABC, abstractmethod
@@ -21,6 +20,7 @@ from griptape_nodes.retained_mode.events.base_events import ResultPayload
 from griptape_nodes.retained_mode.events.model_events import DeclareModelInvocationRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
+from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key, resolve_proxy_base
 from griptape_nodes_library.proxy.proxy_api_key_providers import get_proxy_api_key_provider_config
 from griptape_nodes_library.proxy.proxy_auth_provider_parameter import ProxyAuthProviderParameter
 
@@ -66,10 +66,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         # Compute API base once; GT_CLOUD_PROXY_BASE_URL overrides just the proxy
         # without affecting other engine systems that use GT_CLOUD_BASE_URL.
-        base = os.getenv("GT_CLOUD_PROXY_BASE_URL") or os.getenv("GT_CLOUD_BASE_URL", "https://cloud.griptape.ai")
-        base_slash = base if base.endswith("/") else base + "/"
-        api_base = urljoin(base_slash, "api/")
-        self._proxy_base = urljoin(api_base, "proxy/v2/")
+        self._proxy_base = resolve_proxy_base()
         self._user_auth_info: str | None = None
         self._api_key_provider: ProxyAuthProviderParameter | None = None
         self._initialize_api_key_provider()
@@ -259,10 +256,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Raises:
             ValueError: If API key is missing
         """
-        proxy_key = os.getenv("GT_CLOUD_PROXY_API_KEY")
-        if proxy_key:
-            return proxy_key
-        api_key = GriptapeNodes.SecretsManager().get_secret(self.API_KEY_NAME)
+        api_key = resolve_proxy_api_key(self.API_KEY_NAME)
         if not api_key:
             self._set_safe_defaults()
             msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."

@@ -212,6 +212,15 @@
       }
     },
     {
+      "video/seedance": {
+        "color": "border-pink-500",
+        "title": "Seedance",
+        "description": "Seedance reference assets and supporting nodes",
+        "icon": "Link",
+        "group": "create"
+      }
+    },
+    {
       "image": {
         "color": "border-purple-500",
         "title": "Image",
@@ -1154,6 +1163,25 @@
           "ai",
           "api",
           "seedance"
+        ]
+      }
+    },
+    {
+      "class_name": "SeedanceHumanReferenceAsset",
+      "file_path": "griptape_nodes_library/video/seedance_human_reference_asset.py",
+      "metadata": {
+        "category": "video/seedance",
+        "description": "Package an image, video, or audio as a private-asset reference for Seedance 2.0 human-reference inputs.",
+        "display_name": "Seedance Human Reference Asset",
+        "icon": "Link",
+        "group": "create",
+        "tags": [
+          "seedance",
+          "reference",
+          "asset",
+          "image",
+          "video",
+          "audio"
         ]
       }
     },
