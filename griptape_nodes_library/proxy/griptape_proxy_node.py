@@ -16,6 +16,8 @@ from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.retained_mode.events.base_events import ResultPayload
+from griptape_nodes.retained_mode.events.model_events import DeclareModelInvocationRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key, resolve_proxy_base
@@ -589,6 +591,20 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._set_status_results(was_successful=False, result_details=error_msg)
         self._handle_failure_exception(e)
 
+    async def _declare_model_invocation(self, api_model_id: str) -> ResultPayload:
+        """Declare the impending model invocation so the permission layer can gate it.
+
+        Dispatches a DeclareModelInvocationRequest carrying the concrete model,
+        the provider it routes to, and this node's name. The engine clears the
+        call by default; a registered policy can deny it, in which case the
+        result reports failure. The proxy enforces server-side as well; this
+        runs first, so a denied call fails fast and never leaves the engine.
+        """
+        provider_id = self._api_key_provider.provider_id if self._api_key_provider else None
+        return await GriptapeNodes.ahandle_request(
+            DeclareModelInvocationRequest(model=api_model_id, provider_id=provider_id, node_name=self.name)
+        )
+
     async def _submit_and_poll(self, headers: dict[str, str]) -> tuple[str, dict[str, Any]] | None:
         """Submit generation request and poll for completion.
 
@@ -609,6 +625,16 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         api_model_id = self._get_api_model_id()
         if not api_model_id:
             self._handle_missing_model_id()
+            return None
+
+        # Declare the invocation so the engine's permission layer can gate it
+        # before any network call. The proxy still enforces server-side; this is
+        # the engine-side gate, so a denied invocation fails fast here.
+        declaration = await self._declare_model_invocation(api_model_id)
+        if declaration.failed():
+            self._set_safe_defaults()
+            details = str(declaration.result_details or f"{self.name}: model invocation was not permitted.")
+            self._set_status_results(was_successful=False, result_details=details)
             return None
 
         # Submit request to get generation ID
