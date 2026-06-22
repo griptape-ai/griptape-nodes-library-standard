@@ -110,7 +110,7 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterString(
                 name="model",
-                default_value="LTX 2.3 Fast",
+                default_value="LTX 2 Fast",
                 tooltip="Model to use for video generation",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=["LTX 2 Pro", "LTX 2 Fast", "LTX 2.3 Pro", "LTX 2.3 Fast"])},
