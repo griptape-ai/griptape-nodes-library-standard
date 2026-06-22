@@ -3,11 +3,12 @@
 # [tool.griptape-nodes]
 # name = "test_wan_image_generation"
 # schema_version = "0.16.0"
-# engine_version_created_with = "0.78.2"
-# node_libraries_referenced = [["Griptape Nodes Library", "0.68.0"], ["Griptape Nodes Testing Library", "0.1.0"]]
+# engine_version_created_with = "0.77.3"
+# node_libraries_referenced = [["Griptape Nodes Library", "0.67.0"], ["Griptape Nodes Testing Library", "0.1.0"]]
 # node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "WanImageGeneration"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
+# is_internal = true
 # ///
 import argparse
 import asyncio

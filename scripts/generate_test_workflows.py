@@ -2,6 +2,9 @@
 
 Produces one workflow .py file per node in tests/workflows/integration_tests/.
 Run with: python scripts/generate_test_workflows.py
+
+Each generated header sets `is_internal = true` so the test workflow stays hidden
+from the GUI workflow picker. Hand-written test workflows must set it too.
 """
 
 from pathlib import Path
@@ -680,6 +683,7 @@ WORKFLOW_TEMPLATE = """\
 # node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
+# is_internal = true
 # ///
 import argparse
 import asyncio
@@ -837,6 +841,7 @@ def generate_advanced_workflow(cfg: dict) -> str:
             f"# node_types_used = {node_types_list}",
             "# is_griptape_provided = false",
             "# is_template = false",
+            "# is_internal = true",
             "# ///",
             _IMPORTS,
             "",

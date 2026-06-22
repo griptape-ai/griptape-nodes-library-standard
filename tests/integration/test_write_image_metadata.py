@@ -8,6 +8,7 @@
 # node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "WriteImageMetadataNode"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
+# is_internal = true
 # ///
 import asyncio
 import logging
@@ -23,7 +24,7 @@ from griptape_nodes.retained_mode.events.flow_events import (
 )
 from griptape_nodes.retained_mode.events.library_events import RegisterLibraryFromFileRequest
 from griptape_nodes.retained_mode.events.node_events import CreateNodeRequest
-from griptape_nodes.retained_mode.events.parameter_events import AddParameterToNodeRequest, SetParameterValueRequest
+from griptape_nodes.retained_mode.events.parameter_events import AddParameterToNodeRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 GriptapeNodes.handle_request(
@@ -96,16 +97,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
                 ui_options={},
                 parent_container_name="",
                 initial_setup=True,
-            )
-        )
-    with GriptapeNodes.ContextManager().node(gen_node):
-        GriptapeNodes.handle_request(
-            SetParameterValueRequest(
-                parameter_name="metadata",
-                node_name=gen_node,
-                value={"author": "griptape-nodes-tests", "description": "integration test"},
-                initial_setup=True,
-                is_output=False,
             )
         )
     GriptapeNodes.handle_request(
