@@ -8,7 +8,7 @@
 # node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "GrokVideoGeneration"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
-# is_private = true
+# is_internal = true
 # ///
 import argparse
 import asyncio

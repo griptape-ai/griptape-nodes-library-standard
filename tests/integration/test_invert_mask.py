@@ -8,7 +8,7 @@
 # node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "InvertMask"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
-# is_private = true
+# is_internal = true
 # ///
 import asyncio
 import logging
