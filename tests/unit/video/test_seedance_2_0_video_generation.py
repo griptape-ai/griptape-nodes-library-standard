@@ -10,6 +10,7 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
     PublicArtifactUrlParameter,
 )
 from griptape_nodes.files.file import File
+from griptape_nodes.traits.options import Options
 
 import griptape_nodes_library.video.seedance_2_0_video_generation as seedance_2_0_module
 from griptape_nodes_library.assets import (
@@ -285,6 +286,50 @@ async def test_build_payload_uses_public_artifact_url_parameter_for_reference_vi
 def test_supports_private_assets_only_for_seedance_2_0() -> None:
     assert Seedance20VideoGeneration._supports_private_assets(SEEDANCE_2_0_MODEL_ID) is True
     assert Seedance20VideoGeneration._supports_private_assets(SEEDANCE_2_0_FAST_MODEL_ID) is False
+
+
+# --- 4k resolution gating (Seedance 2.0 only) ----------------------------------------------
+
+
+def test_supports_4k_only_for_seedance_2_0() -> None:
+    assert Seedance20VideoGeneration._supports_4k(SEEDANCE_2_0_MODEL_ID) is True
+    assert Seedance20VideoGeneration._supports_4k(SEEDANCE_2_0_FAST_MODEL_ID) is False
+
+
+def test_seedance_2_0_offers_4k_resolution_choice() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0")
+    node._update_resolution_options(SEEDANCE_2_0_MODEL_ID)
+
+    resolution_param = _parameter_by_name(node, "resolution")
+    choices = resolution_param.find_elements_by_type(Options)[0].choices
+    assert "4k" in choices
+    assert "1080p" in choices
+
+
+def test_seedance_2_fast_omits_4k_resolution_choice() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0 Fast")
+    node._update_resolution_options(SEEDANCE_2_0_FAST_MODEL_ID)
+
+    resolution_param = _parameter_by_name(node, "resolution")
+    choices = resolution_param.find_elements_by_type(Options)[0].choices
+    assert "4k" not in choices
+    assert "1080p" not in choices
+    assert choices == ["480p", "720p"]
+
+
+def test_seedance_2_fast_rejects_4k_resolution() -> None:
+    # The Options trait normally prevents selecting 4k on Fast via the UI, but resolution can
+    # also arrive over an INPUT connection that bypasses the trait — _validate_parameters is the
+    # backstop, mirroring the existing 1080p-on-Fast check.
+    node = Seedance20VideoGeneration(name="Seedance20")
+    params = node._get_parameters()
+    params["model_id"] = SEEDANCE_2_0_FAST_MODEL_ID
+    params["resolution"] = "4k"
+
+    with pytest.raises(ValueError, match="does not support 4k resolution"):
+        node._validate_parameters(params)
 
 
 def test_seedance_2_fast_rejects_private_asset_reference() -> None:
