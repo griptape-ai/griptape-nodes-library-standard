@@ -1,13 +1,16 @@
 """FFmpeg utility functions for cross-platform executable path resolution."""
 
 import json
+import math
 import os
 import subprocess
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, NamedTuple
 
 import static_ffmpeg.run  # type: ignore[import-untyped]
 
+DEFAULT_FRAME_RATE = 24.0
 RATE_TOLERANCE = 0.1
 MIN_SEGMENT_DURATION_FOR_STREAM_COPY = 2.0  # seconds — below this stream copy is unreliable
 
@@ -23,77 +26,93 @@ class VideoProperties(NamedTuple):
     duration: float
 
 
-def get_ffmpeg_path() -> str:
-    """Get the path to ffmpeg executable using static_ffmpeg for cross-platform compatibility.
+@dataclass
+class FileDetails:
+    """File-level metadata with guaranteed and optional fields."""
 
-    This function handles finding the ffmpeg executable across different platforms:
-    - Windows: Uses static-ffmpeg's platform-specific resolution
-    - Linux: Uses static-ffmpeg's platform-specific resolution
-    - macOS: Uses static-ffmpeg's platform-specific resolution
+    codec_name: str
+    codec_type: str  # Always "video" for video streams
 
-    Returns:
-        Path to the ffmpeg executable
+    optional_duration: float | None = None
+    optional_bit_rate: int | None = None
+    optional_codec_long_name: str | None = None
+    optional_profile: str | None = None
+    optional_level: int | None = None
+    optional_pixel_format: str | None = None
+    optional_file_size: int | None = None
+    optional_format_name: str | None = None
 
-    Raises:
-        RuntimeError: If ffmpeg is not found or static-ffmpeg is not properly installed
-    """
-    # FAILURE CASES FIRST
+
+@dataclass
+class Dimensions:
+    """Dimension-related metadata with guaranteed and optional fields."""
+
+    width: int
+    height: int
+    aspect_ratio_decimal: float
+    aspect_ratio_string: str
+
+    optional_coded_width: int | None = None
+    optional_coded_height: int | None = None
+    optional_sample_aspect_ratio: str | None = None
+    optional_display_aspect_ratio: str | None = None
+
+
+@dataclass
+class ColorDetails:
+    """Color and visual quality metadata."""
+
+    optional_color_space: str | None = None
+    optional_color_transfer: str | None = None
+    optional_color_primaries: str | None = None
+    optional_chroma_location: str | None = None
+    optional_field_order: str | None = None
+
+
+@dataclass
+class FrameDetails:
+    """Frame rate and timing metadata with guaranteed and optional fields."""
+
+    r_frame_rate: str  # Raw fraction string like "30/1"
+    avg_frame_rate: str
+    time_base: str
+    frame_rate: float  # Selected playback rate (avg_frame_rate preferred, r_frame_rate or nb_frames/duration fallback)
+
+    optional_nb_frames: int | None = None
+    optional_start_time: float | None = None
+
+
+@dataclass
+class VideoMetadata:
+    """Container for all video metadata categories."""
+
+    file_details: FileDetails
+    dimensions: Dimensions
+    color_details: ColorDetails
+    frame_details: FrameDetails
+
+
+def _resolve_executables() -> tuple[str, str]:
     try:
-        ffmpeg_path, _ = static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()
+        return static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()
     except (FileNotFoundError, OSError, ImportError) as e:
-        error_msg = f"FFmpeg not found. Please ensure static-ffmpeg is properly installed. Error: {e!s}"
-        raise RuntimeError(error_msg) from e
+        msg = f"FFmpeg/FFprobe not found. Please ensure static-ffmpeg is properly installed. Error: {e!s}"
+        raise RuntimeError(msg) from e
 
-    # SUCCESS PATH AT END
-    return ffmpeg_path
+
+def get_ffmpeg_path() -> str:
+    """Return the path to the ffmpeg executable."""
+    return _resolve_executables()[0]
 
 
 def get_ffprobe_path() -> str:
-    """Get the path to ffprobe executable using static_ffmpeg for cross-platform compatibility.
-
-    This function handles finding the ffprobe executable across different platforms:
-    - Windows: Uses static-ffmpeg's platform-specific resolution
-    - Linux: Uses static-ffmpeg's platform-specific resolution
-    - macOS: Uses static-ffmpeg's platform-specific resolution
-
-    Returns:
-        Path to the ffprobe executable
-
-    Raises:
-        RuntimeError: If ffprobe is not found or static-ffmpeg is not properly installed
-    """
-    # FAILURE CASES FIRST
-    try:
-        _, ffprobe_path = static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()
-    except (FileNotFoundError, OSError, ImportError) as e:
-        error_msg = f"FFprobe not found. Please ensure static-ffmpeg is properly installed. Error: {e!s}"
-        raise RuntimeError(error_msg) from e
-
-    # SUCCESS PATH AT END
-    return ffprobe_path
+    """Return the path to the ffprobe executable."""
+    return _resolve_executables()[1]
 
 
 def get_ffmpeg_paths() -> FfmpegPaths:
-    """Get both ffmpeg and ffprobe executable paths using static_ffmpeg.
-
-    This is a convenience function that returns both paths in a single call,
-    which is useful when you need both executables.
-
-    Returns:
-        FfmpegPaths(ffmpeg, ffprobe)
-
-    Raises:
-        RuntimeError: If either executable is not found or static-ffmpeg is not properly installed
-    """
-    # FAILURE CASES FIRST
-    try:
-        ffmpeg_path, ffprobe_path = static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()
-    except (FileNotFoundError, OSError, ImportError) as e:
-        error_msg = f"FFmpeg/FFprobe not found. Please ensure static-ffmpeg is properly installed. Error: {e!s}"
-        raise RuntimeError(error_msg) from e
-
-    # SUCCESS PATH AT END
-    return FfmpegPaths(ffmpeg_path, ffprobe_path)
+    """Return both ffmpeg and ffprobe executable paths in a single call."""
+    return FfmpegPaths(*_resolve_executables())
 
 
 def run_ffmpeg_cmd(
@@ -133,8 +152,8 @@ def detect_video_properties(
     Falls back to VideoProperties(24.0, False, 0.0) if ffprobe fails to run, logging a
     warning via `log`. Raises ValueError if ffprobe succeeds but finds no video streams.
     """
-    _DEFAULTS = VideoProperties(24.0, False, 0.0)
-    _DEFAULT_MSG = "24 fps, non-drop-frame, duration 0.0s"
+    _DEFAULTS = VideoProperties(DEFAULT_FRAME_RATE, False, 0.0)
+    _DEFAULT_MSG = f"{DEFAULT_FRAME_RATE} fps, non-drop-frame, duration 0.0s"
 
     cmd = [
         ffprobe_path,
@@ -164,12 +183,7 @@ def detect_video_properties(
         raise ValueError(msg)
 
     stream = data["streams"][0]
-    r_frame_rate = stream.get("r_frame_rate", "24/1")
-    if "/" in r_frame_rate:
-        num, den = map(int, r_frame_rate.split("/"))
-        frame_rate = num / den
-    else:
-        frame_rate = float(r_frame_rate)
+    frame_rate = _parse_fraction_string(stream.get("r_frame_rate", "24/1")) or DEFAULT_FRAME_RATE
 
     drop_frame = abs(frame_rate - 29.97) < RATE_TOLERANCE or abs(frame_rate - 59.94) < RATE_TOLERANCE
 
@@ -193,19 +207,128 @@ def seconds_to_ts(sec: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
 
 
-def extract_video_player_metadata(video_path: str) -> dict[str, Any]:
-    """Extract video metadata in the shape expected by the video player details view.
-
-    Runs ffprobe on *video_path* and returns a dict whose keys match the player's
-    artifact-metadata contract (width, height, file_size, format, color_space,
-    duration_seconds, codec, frame_rate).  Missing or unextractable fields are
-    omitted.  Never raises — returns {} on any failure so callers can always attach
-    the result to an artifact unconditionally.
-    """
+def _parse_fraction_string(fraction_str: str) -> float:
+    """Parse ffprobe fraction string like '30/1' or '30000/1001' to float."""
+    if not fraction_str or fraction_str == "0/0":
+        return 0.0
     try:
-        ffprobe_path = get_ffprobe_path()
-    except RuntimeError:
-        return {}
+        parts = fraction_str.split("/")
+        if len(parts) == 2:  # noqa: PLR2004
+            numerator = float(parts[0])
+            denominator = float(parts[1])
+            if denominator != 0:
+                return numerator / denominator
+    except (ValueError, ZeroDivisionError):
+        pass
+    return 0.0
+
+
+def _safe_float(value: str | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _safe_int(value: str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _calculate_aspect_ratio_string(width: int, height: int) -> str:
+    divisor = math.gcd(width, height)
+    return f"{width // divisor}:{height // divisor}"
+
+
+def _parse_file_details(video_stream: dict, fmt: dict) -> FileDetails:
+    stream_duration = _safe_float(video_stream.get("duration"))
+    format_duration = _safe_float(fmt.get("duration"))
+    return FileDetails(
+        codec_name=video_stream["codec_name"],
+        codec_type=video_stream["codec_type"],
+        optional_duration=stream_duration or format_duration,
+        optional_bit_rate=_safe_int(video_stream.get("bit_rate")),
+        optional_codec_long_name=video_stream.get("codec_long_name"),
+        optional_profile=video_stream.get("profile"),
+        optional_level=_safe_int(video_stream.get("level")),
+        optional_pixel_format=video_stream.get("pix_fmt"),
+        optional_file_size=_safe_int(fmt.get("size")),
+        optional_format_name=fmt.get("format_name"),
+    )
+
+
+def _parse_dimensions(
+    video_stream: dict, width: int, height: int, aspect_ratio_string: str, aspect_ratio_decimal: float
+) -> Dimensions:
+    return Dimensions(
+        width=width,
+        height=height,
+        aspect_ratio_decimal=aspect_ratio_decimal,
+        aspect_ratio_string=aspect_ratio_string,
+        optional_coded_width=_safe_int(video_stream.get("coded_width")),
+        optional_coded_height=_safe_int(video_stream.get("coded_height")),
+        optional_sample_aspect_ratio=video_stream.get("sample_aspect_ratio"),
+        optional_display_aspect_ratio=video_stream.get("display_aspect_ratio"),
+    )
+
+
+def _parse_color_details(video_stream: dict) -> ColorDetails:
+    return ColorDetails(
+        optional_color_space=video_stream.get("color_space"),
+        optional_color_transfer=video_stream.get("color_transfer"),
+        optional_color_primaries=video_stream.get("color_primaries"),
+        optional_chroma_location=video_stream.get("chroma_location"),
+        optional_field_order=video_stream.get("field_order"),
+    )
+
+
+def _select_frame_rate(video_stream: dict) -> float:
+    """Determine playback frame rate from ffprobe stream data.
+
+    FFmpeg's avformat.h documents r_frame_rate as the lowest rate at which all
+    timestamps can be represented exactly and explicitly notes it is "just a guess".
+    avg_frame_rate is the actual average playback rate and is preferred. Falls back to
+    r_frame_rate when avg is unset ("0/0"), then to nb_frames/duration as a last resort.
+    """
+    avg_parsed = _parse_fraction_string(video_stream.get("avg_frame_rate", ""))
+    if avg_parsed > 0.0:
+        return avg_parsed
+
+    r_parsed = _parse_fraction_string(video_stream.get("r_frame_rate", ""))
+    if r_parsed > 0.0:
+        return r_parsed
+
+    nb_frames = _safe_int(video_stream.get("nb_frames"))
+    duration = _safe_float(video_stream.get("duration"))
+    if nb_frames is not None and nb_frames > 0 and duration is not None and duration > 0:
+        return nb_frames / duration
+
+    return 0.0
+
+
+def _parse_frame_details(video_stream: dict) -> FrameDetails:
+    return FrameDetails(
+        r_frame_rate=video_stream["r_frame_rate"],
+        avg_frame_rate=video_stream["avg_frame_rate"],
+        time_base=video_stream["time_base"],
+        frame_rate=_select_frame_rate(video_stream),
+        optional_nb_frames=_safe_int(video_stream.get("nb_frames")),
+        optional_start_time=_safe_float(video_stream.get("start_time")),
+    )
+
+
+def extract_video_metadata_structured(video_path: str) -> VideoMetadata:
+    """Extract structured video metadata from a local file via ffprobe.
+
+    Raises ValueError on any ffprobe failure so callers can decide how to surface errors.
+    """
+    ffprobe_path = get_ffprobe_path()
 
     cmd = [
         ffprobe_path,
@@ -222,22 +345,56 @@ def extract_video_player_metadata(video_path: str) -> dict[str, Any]:
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)  # noqa: S603
-        data = json.loads(result.stdout)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
-        return {}
+    except subprocess.TimeoutExpired as e:
+        msg = f"When attempting to extract video metadata, ffprobe operation timed out: {e}"
+        raise ValueError(msg) from e
+    except subprocess.CalledProcessError as e:
+        msg = f"When attempting to extract video metadata, ffprobe failed: {e.stderr}"
+        raise ValueError(msg) from e
 
-    meta: dict[str, Any] = {}
-    stream = data["streams"][0] if data.get("streams") else {}
-    fmt = data.get("format", {})
+    try:
+        probe_data = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        msg = f"When attempting to extract video metadata, ffprobe returned invalid JSON: {e}"
+        raise ValueError(msg) from e
 
-    if "width" in stream:
-        meta["width"] = int(stream["width"])
-    if "height" in stream:
-        meta["height"] = int(stream["height"])
+    streams = probe_data.get("streams", [])
+    if not streams:
+        msg = "When attempting to extract video metadata, no video streams found in file"
+        raise ValueError(msg)
 
-    # Prefer ffprobe's reported size; fall back to filesystem stat for local paths.
-    if "size" in fmt:
-        meta["file_size"] = int(fmt["size"])
+    video_stream = streams[0]
+    fmt = probe_data.get("format", {})
+
+    try:
+        width = video_stream["width"]
+        height = video_stream["height"]
+    except KeyError as e:
+        msg = f"When attempting to extract video metadata, required field missing from ffprobe output: {e}"
+        raise ValueError(msg) from e
+
+    aspect_ratio_decimal = width / height
+    aspect_ratio_string = video_stream.get("display_aspect_ratio") or _calculate_aspect_ratio_string(width, height)
+
+    return VideoMetadata(
+        file_details=_parse_file_details(video_stream, fmt),
+        dimensions=_parse_dimensions(video_stream, width, height, aspect_ratio_string, aspect_ratio_decimal),
+        color_details=_parse_color_details(video_stream),
+        frame_details=_parse_frame_details(video_stream),
+    )
+
+
+def video_metadata_to_player_dict(metadata: VideoMetadata, video_path: str) -> dict[str, Any]:
+    """Map a VideoMetadata struct to the flat dict the video player details view expects."""
+    meta: dict[str, Any] = {
+        "width": metadata.dimensions.width,
+        "height": metadata.dimensions.height,
+        "codec": metadata.file_details.codec_name,
+        "frame_rate": metadata.frame_details.frame_rate,
+    }
+
+    if metadata.file_details.optional_file_size is not None:
+        meta["file_size"] = metadata.file_details.optional_file_size
     else:
         try:
             meta["file_size"] = os.path.getsize(video_path)
@@ -245,33 +402,29 @@ def extract_video_player_metadata(video_path: str) -> dict[str, Any]:
             pass
 
     # "mp4,mov,m4a,3gp,…" — take the first token as the canonical format name.
-    if fmt.get("format_name"):
-        meta["format"] = fmt["format_name"].split(",")[0]
+    if metadata.file_details.optional_format_name:
+        meta["format"] = metadata.file_details.optional_format_name.split(",")[0]
 
-    if stream.get("color_space"):
-        meta["color_space"] = stream["color_space"]
+    if metadata.color_details.optional_color_space:
+        meta["color_space"] = metadata.color_details.optional_color_space
 
-    duration_str = fmt.get("duration") or stream.get("duration")
-    if duration_str:
-        try:
-            meta["duration_seconds"] = float(duration_str)
-        except (ValueError, TypeError):
-            pass
-
-    if stream.get("codec_name"):
-        meta["codec"] = stream["codec_name"]
-
-    r_frame_rate = stream.get("r_frame_rate", "")
-    if r_frame_rate and r_frame_rate != "0/0":
-        try:
-            num_str, den_str = r_frame_rate.split("/")
-            den = float(den_str)
-            if den != 0:
-                meta["frame_rate"] = float(num_str) / den
-        except (ValueError, ZeroDivisionError):
-            pass
+    if metadata.file_details.optional_duration is not None:
+        meta["duration_seconds"] = metadata.file_details.optional_duration
 
     return meta
+
+
+def extract_video_player_metadata(video_path: str) -> dict[str, Any]:
+    """Extract video metadata in the shape expected by the video player details view.
+
+    Never raises — returns {} on any failure so callers can always attach the result
+    to an artifact unconditionally.
+    """
+    try:
+        metadata = extract_video_metadata_structured(video_path)
+        return video_metadata_to_player_dict(metadata, video_path)
+    except Exception:
+        return {}
 
 
 def build_video_segment_cmd(
