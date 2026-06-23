@@ -77,7 +77,7 @@ class FrameDetails:
     time_base: str  # Raw fraction string
 
     # Guaranteed fields (calculated by us)
-    frame_rate: float  # Parsed from r_frame_rate
+    frame_rate: float  # Selected playback rate (avg_frame_rate preferred, r_frame_rate or nb_frames/duration fallback)
 
     # Optional fields
     optional_nb_frames: int | None = None
@@ -219,7 +219,19 @@ class GetVideoMetadata(DataNode):
             ParameterFloat(
                 name="frame_rate",
                 default_value=None,
-                tooltip="Frame rate as decimal (e.g., 29.97)",
+                tooltip="Playback frame rate as decimal (e.g., 29.97). Selected from avg_frame_rate when valid, else r_frame_rate, else nb_frames/duration.",
+                allowed_modes={ParameterMode.OUTPUT},
+            )
+            ParameterString(
+                name="r_frame_rate",
+                default_value=None,
+                tooltip="Raw ffprobe r_frame_rate fraction (e.g., '60/1'). Lowest timing-grid rate; not necessarily playback rate.",
+                allowed_modes={ParameterMode.OUTPUT},
+            )
+            ParameterString(
+                name="avg_frame_rate",
+                default_value=None,
+                tooltip="Raw ffprobe avg_frame_rate fraction (e.g., '30000/1001'). Average playback rate; '0/0' on live or fragmented streams.",
                 allowed_modes={ParameterMode.OUTPUT},
             )
             ParameterInt(
@@ -383,8 +395,7 @@ class GetVideoMetadata(DataNode):
         avg_frame_rate = video_stream["avg_frame_rate"]
         time_base = video_stream["time_base"]
 
-        # Calculate frame rate from r_frame_rate fraction
-        frame_rate = self._parse_fraction_string(r_frame_rate)
+        frame_rate = self._select_frame_rate(video_stream)
 
         return FrameDetails(
             r_frame_rate=r_frame_rate,
@@ -394,6 +405,33 @@ class GetVideoMetadata(DataNode):
             optional_nb_frames=self._safe_int(video_stream.get("nb_frames")),
             optional_start_time=self._safe_float(video_stream.get("start_time")),
         )
+
+    def _select_frame_rate(self, video_stream: dict) -> float:
+        """Determine playback frame rate from ffprobe stream data.
+
+        FFmpeg's avformat.h documents r_frame_rate as the lowest rate at which
+        all timestamps can be represented exactly (the LCM of per-frame ticks)
+        and explicitly notes "this value is just a guess" — for many files it
+        is a timing-grid artifact rather than the playback rate. Practitioner
+        consensus (xklb, video-trimmer, Frigate) prefers avg_frame_rate, with
+        r_frame_rate as fallback when avg is unset ("0/0"), and nb_frames /
+        duration as a last resort for malformed-but-fixable files.
+        """
+        avg_parsed = self._parse_fraction_string(video_stream.get("avg_frame_rate", ""))
+        if avg_parsed > 0.0:
+            return avg_parsed
+
+        r_parsed = self._parse_fraction_string(video_stream.get("r_frame_rate", ""))
+        if r_parsed > 0.0:
+            return r_parsed
+
+        # AVStream.nb_frames docs nb_frames=0 as the "unknown" sentinel.
+        nb_frames = self._safe_int(video_stream.get("nb_frames"))
+        duration = self._safe_float(video_stream.get("duration"))
+        if nb_frames is not None and nb_frames > 0 and duration is not None and duration > 0:
+            return nb_frames / duration
+
+        return 0.0
 
     def _parse_fraction_string(self, fraction_str: str) -> float:
         """Parse ffprobe fraction string like '30/1' or '30000/1001' to float."""
@@ -465,6 +503,8 @@ class GetVideoMetadata(DataNode):
 
         # Frame Details
         self.parameter_output_values["frame_rate"] = metadata.frame_details.frame_rate
+        self.parameter_output_values["r_frame_rate"] = metadata.frame_details.r_frame_rate
+        self.parameter_output_values["avg_frame_rate"] = metadata.frame_details.avg_frame_rate
         self.parameter_output_values["optional_nb_frames"] = metadata.frame_details.optional_nb_frames
         self.parameter_output_values["optional_start_time"] = metadata.frame_details.optional_start_time
 
@@ -492,6 +532,8 @@ class GetVideoMetadata(DataNode):
 
         # Frame Details - use placeholder for guaranteed field
         self.parameter_output_values["frame_rate"] = 0.0
+        self.parameter_output_values["r_frame_rate"] = "0/0"
+        self.parameter_output_values["avg_frame_rate"] = "0/0"
         self.parameter_output_values["optional_nb_frames"] = None
         self.parameter_output_values["optional_start_time"] = None
 
