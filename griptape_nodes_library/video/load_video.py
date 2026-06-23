@@ -6,6 +6,7 @@ from griptape_nodes.exe_types.node_types import BaseNode, DataNode, NodeDependen
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 
+from griptape_nodes_library.utils import ffmpeg_utils
 from griptape_nodes_library.utils.artifact_path_tethering import (
     ArtifactPathTethering,
     ArtifactTetheringConfig,
@@ -17,7 +18,6 @@ from griptape_nodes_library.utils.macro_path_utils import (
     resolve_to_macro_path,
     update_external_file_controls,
 )
-from griptape_nodes_library.utils import ffmpeg_utils
 from griptape_nodes_library.utils.video_utils import SUPPORTED_VIDEO_EXTENSIONS, dict_to_video_url_artifact
 
 
