@@ -1,9 +1,10 @@
 """FFmpeg utility functions for cross-platform executable path resolution."""
 
 import json
+import os
 import subprocess
 from collections.abc import Callable
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import static_ffmpeg.run  # type: ignore[import-untyped]
 
@@ -190,6 +191,87 @@ def seconds_to_ts(sec: float) -> str:
     m = (whole % 3600) // 60
     s = whole % 60
     return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+
+
+def extract_video_player_metadata(video_path: str) -> dict[str, Any]:
+    """Extract video metadata in the shape expected by the video player details view.
+
+    Runs ffprobe on *video_path* and returns a dict whose keys match the player's
+    artifact-metadata contract (width, height, file_size, format, color_space,
+    duration_seconds, codec, frame_rate).  Missing or unextractable fields are
+    omitted.  Never raises — returns {} on any failure so callers can always attach
+    the result to an artifact unconditionally.
+    """
+    try:
+        ffprobe_path = get_ffprobe_path()
+    except RuntimeError:
+        return {}
+
+    cmd = [
+        ffprobe_path,
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-show_streams",
+        "-show_format",
+        "-select_streams",
+        "v:0",
+        video_path,
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)  # noqa: S603
+        data = json.loads(result.stdout)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
+        return {}
+
+    meta: dict[str, Any] = {}
+    stream = data["streams"][0] if data.get("streams") else {}
+    fmt = data.get("format", {})
+
+    if "width" in stream:
+        meta["width"] = int(stream["width"])
+    if "height" in stream:
+        meta["height"] = int(stream["height"])
+
+    # Prefer ffprobe's reported size; fall back to filesystem stat for local paths.
+    if "size" in fmt:
+        meta["file_size"] = int(fmt["size"])
+    else:
+        try:
+            meta["file_size"] = os.path.getsize(video_path)
+        except OSError:
+            pass
+
+    # "mp4,mov,m4a,3gp,…" — take the first token as the canonical format name.
+    if fmt.get("format_name"):
+        meta["format"] = fmt["format_name"].split(",")[0]
+
+    if stream.get("color_space"):
+        meta["color_space"] = stream["color_space"]
+
+    duration_str = fmt.get("duration") or stream.get("duration")
+    if duration_str:
+        try:
+            meta["duration_seconds"] = float(duration_str)
+        except (ValueError, TypeError):
+            pass
+
+    if stream.get("codec_name"):
+        meta["codec"] = stream["codec_name"]
+
+    r_frame_rate = stream.get("r_frame_rate", "")
+    if r_frame_rate and r_frame_rate != "0/0":
+        try:
+            num_str, den_str = r_frame_rate.split("/")
+            den = float(den_str)
+            if den != 0:
+                meta["frame_rate"] = float(num_str) / den
+        except (ValueError, ZeroDivisionError):
+            pass
+
+    return meta
 
 
 def build_video_segment_cmd(

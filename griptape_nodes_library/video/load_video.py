@@ -17,6 +17,7 @@ from griptape_nodes_library.utils.macro_path_utils import (
     resolve_to_macro_path,
     update_external_file_controls,
 )
+from griptape_nodes_library.utils import ffmpeg_utils
 from griptape_nodes_library.utils.video_utils import SUPPORTED_VIDEO_EXTENSIONS, dict_to_video_url_artifact
 
 
@@ -150,8 +151,10 @@ class LoadVideo(DataNode):
             result = resolve_to_macro_path(video_artifact.value)  # pyright: ignore[reportAttributeAccessIssue]
             update_external_file_controls(result, self._external_warning, self._copy_button, self.name, "video")
             if not result.is_external:
-                video_artifact = VideoUrlArtifact(result.resolved_path)
-                path_value = result.resolved_path
+                resolved_path = result.resolved_path
+                extracted_metadata = ffmpeg_utils.extract_video_player_metadata(resolved_path)
+                video_artifact = VideoUrlArtifact(resolved_path, meta=extracted_metadata)
+                path_value = resolved_path
 
         self.parameter_output_values["video"] = video_artifact
         self.parameter_output_values["path"] = path_value
