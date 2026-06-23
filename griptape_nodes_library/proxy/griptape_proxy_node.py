@@ -16,8 +16,12 @@ from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.node_library.library_registry import get_declared_models
 from griptape_nodes.retained_mode.events.base_events import ResultPayload
-from griptape_nodes.retained_mode.events.model_events import DeclareModelInvocationRequest
+from griptape_nodes.retained_mode.events.model_events import (
+    DeclareModelInvocationRequest,
+    DeclareModelInvocationResultFailure,
+)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key, resolve_proxy_base
@@ -591,18 +595,40 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._set_status_results(was_successful=False, result_details=error_msg)
         self._handle_failure_exception(e)
 
+    def _resolve_catalog_model_id(self, api_model_id: str) -> str | None:
+        """Resolve the selected provider model id to its stable catalog key.
+
+        The lookup is scoped to this node's own declared models, so the
+        provider_model_id -> stable key mapping is unambiguous: a node does not
+        declare the same upstream model under two catalog keys. Returns None
+        when the selection is not one of the node's declared catalog models.
+        """
+        matches = [
+            resolved.model_id
+            for resolved in get_declared_models(self)
+            if resolved.model.provider_model_id == api_model_id
+        ]
+        return matches[0] if len(matches) == 1 else None
+
     async def _declare_model_invocation(self, api_model_id: str) -> ResultPayload:
         """Declare the impending model invocation so the permission layer can gate it.
 
-        Dispatches a DeclareModelInvocationRequest carrying the concrete model,
-        the provider it routes to, and this node's name. The engine clears the
+        Resolves the concrete provider model id to the stable catalog key the
+        permission system gates on, and declares that. The engine clears the
         call by default; a registered policy can deny it, in which case the
         result reports failure. The proxy enforces server-side as well; this
         runs first, so a denied call fails fast and never leaves the engine.
         """
-        provider_id = self._api_key_provider.provider_id if self._api_key_provider else None
+        model_id = self._resolve_catalog_model_id(api_model_id)
+        if model_id is None:
+            return DeclareModelInvocationResultFailure(
+                result_details=(
+                    f"{self.name}: '{api_model_id}' is not a declared catalog model for this node, "
+                    f"so the invocation cannot be declared."
+                )
+            )
         return await GriptapeNodes.ahandle_request(
-            DeclareModelInvocationRequest(model=api_model_id, provider_id=provider_id, node_name=self.name)
+            DeclareModelInvocationRequest(model_id=model_id, node_name=self.name)
         )
 
     async def _submit_and_poll(self, headers: dict[str, str]) -> tuple[str, dict[str, Any]] | None:
