@@ -1,11 +1,12 @@
 """Keep the `model_catalog` declarations in sync with the model lists the
 library actually serves.
 
-Nodes do not read the catalog at runtime: the catalog is the contract the
-library exposes to the platform (policy, key support, UI grouping), and the
-node Python is the implementation. This test is the guard that keeps the two
-from drifting, so the catalog stays trustworthy without any node depending on
-the library registry to decide its behavior.
+The catalog is the contract the library exposes to the platform (policy, key
+support, UI grouping). The chat nodes carry their model lists statically in
+Python, while the proxy base node resolves a runtime selection back to its
+stable catalog key from the library registry. Either way the catalog and the
+served models must agree, and these tests are the guard that keeps them from
+drifting.
 """
 
 from __future__ import annotations
@@ -41,6 +42,15 @@ def _model_usage_ids(library: dict[str, Any], class_name: str) -> list[str]:
     return usage["model_ids"]
 
 
+def _nodes_with_model_usage(library: dict[str, Any]) -> list[str]:
+    """Class names of every node that declares `model_usage`."""
+    return [
+        node["class_name"]
+        for node in library["nodes"]
+        if any(d.get("type") == "model_usage" for d in node.get("metadata", {}).get("declarations", []))
+    ]
+
+
 @pytest.mark.parametrize("class_name", ["Agent", "GriptapeCloudPrompt"])
 def test_chat_node_model_usage_matches_static_choices(class_name: str) -> None:
     """The chat model list in Python and the models the node declares must agree.
@@ -56,3 +66,26 @@ def test_chat_node_model_usage_matches_static_choices(class_name: str) -> None:
     served = [model["name"] for model in MODEL_CHOICES_ARGS]
 
     assert declared == served
+
+
+def test_declared_models_resolve_uniquely_per_node() -> None:
+    """Each node's declared models map one-to-one to provider model ids.
+
+    The proxy base node resolves a selected provider model id back to its
+    stable catalog key by matching within the node's own declared models
+    (`GriptapeProxyNode._resolve_catalog_model_id`). That match is unambiguous
+    only when a node does not declare two catalog ids that share a
+    `provider_model_id`; a duplicate would make the runtime resolver fail
+    closed. Guard the manifest against introducing one.
+    """
+    library = _load_library()
+    provider_model_id_by_catalog_id = _provider_model_id_by_catalog_id(library)
+
+    duplicates: dict[str, list[str]] = {}
+    for class_name in _nodes_with_model_usage(library):
+        wire_ids = [provider_model_id_by_catalog_id[model_id] for model_id in _model_usage_ids(library, class_name)]
+        repeated = sorted({wire_id for wire_id in wire_ids if wire_ids.count(wire_id) > 1})
+        if repeated:
+            duplicates[class_name] = repeated
+
+    assert not duplicates, f"nodes declare catalog ids that share a provider_model_id: {duplicates}"
