@@ -1875,6 +1875,20 @@
       }
     },
     {
+      "class_name": "CompareVideos",
+      "file_path": "griptape_nodes_library/video/compare_videos.py",
+      "metadata": {
+        "category": "video",
+        "description": "Can be used to compare two videos",
+        "display_name": "Compare Videos",
+        "group": "display",
+        "tags": [
+          "video",
+          "compare"
+        ]
+      }
+    },
+    {
       "class_name": "ResizeVideo",
       "file_path": "griptape_nodes_library/video/resize_video.py",
       "metadata": {
