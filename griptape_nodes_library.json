@@ -1881,6 +1881,7 @@
         "category": "video",
         "description": "Can be used to compare two videos",
         "display_name": "Compare Videos",
+        "icon": "square-split-horizontal",
         "group": "display",
         "tags": [
           "video",
@@ -3808,6 +3809,7 @@
         "category": "image",
         "description": "Can be used to compare two images",
         "display_name": "Compare Images",
+        "icon": "square-split-horizontal",
         "group": "display",
         "tags": [
           "image",
