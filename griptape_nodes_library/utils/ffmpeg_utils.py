@@ -390,8 +390,11 @@ def video_metadata_to_player_dict(metadata: VideoMetadata, video_path: str) -> d
         "width": metadata.dimensions.width,
         "height": metadata.dimensions.height,
         "codec": metadata.file_details.codec_name,
-        "frame_rate": metadata.frame_details.frame_rate,
     }
+
+    frame_rate = metadata.frame_details.frame_rate
+    if frame_rate:
+        meta["frame_rate"] = frame_rate
 
     if metadata.file_details.optional_file_size is not None:
         meta["file_size"] = metadata.file_details.optional_file_size
