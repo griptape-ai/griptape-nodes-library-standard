@@ -1360,6 +1360,12 @@
           "python",
           "logic",
           "data"
+        ],
+        "declarations": [
+          {
+            "type": "arbitrary_python_execution",
+            "executes_arbitrary_python": true
+          }
         ]
       }
     },
