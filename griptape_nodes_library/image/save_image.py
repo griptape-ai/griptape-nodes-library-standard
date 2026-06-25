@@ -173,7 +173,12 @@ class SaveImage(SuccessFailureNode):
             self._handle_error_with_graceful_exit(error_details, e, input_info)
             return
 
-        # Success case
+        # Success case — override the image output with the real saved path so
+        # downstream nodes (and Nuke, via the End node) receive the on-disk file
+        # rather than the transient localhost static-file URL that the input
+        # artifact carries after ParameterImage normalization.
+        # Mirrors the convention in CreateColorBars and FluxImageGeneration.
+        self.parameter_output_values["image"] = ImageUrlArtifact(value=saved_path)
         success_details = "Image saved successfully"
         self._handle_execution_result(
             status=SaveImageStatus.SUCCESS,
