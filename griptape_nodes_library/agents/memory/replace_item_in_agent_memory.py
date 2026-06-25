@@ -274,6 +274,7 @@ class ReplaceItemInAgentMemory(ControlNode):
 
         agent_value = self.get_parameter_value("agent")
         _, tool_configs, ruleset_configs = unwrap_agent(agent_value) if isinstance(agent_value, dict) else ({}, [], [])
-        updated = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
+        provider = agent_value.get("provider") if isinstance(agent_value, dict) else None
+        updated = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs, provider=provider)
         self.parameter_output_values["agent"] = updated
         self.publish_update_to_parameter("agent", updated)
