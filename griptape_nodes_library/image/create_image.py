@@ -310,7 +310,9 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
         if agent.tasks:
             cast(PromptTask, agent.tasks[0]).tools = []
         provider = agent_input.get("provider") if isinstance(agent_input, dict) else None
-        self.parameter_output_values["agent"] = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs, provider=provider)
+        self.parameter_output_values["agent"] = wrap_agent(
+            agent.to_dict(), tool_configs, ruleset_configs, provider=provider
+        )
 
     def after_incoming_connection(
         self,

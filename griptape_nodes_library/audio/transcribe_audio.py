@@ -375,7 +375,12 @@ class TranscribeAudio(GriptapeProxyNode):
                         ),
                     )
                 )
-            self.parameter_output_values["agent"] = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs, provider=agent_input.get("provider") if isinstance(agent_input, dict) else None)
+            self.parameter_output_values["agent"] = wrap_agent(
+                agent.to_dict(),
+                tool_configs,
+                ruleset_configs,
+                provider=agent_input.get("provider") if isinstance(agent_input, dict) else None,
+            )
         except Exception as e:
             logger.warning("TranscribeAudio: failed to thread agent: %s", e)
 

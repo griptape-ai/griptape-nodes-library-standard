@@ -673,7 +673,11 @@ class Agent(ControlNode):
             models = self._fetch_models_for_provider(provider_name)
             default = models[0] if models else DEFAULT_MODEL
             self._update_option_choices(param="model", choices=models, default=default)
-            new_data = MODEL_CHOICES_ARGS if provider_name == "griptape_cloud" else [{"name": m, "icon": "", "args": {}} for m in models]
+            new_data = (
+                MODEL_CHOICES_ARGS
+                if provider_name == "griptape_cloud"
+                else [{"name": m, "icon": "", "args": {}} for m in models]
+            )
             param = self.get_parameter_by_name("model")
             if param:
                 param.update_ui_options_key("data", new_data)

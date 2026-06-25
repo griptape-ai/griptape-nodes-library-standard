@@ -17,7 +17,13 @@ from griptape_nodes.traits.options import Options
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
-from griptape_nodes_library.utils.agent_utils import build_rulesets_from_configs, build_tools, restore_provider_driver, unwrap_agent, wrap_agent
+from griptape_nodes_library.utils.agent_utils import (
+    build_rulesets_from_configs,
+    build_tools,
+    restore_provider_driver,
+    unwrap_agent,
+    wrap_agent,
+)
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
 
@@ -412,4 +418,9 @@ class DescribeImage(ControlNode):
         # Clear live tools before serializing, then wrap with configs for downstream nodes.
         if agent.tasks:
             cast(PromptTask, agent.tasks[0]).tools = []
-        self.parameter_output_values["agent"] = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs, provider=agent_value.get("provider") if isinstance(agent_value, dict) else None)
+        self.parameter_output_values["agent"] = wrap_agent(
+            agent.to_dict(),
+            tool_configs,
+            ruleset_configs,
+            provider=agent_value.get("provider") if isinstance(agent_value, dict) else None,
+        )
