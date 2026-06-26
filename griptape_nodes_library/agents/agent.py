@@ -7,7 +7,7 @@ for tools, rulesets, prompts, and streams output back to the user interface.
 """
 
 import json
-from typing import TYPE_CHECKING, Any, cast  # cast used for handle_request narrowing
+from typing import Any, cast  # cast used for handle_request narrowing
 
 from griptape.artifacts import BaseArtifact, ModelArtifact, TextArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
@@ -40,22 +40,13 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
-if TYPE_CHECKING:
-    from griptape_nodes.retained_mode.events.agent_events import (  # type: ignore[import]
-        ListAgentProvidersRequest,
-        ListAgentProvidersResultSuccess,
-        ListProviderModelsRequest,
-        ListProviderModelsResultSuccess,
-    )
-
 try:
-    from griptape_nodes.retained_mode.events.agent_events import (  # type: ignore[import]
-        ListAgentProvidersRequest,
-        ListAgentProvidersResultSuccess,
-        ListProviderModelsRequest,
-        ListProviderModelsResultSuccess,
+    from griptape_nodes.retained_mode.events.agent_events import (
+        ListAgentProvidersRequest,  # pyright: ignore[reportAttributeAccessIssue]
+        ListAgentProvidersResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
+        ListProviderModelsRequest,  # pyright: ignore[reportAttributeAccessIssue]
+        ListProviderModelsResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
     )
-
     _AGENT_PROVIDERS_AVAILABLE = True
 except ImportError:
     _AGENT_PROVIDERS_AVAILABLE = False
@@ -353,10 +344,10 @@ class Agent(ControlNode):
         if not _AGENT_PROVIDERS_AVAILABLE:
             return _FALLBACK
         try:
-            result = GriptapeNodes.handle_request(ListAgentProvidersRequest())
-            if not isinstance(result, ListAgentProvidersResultSuccess):
+            result = GriptapeNodes.handle_request(ListAgentProvidersRequest())  # pyright: ignore[reportPossiblyUnbound]
+            if not isinstance(result, ListAgentProvidersResultSuccess):  # pyright: ignore[reportPossiblyUnbound]
                 return _FALLBACK
-            return cast(ListAgentProvidersResultSuccess, result).providers or _FALLBACK
+            return cast(ListAgentProvidersResultSuccess, result).providers or _FALLBACK  # pyright: ignore[reportPossiblyUnbound]
         except Exception:
             return _FALLBACK
 
@@ -389,14 +380,14 @@ class Agent(ControlNode):
             if provider_config is None:
                 return MODEL_CHOICES
             result = GriptapeNodes.handle_request(
-                ListProviderModelsRequest(
+                ListProviderModelsRequest(  # pyright: ignore[reportPossiblyUnbound]
                     provider=provider_config.get("type", provider_name),
                     base_url=provider_config.get("base_url", ""),
                     api_key=self._resolve_provider_api_key(provider_config),
                 )
             )
-            if isinstance(result, ListProviderModelsResultSuccess):
-                return cast(ListProviderModelsResultSuccess, result).models or MODEL_CHOICES
+            if isinstance(result, ListProviderModelsResultSuccess):  # pyright: ignore[reportPossiblyUnbound]
+                return cast(ListProviderModelsResultSuccess, result).models or MODEL_CHOICES  # pyright: ignore[reportPossiblyUnbound]
         except Exception:
             pass
         return MODEL_CHOICES
