@@ -366,7 +366,7 @@ class Agent(ControlNode):
         secrets manager) rather than a raw api_key value.  Fall back to
         "not-needed" for providers that don't require a key (e.g. Ollama).
         """
-        secret_name = provider_config.api_key_secret_name or ""
+        secret_name = provider_config.api_key_secret_name or ""  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
         if secret_name:
             return (
                 GriptapeNodes.SecretsManager().get_secret(secret_name, should_error_on_not_found=False) or "not-needed"
