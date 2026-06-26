@@ -47,6 +47,7 @@ try:
         ListProviderModelsRequest,  # pyright: ignore[reportAttributeAccessIssue]
         ListProviderModelsResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
     )
+
     _AGENT_PROVIDERS_AVAILABLE = True
 except ImportError:
     _AGENT_PROVIDERS_AVAILABLE = False
