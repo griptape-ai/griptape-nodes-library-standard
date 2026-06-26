@@ -1,4 +1,7 @@
 import logging
+import os
+import re
+from enum import StrEnum
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
@@ -6,12 +9,32 @@ from griptape_nodes.exe_types.node_types import (
     BaseNode,
     ControlNode,
     NodeDependencies,
+    NodeResolutionState,
     VariableAccess,
     VariableReference,
 )
+from griptape_nodes.retained_mode.events.connection_events import (
+    DeleteConnectionRequest,
+    DeleteConnectionResultSuccess,
+    ListConnectionsForNodeRequest,
+    ListConnectionsForNodeResultSuccess,
+)
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.variable_types import VariableScope
+from griptape_nodes.traits.options import Options
 
 logger = logging.getLogger("griptape_nodes")
+
+
+class CaseStyle(StrEnum):
+    UPPER = "UPPER CASE"
+    UPPER_SNAKE = "UPPER_SNAKE_CASE"
+    TITLE = "Title Case"
+    SNAKE = "snake_case"
+    KEBAB = "kebab-case"
+    PASCAL = "PascalCase"
+    CAMEL = "camelCase"
+    AS_IS = "as is"
 
 
 class CreateVariable(ControlNode):
@@ -29,6 +52,26 @@ class CreateVariable(ControlNode):
             tooltip="The name of the variable to create",
         )
         self.add_parameter(self.variable_name_param)
+
+        self.auto_name_param = Parameter(
+            name="auto_name",
+            type="bool",
+            default_value=False,
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            tooltip="Automatically derive the variable name from the connected value (file basename, artifact name, or source node name)",
+        )
+        self.add_parameter(self.auto_name_param)
+
+        self.auto_name_case_param = Parameter(
+            name="auto_name_case",
+            type="str",
+            default_value=CaseStyle.SNAKE,
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            tooltip="Case style used when auto_name is on",
+        )
+        self.auto_name_case_param.add_trait(Options(choices=list(CaseStyle)))
+        self.add_parameter(self.auto_name_case_param)
+        self.hide_parameter_by_name(self.auto_name_case_param.name)
 
         self.variable_type_param = Parameter(
             name="variable_type",
@@ -52,12 +95,19 @@ class CreateVariable(ControlNode):
 
     def after_incoming_connection(
         self,
-        source_node: BaseNode,  # noqa: ARG002
+        source_node: BaseNode,
         source_parameter: Parameter,
         target_parameter: Parameter,
     ) -> None:
         """Handle incoming connections, especially to the value parameter for auto-type detection."""
         if target_parameter.name == self.value_param.name:
+            # Auto-name: set immediately from source node name; after_value_set will refine
+            # once the actual value propagates.
+            if self.get_parameter_value(self.auto_name_param.name):
+                derived = self._derive_variable_name(None, source_node.name)
+                if derived:
+                    self.set_parameter_value(self.variable_name_param.name, derived)
+
             detected_type = source_parameter.output_type
 
             # Lock down the variable_type parameter since it's now controlled by the incoming connection
@@ -90,14 +140,6 @@ class CreateVariable(ControlNode):
 
     def _delete_incoming_connections_to_parameter(self, parameter_name: str) -> None:
         """Helper to delete all incoming connections to a specific parameter."""
-        from griptape_nodes.retained_mode.events.connection_events import (
-            DeleteConnectionRequest,
-            DeleteConnectionResultSuccess,
-            ListConnectionsForNodeRequest,
-            ListConnectionsForNodeResultSuccess,
-        )
-        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
         connections_request = ListConnectionsForNodeRequest(node_name=self.name)
         connections_result = GriptapeNodes.handle_request(connections_request)
 
@@ -120,14 +162,6 @@ class CreateVariable(ControlNode):
 
     def _cleanup_incompatible_value_connections(self) -> None:
         """Remove all connections to/from value parameter that are incompatible with its current type."""
-        from griptape_nodes.retained_mode.events.connection_events import (
-            DeleteConnectionRequest,
-            DeleteConnectionResultSuccess,
-            ListConnectionsForNodeRequest,
-            ListConnectionsForNodeResultSuccess,
-        )
-        from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
         connections_request = ListConnectionsForNodeRequest(node_name=self.name)
         connections_result = GriptapeNodes.handle_request(connections_request)
 
@@ -191,6 +225,126 @@ class CreateVariable(ControlNode):
                                 f"Failed to delete incompatible outgoing connection: {delete_result.result_details}"
                             )
                             raise TypeError(error_msg)
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter is self.auto_name_param:
+            if value:
+                self.show_parameter_by_name(self.auto_name_case_param.name)
+            else:
+                self.hide_parameter_by_name(self.auto_name_case_param.name)
+
+        if parameter is self.value_param and self.get_parameter_value(self.auto_name_param.name):
+            source_node_name = self._get_value_source_node_name()
+            derived = self._derive_variable_name(value, source_node_name)
+            if derived:
+                self.set_parameter_value(self.variable_name_param.name, derived)
+
+        super().after_value_set(parameter, value)
+
+    def _get_value_source_node_name(self) -> str | None:
+        """Return the name of the node wired into the value parameter, or None."""
+        try:
+            result = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=self.name))
+            if isinstance(result, ListConnectionsForNodeResultSuccess):
+                for conn in result.incoming_connections:
+                    if conn.target_parameter_name == self.value_param.name:
+                        return conn.source_node_name
+        except Exception:
+            pass
+        return None
+
+    def _derive_variable_name(self, value: Any, source_node_name: str | None) -> str | None:
+        """Derive a variable name from a value and/or source node name, styled per auto_name_case."""
+        raw = self._get_raw_name(value, source_node_name)
+        if not raw:
+            return None
+        case_style = self.get_parameter_value(self.auto_name_case_param.name) or CaseStyle.SNAKE
+        if case_style == CaseStyle.AS_IS:
+            return raw
+        words = self._tokenize(raw)
+        if not words:
+            return None
+        return self._apply_case(words, case_style)
+
+    def _get_raw_name(self, value: Any, source_node_name: str | None) -> str | None:
+        """Extract an unstyled base name from a value or source node name.
+
+        Priority:
+        1. Artifact with a filename (ImageArtifact, AudioArtifact, VideoArtifact, BlobArtifact)
+        2. String that looks like a file path → basename without extension
+        3. Source node name (engine _N suffix stripped)
+        """
+        # Any artifact type: try .name first (filename-bearing artifacts like ImageArtifact),
+        # then .value (URL-bearing artifacts like ImageUrlArtifact). Guards on class name so we
+        # don't accidentally match plain dicts or strings that happen to have a .name attr.
+        if "Artifact" in type(value).__name__:
+            artifact_name = getattr(value, "name", None)
+            if artifact_name and self._has_file_extension(str(artifact_name)):
+                return self._strip_version_suffix(os.path.splitext(str(artifact_name))[0])
+
+            artifact_value = getattr(value, "value", None)
+            if isinstance(artifact_value, str):
+                basename = os.path.basename(artifact_value.rstrip("/").split("?")[0])
+                stem = os.path.splitext(basename)[0]
+                if stem and self._has_file_extension(basename):
+                    return self._strip_version_suffix(stem)
+
+        # String that looks like a file path
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped and ("/" in stripped or "\\" in stripped or self._has_file_extension(stripped)):
+                return self._strip_version_suffix(os.path.splitext(os.path.basename(stripped))[0])
+
+        # Fall back to source node name (strip engine _N suffix)
+        if source_node_name:
+            return re.sub(r"_\d+$", "", source_node_name)
+
+        return None
+
+    @staticmethod
+    def _tokenize(name: str) -> list[str]:
+        """Split a name into word tokens, handling snake_case, kebab-case, and CamelCase."""
+        # Split CamelCase/PascalCase boundaries before any other splitting
+        name = re.sub(r"([a-z])([A-Z])", r"\1 \2", name)
+        tokens = re.split(r"[\s_\-\.]+", name)
+        return [t for t in tokens if t]
+
+    @staticmethod
+    def _apply_case(words: list[str], case_style: str) -> str:
+        """Join tokens using the requested case convention."""
+        match case_style:
+            case CaseStyle.UPPER:
+                return " ".join(w.upper() for w in words)
+            case CaseStyle.UPPER_SNAKE:
+                return "_".join(w.upper() for w in words)
+            case CaseStyle.TITLE:
+                return " ".join(w.capitalize() for w in words)
+            case CaseStyle.SNAKE:
+                return "_".join(w.lower() for w in words)
+            case CaseStyle.KEBAB:
+                return "-".join(w.lower() for w in words)
+            case CaseStyle.PASCAL:
+                return "".join(w.capitalize() for w in words)
+            case CaseStyle.CAMEL:
+                return words[0].lower() + "".join(w.capitalize() for w in words[1:])
+            case _:
+                msg = f"Unknown case style: {case_style!r}"
+                raise ValueError(msg)
+
+    @staticmethod
+    def _strip_version_suffix(stem: str) -> str:
+        """Strip VFX-convention version/frame suffixes from a filename stem.
+
+        character_v001 → character, yellow_house_v001 → yellow_house,
+        yellow_house_001 → yellow_house. Single trailing digits (texture2d) are left alone.
+        """
+        stem = re.sub(r"[_\-]v\d+$", "", stem, flags=re.IGNORECASE)
+        stem = re.sub(r"[_\-]\d{2,}$", "", stem)
+        return stem
+
+    @staticmethod
+    def _has_file_extension(s: str) -> bool:
+        return bool(re.search(r"\.[a-zA-Z0-9]{2,5}$", s))
 
     def before_value_set(self, parameter: Parameter, value: Any) -> Any:
         """Handle changes to the variable_type parameter."""
@@ -357,8 +511,6 @@ class CreateVariable(ControlNode):
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
         """Variable nodes have side effects and need to execute every workflow run."""
-        from griptape_nodes.exe_types.node_types import NodeResolutionState
-
         self.make_node_unresolved(
             current_states_to_trigger_change_event={NodeResolutionState.RESOLVED, NodeResolutionState.RESOLVING}
         )
@@ -366,8 +518,6 @@ class CreateVariable(ControlNode):
 
     def validate_before_node_run(self) -> list[Exception] | None:
         """Variable nodes have side effects and need to execute every time they run."""
-        from griptape_nodes.exe_types.node_types import NodeResolutionState
-
         self.make_node_unresolved(
             current_states_to_trigger_change_event={NodeResolutionState.RESOLVED, NodeResolutionState.RESOLVING}
         )
