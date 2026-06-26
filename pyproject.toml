@@ -1,6 +1,6 @@
 [project]
 name = "griptape-nodes-library-standard"
-version = "0.67.0"
+version = "0.80.0"
 description = "Default nodes for Griptape Nodes"
 authors = [{ name = "Griptape, Inc" }]
 requires-python = ">=3.12,<3.13"
