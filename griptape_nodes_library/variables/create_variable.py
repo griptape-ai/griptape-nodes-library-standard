@@ -4,7 +4,6 @@ import re
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
-from griptape_nodes.traits.options import Options
 from griptape_nodes.exe_types.node_types import (
     BaseNode,
     ControlNode,
@@ -13,6 +12,7 @@ from griptape_nodes.exe_types.node_types import (
     VariableReference,
 )
 from griptape_nodes.retained_mode.variable_types import VariableScope
+from griptape_nodes.traits.options import Options
 
 logger = logging.getLogger("griptape_nodes")
 
