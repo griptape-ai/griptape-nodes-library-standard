@@ -345,10 +345,10 @@ class Agent(ControlNode):
         if not _AGENT_PROVIDERS_AVAILABLE:
             return _FALLBACK
         try:
-            result = GriptapeNodes.handle_request(ListAgentProvidersRequest())  # pyright: ignore[reportPossiblyUnbound]
-            if not isinstance(result, ListAgentProvidersResultSuccess):  # pyright: ignore[reportPossiblyUnbound]
+            result = GriptapeNodes.handle_request(ListAgentProvidersRequest())  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+            if not isinstance(result, ListAgentProvidersResultSuccess):  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
                 return _FALLBACK
-            return cast(ListAgentProvidersResultSuccess, result).providers or _FALLBACK  # pyright: ignore[reportPossiblyUnbound]
+            return cast(ListAgentProvidersResultSuccess, result).providers or _FALLBACK  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
         except Exception:
             return _FALLBACK
 
@@ -381,14 +381,14 @@ class Agent(ControlNode):
             if provider_config is None:
                 return MODEL_CHOICES
             result = GriptapeNodes.handle_request(
-                ListProviderModelsRequest(  # pyright: ignore[reportPossiblyUnbound]
+                ListProviderModelsRequest(  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
                     provider=provider_config.get("type", provider_name),
                     base_url=provider_config.get("base_url", ""),
                     api_key=self._resolve_provider_api_key(provider_config),
                 )
             )
-            if isinstance(result, ListProviderModelsResultSuccess):  # pyright: ignore[reportPossiblyUnbound]
-                return cast(ListProviderModelsResultSuccess, result).models or MODEL_CHOICES  # pyright: ignore[reportPossiblyUnbound]
+            if isinstance(result, ListProviderModelsResultSuccess):  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+                return cast(ListProviderModelsResultSuccess, result).models or MODEL_CHOICES  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
         except Exception:
             pass
         return MODEL_CHOICES
