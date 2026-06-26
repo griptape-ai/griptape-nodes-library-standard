@@ -248,6 +248,23 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         return self.get_parameter_value("model") or ""
 
+    def _get_catalog_model_id(self) -> str:
+        """Get the model ID used to resolve this node's declared catalog model.
+
+        The permission/declaration layer matches on the catalog's
+        `provider_model_id`, which is the bare upstream model id. By default this
+        is the same value used in the API request URL (`_get_api_model_id()`).
+
+        Subclasses whose `_get_api_model_id()` decorates the id with an operation
+        suffix for the URL path (e.g. `grok-imagine-video:generate`) must override
+        this to return the bare provider id instead, or the catalog lookup will
+        fail to match and the invocation cannot be declared.
+
+        Returns:
+            str: The model ID to match against declared catalog models
+        """
+        return self._get_api_model_id()
+
     def _validate_api_key(self) -> str:
         """Validate and return the API key.
 
@@ -655,8 +672,10 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         # Declare the invocation so the engine's permission layer can gate it
         # before any network call. The proxy still enforces server-side; this is
-        # the engine-side gate, so a denied invocation fails fast here.
-        declaration = await self._declare_model_invocation(api_model_id)
+        # the engine-side gate, so a denied invocation fails fast here. The
+        # declaration matches on the bare catalog id, which may differ from the
+        # URL-path id (e.g. when the latter carries an operation suffix).
+        declaration = await self._declare_model_invocation(self._get_catalog_model_id())
         if declaration.failed():
             self._set_safe_defaults()
             details = str(declaration.result_details or f"{self.name}: model invocation was not permitted.")
