@@ -1,6 +1,6 @@
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
+from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode, ParameterTypeBuiltin
 from griptape_nodes.exe_types.node_types import (
     ControlNode,
     NodeDependencies,
@@ -9,10 +9,13 @@ from griptape_nodes.exe_types.node_types import (
     VariableReference,
 )
 from griptape_nodes.retained_mode.variable_types import VariableScope
+from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
+from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.variables.variable_utils import (
     create_advanced_parameter_group,
     get_variable,
+    list_variables,
     scope_string_to_variable_scope,
 )
 
@@ -31,6 +34,16 @@ class GetVariable(ControlNode):
             allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT, ParameterMode.PROPERTY},
             tooltip="Name of the variable to retrieve",
         )
+        available_names = self._get_variable_names()
+        self.variable_name_param.add_trait(Options(choices=available_names))
+        self.variable_name_param.add_trait(
+            Button(
+                icon="list-restart",
+                size="icon",
+                variant="secondary",
+                on_click=self._refresh_variable_names,
+            )
+        )
         self.add_parameter(self.variable_name_param)
 
         self.value_param = Parameter(
@@ -45,6 +58,19 @@ class GetVariable(ControlNode):
         advanced = create_advanced_parameter_group()
         self.scope_param = advanced.scope_param
         self.add_node_element(advanced.parameter_group)
+
+    def _get_variable_names(self) -> list[str]:
+        scope_str = self.get_parameter_value("scope")
+        scope = scope_string_to_variable_scope(scope_str) if scope_str else VariableScope.HIERARCHICAL
+        return list_variables(node_name=self.name, scope=scope)
+
+    def _refresh_variable_names(self, button: Button, button_details: ButtonDetailsMessagePayload) -> NodeMessageResult | None:  # noqa: ARG002
+        names = self._get_variable_names()
+        current = self.get_parameter_value("variable_name")
+        self._update_option_choices(param="variable_name", choices=names, default=names[0] if names else "")
+        if current and current in names:
+            self.set_parameter_value("variable_name", current)
+        return None
 
     def process(self) -> None:
         variable_name = self.get_parameter_value(self.variable_name_param.name)
