@@ -104,6 +104,37 @@ def get_variable(node_name: str, variable_name: str, scope: "VariableScope") -> 
     return result.variable
 
 
+def list_variables(node_name: str, scope: "VariableScope") -> list[str]:
+    """Return the names of all variables visible from this node at the given scope.
+
+    Args:
+        node_name: The name of the node making the request
+        scope: The scope to search for variables within
+
+    Returns:
+        Sorted list of variable names, or empty list on failure.
+    """
+    from griptape_nodes.retained_mode.events.variable_events import (
+        ListVariablesRequest,
+        ListVariablesResultSuccess,
+    )
+    from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
+    # Try to resolve via the node's registered flow; fall back to the Context Manager's
+    # active flow (starting_flow=None) so the list populates during node creation before
+    # the node has been added to a flow.
+    try:
+        current_flow_name = _get_flow_for_node(node_name)
+    except RuntimeError:
+        current_flow_name = None
+
+    request = ListVariablesRequest(lookup_scope=scope, starting_flow=current_flow_name)
+    result = GriptapeNodes.handle_request(request)
+    if not isinstance(result, ListVariablesResultSuccess):
+        return []
+    return [v.name for v in result.variables]
+
+
 def has_variable(node_name: str, variable_name: str, scope: "VariableScope") -> bool:
     """Attempts to check if a variable exists at the specified scope.
 
