@@ -164,6 +164,11 @@ class GrokVideoEdit(GriptapeProxyNode):
         model_name = self.get_parameter_value("model") or "Grok Imagine Video"
         return self.MODEL_NAME_MAP.get(model_name, model_name)
 
+    def _get_catalog_model_id(self) -> str:
+        # The catalog declares the bare provider id (no `:edit` suffix), so
+        # resolve the declaration against the un-suffixed id.
+        return self._get_payload_model_id()
+
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []
 
