@@ -55,6 +55,7 @@ try:
         ListProviderModelsRequest,
         ListProviderModelsResultSuccess,
     )
+
     _AGENT_PROVIDERS_AVAILABLE = True
 except ImportError:
     _AGENT_PROVIDERS_AVAILABLE = False
@@ -373,7 +374,9 @@ class Agent(ControlNode):
         """
         secret_name = provider_config.get("api_key_secret_name", "")
         if secret_name:
-            return GriptapeNodes.SecretsManager().get_secret(secret_name, should_error_on_not_found=False) or "not-needed"
+            return (
+                GriptapeNodes.SecretsManager().get_secret(secret_name, should_error_on_not_found=False) or "not-needed"
+            )
         return "not-needed"
 
     def _fetch_models_for_provider(self, provider_name: str) -> list[str]:
