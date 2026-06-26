@@ -312,20 +312,24 @@ class CreateVariable(ControlNode):
     @staticmethod
     def _apply_case(words: list[str], case_style: str) -> str:
         """Join tokens using the requested case convention."""
-        if case_style == CaseStyle.UPPER:
-            return " ".join(w.upper() for w in words)
-        if case_style == CaseStyle.UPPER_SNAKE:
-            return "_".join(w.upper() for w in words)
-        if case_style == CaseStyle.TITLE:
-            return " ".join(w.capitalize() for w in words)
-        if case_style == CaseStyle.KEBAB:
-            return "-".join(w.lower() for w in words)
-        if case_style == CaseStyle.PASCAL:
-            return "".join(w.capitalize() for w in words)
-        if case_style == CaseStyle.CAMEL:
-            return words[0].lower() + "".join(w.capitalize() for w in words[1:])
-        # Default: snake_case
-        return "_".join(w.lower() for w in words)
+        match case_style:
+            case CaseStyle.UPPER:
+                return " ".join(w.upper() for w in words)
+            case CaseStyle.UPPER_SNAKE:
+                return "_".join(w.upper() for w in words)
+            case CaseStyle.TITLE:
+                return " ".join(w.capitalize() for w in words)
+            case CaseStyle.SNAKE:
+                return "_".join(w.lower() for w in words)
+            case CaseStyle.KEBAB:
+                return "-".join(w.lower() for w in words)
+            case CaseStyle.PASCAL:
+                return "".join(w.capitalize() for w in words)
+            case CaseStyle.CAMEL:
+                return words[0].lower() + "".join(w.capitalize() for w in words[1:])
+            case _:
+                msg = f"Unknown case style: {case_style!r}"
+                raise ValueError(msg)
 
     @staticmethod
     def _strip_version_suffix(stem: str) -> str:

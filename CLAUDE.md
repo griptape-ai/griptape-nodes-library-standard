@@ -45,3 +45,28 @@ if case_style == CaseStyle.SNAKE:
 ```
 
 Use `StrEnum` (not plain `Enum`) so values compare equal to their string equivalents — parameter values coming back from the UI are plain strings, and `StrEnum` members match them without explicit `.value` lookups.
+
+### Use `match`/`case` instead of `if`/`elif` chains
+
+Whenever you're branching on a single value across three or more cases — whether it's a `StrEnum`, a string, an int, or a type tag — use `match`/`case` instead of a chain of `if` comparisons. Always end with a wildcard `case _:` that raises `ValueError`; this surfaces unhandled values immediately rather than silently falling through to a wrong default.
+
+```python
+# BAD — if/elif chain
+if case_style == CaseStyle.SNAKE:
+    return "_".join(w.lower() for w in words)
+elif case_style == CaseStyle.CAMEL:
+    return words[0].lower() + "".join(w.capitalize() for w in words[1:])
+# ... six more elifs, then a silent default or nothing
+
+# GOOD
+match case_style:
+    case CaseStyle.SNAKE:
+        return "_".join(w.lower() for w in words)
+    case CaseStyle.CAMEL:
+        return words[0].lower() + "".join(w.capitalize() for w in words[1:])
+    case _:
+        msg = f"Unknown case style: {case_style!r}"
+        raise ValueError(msg)
+```
+
+The wildcard `case _: raise ValueError(...)` is not optional — it ensures that adding a new enum member (or passing an unexpected value) is caught immediately rather than producing a silent wrong result.
