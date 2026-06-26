@@ -65,7 +65,9 @@ class HasVariable(ControlNode):
         scope = scope_string_to_variable_scope(scope_str) if scope_str else VariableScope.HIERARCHICAL
         return list_variables(node_name=self.name, scope=scope)
 
-    def _refresh_variable_names(self, button: Button, button_details: ButtonDetailsMessagePayload) -> NodeMessageResult | None:  # noqa: ARG002
+    def _refresh_variable_names(
+        self, button: Button, button_details: ButtonDetailsMessagePayload
+    ) -> NodeMessageResult | None:  # noqa: ARG002
         names = self._get_variable_names()
         current = self.get_parameter_value("variable_name")
         self._update_option_choices(param="variable_name", choices=names, default=names[0] if names else "")

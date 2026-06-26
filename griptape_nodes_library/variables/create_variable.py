@@ -353,9 +353,22 @@ class CreateVariable(ControlNode):
     @staticmethod
     def _has_file_extension(s: str) -> bool:
         _EXTENSIONS = {
-            ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
-            ".mp4", ".mov", ".avi", ".mp3", ".wav", ".ogg",
-            ".json", ".txt", ".csv", ".pdf",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".gif",
+            ".webp",
+            ".bmp",
+            ".mp4",
+            ".mov",
+            ".avi",
+            ".mp3",
+            ".wav",
+            ".ogg",
+            ".json",
+            ".txt",
+            ".csv",
+            ".pdf",
         }
         _, ext = os.path.splitext(s)
         return ext.lower() in _EXTENSIONS
