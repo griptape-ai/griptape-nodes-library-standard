@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+from enum import StrEnum
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
@@ -16,15 +17,16 @@ from griptape_nodes.traits.options import Options
 
 logger = logging.getLogger("griptape_nodes")
 
-CASE_UPPER = "UPPER CASE"
-CASE_UPPER_SNAKE = "UPPER_SNAKE_CASE"
-CASE_TITLE = "Title Case"
-CASE_SNAKE = "snake_case"
-CASE_KEBAB = "kebab-case"
-CASE_PASCAL = "PascalCase"
-CASE_CAMEL = "camelCase"
-CASE_AS_IS = "as is"
-CASE_OPTIONS = [CASE_UPPER, CASE_UPPER_SNAKE, CASE_TITLE, CASE_SNAKE, CASE_KEBAB, CASE_PASCAL, CASE_CAMEL, CASE_AS_IS]
+
+class CaseStyle(StrEnum):
+    UPPER = "UPPER CASE"
+    UPPER_SNAKE = "UPPER_SNAKE_CASE"
+    TITLE = "Title Case"
+    SNAKE = "snake_case"
+    KEBAB = "kebab-case"
+    PASCAL = "PascalCase"
+    CAMEL = "camelCase"
+    AS_IS = "as is"
 
 
 class CreateVariable(ControlNode):
@@ -55,11 +57,11 @@ class CreateVariable(ControlNode):
         self.auto_name_case_param = Parameter(
             name="auto_name_case",
             type="str",
-            default_value=CASE_SNAKE,
+            default_value=CaseStyle.SNAKE,
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             tooltip="Case style used when auto_name is on",
         )
-        self.auto_name_case_param.add_trait(Options(choices=CASE_OPTIONS))
+        self.auto_name_case_param.add_trait(Options(choices=list(CaseStyle)))
         self.add_parameter(self.auto_name_case_param)
         self.hide_parameter_by_name(self.auto_name_case_param.name)
 
@@ -270,8 +272,8 @@ class CreateVariable(ControlNode):
         raw = self._get_raw_name(value, source_node_name)
         if not raw:
             return None
-        case_style = self.get_parameter_value(self.auto_name_case_param.name) or CASE_SNAKE
-        if case_style == CASE_AS_IS:
+        case_style = self.get_parameter_value(self.auto_name_case_param.name) or CaseStyle.SNAKE
+        if case_style == CaseStyle.AS_IS:
             return raw
         words = self._tokenize(raw)
         if not words:
@@ -324,17 +326,17 @@ class CreateVariable(ControlNode):
     @staticmethod
     def _apply_case(words: list[str], case_style: str) -> str:
         """Join tokens using the requested case convention."""
-        if case_style == CASE_UPPER:
+        if case_style == CaseStyle.UPPER:
             return " ".join(w.upper() for w in words)
-        if case_style == CASE_UPPER_SNAKE:
+        if case_style == CaseStyle.UPPER_SNAKE:
             return "_".join(w.upper() for w in words)
-        if case_style == CASE_TITLE:
+        if case_style == CaseStyle.TITLE:
             return " ".join(w.capitalize() for w in words)
-        if case_style == CASE_KEBAB:
+        if case_style == CaseStyle.KEBAB:
             return "-".join(w.lower() for w in words)
-        if case_style == CASE_PASCAL:
+        if case_style == CaseStyle.PASCAL:
             return "".join(w.capitalize() for w in words)
-        if case_style == CASE_CAMEL:
+        if case_style == CaseStyle.CAMEL:
             return words[0].lower() + "".join(w.capitalize() for w in words[1:])
         # Default: snake_case
         return "_".join(w.lower() for w in words)
