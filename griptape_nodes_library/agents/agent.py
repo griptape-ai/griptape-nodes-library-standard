@@ -349,6 +349,18 @@ class Agent(ControlNode):
         providers = self._fetch_providers()
         return [p["name"] for p in providers] or ["griptape_cloud"]
 
+    def _resolve_provider_api_key(self, provider_config: dict) -> str:
+        """Resolve the API key for a provider config.
+
+        Provider configs carry api_key_secret_name (the name of a secret in the
+        secrets manager) rather than a raw api_key value.  Fall back to
+        "not-needed" for providers that don't require a key (e.g. Ollama).
+        """
+        secret_name = provider_config.get("api_key_secret_name", "")
+        if secret_name:
+            return GriptapeNodes.SecretsManager().get_secret(secret_name, should_error_on_not_found=False) or "not-needed"
+        return "not-needed"
+
     def _fetch_models_for_provider(self, provider_name: str) -> list[str]:
         """Return the model list for a given provider name."""
         try:
@@ -360,7 +372,7 @@ class Agent(ControlNode):
                 ListProviderModelsRequest(
                     provider=provider_config.get("type", provider_name),
                     base_url=provider_config.get("base_url", ""),
-                    api_key=provider_config.get("api_key", ""),
+                    api_key=self._resolve_provider_api_key(provider_config),
                 )
             )
             if isinstance(result, ListProviderModelsResultSuccess):
@@ -995,7 +1007,7 @@ class Agent(ControlNode):
                 providers = self._fetch_providers()
                 provider_config = next((p for p in providers if p["name"] == provider_name), {})
                 base_url = provider_config.get("base_url", "")
-                api_key = provider_config.get("api_key") or "not-needed"
+                api_key = self._resolve_provider_api_key(provider_config)
                 prompt_driver = GtOpenAiChatPromptDriver(
                     model=model_input,
                     base_url=base_url,
@@ -1044,7 +1056,7 @@ class Agent(ControlNode):
             wrapper["provider"] = {
                 "name": provider_name,
                 "base_url": p.get("base_url", ""),
-                "api_key": p.get("api_key") or "not-needed",
+                "api_key": self._resolve_provider_api_key(p),
             }
         elif incoming_provider:
             # Passthrough: this node uses griptape_cloud but an upstream agent used a non-GTC provider.
