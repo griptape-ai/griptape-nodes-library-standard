@@ -7,7 +7,7 @@ for tools, rulesets, prompts, and streams output back to the user interface.
 """
 
 import json
-from typing import Any, cast  # cast used for handle_request narrowing
+from typing import TYPE_CHECKING, Any, cast  # cast used for handle_request narrowing
 
 from griptape.artifacts import BaseArtifact, ModelArtifact, TextArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
@@ -35,16 +35,29 @@ from griptape_nodes.exe_types.core_types import (
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.events.agent_events import (
-    ListAgentProvidersRequest,
-    ListAgentProvidersResultSuccess,
-    ListProviderModelsRequest,
-    ListProviderModelsResultSuccess,
-)
 from griptape_nodes.retained_mode.events.connection_events import DeleteConnectionRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
+
+if TYPE_CHECKING:
+    from griptape_nodes.retained_mode.events.agent_events import (  # type: ignore[import]
+        ListAgentProvidersRequest,
+        ListAgentProvidersResultSuccess,
+        ListProviderModelsRequest,
+        ListProviderModelsResultSuccess,
+    )
+
+try:
+    from griptape_nodes.retained_mode.events.agent_events import (  # type: ignore[import]
+        ListAgentProvidersRequest,
+        ListAgentProvidersResultSuccess,
+        ListProviderModelsRequest,
+        ListProviderModelsResultSuccess,
+    )
+    _AGENT_PROVIDERS_AVAILABLE = True
+except ImportError:
+    _AGENT_PROVIDERS_AVAILABLE = False
 from jinja2 import Template
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
@@ -336,6 +349,8 @@ class Agent(ControlNode):
     def _fetch_providers(self) -> list[dict]:
         """Fetch configured providers from the engine, falling back to griptape_cloud only."""
         _FALLBACK = [{"name": "griptape_cloud", "type": "griptape_cloud"}]
+        if not _AGENT_PROVIDERS_AVAILABLE:
+            return _FALLBACK
         try:
             result = GriptapeNodes.handle_request(ListAgentProvidersRequest())
             if not isinstance(result, ListAgentProvidersResultSuccess):
@@ -363,6 +378,8 @@ class Agent(ControlNode):
 
     def _fetch_models_for_provider(self, provider_name: str) -> list[str]:
         """Return the model list for a given provider name."""
+        if not _AGENT_PROVIDERS_AVAILABLE:
+            return MODEL_CHOICES
         try:
             providers = self._fetch_providers()
             provider_config = next((p for p in providers if p["name"] == provider_name), None)
