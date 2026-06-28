@@ -55,6 +55,9 @@ class ForEachStartNode(BaseIterativeStartNode):
         if group:
             group.add_child(self.current_item)
 
+        self.move_element_to_position("run_in_order", position="first")
+        self.move_element_to_position("items", position="first")
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter == self.run_in_order and self.end_node:
             # Hide or show break/skip controls based on parallel mode
