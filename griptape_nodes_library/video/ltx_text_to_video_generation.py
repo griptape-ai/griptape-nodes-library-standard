@@ -107,7 +107,7 @@ class LTXTextToVideoGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterString(
                 name="model",
-                default_value="LTX 2 Fast",
+                default_value="LTX 2.3 Fast",
                 tooltip="Model to use for video generation",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=["LTX 2 Pro", "LTX 2 Fast", "LTX 2.3 Pro", "LTX 2.3 Fast"])},
@@ -167,15 +167,6 @@ class LTXTextToVideoGeneration(GriptapeProxyNode):
         self.add_node_element(gen_settings_group)
 
         # OUTPUTS
-        self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Griptape Cloud generation id",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide=True,
-            )
-        )
-
         self.add_parameter(
             ParameterDict(
                 name="provider_response",

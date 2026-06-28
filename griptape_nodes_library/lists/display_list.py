@@ -57,6 +57,19 @@ class DisplayList(ControlNode):
         self.add_parameter(self.items_list)
         # Track whether we're already updating to prevent duplicate calls
         self._updating_display_list = False
+        # Declared element type, captured from the upstream `output_type` when
+        # an incoming connection lands on `items` (e.g. `list[Sequence]` →
+        # `"Sequence"`). When set, it overrides per-value type detection so
+        # downstream connections see a typed-not-`any` parameter even before
+        # values have flowed. None means fall back to per-value detection
+        # (the historical behavior). Reset on `items` disconnect.
+        self._declared_element_type: str | None = None
+        # True while `items` has an active incoming connection. Drives the
+        # `settable` lock on the dynamic children (the connection owns
+        # their values, so manual edits / adds shouldn't be exposed).
+        # Tracked alongside the connection events instead of querying the
+        # FlowManager on each rebuild.
+        self._items_connected: bool = False
         # We'll create output parameters dynamically during processing
 
     def process(self) -> None:
@@ -111,17 +124,20 @@ class DisplayList(ControlNode):
             return
 
         new_ui_options["hide"] = False
-        item_type = self._determine_item_type(list_values[0])
+        item_type = self._resolve_item_type(list_values[0])
         self._configure_list_type_and_ui(item_type, new_ui_options)
         # Only delete excess parameters if explicitly requested (e.g., during process())
         if delete_excess_parameters:
             self.delete_excess_parameters(list_values)
         for i, item in enumerate(list_values):
-            item_specific_type = self._determine_item_type(item)
+            item_specific_type = self._resolve_item_type(item)
             if i < len(self.items_list):
                 self._update_existing_parameter(self.items_list[i], item, item_specific_type)
             else:
                 self._create_new_parameter(item, item_specific_type)
+        # Newly created or re-typed children inherit settable from the current
+        # connection state, not from whatever the parent had a moment ago.
+        self._apply_settable_state()
         self._updating_display_list = False
 
     def _update_existing_parameter(self, parameter: Parameter, item: Any, item_specific_type: str) -> None:
@@ -253,6 +269,55 @@ class DisplayList(ControlNode):
         self.items_list.input_types = [item_type]
         self.items_list.ui_options = ui_options
 
+    @staticmethod
+    def _extract_inner_list_type(output_type: str | None) -> str | None:
+        """Pull `X` out of an upstream `output_type` of the form `list[X]`.
+
+        Returns None when the input doesn't declare an element type (`list`,
+        `None`, anything that doesn't parse as `list[…]`) or when the inner
+        is the `any` placeholder — both cases mean "no useful type to declare,
+        fall back to per-value detection." Compares the base type
+        case-insensitively (matching the engine's `are_types_compatible`),
+        but preserves the inner type's original casing so downstream
+        comparisons work on whichever convention the source used.
+        """
+        if not output_type:
+            return None
+        bracket = output_type.find("[")
+        if bracket < 0 or not output_type.endswith("]"):
+            return None
+        if output_type[:bracket].lower() != "list":
+            return None
+        inner = output_type[bracket + 1 : -1].strip()
+        if not inner or inner.lower() == ParameterTypeBuiltin.ANY.value:
+            return None
+        return inner
+
+    def _resolve_item_type(self, item: Any) -> str:
+        """Pick the type string for one list item.
+
+        Prefers the upstream-declared element type (set by
+        `after_incoming_connection` when the source's `output_type` was
+        `list[X]` for a non-`any` X) so downstream connections see a typed
+        parameter. Falls back to per-value detection when no declared type
+        is on file.
+        """
+        if self._declared_element_type is not None:
+            return self._declared_element_type
+        return self._determine_item_type(item)
+
+    def _apply_settable_state(self) -> None:
+        """Sync `settable` on the container and existing children to the connection state.
+
+        Locked while `items` has an incoming connection, unlocked otherwise.
+        Called from connection / disconnect events and after every rebuild
+        so freshly created children inherit the right state.
+        """
+        locked = self._items_connected
+        self.items_list.settable = not locked
+        for child in self.items_list.find_elements_by_type(Parameter):
+            child.settable = not locked
+
     def _determine_item_type(self, item: Any) -> str:
         """Determine the type of an item for parameter type assignment."""
         # Builtin types - use type mapping for efficiency
@@ -366,8 +431,45 @@ class DisplayList(ControlNode):
             self._update_display_list()
         return super().after_value_set(parameter, value)
 
+    def after_incoming_connection(
+        self,
+        source_node: BaseNode,
+        source_parameter: Parameter,
+        target_parameter: Parameter,
+    ) -> None:
+        """Capture the upstream element type and lock children when something connects to `items`.
+
+        When the source declares `output_type="list[X]"` for a concrete X,
+        we stash X as the declared element type and rebuild — that re-types
+        every existing child, and the rebuild's `_validate_and_remove_incompatible_connections`
+        prunes any outgoing connection from a child whose type just changed
+        out from under it. When the source declares only `list` or `list[any]`,
+        the cache stays None and we fall through to per-value detection.
+        Either way, while `items` is connected, children become read-only —
+        the connection owns their values.
+        """
+        if target_parameter == self.items:
+            self._declared_element_type = self._extract_inner_list_type(source_parameter.output_type)
+            self._items_connected = True
+            self._update_display_list()
+            self._apply_settable_state()
+        return super().after_incoming_connection(source_node, source_parameter, target_parameter)
+
     def after_incoming_connection_removed(
         self, source_node: BaseNode, source_parameter: Parameter, target_parameter: Parameter
     ) -> None:
+        """Reset declared element type and unlock children when `items` is disconnected.
+
+        Drops back to per-value detection so a subsequent reconnect (or any
+        cached value the artist set as a property) re-evaluates from scratch.
+        Children become editable again so the artist can hand-edit any
+        cached values. Other parameters' disconnects are ignored —
+        DisplayList only narrows based on `items`.
+        """
+        if target_parameter == self.items:
+            self._declared_element_type = None
+            self._items_connected = False
         self._update_display_list()
+        if target_parameter == self.items:
+            self._apply_settable_state()
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)

@@ -8,6 +8,7 @@
 # node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "Rodin23DGeneration"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
+# is_internal = true
 # ///
 import asyncio
 import logging
@@ -45,7 +46,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Library",
             node_name="Create Color Bars",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -55,7 +55,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Library",
             node_name="Rodin23DGeneration",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -65,7 +64,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Library",
             node_name="To Text",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -75,7 +73,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Testing Library",
             node_name="Assert File Exists",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -85,7 +82,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Library",
             node_name="End Flow",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -103,12 +99,33 @@ with GriptapeNodes.ContextManager().flow(flow_name):
                 initial_setup=True,
             )
         )
+    with GriptapeNodes.ContextManager().node(gen_node):
+        GriptapeNodes.handle_request(
+            AddParameterToNodeRequest(
+                parameter_name="input_images_ParameterListUniqueParamID_00000000000000000000000000000001",
+                default_value=[],
+                tooltip="Optional input images for Image-to-3D generation (up to 5 images)",
+                type="ImageArtifact",
+                input_types=[
+                    "ImageArtifact",
+                    "ImageUrlArtifact",
+                    "str",
+                    "list",
+                    "list[ImageArtifact]",
+                    "list[ImageUrlArtifact]",
+                ],
+                output_type="ImageArtifact",
+                ui_options={},
+                parent_container_name="input_images",
+                initial_setup=True,
+            )
+        )
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
             source_node_name=source_node,
             source_parameter_name="image",
             target_node_name=gen_node,
-            target_parameter_name="input_images",
+            target_parameter_name="input_images_ParameterListUniqueParamID_00000000000000000000000000000001",
             initial_setup=True,
         )
     )

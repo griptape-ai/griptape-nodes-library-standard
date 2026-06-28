@@ -4,30 +4,32 @@ from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import (
-    NodeMessagePayload,
-    NodeMessageResult,
     Parameter,
     ParameterGroup,
     ParameterMode,
 )
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
-from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
+from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import logger
-from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
+from griptape_nodes.files.file import File
+from griptape_nodes.retained_mode.events.connection_events import (
+    ListConnectionsForNodeRequest,
+    ListConnectionsForNodeResultSuccess,
+)
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
+from griptape_nodes.traits.widget import Widget
 from PIL import Image
 
 from griptape_nodes_library.utils.color_utils import NAMED_COLORS, parse_color_to_rgba
 from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
-    dict_to_image_url_artifact,
     load_pil_from_url,
     validate_pil_format,
 )
@@ -45,6 +47,14 @@ MAX_WIDTH = MAX_IMAGE_DIMENSION
 MAX_HEIGHT = MAX_IMAGE_DIMENSION
 ROTATION_MIN = -180.0
 ROTATION_MAX = 180.0
+
+# Parameter defaults
+DEFAULT_LEFT = 0
+DEFAULT_TOP = 0
+DEFAULT_WIDTH = 0  # 0 = use full image width
+DEFAULT_HEIGHT = 0  # 0 = use full image height
+DEFAULT_ZOOM = NO_ZOOM
+DEFAULT_ROTATE = 0.0
 
 
 @dataclass
@@ -75,65 +85,79 @@ class CropImage(ControlNode):
 
         self.MAX_WIDTH = MAX_WIDTH
         self.MAX_HEIGHT = MAX_HEIGHT
-        self._processing = False  # Lock to prevent live cropping during process()
+        self._syncing_to_widget = False  # Prevent loop: param → widget → param
+        self._syncing_to_params = False  # Prevent loop: widget → param → widget
 
         self.add_parameter(
             ParameterImage(
                 name="input_image",
                 default_value=None,
                 tooltip="Input image to crop",
-                ui_options={"crop_image": True},
+                hide_property=True,
             )
         )
+
+        # Interactive crop editor widget — the primary UI for setting crop coordinates
         self.add_parameter(
-            ParameterButton(
-                name="crop_button",
-                label="Open Crop Editor",
-                variant="secondary",
-                icon="crop",
-                on_click=self._open_crop_modal,
+            ParameterDict(
+                name="crop_editor",
+                default_value={
+                    "image_url": "",
+                    "img_width": 0,
+                    "img_height": 0,
+                    "left": 0,
+                    "top": 0,
+                    "width": 0,
+                    "height": 0,
+                    "zoom": NO_ZOOM,
+                    "rotate": 0.0,
+                },
+                tooltip="Interactive crop editor — drag to set crop area",
+                allowed_modes={ParameterMode.PROPERTY},
+                traits={Widget(name="CropImageEditor", library="Griptape Nodes Library")},
             )
         )
-        with ParameterGroup(name="crop_coordinates", ui_options={"collapsed": False}) as crop_coordinates:
+
+        with ParameterGroup(name="crop_coordinates", ui_options={"collapsed": True}) as crop_coordinates:
             ParameterInt(
                 name="left",
-                default_value=0,
+                default_value=DEFAULT_LEFT,
                 tooltip="Left edge of crop area in pixels",
                 traits={Slider(min_val=0, max_val=self.MAX_WIDTH)},
             )
 
             ParameterInt(
                 name="top",
-                default_value=0,
+                default_value=DEFAULT_TOP,
                 tooltip="Top edge of crop area in pixels",
                 traits={Slider(min_val=0, max_val=self.MAX_HEIGHT)},
             )
 
             ParameterInt(
                 name="width",
-                default_value=0,
+                default_value=DEFAULT_WIDTH,
                 tooltip="Width of crop area in pixels (0 = use full width)",
                 traits={Slider(min_val=0, max_val=self.MAX_WIDTH)},
             )
 
             ParameterInt(
                 name="height",
-                default_value=0,
+                default_value=DEFAULT_HEIGHT,
                 tooltip="Height of crop area in pixels (0 = use full height)",
                 traits={Slider(min_val=0, max_val=self.MAX_HEIGHT)},
             )
         self.add_node_element(crop_coordinates)
 
-        with ParameterGroup(name="transform_options", ui_options={"collapsed": False}) as transform_options:
+        with ParameterGroup(name="transform_options", ui_options={"collapsed": True}) as transform_options:
             ParameterFloat(
                 name="zoom",
-                default_value=NO_ZOOM,
+                default_value=DEFAULT_ZOOM,
                 tooltip="Zoom percentage (100 = no zoom, 200 = 2x zoom in, 50 = 0.5x zoom out)",
                 traits={Slider(min_val=0.0, max_val=MAX_ZOOM)},
             )
             ParameterFloat(
                 name="rotate",
-                default_value=0.0,
+                default_value=DEFAULT_ROTATE,
                 tooltip="Rotation in degrees (-180 to 180)",
                 traits={Slider(min_val=ROTATION_MIN, max_val=ROTATION_MAX)},
             )
@@ -178,33 +202,201 @@ class CropImage(ControlNode):
         )
         self._output_file.add_parameter()
 
-    def _open_crop_modal(self, _button: Button, _details: ButtonDetailsMessagePayload) -> NodeMessageResult:
-        """Open the crop modal in the frontend."""
-        # Create the open_modal payload structure
-        open_modal_data = {
-            "modal_type": "crop",
-            "node_name": self.name,
-            "parameter_name": "input_image",
+    # ── Connection detection ───────────────────────────────────────────────────
+
+    def _get_locked_params(self) -> list[str]:
+        """Return crop param names that have an incoming wire connection."""
+        crop_params = {"left", "top", "width", "height", "zoom", "rotate"}
+        try:
+            result = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=self.name))
+            if isinstance(result, ListConnectionsForNodeResultSuccess):
+                return [
+                    conn.target_parameter_name
+                    for conn in result.incoming_connections
+                    if conn.target_parameter_name in crop_params
+                ]
+        except Exception as e:
+            logger.warning("%s: could not fetch connections: %s", self.name, e)
+        return []
+
+    # ── Image URL resolution ───────────────────────────────────────────────────
+
+    def _resolve_image_url(self, artifact: Any) -> str:
+        """Return a browser-accessible URL for an image artifact."""
+        from griptape_nodes.retained_mode.events.static_file_events import (
+            CreateStaticFileDownloadUrlFromPathRequest,
+            CreateStaticFileDownloadUrlFromPathResultSuccess,
+        )
+
+        raw = artifact if isinstance(artifact, str) else (getattr(artifact, "value", "") or "")
+        if not raw:
+            return ""
+        if isinstance(raw, str) and raw.startswith(("http://", "https://", "data:")):
+            return raw
+        try:
+            resolved = File(raw).resolve()
+        except Exception:
+            resolved = str(raw)
+        try:
+            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved))
+            if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
+                return result.url
+        except Exception as e:
+            logger.warning("%s: could not resolve static file URL for %r: %s", self.name, resolved, e)
+        return raw
+
+    # ── Widget ↔ parameter sync ────────────────────────────────────────────────
+
+    def _build_widget_dict(self, image_url: str = "", img_width: int = 0, img_height: int = 0) -> dict:
+        """Build the crop_editor dict from current parameter values."""
+        return {
+            "image_url": image_url,
+            "img_width": img_width,
+            "img_height": img_height,
+            "left": self.get_parameter_value("left") or DEFAULT_LEFT,
+            "top": self.get_parameter_value("top") or DEFAULT_TOP,
+            "width": self.get_parameter_value("width") or DEFAULT_WIDTH,
+            "height": self.get_parameter_value("height") or DEFAULT_HEIGHT,
+            "zoom": self.get_parameter_value("zoom") or DEFAULT_ZOOM,
+            "rotate": self.get_parameter_value("rotate") or DEFAULT_ROTATE,
+            "locked": self._get_locked_params(),
         }
 
-        # Create payload with open_modal structure
-        payload = NodeMessagePayload(data={"open_modal": open_modal_data})
+    def _push_widget(self, new_dict: dict) -> None:
+        """Push an updated crop_editor dict to the widget."""
+        self.set_parameter_value("crop_editor", new_dict)
+        self.publish_update_to_parameter("crop_editor", new_dict)
 
-        # Return NodeMessageResult with the payload
-        return NodeMessageResult(
-            success=True,
-            details="Opening crop modal",
-            response=payload,
-            altered_workflow_state=False,
-        )
+    _CROP_PARAMS = frozenset({"left", "top", "width", "height", "zoom", "rotate"})
+
+    def _refresh_locked_in_widget(self) -> None:
+        """Re-compute locked params and push only if the list changed."""
+        existing = self.get_parameter_value("crop_editor") or {}
+        new_locked = self._get_locked_params()
+        if set(existing.get("locked") or []) == set(new_locked):
+            return
+        self._syncing_to_widget = True
+        try:
+            self._push_widget({**existing, "locked": new_locked})
+        finally:
+            self._syncing_to_widget = False
+
+    def after_incoming_connection(self, source_node, source_parameter, target_parameter) -> None:
+        if target_parameter.name in self._CROP_PARAMS:
+            self._refresh_locked_in_widget()
+        return super().after_incoming_connection(source_node, source_parameter, target_parameter)
+
+    def after_incoming_connection_removed(self, source_node, source_parameter, target_parameter) -> None:
+        if target_parameter.name in self._CROP_PARAMS:
+            self._refresh_locked_in_widget()
+        return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
+
+    def _update_widget_coords(self) -> None:
+        """Refresh the crop_editor widget with current coordinate parameter values.
+
+        Skips the push if nothing changed — prevents spurious widget resets that
+        happen when ParameterGroups are expanded (which re-fires after_value_set
+        for child params with their existing stored values).
+
+        locked is intentionally excluded from the early-return check: comparing
+        None (absent key) to [] would always trigger a push, defeating the guard.
+        locked is computed only when we are already going to push.
+        """
+        existing = self.get_parameter_value("crop_editor") or {}
+        new_left = self.get_parameter_value("left") or 0
+        new_top = self.get_parameter_value("top") or 0
+        new_width = self.get_parameter_value("width") or 0
+        new_height = self.get_parameter_value("height") or 0
+        new_zoom = self.get_parameter_value("zoom") or NO_ZOOM
+        new_rotate = self.get_parameter_value("rotate") or 0.0
+
+        if (
+            existing.get("left") == new_left
+            and existing.get("top") == new_top
+            and existing.get("width") == new_width
+            and existing.get("height") == new_height
+            and existing.get("zoom") == new_zoom
+            and existing.get("rotate") == new_rotate
+        ):
+            return
+
+        new_dict = {
+            **existing,
+            "left": new_left,
+            "top": new_top,
+            "width": new_width,
+            "height": new_height,
+            "zoom": new_zoom,
+            "rotate": new_rotate,
+            "locked": self._get_locked_params(),
+        }
+        self._syncing_to_widget = True
+        try:
+            self._push_widget(new_dict)
+        finally:
+            self._syncing_to_widget = False
+
+    def _sync_params_from_widget(self, widget_dict: dict) -> None:
+        """Push values from the widget dict into unlocked individual parameters.
+
+        publish_update_to_parameter("crop_editor", ...) is called FIRST so the
+        frontend's stored crop_editor value is authoritative before the individual
+        param publishes arrive.  When any individual param update (e.g. "left")
+        triggers a FlowEditor re-render, all widgets are called with current stored
+        props; without the pre-publish the stored crop_editor still has the old
+        value and the widget snaps back.
+        """
+        locked = set(widget_dict.get("locked", []))
+        mapping = {
+            "left": "left",
+            "top": "top",
+            "width": "width",
+            "height": "height",
+            "zoom": "zoom",
+            "rotate": "rotate",
+        }
+        # Pre-publish the full crop_editor dict so stored frontend value is correct
+        # before individual param publishes trigger a node re-render.
+        self.publish_update_to_parameter("crop_editor", widget_dict)
+        self._syncing_to_params = True
+        try:
+            for wkey, pkey in mapping.items():
+                if wkey in widget_dict and pkey not in locked:
+                    val = widget_dict[wkey]
+                    self.set_parameter_value(pkey, val)
+                    self.publish_update_to_parameter(pkey, val)
+        finally:
+            self._syncing_to_params = False
+
+    # ── Input normalization ────────────────────────────────────────────────────
+
+    def _extract_image_path(self, value: Any) -> str | None:
+        """Extract string path/URL from str, ImageUrlArtifact, or similar inputs."""
+        if isinstance(value, str):
+            return value
+        try:
+            if hasattr(value, "value"):
+                v = getattr(value, "value", None)
+                if isinstance(v, str):
+                    return v
+        except Exception:
+            pass
+        return None
+
+    # ── Crop logic ─────────────────────────────────────────────────────────────
 
     def _crop(self) -> None:
         # Get parameters
         params = self._get_crop_parameters()
 
+        path = self._extract_image_path(params["input_artifact"])
+        if not path:
+            logger.error("%s: No valid input image to crop", self.name)
+            return
+
         # Load image
         try:
-            img = load_pil_from_url(params["input_artifact"].value)
+            img = load_pil_from_url(path)
         except Exception as e:
             msg = f"{self.name}: Error loading image: {e}"
             logger.error(msg)
@@ -441,12 +633,7 @@ class CropImage(ControlNode):
         return img
 
     def process(self) -> None:
-        # Set processing lock to prevent live cropping during actual processing
-        self._processing = True
-        try:
-            self._crop()
-        finally:
-            self._processing = False
+        self._crop()
 
     def _parse_color(self, color_str: str) -> tuple[int, int, int, int]:
         """Parse color string to RGBA tuple."""
@@ -456,16 +643,20 @@ class CropImage(ControlNode):
             # Fallback to transparent if color parsing fails
             return NAMED_COLORS["transparent"]
 
-    def after_value_set(self, parameter: Parameter, value: Any) -> None:  # noqa: C901
-        # Set the max_value for sliders based on the image size
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        # ── Input image changed: update sliders + push image URL to widget ───
         if parameter.name == "input_image":
-            # Load image
+            if not value:
+                return super().after_value_set(parameter, value)
+            path = self._extract_image_path(value)
+            if not path:
+                return super().after_value_set(parameter, value)
             try:
-                img = load_pil_from_url(value.value)
+                img = load_pil_from_url(path)
             except Exception as e:
-                msg = f"{self.name}: Error loading image: {e}"
-                logger.error(msg)
-                return None
+                logger.error("%s: Error loading image: %s", self.name, e)
+                return super().after_value_set(parameter, value)
+
             if img.width and img.height:
                 top_param = self.get_parameter_by_name("top")
                 left_param = self.get_parameter_by_name("left")
@@ -480,37 +671,22 @@ class CropImage(ControlNode):
                 if height_param:
                     height_param.update_ui_options({"slider": {"max_val": img.height, "min_val": 0}})
 
-        # Do live cropping for crop parameters (only when not processing)
-        if not self._processing and parameter.name in [
-            "left",
-            "top",
-            "width",
-            "height",
-            "zoom",
-            "rotate",
-            "background_color",
-            "output_format",
-            "output_quality",
-        ]:
-            # Check if image is valid
-            image_exceptions = self._validate_image()
-            if image_exceptions:
-                # Image is not valid, don't run crop
-                return None
+                url = self._resolve_image_url(path)
+                new_dict = self._build_widget_dict(image_url=url, img_width=img.width, img_height=img.height)
+                self._syncing_to_widget = True
+                try:
+                    self._push_widget(new_dict)
+                finally:
+                    self._syncing_to_widget = False
 
-            # Check if parameters are valid
-            parameter_exceptions = self._validate_parameters()
-            if parameter_exceptions:
-                # Parameters are not valid, don't run crop
-                return None
+        # ── Widget changed: sync coords to individual params only (no live crop) ─
+        elif parameter.name == "crop_editor" and not self._syncing_to_widget:
+            if isinstance(value, dict):
+                self._sync_params_from_widget(value)
 
-            # Both image and parameters are valid, run crop
-            try:
-                self._crop()
-            except Exception as e:
-                # Log error but don't crash the UI
-                msg = f"{self.name}: Error during live crop: {e}"
-                logger.warning(msg)
+        # ── Individual param changed: update widget overlay if value changed ───
+        elif not self._syncing_to_params and parameter.name in ["left", "top", "width", "height", "zoom", "rotate"]:
+            self._update_widget_coords()
 
         return super().after_value_set(parameter, value)
 
@@ -524,18 +700,8 @@ class CropImage(ControlNode):
             exceptions.append(Exception(msg))
             return exceptions
 
-        # Validate input artifact type
-        if isinstance(input_artifact, dict):
-            # Convert dict to ImageUrlArtifact for validation
-            try:
-                input_artifact = dict_to_image_url_artifact(input_artifact)
-            except Exception as e:
-                msg = f"{self.name} - Invalid image dictionary: {e}"
-                exceptions.append(Exception(msg))
-                return exceptions
-
-        if not isinstance(input_artifact, ImageUrlArtifact):
-            msg = f"{self.name} - Input must be an ImageUrlArtifact, got {type(input_artifact).__name__}"
+        if not self._extract_image_path(input_artifact):
+            msg = f"{self.name} - Input image could not be resolved to a valid path"
             exceptions.append(Exception(msg))
 
         return exceptions

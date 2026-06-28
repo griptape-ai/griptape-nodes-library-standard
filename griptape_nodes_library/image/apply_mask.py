@@ -25,9 +25,6 @@ class ApplyMask(DataNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="apply_mask.png")
-        self._output_file.add_parameter()
-
         self.add_parameter(
             ParameterImage(
                 name="input_image",
@@ -71,6 +68,9 @@ class ApplyMask(DataNode):
                 allowed_modes={ParameterMode.OUTPUT},
             )
         )
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="apply_mask.png")
+        self._output_file.add_parameter()
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = []

@@ -18,6 +18,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.ffmpeg_utils import get_ffmpeg_path
 
@@ -84,7 +85,8 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
                 input_types=["AudioArtifact", "AudioUrlArtifact", "str"],
                 type="AudioArtifact",
                 tooltip="Input audio for video generation (required). Accepts AudioArtifact, AudioUrlArtifact, URL, or Base64.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Input Audio"},
             )
         )
@@ -95,7 +97,8 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
                 input_types=["ImageArtifact", "ImageUrlArtifact", "str"],
                 type="ImageArtifact",
                 tooltip="Input image for video generation (optional). Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Input Image"},
             )
         )
@@ -126,15 +129,6 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
         )
 
         # OUTPUTS
-        self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Griptape Cloud generation id",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide=True,
-            )
-        )
-
         self.add_parameter(
             Parameter(
                 name="provider_response",
@@ -200,7 +194,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
         if not audio_input:
             return None
 
-        audio_url = self._coerce_audio_url_or_data_uri(audio_input)
+        audio_url = coerce_media_url_or_data_uri(audio_input, kind="audio")
         if not audio_url:
             return None
 
@@ -391,78 +385,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
 
     async def _prepare_image_data_url_async(self, image_input: Any) -> str | None:
         """Convert image input to a base64 data URL."""
-        if not image_input:
-            return None
-
-        image_url = self._coerce_image_url_or_data_uri(image_input)
-        if not image_url:
-            return None
-
-        # Already a data URI — return as-is
-        if image_url.startswith("data:image/"):
-            return image_url
-
-        try:
-            return await File(image_url).aread_data_uri(fallback_mime="image/jpeg")
-        except FileLoadError as e:
-            logger.debug("%s failed to load image from %s: %s", self.name, image_url, e)
-            return None
-
-    @staticmethod
-    def _coerce_audio_url_or_data_uri(val: Any) -> str | None:
-        """Convert various audio input types to a URL or data URI string."""
-        if val is None:
-            return None
-
-        # String handling
-        if isinstance(val, str):
-            v = val.strip()
-            if not v:
-                return None
-            return v if v.startswith(("http://", "https://", "data:audio/")) else f"data:audio/mpeg;base64,{v}"
-
-        # Artifact-like objects
-        try:
-            # AudioUrlArtifact: .value holds URL string
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.startswith(("http://", "https://", "data:audio/")):
-                return v
-            # AudioArtifact: .base64 holds raw or data-URI
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:audio/") else f"data:audio/mpeg;base64,{b64}"
-        except AttributeError:
-            pass
-
-        return None
-
-    @staticmethod
-    def _coerce_image_url_or_data_uri(val: Any) -> str | None:
-        """Convert various image input types to a URL or data URI string."""
-        if val is None:
-            return None
-
-        # String handling
-        if isinstance(val, str):
-            v = val.strip()
-            if not v:
-                return None
-            return v if v.startswith(("http://", "https://", "data:image/")) else f"data:image/png;base64,{v}"
-
-        # Artifact-like objects
-        try:
-            # ImageUrlArtifact: .value holds URL string
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.startswith(("http://", "https://", "data:image/")):
-                return v
-            # ImageArtifact: .base64 holds raw or data-URI
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:image/") else f"data:image/png;base64,{b64}"
-        except AttributeError:
-            pass
-
-        return None
+        return await prepare_media_data_uri(image_input, kind="image", node_name=self.name, fallback_mime="image/jpeg")
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for LTX API."""

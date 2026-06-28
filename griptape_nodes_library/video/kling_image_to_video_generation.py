@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import base64
 import json
 import logging
+import re
 from contextlib import suppress
 from decimal import Decimal, InvalidOperation
 from typing import Any, ClassVar
 
+from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
@@ -20,7 +21,9 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.widget import Widget
+from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
+from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -32,6 +35,12 @@ MAX_PROMPT_LENGTH = 2500
 DEFAULT_DURATION_5S = 5
 MAX_MULTI_PROMPT_COUNT = 6
 V3_MODEL_ID = "kling-v3"
+MODE_STD = "std"
+MODE_PRO = "pro"
+MODE_4K = "4k"
+BASE_MODE_CHOICES = [MODE_STD, MODE_PRO]
+V3_MODE_CHOICES = [MODE_STD, MODE_PRO, MODE_4K]
+DEFAULT_MODE = MODE_PRO
 DEFAULT_MULTI_SHOTS = [{"name": "Shot1", "duration": 5, "description": ""}]
 
 
@@ -71,60 +80,70 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         "Kling v2.1 Master": "kling-v2-1-master",
         "Kling v2.1": "kling-v2-1",
         "Kling v2 Master": "kling-v2-master",
+        "Kling v1.6": "kling-v1-6",
         "Kling v1.5": "kling-v1-5",
         "Kling v1": "kling-v1",
     }
 
     # Model capability definitions
+    # modes: [] means no mode selection (model has a single fixed quality tier)
     MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
         "kling-v3": {
-            "modes": ["std", "pro"],
-            "durations": [5, 10],
+            "modes": V3_MODE_CHOICES,
+            "durations": list(range(3, 16)),
             "supports_sound": False,
-            "supports_tail_frame": False,
+            "supports_tail_frame": True,
             "supports_multi_shot": True,
         },
         "kling-v1": {
-            "modes": ["std", "pro"],
-            "durations": [5],
-            "supports_sound": False,
-            "supports_tail_frame": False,
-        },
-        "kling-v1-5": {
-            "modes": ["pro"],
+            "modes": BASE_MODE_CHOICES,
             "durations": [5, 10],
             "supports_sound": False,
-            "supports_tail_frame": False,
+            "supports_tail_frame": True,
+            # tail frame only works at 5s — enforced in validation
+            "tail_frame_durations": [5],
+        },
+        "kling-v1-5": {
+            "modes": BASE_MODE_CHOICES,
+            "durations": [5, 10],
+            "supports_sound": False,
+            "supports_tail_frame": True,  # pro mode only — enforced by existing pro-mode validation
+        },
+        "kling-v1-6": {
+            "modes": BASE_MODE_CHOICES,
+            "durations": [5, 10],
+            "supports_sound": False,
+            "supports_tail_frame": True,  # pro mode only
         },
         "kling-v2-master": {
-            "modes": ["std", "pro"],
+            "modes": [],
             "durations": [5, 10],
             "supports_sound": False,
             "supports_tail_frame": False,
         },
         "kling-v2-1": {
-            "modes": ["std", "pro"],
+            "modes": BASE_MODE_CHOICES,
             "durations": [5, 10],
             "supports_sound": False,
-            "supports_tail_frame": True,  # Only with pro mode
+            "supports_tail_frame": True,  # pro mode only
         },
         "kling-v2-1-master": {
-            "modes": ["std", "pro"],
+            "modes": [],
             "durations": [5, 10],
             "supports_sound": False,
             "supports_tail_frame": False,
         },
         "kling-v2-5-turbo": {
-            "modes": ["pro"],
+            "modes": BASE_MODE_CHOICES,
             "durations": [5, 10],
             "supports_sound": False,
-            "supports_tail_frame": True,  # Only with pro mode
+            "supports_tail_frame": True,  # pro mode only
         },
         "kling-v2-6": {
-            "modes": ["pro"],
+            "modes": BASE_MODE_CHOICES,
             "durations": [5, 10],
             "supports_sound": True,
-            "supports_tail_frame": False,
+            "supports_tail_frame": True,  # pro mode only, no audio
         },
     }
 
@@ -147,6 +166,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                             "Kling v2.1 Master",
                             "Kling v2.1",
                             "Kling v2 Master",
+                            "Kling v1.6",
                             "Kling v1.5",
                             "Kling v1",
                         ]
@@ -242,16 +262,20 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterImage(
                 name="image",
+                default_value=None,
                 tooltip="Start frame image (required). Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Start Frame"},
             )
         )
         self.add_parameter(
             ParameterImage(
                 name="image_tail",
-                tooltip="End frame image (optional). Supported on kling-v2-1 and kling-v2-5-turbo with pro mode.",
+                default_value=None,
+                tooltip="End frame image (optional). Requires pro mode. See model capabilities for per-model support.",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "End Frame"},
             )
         )
@@ -266,17 +290,17 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             )
             ParameterString(
                 name="mode",
-                default_value="pro",
-                tooltip="Video generation mode (std: Standard, pro: Professional)",
+                default_value=DEFAULT_MODE,
+                tooltip="Video generation mode. Supported modes vary by model; Kling v3.0 also supports 4k.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["std", "pro"])},
+                traits={Options(choices=V3_MODE_CHOICES)},
             )
             ParameterInt(
                 name="duration",
                 default_value=5,
-                tooltip="Video length in seconds",
+                tooltip="Video length in seconds. Range varies by model.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=[5, 10])},
+                traits={Options(choices=list(range(3, 16)))},
             )
             ParameterString(
                 name="sound",
@@ -295,6 +319,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 default_value=None,
                 tooltip="Static brush application area. Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
             )
             ParameterString(
                 name="dynamic_masks",
@@ -307,15 +332,6 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         self.add_node_element(masks_group)
 
         # OUTPUTS
-        self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Griptape Cloud generation id",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide=True,
-            )
-        )
-
         self.add_parameter(
             ParameterDict(
                 name="provider_response",
@@ -363,6 +379,8 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         self._update_parameter_visibility_for_model(self.get_parameter_value("model_name") or "Kling v3.0")
         self._update_multi_shot_parameter_visibility()
 
+        self.set_initial_node_size(height=1145)
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to show/hide dependent parameters."""
         super().after_value_set(parameter, value)
@@ -370,19 +388,38 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         if parameter.name == "model_name":
             self._update_parameter_visibility_for_model(value)
             self._update_multi_shot_parameter_visibility()
+            self._update_duration_choices()
+        elif parameter.name == "image_tail":
+            self._update_duration_choices()
         elif parameter.name in {"multi_shot", "shot_type", "shot_count"}:
             self._update_multi_shot_parameter_visibility()
+        elif parameter.name == "mode":
+            self._update_mode_dependent_features()
+
+    def _update_duration_choices(self) -> None:
+        """Update duration dropdown based on current model and image_tail state."""
+        model_name = self.get_parameter_value("model_name") or "Kling v3.0"
+        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
+        new_durations = list(capabilities.get("durations", [5, 10]))
+        # kling-v1: end frame restricts to 5s only
+        if self.get_parameter_value("image_tail") and capabilities.get("tail_frame_durations"):
+            new_durations = list(capabilities["tail_frame_durations"])
+        current_duration = self.get_parameter_value("duration")
+        if current_duration in new_durations:
+            self._update_option_choices("duration", new_durations, current_duration)  # type: ignore[arg-type]
+        else:
+            self._update_option_choices("duration", new_durations, new_durations[0])  # type: ignore[arg-type]
 
     def _update_parameter_visibility_for_model(self, model_name: str) -> None:
         """Update parameter visibility based on selected model."""
-        # Map user-facing name to model ID
         model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
 
         # Show mask features for all models
         self.show_parameter_by_name(["static_mask", "dynamic_masks"])
 
         # Show/hide image_tail (end frame) based on model support
-        capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
         if capabilities.get("supports_tail_frame", False):
             self.show_parameter_by_name("image_tail")
         else:
@@ -398,31 +435,46 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
     def _apply_generation_settings_visibility(self, model_id: str) -> None:
         """Apply mode/duration/sound visibility for selected model."""
-        if model_id == "kling-v1":
-            self.show_parameter_by_name("mode")
-            self.hide_parameter_by_name(["duration", "sound"])
-            if self.get_parameter_value("duration") != DEFAULT_DURATION_5S:
-                self.set_parameter_value("duration", DEFAULT_DURATION_5S)
-            return
+        capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
+        modes = capabilities.get("modes", BASE_MODE_CHOICES)
 
-        if model_id in {"kling-v1-5", "kling-v2-5-turbo"}:
-            self.hide_parameter_by_name(["mode", "sound"])
-            self.show_parameter_by_name("duration")
-            if self.get_parameter_value("mode") != "pro":
-                self.set_parameter_value("mode", "pro")
-            return
+        self.show_parameter_by_name("duration")
 
-        if model_id == "kling-v2-6":
+        if not modes:
+            # No mode selection for this model — hide selector, keep value as pro
             self.hide_parameter_by_name("mode")
-            self.show_parameter_by_name(["duration", "sound"])
-            if self.get_parameter_value("mode") != "pro":
-                self.set_parameter_value("mode", "pro")
-            if self.get_parameter_value("duration") not in [5, 10]:
-                self.set_parameter_value("duration", 5)
-            return
+            if self.get_parameter_value("mode") != MODE_PRO:
+                self.set_parameter_value("mode", MODE_PRO)
+        else:
+            self.show_parameter_by_name("mode")
+            self._update_mode_choices(modes)
 
-        self.show_parameter_by_name(["mode", "duration"])
-        self.hide_parameter_by_name("sound")
+        if capabilities.get("supports_sound", False):
+            self._update_mode_dependent_features()
+        else:
+            self.hide_parameter_by_name("sound")
+
+    def _update_mode_choices(self, supported_modes: list[str]) -> None:
+        """Keep the mode dropdown aligned with the selected model."""
+        current_mode = self.get_parameter_value("mode")
+        next_mode = current_mode if current_mode in supported_modes else DEFAULT_MODE
+        if next_mode not in supported_modes:
+            next_mode = supported_modes[0]
+
+        self._update_option_choices("mode", supported_modes, next_mode)
+
+    def _update_mode_dependent_features(self) -> None:
+        """Show/hide features that depend on the current mode (e.g. sound for kling-v2-6)."""
+        model_name = self.get_parameter_value("model_name") or ""
+        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        if model_id == "kling-v2-6":
+            mode = self.get_parameter_value("mode") or MODE_PRO
+            if mode == MODE_PRO:
+                self.show_parameter_by_name("sound")
+            else:
+                self.hide_parameter_by_name("sound")
+                if self.get_parameter_value("sound") != "off":
+                    self.set_parameter_value("sound", "off")
 
     def _hide_multi_shot_inputs(self) -> None:
         """Hide multi-shot-specific UI inputs."""
@@ -493,6 +545,42 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
     async def aprocess(self) -> None:
         await super().aprocess()
 
+    def _elide_base64_in_payload(self, payload: dict[str, Any]) -> str:
+        """Override base implementation to handle raw base64 strings (not just data URIs).
+
+        Kling API expects raw base64 strings without the data URI prefix, so we need
+        custom logic to detect and elide them in logs.
+        """
+        # Field names that are known to contain image data
+        IMAGE_FIELDS = {"image", "image_tail", "static_mask"}
+
+        def elide_value(obj: Any, key: str | None = None) -> Any:
+            if isinstance(obj, str):
+                # Check for raw base64 strings in known image fields FIRST
+                # Raw base64 strings are very long and only contain base64 chars
+                if key in IMAGE_FIELDS and len(obj) > 1000:
+                    logger.debug(f"Eliding large string in field '{key}' with length {len(obj)}")
+                    return f"[base64 string, {len(obj)} chars]"
+
+                # Check for data URIs (base class handles these but include for completeness)
+                match = re.match(r"^(data:[^;]+;base64,)(.+)$", obj)
+                if match:
+                    prefix, b64_data = match.groups()
+                    return f"{prefix}[{len(b64_data)} chars]"
+
+                return obj
+            elif isinstance(obj, dict):
+                return {k: elide_value(v, k) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [elide_value(item, key) for item in obj]
+            return obj
+
+        logger.debug(f"_elide_base64_in_payload called, payload keys: {list(payload.keys())}")
+        elided = elide_value(payload)
+        result = json.dumps(elided, indent=2)
+        logger.debug(f"_elide_base64_in_payload result length: {len(result)}")
+        return result
+
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
 
@@ -510,15 +598,33 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         """
         model_name = self.get_parameter_value("model_name") or "Kling v2.6"
         model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
-        image = await self._prepare_image_data_url_async(self.get_parameter_value("image"))
-        image_tail = await self._prepare_image_data_url_async(self.get_parameter_value("image_tail"))
+
+        # Normalize image parameters before processing
+        image_input = normalize_artifact_input(
+            self.get_parameter_value("image"),
+            ImageUrlArtifact,
+            accepted_types=(ImageArtifact,),
+        )
+        image_tail_input = normalize_artifact_input(
+            self.get_parameter_value("image_tail"),
+            ImageUrlArtifact,
+            accepted_types=(ImageArtifact,),
+        )
+        static_mask_input = normalize_artifact_input(
+            self.get_parameter_value("static_mask"),
+            ImageUrlArtifact,
+            accepted_types=(ImageArtifact,),
+        )
+
+        image = await self._prepare_image_data_url_async(image_input)
+        image_tail = await self._prepare_image_data_url_async(image_tail_input)
         prompt = self.get_parameter_value("prompt") or ""
         negative_prompt = self.get_parameter_value("negative_prompt") or ""
         cfg_scale = self.get_parameter_value("cfg_scale") or 0.5
-        mode = self.get_parameter_value("mode") or "pro"
+        mode = self.get_parameter_value("mode") or DEFAULT_MODE
         duration = self.get_parameter_value("duration") or 5
         sound = self.get_parameter_value("sound") or "off"
-        static_mask = await self._prepare_image_data_url_async(self.get_parameter_value("static_mask"))
+        static_mask = await self._prepare_image_data_url_async(static_mask_input)
         dynamic_masks = self.get_parameter_value("dynamic_masks") or ""
 
         payload: dict[str, Any] = {
@@ -752,21 +858,30 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         if not image_input:
             return None
 
-        image_url = self._coerce_image_url_or_data_uri(image_input)
+        image_url = coerce_media_url_or_data_uri(image_input, kind="image")
         if not image_url:
             return None
 
-        # If it's already a data URL, return it
+        # If it's already a data URL, strip the prefix (Kling wants raw base64)
         if image_url.startswith("data:image/"):
+            if ";base64," in image_url:
+                base64_data = image_url.split(";base64,", 1)[1]
+                return base64_data
             return image_url
 
         try:
-            image_bytes = await File(image_url).aread_bytes()
+            data_uri = await File(image_url).aread_data_uri(fallback_mime="image/png")
+
+            # Kling API expects raw base64 string, not data URI with prefix
+            # Strip "data:image/xxx;base64," prefix if present
+            if data_uri and ";base64," in data_uri:
+                base64_data = data_uri.split(";base64,", 1)[1]
+                return base64_data
+
+            return data_uri
         except FileLoadError as e:
             logger.debug("%s failed to load image from %s: %s", self.name, image_url, e)
             return None
-
-        return base64.b64encode(image_bytes).decode("utf-8")
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         """Parse the result and set output parameters.
@@ -896,13 +1011,14 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
         # Validate model-specific constraints
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
+        model_modes = capabilities.get("modes", BASE_MODE_CHOICES)
 
-        if mode not in capabilities.get("modes", ["std", "pro"]):
-            valid_modes = capabilities.get("modes", [])
+        # Skip mode validation for no-mode models (modes: []) — mode is always pro internally
+        if model_modes and mode not in model_modes:
             exceptions.append(
                 ValueError(
                     f"{self.name}: Model {model_name} does not support mode '{mode}'. "
-                    f"Valid modes: {', '.join(valid_modes)}"
+                    f"Valid modes: {', '.join(model_modes)}"
                 )
             )
 
@@ -921,14 +1037,21 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             supports_tail = capabilities.get("supports_tail_frame", False)
             if not supports_tail:
                 exceptions.append(
-                    ValueError(
-                        f"{self.name}: Model {model_name} does not support end frame (image_tail). "
-                        f"Only Kling v2.1 and Kling v2.5 Turbo with pro mode support end frames."
-                    )
+                    ValueError(f"{self.name}: Model {model_name} does not support end frame (image_tail).")
                 )
 
             if supports_tail and mode != "pro":
                 exceptions.append(ValueError(f"{self.name}: End frame (image_tail) requires pro mode."))
+
+            # kling-v1 tail frame only works at 5s
+            tail_frame_durations = capabilities.get("tail_frame_durations")
+            if supports_tail and tail_frame_durations and duration not in tail_frame_durations:
+                exceptions.append(
+                    ValueError(
+                        f"{self.name}: {model_name} end frame only supports "
+                        f"{tail_frame_durations}s duration (got {duration}s)."
+                    )
+                )
 
         # Validate dynamic_masks JSON if provided
         if dynamic_masks:
@@ -938,31 +1061,3 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 exceptions.append(ValueError(f"{self.name} dynamic_masks is not valid JSON: {e}"))
 
         return exceptions if exceptions else None
-
-    @staticmethod
-    def _coerce_image_url_or_data_uri(val: Any) -> str | None:
-        """Convert various image input types to a URL or data URI string."""
-        if val is None:
-            return None
-
-        # String handling
-        if isinstance(val, str):
-            v = val.strip()
-            if not v:
-                return None
-            return v if v.startswith(("http://", "https://", "data:image/")) else f"data:image/png;base64,{v}"
-
-        # Artifact-like objects
-        try:
-            # ImageUrlArtifact: .value holds URL string
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.startswith(("http://", "https://", "data:image/")):
-                return v
-            # ImageArtifact: .base64 holds raw or data-URI
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:image/") else f"data:image/png;base64,{b64}"
-        except AttributeError:
-            pass
-
-        return None

@@ -41,13 +41,6 @@ class ImagesToPdf(ControlNode):
         )
         self.add_parameter(self.images)
 
-        self._output_file = ProjectFileParameter(
-            node=self,
-            name="output_file",
-            default_filename="output.pdf",
-        )
-        self._output_file.add_parameter()
-
         # Output parameter showing final path
         self.output = Parameter(
             name="output",
@@ -57,6 +50,13 @@ class ImagesToPdf(ControlNode):
             allowed_modes={ParameterMode.OUTPUT},
         )
         self.add_parameter(self.output)
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="output.pdf",
+        )
+        self._output_file.add_parameter()
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Normalize image inputs when the list is set."""

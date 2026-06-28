@@ -2,28 +2,37 @@
 
 We welcome contributions to the Griptape Nodes Core Library! This library provides nodes organized by category including agents, audio, image processing, text manipulation, and more.
 
-## Development Location
-
-**IMPORTANT**: For now, all development for this library happens in the main [griptape-nodes](https://github.com/griptape-ai/griptape-nodes) repository under the `libraries/griptape_nodes_library/` directory.
-
-This library is automatically synced to the public [griptape-nodes-library-standard](https://github.com/griptape-ai/griptape-nodes-library-standard) repository when changes are pushed to the `main` branch.
-
 ## Development Setup
 
-Please refer to the [main CONTRIBUTING.md](https://github.com/griptape-ai/griptape-nodes/blob/main/CONTRIBUTING.md) in the griptape-nodes repository for:
+1. **Clone the Repository:**
 
-- Installing `uv` and setting up your development environment
-- Installing dependencies with `uv sync --all-groups --all-extras`
-- Code style guidelines (Ruff, Pyright)
-- Running checks with `make check` and `make fix`
-- General contribution workflow
+    ```shell
+    git clone https://github.com/griptape-ai/griptape-nodes-library-standard.git
+    cd griptape-nodes-library-standard
+    ```
+
+1. **Install `uv`:**
+    If you don't have `uv` installed, follow the official instructions: [Astral's uv Installation Guide](https://docs.astral.sh/uv/getting-started/installation/).
+
+1. **Install Dependencies:**
+    Use `uv` to create a virtual environment and install all required dependencies:
+
+    ```shell
+    uv sync --all-groups --all-extras
+    ```
+
+    Or use the Makefile shortcut:
+
+    ```shell
+    make install
+    ```
 
 ## Contributing Code
 
 1. **Find the library code** - All nodes for this library are located in:
 
     ```
-    libraries/griptape_nodes_library/griptape_nodes_library/
+    griptape_nodes_library/
     ```
 
     Nodes are organized by category:
@@ -33,15 +42,21 @@ Please refer to the [main CONTRIBUTING.md](https://github.com/griptape-ai/gripta
     - `image/` - Image manipulation nodes
     - `text/` - Text processing nodes
     - `video/` - Video processing nodes
-    - And 17 more categories...
+    - And more (see the directory for the full list).
 
 1. **Make your changes** - Follow the existing code structure and style in the library.
 
 1. **Run tests** - Test the library to ensure your changes work:
 
     ```shell
-    # From the repository root
-    uv run pytest libraries/griptape_nodes_library/tests/
+    make test
+    ```
+
+    Or run a specific test suite:
+
+    ```shell
+    make test/unit
+    make test/workflows
     ```
 
 1. **Follow code quality standards** - Run checks before submitting:
@@ -51,64 +66,44 @@ Please refer to the [main CONTRIBUTING.md](https://github.com/griptape-ai/gripta
     make fix    # Auto-fix issues where possible
     ```
 
-1. **Submit a pull request** - Open a PR against the `main` branch of the [griptape-nodes](https://github.com/griptape-ai/griptape-nodes) repository.
-
-## Syncing to Public Repository
-
-When changes are merged to the `main` branch in the griptape-nodes repository, they automatically sync to the public [griptape-nodes-library-standard](https://github.com/griptape-ai/griptape-nodes-library-standard) repository via GitHub Actions.
-
-You don't need to do anything special for this sync to happen - it's automatic.
+1. **Submit a pull request** - Open a PR against the `main` branch of this repository.
 
 ## Making a Release (Maintainers)
 
-Releases involve two steps: updating the version in the main repository, then publishing from the synced library repository.
+The library version is stored in `griptape_nodes_library.json` under the `metadata.library_version` field. Releases involve bumping the version and publishing tags.
 
-### Step 1: Update Version (in main griptape-nodes repo)
+### Step 1: Bump the Version
 
-1. Navigate to the library directory:
+You can bump the version locally with the Makefile or via a GitHub Actions workflow.
 
-    ```shell
-    cd libraries/griptape_nodes_library
-    ```
+**Locally:**
 
-1. Edit `griptape_nodes_library.json` and update the version in the metadata section:
+```shell
+make version/patch   # Bump patch (e.g. 0.52.3 -> 0.52.4)
+make version/minor   # Bump minor (e.g. 0.52.4 -> 0.53.0)
+make version/major   # Bump major (e.g. 0.53.0 -> 1.0.0)
+```
 
-    ```json
-    {
-      "metadata": {
-        "library_version": "0.52.4"
-      }
-    }
-    ```
+These targets update `griptape_nodes_library.json`, commit the change, and you can then `git push`.
 
-1. Commit and push:
+**Via GitHub Actions:** Trigger the `Version Bump (Patch)` or `Version Bump (Minor)` workflow manually from the Actions tab.
 
-    ```shell
-    git add griptape_nodes_library.json
-    git commit -m "chore: bump griptape_nodes_library to v0.52.4"
-    git push origin main
-    ```
+### Step 2: Publish the Release
 
-    This automatically syncs the changes to the public library repository.
+After the version bump is on `main`:
 
-### Step 2: Publish Release (in public library repo)
+1. Go to the [Actions](https://github.com/griptape-ai/griptape-nodes-library-standard/actions) tab.
+1. Run the **Publish Version** workflow manually. It will:
+    - Create the version tag (e.g. `v0.52.4`)
+    - Update the `stable` tag
+    - Create a GitHub release with auto-generated notes
 
-After the sync completes:
+### Nightly Releases
 
-1. Go to the [griptape-nodes-library-standard](https://github.com/griptape-ai/griptape-nodes-library-standard) repository on GitHub
-1. Navigate to Actions → "Publish Version"
-1. Run the workflow manually to:
-    - Create version tag (e.g., `v0.52.4`)
-    - Update `stable` tag
-    - Create GitHub release with auto-generated notes
-
-The library also has automated workflows:
-
-- `version-bump-patch.yml` / `version-bump-minor.yml` - Can bump versions (but currently versions are managed in main repo)
-- `nightly-release.yml` - Creates nightly prerelease builds automatically
+The `nightly-release.yml` workflow runs daily at 02:00 UTC and updates the `nightly` tag and prerelease automatically.
 
 ## Questions or Issues?
 
-For questions about contributing, please open an issue in the [griptape-nodes](https://github.com/griptape-ai/griptape-nodes) repository.
+For questions about contributing, please [open an issue](https://github.com/griptape-ai/griptape-nodes-library-standard/issues) in this repository.
 
 Thank you for contributing!

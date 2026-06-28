@@ -109,13 +109,11 @@ class FluxImageGeneration(GriptapeProxyNode):
 
         # Optional input image for image-to-image generation
         self.add_parameter(
-            Parameter(
+            ParameterImage(
                 name="input_image",
-                input_types=["ImageArtifact", "ImageUrlArtifact", "str"],
-                type="ImageArtifact",
-                default_value=None,
                 tooltip="Optional input image for image-to-image generation (supports up to 20MB or 20 megapixels)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                hide_property=True,
                 ui_options={"display_name": "Input Image"},
             )
         )
@@ -162,18 +160,6 @@ class FluxImageGeneration(GriptapeProxyNode):
 
         # OUTPUTS
         self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Generation ID from the API",
-                allow_input=False,
-                allow_property=False,
-                allow_output=True,
-                hide_property=True,
-                hide=True,
-            )
-        )
-
-        self.add_parameter(
             ParameterDict(
                 name="provider_response",
                 tooltip="Verbatim response from the API",
@@ -206,6 +192,7 @@ class FluxImageGeneration(GriptapeProxyNode):
             result_details_placeholder="Generation status and details will appear here.",
             parameter_group_initially_collapsed=True,
         )
+        self.set_initial_node_size(height=826)
 
     def _log(self, message: str) -> None:
         with suppress(Exception):

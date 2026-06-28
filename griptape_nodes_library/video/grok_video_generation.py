@@ -91,6 +91,7 @@ class GrokVideoGeneration(GriptapeProxyNode):
                 default_value="",
                 tooltip="Optional first frame image",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Input Image"},
             )
         )
@@ -128,16 +129,6 @@ class GrokVideoGeneration(GriptapeProxyNode):
         )
 
         # OUTPUTS
-        self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Generation ID from the API",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide_property=True,
-                hide=True,
-            )
-        )
-
         self.add_parameter(
             ParameterDict(
                 name="provider_response",
@@ -220,6 +211,11 @@ class GrokVideoGeneration(GriptapeProxyNode):
     def _get_payload_model_id(self) -> str:
         model_name = self.get_parameter_value("model") or "Grok Imagine Video"
         return self.MODEL_NAME_MAP.get(model_name, model_name)
+
+    def _get_catalog_model_id(self) -> str:
+        # The catalog declares the bare provider id (no `:generate` suffix), so
+        # resolve the declaration against the un-suffixed id.
+        return self._get_payload_model_id()
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []

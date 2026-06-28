@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, cast
 
 from griptape.artifacts import ImageUrlArtifact, ModelArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
@@ -17,6 +17,13 @@ from griptape_nodes.traits.options import Options
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
+from griptape_nodes_library.utils.agent_utils import (
+    build_rulesets_from_configs,
+    build_tools,
+    restore_provider_driver,
+    unwrap_agent,
+    wrap_agent,
+)
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
 
@@ -25,14 +32,20 @@ API_KEY_URL = "https://cloud.griptape.ai/configuration/api-keys"
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 MODEL_CHOICES = [
     "gpt-5.2",
+    "gpt-5.1",
+    "gpt-5",
+    "gpt-5-mini",
     "gpt-4.1",
     "gpt-4.1-mini",
     "gpt-4.1-nano",
-    "gpt-5",
-    "o1",
-    "o1-mini",
-    "o3-mini",
-    "gemini-3-pro",
+    "gpt-4o",
+    "o4-mini",
+    "o3",
+    "claude-opus-4-7",
+    "claude-sonnet-4-6",
+    "claude-4-5-sonnet",
+    "gemini-3.1-pro",
+    "gemini-2.5-pro",
 ]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 
@@ -334,12 +347,23 @@ class DescribeImage(ControlNode):
         # If a prompt_driver is provided, we'll use that
         # If neither are provided, we'll create a new one with the selected model.
         # Otherwise, we'll just use the default model
-        agent = self.get_parameter_value("agent")
-        if isinstance(agent, dict):
-            agent = GtAgent().from_dict(agent)
-            # make sure the agent is using a PromptTask
+        tool_configs: list = []
+        ruleset_configs: list = []
+        agent_value = self.get_parameter_value("agent")
+        if isinstance(agent_value, dict):
+            agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_value)
+            agent = GtAgent().from_dict(agent_core_dict)
+            restore_provider_driver(agent, agent_value)
+            # Rebuild tools and rulesets from configs so they're fresh for this run.
+            if tool_configs:
+                live_tools, _ = build_tools(tool_configs)
+                if live_tools and agent.tasks:
+                    cast(PromptTask, agent.tasks[0]).tools = live_tools
+            if ruleset_configs:
+                agent._rulesets = build_rulesets_from_configs(ruleset_configs)
+            # make sure the agent is using a PromptTask — replace rather than add to avoid two tasks
             if not isinstance(agent.tasks[0], PromptTask):
-                agent.add_task(PromptTask(prompt_driver=default_prompt_driver, output_schema=pydantic_schema))
+                agent.tasks[0] = PromptTask(prompt_driver=default_prompt_driver, output_schema=pydantic_schema)
             else:
                 agent.tasks[0].output_schema = pydantic_schema
         elif isinstance(model_input, BasePromptDriver):
@@ -391,5 +415,12 @@ class DescribeImage(ControlNode):
         agent.insert_false_memory(prompt=prompt, output=str(memory_output))
         try_throw_error(agent.output)
 
-        # Set the output value for the agent
-        self.parameter_output_values["agent"] = agent.to_dict()
+        # Clear live tools before serializing, then wrap with configs for downstream nodes.
+        if agent.tasks:
+            cast(PromptTask, agent.tasks[0]).tools = []
+        self.parameter_output_values["agent"] = wrap_agent(
+            agent.to_dict(),
+            tool_configs,
+            ruleset_configs,
+            provider=agent_value.get("provider") if isinstance(agent_value, dict) else None,
+        )

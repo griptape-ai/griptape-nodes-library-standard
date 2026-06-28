@@ -46,11 +46,11 @@ class GoogleImageGeneration(GriptapeProxyNode):
     API_KEY_NAME = "GT_CLOUD_API_KEY"
     DEFAULT_MODEL: ClassVar[str] = "Nano Banana Pro"
     SUPPORTED_MODELS_TO_API_MODELS: ClassVar[dict[str, str]] = {
-        "Nano Banana Pro": "gemini-3-pro-image-preview",
-        "Nano Banana 2": "gemini-3.1-flash-image-preview",
+        "Nano Banana Pro": "gemini-3-pro-image",
+        "Nano Banana 2": "gemini-3.1-flash-image",
     }
     DEPRECATED_MODELS_TO_API_MODELS: ClassVar[dict[str, str]] = {
-        "nano-banana-3-pro": "gemini-3-pro-image-preview",
+        "nano-banana-3-pro": "gemini-3-pro-image",
     }
     ALL_MODELS_TO_API_MODELS: ClassVar[dict[str, str]] = {
         **SUPPORTED_MODELS_TO_API_MODELS,
@@ -123,7 +123,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
                 default_value=[],
                 tooltip="Optional reference images for the generation",
                 allowed_modes={ParameterMode.INPUT},
-                ui_options={"display_name": "Input Images", "expander": True},
+                ui_options={"display_name": "Input Images", "expander": True, "hide_property": True},
                 max_items=MAX_INPUT_IMAGES,
             )
         )
@@ -225,15 +225,6 @@ class GoogleImageGeneration(GriptapeProxyNode):
         self.add_node_element(generation_settings_group)
         # OUTPUTS
         self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Griptape Cloud generation ID",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide=True,
-            )
-        )
-
-        self.add_parameter(
             ParameterDict(
                 name="provider_response",
                 tooltip="Verbatim response from API (final result)",
@@ -281,7 +272,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
         self._output_file = ProjectFileParameter(
             node=self,
             name="output_file",
-            default_filename="google_image.png",
+            default_filename="google_image.jpeg",
         )
         self._output_file.add_parameter()
 

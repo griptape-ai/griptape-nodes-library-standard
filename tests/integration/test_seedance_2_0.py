@@ -1,14 +1,17 @@
 # /// script
 # dependencies = []
 # [tool.griptape-nodes]
-# name = "test_seedance_video_generation"
+# name = "test_seedance_2_0"
 # schema_version = "0.16.0"
 # engine_version_created_with = "0.77.3"
 # node_libraries_referenced = [["Griptape Nodes Library", "0.67.0"], ["Griptape Nodes Testing Library", "0.1.0"]]
-# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "SeedanceVideoGeneration"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
+# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "Seedance20VideoGeneration"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
+# is_internal = true
 # ///
+"""Integration test for Seedance 2.0 model."""
+
 import argparse
 import asyncio
 import json
@@ -25,7 +28,7 @@ from griptape_nodes.retained_mode.events.flow_events import (
 )
 from griptape_nodes.retained_mode.events.library_events import RegisterLibraryFromFileRequest
 from griptape_nodes.retained_mode.events.node_events import CreateNodeRequest
-from griptape_nodes.retained_mode.events.parameter_events import AddParameterToNodeRequest
+from griptape_nodes.retained_mode.events.parameter_events import AddParameterToNodeRequest, SetParameterValueRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 GriptapeNodes.handle_request(
@@ -37,17 +40,16 @@ if not context_manager.has_current_workflow():
     context_manager.push_workflow(file_path=__file__)
 
 flow_name = GriptapeNodes.handle_request(
-    CreateFlowRequest(parent_flow_name=None, flow_name="ControlFlow_1", set_as_new_context=False, metadata={})
+    CreateFlowRequest(parent_flow_name=None, flow_name="main", set_as_new_context=False, metadata={})
 ).flow_name
 
 with GriptapeNodes.ContextManager().flow(flow_name):
     gen_node = GriptapeNodes.handle_request(
         CreateNodeRequest(
-            node_type="SeedanceVideoGeneration",
+            node_type="Seedance20VideoGeneration",
             specific_library_name="Griptape Nodes Library",
-            node_name="SeedanceVideoGeneration",
+            node_name="Seedance20VideoGeneration",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -57,7 +59,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Library",
             node_name="To Text",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -67,7 +68,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Testing Library",
             node_name="Assert File Exists",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -77,7 +77,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Library",
             node_name="Start Flow",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -101,7 +100,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Library",
             node_name="End Flow",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -119,6 +117,10 @@ with GriptapeNodes.ContextManager().flow(flow_name):
                 initial_setup=True,
             )
         )
+
+    # Set Seedance 2.0 model
+    with GriptapeNodes.ContextManager().node(gen_node):
+        GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="model_id", value="Seedance 2.0"))
 
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
@@ -204,20 +206,20 @@ async def aexecute_workflow(
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Test Seedance 2.0 model")
     parser.add_argument("--storage-backend", choices=["local", "gtc"], default="local")
     parser.add_argument("--project-file-path", default=None)
     parser.add_argument("--json-input", default=None)
     parser.add_argument("--prompt", default=None)
     args = parser.parse_args()
-    flow_input = {}
+
+    test_prompt = args.prompt or "A cat walking on a sunny beach, cinematic style"
+
     if args.json_input is not None:
         flow_input = json.loads(args.json_input)
-    if args.json_input is None:
-        if "Start Flow" not in flow_input:
-            flow_input["Start Flow"] = {}
-        if args.prompt is not None:
-            flow_input["Start Flow"]["prompt"] = args.prompt
+    else:
+        flow_input = {"Start Flow": {"prompt": test_prompt}}
+
     workflow_output = execute_workflow(
         input=flow_input, storage_backend=args.storage_backend, project_file_path=args.project_file_path
     )

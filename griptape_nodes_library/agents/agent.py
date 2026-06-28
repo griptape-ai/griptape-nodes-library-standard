@@ -7,16 +7,24 @@ for tools, rulesets, prompts, and streams output back to the user interface.
 """
 
 import json
-from typing import Any
+from typing import Any, cast  # cast used for handle_request narrowing
 
 from griptape.artifacts import BaseArtifact, ModelArtifact, TextArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
-from griptape.events import ActionChunkEvent, FinishStructureRunEvent, StartStructureRunEvent, TextChunkEvent
+from griptape.drivers.prompt.openai import OpenAiChatPromptDriver as GtOpenAiChatPromptDriver
+from griptape.events import (
+    ActionChunkEvent,
+    FinishActionsSubtaskEvent,
+    FinishStructureRunEvent,
+    StartStructureRunEvent,
+    TextChunkEvent,
+)
 from griptape.memory.structure import ConversationMemory, Run
 from griptape.structures import Structure
 from griptape.tasks import PromptTask
 from griptape_nodes.exe_types.core_types import (
+    NodeMessageResult,
     Parameter,
     ParameterGroup,
     ParameterList,
@@ -29,81 +37,44 @@ from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.events.connection_events import DeleteConnectionRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
-from griptape_nodes.traits.button import Button
+from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
+
+try:
+    from griptape_nodes.retained_mode.events.agent_events import (
+        ListAgentProvidersRequest,  # pyright: ignore[reportAttributeAccessIssue]
+        ListAgentProvidersResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
+        ListProviderModelsRequest,  # pyright: ignore[reportAttributeAccessIssue]
+        ListProviderModelsResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
+        ProviderConfig,  # pyright: ignore[reportAttributeAccessIssue]
+    )
+
+    _AGENT_PROVIDERS_AVAILABLE = True
+    _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
+except ImportError:
+    _AGENT_PROVIDERS_AVAILABLE = False
 from jinja2 import Template
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
+from griptape_nodes_library.config.prompt.cloud_models import (
+    DEPRECATED_MODELS,
+    MODEL_CHOICES,
+    MODEL_CHOICES_ARGS,
+)
+from griptape_nodes_library.utils.agent_utils import (
+    build_rulesets_from_configs,
+    build_tools,
+    ruleset_to_config,
+    unwrap_agent,
+    wrap_agent,
+)
 from griptape_nodes_library.utils.error_utils import try_throw_error
 
 # --- Constants ---
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
-MODEL_CHOICES_ARGS = [
-    {
-        "name": "claude-sonnet-4-20250514",
-        "icon": "logos/anthropic.svg",
-        "args": {"stream": True, "structured_output_strategy": "tool", "max_tokens": 64000},
-    },
-    {
-        "name": "claude-3-7-sonnet",
-        "icon": "logos/anthropic.svg",
-        "args": {"stream": True, "structured_output_strategy": "tool", "max_tokens": 64000},
-    },
-    {
-        "name": "deepseek.r1-v1",
-        "icon": "logos/deepseek.svg",
-        "args": {"stream": False, "structured_output_strategy": "tool", "top_p": None},
-    },
-    {
-        "name": "gemini-2.5-flash",
-        "icon": "logos/google.svg",
-        "args": {"stream": True},
-    },
-    {
-        "name": "gemini-2.5-flash-lite",
-        "icon": "logos/google.svg",
-        "args": {"stream": True},
-    },
-    {
-        "name": "gemini-2.5-pro",
-        "icon": "logos/google.svg",
-        "args": {"stream": True},
-    },
-    {
-        "name": "gemini-3-pro",
-        "icon": "logos/google.svg",
-        "args": {"stream": True},
-    },
-    {
-        "name": "llama3-3-70b-instruct-v1",
-        "icon": "logos/meta.svg",
-        "args": {"stream": True, "structured_output_strategy": "tool"},
-    },
-    {
-        "name": "llama3-1-70b-instruct-v1",
-        "icon": "logos/meta.svg",
-        "args": {"stream": True, "structured_output_strategy": "tool"},
-    },
-    {"name": "gpt-4.1", "icon": "logos/openai.svg", "args": {"stream": True}},
-    {"name": "gpt-4o", "icon": "logos/openai.svg", "args": {"stream": True}},
-    {"name": "gpt-4.1-mini", "icon": "logos/openai.svg", "args": {"stream": True}},
-    {"name": "gpt-4.1-nano", "icon": "logos/openai.svg", "args": {"stream": True}},
-    {"name": "gpt-5", "icon": "logos/openai.svg", "args": {"stream": True}},
-    {"name": "o1", "icon": "logos/openai.svg", "args": {"stream": True}},
-    {"name": "o1-mini", "icon": "logos/openai.svg", "args": {"stream": True}},
-    {"name": "o3-mini", "icon": "logos/openai.svg", "args": {"stream": True}},
-]
-
-MODEL_CHOICES = [model["name"] for model in MODEL_CHOICES_ARGS]
-DEFAULT_MODEL = "gpt-4o"
-
-# Deprecated models and their replacements
-DEPRECATED_MODELS = {
-    "gemini-2.5-flash-preview-05-20": "gemini-2.5-flash",
-    "gemini-2.0-flash": "gemini-2.5-flash",
-}
+DEFAULT_MODEL = "claude-sonnet-4-6"
 
 
 class Agent(ControlNode):
@@ -173,7 +144,29 @@ class Agent(ControlNode):
             )
         )
 
-        # Selection for the Griptape Cloud model.
+        # Provider selector — populated from the engine's configured providers.
+        provider_names = self._fetch_provider_names()
+        self.add_parameter(
+            Parameter(
+                name="model_provider",
+                type="str",
+                default_value=provider_names[0] if provider_names else "griptape_cloud",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                tooltip="Choose a provider. Refresh to see all configured providers.",
+                traits={
+                    Options(choices=provider_names),
+                    Button(
+                        icon="list-restart",
+                        size="icon",
+                        variant="secondary",
+                        on_click=self._refresh_providers_button,
+                    ),
+                },
+                ui_options={"display_name": "provider"},
+            )
+        )
+
+        # Model selector — choices update when the provider changes.
         self.add_parameter(
             Parameter(
                 name="model",
@@ -181,7 +174,15 @@ class Agent(ControlNode):
                 default_value=DEFAULT_MODEL,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 tooltip="Choose a model, or connect a Prompt Model Configuration",
-                traits={Options(choices=MODEL_CHOICES)},
+                traits={
+                    Options(choices=MODEL_CHOICES),
+                    Button(
+                        icon="list-restart",
+                        size="icon",
+                        variant="secondary",
+                        on_click=self._refresh_models_button,
+                    ),
+                },
                 ui_options={"display_name": "prompt model", "data": MODEL_CHOICES_ARGS},
             )
         )
@@ -228,15 +229,22 @@ class Agent(ControlNode):
                 default_value=[],
                 tooltip="Connect Griptape Tools for the agent to use.\nOr connect individual tools.",
                 allowed_modes={ParameterMode.INPUT},
+                collapsed=True,
             )
         )
         self.add_parameter(
             ParameterList(
                 name="rulesets",
-                input_types=["Ruleset", "list[Ruleset]"],
-                tooltip="Rulesets to apply to the agent to control its behavior.",
+                input_types=["str", "Ruleset", "list[Ruleset]"],
+                tooltip="Rulesets to apply to the agent to control its behavior.\nConnect Ruleset nodes, or connect a Text Input node to define behavior inline as plain text.",
                 default_value=[],
-                allowed_modes={ParameterMode.INPUT},
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                collapsed=True,
+                ui_options={
+                    "placeholder_text": "e.g. Always respond in a friendly tone",
+                    "child_prefix": "Behavior",
+                    "display_name": "Behaviors (Rulesets)",
+                },
             )
         )
 
@@ -304,6 +312,121 @@ class Agent(ControlNode):
             parameter,
             value,
         )
+
+    def _build_tool_exchange(self, subtask_events: list) -> str:
+        """Build a verified tool-use record from FinishActionsSubtaskEvents.
+
+        This is prepended to the stored run output so memory faithfully reflects
+        every tool call that happened, giving downstream agents clear evidence.
+        """
+        lines = ["[Verified tool use:"]
+        for event in subtask_events:
+            if event.subtask_thought:
+                lines.append(f"  Thought: {event.subtask_thought}")
+            for action in event.subtask_actions or []:
+                name = action.get("name", "?")
+                path = action.get("path", "")
+                tool_input = action.get("input", {})
+                prefix = f"{path}/" if path else ""
+                lines.append(f"  Tool: {prefix}{name}")
+                if tool_input:
+                    lines.append(f"  Input: {json.dumps(tool_input)}")
+            if event.task_output:
+                result = event.task_output.to_text()
+                if len(result) > 400:
+                    result = result[:400] + "…"
+                lines.append(f"  Result: {result}")
+        lines.append("]")
+        return "\n".join(lines) + "\n\n"
+
+    # --- Provider / Model Methods ---
+
+    def _fetch_providers(self) -> list[ProviderConfig]:  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+        """Fetch configured providers from the engine, falling back to griptape_cloud only."""
+        if not _AGENT_PROVIDERS_AVAILABLE:
+            return []
+        _FALLBACK = [_GRIPTAPE_CLOUD_PROVIDER]  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+        try:
+            result = GriptapeNodes.handle_request(ListAgentProvidersRequest())  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+            if not isinstance(result, ListAgentProvidersResultSuccess):  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+                return _FALLBACK
+            return cast(ListAgentProvidersResultSuccess, result).providers or _FALLBACK  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+        except Exception:
+            return _FALLBACK
+
+    def _fetch_provider_names(self) -> list[str]:
+        """Return ordered provider names for the provider dropdown."""
+        providers = self._fetch_providers()
+        return [p.name for p in providers] or ["griptape_cloud"]
+
+    def _resolve_provider_api_key(self, provider_config: ProviderConfig) -> str:  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+        """Resolve the API key for a provider config.
+
+        Provider configs carry api_key_secret_name (the name of a secret in the
+        secrets manager) rather than a raw api_key value.  Fall back to
+        "not-needed" for providers that don't require a key (e.g. Ollama).
+        """
+        secret_name = provider_config.api_key_secret_name or ""  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+        if secret_name:
+            return (
+                GriptapeNodes.SecretsManager().get_secret(secret_name, should_error_on_not_found=False) or "not-needed"
+            )
+        return "not-needed"
+
+    def _fetch_models_for_provider(self, provider_name: str) -> list[str]:
+        """Return the model list for a given provider name."""
+        if not _AGENT_PROVIDERS_AVAILABLE:
+            return MODEL_CHOICES
+        try:
+            providers = self._fetch_providers()
+            provider_config = next((p for p in providers if p.name == provider_name), None)
+            if provider_config is None:
+                return MODEL_CHOICES
+            result = GriptapeNodes.handle_request(
+                ListProviderModelsRequest(  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+                    provider=provider_config.type,
+                    base_url=provider_config.base_url or "",
+                    api_key=self._resolve_provider_api_key(provider_config),
+                )
+            )
+            if isinstance(result, ListProviderModelsResultSuccess):  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+                return cast(ListProviderModelsResultSuccess, result).models or MODEL_CHOICES  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+        except Exception:
+            pass
+        return MODEL_CHOICES
+
+    def _update_model_choices_for_provider(self, provider_name: str) -> None:
+        """Swap the model dropdown choices for the given provider."""
+        models = self._fetch_models_for_provider(provider_name)
+        default = models[0] if models else DEFAULT_MODEL
+        self._update_option_choices(param="model", choices=models, default=default)
+        # The frontend renders the dropdown from the "data" ui_options key (not "simple_dropdown").
+        # Update it explicitly so the frontend receives the change notification.
+        param = self.get_parameter_by_name("model")
+        if param:
+            if provider_name == "griptape_cloud":
+                new_data = MODEL_CHOICES_ARGS
+            else:
+                new_data = [{"name": m, "icon": "", "args": {}} for m in models]
+            param.update_ui_options_key("data", new_data)
+
+    def _refresh_providers_button(
+        self, button: Button, button_details: ButtonDetailsMessagePayload
+    ) -> NodeMessageResult | None:  # noqa: ARG002
+        """Refresh the provider dropdown from the engine."""
+        provider_names = self._fetch_provider_names()
+        current = self.get_parameter_value("model_provider") or "griptape_cloud"
+        default = current if current in provider_names else (provider_names[0] if provider_names else "griptape_cloud")
+        self._update_option_choices(param="model_provider", choices=provider_names, default=default)
+        return None
+
+    def _refresh_models_button(
+        self, button: Button, button_details: ButtonDetailsMessagePayload
+    ) -> NodeMessageResult | None:  # noqa: ARG002
+        """Refresh the model dropdown for the currently selected provider."""
+        provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
+        self._update_model_choices_for_provider(provider_name)
+        return None
 
     # --- Helper Methods ---
 
@@ -569,6 +692,22 @@ class Agent(ControlNode):
                     )
                 )
 
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        super().after_value_set(parameter, value)
+        if parameter.name == "model_provider":
+            provider_name = str(value)
+            models = self._fetch_models_for_provider(provider_name)
+            default = models[0] if models else DEFAULT_MODEL
+            self._update_option_choices(param="model", choices=models, default=default)
+            new_data = (
+                MODEL_CHOICES_ARGS
+                if provider_name == "griptape_cloud"
+                else [{"name": m, "icon": "", "args": {}} for m in models]
+            )
+            param = self.get_parameter_by_name("model")
+            if param:
+                param.update_ui_options_key("data", new_data)
+
     # --- UI Interaction Hooks ---
 
     def after_incoming_connection(
@@ -576,7 +715,7 @@ class Agent(ControlNode):
     ) -> None:
         # If an existing agent is connected, hide parameters related to creating a new one.
         if target_parameter.name == "agent":
-            params_to_toggle = ["model", "tools", "rulesets"]
+            params_to_toggle = ["model", "model_provider", "tools", "rulesets"]
             self.hide_parameter_by_name(params_to_toggle)
 
         if target_parameter.name == "model" and source_parameter.name == "prompt_model_config":
@@ -603,6 +742,12 @@ class Agent(ControlNode):
             # When schema is connected, change output type to json and validate connections
             self._update_output_type_and_validate_connections("json")
 
+        # Hide the text field for connected non-string rulesets children to prevent [object Object].
+        rulesets_param = self.get_parameter_by_name("rulesets")
+        if rulesets_param and target_parameter in rulesets_param.children:
+            if source_parameter.output_type in ("Ruleset", "list[Ruleset]"):
+                target_parameter.hide_property = True
+
         return super().after_incoming_connection(source_node, source_parameter, target_parameter)
 
     def after_incoming_connection_removed(
@@ -613,7 +758,7 @@ class Agent(ControlNode):
     ) -> None:
         # If the agent connection is removed, show agent creation parameters.
         if target_parameter.name == "agent":
-            params_to_toggle = ["model", "tools", "rulesets", "schema"]
+            params_to_toggle = ["model", "model_provider", "tools", "rulesets", "schema"]
             self.show_parameter_by_name(params_to_toggle)
 
         if target_parameter.name == "output_schema":
@@ -633,8 +778,10 @@ class Agent(ControlNode):
             target_parameter.default_value = DEFAULT_MODEL
             self.set_parameter_value("model", DEFAULT_MODEL)
 
-            # Add the options trait
-            target_parameter.add_trait(Options(choices=MODEL_CHOICES))
+            # Restore choices for the currently selected provider.
+            current_provider = self.get_parameter_value("model_provider") or "griptape_cloud"
+            restored_models = self._fetch_models_for_provider(current_provider)
+            self._update_option_choices(param="model", choices=restored_models, default=DEFAULT_MODEL)
 
             # Change the display name to be appropriate
             ui_options = target_parameter.ui_options
@@ -646,19 +793,31 @@ class Agent(ControlNode):
         if target_parameter.name == "additional_context":
             target_parameter.allowed_modes = {ParameterMode.INPUT, ParameterMode.PROPERTY}
 
+        # Restore text field for disconnected rulesets children.
+        rulesets_param = self.get_parameter_by_name("rulesets")
+        if rulesets_param and target_parameter in rulesets_param.children:
+            target_parameter.hide_property = False
+
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
     # --- Validation ---
     def validate_before_workflow_run(self) -> list[Exception] | None:
         """Performs pre-run validation checks for the node.
 
-        Currently checks if the Griptape Cloud API key is configured if the default
-        prompt driver is likely to be used.
+        The Griptape Cloud API key is only required when the node would fall back
+        to the default Griptape Cloud prompt driver. A connected agent carries its
+        own driver, and a connected prompt driver (Prompt Model Config) supplies its
+        own credentials, so neither needs the cloud key.
 
         Returns:
             A list of Exception objects if validation fails, otherwise None.
         """
         exceptions = []
+
+        # Mirror the driver-selection precedence in process(): a connected agent or a
+        # connected prompt driver bypass the default Griptape Cloud driver entirely.
+        if not self._uses_griptape_cloud_driver():
+            return None
 
         # Check to see if the API key is set.
         api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
@@ -670,6 +829,22 @@ class Agent(ControlNode):
 
         # Return any exceptions
         return exceptions if exceptions else None
+
+    def _uses_griptape_cloud_driver(self) -> bool:
+        """Return True when the node will build the default Griptape Cloud prompt driver.
+
+        A connected agent supplies its own driver, a connected prompt driver
+        (``model`` resolved to a ``BasePromptDriver``) supplies its own credentials,
+        and a non-griptape_cloud provider uses an OpenAI-compatible driver — none
+        of these need the Griptape Cloud API key.
+        """
+        if self.get_parameter_value("agent") is not None:
+            return False
+        model_input = self.get_parameter_value("model")
+        if isinstance(model_input, BasePromptDriver):
+            return False
+        provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
+        return provider_name == "griptape_cloud"
 
     def _handle_additional_context(self, prompt: str, additional_context: str | int | float | dict[str, Any]) -> str:  # noqa: PYI041
         """Integrates additional context into the main prompt string.
@@ -722,6 +897,7 @@ class Agent(ControlNode):
             An AsyncResult indicating the structure being processed (the agent).
         """
         model_input = self.get_parameter_value("model")
+        provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
         agent = None
         include_details = self.get_parameter_value("include_details")
         default_prompt_driver = GriptapeCloudPromptDriver(
@@ -733,18 +909,36 @@ class Agent(ControlNode):
         # Initialize the logs parameter
         self.append_value_to_parameter("logs", "[Processing..]\n")
 
-        # Get any tools
-        # tools = self.get_parameter_value("tools")  # noqa: ERA001
-        tools = self.get_parameter_list_value("tools")
-        if include_details and tools:
-            self.append_value_to_parameter("logs", f"[Tools]: {', '.join([tool.name for tool in tools])}\n")
+        # Get any tools — may be live objects or serializable config dicts (e.g. MCPTool)
+        raw_tool_inputs = self.get_parameter_list_value("tools")
+        live_tools, tool_configs = build_tools(raw_tool_inputs)
+        tools = live_tools
+        if include_details and live_tools:
+            names = []
+            for item in raw_tool_inputs:
+                if isinstance(item, dict):
+                    names.append(item.get("mcp_server_name", item.get("tool_type", "unknown")))
+                else:
+                    names.append(item.name)
+            self.append_value_to_parameter("logs", f"[Tools]: {', '.join(names)}\n")
 
-        # Get any rulesets
-        rulesets = self.get_parameter_list_value("rulesets")
+        # Get any rulesets — convert live objects to serializable configs so they survive chaining.
+        # Strings are auto-promoted to single-rule rulesets named behavior_1, behavior_2, etc.
+        raw_rulesets = self.get_parameter_list_value("rulesets")
+        str_counter = 0
+        promoted_rulesets = []
+        for r in raw_rulesets:
+            if isinstance(r, str) and r.strip():
+                str_counter += 1
+                promoted_rulesets.append({"name": f"behavior_{str_counter}", "rules": [r.strip()]})
+            else:
+                promoted_rulesets.append(r)
+        ruleset_configs: list = [c for c in (ruleset_to_config(r) for r in promoted_rulesets) if c]
+        rulesets = build_rulesets_from_configs(ruleset_configs)
         if include_details and rulesets:
             self.append_value_to_parameter(
                 "logs",
-                f"\n[Rulesets]: {', '.join([ruleset.name for ruleset in rulesets])}\n",
+                f"\n[Rulesets]: {', '.join([r.name for r in rulesets])}\n",
             )
 
         # Get the output schema
@@ -778,30 +972,67 @@ class Agent(ControlNode):
         # If a prompt_driver is provided, we'll use that
         # If neither are provided, we'll create a new one with the selected model.
         # Otherwise, we'll just use the default model
-        agent = self.get_parameter_value("agent")
-        if isinstance(agent, dict):
-            # The agent is connected. We'll use that.
-            agent = GtAgent().from_dict(agent)
-            # make sure the agent is using a PromptTask
+        agent_input = self.get_parameter_value("agent")
+        incoming_provider: dict | None = None
+        if isinstance(agent_input, dict):
+            # Unwrap the new-format wrapper (or handle old raw agent dict gracefully).
+            agent_core_dict, incoming_tool_configs, incoming_ruleset_configs = unwrap_agent(agent_input)
+            incoming_provider = agent_input.get("provider")  # non-GTC provider config forwarded by upstream node
+            agent = GtAgent().from_dict(agent_core_dict)
+            # Rebuild tools from the incoming config so the live connection is fresh.
+            if incoming_tool_configs:
+                incoming_live_tools, _ = build_tools(incoming_tool_configs)
+                if incoming_live_tools and agent.tasks:
+                    cast(PromptTask, agent.tasks[0]).tools = incoming_live_tools
+                tool_configs = incoming_tool_configs  # carry forward for output wrap
+            # Merge incoming rulesets with any rulesets connected at this node; set directly on _rulesets.
+            ruleset_configs = incoming_ruleset_configs + ruleset_configs
+            agent._rulesets = build_rulesets_from_configs(ruleset_configs)
+            # make sure the agent is using a PromptTask — replace rather than add to avoid two tasks
             if not isinstance(agent.tasks[0], PromptTask):
-                agent.add_task(PromptTask(prompt_driver=default_prompt_driver, output_schema=pydantic_schema))
+                agent.tasks[0] = PromptTask(prompt_driver=default_prompt_driver, output_schema=pydantic_schema)
             else:
                 agent.tasks[0].output_schema = pydantic_schema
+            # Rebuild the prompt driver for non-GTC providers — griptape strips api_key during serialization.
+            if incoming_provider:
+                rebuilt_driver = GtOpenAiChatPromptDriver(
+                    model=cast(PromptTask, agent.tasks[0]).prompt_driver.model,
+                    base_url=incoming_provider.get("base_url", ""),
+                    api_key=incoming_provider.get("api_key") or "not-needed",
+                    stream=True,
+                )
+                cast(PromptTask, agent.tasks[0]).prompt_driver = rebuilt_driver
         elif isinstance(model_input, BasePromptDriver):
             agent = GtAgent(prompt_driver=model_input, tools=tools, rulesets=rulesets, output_schema=pydantic_schema)
         elif isinstance(model_input, str):
-            if model_input not in MODEL_CHOICES:
-                model_input = DEFAULT_MODEL
-            # Get the appropriate args
-            args = next((model["args"] for model in MODEL_CHOICES_ARGS if model["name"] == model_input), {})
-            # Remove any None values from args
-            args = {k: v for k, v in args.items() if v is not None}
-            prompt_driver = GriptapeCloudPromptDriver(
-                model=model_input,
-                api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
-                **args,
-            )
+            if provider_name == "griptape_cloud":
+                if model_input not in MODEL_CHOICES:
+                    model_input = DEFAULT_MODEL
+                # Get the appropriate args (stream setting, structured output strategy, etc.)
+                args = next((model["args"] for model in MODEL_CHOICES_ARGS if model["name"] == model_input), {})
+                args = {k: v for k, v in args.items() if v is not None}
+                prompt_driver = GriptapeCloudPromptDriver(
+                    model=model_input,
+                    api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
+                    **args,
+                )
+            else:
+                # Non-Griptape-Cloud provider: resolve config and use the OpenAI-compatible driver.
+                providers = self._fetch_providers()
+                provider_config = next((p for p in providers if p.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+                base_url = provider_config.base_url or ""
+                api_key = self._resolve_provider_api_key(provider_config)
+                prompt_driver = GtOpenAiChatPromptDriver(
+                    model=model_input,
+                    base_url=base_url,
+                    api_key=api_key,
+                    stream=True,
+                )
             agent = GtAgent(prompt_driver=prompt_driver, tools=tools, rulesets=rulesets, output_schema=pydantic_schema)
+
+        if agent is None:
+            msg = "Agent was not initialized"
+            raise RuntimeError(msg)
 
         # Apply memory if provided
         agent_memory = self.get_parameter_value("agent_memory")
@@ -814,11 +1045,37 @@ class Agent(ControlNode):
             yield lambda: self._process(agent, prompt)
             self.append_value_to_parameter("logs", "\n[Finished processing agent.]\n")
             try_throw_error(agent.output)
+            # Settle the output field to the final answer only — not the [Verified tool use: ...]
+            # block we prepend to memory for downstream agents.  _process() saves the raw answer
+            # in self._last_raw_output before modifying memory; fall back to memory when no tools ran.
+            raw_output = getattr(self, "_last_raw_output", None)
+            if raw_output is not None:
+                self.set_parameter_value("output", raw_output)
+                self._last_raw_output = None
+            elif agent is not None and agent.conversation_memory and agent.conversation_memory.runs:
+                self.set_parameter_value("output", agent.conversation_memory.runs[-1].output.to_text())
         else:
             self.append_value_to_parameter("logs", "[No prompt provided, creating Agent.]\n")
             self.parameter_output_values["output"] = "Agent created."
-        # Set the agent
-        self.parameter_output_values["agent"] = agent.to_dict()
+        # Clear tools from the live agent before serializing — MCPTool connections are not
+        # serializable. They're rebuilt from tool_configs when the next node unwraps.
+        if agent.tasks:
+            cast(PromptTask, agent.tasks[0]).tools = []
+        wrapper = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
+        # Forward provider credentials so downstream nodes can rebuild the driver —
+        # griptape strips api_key from non-GTC drivers during to_dict() serialization.
+        if provider_name != "griptape_cloud":
+            providers = self._fetch_providers()
+            p = next((x for x in providers if x.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+            wrapper["provider"] = {
+                "name": provider_name,
+                "base_url": p.base_url or "",
+                "api_key": self._resolve_provider_api_key(p),
+            }
+        elif incoming_provider:
+            # Passthrough: this node uses griptape_cloud but an upstream agent used a non-GTC provider.
+            wrapper["provider"] = incoming_provider
+        self.parameter_output_values["agent"] = wrapper
 
     def _process(self, agent: GtAgent, prompt: BaseArtifact | str) -> Structure:  # noqa: C901, PLR0912
         """Performs the synchronous, streaming interaction with the Griptape Agent.
@@ -844,6 +1101,7 @@ class Agent(ControlNode):
         args = [prompt] if prompt else []
         structure_id_stack = []
         active_structure_id = None
+        subtask_events: list[FinishActionsSubtaskEvent] = []
 
         task = agent.tasks[0]
         if not isinstance(task, PromptTask):
@@ -853,7 +1111,14 @@ class Agent(ControlNode):
         prompt_driver.stream = True
         if prompt_driver.stream:
             for event in agent.run_stream(
-                *args, event_types=[StartStructureRunEvent, TextChunkEvent, ActionChunkEvent, FinishStructureRunEvent]
+                *args,
+                event_types=[
+                    StartStructureRunEvent,
+                    TextChunkEvent,
+                    ActionChunkEvent,
+                    FinishActionsSubtaskEvent,
+                    FinishStructureRunEvent,
+                ],
             ):
                 if isinstance(event, StartStructureRunEvent):
                     active_structure_id = event.structure_id
@@ -871,15 +1136,31 @@ class Agent(ControlNode):
                         self.append_value_to_parameter("logs", "\n[Agent execution cancelled by user.]\n")
                         return agent
 
-                    # If the artifact is a TextChunkEvent, append it to the output parameter.
                     if isinstance(event, TextChunkEvent):
                         self.append_value_to_parameter("output", value=event.token)
                         if include_details:
                             self.append_value_to_parameter("logs", value=event.token)
 
-                    # If the artifact is an ActionChunkEvent, append it to the logs parameter.
-                    if include_details and isinstance(event, ActionChunkEvent) and event.name:
-                        self.append_value_to_parameter("logs", f"\n[Using tool {event.name}: ({event.path})]\n")
+                    if isinstance(event, ActionChunkEvent) and event.name and event.tag:
+                        if include_details:
+                            self.append_value_to_parameter("logs", f"\n[Using tool {event.name}: ({event.path})]\n")
+
+                    # Capture completed subtask exchanges for faithful memory reconstruction.
+                    if isinstance(event, FinishActionsSubtaskEvent) and event.subtask_parent_task_id == task.id:
+                        subtask_events.append(event)
+
+            # Prepend verified tool-use record to memory so downstream agents have
+            # clear evidence of every tool call.  Save the raw final answer first so
+            # the output field shows just the answer, not the metadata block.
+            if subtask_events and agent.conversation_memory and agent.conversation_memory.runs:
+                exchange = self._build_tool_exchange(subtask_events)
+                last_run = agent.conversation_memory.runs[-1]
+                self._last_raw_output = last_run.output.to_text()
+                agent.conversation_memory.runs[-1] = Run(
+                    input=TextArtifact(value=last_run.input.to_text()),
+                    output=TextArtifact(value=exchange + self._last_raw_output),
+                )
+
         else:
             agent.run(*args)
             agent_output = agent.output
@@ -888,4 +1169,5 @@ class Agent(ControlNode):
             else:
                 self.set_parameter_value("output", str(agent_output))
             try_throw_error(agent.output)
+
         return agent

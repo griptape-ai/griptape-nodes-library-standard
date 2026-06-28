@@ -10,10 +10,12 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
-import static_ffmpeg.run  # type: ignore[import-untyped]  # static_ffmpeg is dynamically installed by the library loader at runtime
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
+from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.utils.async_utils import subprocess_run
+
+from griptape_nodes_library.utils.ffmpeg_utils import RATE_TOLERANCE, get_ffmpeg_paths
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -23,7 +25,6 @@ DOWNLOAD_CHUNK_SIZE = 8192
 # Supported video file extensions
 SUPPORTED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv", ".m4v"}
 
-RATE_TOLERANCE = 0.1
 NOMINAL_30FPS = 30
 NOMINAL_60FPS = 60
 
@@ -38,6 +39,10 @@ DROP_FRAMES_60FPS = 4  # Frames dropped per minute for 59.94 fps NTSC
 # Actual NTSC frame rates (precise values)
 ACTUAL_RATE_30FPS = 30000 / 1001  # ≈ 29.97 fps (NTSC)
 ACTUAL_RATE_60FPS = 60000 / 1001  # ≈ 59.94 fps (NTSC)
+
+
+MIN_VIDEO_FILE_SIZE = 1024  # bytes — smaller output is suspicious for any real video
+VIDEO_DURATION_BUFFER = 0.1  # seconds — trim end slightly inside duration to avoid keyframe issues
 
 
 def detect_video_format(video: Any | dict) -> str | None:
@@ -202,9 +207,15 @@ async def get_video_duration(video_url: str) -> float:
         ValueError: If the video cannot be parsed or ffprobe fails
     """
     try:
-        _ffmpeg_path, ffprobe_path = static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()
-    except Exception as e:
+        _, ffprobe_path = get_ffmpeg_paths()
+    except RuntimeError as e:
         msg = f"FFprobe not available: {e}"
+        raise ValueError(msg) from e
+
+    try:
+        resolved_path = File(video_url).resolve()
+    except FileLoadError as e:
+        msg = f"Could not resolve video path {video_url!r}: {e}"
         raise ValueError(msg) from e
 
     cmd = [
@@ -216,7 +227,7 @@ async def get_video_duration(video_url: str) -> float:
         "-show_streams",
         "-select_streams",
         "v:0",
-        video_url,
+        resolved_path,
     ]
 
     try:
@@ -280,17 +291,6 @@ def smpte_to_seconds(tc: str, rate: float, *, drop_frame: bool | None = None) ->
     frame_number = (hh * 3600 + mm * 60 + ss) * nominal + ff - dropped
     actual_rate = ACTUAL_RATE_30FPS if nominal == NOMINAL_30FPS else ACTUAL_RATE_60FPS
     return frame_number / actual_rate
-
-
-def seconds_to_ts(sec: float) -> str:
-    """Return HH:MM:SS.mmm for ffmpeg."""
-    sec = max(sec, 0)
-    whole = int(sec)
-    ms = round((sec - whole) * 1000)
-    h = whole // 3600
-    m = (whole % 3600) // 60
-    s = whole % 60
-    return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
 
 
 def sanitize_filename(name: str) -> str:

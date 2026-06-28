@@ -1,13 +1,14 @@
 # /// script
 # dependencies = []
 # [tool.griptape-nodes]
-# name = "test_seedvr_image_upscale"
+# name = "test_ltx_video_to_video_hdr"
 # schema_version = "0.16.0"
 # engine_version_created_with = "0.77.3"
 # node_libraries_referenced = [["Griptape Nodes Library", "0.67.0"], ["Griptape Nodes Testing Library", "0.1.0"]]
-# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "SeedVRImageUpscale"], ["Griptape Nodes Library", "ToText"]]
+# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "LTXTextToVideoGeneration"], ["Griptape Nodes Library", "LTXVideoToVideoHDR"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
+# is_internal = true
 # ///
 import asyncio
 import logging
@@ -23,7 +24,7 @@ from griptape_nodes.retained_mode.events.flow_events import (
 )
 from griptape_nodes.retained_mode.events.library_events import RegisterLibraryFromFileRequest
 from griptape_nodes.retained_mode.events.node_events import CreateNodeRequest
-from griptape_nodes.retained_mode.events.parameter_events import AddParameterToNodeRequest
+from griptape_nodes.retained_mode.events.parameter_events import AddParameterToNodeRequest, SetParameterValueRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 GriptapeNodes.handle_request(
@@ -39,23 +40,21 @@ flow_name = GriptapeNodes.handle_request(
 ).flow_name
 
 with GriptapeNodes.ContextManager().flow(flow_name):
-    source_node = GriptapeNodes.handle_request(
+    ltx_t2v_node = GriptapeNodes.handle_request(
         CreateNodeRequest(
-            node_type="CreateColorBars",
+            node_type="LTXTextToVideoGeneration",
             specific_library_name="Griptape Nodes Library",
-            node_name="Create Color Bars",
+            node_name="LTX Text To Video Generation",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
-    gen_node = GriptapeNodes.handle_request(
+    hdr_node = GriptapeNodes.handle_request(
         CreateNodeRequest(
-            node_type="SeedVRImageUpscale",
+            node_type="LTXVideoToVideoHDR",
             specific_library_name="Griptape Nodes Library",
-            node_name="SeedVRImageUpscale",
+            node_name="LTXVideoToVideoHDR",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -65,7 +64,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Library",
             node_name="To Text",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -75,7 +73,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Testing Library",
             node_name="Assert File Exists",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -85,7 +82,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Library",
             node_name="End Flow",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -103,19 +99,29 @@ with GriptapeNodes.ContextManager().flow(flow_name):
                 initial_setup=True,
             )
         )
+    with GriptapeNodes.ContextManager().node(ltx_t2v_node):
+        GriptapeNodes.handle_request(
+            SetParameterValueRequest(
+                parameter_name="prompt",
+                node_name=ltx_t2v_node,
+                value="A ball bouncing",
+                initial_setup=True,
+                is_output=False,
+            )
+        )
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
-            source_node_name=source_node,
-            source_parameter_name="image",
-            target_node_name=gen_node,
-            target_parameter_name="image_url",
+            source_node_name=ltx_t2v_node,
+            source_parameter_name="video_url",
+            target_node_name=hdr_node,
+            target_parameter_name="video",
             initial_setup=True,
         )
     )
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
-            source_node_name=gen_node,
-            source_parameter_name="image",
+            source_node_name=hdr_node,
+            source_parameter_name="output_file",
             target_node_name=to_text_node,
             target_parameter_name="from",
             initial_setup=True,

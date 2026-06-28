@@ -13,9 +13,9 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -110,7 +110,7 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterString(
                 name="model",
-                default_value="LTX 2 Fast",
+                default_value="LTX 2.3 Fast",
                 tooltip="Model to use for video generation",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=["LTX 2 Pro", "LTX 2 Fast", "LTX 2.3 Pro", "LTX 2.3 Fast"])},
@@ -132,7 +132,8 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
             ParameterImage(
                 name="image",
                 tooltip="Input image for video generation (required). Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Input Image"},
             )
         )
@@ -180,15 +181,6 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
         self.add_node_element(gen_settings_group)
 
         # OUTPUTS
-        self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Griptape Cloud generation id",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide=True,
-            )
-        )
-
         self.add_parameter(
             ParameterDict(
                 name="provider_response",
@@ -335,50 +327,7 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
 
     async def _prepare_image_data_url_async(self, image_input: Any) -> str | None:
         """Convert image input to a base64 data URL."""
-        if not image_input:
-            return None
-
-        image_url = self._coerce_image_url_or_data_uri(image_input)
-        if not image_url:
-            return None
-
-        # Already a data URI — return as-is
-        if image_url.startswith("data:image/"):
-            return image_url
-
-        try:
-            return await File(image_url).aread_data_uri(fallback_mime="image/jpeg")
-        except FileLoadError as e:
-            logger.debug("%s failed to load image from %s: %s", self.name, image_url, e)
-            return None
-
-    @staticmethod
-    def _coerce_image_url_or_data_uri(val: Any) -> str | None:
-        """Convert various image input types to a URL or data URI string."""
-        if val is None:
-            return None
-
-        # String handling
-        if isinstance(val, str):
-            v = val.strip()
-            if not v:
-                return None
-            return v if v.startswith(("http://", "https://", "data:image/")) else f"data:image/png;base64,{v}"
-
-        # Artifact-like objects
-        try:
-            # ImageUrlArtifact: .value holds URL string
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.startswith(("http://", "https://", "data:image/")):
-                return v
-            # ImageArtifact: .base64 holds raw or data-URI
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:image/") else f"data:image/png;base64,{b64}"
-        except AttributeError:
-            pass
-
-        return None
+        return await prepare_media_data_uri(image_input, kind="image", node_name=self.name, fallback_mime="image/jpeg")
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for LTX API."""

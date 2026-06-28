@@ -106,6 +106,8 @@ class WanImageGeneration(GriptapeProxyNode):
                 allow_output=False,
                 min_val=1,
                 max_val=4,
+                slider=True,
+                display_name="Number of Images",
             )
         )
 
@@ -136,16 +138,6 @@ class WanImageGeneration(GriptapeProxyNode):
         self.add_node_element(generation_settings_group)
 
         # OUTPUTS
-        self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Generation ID from the API",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide_property=True,
-                hide=True,
-            )
-        )
-
         self.add_parameter(
             ParameterDict(
                 name="provider_response",

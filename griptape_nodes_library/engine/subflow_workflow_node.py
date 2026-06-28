@@ -4,7 +4,7 @@ from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
 from griptape_nodes.exe_types.flow import ControlFlow
-from griptape_nodes.exe_types.node_types import BaseNode, NodeDependencies
+from griptape_nodes.exe_types.node_types import NodeDependencies, SuccessFailureNode
 from griptape_nodes.node_library.workflow_registry import WorkflowRegistry
 from griptape_nodes.retained_mode.events.execution_events import (
     StartLocalSubflowRequest,
@@ -29,7 +29,7 @@ from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
 
-class SubflowWorkflowNode(BaseNode):
+class SubflowWorkflowNode(SuccessFailureNode):
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
         result = GriptapeNodes.handle_request(ListCallableWorkflowsRequest())
@@ -72,6 +72,8 @@ class SubflowWorkflowNode(BaseNode):
             # is a no-op (the node isn't registered yet, so the request would fail).
             self.metadata["workflow_shape_params"] = []
             self._update_workflow_shape_parameters(saved_workflow)
+
+        self._create_status_parameters()
 
     def after_node_deleted(self) -> None:
         subflow_name = self.metadata.get("subflow_name")
@@ -183,9 +185,21 @@ class SubflowWorkflowNode(BaseNode):
             for param_name, param_dict in params.items():
                 if param_dict.get("type") == ParameterTypeBuiltin.CONTROL_TYPE:
                     continue
-                desired[param_name] = (param_dict, {ParameterMode.OUTPUT})
+                if param_name in desired:
+                    # Same name in inputs and outputs — merge modes so one parameter serves both roles.
+                    existing_dict, existing_modes = desired[param_name]
+                    desired[param_name] = (existing_dict, existing_modes | {ParameterMode.OUTPUT})
+                else:
+                    desired[param_name] = (param_dict, {ParameterMode.OUTPUT})
 
         current_names = set(self.metadata.get("workflow_shape_params", []))
+
+        # Drop any desired param that collides with an existing built-in parameter
+        # (one that isn't a previously-added shape param), e.g. 'was_successful'.
+        for name in list(desired.keys()):
+            if name not in current_names and self.get_parameter_by_name(name) is not None:
+                desired.pop(name)
+
         desired_names = set(desired.keys())
 
         # When preserve_matching=True, keep params whose names appear in both sets
@@ -205,14 +219,15 @@ class SubflowWorkflowNode(BaseNode):
         self.metadata["workflow_shape_params"] = list(desired_names)
 
         # Rebuild side lists from scratch so ordering is correct for the full desired set,
-        # including any preserved params.
+        # including any preserved params. A param with both INPUT and OUTPUT modes appears
+        # on both sides.
         self.metadata["left_parameters"] = []
         self.metadata["right_parameters"] = []
         for param_name, (_, allowed_modes) in desired.items():
+            if ParameterMode.INPUT in allowed_modes:
+                self.metadata["left_parameters"].append(param_name)
             if ParameterMode.OUTPUT in allowed_modes:
                 self.metadata["right_parameters"].append(param_name)
-            else:
-                self.metadata["left_parameters"].append(param_name)
 
         # Enforce display order: left params (inputs) at top, right params (outputs) below.
         for param_name in self.metadata["left_parameters"] + self.metadata["right_parameters"]:
@@ -238,12 +253,23 @@ class SubflowWorkflowNode(BaseNode):
 
     async def aprocess(self) -> None:
         workflow_name = self.get_parameter_value("workflow_file")
-        if not workflow_name or not WorkflowRegistry.has_workflow_with_name(workflow_name):
+        if not workflow_name:
+            msg = f"Node '{self.name}' has no workflow selected."
+            self._set_status_results(was_successful=False, result_details=msg)
+            self._handle_failure_exception(RuntimeError(msg))
+            return
+        if not WorkflowRegistry.has_workflow_with_name(workflow_name):
+            msg = f"Node '{self.name}' references workflow '{workflow_name}' which is not registered."
+            self._set_status_results(was_successful=False, result_details=msg)
+            self._handle_failure_exception(RuntimeError(msg))
             return
 
         workflow = WorkflowRegistry.get_workflow_by_name(workflow_name)
         workflow_shape = workflow.metadata.workflow_shape
         if workflow_shape is None:
+            msg = f"Workflow '{workflow_name}' has no shape defined."
+            self._set_status_results(was_successful=False, result_details=msg)
+            self._handle_failure_exception(RuntimeError(msg))
             return
 
         # Use the pre-loaded subflow if available; otherwise load it now.
@@ -253,14 +279,22 @@ class SubflowWorkflowNode(BaseNode):
             self._reload_subflow(workflow_name)
             subflow_name = self.metadata.get("subflow_name")
             if not subflow_name:
+                msg = f"Failed to load subflow for workflow '{workflow_name}'."
+                self._set_status_results(was_successful=False, result_details=msg)
+                self._handle_failure_exception(RuntimeError(msg))
                 return
 
         self._set_workflow_inputs(subflow_name, workflow_shape)
         result = await GriptapeNodes.ahandle_request(StartLocalSubflowRequest(flow_name=subflow_name))
         if isinstance(result, StartLocalSubflowResultFailure):
             msg = f"Workflow '{workflow_name}' execution failed: {result.result_details}"
-            raise RuntimeError(msg)
+            self._set_status_results(was_successful=False, result_details=msg)
+            self._handle_failure_exception(RuntimeError(msg))
+            return
         self._collect_workflow_outputs(subflow_name, workflow_shape)
+        self._set_status_results(
+            was_successful=True, result_details=f"Workflow '{workflow_name}' completed successfully."
+        )
 
     def _set_workflow_inputs(self, flow_name: str, workflow_shape: Any) -> None:
         flow = GriptapeNodes.FlowManager().get_flow_by_name(flow_name)

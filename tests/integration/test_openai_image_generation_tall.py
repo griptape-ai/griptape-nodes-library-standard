@@ -1,15 +1,25 @@
 # /// script
 # dependencies = []
 # [tool.griptape-nodes]
-# name = "test_seedvr_video_upscale"
+# name = "test_openai_image_generation_tall"
 # schema_version = "0.16.0"
 # engine_version_created_with = "0.77.3"
 # node_libraries_referenced = [["Griptape Nodes Library", "0.67.0"], ["Griptape Nodes Testing Library", "0.1.0"]]
-# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "LTXTextToVideoGeneration"], ["Griptape Nodes Library", "SeedVRVideoUpscale"], ["Griptape Nodes Library", "ToText"]]
+# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "OpenAiImageGeneration"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
+# is_internal = true
 # ///
+"""Integration test for OpenAiImageGeneration at the new 1024x1792 tall aspect ratio.
+
+Companion to ``test_openai_image_generation_wide.py``: the two tests cover the
+new GPT Image 2 portrait/landscape options added for issue #202 by exercising
+both orientations end-to-end through the proxy.
+"""
+
+import argparse
 import asyncio
+import json
 import logging
 from pathlib import Path
 
@@ -39,23 +49,12 @@ flow_name = GriptapeNodes.handle_request(
 ).flow_name
 
 with GriptapeNodes.ContextManager().flow(flow_name):
-    ltx_node = GriptapeNodes.handle_request(
-        CreateNodeRequest(
-            node_type="LTXTextToVideoGeneration",
-            specific_library_name="Griptape Nodes Library",
-            node_name="LTX Text To Video Generation",
-            metadata={},
-            resolution="resolved",
-            initial_setup=True,
-        )
-    ).node_name
     gen_node = GriptapeNodes.handle_request(
         CreateNodeRequest(
-            node_type="SeedVRVideoUpscale",
+            node_type="OpenAiImageGeneration",
             specific_library_name="Griptape Nodes Library",
-            node_name="SeedVRVideoUpscale",
+            node_name="OpenAiImageGeneration",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -65,7 +64,6 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Library",
             node_name="To Text",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -75,17 +73,38 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             specific_library_name="Griptape Nodes Testing Library",
             node_name="Assert File Exists",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
+    start_node = GriptapeNodes.handle_request(
+        CreateNodeRequest(
+            node_type="StartFlow",
+            specific_library_name="Griptape Nodes Library",
+            node_name="Start Flow",
+            metadata={},
+            initial_setup=True,
+        )
+    ).node_name
+    with GriptapeNodes.ContextManager().node(start_node):
+        GriptapeNodes.handle_request(
+            AddParameterToNodeRequest(
+                parameter_name="prompt",
+                default_value="",
+                tooltip="Prompt",
+                type="str",
+                input_types=["any"],
+                output_type="str",
+                ui_options={"display_name": "Prompt", "multiline": True},
+                parent_container_name="",
+                initial_setup=True,
+            )
+        )
     end_node = GriptapeNodes.handle_request(
         CreateNodeRequest(
             node_type="EndFlow",
             specific_library_name="Griptape Nodes Library",
             node_name="End Flow",
             metadata={},
-            resolution="resolved",
             initial_setup=True,
         )
     ).node_name
@@ -103,29 +122,24 @@ with GriptapeNodes.ContextManager().flow(flow_name):
                 initial_setup=True,
             )
         )
-    with GriptapeNodes.ContextManager().node(ltx_node):
-        GriptapeNodes.handle_request(
-            SetParameterValueRequest(
-                parameter_name="prompt",
-                node_name=ltx_node,
-                value="A ball bouncing",
-                initial_setup=True,
-                is_output=False,
-            )
-        )
+
+    with GriptapeNodes.ContextManager().node(gen_node):
+        GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="model", value="GPT Image 2"))
+        GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="size", value="1024x1792"))
+
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
-            source_node_name=ltx_node,
-            source_parameter_name="video_url",
+            source_node_name=start_node,
+            source_parameter_name="prompt",
             target_node_name=gen_node,
-            target_parameter_name="video_url",
+            target_parameter_name="prompt",
             initial_setup=True,
         )
     )
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
             source_node_name=gen_node,
-            source_parameter_name="video",
+            source_parameter_name="image_url",
             target_node_name=to_text_node,
             target_parameter_name="from",
             initial_setup=True,
@@ -197,5 +211,21 @@ async def aexecute_workflow(
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    workflow_output = execute_workflow(input={})
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--storage-backend", choices=["local", "gtc"], default="local")
+    parser.add_argument("--project-file-path", default=None)
+    parser.add_argument("--json-input", default=None)
+    parser.add_argument("--prompt", default=None)
+    args = parser.parse_args()
+    flow_input = {}
+    if args.json_input is not None:
+        flow_input = json.loads(args.json_input)
+    if args.json_input is None:
+        if "Start Flow" not in flow_input:
+            flow_input["Start Flow"] = {}
+        if args.prompt is not None:
+            flow_input["Start Flow"]["prompt"] = args.prompt
+    workflow_output = execute_workflow(
+        input=flow_input, storage_backend=args.storage_backend, project_file_path=args.project_file_path
+    )
     print(workflow_output)

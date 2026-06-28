@@ -28,15 +28,19 @@ class JsonExtractValue(DataNode):
         )
 
         # Add parameter for the JMESPath expression
-        self.add_parameter(
-            ParameterString(
-                name="path",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                default_value="",
-                tooltip="JMESPath expression to extract data (e.g., 'user.name', 'items[0].title', '[*].assignee' for all assignees)",
-                placeholder_text="ex: user.name, items[0].title, [*].assignee",
-            )
+        path_param = ParameterString(
+            name="path",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            default_value="",
+            tooltip="JMESPath expression to extract data (e.g., 'user.name', 'items[0].title', '[*].assignee' for all assignees)",
+            placeholder_text="ex: user.name, items[0].title, [*].assignee",
         )
+        path_param.set_badge(
+            variant="help",
+            title="JMESPath Syntax",
+            message="`user.name` — nested key\n`items[0].title` — array index\n`[*].assignee` — all assignees\n\n[JMESPath Docs](https://jmespath.org/)",
+        )
+        self.add_parameter(path_param)
 
         self.add_parameter(
             Parameter(

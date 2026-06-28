@@ -1,6 +1,7 @@
 {
   "name": "Griptape Nodes Library",
-  "library_schema_version": "0.6.0",
+  "library_schema_version": "0.10.0",
+  "advanced_library_path": "griptape_nodes_library/griptape_nodes_library_advanced.py",
   "settings": [
     {
       "description": "API keys required by nodes in this library",
@@ -28,8 +29,8 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.68.0",
-    "engine_version": "0.79.0",
+    "library_version": "0.79.0",
+    "engine_version": "0.87.0",
     "tags": [
       "Griptape",
       "AI"
@@ -46,15 +47,860 @@
         "threadpoolctl>=3.0.0",
         "pillow>=11.2.1",
         "asteval>=1.0.8",
-        "color-matcher"
+        "color-matcher",
+        "zstandard>=0.22.0",
+        "lxml>=5.0.0"
       ]
-    }
+    },
+    "declarations": [
+      {
+        "type": "model_catalog",
+        "providers": {
+          "anthropic": {
+            "display_name": "Anthropic",
+            "models": {
+              "gtc_claude_opus_4_7": {
+                "display_name": "Claude Opus 4.7",
+                "family": "Claude 4",
+                "provider_model_id": "claude-opus-4-7",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_claude_sonnet_4_6": {
+                "display_name": "Claude Sonnet 4.6",
+                "family": "Claude 4",
+                "provider_model_id": "claude-sonnet-4-6",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_claude_sonnet_4_5": {
+                "display_name": "Claude Sonnet 4.5",
+                "family": "Claude 4",
+                "provider_model_id": "claude-4-5-sonnet",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_claude_haiku_4_5": {
+                "display_name": "Claude Haiku 4.5",
+                "family": "Claude 4",
+                "provider_model_id": "claude-haiku-4-5",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              }
+            }
+          },
+          "deepseek": {
+            "display_name": "DeepSeek",
+            "models": {
+              "gtc_deepseek_v3": {
+                "display_name": "DeepSeek V3",
+                "family": "DeepSeek V3",
+                "provider_model_id": "deepseek-v3",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_deepseek_r1": {
+                "display_name": "DeepSeek R1",
+                "family": "DeepSeek R1",
+                "provider_model_id": "deepseek.r1-v1",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              }
+            }
+          },
+          "meta": {
+            "display_name": "Meta",
+            "models": {
+              "gtc_llama_3_3_70b": {
+                "display_name": "Llama 3.3 70B Instruct",
+                "family": "Llama 3",
+                "provider_model_id": "llama3-3-70b-instruct-v1",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_llama_3_1_70b": {
+                "display_name": "Llama 3.1 70B Instruct",
+                "family": "Llama 3",
+                "provider_model_id": "llama3-1-70b-instruct-v1",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              }
+            }
+          },
+          "google": {
+            "display_name": "Google",
+            "models": {
+              "gtc_gemini_3_1_pro": {
+                "display_name": "Gemini 3.1 Pro",
+                "family": "Gemini",
+                "provider_model_id": "gemini-3.1-pro",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gemini_3_1_flash_lite": {
+                "display_name": "Gemini 3.1 Flash-Lite",
+                "family": "Gemini",
+                "provider_model_id": "gemini-3.1-flash-lite",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gemini_3_flash": {
+                "display_name": "Gemini 3 Flash",
+                "family": "Gemini",
+                "provider_model_id": "gemini-3-flash",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gemini_2_5_pro": {
+                "display_name": "Gemini 2.5 Pro",
+                "family": "Gemini",
+                "provider_model_id": "gemini-2.5-pro",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gemini_2_5_flash": {
+                "display_name": "Gemini 2.5 Flash",
+                "family": "Gemini",
+                "provider_model_id": "gemini-2.5-flash",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gemini_2_5_flash_lite": {
+                "display_name": "Gemini 2.5 Flash-Lite",
+                "family": "Gemini",
+                "provider_model_id": "gemini-2.5-flash-lite",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gemini_3_pro_image": {
+                "display_name": "Nano Banana Pro",
+                "family": "Gemini Image",
+                "provider_model_id": "gemini-3-pro-image",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gemini_3_1_flash_image": {
+                "display_name": "Nano Banana 2",
+                "family": "Gemini Image",
+                "provider_model_id": "gemini-3.1-flash-image",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_veo_3_1": {
+                "display_name": "Veo 3.1",
+                "family": "Veo",
+                "provider_model_id": "veo-3.1-generate-001",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_veo_3_1_fast": {
+                "display_name": "Veo 3.1 Fast",
+                "family": "Veo",
+                "provider_model_id": "veo-3.1-fast-generate-001",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_veo_3_0": {
+                "display_name": "Veo 3.0",
+                "family": "Veo",
+                "provider_model_id": "veo-3.0-generate-001",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_veo_3_0_fast": {
+                "display_name": "Veo 3.0 Fast",
+                "family": "Veo",
+                "provider_model_id": "veo-3.0-fast-generate-001",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              }
+            }
+          },
+          "openai": {
+            "display_name": "OpenAI",
+            "models": {
+              "gtc_gpt_5_2": {
+                "display_name": "GPT-5.2",
+                "family": "GPT",
+                "provider_model_id": "gpt-5.2",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_5_2_chat": {
+                "display_name": "GPT-5.2 Chat",
+                "family": "GPT",
+                "provider_model_id": "gpt-5.2-chat",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_5_1": {
+                "display_name": "GPT-5.1",
+                "family": "GPT",
+                "provider_model_id": "gpt-5.1",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_5": {
+                "display_name": "GPT-5",
+                "family": "GPT",
+                "provider_model_id": "gpt-5",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_5_mini": {
+                "display_name": "GPT-5 mini",
+                "family": "GPT",
+                "provider_model_id": "gpt-5-mini",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_5_nano": {
+                "display_name": "GPT-5 nano",
+                "family": "GPT",
+                "provider_model_id": "gpt-5-nano",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_4_1": {
+                "display_name": "GPT-4.1",
+                "family": "GPT",
+                "provider_model_id": "gpt-4.1",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_4_1_mini": {
+                "display_name": "GPT-4.1 mini",
+                "family": "GPT",
+                "provider_model_id": "gpt-4.1-mini",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_4_1_nano": {
+                "display_name": "GPT-4.1 nano",
+                "family": "GPT",
+                "provider_model_id": "gpt-4.1-nano",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_4o": {
+                "display_name": "GPT-4o",
+                "family": "GPT",
+                "provider_model_id": "gpt-4o",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_o4_mini": {
+                "display_name": "o4 mini",
+                "family": "o-series",
+                "provider_model_id": "o4-mini",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_o3": {
+                "display_name": "o3",
+                "family": "o-series",
+                "provider_model_id": "o3",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_o3_mini": {
+                "display_name": "o3 mini",
+                "family": "o-series",
+                "provider_model_id": "o3-mini",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_o1": {
+                "display_name": "o1",
+                "family": "o-series",
+                "provider_model_id": "o1",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_image_1": {
+                "display_name": "GPT Image 1",
+                "family": "GPT Image",
+                "provider_model_id": "gpt-image-1",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_image_1_5": {
+                "display_name": "GPT Image 1.5",
+                "family": "GPT Image",
+                "provider_model_id": "gpt-image-1.5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_image_2": {
+                "display_name": "GPT Image 2",
+                "family": "GPT Image",
+                "provider_model_id": "gpt-image-2",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_sora_2": {
+                "display_name": "Sora 2",
+                "family": "Sora",
+                "provider_model_id": "sora-2",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_sora_2_pro": {
+                "display_name": "Sora 2 Pro",
+                "family": "Sora",
+                "provider_model_id": "sora-2-pro",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_whisper_1": {
+                "display_name": "Whisper 1",
+                "family": "Whisper",
+                "provider_model_id": "whisper-1",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              }
+            }
+          },
+          "bytedance_seed": {
+            "display_name": "ByteDance Seed",
+            "models": {
+              "gtc_seedream_5_0_lite": {
+                "display_name": "Seedream 5.0 Lite",
+                "family": "Seedream",
+                "provider_model_id": "seedream-5-0-260128",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedream_4_5": {
+                "display_name": "Seedream 4.5",
+                "family": "Seedream",
+                "provider_model_id": "seedream-4-5-251128",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedream_4_0": {
+                "display_name": "Seedream 4.0",
+                "family": "Seedream",
+                "provider_model_id": "seedream-4-0-250828",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedance_1_5_pro": {
+                "display_name": "Seedance 1.5 Pro",
+                "family": "Seedance",
+                "provider_model_id": "seedance-1-5-pro-251215",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedance_1_0_pro": {
+                "display_name": "Seedance 1.0 Pro",
+                "family": "Seedance",
+                "provider_model_id": "seedance-1-0-pro-250528",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedance_1_0_pro_fast": {
+                "display_name": "Seedance 1.0 Pro Fast",
+                "family": "Seedance",
+                "provider_model_id": "seedance-1-0-pro-fast-251015",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedance_2_0": {
+                "display_name": "Seedance 2.0",
+                "family": "Seedance",
+                "provider_model_id": "dreamina-seedance-2-0-260128",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedance_2_0_fast": {
+                "display_name": "Seedance 2.0 Fast",
+                "family": "Seedance",
+                "provider_model_id": "dreamina-seedance-2-0-fast-260128",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_omnihuman_1_0": {
+                "display_name": "OmniHuman 1.0",
+                "family": "OmniHuman",
+                "provider_model_id": "omnihuman-1-0",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_omnihuman_1_5": {
+                "display_name": "OmniHuman 1.5",
+                "family": "OmniHuman",
+                "provider_model_id": "omnihuman-1-5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_omnihuman_1_5_subject_detection": {
+                "display_name": "OmniHuman 1.5 Subject Detection",
+                "family": "OmniHuman",
+                "provider_model_id": "omnihuman-1-5-subject-detection",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_omnihuman_1_5_subject_recognition": {
+                "display_name": "OmniHuman 1.5 Subject Recognition",
+                "family": "OmniHuman",
+                "provider_model_id": "omnihuman-1-5-subject-recognition",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              }
+            }
+          },
+          "black_forest_labs": {
+            "display_name": "BlackForest Labs",
+            "models": {
+              "gtc_flux_kontext_pro": {
+                "display_name": "FLUX Kontext Pro",
+                "family": "FLUX",
+                "provider_model_id": "flux-kontext-pro",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_flux_2_pro": {
+                "display_name": "FLUX.2 [pro]",
+                "family": "FLUX",
+                "provider_model_id": "flux-2-pro",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_flux_2_flex": {
+                "display_name": "FLUX.2 [flex]",
+                "family": "FLUX",
+                "provider_model_id": "flux-2-flex",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_flux_2_max": {
+                "display_name": "FLUX.2 [max]",
+                "family": "FLUX",
+                "provider_model_id": "flux-2-max",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_flux_2_klein_4b": {
+                "display_name": "FLUX.2 [klein] 4B",
+                "family": "FLUX",
+                "provider_model_id": "flux-2-klein-4b",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_flux_2_klein_9b": {
+                "display_name": "FLUX.2 [klein] 9B",
+                "family": "FLUX",
+                "provider_model_id": "flux-2-klein-9b",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              }
+            }
+          },
+          "xai": {
+            "display_name": "xAI",
+            "models": {
+              "gtc_grok_imagine_image": {
+                "display_name": "Grok Imagine Image",
+                "family": "Grok Imagine",
+                "provider_model_id": "grok-imagine-image",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_grok_imagine_video": {
+                "display_name": "Grok Imagine Video",
+                "family": "Grok Imagine",
+                "provider_model_id": "grok-imagine-video",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              }
+            }
+          },
+          "dashscope": {
+            "display_name": "Alibaba Cloud Model Studio",
+            "models": {
+              "gtc_qwen_image": {
+                "display_name": "Qwen Image",
+                "family": "Qwen",
+                "provider_model_id": "qwen-image",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_qwen_image_plus": {
+                "display_name": "Qwen Image Plus",
+                "family": "Qwen",
+                "provider_model_id": "qwen-image-plus",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_qwen_image_edit": {
+                "display_name": "Qwen Image Edit",
+                "family": "Qwen",
+                "provider_model_id": "qwen-image-edit",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_qwen_image_edit_plus": {
+                "display_name": "Qwen Image Edit Plus",
+                "family": "Qwen",
+                "provider_model_id": "qwen-image-edit-plus",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_qwen_image_edit_plus_2025_10_30": {
+                "display_name": "Qwen Image Edit Plus (2025-10-30)",
+                "family": "Qwen",
+                "provider_model_id": "qwen-image-edit-plus-2025-10-30",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_7_image_pro": {
+                "display_name": "Wan 2.7 Image Pro",
+                "family": "Wan",
+                "provider_model_id": "wan2.7-image-pro",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_7_image": {
+                "display_name": "Wan 2.7 Image",
+                "family": "Wan",
+                "provider_model_id": "wan2.7-image",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_2_animate_mix": {
+                "display_name": "Wan 2.2 Animate Mix",
+                "family": "Wan",
+                "provider_model_id": "wan2.2-animate-mix",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_2_animate_move": {
+                "display_name": "Wan 2.2 Animate Move",
+                "family": "Wan",
+                "provider_model_id": "wan2.2-animate-move",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_6_i2v": {
+                "display_name": "Wan 2.6 I2V",
+                "family": "Wan",
+                "provider_model_id": "wan2.6-i2v",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_5_i2v_preview": {
+                "display_name": "Wan 2.5 I2V Preview",
+                "family": "Wan",
+                "provider_model_id": "wan2.5-i2v-preview",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_2_i2v_flash": {
+                "display_name": "Wan 2.2 I2V Flash",
+                "family": "Wan",
+                "provider_model_id": "wan2.2-i2v-flash",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_2_i2v_plus": {
+                "display_name": "Wan 2.2 I2V Plus",
+                "family": "Wan",
+                "provider_model_id": "wan2.2-i2v-plus",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wanx_2_1_i2v_plus": {
+                "display_name": "Wan 2.1 I2V Plus",
+                "family": "Wan",
+                "provider_model_id": "wanx2.1-i2v-plus",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wanx_2_1_i2v_turbo": {
+                "display_name": "Wan 2.1 I2V Turbo",
+                "family": "Wan",
+                "provider_model_id": "wanx2.1-i2v-turbo",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_6_r2v": {
+                "display_name": "Wan 2.6 R2V",
+                "family": "Wan",
+                "provider_model_id": "wan2.6-r2v",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_6_t2v": {
+                "display_name": "Wan 2.6 T2V",
+                "family": "Wan",
+                "provider_model_id": "wan2.6-t2v",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_5_t2v_preview": {
+                "display_name": "Wan 2.5 T2V Preview",
+                "family": "Wan",
+                "provider_model_id": "wan2.5-t2v-preview",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wan_2_2_t2v_plus": {
+                "display_name": "Wan 2.2 T2V Plus",
+                "family": "Wan",
+                "provider_model_id": "wan2.2-t2v-plus",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wanx_2_1_t2v_turbo": {
+                "display_name": "Wan 2.1 T2V Turbo",
+                "family": "Wan",
+                "provider_model_id": "wanx2.1-t2v-turbo",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_wanx_2_1_t2v_plus": {
+                "display_name": "Wan 2.1 T2V Plus",
+                "family": "Wan",
+                "provider_model_id": "wanx2.1-t2v-plus",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              }
+            }
+          },
+          "topaz": {
+            "display_name": "Topaz Labs",
+            "models": {
+              "gtc_topaz_enhance": {
+                "display_name": "Topaz Enhance",
+                "family": "Topaz",
+                "provider_model_id": "topaz-enhance",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_enhance_generative": {
+                "display_name": "Topaz Enhance Generative",
+                "family": "Topaz",
+                "provider_model_id": "topaz-enhance-generative",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_sharpen": {
+                "display_name": "Topaz Sharpen",
+                "family": "Topaz",
+                "provider_model_id": "topaz-sharpen",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_sharpen_generative": {
+                "display_name": "Topaz Sharpen Generative",
+                "family": "Topaz",
+                "provider_model_id": "topaz-sharpen-generative",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_denoise": {
+                "display_name": "Topaz Denoise",
+                "family": "Topaz",
+                "provider_model_id": "topaz-denoise",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_restore_generative": {
+                "display_name": "Topaz Restore Generative",
+                "family": "Topaz",
+                "provider_model_id": "topaz-restore-generative",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_lighting": {
+                "display_name": "Topaz Lighting",
+                "family": "Topaz",
+                "provider_model_id": "topaz-lighting",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_matting": {
+                "display_name": "Topaz Matting",
+                "family": "Topaz",
+                "provider_model_id": "topaz-matting",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_tool": {
+                "display_name": "Topaz Tool",
+                "family": "Topaz",
+                "provider_model_id": "topaz-tool",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              }
+            }
+          },
+          "world_labs": {
+            "display_name": "World Labs",
+            "models": {
+              "gtc_marble_1_1_plus": {
+                "display_name": "Marble 1.1 Plus",
+                "family": "Marble",
+                "provider_model_id": "marble-1.1-plus",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_marble_1_1": {
+                "display_name": "Marble 1.1",
+                "family": "Marble",
+                "provider_model_id": "marble-1.1",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_marble_1_0": {
+                "display_name": "Marble 1.0",
+                "family": "Marble",
+                "provider_model_id": "marble-1.0",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_marble_1_0_draft": {
+                "display_name": "Marble 1.0 Draft",
+                "family": "Marble",
+                "provider_model_id": "marble-1.0-draft",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              }
+            }
+          },
+          "hyper3d": {
+            "display_name": "Hyper3D Rodin",
+            "models": {
+              "gtc_rodin_gen2": {
+                "display_name": "Rodin Gen-2",
+                "family": "Rodin",
+                "provider_model_id": "rodin-gen2",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              }
+            }
+          },
+          "tripo": {
+            "display_name": "Tripo 3D",
+            "models": {
+              "gtc_tripo_image_to_3d": {
+                "display_name": "Tripo Image to 3D",
+                "family": "Tripo",
+                "provider_model_id": "tripo-image-to-3d",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_tripo_text_to_3d": {
+                "display_name": "Tripo Text to 3D",
+                "family": "Tripo",
+                "provider_model_id": "tripo-text-to-3d",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              }
+            }
+          },
+          "kling": {
+            "display_name": "Kling AI",
+            "models": {
+              "gtc_kling_v3": {
+                "display_name": "Kling v3.0",
+                "family": "Kling",
+                "provider_model_id": "kling-v3",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v2_6": {
+                "display_name": "Kling v2.6",
+                "family": "Kling",
+                "provider_model_id": "kling-v2-6",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v2_5_turbo": {
+                "display_name": "Kling v2.5 Turbo",
+                "family": "Kling",
+                "provider_model_id": "kling-v2-5-turbo",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v2_1_master": {
+                "display_name": "Kling v2.1 Master",
+                "family": "Kling",
+                "provider_model_id": "kling-v2-1-master",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v2_1": {
+                "display_name": "Kling v2.1",
+                "family": "Kling",
+                "provider_model_id": "kling-v2-1",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v2_master": {
+                "display_name": "Kling v2 Master",
+                "family": "Kling",
+                "provider_model_id": "kling-v2-master",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v1_6": {
+                "display_name": "Kling v1.6",
+                "family": "Kling",
+                "provider_model_id": "kling-v1-6",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v1_5": {
+                "display_name": "Kling v1.5",
+                "family": "Kling",
+                "provider_model_id": "kling-v1-5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v1": {
+                "display_name": "Kling v1",
+                "family": "Kling",
+                "provider_model_id": "kling-v1",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_video_o1_omni": {
+                "display_name": "Kling Omni",
+                "family": "Kling",
+                "provider_model_id": "kling-video-o1",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_v3_omni": {
+                "display_name": "Kling v3.0 Omni",
+                "family": "Kling",
+                "provider_model_id": "kling-v3-omni",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_motion_control": {
+                "display_name": "Kling Motion Control",
+                "family": "Kling",
+                "provider_model_id": "kling:motion-control",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_video_extend": {
+                "display_name": "Kling Video Extension",
+                "family": "Kling",
+                "provider_model_id": "kling:video-extend",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              }
+            }
+          },
+          "ltx": {
+            "display_name": "LTX Studio",
+            "models": {
+              "gtc_ltx_2_pro": {
+                "display_name": "LTX 2 Pro",
+                "family": "LTX",
+                "provider_model_id": "ltx-2-pro",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_ltx_2_fast": {
+                "display_name": "LTX 2 Fast",
+                "family": "LTX",
+                "provider_model_id": "ltx-2-fast",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_ltx_2_3_pro": {
+                "display_name": "LTX 2.3 Pro",
+                "family": "LTX",
+                "provider_model_id": "ltx-2-3-pro",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_ltx_2_3_fast": {
+                "display_name": "LTX 2.3 Fast",
+                "family": "LTX",
+                "provider_model_id": "ltx-2-3-fast",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              }
+            }
+          },
+          "minimax": {
+            "display_name": "MiniMax",
+            "models": {
+              "gtc_minimax_hailuo_2_3": {
+                "display_name": "Hailuo 2.3",
+                "family": "Hailuo",
+                "provider_model_id": "MiniMax-Hailuo-2.3",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_minimax_hailuo_02": {
+                "display_name": "Hailuo 02",
+                "family": "Hailuo",
+                "provider_model_id": "MiniMax-Hailuo-02",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_minimax_hailuo_2_3_fast": {
+                "display_name": "Hailuo 2.3 Fast",
+                "family": "Hailuo",
+                "provider_model_id": "MiniMax-Hailuo-2.3-Fast",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              }
+            }
+          },
+          "elevenlabs": {
+            "display_name": "ElevenLabs",
+            "models": {
+              "gtc_eleven_music_1_0": {
+                "display_name": "Eleven Music 1.0",
+                "family": "ElevenLabs",
+                "provider_model_id": "eleven-music-1-0",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_eleven_text_to_sound_v2": {
+                "display_name": "Eleven Text to Sound v2",
+                "family": "ElevenLabs",
+                "provider_model_id": "eleven_text_to_sound_v2",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_eleven_multilingual_v2": {
+                "display_name": "Eleven Multilingual v2",
+                "family": "ElevenLabs",
+                "provider_model_id": "eleven_multilingual_v2",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_eleven_v3": {
+                "display_name": "Eleven v3",
+                "family": "ElevenLabs",
+                "provider_model_id": "eleven_v3",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              }
+            }
+          }
+        }
+      }
+    ]
   },
   "widgets": [
     {
       "name": "KlingMultiShotEditor",
       "path": "griptape_nodes_library/video/widgets/KlingMultiShotEditor.js",
       "description": "Multi-shot editor for Kling v3 customize mode."
+    },
+    {
+      "name": "MaskAdjustmentPreview",
+      "path": "widgets/MaskAdjustmentPreview.js",
+      "description": "Interactive preview for mask adjustment with timeline scrubbing and dilation/erosion controls."
+    },
+    {
+      "name": "SplatViewer",
+      "path": "griptape_nodes_library/splat/widgets/SplatViewer.js",
+      "description": "Inline Gaussian splat viewer \u2014 auto-renders the highest-fidelity wired splat using OrbitControls, matching the vsl-gui SplatComponent appearance."
+    },
+    {
+      "name": "CropImageEditor",
+      "path": "widgets/CropImageEditor/CropImageEditor.js",
+      "description": "Interactive crop editor \u2014 drag to move/resize the crop rectangle, draw a new crop area, with rule-of-thirds guides and live coordinate readout."
+    },
+    {
+      "name": "CropVideoEditor",
+      "path": "widgets/CropVideoEditor/CropVideoEditor.js",
+      "description": "Interactive video crop editor — drag handles on a live video frame with frame scrubber, aspect ratio, resolution, and position presets."
+    },
+    {
+      "name": "SelectFromGrid",
+      "path": "widgets/SelectFromGrid/SelectFromGrid.js",
+      "description": "Interactive grid selector — displays list items as thumbnails (images, video, audio, text) and lets the user click to select one or more."
     }
   ],
   "categories": [
@@ -184,6 +1030,15 @@
       }
     },
     {
+      "video/seedance": {
+        "color": "border-pink-500",
+        "title": "Seedance",
+        "description": "Seedance reference assets and supporting nodes",
+        "icon": "Link",
+        "group": "create"
+      }
+    },
+    {
       "image": {
         "color": "border-purple-500",
         "title": "Image",
@@ -247,6 +1102,33 @@
       }
     },
     {
+      "yaml": {
+        "color": "border-yellow-500",
+        "title": "YAML",
+        "description": "YAML data manipulation nodes",
+        "icon": "indent",
+        "group": "create"
+      }
+    },
+    {
+      "xml": {
+        "color": "border-orange-500",
+        "title": "XML",
+        "description": "XML data manipulation nodes",
+        "icon": "code-xml",
+        "group": "create"
+      }
+    },
+    {
+      "html": {
+        "color": "border-teal-500",
+        "title": "HTML",
+        "description": "HTML data manipulation nodes",
+        "icon": "globe",
+        "group": "create"
+      }
+    },
+    {
       "utils": {
         "color": "border-gray-500",
         "title": "Utility",
@@ -260,6 +1142,15 @@
         "title": "Lists",
         "description": "Nodes to interact with and work with Lists",
         "icon": "List",
+        "group": "create"
+      }
+    },
+    {
+      "sequence": {
+        "color": "border-slate-500",
+        "title": "Sequence",
+        "description": "Nodes for parsing and inspecting numbered file sequences",
+        "icon": "List-Ordered",
         "group": "create"
       }
     },
@@ -307,7 +1198,61 @@
         "description": "Takes a list input and adds a value to the list at the specified index.",
         "display_name": "Add To List",
         "icon": "list-plus",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
+      }
+    },
+    {
+      "class_name": "ScanSequenceNode",
+      "file_path": "griptape_nodes_library/sequence/scan_sequence.py",
+      "metadata": {
+        "category": "sequence",
+        "description": "Scan a path or pattern into a single Sequence covering every present item.",
+        "display_name": "Scan Sequence",
+        "icon": "List-Ordered",
+        "group": "create",
+        "tags": [
+          "sequence",
+          "files",
+          "scan"
+        ]
+      }
+    },
+    {
+      "class_name": "ScanSplitSequenceNode",
+      "file_path": "griptape_nodes_library/sequence/scan_split_sequence.py",
+      "metadata": {
+        "category": "sequence",
+        "description": "Scan a path or pattern into one Sequence per contiguous run of present items.",
+        "display_name": "Scan Split Sequence",
+        "icon": "List-Ordered",
+        "group": "create",
+        "tags": [
+          "sequence",
+          "files",
+          "scan",
+          "split"
+        ]
+      }
+    },
+    {
+      "class_name": "InspectSequenceNode",
+      "file_path": "griptape_nodes_library/sequence/inspect_sequence.py",
+      "metadata": {
+        "category": "sequence",
+        "description": "Inspect a Sequence and surface its template, range, and item paths.",
+        "display_name": "Inspect Sequence",
+        "icon": "Search",
+        "group": "edit",
+        "tags": [
+          "sequence",
+          "files",
+          "inspect"
+        ]
       }
     },
     {
@@ -317,7 +1262,12 @@
         "category": "lists",
         "description": "Takes two lists and combines them into a single flattened list.",
         "display_name": "Combine Lists",
-        "group": "merge"
+        "group": "merge",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
       }
     },
     {
@@ -327,7 +1277,12 @@
         "category": "lists",
         "description": "Takes a list of items and creates a list.",
         "display_name": "Create List",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
       }
     },
     {
@@ -335,10 +1290,17 @@
       "file_path": "griptape_nodes_library/number/create_bool.py",
       "metadata": {
         "category": "number",
-        "description": "Creates a boolean value.",
+        "description": "Create a boolean (true/false) value with an input node.",
         "display_name": "Bool Input",
         "icon": "toggle-right",
-        "group": "general"
+        "group": "general",
+        "tags": [
+          "boolean",
+          "number",
+          "input",
+          "logic",
+          "create"
+        ]
       }
     },
     {
@@ -348,7 +1310,12 @@
         "category": "lists",
         "description": "Creates a list of boolean values.",
         "display_name": "Create Bool List",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "list",
+          "data",
+          "boolean"
+        ]
       }
     },
     {
@@ -358,7 +1325,12 @@
         "category": "lists",
         "description": "Creates a list of float values.",
         "display_name": "Create Float List",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "list",
+          "data",
+          "number"
+        ]
       }
     },
     {
@@ -368,7 +1340,11 @@
         "category": "engine",
         "description": "Dynamically call any RequestPayload in the engine",
         "display_name": "Engine Node",
-        "icon": "Cog"
+        "icon": "Cog",
+        "tags": [
+          "workflow",
+          "engine"
+        ]
       }
     },
     {
@@ -378,7 +1354,19 @@
         "category": "engine",
         "description": "Execute Python code with input variables and capture output",
         "display_name": "Execute Python",
-        "icon": "Code"
+        "icon": "Code",
+        "tags": [
+          "code",
+          "python",
+          "logic",
+          "data"
+        ],
+        "declarations": [
+          {
+            "type": "arbitrary_python_execution",
+            "executes_arbitrary_python": true
+          }
+        ]
       }
     },
     {
@@ -388,7 +1376,12 @@
         "category": "lists",
         "description": "Creates a list of integer values.",
         "display_name": "Create Int List",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "list",
+          "data",
+          "number"
+        ]
       }
     },
     {
@@ -398,7 +1391,12 @@
         "category": "lists",
         "description": "Creates a list of text items",
         "display_name": "Create Text List",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "list",
+          "data",
+          "text"
+        ]
       }
     },
     {
@@ -408,7 +1406,12 @@
         "category": "lists",
         "description": "Creates a list of image items",
         "display_name": "Create Image List",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "list",
+          "data",
+          "image"
+        ]
       }
     },
     {
@@ -418,7 +1421,12 @@
         "category": "lists",
         "description": "Takes a list of items and gets an item at a specified index from the list.",
         "display_name": "Get From List",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
       }
     },
     {
@@ -428,7 +1436,29 @@
         "category": "lists",
         "description": "Lets the user select an  item from a list.",
         "display_name": "Select From List",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
+      }
+    },
+    {
+      "class_name": "SelectFromGrid",
+      "file_path": "griptape_nodes_library/lists/select_from_grid.py",
+      "metadata": {
+        "category": "lists",
+        "description": "Displays list items as a clickable grid of thumbnails. Supports images, video, audio, text, and dicts. Selected items are passed to the output.",
+        "display_name": "Select From Grid",
+        "group": "describe",
+        "tags": [
+          "list",
+          "data",
+          "image",
+          "grid",
+          "select"
+        ]
       }
     },
     {
@@ -438,7 +1468,12 @@
         "category": "lists",
         "description": "Takes a list of items and gets the index of an item in the list.",
         "display_name": "Get Index Of Item",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
       }
     },
     {
@@ -448,7 +1483,12 @@
         "category": "lists",
         "description": "Takes a list of items and checks if the list contains an item.",
         "display_name": "Get List Contains Item",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
       }
     },
     {
@@ -458,7 +1498,12 @@
         "category": "lists",
         "description": "Takes a list of items and checks if the list is empty.",
         "display_name": "Get List Is Empty",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
       }
     },
     {
@@ -468,7 +1513,12 @@
         "category": "lists",
         "description": "Takes a list of items and gets the length of the list.",
         "display_name": "Get List Length",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
       }
     },
     {
@@ -479,7 +1529,12 @@
         "description": "Takes a list input and removes an item from the list at the specified index or by value.",
         "display_name": "Remove From List",
         "icon": "list-minus",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
       }
     },
     {
@@ -490,7 +1545,12 @@
         "description": "Takes a list input and replaces an item either by matching the item or by index.",
         "display_name": "Replace In List",
         "icon": "list-restart",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
       }
     },
     {
@@ -501,7 +1561,12 @@
         "description": "Takes a list input and splits it either by index or by item value, with options for keeping the split item.",
         "display_name": "Split List",
         "icon": "square-split-vertical",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
       }
     },
     {
@@ -512,7 +1577,12 @@
         "description": "Takes a list input and sorts it in ascending or descending order. When the list contains dictionaries, a Key dropdown appears to select which key to sort by.",
         "display_name": "Sort List",
         "icon": "arrow-up-down",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
       }
     },
     {
@@ -523,7 +1593,12 @@
         "description": "Takes a text string and splits it into a list based on a specified delimiter.",
         "display_name": "Split Text",
         "icon": "scissors",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "text",
+          "list",
+          "data"
+        ]
       }
     },
     {
@@ -533,7 +1608,12 @@
         "category": "lists",
         "description": "Takes a list input and creates output parameters for each item in the list",
         "display_name": "Display List",
-        "group": "display"
+        "group": "display",
+        "tags": [
+          "list",
+          "data",
+          "display"
+        ]
       }
     },
     {
@@ -543,7 +1623,13 @@
         "category": "convert",
         "description": "Converts a list to dictionary keys with empty string values",
         "display_name": "List To Dict Keys",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "list",
+          "data",
+          "convert",
+          "dictionary"
+        ]
       }
     },
     {
@@ -553,7 +1639,49 @@
         "category": "agents",
         "description": "Creates an AI agent with conversation memory and the ability to use tools",
         "display_name": "Agent",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "agent",
+          "ai",
+          "llm",
+          "conversation",
+          "memory"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_claude_opus_4_7",
+              "gtc_claude_sonnet_4_6",
+              "gtc_claude_sonnet_4_5",
+              "gtc_claude_haiku_4_5",
+              "gtc_deepseek_v3",
+              "gtc_deepseek_r1",
+              "gtc_llama_3_3_70b",
+              "gtc_llama_3_1_70b",
+              "gtc_gemini_3_1_pro",
+              "gtc_gemini_3_1_flash_lite",
+              "gtc_gemini_3_flash",
+              "gtc_gemini_2_5_pro",
+              "gtc_gemini_2_5_flash",
+              "gtc_gemini_2_5_flash_lite",
+              "gtc_gpt_5_2",
+              "gtc_gpt_5_2_chat",
+              "gtc_gpt_5_1",
+              "gtc_gpt_5",
+              "gtc_gpt_5_mini",
+              "gtc_gpt_5_nano",
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_4o",
+              "gtc_o4_mini",
+              "gtc_o3",
+              "gtc_o3_mini",
+              "gtc_o1"
+            ]
+          }
+        ]
       }
     },
     {
@@ -562,7 +1690,13 @@
       "metadata": {
         "category": "agents/memory",
         "description": "Displays the memory of an agent",
-        "display_name": "Display Agent Memory"
+        "display_name": "Display Agent Memory",
+        "tags": [
+          "agent",
+          "memory",
+          "data",
+          "display"
+        ]
       }
     },
     {
@@ -571,7 +1705,12 @@
       "metadata": {
         "category": "agents/memory",
         "description": "Replaces an item in the memory of an agent",
-        "display_name": "Replace Item In Agent Memory"
+        "display_name": "Replace Item In Agent Memory",
+        "tags": [
+          "agent",
+          "memory",
+          "data"
+        ]
       }
     },
     {
@@ -580,7 +1719,13 @@
       "metadata": {
         "category": "agents/memory",
         "description": "Summarizes an agent's conversation memory and replaces it with a single summary run",
-        "display_name": "Summarize Agent Memory"
+        "display_name": "Summarize Agent Memory",
+        "tags": [
+          "agent",
+          "memory",
+          "text",
+          "summarize"
+        ]
       }
     },
     {
@@ -589,7 +1734,11 @@
       "metadata": {
         "category": "agents/memory",
         "description": "Clears an agent's conversation memory",
-        "display_name": "Clear Agent Memory"
+        "display_name": "Clear Agent Memory",
+        "tags": [
+          "agent",
+          "memory"
+        ]
       }
     },
     {
@@ -600,7 +1749,12 @@
         "description": "Loads audio files into your workflow",
         "display_name": "Load Audio",
         "icon": "file-up",
-        "group": "Input/Output"
+        "group": "Input/Output",
+        "tags": [
+          "audio",
+          "file",
+          "load"
+        ]
       }
     },
     {
@@ -611,7 +1765,12 @@
         "description": "Saves audio files from your workflow",
         "display_name": "Save Audio",
         "icon": "file-down",
-        "group": "Input/Output"
+        "group": "Input/Output",
+        "tags": [
+          "audio",
+          "file",
+          "save"
+        ]
       }
     },
     {
@@ -622,7 +1781,13 @@
         "description": "Can record audio from your microphone.",
         "display_name": "Microphone",
         "icon": "mic",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "audio",
+          "input",
+          "recording",
+          "capture"
+        ]
       }
     },
     {
@@ -630,10 +1795,25 @@
       "file_path": "griptape_nodes_library/audio/transcribe_audio.py",
       "metadata": {
         "category": "audio",
-        "description": "Transcribe audio files into text.\nRequires an OpenAI API key.",
+        "description": "Transcribe audio files into text using OpenAI models via the Griptape Cloud proxy.\nNo OpenAI API key required.",
         "display_name": "Transcribe Audio",
         "icon": "ear",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "audio",
+          "text",
+          "speech-to-text",
+          "openai",
+          "api"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_whisper_1"
+            ]
+          }
+        ]
       }
     },
     {
@@ -644,7 +1824,23 @@
         "description": "Generate speech from text using Eleven Labs text-to-speech models",
         "display_name": "Eleven Labs Text to Speech Generation",
         "icon": "mic",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "audio",
+          "text-to-speech",
+          "elevenlabs",
+          "generation",
+          "api"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_eleven_multilingual_v2",
+              "gtc_eleven_v3"
+            ]
+          }
+        ]
       }
     },
     {
@@ -655,7 +1851,22 @@
         "description": "Generate sound effects from text prompts using Eleven Labs",
         "display_name": "Eleven Labs Sound Effect Generation",
         "icon": "volume-2",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "audio",
+          "sound-effects",
+          "elevenlabs",
+          "generation",
+          "api"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_eleven_text_to_sound_v2"
+            ]
+          }
+        ]
       }
     },
     {
@@ -666,7 +1877,22 @@
         "description": "Generate music from text prompts using Eleven Labs",
         "display_name": "Eleven Labs Music Generation",
         "icon": "music",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "audio",
+          "music",
+          "elevenlabs",
+          "generation",
+          "api"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_eleven_music_1_0"
+            ]
+          }
+        ]
       }
     },
     {
@@ -677,7 +1903,12 @@
         "description": "Combine multiple audio tracks into a single audio file using ffmpeg",
         "display_name": "Combine Audio",
         "icon": "layers",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "audio",
+          "combine",
+          "ffmpeg"
+        ]
       }
     },
     {
@@ -688,7 +1919,12 @@
         "description": "Extract detailed information from an audio file including duration, format, bitrate, and sample rate",
         "display_name": "Audio Details",
         "icon": "info",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "audio",
+          "data",
+          "metadata"
+        ]
       }
     },
     {
@@ -699,7 +1935,12 @@
         "description": "Loads video files into your workflow",
         "display_name": "Load Video",
         "icon": "file-video",
-        "group": "Input/Output"
+        "group": "Input/Output",
+        "tags": [
+          "video",
+          "file",
+          "load"
+        ]
       }
     },
     {
@@ -710,7 +1951,26 @@
         "description": "Display a video",
         "display_name": "Display Video",
         "icon": "monitor-play",
-        "group": "display"
+        "group": "display",
+        "tags": [
+          "video",
+          "display"
+        ]
+      }
+    },
+    {
+      "class_name": "CompareVideos",
+      "file_path": "griptape_nodes_library/video/compare_videos.py",
+      "metadata": {
+        "category": "video",
+        "description": "Can be used to compare two videos",
+        "display_name": "Compare Videos",
+        "icon": "square-split-horizontal",
+        "group": "display",
+        "tags": [
+          "video",
+          "compare"
+        ]
       }
     },
     {
@@ -721,7 +1981,12 @@
         "description": "Resize a video using multiple scaling modes with FFmpeg",
         "display_name": "Resize Video",
         "icon": "picture-in-picture",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "video",
+          "resize",
+          "ffmpeg"
+        ]
       }
     },
     {
@@ -729,10 +1994,15 @@
       "file_path": "griptape_nodes_library/video/crop_video.py",
       "metadata": {
         "category": "video",
-        "description": "Crop a video to a specific size with preview visualization showing the crop area",
+        "description": "Interactively crop a video with drag handles, frame scrubber, and aspect ratio presets",
         "display_name": "Crop Video",
         "icon": "crop",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "video",
+          "crop",
+          "ffmpeg"
+        ]
       }
     },
     {
@@ -743,7 +2013,12 @@
         "description": "Save a video to a file",
         "display_name": "Save Video",
         "icon": "file-down",
-        "group": "Input/Output"
+        "group": "Input/Output",
+        "tags": [
+          "video",
+          "file",
+          "save"
+        ]
       }
     },
     {
@@ -754,7 +2029,12 @@
         "description": "Extract metadata from video files including aspect ratio",
         "display_name": "Get Video Metadata",
         "icon": "info",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "video",
+          "data",
+          "metadata"
+        ]
       }
     },
     {
@@ -762,10 +2042,73 @@
       "file_path": "griptape_nodes_library/video/seedance_video_generation.py",
       "metadata": {
         "category": "video",
-        "description": "Generate a video using the Seedance model via Griptape Cloud Forwarders.",
+        "description": "Generate a video using Seedance 1.x models via Griptape Cloud model proxy.",
         "display_name": "Seedance Video Generation",
         "icon": "Sparkles",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "video",
+          "generation",
+          "ai",
+          "api",
+          "seedance"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_seedance_1_5_pro",
+              "gtc_seedance_1_0_pro",
+              "gtc_seedance_1_0_pro_fast"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "Seedance20VideoGeneration",
+      "file_path": "griptape_nodes_library/video/seedance_2_0_video_generation.py",
+      "metadata": {
+        "category": "video",
+        "description": "Generate a video using Seedance 2.0 models with multimodal support via Griptape Cloud model proxy.",
+        "display_name": "Seedance 2.0 Video Generation",
+        "icon": "Sparkles",
+        "group": "create",
+        "tags": [
+          "video",
+          "generation",
+          "ai",
+          "api",
+          "seedance"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_seedance_2_0",
+              "gtc_seedance_2_0_fast"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "SeedanceHumanReferenceAsset",
+      "file_path": "griptape_nodes_library/video/seedance_human_reference_asset.py",
+      "metadata": {
+        "category": "video/seedance",
+        "description": "Package an image, video, or audio as a private-asset reference for Seedance 2.0 human-reference inputs.",
+        "display_name": "Seedance Human Reference Asset",
+        "icon": "Link",
+        "group": "create",
+        "tags": [
+          "seedance",
+          "reference",
+          "asset",
+          "image",
+          "video",
+          "audio"
+        ]
       }
     },
     {
@@ -776,7 +2119,23 @@
         "description": "Generate videos using Grok models via Griptape model proxy",
         "display_name": "Grok Video Generation",
         "icon": "Sparkles",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "video",
+          "generation",
+          "ai",
+          "api",
+          "grok",
+          "xai"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_grok_imagine_video"
+            ]
+          }
+        ]
       }
     },
     {
@@ -787,7 +2146,23 @@
         "description": "Edit videos using Grok models via Griptape model proxy",
         "display_name": "Grok Video Edit",
         "icon": "Sparkles",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "video",
+          "edit",
+          "ai",
+          "api",
+          "grok",
+          "xai"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_grok_imagine_video"
+            ]
+          }
+        ]
       }
     },
     {
@@ -798,7 +2173,23 @@
         "description": "Identify whether an image contains human, human-like, anthropomorphic, or similar subjects using OmniHuman 1.5",
         "display_name": "OmniHuman Subject Recognition",
         "icon": "User",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "video",
+          "image",
+          "ai",
+          "api",
+          "omnihuman",
+          "recognition"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_omnihuman_1_5_subject_recognition"
+            ]
+          }
+        ]
       }
     },
     {
@@ -809,7 +2200,23 @@
         "description": "Detect and locate subjects in an image, returning masks and bounding boxes using OmniHuman 1.5",
         "display_name": "OmniHuman Subject Detection",
         "icon": "ScanFace",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "video",
+          "image",
+          "ai",
+          "api",
+          "omnihuman",
+          "detection"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_omnihuman_1_5_subject_detection"
+            ]
+          }
+        ]
       }
     },
     {
@@ -820,7 +2227,24 @@
         "description": "Generate talking head videos from image and audio using OmniHuman 1.5",
         "display_name": "OmniHuman Video Generation",
         "icon": "UserCircle",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "video",
+          "generation",
+          "ai",
+          "api",
+          "omnihuman",
+          "talking-head"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_omnihuman_1_0",
+              "gtc_omnihuman_1_5"
+            ]
+          }
+        ]
       }
     },
     {
@@ -831,7 +2255,24 @@
         "description": "Generate a video using the MiniMax Hailuo models via Griptape Cloud model proxy.",
         "display_name": "MiniMax Hailuo Video Generation",
         "icon": "Sparkles",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "video",
+          "generation",
+          "ai",
+          "api",
+          "minimax"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_minimax_hailuo_2_3",
+              "gtc_minimax_hailuo_02",
+              "gtc_minimax_hailuo_2_3_fast"
+            ]
+          }
+        ]
       }
     },
     {
@@ -842,7 +2283,27 @@
         "description": "Generate a video from text using Kling AI models via Griptape Cloud model proxy.",
         "display_name": "Kling Text to Video Generation",
         "icon": "Sparkles",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "video",
+          "text-to-video",
+          "ai",
+          "api",
+          "kling"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_kling_v3",
+              "gtc_kling_v2_6",
+              "gtc_kling_v2_5_turbo",
+              "gtc_kling_v2_1_master",
+              "gtc_kling_v2_master",
+              "gtc_kling_v1_6"
+            ]
+          }
+        ]
       }
     },
     {
@@ -853,7 +2314,30 @@
         "description": "Generate a video from an image using Kling AI models via Griptape Cloud model proxy.",
         "display_name": "Kling Image to Video Generation",
         "icon": "Sparkles",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "video",
+          "image-to-video",
+          "ai",
+          "api",
+          "kling"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_kling_v3",
+              "gtc_kling_v2_6",
+              "gtc_kling_v2_5_turbo",
+              "gtc_kling_v2_1_master",
+              "gtc_kling_v2_1",
+              "gtc_kling_v2_master",
+              "gtc_kling_v1_6",
+              "gtc_kling_v1_5",
+              "gtc_kling_v1"
+            ]
+          }
+        ]
       }
     },
     {
@@ -864,7 +2348,25 @@
         "description": "Generate a video from text using LTX AI models via Griptape Cloud model proxy.",
         "display_name": "LTX Text to Video Generation",
         "icon": "Sparkles",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "video",
+          "text-to-video",
+          "ai",
+          "api",
+          "ltx"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_ltx_2_pro",
+              "gtc_ltx_2_fast",
+              "gtc_ltx_2_3_pro",
+              "gtc_ltx_2_3_fast"
+            ]
+          }
+        ]
       }
     },
     {
@@ -875,7 +2377,25 @@
         "description": "Generate a video from an image using LTX AI models via Griptape Cloud model proxy.",
         "display_name": "LTX Image to Video Generation",
         "icon": "Sparkles",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "video",
+          "image-to-video",
+          "ai",
+          "api",
+          "ltx"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_ltx_2_pro",
+              "gtc_ltx_2_fast",
+              "gtc_ltx_2_3_pro",
+              "gtc_ltx_2_3_fast"
+            ]
+          }
+        ]
       }
     },
     {
@@ -886,7 +2406,23 @@
         "description": "Generate a video from audio using LTX AI models via Griptape Cloud model proxy.",
         "display_name": "LTX Audio to Video Generation",
         "icon": "Sparkles",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "video",
+          "audio-to-video",
+          "ai",
+          "api",
+          "ltx"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_ltx_2_pro",
+              "gtc_ltx_2_3_pro"
+            ]
+          }
+        ]
       }
     },
     {
@@ -897,7 +2433,77 @@
         "description": "Regenerate a segment of an existing video using LTX AI models via Griptape Cloud model proxy.",
         "display_name": "LTX Video Retake",
         "icon": "Sparkles",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "video",
+          "edit",
+          "ai",
+          "api",
+          "ltx"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_ltx_2_pro",
+              "gtc_ltx_2_3_pro"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "LTXVideoExtend",
+      "file_path": "griptape_nodes_library/video/ltx_video_extend.py",
+      "metadata": {
+        "category": "video",
+        "description": "Extend an existing video by 2-20 seconds on the start or end using LTX AI models via Griptape Cloud model proxy.",
+        "display_name": "LTX Video Extend",
+        "icon": "Sparkles",
+        "group": "edit",
+        "tags": [
+          "video",
+          "extend",
+          "ai",
+          "api",
+          "ltx"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_ltx_2_pro",
+              "gtc_ltx_2_3_pro"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "LTXVideoToVideoHDR",
+      "file_path": "griptape_nodes_library/video/ltx_video_to_video_hdr.py",
+      "metadata": {
+        "category": "video",
+        "description": "Upgrade an SDR video to HDR using LTX AI via Griptape Cloud model proxy; returns a ZIP of per-frame EXR images.",
+        "display_name": "LTX Video to Video HDR",
+        "icon": "Sparkles",
+        "group": "edit",
+        "tags": [
+          "video",
+          "hdr",
+          "upscale",
+          "ai",
+          "api",
+          "ltx"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_ltx_2_3_pro"
+            ]
+          }
+        ]
       }
     },
     {
@@ -908,7 +2514,22 @@
         "description": "Extend an existing Kling AI video by 4-5 seconds via Griptape Cloud model proxy.",
         "display_name": "Kling Video Extension",
         "icon": "Sparkles",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "video",
+          "extend",
+          "ai",
+          "api",
+          "kling"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_kling_video_extend"
+            ]
+          }
+        ]
       }
     },
     {
@@ -919,7 +2540,23 @@
         "description": "Generate videos using Kling Omni AI with advanced templating and multi-modal references via Griptape Cloud model proxy.",
         "display_name": "Kling Omni Video Generation",
         "icon": "Sparkles",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "video",
+          "generation",
+          "ai",
+          "api",
+          "kling"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_kling_v3_omni",
+              "gtc_kling_video_o1_omni"
+            ]
+          }
+        ]
       }
     },
     {
@@ -930,7 +2567,22 @@
         "description": "Transfer character actions from a reference video to a reference image using Kling Motion Control via Griptape Cloud model proxy.",
         "display_name": "Kling Motion Control",
         "icon": "Sparkles",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "video",
+          "motion-control",
+          "ai",
+          "api",
+          "kling"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_kling_motion_control"
+            ]
+          }
+        ]
       }
     },
     {
@@ -941,7 +2593,24 @@
         "description": "Generate video using Sora 2 models via Griptape Cloud model proxy",
         "display_name": "Sora 2 Video Generation",
         "icon": "Sparkles",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "video",
+          "generation",
+          "ai",
+          "api",
+          "sora",
+          "openai"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_sora_2",
+              "gtc_sora_2_pro"
+            ]
+          }
+        ]
       }
     },
     {
@@ -952,7 +2621,26 @@
         "description": "Generate videos from text using WAN models via Griptape model proxy",
         "display_name": "WAN Text to Video Generation",
         "icon": "Sparkles",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "video",
+          "text-to-video",
+          "ai",
+          "api",
+          "wan"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_wan_2_6_t2v",
+              "gtc_wan_2_5_t2v_preview",
+              "gtc_wan_2_2_t2v_plus",
+              "gtc_wanx_2_1_t2v_turbo",
+              "gtc_wanx_2_1_t2v_plus"
+            ]
+          }
+        ]
       }
     },
     {
@@ -963,7 +2651,26 @@
         "description": "Generate video using Google Veo 3 models via Griptape Cloud model proxy",
         "display_name": "Veo 3 Video Generation",
         "icon": "Sparkles",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "video",
+          "generation",
+          "ai",
+          "api",
+          "veo",
+          "google"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_veo_3_1",
+              "gtc_veo_3_1_fast",
+              "gtc_veo_3_0",
+              "gtc_veo_3_0_fast"
+            ]
+          }
+        ]
       }
     },
     {
@@ -974,7 +2681,27 @@
         "description": "Generate videos from images using WAN models via Griptape model proxy",
         "display_name": "WAN Image to Video Generation",
         "icon": "Sparkles",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "video",
+          "image-to-video",
+          "ai",
+          "api",
+          "wan"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_wan_2_6_i2v",
+              "gtc_wan_2_5_i2v_preview",
+              "gtc_wan_2_2_i2v_flash",
+              "gtc_wan_2_2_i2v_plus",
+              "gtc_wanx_2_1_i2v_plus",
+              "gtc_wanx_2_1_i2v_turbo"
+            ]
+          }
+        ]
       }
     },
     {
@@ -985,7 +2712,23 @@
         "description": "Generate animated videos from images using WAN Animate models via Griptape model proxy",
         "display_name": "WAN Animate Generation",
         "icon": "Sparkles",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "video",
+          "animation",
+          "ai",
+          "api",
+          "wan"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_wan_2_2_animate_mix",
+              "gtc_wan_2_2_animate_move"
+            ]
+          }
+        ]
       }
     },
     {
@@ -996,18 +2739,22 @@
         "description": "Generate videos from reference videos using WAN models via Griptape model proxy",
         "display_name": "WAN Reference to Video Generation",
         "icon": "Sparkles",
-        "group": "create"
-      }
-    },
-    {
-      "class_name": "SeedVRVideoUpscale",
-      "file_path": "griptape_nodes_library/video/seedvr_video_upscale.py",
-      "metadata": {
-        "category": "video",
-        "description": "Upscale video using SeedVR models via Griptape Cloud model proxy",
-        "display_name": "SeedVR Video Upscale",
-        "icon": "Sparkles",
-        "group": "edit"
+        "group": "create",
+        "tags": [
+          "video",
+          "reference-to-video",
+          "ai",
+          "api",
+          "wan"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_wan_2_6_r2v"
+            ]
+          }
+        ]
       }
     },
     {
@@ -1018,7 +2765,28 @@
         "description": "Split a video into multiple parts using ffmpeg with timecode support",
         "display_name": "Split Video",
         "icon": "scissors",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "video",
+          "split",
+          "ffmpeg"
+        ]
+      }
+    },
+    {
+      "class_name": "TrimVideo",
+      "file_path": "griptape_nodes_library/video/trim_video.py",
+      "metadata": {
+        "category": "video",
+        "description": "Trim a video to a specific start and end point using timecodes or frame ranges",
+        "display_name": "Trim Video",
+        "icon": "scissors",
+        "group": "edit",
+        "tags": [
+          "video",
+          "trim",
+          "ffmpeg"
+        ]
       }
     },
     {
@@ -1029,7 +2797,44 @@
         "description": "Concatenate multiple videos into a single video file with configurable format and codec options",
         "display_name": "Concatenate Videos",
         "icon": "link",
-        "group": "merge"
+        "group": "merge",
+        "tags": [
+          "video",
+          "combine",
+          "ffmpeg"
+        ]
+      }
+    },
+    {
+      "class_name": "CombineMasksVideo",
+      "file_path": "griptape_nodes_library/video/combine_masks_video.py",
+      "metadata": {
+        "category": "video",
+        "description": "Combine a list of mask videos into a single consolidated mask video using pixel-wise max operation per frame",
+        "display_name": "Combine Masks Video",
+        "icon": "layers",
+        "group": "merge",
+        "tags": [
+          "video",
+          "mask",
+          "composite"
+        ]
+      }
+    },
+    {
+      "class_name": "AdjustMaskSize",
+      "file_path": "griptape_nodes_library/video/adjust_mask_size.py",
+      "metadata": {
+        "category": "video",
+        "description": "Adjust mask size in a video by dilating (expanding) or eroding (shrinking) the mask frame-by-frame",
+        "display_name": "Adjust Mask Size",
+        "icon": "maximize-2",
+        "group": "edit",
+        "tags": [
+          "video",
+          "mask",
+          "composite"
+        ]
       }
     },
     {
@@ -1040,7 +2845,12 @@
         "description": "Hold video frames for a specified number of frames, creating a stepped video effect",
         "display_name": "Hold Video Frames",
         "icon": "pause-circle",
-        "group": "effects"
+        "group": "effects",
+        "tags": [
+          "video",
+          "effect",
+          "ffmpeg"
+        ]
       }
     },
     {
@@ -1051,7 +2861,13 @@
         "description": "Add realistic film grain to video using sophisticated noise generation and luminance masking",
         "display_name": "Add Film Grain",
         "icon": "film",
-        "group": "effects"
+        "group": "effects",
+        "tags": [
+          "video",
+          "effect",
+          "grain",
+          "ffmpeg"
+        ]
       }
     },
     {
@@ -1062,7 +2878,13 @@
         "description": "Add a vignette effect to video with adjustable lens angle, center position, and aspect ratio",
         "display_name": "Add Vignette",
         "icon": "circle-dot",
-        "group": "effects"
+        "group": "effects",
+        "tags": [
+          "video",
+          "effect",
+          "vignette",
+          "ffmpeg"
+        ]
       }
     },
     {
@@ -1073,7 +2895,12 @@
         "description": "Reverse video playback with options to reverse, mute, or keep original audio",
         "display_name": "Reverse Video",
         "icon": "rewind",
-        "group": "effects"
+        "group": "effects",
+        "tags": [
+          "video",
+          "effect",
+          "ffmpeg"
+        ]
       }
     },
     {
@@ -1084,7 +2911,28 @@
         "description": "Flip video horizontally, vertically, or both directions",
         "display_name": "Flip Video",
         "icon": "flip-horizontal",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "video",
+          "flip",
+          "ffmpeg"
+        ]
+      }
+    },
+    {
+      "class_name": "BlurVideo",
+      "file_path": "griptape_nodes_library/video/blur_video.py",
+      "metadata": {
+        "category": "video",
+        "description": "Blur a video using fast ffmpeg filters (boxblur, gblur, avgblur) with adjustable radius/sigma",
+        "display_name": "Blur Video",
+        "icon": "droplets",
+        "group": "effects",
+        "tags": [
+          "video",
+          "blur",
+          "ffmpeg"
+        ]
       }
     },
     {
@@ -1095,7 +2943,29 @@
         "description": "Adjust video brightness, contrast, saturation, and gamma with precise controls",
         "display_name": "Adjust Video EQ",
         "icon": "sliders",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "video",
+          "color",
+          "grade",
+          "ffmpeg"
+        ]
+      }
+    },
+    {
+      "class_name": "VideoColorMatch",
+      "file_path": "griptape_nodes_library/video/video_color_match.py",
+      "metadata": {
+        "category": "video",
+        "description": "Transfer color characteristics from a reference image to a video frame-by-frame using color matching algorithms",
+        "display_name": "Video Color Match",
+        "icon": "palette",
+        "group": "edit",
+        "tags": [
+          "video",
+          "color",
+          "composite"
+        ]
       }
     },
     {
@@ -1106,7 +2976,13 @@
         "description": "Add RGB shift (chromatic aberration) effect with individual channel control, static or animated glitches, and VHS-style base effects with configurable noise, chroma shift, blur, and motion trails",
         "display_name": "Add RGB Shift",
         "icon": "palette",
-        "group": "effects"
+        "group": "effects",
+        "tags": [
+          "video",
+          "effect",
+          "glitch",
+          "ffmpeg"
+        ]
       }
     },
     {
@@ -1117,7 +2993,12 @@
         "description": "Change the playback speed of a video using FFmpeg's setpts filter with automatic audio speed adjustment",
         "display_name": "Change Speed",
         "icon": "zap",
-        "group": "effects"
+        "group": "effects",
+        "tags": [
+          "video",
+          "speed",
+          "ffmpeg"
+        ]
       }
     },
     {
@@ -1128,7 +3009,13 @@
         "description": "Add color curves (color grading) effect to video using FFmpeg's curves filter with presets and custom curve options",
         "display_name": "Add Color Curves",
         "icon": "palette",
-        "group": "effects"
+        "group": "effects",
+        "tags": [
+          "video",
+          "color",
+          "grade",
+          "ffmpeg"
+        ]
       }
     },
     {
@@ -1139,7 +3026,12 @@
         "description": "Add an overlay video on top of a base video using FFmpeg's overlay filter with alpha channel control",
         "display_name": "Add Overlay",
         "icon": "layers",
-        "group": "merge"
+        "group": "merge",
+        "tags": [
+          "video",
+          "composite",
+          "ffmpeg"
+        ]
       }
     },
     {
@@ -1161,7 +3053,12 @@
         "description": "Extract the last frame from a video and output it as an Image",
         "display_name": "Extract Last Frame",
         "icon": "film",
-        "group": "edit"
+        "group": "describe",
+        "tags": [
+          "video",
+          "image",
+          "ffmpeg"
+        ]
       }
     },
     {
@@ -1172,7 +3069,12 @@
         "description": "Extract audio from a video and output it as an audio file with configurable format and quality settings",
         "display_name": "Extract Audio",
         "icon": "volume-2",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "video",
+          "audio",
+          "ffmpeg"
+        ]
       }
     },
     {
@@ -1182,7 +3084,13 @@
         "category": "convert",
         "description": "Converts incoming value to a boolean",
         "display_name": "To Bool",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "convert",
+          "boolean",
+          "number",
+          "logic"
+        ]
       }
     },
     {
@@ -1192,7 +3100,12 @@
         "category": "convert",
         "description": "Converts incoming value to a dictionary",
         "display_name": "To Dictionary",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "convert",
+          "data",
+          "dictionary"
+        ]
       }
     },
     {
@@ -1202,7 +3115,13 @@
         "category": "convert",
         "description": "Extract lists of keys and values from a dictionary",
         "display_name": "Dict to List",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "convert",
+          "data",
+          "dictionary",
+          "list"
+        ]
       }
     },
     {
@@ -1213,7 +3132,12 @@
         "description": "Extract values from JSON using JMESPath expressions (e.g., '[*].assignee' for all assignees)",
         "display_name": "JSON Extract Value",
         "icon": "search",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "json",
+          "data",
+          "extract"
+        ]
       }
     },
     {
@@ -1221,10 +3145,16 @@
       "file_path": "griptape_nodes_library/json/json_input.py",
       "metadata": {
         "category": "json",
-        "description": "Create a JSON node from input data",
+        "description": "Create JSON data with an input node.",
         "display_name": "JSON Input",
         "icon": "file-json",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "json",
+          "data",
+          "input",
+          "create"
+        ]
       }
     },
     {
@@ -1235,7 +3165,13 @@
         "description": "Generate a JSON schema from an example JSON structure for Agent nodes. Provide an example of the data structure you want, and this node will automatically create a schema that can be used with Agent nodes for structured output validation.",
         "display_name": "Create Agent Schema",
         "icon": "file-code",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "json",
+          "agent",
+          "schema",
+          "data"
+        ]
       }
     },
     {
@@ -1246,7 +3182,12 @@
         "description": "Display JSON data with automatic repair and formatting",
         "display_name": "Display JSON",
         "icon": "eye",
-        "group": "display"
+        "group": "display",
+        "tags": [
+          "json",
+          "data",
+          "display"
+        ]
       }
     },
     {
@@ -1257,7 +3198,11 @@
         "description": "Replace values in JSON using dot notation paths",
         "display_name": "JSON Replace",
         "icon": "edit",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "json",
+          "data"
+        ]
       }
     },
     {
@@ -1268,7 +3213,189 @@
         "description": "Find items in JSON arrays based on search criteria",
         "display_name": "JSON Find",
         "icon": "search",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "json",
+          "data",
+          "search"
+        ]
+      }
+    },
+    {
+      "class_name": "YamlInput",
+      "file_path": "griptape_nodes_library/yaml/yaml_input.py",
+      "metadata": {
+        "category": "yaml",
+        "description": "Create YAML data with an input node.",
+        "display_name": "YAML Input",
+        "icon": "file-code",
+        "group": "create",
+        "tags": [
+          "yaml",
+          "data",
+          "input",
+          "create"
+        ]
+      }
+    },
+    {
+      "class_name": "DisplayYaml",
+      "file_path": "griptape_nodes_library/yaml/display_yaml.py",
+      "metadata": {
+        "category": "yaml",
+        "description": "Display YAML data with formatting",
+        "display_name": "Display YAML",
+        "icon": "eye",
+        "group": "display",
+        "tags": [
+          "yaml",
+          "data",
+          "display"
+        ]
+      }
+    },
+    {
+      "class_name": "YamlExtractValue",
+      "file_path": "griptape_nodes_library/yaml/yaml_extract_value.py",
+      "metadata": {
+        "category": "yaml",
+        "description": "Extract values from YAML using JMESPath expressions (e.g., '[*].name' for all names)",
+        "display_name": "YAML Extract Value",
+        "icon": "search",
+        "group": "describe",
+        "tags": [
+          "yaml",
+          "data",
+          "extract"
+        ]
+      }
+    },
+    {
+      "class_name": "YamlReplace",
+      "file_path": "griptape_nodes_library/yaml/yaml_replace.py",
+      "metadata": {
+        "category": "yaml",
+        "description": "Replace values in YAML using dot notation paths",
+        "display_name": "YAML Replace",
+        "icon": "pencil",
+        "group": "edit",
+        "tags": [
+          "yaml",
+          "data"
+        ]
+      }
+    },
+    {
+      "class_name": "XmlInput",
+      "file_path": "griptape_nodes_library/xml/xml_input.py",
+      "metadata": {
+        "category": "xml",
+        "description": "Create XML data with an input node.",
+        "display_name": "XML Input",
+        "icon": "file-code",
+        "group": "create",
+        "tags": [
+          "xml",
+          "data",
+          "input",
+          "create"
+        ]
+      }
+    },
+    {
+      "class_name": "DisplayXml",
+      "file_path": "griptape_nodes_library/xml/display_xml.py",
+      "metadata": {
+        "category": "xml",
+        "description": "Display XML data with formatting",
+        "display_name": "Display XML",
+        "icon": "eye",
+        "group": "display",
+        "tags": [
+          "xml",
+          "data",
+          "display"
+        ]
+      }
+    },
+    {
+      "class_name": "XmlExtractValue",
+      "file_path": "griptape_nodes_library/xml/xml_extract_value.py",
+      "metadata": {
+        "category": "xml",
+        "description": "Extract values from XML using XPath expressions (e.g., '//book/title', '//item/@id')",
+        "display_name": "XML Extract Value",
+        "icon": "search",
+        "group": "describe",
+        "tags": [
+          "xml",
+          "data",
+          "extract"
+        ]
+      }
+    },
+    {
+      "class_name": "XmlReplace",
+      "file_path": "griptape_nodes_library/xml/xml_replace.py",
+      "metadata": {
+        "category": "xml",
+        "description": "Replace values in XML using XPath expressions",
+        "display_name": "XML Replace",
+        "icon": "pencil",
+        "group": "edit",
+        "tags": [
+          "xml",
+          "data"
+        ]
+      }
+    },
+    {
+      "class_name": "HtmlInput",
+      "file_path": "griptape_nodes_library/html/html_input.py",
+      "metadata": {
+        "category": "html",
+        "description": "Create HTML data with an input node.",
+        "display_name": "HTML Input",
+        "icon": "file-code",
+        "group": "create",
+        "tags": [
+          "html",
+          "data",
+          "input",
+          "create"
+        ]
+      }
+    },
+    {
+      "class_name": "DisplayHtml",
+      "file_path": "griptape_nodes_library/html/display_html.py",
+      "metadata": {
+        "category": "html",
+        "description": "Display HTML data with formatting",
+        "display_name": "Display HTML",
+        "icon": "eye",
+        "group": "display",
+        "tags": [
+          "html",
+          "data",
+          "display"
+        ]
+      }
+    },
+    {
+      "class_name": "HtmlExtractValue",
+      "file_path": "griptape_nodes_library/html/html_extract_value.py",
+      "metadata": {
+        "category": "html",
+        "description": "Extract values from HTML using XPath expressions (e.g., '//h1', '//a/@href', '//div[@class=\"main\"]')",
+        "display_name": "HTML Extract Value",
+        "icon": "search",
+        "group": "describe",
+        "tags": [
+          "html",
+          "data",
+          "extract"
+        ]
       }
     },
     {
@@ -1278,7 +3405,12 @@
         "category": "convert",
         "description": "Converts incoming value to a float",
         "display_name": "To Float",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "convert",
+          "number",
+          "float"
+        ]
       }
     },
     {
@@ -1289,7 +3421,12 @@
         "category": "convert",
         "description": "Converts incoming value to an integer",
         "display_name": "To Integer",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "convert",
+          "number",
+          "integer"
+        ]
       }
     },
     {
@@ -1299,7 +3436,11 @@
         "category": "convert",
         "description": "Converts incoming value to text",
         "display_name": "To Text",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "convert",
+          "text"
+        ]
       }
     },
     {
@@ -1309,7 +3450,12 @@
         "category": "convert",
         "description": "Converts incoming value to JSON data",
         "display_name": "To JSON",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "convert",
+          "data",
+          "json"
+        ]
       }
     },
     {
@@ -1319,7 +3465,12 @@
         "category": "convert",
         "description": "Converts any input to a list",
         "display_name": "To List",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "convert",
+          "data",
+          "list"
+        ]
       }
     },
     {
@@ -1329,7 +3480,12 @@
         "category": "dict",
         "description": "Creates a dictionary from key-value pairs",
         "display_name": "Create Dictionary",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "data",
+          "dictionary",
+          "create"
+        ]
       }
     },
     {
@@ -1339,7 +3495,12 @@
         "category": "dict",
         "description": "Displays dictionary data",
         "display_name": "Display Dictionary",
-        "group": "display"
+        "group": "display",
+        "tags": [
+          "data",
+          "dictionary",
+          "display"
+        ]
       }
     },
     {
@@ -1349,7 +3510,12 @@
         "category": "dict",
         "description": "Create a Key Value Pair",
         "display_name": "Key Value Pair",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "data",
+          "dictionary",
+          "key-value"
+        ]
       }
     },
     {
@@ -1360,7 +3526,13 @@
         "description": "Loads a dictionary from disk",
         "display_name": "Load Dictionary",
         "group": "Input/Output",
-        "icon": "file-up"
+        "icon": "file-up",
+        "tags": [
+          "data",
+          "dictionary",
+          "file",
+          "load"
+        ]
       }
     },
     {
@@ -1370,7 +3542,12 @@
         "category": "dict",
         "description": "Merges multiple Key/Value Pairs into a single dictionary",
         "display_name": "Merge Key Value Pairs",
-        "group": "merge"
+        "group": "merge",
+        "tags": [
+          "data",
+          "dictionary",
+          "merge"
+        ]
       }
     },
     {
@@ -1381,7 +3558,13 @@
         "description": "Save dictionary data to a file",
         "display_name": "Save Dictionary",
         "icon": "file-down",
-        "group": "Input/Output"
+        "group": "Input/Output",
+        "tags": [
+          "data",
+          "dictionary",
+          "file",
+          "save"
+        ]
       }
     },
     {
@@ -1392,7 +3575,12 @@
         "description": "Get a value from a dictionary by key with optional default handling",
         "display_name": "Get Dictionary Value by Key",
         "icon": "key",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "data",
+          "dictionary",
+          "extract"
+        ]
       }
     },
     {
@@ -1403,7 +3591,12 @@
         "description": "Check if a dictionary has a value for a specific key",
         "display_name": "Has Dictionary Value for Key",
         "icon": "search-check",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "data",
+          "dictionary",
+          "logic"
+        ]
       }
     },
     {
@@ -1417,7 +3610,14 @@
           "dark": "logos/griptape_cloud.svg",
           "light": "logos/griptape_cloud_dark.svg"
         },
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "image",
+          "api",
+          "driver",
+          "config",
+          "griptape"
+        ]
       }
     },
     {
@@ -1431,7 +3631,15 @@
           "dark": "logos/grok.svg",
           "light": "logos/grok_dark.svg"
         },
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "image",
+          "api",
+          "driver",
+          "config",
+          "grok",
+          "xai"
+        ]
       }
     },
     {
@@ -1445,7 +3653,14 @@
           "dark": "logos/openai.svg",
           "light": "logos/openai_dark.svg"
         },
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "image",
+          "api",
+          "driver",
+          "config",
+          "openai"
+        ]
       }
     },
     {
@@ -1458,7 +3673,16 @@
         "icon": {
           "dark": "logos/aws.svg",
           "light": "logos/aws_dark.svg"
-        }
+        },
+        "tags": [
+          "agent",
+          "api",
+          "driver",
+          "config",
+          "aws",
+          "bedrock",
+          "llm"
+        ]
       }
     },
     {
@@ -1471,7 +3695,15 @@
         "icon": {
           "dark": "logos/anthropic.svg",
           "light": "logos/anthropic_dark.svg"
-        }
+        },
+        "tags": [
+          "agent",
+          "api",
+          "driver",
+          "config",
+          "anthropic",
+          "llm"
+        ]
       }
     },
     {
@@ -1481,7 +3713,15 @@
         "category": "agents/prompt_models",
         "description": "Prompt Models available from Cohere",
         "display_name": "Cohere Prompt",
-        "icon": "logos/cohere.svg"
+        "icon": "logos/cohere.svg",
+        "tags": [
+          "agent",
+          "api",
+          "driver",
+          "config",
+          "cohere",
+          "llm"
+        ]
       }
     },
     {
@@ -1494,7 +3734,50 @@
         "icon": {
           "dark": "logos/griptape_cloud.svg",
           "light": "logos/griptape_cloud_dark.svg"
-        }
+        },
+        "tags": [
+          "agent",
+          "api",
+          "driver",
+          "config",
+          "griptape",
+          "llm"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_claude_opus_4_7",
+              "gtc_claude_sonnet_4_6",
+              "gtc_claude_sonnet_4_5",
+              "gtc_claude_haiku_4_5",
+              "gtc_deepseek_v3",
+              "gtc_deepseek_r1",
+              "gtc_llama_3_3_70b",
+              "gtc_llama_3_1_70b",
+              "gtc_gemini_3_1_pro",
+              "gtc_gemini_3_1_flash_lite",
+              "gtc_gemini_3_flash",
+              "gtc_gemini_2_5_pro",
+              "gtc_gemini_2_5_flash",
+              "gtc_gemini_2_5_flash_lite",
+              "gtc_gpt_5_2",
+              "gtc_gpt_5_2_chat",
+              "gtc_gpt_5_1",
+              "gtc_gpt_5",
+              "gtc_gpt_5_mini",
+              "gtc_gpt_5_nano",
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_4o",
+              "gtc_o4_mini",
+              "gtc_o3",
+              "gtc_o3_mini",
+              "gtc_o1"
+            ]
+          }
+        ]
       }
     },
     {
@@ -1507,7 +3790,16 @@
         "icon": {
           "dark": "logos/grok.svg",
           "light": "logos/grok_dark.svg"
-        }
+        },
+        "tags": [
+          "agent",
+          "api",
+          "driver",
+          "config",
+          "grok",
+          "xai",
+          "llm"
+        ]
       }
     },
     {
@@ -1520,7 +3812,15 @@
         "icon": {
           "dark": "logos/groq.svg",
           "light": "logos/groq_dark.svg"
-        }
+        },
+        "tags": [
+          "agent",
+          "api",
+          "driver",
+          "config",
+          "groq",
+          "llm"
+        ]
       }
     },
     {
@@ -1529,7 +3829,16 @@
       "metadata": {
         "category": "agents/prompt_models",
         "description": "Prompt Models available from NVIDIA",
-        "display_name": "NIM Prompt"
+        "display_name": "NIM Prompt",
+        "tags": [
+          "agent",
+          "api",
+          "driver",
+          "config",
+          "nvidia",
+          "nim",
+          "llm"
+        ]
       }
     },
     {
@@ -1542,7 +3851,15 @@
         "icon": {
           "dark": "logos/ollama.svg",
           "light": "logos/ollama_dark.svg"
-        }
+        },
+        "tags": [
+          "agent",
+          "driver",
+          "config",
+          "ollama",
+          "llm",
+          "local"
+        ]
       }
     },
     {
@@ -1555,7 +3872,15 @@
         "icon": {
           "dark": "logos/openai.svg",
           "light": "logos/openai_dark.svg"
-        }
+        },
+        "tags": [
+          "agent",
+          "api",
+          "driver",
+          "config",
+          "openai",
+          "llm"
+        ]
       }
     },
     {
@@ -1565,7 +3890,11 @@
         "category": "image",
         "description": "Display an image",
         "display_name": "Display Image",
-        "group": "display"
+        "group": "display",
+        "tags": [
+          "image",
+          "display"
+        ]
       }
     },
     {
@@ -1575,7 +3904,12 @@
         "category": "image",
         "description": "Can be used to compare two images",
         "display_name": "Compare Images",
-        "group": "display"
+        "icon": "square-split-horizontal",
+        "group": "display",
+        "tags": [
+          "image",
+          "compare"
+        ]
       }
     },
     {
@@ -1585,7 +3919,13 @@
         "category": "image",
         "description": "Can be used to describe an image",
         "display_name": "Describe Image",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "image",
+          "text",
+          "ai",
+          "vision"
+        ]
       }
     },
     {
@@ -1595,7 +3935,12 @@
         "category": "image",
         "description": "Display a mask from an image's alpha channel.",
         "display_name": "Display Mask",
-        "group": "display"
+        "group": "display",
+        "tags": [
+          "image",
+          "mask",
+          "display"
+        ]
       }
     },
     {
@@ -1605,7 +3950,12 @@
         "category": "image",
         "description": "Display a channel from an image's color channels (red, green, blue, or alpha). Defaults to red channel. Outputs to 'output' parameter.",
         "display_name": "Display Channel",
-        "group": "display"
+        "group": "display",
+        "tags": [
+          "image",
+          "display",
+          "channel"
+        ]
       }
     },
     {
@@ -1615,7 +3965,12 @@
         "category": "image",
         "description": "Generates an image using Griptape Cloud, or other provided image generation models",
         "display_name": "Generate Image",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "image",
+          "generation",
+          "ai"
+        ]
       }
     },
     {
@@ -1625,7 +3980,12 @@
         "category": "image",
         "description": "Generate standard color bar test patterns including SMPTE, EBU, ARIB, and various test patterns for video calibration",
         "display_name": "Create Color Bars",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "image",
+          "test-pattern",
+          "color"
+        ]
       }
     },
     {
@@ -1636,7 +3996,24 @@
         "description": "Generate images using Seedream models via Griptape model proxy",
         "display_name": "Seedream Image Generation",
         "group": "create",
-        "icon": "Sparkles"
+        "icon": "Sparkles",
+        "tags": [
+          "image",
+          "generation",
+          "ai",
+          "api",
+          "seedream"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_seedream_5_0_lite",
+              "gtc_seedream_4_5",
+              "gtc_seedream_4_0"
+            ]
+          }
+        ]
       }
     },
     {
@@ -1647,7 +4024,23 @@
         "description": "Generate images using Grok models via Griptape model proxy",
         "display_name": "Grok Image Generation",
         "group": "create",
-        "icon": "Sparkles"
+        "icon": "Sparkles",
+        "tags": [
+          "image",
+          "generation",
+          "ai",
+          "api",
+          "grok",
+          "xai"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_grok_imagine_image"
+            ]
+          }
+        ]
       }
     },
     {
@@ -1658,7 +4051,23 @@
         "description": "Edit images using Grok models via Griptape model proxy",
         "display_name": "Grok Image Edit",
         "group": "edit",
-        "icon": "Sparkles"
+        "icon": "Sparkles",
+        "tags": [
+          "image",
+          "edit",
+          "ai",
+          "api",
+          "grok",
+          "xai"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_grok_imagine_image"
+            ]
+          }
+        ]
       }
     },
     {
@@ -1669,7 +4078,22 @@
         "description": "Generate images using FLUX.1 models via Griptape model proxy",
         "display_name": "FLUX.1 Image Generation",
         "group": "create",
-        "icon": "Zap"
+        "icon": "Zap",
+        "tags": [
+          "image",
+          "generation",
+          "ai",
+          "api",
+          "flux"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_flux_kontext_pro"
+            ]
+          }
+        ]
       }
     },
     {
@@ -1680,7 +4104,26 @@
         "description": "Generate images using FLUX.2 models via Griptape model proxy",
         "display_name": "FLUX.2 Image Generation",
         "group": "create",
-        "icon": "Zap"
+        "icon": "Zap",
+        "tags": [
+          "image",
+          "generation",
+          "ai",
+          "api",
+          "flux"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_flux_2_pro",
+              "gtc_flux_2_flex",
+              "gtc_flux_2_max",
+              "gtc_flux_2_klein_4b",
+              "gtc_flux_2_klein_9b"
+            ]
+          }
+        ]
       }
     },
     {
@@ -1691,7 +4134,23 @@
         "description": "Generate images using Qwen models via Griptape model proxy",
         "display_name": "Qwen Image Generation",
         "group": "create",
-        "icon": "Sparkles"
+        "icon": "Sparkles",
+        "tags": [
+          "image",
+          "generation",
+          "ai",
+          "api",
+          "qwen"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_qwen_image",
+              "gtc_qwen_image_plus"
+            ]
+          }
+        ]
       }
     },
     {
@@ -1702,7 +4161,24 @@
         "description": "Edit images using Qwen image editing models via Griptape model proxy",
         "display_name": "Qwen Image Edit",
         "group": "edit",
-        "icon": "Sparkles"
+        "icon": "Sparkles",
+        "tags": [
+          "image",
+          "edit",
+          "ai",
+          "api",
+          "qwen"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_qwen_image_edit",
+              "gtc_qwen_image_edit_plus",
+              "gtc_qwen_image_edit_plus_2025_10_30"
+            ]
+          }
+        ]
       }
     },
     {
@@ -1713,7 +4189,23 @@
         "description": "Generate images using Wan 2.7 models via Griptape model proxy",
         "display_name": "Wan Image Generation",
         "group": "create",
-        "icon": "Sparkles"
+        "icon": "Sparkles",
+        "tags": [
+          "image",
+          "generation",
+          "ai",
+          "api",
+          "wan"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_wan_2_7_image_pro",
+              "gtc_wan_2_7_image"
+            ]
+          }
+        ]
       }
     },
     {
@@ -1724,7 +4216,13 @@
         "description": "Create an image with text rendered on it",
         "display_name": "Create Text Image",
         "group": "create",
-        "icon": "Type"
+        "icon": "Type",
+        "tags": [
+          "image",
+          "text",
+          "composite",
+          "create"
+        ]
       }
     },
     {
@@ -1735,7 +4233,13 @@
         "description": "Overlay text onto an existing image",
         "display_name": "Add Text to Existing Image",
         "group": "edit",
-        "icon": "Type"
+        "icon": "Type",
+        "tags": [
+          "image",
+          "text",
+          "composite",
+          "overlay"
+        ]
       }
     },
     {
@@ -1746,18 +4250,13 @@
         "description": "Draw bounding boxes on images from coordinate dictionaries. Each box requires x, y, width, and height as integers.",
         "display_name": "Add Bounding Boxes",
         "icon": "square-dashed",
-        "group": "detection"
-      }
-    },
-    {
-      "class_name": "SeedVRImageUpscale",
-      "file_path": "griptape_nodes_library/image/seedvr_image_upscale.py",
-      "metadata": {
-        "category": "image",
-        "description": "Upscales an image using SeedVR models (seedvr-2.0) via Griptape model proxy",
-        "display_name": "SeedVR Image Upscale",
-        "group": "edit",
-        "icon": "Sparkles"
+        "group": "detection",
+        "tags": [
+          "image",
+          "annotation",
+          "composite",
+          "detection"
+        ]
       }
     },
     {
@@ -1767,7 +4266,12 @@
         "category": "image",
         "description": "Invert a mask image.",
         "display_name": "Invert Mask",
-        "group": "mask"
+        "group": "mask",
+        "tags": [
+          "image",
+          "mask",
+          "filter"
+        ]
       }
     },
     {
@@ -1777,7 +4281,12 @@
         "category": "image",
         "description": "Invert a full image (creates a negative).",
         "display_name": "Invert Image",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "image",
+          "filter",
+          "negative"
+        ]
       }
     },
     {
@@ -1787,7 +4296,13 @@
         "category": "image",
         "description": "Replace a specific color in an image with transparency",
         "display_name": "Set Color to Transparent",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "image",
+          "mask",
+          "transparency",
+          "composite"
+        ]
       }
     },
     {
@@ -1798,7 +4313,12 @@
         "description": "Loads an image from disk",
         "display_name": "Load Image",
         "icon": "image-up",
-        "group": "Input/Output"
+        "group": "Input/Output",
+        "tags": [
+          "image",
+          "file",
+          "load"
+        ]
       }
     },
     {
@@ -1809,7 +4329,13 @@
         "description": "Calculate aspect ratios with preset selection and dimension modifiers",
         "display_name": "Aspect Ratio",
         "icon": "ratio",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "image",
+          "data",
+          "logic",
+          "dimensions"
+        ]
       }
     },
     {
@@ -1820,7 +4346,13 @@
         "description": "Pick the candidate aspect ratio whose numeric value is nearest to the target",
         "display_name": "Get Closest Aspect Ratio",
         "icon": "ratio",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "image",
+          "data",
+          "logic",
+          "dimensions"
+        ]
       }
     },
     {
@@ -1831,7 +4363,12 @@
         "description": "Extract detailed information from an image including dimensions, aspect ratio, color space, and format",
         "display_name": "Image Details",
         "icon": "info",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "image",
+          "data",
+          "metadata"
+        ]
       }
     },
     {
@@ -1842,7 +4379,12 @@
         "description": "Crop, zoom, rotate, and pan images with precise control over transformations",
         "display_name": "Crop Image",
         "icon": "crop",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "image",
+          "crop",
+          "transform"
+        ]
       }
     },
     {
@@ -1853,7 +4395,12 @@
         "description": "Bash an image together with lots of other images",
         "display_name": "Image Bash",
         "icon": "images",
-        "group": "merge"
+        "group": "merge",
+        "tags": [
+          "image",
+          "composite",
+          "combine"
+        ]
       }
     },
     {
@@ -1864,7 +4411,13 @@
         "description": "Merge images together in different layouts with grid options and dynamic image input list",
         "display_name": "Merge Images",
         "group": "merge",
-        "icon": "squares-unite"
+        "icon": "squares-unite",
+        "tags": [
+          "image",
+          "composite",
+          "combine",
+          "grid"
+        ]
       }
     },
     {
@@ -1875,7 +4428,12 @@
         "description": "Display multiple images in a grid or masonry layout with customizable styling options",
         "display_name": "Display Image Grid",
         "group": "display",
-        "icon": "grid-3x3"
+        "icon": "grid-3x3",
+        "tags": [
+          "image",
+          "display",
+          "grid"
+        ]
       }
     },
     {
@@ -1885,7 +4443,12 @@
         "category": "image",
         "description": "Apply a mask to an image.",
         "display_name": "Apply Mask",
-        "group": "mask"
+        "group": "mask",
+        "tags": [
+          "image",
+          "mask",
+          "composite"
+        ]
       }
     },
     {
@@ -1895,7 +4458,12 @@
         "category": "image",
         "description": "Combine a list of masks into a single consolidated mask.",
         "display_name": "Combine Masks",
-        "group": "mask"
+        "group": "mask",
+        "tags": [
+          "image",
+          "mask",
+          "composite"
+        ]
       }
     },
     {
@@ -1905,7 +4473,12 @@
         "category": "image",
         "description": "Paint a mask on an image.",
         "display_name": "Paint Mask",
-        "group": "mask"
+        "group": "mask",
+        "tags": [
+          "image",
+          "mask",
+          "draw"
+        ]
       }
     },
     {
@@ -1916,7 +4489,12 @@
         "description": "Extend canvas around an image to fit target aspect ratios or custom dimensions",
         "display_name": "Extend Canvas",
         "icon": "frame",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "image",
+          "composite",
+          "expand"
+        ]
       }
     },
     {
@@ -1927,7 +4505,12 @@
         "description": "Extract key colors from an image",
         "display_name": "Extract Key Colors",
         "icon": "palette",
-        "group": "tasks"
+        "group": "tasks",
+        "tags": [
+          "image",
+          "data",
+          "color"
+        ]
       }
     },
     {
@@ -1938,7 +4521,12 @@
         "description": "Save an image to a file",
         "display_name": "Save Image",
         "icon": "image-down",
-        "group": "Input/Output"
+        "group": "Input/Output",
+        "tags": [
+          "image",
+          "file",
+          "save"
+        ]
       }
     },
     {
@@ -1949,7 +4537,13 @@
         "description": "Write custom key-value metadata to PNG images using PNG text chunks",
         "display_name": "Write Image Metadata",
         "icon": "tag",
-        "group": "Input/Output"
+        "group": "Input/Output",
+        "tags": [
+          "image",
+          "data",
+          "metadata",
+          "file"
+        ]
       }
     },
     {
@@ -1960,7 +4554,13 @@
         "description": "Read custom metadata from images (EXIF for JPEG/TIFF/MPO, PNG chunks for PNG)",
         "display_name": "Read Image Metadata",
         "icon": "tag",
-        "group": "Input/Output"
+        "group": "Input/Output",
+        "tags": [
+          "image",
+          "data",
+          "metadata",
+          "file"
+        ]
       }
     },
     {
@@ -1971,7 +4571,13 @@
         "description": "Capture an image using the device's camera",
         "display_name": "Webcam",
         "icon": "webcam",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "image",
+          "input",
+          "capture",
+          "camera"
+        ]
       }
     },
     {
@@ -1982,7 +4588,12 @@
         "description": "Resize images with separate parameters for target size (pixels) and percentage scale, plus resample filter options. Previously named \"Rescale Image\".",
         "display_name": "Resize Image",
         "icon": "image-upscale",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "image",
+          "resize",
+          "transform"
+        ]
       }
     },
     {
@@ -1993,7 +4604,13 @@
         "description": "Adjust image brightness, contrast, saturation, and gamma using PIL's ImageEnhance with precise controls",
         "display_name": "Adjust Image EQ",
         "icon": "sliders",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "image",
+          "color",
+          "filter",
+          "enhance"
+        ]
       }
     },
     {
@@ -2004,7 +4621,13 @@
         "description": "Adjust image levels similar to Photoshop's levels adjustment with input levels (shadows, midtones, highlights) and output levels",
         "display_name": "Adjust Image Levels",
         "icon": "bar-chart-3",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "image",
+          "color",
+          "filter",
+          "levels"
+        ]
       }
     },
     {
@@ -2015,7 +4638,13 @@
         "description": "Convert image to grayscale",
         "display_name": "Grayscale Image",
         "icon": "image",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "image",
+          "filter",
+          "color",
+          "convert"
+        ]
       }
     },
     {
@@ -2026,7 +4655,12 @@
         "description": "Flip image horizontally, vertically, or both directions",
         "display_name": "Flip Image",
         "icon": "flip-horizontal",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "image",
+          "transform",
+          "flip"
+        ]
       }
     },
     {
@@ -2037,7 +4671,12 @@
         "description": "Apply a Gaussian blur to an image",
         "display_name": "Gaussian Blur Image",
         "icon": "sparkles",
-        "group": "effects"
+        "group": "effects",
+        "tags": [
+          "image",
+          "blur",
+          "filter"
+        ]
       }
     },
     {
@@ -2048,7 +4687,13 @@
         "description": "Apply Gaussian-blurred alpha channel fade to image edges for smooth compositing with configurable fade distance, blur radius, edge shape (square/rounded), and selective edge control",
         "display_name": "Gaussian Edge Fade",
         "icon": "circle-dot-dashed",
-        "group": "mask"
+        "group": "mask",
+        "tags": [
+          "image",
+          "filter",
+          "composite",
+          "fade"
+        ]
       }
     },
     {
@@ -2059,7 +4704,56 @@
         "description": "Generate images using Google models via Griptape model proxy",
         "display_name": "Google Nano Banana Image Generation",
         "group": "create",
-        "icon": "sparkles"
+        "icon": "sparkles",
+        "tags": [
+          "image",
+          "generation",
+          "ai",
+          "api",
+          "google",
+          "nano-banana"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gemini_3_pro_image",
+              "gtc_gemini_3_1_flash_image"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "OpenAiImageGeneration",
+      "file_path": "griptape_nodes_library/image/openai_image_generation.py",
+      "metadata": {
+        "category": "image",
+        "description": "Generate images using OpenAI GPT Image models via Griptape model proxy",
+        "display_name": "OpenAI Image Generation",
+        "group": "create",
+        "icon": "sparkles",
+        "tags": [
+          "image",
+          "generation",
+          "ai",
+          "api",
+          "openai",
+          "gpt-image",
+          "gpt-image-2",
+          "gpt-image-1",
+          "gpt-image-1.5"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_image_1",
+              "gtc_gpt_image_1_5",
+              "gtc_gpt_image_2"
+            ]
+          }
+        ]
       }
     },
     {
@@ -2069,7 +4763,13 @@
         "category": "image",
         "description": "Convert multiple images to a single PDF file",
         "display_name": "Images to PDF",
-        "icon": "file-text"
+        "icon": "file-text",
+        "tags": [
+          "image",
+          "file",
+          "pdf",
+          "convert"
+        ]
       }
     },
     {
@@ -2080,7 +4780,13 @@
         "description": "Apply a beautiful bloom/glow effect to images with configurable intensity and radius for dreamy, ethereal results",
         "display_name": "Bloom Effect",
         "icon": "sparkles",
-        "group": "effects"
+        "group": "effects",
+        "tags": [
+          "image",
+          "effect",
+          "filter",
+          "glow"
+        ]
       }
     },
     {
@@ -2091,7 +4797,13 @@
         "description": "Compose two images using various blend modes with positioning and advanced compositing options for creative image manipulation",
         "display_name": "Image Blend Compositor",
         "icon": "layers",
-        "group": "merge"
+        "group": "merge",
+        "tags": [
+          "image",
+          "composite",
+          "blend",
+          "layer"
+        ]
       }
     },
     {
@@ -2102,7 +4814,12 @@
         "description": "Create a note node to provide helpful context in your workflow",
         "display_name": "Note",
         "icon": "notepad-text",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "workflow",
+          "annotation",
+          "note"
+        ]
       }
     },
     {
@@ -2114,7 +4831,12 @@
         "display_name": "Group",
         "icon": "group",
         "group": "create",
-        "is_node_group": true
+        "is_node_group": true,
+        "tags": [
+          "workflow",
+          "organization",
+          "group"
+        ]
       }
     },
     {
@@ -2125,7 +4847,12 @@
         "description": "Create a color picker node to select a color in various formats",
         "display_name": "ColorPicker",
         "icon": "pipette",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "color",
+          "input",
+          "picker"
+        ]
       }
     },
     {
@@ -2136,7 +4863,12 @@
         "description": "Log messages to the console with configurable log levels, timestamps, and formatting",
         "display_name": "Logger",
         "icon": "file-text",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "debug",
+          "workflow",
+          "log"
+        ]
       }
     },
     {
@@ -2147,7 +4879,11 @@
         "description": "A simple pass-through node that can be used as a visual marker or reroute point",
         "display_name": "Dot",
         "icon": "circle",
-        "group": "misc"
+        "group": "misc",
+        "tags": [
+          "workflow",
+          "execution"
+        ]
       }
     },
     {
@@ -2158,7 +4894,13 @@
         "description": "Askulator was once a humble desk calculator in a university math lab. One day, lightning struck the building during a particularly spicy differential equations final. Now imbued with the power of language... and attitude... it nodes among us. Solving math, interpreting riddles, and offering just a hint of sarcasm.",
         "display_name": "Askulator",
         "icon": "message-circle-question-mark",
-        "group": "tasks"
+        "group": "tasks",
+        "tags": [
+          "text",
+          "agent",
+          "math",
+          "fun"
+        ]
       }
     },
     {
@@ -2166,10 +4908,16 @@
       "file_path": "griptape_nodes_library/number/create_float.py",
       "metadata": {
         "category": "number",
-        "description": "Create a float value",
+        "description": "Create a float (decimal) value with an input node.",
         "display_name": "Float Input",
         "icon": "decimals-arrow-right",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "number",
+          "input",
+          "float",
+          "create"
+        ]
       }
     },
     {
@@ -2177,9 +4925,15 @@
       "file_path": "griptape_nodes_library/number/create_int.py",
       "metadata": {
         "category": "number",
-        "description": "Create an integer value",
+        "description": "Create an integer (whole number) value with an input node.",
         "display_name": "Integer Input",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "number",
+          "input",
+          "integer",
+          "create"
+        ]
       }
     },
     {
@@ -2189,7 +4943,12 @@
         "category": "number",
         "description": "Display a float value",
         "display_name": "Display Float",
-        "group": "display"
+        "group": "display",
+        "tags": [
+          "number",
+          "display",
+          "float"
+        ]
       }
     },
     {
@@ -2199,7 +4958,12 @@
         "category": "number",
         "description": "Display an integer value",
         "display_name": "Display Integer",
-        "group": "display"
+        "group": "display",
+        "tags": [
+          "number",
+          "display",
+          "integer"
+        ]
       }
     },
     {
@@ -2210,7 +4974,12 @@
         "description": "Perform mathematical operations on numbers",
         "display_name": "Math",
         "icon": "calculator",
-        "group": "tasks"
+        "group": "tasks",
+        "tags": [
+          "number",
+          "math",
+          "logic"
+        ]
       }
     },
     {
@@ -2221,7 +4990,13 @@
         "description": "Evaluate mathematical expressions with variable inputs (a-h) and math functions",
         "display_name": "Math Expression",
         "icon": "function-square",
-        "group": "tasks"
+        "group": "tasks",
+        "tags": [
+          "number",
+          "math",
+          "logic",
+          "expression"
+        ]
       }
     },
     {
@@ -2231,7 +5006,13 @@
         "category": "agents/rules",
         "description": "Give an agent a set of rules and behaviors to follow",
         "display_name": "Ruleset",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "agent",
+          "rules",
+          "config",
+          "behavior"
+        ]
       }
     },
     {
@@ -2241,7 +5022,13 @@
         "category": "agents/rules",
         "description": "Combine rulesets to give an agent a more complex set of behaviors",
         "display_name": "Ruleset List",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "agent",
+          "rules",
+          "config",
+          "behavior"
+        ]
       }
     },
     {
@@ -2252,7 +5039,12 @@
         "description": "LoadText node",
         "display_name": "Load Text",
         "icon": "file-text",
-        "group": "Input/Output"
+        "group": "Input/Output",
+        "tags": [
+          "text",
+          "file",
+          "load"
+        ]
       }
     },
     {
@@ -2263,7 +5055,11 @@
         "description": "MergeTexts node",
         "display_name": "Merge Texts",
         "icon": "merge",
-        "group": "merge"
+        "group": "merge",
+        "tags": [
+          "text",
+          "combine"
+        ]
       }
     },
     {
@@ -2274,7 +5070,11 @@
         "description": "Selects a random character, word, sentence, or paragraph from input text, or generates random content if no input is provided.",
         "display_name": "Random Text",
         "icon": "dices",
-        "group": "tasks"
+        "group": "tasks",
+        "tags": [
+          "text",
+          "random"
+        ]
       }
     },
     {
@@ -2285,7 +5085,12 @@
         "description": "Get the date and time",
         "display_name": "Date and Time",
         "icon": "calendar",
-        "group": "tasks"
+        "group": "tasks",
+        "tags": [
+          "text",
+          "utility",
+          "datetime"
+        ]
       }
     },
     {
@@ -2295,7 +5100,11 @@
         "category": "text",
         "description": "DisplayText node",
         "display_name": "Display Text",
-        "group": "display"
+        "group": "display",
+        "tags": [
+          "text",
+          "display"
+        ]
       }
     },
     {
@@ -2305,7 +5114,12 @@
         "category": "text",
         "description": "Displays text as markdown",
         "display_name": "Display Text As Markdown",
-        "group": "display"
+        "group": "display",
+        "tags": [
+          "text",
+          "display",
+          "markdown"
+        ]
       }
     },
     {
@@ -2315,7 +5129,13 @@
         "category": "text",
         "description": "Evaluate the results of some text against some criteria",
         "display_name": "Evaluate Text Result",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "text",
+          "agent",
+          "ai",
+          "evaluation"
+        ]
       }
     },
     {
@@ -2326,7 +5146,12 @@
         "description": "Save text to a file",
         "display_name": "Save Text",
         "icon": "file-down",
-        "group": "Input/Output"
+        "group": "Input/Output",
+        "tags": [
+          "text",
+          "file",
+          "save"
+        ]
       }
     },
     {
@@ -2337,7 +5162,13 @@
         "description": "Scrape the web for information",
         "display_name": "Scrape Web",
         "icon": "globe",
-        "group": "Input/Output"
+        "group": "Input/Output",
+        "tags": [
+          "text",
+          "web",
+          "api",
+          "scrape"
+        ]
       }
     },
     {
@@ -2348,7 +5179,12 @@
         "description": "Perform search and replace operations on text content with support for regex and case sensitivity",
         "display_name": "Search Replace Text",
         "icon": "regex",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "text",
+          "search",
+          "replace"
+        ]
       }
     },
     {
@@ -2359,7 +5195,13 @@
         "description": "Search the web for information",
         "display_name": "Search Web",
         "icon": "binoculars",
-        "group": "Input/Output"
+        "group": "Input/Output",
+        "tags": [
+          "text",
+          "web",
+          "api",
+          "search"
+        ]
       }
     },
     {
@@ -2370,7 +5212,13 @@
         "description": "Summarize text",
         "display_name": "Summarize Text",
         "icon": "message-square-text",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "text",
+          "agent",
+          "ai",
+          "summarize"
+        ]
       }
     },
     {
@@ -2378,10 +5226,15 @@
       "file_path": "griptape_nodes_library/text/create_multiline_text.py",
       "metadata": {
         "category": "text",
-        "description": "TextInput node",
+        "description": "Create text with an input node.",
         "display_name": "Text Input",
         "icon": "text-cursor",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "text",
+          "input",
+          "create"
+        ]
       }
     },
     {
@@ -2391,7 +5244,12 @@
         "category": "text",
         "description": "Validates that file paths exist and are readable Python files",
         "display_name": "File Path Validator",
-        "icon": "file-check"
+        "icon": "file-check",
+        "tags": [
+          "text",
+          "file",
+          "validate"
+        ]
       }
     },
     {
@@ -2402,7 +5260,12 @@
         "description": "Give an agent the ability to use a calculator",
         "display_name": "Calculator",
         "icon": "calculator",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "tool",
+          "math",
+          "agent"
+        ]
       }
     },
     {
@@ -2413,7 +5276,12 @@
         "description": "Give an agent the ability to know what day and time it is",
         "display_name": "Date Time",
         "icon": "calendar",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "tool",
+          "agent",
+          "datetime"
+        ]
       }
     },
     {
@@ -2424,7 +5292,12 @@
         "description": "Give an agent the ability to load files from disk",
         "display_name": "File Manager",
         "icon": "folder",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "tool",
+          "file",
+          "agent"
+        ]
       }
     },
     {
@@ -2435,7 +5308,30 @@
         "description": "Give an agent the ability to use an MCP tool",
         "display_name": "MCP Task",
         "icon": "network",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "tool",
+          "agent",
+          "mcp",
+          "api"
+        ]
+      }
+    },
+    {
+      "class_name": "MCPToolNode",
+      "file_path": "griptape_nodes_library/tools/mcp_tool.py",
+      "metadata": {
+        "category": "agents/tools",
+        "description": "Give an agent the ability to use an MCP tool",
+        "display_name": "MCP Tool",
+        "icon": "network",
+        "group": "create",
+        "tags": [
+          "tool",
+          "agent",
+          "mcp",
+          "api"
+        ]
       }
     },
     {
@@ -2446,7 +5342,12 @@
         "description": "Combine tools to give an agent a more complex set of tools",
         "display_name": "Tool List",
         "icon": "list-check",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "tool",
+          "agent",
+          "list"
+        ]
       }
     },
     {
@@ -2457,7 +5358,14 @@
         "description": "Give an agent the ability to search the web",
         "display_name": "Web Search",
         "icon": "binoculars",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "tool",
+          "web",
+          "agent",
+          "api",
+          "search"
+        ]
       }
     },
     {
@@ -2468,7 +5376,13 @@
         "description": "Give an agent the ability to scrape the web for information",
         "display_name": "Web Scraper",
         "icon": "globe",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "tool",
+          "web",
+          "agent",
+          "scrape"
+        ]
       }
     },
     {
@@ -2478,7 +5392,11 @@
         "category": "workflows",
         "description": "Define the start of a workflow and pass parameters into the flow",
         "display_name": "Start Flow",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "workflow",
+          "execution"
+        ]
       }
     },
     {
@@ -2488,7 +5406,11 @@
         "category": "workflows",
         "description": "Define the end of a workflow and return parameters from the flow",
         "display_name": "End Flow",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "workflow",
+          "execution"
+        ]
       }
     },
     {
@@ -2498,7 +5420,11 @@
         "category": "execution_flow",
         "description": "Provides a node to allow you to redirect a flow, matching inputs and outputs",
         "display_name": "Reroute",
-        "group": "flow control"
+        "group": "flow control",
+        "tags": [
+          "workflow",
+          "execution"
+        ]
       }
     },
     {
@@ -2508,7 +5434,12 @@
         "category": "execution_flow",
         "description": "Create a branching workflow based on whether a value is true or false",
         "display_name": "IfElse",
-        "group": "comparison"
+        "group": "comparison",
+        "tags": [
+          "workflow",
+          "execution",
+          "condition"
+        ]
       }
     },
     {
@@ -2518,7 +5449,12 @@
         "category": "execution_flow",
         "description": "Branch your workflow based on a comparison of two numbers",
         "display_name": "Compare Numbers",
-        "group": "comparison"
+        "group": "comparison",
+        "tags": [
+          "workflow",
+          "execution",
+          "condition"
+        ]
       }
     },
     {
@@ -2528,7 +5464,12 @@
         "category": "execution_flow",
         "description": "Branch your workflow based on a comparison of two strings",
         "display_name": "Compare Strings",
-        "group": "comparison"
+        "group": "comparison",
+        "tags": [
+          "workflow",
+          "execution",
+          "condition"
+        ]
       }
     },
     {
@@ -2538,7 +5479,11 @@
         "category": "execution_flow",
         "description": "Let's you choose which direction you want a flow to go, based on the output of previous nodes",
         "display_name": "Output Selector",
-        "group": "flow control"
+        "group": "flow control",
+        "tags": [
+          "workflow",
+          "execution"
+        ]
       }
     },
     {
@@ -2549,7 +5494,12 @@
         "description": "Start node for iterating through a list of items and running a flow for each one",
         "display_name": "ForEach Start",
         "icon": "list-start",
-        "group": "iteration"
+        "group": "iteration",
+        "tags": [
+          "workflow",
+          "execution",
+          "loop"
+        ]
       }
     },
     {
@@ -2560,7 +5510,12 @@
         "description": "End node that completes a loop iteration and connects back to the ForEachStartNode",
         "display_name": "ForEach End",
         "icon": "list-end",
-        "group": "iteration"
+        "group": "iteration",
+        "tags": [
+          "workflow",
+          "execution",
+          "loop"
+        ]
       }
     },
     {
@@ -2572,7 +5527,29 @@
         "display_name": "ForEach Group",
         "icon": "repeat",
         "group": "iteration",
-        "is_node_group": true
+        "is_node_group": true,
+        "tags": [
+          "workflow",
+          "execution",
+          "loop"
+        ]
+      }
+    },
+    {
+      "class_name": "ForLoopGroupNode",
+      "file_path": "griptape_nodes_library/execution/for_loop_group.py",
+      "metadata": {
+        "category": "execution_flow",
+        "description": "Group node that iterates over a numeric range, executing child nodes for each iteration",
+        "display_name": "For Loop Group",
+        "icon": "repeat",
+        "group": "iteration",
+        "is_node_group": true,
+        "tags": [
+          "workflow",
+          "execution",
+          "loop"
+        ]
       }
     },
     {
@@ -2584,7 +5561,12 @@
         "display_name": "Retry Group",
         "icon": "refresh-cw",
         "group": "iteration",
-        "is_node_group": true
+        "is_node_group": true,
+        "tags": [
+          "workflow",
+          "execution",
+          "retry"
+        ]
       }
     },
     {
@@ -2595,7 +5577,12 @@
         "description": "Groups multiple nodes together for organization and parallel execution",
         "display_name": "Subflow Node Group",
         "icon": "Layers",
-        "is_node_group": true
+        "is_node_group": true,
+        "tags": [
+          "workflow",
+          "execution",
+          "subflow"
+        ]
       }
     },
     {
@@ -2605,7 +5592,12 @@
         "category": "execution_flow",
         "description": "Selects and executes a registered workflow, routing inputs and outputs via the workflow shape",
         "display_name": "Workflow Node",
-        "icon": "Layers"
+        "icon": "Layers",
+        "tags": [
+          "workflow",
+          "execution",
+          "subflow"
+        ]
       }
     },
     {
@@ -2615,7 +5607,12 @@
         "category": "convert",
         "description": "Convert an agent into a tool that another agent can use",
         "display_name": "Agent To Tool",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "convert",
+          "agent",
+          "tool"
+        ]
       }
     },
     {
@@ -2625,7 +5622,13 @@
         "category": "3D",
         "description": "Loads a GLTF file into your workflow",
         "display_name": "Load GLTF",
-        "group": "Input/Output"
+        "group": "Input/Output",
+        "tags": [
+          "3d",
+          "file",
+          "load",
+          "gltf"
+        ]
       }
     },
     {
@@ -2635,7 +5638,12 @@
         "category": "3D",
         "description": "Loads a 3D file into your workflow",
         "display_name": "Load 3D",
-        "group": "Input/Output"
+        "group": "Input/Output",
+        "tags": [
+          "3d",
+          "file",
+          "load"
+        ]
       }
     },
     {
@@ -2645,7 +5653,72 @@
         "category": "3D",
         "description": "Generate 3D models using Rodin Gen-2 via Griptape model proxy",
         "display_name": "Rodin 3D Generation",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "3d",
+          "generation",
+          "ai",
+          "api",
+          "rodin"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_rodin_gen2"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "TripoTextTo3DGeneration",
+      "file_path": "griptape_nodes_library/three_d/tripo_text_to_3d_generation.py",
+      "metadata": {
+        "category": "3D",
+        "description": "Generate 3D models from a text prompt using Tripo via Griptape model proxy",
+        "display_name": "Tripo Text to 3D",
+        "group": "create",
+        "tags": [
+          "3d",
+          "text-to-3d",
+          "ai",
+          "api",
+          "tripo"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_tripo_text_to_3d"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "TripoImageTo3DGeneration",
+      "file_path": "griptape_nodes_library/three_d/tripo_image_to_3d_generation.py",
+      "metadata": {
+        "category": "3D",
+        "description": "Generate 3D models from a reference image using Tripo via Griptape model proxy",
+        "display_name": "Tripo Image to 3D",
+        "group": "create",
+        "tags": [
+          "3d",
+          "image-to-3d",
+          "ai",
+          "api",
+          "tripo"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_tripo_image_to_3d"
+            ]
+          }
+        ]
       }
     },
     {
@@ -2655,7 +5728,43 @@
         "category": "Splat",
         "description": "Generate 3D worlds using World Labs Marble via Griptape model proxy",
         "display_name": "World Labs World Generation",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "splat",
+          "3d",
+          "generation",
+          "ai",
+          "api",
+          "world-labs"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_marble_1_1_plus",
+              "gtc_marble_1_1",
+              "gtc_marble_1_0",
+              "gtc_marble_1_0_draft"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "ConvertSpzToPly",
+      "file_path": "griptape_nodes_library/splat/convert_spz_to_ply.py",
+      "metadata": {
+        "category": "Splat",
+        "description": "Convert an SPZ Gaussian splat to PLY format for use in Blender, Unreal, and other 3D tools",
+        "display_name": "Convert SPZ to PLY",
+        "icon": "box",
+        "group": "Transform",
+        "tags": [
+          "splat",
+          "3d",
+          "convert",
+          "file"
+        ]
       }
     },
     {
@@ -2666,7 +5775,12 @@
         "description": "Start node for iterating through a range of numbers with a specified step value",
         "display_name": "For Loop Start",
         "icon": "repeat",
-        "group": "iteration"
+        "group": "iteration",
+        "tags": [
+          "workflow",
+          "execution",
+          "loop"
+        ]
       }
     },
     {
@@ -2677,7 +5791,12 @@
         "description": "End node that completes a loop iteration and connects back to the ForLoopStartNode",
         "display_name": "For Loop End",
         "icon": "repeat",
-        "group": "iteration"
+        "group": "iteration",
+        "tags": [
+          "workflow",
+          "execution",
+          "loop"
+        ]
       }
     },
     {
@@ -2688,7 +5807,11 @@
         "description": "Cancel the workflow execution with a custom reason",
         "display_name": "Cancel Workflow",
         "icon": "x-circle",
-        "group": "flow control"
+        "group": "flow control",
+        "tags": [
+          "workflow",
+          "execution"
+        ]
       }
     },
     {
@@ -2699,7 +5822,12 @@
         "description": "Create or update a variable with a specified name, type, and value. Creates new variables or updates existing ones intelligently.",
         "display_name": "Create Variable",
         "icon": "PlusCircle",
-        "group": "create"
+        "group": "create",
+        "tags": [
+          "data",
+          "variable",
+          "workflow"
+        ]
       }
     },
     {
@@ -2710,7 +5838,12 @@
         "description": "Retrieve the value of an existing variable",
         "display_name": "Get Variable",
         "icon": "ArrowDown",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "data",
+          "variable",
+          "workflow"
+        ]
       }
     },
     {
@@ -2718,10 +5851,15 @@
       "file_path": "griptape_nodes_library/variables/set_variable.py",
       "metadata": {
         "category": "variables",
-        "description": "Set the value of an existing variable",
+        "description": "Set the value of a variable, creating it if it does not exist",
         "display_name": "Set Variable",
         "icon": "ArrowUp",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "data",
+          "variable",
+          "workflow"
+        ]
       }
     },
     {
@@ -2732,7 +5870,13 @@
         "description": "Check whether a variable exists",
         "display_name": "Has Variable",
         "icon": "QuestionMarkCircle",
-        "group": "describe"
+        "group": "describe",
+        "tags": [
+          "data",
+          "variable",
+          "workflow",
+          "logic"
+        ]
       }
     },
     {
@@ -2742,7 +5886,12 @@
         "category": "filesystem",
         "description": "Configure file save paths using situation templates and macro expansion. Outputs a File object with an unresolved macro path.",
         "display_name": "File Output Settings",
-        "icon": "FolderCog"
+        "icon": "FolderCog",
+        "tags": [
+          "file",
+          "workflow",
+          "config"
+        ]
       }
     },
     {
@@ -2752,7 +5901,12 @@
         "category": "files",
         "description": "List files in a directory with optional pattern matching and recursive search",
         "display_name": "List Files",
-        "icon": "FolderOpen"
+        "icon": "FolderOpen",
+        "tags": [
+          "file",
+          "data",
+          "list"
+        ]
       }
     },
     {
@@ -2762,7 +5916,10 @@
         "category": "files",
         "description": "Delete a file or directory from the file system. Directories are deleted with all their contents.",
         "display_name": "Delete File",
-        "icon": "Trash"
+        "icon": "Trash",
+        "tags": [
+          "file"
+        ]
       }
     },
     {
@@ -2772,7 +5929,11 @@
         "category": "files",
         "description": "Extract path components from a file path (filename, stem, extension, parent, query params)",
         "display_name": "FilePath Components",
-        "icon": "FileText"
+        "icon": "FileText",
+        "tags": [
+          "file",
+          "path"
+        ]
       }
     },
     {
@@ -2782,7 +5943,11 @@
         "category": "files",
         "description": "Join multiple path components together to create a file path using appropriate path separators",
         "display_name": "Path Join",
-        "icon": "Combine"
+        "icon": "Combine",
+        "tags": [
+          "file",
+          "path"
+        ]
       }
     },
     {
@@ -2793,7 +5958,12 @@
         "description": "Load a local PDF file and extract its text content, with outputs for the full joined text, a per-page list, and page count.",
         "display_name": "Load PDF",
         "icon": "file-text",
-        "group": "Input/Output"
+        "group": "Input/Output",
+        "tags": [
+          "file",
+          "text",
+          "pdf"
+        ]
       }
     },
     {
@@ -2803,7 +5973,11 @@
         "category": "files",
         "description": "Add or replace a file extension on a path, with option to strip query parameters",
         "display_name": "Path Add Extension",
-        "icon": "FileText"
+        "icon": "FileText",
+        "tags": [
+          "file",
+          "path"
+        ]
       }
     },
     {
@@ -2813,7 +5987,23 @@
         "category": "files",
         "description": "Copy files and/or directories from source to destination. Supports glob patterns and multiple sources.",
         "display_name": "Copy Files",
-        "icon": "Copy"
+        "icon": "Copy",
+        "tags": [
+          "file"
+        ]
+      }
+    },
+    {
+      "class_name": "CreateFolder",
+      "file_path": "griptape_nodes_library/files/create_folder.py",
+      "metadata": {
+        "category": "files",
+        "description": "Create a folder at a specified path with optional parent directory creation.",
+        "display_name": "Create Folder",
+        "icon": "FolderPlus",
+        "tags": [
+          "file"
+        ]
       }
     },
     {
@@ -2823,7 +6013,10 @@
         "category": "files",
         "description": "Move files and/or directories from source to destination. Implemented as copy + delete. Supports glob patterns and multiple sources.",
         "display_name": "Move Files",
-        "icon": "ArrowRight"
+        "icon": "ArrowRight",
+        "tags": [
+          "file"
+        ]
       }
     },
     {
@@ -2833,7 +6026,10 @@
         "category": "files",
         "description": "Rename a file or directory. Can rename to a new name in the same directory or to a full path.",
         "display_name": "Rename File",
-        "icon": "Edit"
+        "icon": "Edit",
+        "tags": [
+          "file"
+        ]
       }
     },
     {
@@ -2843,7 +6039,11 @@
         "category": "files",
         "description": "Get the system temporary directory path. Works cross-platform (Windows, macOS, Linux).",
         "display_name": "Temp Directory",
-        "icon": "Folder"
+        "icon": "Folder",
+        "tags": [
+          "file",
+          "temp"
+        ]
       }
     },
     {
@@ -2853,7 +6053,11 @@
         "category": "files",
         "description": "Generate a unique temporary filename using Python's tempfile module. Supports optional directory, suffix, prefix, and can return absolute path or just filename.",
         "display_name": "Temp Filename",
-        "icon": "FileText"
+        "icon": "FileText",
+        "tags": [
+          "file",
+          "temp"
+        ]
       }
     },
     {
@@ -2863,7 +6067,11 @@
         "category": "files",
         "description": "Select a file or directory from the project and resolve it to a macro path.",
         "display_name": "Select From Project",
-        "icon": "FolderOpen"
+        "icon": "FolderOpen",
+        "tags": [
+          "file",
+          "project"
+        ]
       }
     },
     {
@@ -2873,7 +6081,12 @@
         "category": "files",
         "description": "Save a file to the project using situation-based path resolution.",
         "display_name": "Save To Project",
-        "icon": "Save"
+        "icon": "Save",
+        "tags": [
+          "file",
+          "project",
+          "save"
+        ]
       }
     },
     {
@@ -2884,7 +6097,30 @@
         "description": "Enhance images using Topaz Labs models via Griptape model proxy. Supports enhance, denoise, and sharpen operations.",
         "display_name": "Topaz Image Enhance",
         "icon": "Sparkles",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "image",
+          "enhance",
+          "ai",
+          "api",
+          "topaz"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_topaz_enhance",
+              "gtc_topaz_enhance_generative",
+              "gtc_topaz_sharpen",
+              "gtc_topaz_sharpen_generative",
+              "gtc_topaz_denoise",
+              "gtc_topaz_restore_generative",
+              "gtc_topaz_lighting",
+              "gtc_topaz_matting",
+              "gtc_topaz_tool"
+            ]
+          }
+        ]
       }
     },
     {
@@ -2895,7 +6131,12 @@
         "description": "Split a grid image into individual images (auto or manual grid detection).",
         "display_name": "Image Grid Splitter",
         "icon": "grid-3x3",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "image",
+          "grid",
+          "split"
+        ]
       }
     },
     {
@@ -2906,7 +6147,30 @@
         "description": "Transfer color characteristics from a reference image to a target image using various color matching algorithms.",
         "display_name": "Color Match",
         "icon": "palette",
-        "group": "edit"
+        "group": "edit",
+        "tags": [
+          "image",
+          "color",
+          "filter",
+          "grade"
+        ]
+      }
+    },
+    {
+      "class_name": "LoadSplat",
+      "file_path": "griptape_nodes_library/splat/load_splat.py",
+      "metadata": {
+        "category": "Splat",
+        "description": "Load a Gaussian splat from a URL or local file with an inline 3D viewer",
+        "display_name": "Load Splat",
+        "icon": "box",
+        "group": "Input/Output",
+        "tags": [
+          "splat",
+          "3d",
+          "load",
+          "file"
+        ]
       }
     }
   ],

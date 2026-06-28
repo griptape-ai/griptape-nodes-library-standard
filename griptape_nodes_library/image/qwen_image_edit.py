@@ -121,6 +121,7 @@ class QwenImageEdit(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={
                     "display_name": "Images to Edit",
+                    "hide_property": True,
                 },
             )
         )
@@ -152,16 +153,6 @@ class QwenImageEdit(GriptapeProxyNode):
         self.add_node_element(generation_settings_group)
 
         # OUTPUTS
-        self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Generation ID from the API",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide_property=True,
-                hide=True,
-            )
-        )
-
         self.add_parameter(
             ParameterDict(
                 name="provider_response",

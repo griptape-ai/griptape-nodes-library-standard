@@ -3,7 +3,6 @@
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 from typing import Any
 
 from griptape_nodes.common.macro_parser import ParsedMacro
@@ -85,17 +84,17 @@ class ClassifiedPath:
 class FileOutputSettings(BaseNode):
     """Configure file save paths using situation templates and macro expansion.
 
-    Stores a FileDestination internally (accessible via the file_destination property)
-    and outputs a resolved path string on the file_destination parameter for display.
-    Downstream nodes retrieve the FileDestination directly via the FileDestinationProvider
-    protocol rather than deserializing it from the wire.
+    Exposes a FileDestination via the file_destination property (computed on
+    demand from current parameter values) and outputs a resolved path string
+    on the file_destination parameter for display. Downstream nodes retrieve
+    the FileDestination directly via the FileDestinationProvider protocol
+    rather than deserializing it from the wire.
     """
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
         self._updating_lock = False
-        self._file_destination: FileDestination | None = None
 
         self._available_situations = self._fetch_available_situations()
         self._create_parameters()
@@ -103,8 +102,39 @@ class FileOutputSettings(BaseNode):
 
     @property
     def file_destination(self) -> FileDestination | None:
-        """The FileDestination built from the current path configuration."""
-        return self._file_destination
+        """Build a FileDestination from current parameter values.
+
+        Computed fresh on every access rather than cached so consumers always
+        see the latest configuration without depending on this node having
+        been processed in the current session (a cached attribute would be
+        None until `process()` ran, which breaks downstream reads on a
+        freshly loaded workflow).
+        """
+        file_name_value = self.get_parameter_value(self.filename.name)
+        if not file_name_value:
+            return None
+
+        classified = self._classify_path(file_name_value)
+        if isinstance(classified, str):
+            return None
+
+        if classified.scenario == PathResolutionScenario.RELATIVE_PATH:
+            macro_template = self.get_parameter_value(self.macro.name)
+            if not macro_template:
+                return None
+            return self._build_file_from_template(macro_template, self._build_relative_variables(classified))
+
+        if classified.scenario == PathResolutionScenario.ABSOLUTE_PATH_INSIDE_PROJECT:
+            return self._build_file_from_template(classified.normalized_path, {})
+
+        create_dirs = bool(self.get_parameter_value(self.auto_create_path.name))
+        coerce_ext = bool(self.get_parameter_value(self.coerce_extension_to_match_bytes.name))
+        return FileDestination(
+            classified.normalized_path,
+            existing_file_policy=self._get_file_policy(),
+            create_parents=create_dirs,
+            coerce_extension_to_match_bytes=coerce_ext,
+        )
 
     def _fetch_available_situations(self) -> list[str]:
         """Fetch available situations from the project manager."""
@@ -150,6 +180,18 @@ class FileOutputSettings(BaseNode):
                 name="auto_create_path",
                 default_value=True,
                 tooltip="Whether to create parent directories automatically when saving",
+                allowed_modes={ParameterMode.PROPERTY},
+                settable=True,
+            )
+
+            self.coerce_extension_to_match_bytes = ParameterBool(
+                name="coerce_extension_to_match_bytes",
+                default_value=True,
+                tooltip=(
+                    "When the bytes being saved don't match the file extension, rewrite "
+                    "the extension to match (e.g. JPEG bytes saved as 'image.png' become "
+                    "'image.jpeg'). Disable for strict validation that errors on mismatch."
+                ),
                 allowed_modes={ParameterMode.PROPERTY},
                 settable=True,
             )
@@ -305,9 +347,30 @@ class FileOutputSettings(BaseNode):
         """
         macro_path = MacroPath(ParsedMacro(macro_template), variables)
         create_dirs = bool(self.get_parameter_value(self.auto_create_path.name))
+        coerce_ext = bool(self.get_parameter_value(self.coerce_extension_to_match_bytes.name))
         return ProjectFileDestination(
-            macro_path, existing_file_policy=self._get_file_policy(), create_parents=create_dirs
+            macro_path,
+            existing_file_policy=self._get_file_policy(),
+            create_parents=create_dirs,
+            coerce_extension_to_match_bytes=coerce_ext,
         )
+
+    def _build_relative_variables(self, classified: ClassifiedPath) -> dict[str, str | int]:
+        """Build the macro variable dict used for the relative-path scenario."""
+        parts = FilenameParts.from_filename(classified.normalized_path)
+        variables: dict[str, str | int] = {
+            "file_name_base": parts.stem,
+            "file_extension": parts.extension,
+            "node_name": self._get_target_node_name(),
+        }
+        # When the filename carries a relative directory component (e.g.
+        # "foo/image.png"), populate sub_dirs so situations with {sub_dirs?:/}
+        # route the file into that sub-directory. Matches the behavior of
+        # ProjectFileDestination.from_situation in the engine.
+        directory_str = str(parts.directory)
+        if directory_str and directory_str != "." and not parts.directory.is_absolute():
+            variables["sub_dirs"] = directory_str
+        return variables
 
     def _handle_relative_path(self, classified: ClassifiedPath) -> None:
         """Handle relative path: apply situation template macro."""
@@ -316,14 +379,7 @@ class FileOutputSettings(BaseNode):
             logger.error("%s: No macro template available", self.name)
             return
 
-        filename_path = Path(classified.normalized_path)
-        parts = FilenameParts.from_filename(filename_path.name)
-
-        variables: dict[str, str | int] = {
-            "file_name_base": parts.stem,
-            "file_extension": parts.extension,
-            "node_name": self._get_target_node_name(),
-        }
+        variables = self._build_relative_variables(classified)
 
         parsed_macro = ParsedMacro(macro_template)
         resolve_result = GriptapeNodes.handle_request(
@@ -335,7 +391,6 @@ class FileOutputSettings(BaseNode):
             return
 
         resolved_path_str = str(resolve_result.absolute_path)
-        self._file_destination = self._build_file_from_template(macro_template, variables)
         self.set_parameter_value(self.file_destination_parameter.name, resolved_path_str)
         self.absolute_path_warning.ui_options = {"hide": True}
 
@@ -351,19 +406,12 @@ class FileOutputSettings(BaseNode):
             return
 
         resolved_path_str = str(resolve_result.absolute_path)
-        self._file_destination = self._build_file_from_template(macro_template, {})
         self.set_parameter_value(self.file_destination_parameter.name, resolved_path_str)
         self.absolute_path_warning.ui_options = {"hide": True}
 
     def _handle_absolute_path_outside_project(self, classified: ClassifiedPath) -> None:
         """Handle absolute path outside project: use directly as a literal path."""
         absolute_path = classified.normalized_path
-        create_dirs = bool(self.get_parameter_value(self.auto_create_path.name))
-        self._file_destination = FileDestination(
-            absolute_path,
-            existing_file_policy=self._get_file_policy(),
-            create_parents=create_dirs,
-        )
         self.set_parameter_value(self.file_destination_parameter.name, absolute_path)
         self.absolute_path_warning.ui_options = {"hide": False}
 
@@ -414,6 +462,7 @@ class FileOutputSettings(BaseNode):
             self.macro.name,
             self.if_file_exists.name,
             self.auto_create_path.name,
+            self.coerce_extension_to_match_bytes.name,
         ):
             self._updating_lock = True
             try:

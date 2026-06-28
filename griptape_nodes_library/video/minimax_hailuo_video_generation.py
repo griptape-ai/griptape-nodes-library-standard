@@ -14,9 +14,9 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -134,7 +134,8 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
                     "Supported formats: JPG, JPEG, PNG, WebP. Requirements: <20MB, short edge >300px, "
                     "aspect ratio between 2:5 and 5:2."
                 ),
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "First Frame Image"},
             )
         )
@@ -149,7 +150,8 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
                     "Supported formats: JPG, JPEG, PNG, WebP. Requirements: <20MB, short edge >300px, "
                     "aspect ratio between 2:5 and 5:2."
                 ),
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Last Frame Image", "hide": True},
             )
         )
@@ -193,15 +195,6 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
         self.add_node_element(gen_settings_group)
 
         # OUTPUTS
-        self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Griptape Cloud generation id",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide=True,
-            )
-        )
-
         self.add_parameter(
             ParameterDict(
                 name="provider_response",
@@ -368,22 +361,7 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
 
     async def _prepare_frame_data_url_async(self, frame_input: Any) -> str | None:
         """Convert frame input to a data URL, handling external URLs by downloading and converting."""
-        if not frame_input:
-            return None
-
-        frame_url = self._coerce_image_url_or_data_uri(frame_input)
-        if not frame_url:
-            return None
-
-        # If it's already a data URL, return it
-        if frame_url.startswith("data:image/"):
-            return frame_url
-
-        try:
-            return await File(frame_url).aread_data_uri(fallback_mime="image/jpeg")
-        except FileLoadError as e:
-            logger.debug("%s failed to load frame from %s: %s", self.name, frame_url, e)
-            return None
+        return await prepare_media_data_uri(frame_input, kind="image", node_name=self.name, fallback_mime="image/jpeg")
 
     def _log_request(self, url: str, headers: dict[str, str], payload: dict[str, Any]) -> None:
         def _sanitize_body(b: dict[str, Any]) -> dict[str, Any]:
@@ -504,31 +482,3 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
         self.parameter_output_values["generation_id"] = ""
         self.parameter_output_values["provider_response"] = None
         self.parameter_output_values["video_url"] = None
-
-    @staticmethod
-    def _coerce_image_url_or_data_uri(val: Any) -> str | None:
-        """Convert various image input types to a URL or data URI string."""
-        if val is None:
-            return None
-
-        # String handling
-        if isinstance(val, str):
-            v = val.strip()
-            if not v:
-                return None
-            return v if v.startswith(("http://", "https://", "data:image/")) else f"data:image/png;base64,{v}"
-
-        # Artifact-like objects
-        try:
-            # ImageUrlArtifact: .value holds URL string
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.startswith(("http://", "https://", "data:image/")):
-                return v
-            # ImageArtifact: .base64 holds raw or data-URI
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:image/") else f"data:image/png;base64,{b64}"
-        except AttributeError:
-            pass
-
-        return None

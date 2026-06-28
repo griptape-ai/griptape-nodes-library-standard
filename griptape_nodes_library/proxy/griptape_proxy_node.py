@@ -1,18 +1,30 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-import os
+import re
+import threading
 from abc import ABC, abstractmethod
 from contextlib import suppress
 from typing import Any
 from urllib.parse import urljoin
 
 import httpx
-from griptape_nodes.exe_types.core_types import Parameter
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
+from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
+from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.node_library.library_registry import get_declared_models
+from griptape_nodes.retained_mode.events.base_events import ResultPayload
+from griptape_nodes.retained_mode.events.model_events import (
+    DeclareModelInvocationRequest,
+    DeclareModelInvocationResultFailure,
+)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
+from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key, resolve_proxy_base
 from griptape_nodes_library.proxy.proxy_api_key_providers import get_proxy_api_key_provider_config
 from griptape_nodes_library.proxy.proxy_auth_provider_parameter import ProxyAuthProviderParameter
 
@@ -26,6 +38,7 @@ STATUS_RUNNING = "RUNNING"
 STATUS_ERRORED = "ERRORED"
 STATUS_FAILED = "FAILED"
 STATUS_COMPLETED = "COMPLETED"
+STATUS_TIMED_OUT = "TIMED_OUT"
 
 
 class GriptapeProxyNode(SuccessFailureNode, ABC):
@@ -57,13 +70,22 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         # Compute API base once; GT_CLOUD_PROXY_BASE_URL overrides just the proxy
         # without affecting other engine systems that use GT_CLOUD_BASE_URL.
-        base = os.getenv("GT_CLOUD_PROXY_BASE_URL") or os.getenv("GT_CLOUD_BASE_URL", "https://cloud.griptape.ai")
-        base_slash = base if base.endswith("/") else base + "/"
-        api_base = urljoin(base_slash, "api/")
-        self._proxy_base = urljoin(api_base, "proxy/v2/")
+        self._proxy_base = resolve_proxy_base()
         self._user_auth_info: str | None = None
         self._api_key_provider: ProxyAuthProviderParameter | None = None
         self._initialize_api_key_provider()
+
+        default_timeout = self.DEFAULT_MAX_ATTEMPTS * self.DEFAULT_POLL_INTERVAL
+        self.add_parameter(
+            ParameterInt(
+                name="timeout",
+                default_value=default_timeout,
+                tooltip="Polling timeout in seconds. Set to 0 for no timeout.",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                min_val=0,
+                max_val=86400,
+            )
+        )
 
     def _initialize_api_key_provider(self) -> None:
         provider_config = get_proxy_api_key_provider_config(type(self).__name__)
@@ -72,6 +94,54 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         self._api_key_provider = ProxyAuthProviderParameter(node=self, provider_config=provider_config)
         self._api_key_provider.add_parameters()
+
+    def _create_status_parameters(
+        self,
+        *,
+        result_details_tooltip: str = "Details about the operation result",
+        result_details_placeholder: str = "Details on the operation will be presented here.",
+        parameter_group_initially_collapsed: bool = True,
+    ) -> None:
+        super()._create_status_parameters(
+            result_details_tooltip=result_details_tooltip,
+            result_details_placeholder=result_details_placeholder,
+            parameter_group_initially_collapsed=parameter_group_initially_collapsed,
+        )
+        # Inject generation_id, generation_status, and a Refresh button into the Status group.
+        # The button is the affordance that lets users recover a result after timeout
+        # without re-running the workflow.
+        status_group = self.status_component.get_parameter_group()
+        status_group.add_child(
+            ParameterString(
+                name="generation_id",
+                default_value="",
+                tooltip="Griptape Cloud generation ID. Preserved across timeouts and failures so the result can be recovered via the Refresh button.",
+                allowed_modes={ParameterMode.OUTPUT},
+                settable=False,
+                hide=True,
+                hide_property=True,
+            )
+        )
+        status_group.add_child(
+            ParameterString(
+                name="generation_status",
+                default_value="",
+                tooltip="Latest known status of the generation (e.g., RUNNING, COMPLETED, TIMED_OUT).",
+                allowed_modes={ParameterMode.OUTPUT},
+                settable=False,
+            )
+        )
+        status_group.add_child(
+            ParameterButton(
+                name="generation_refresh",
+                label="Refresh / Retrieve Result",
+                icon="refresh-cw",
+                variant="secondary",
+                full_width=True,
+                tooltip="Re-check the generation status and pull the result onto the node if completed.",
+                on_click=self._on_refresh_clicked,
+            )
+        )
 
     def register_user_auth_info(self, user_auth_info: str | None) -> None:
         """Register optional user auth info to send with generation submissions."""
@@ -178,6 +248,23 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         return self.get_parameter_value("model") or ""
 
+    def _get_catalog_model_id(self) -> str:
+        """Get the model ID used to resolve this node's declared catalog model.
+
+        The permission/declaration layer matches on the catalog's
+        `provider_model_id`, which is the bare upstream model id. By default this
+        is the same value used in the API request URL (`_get_api_model_id()`).
+
+        Subclasses whose `_get_api_model_id()` decorates the id with an operation
+        suffix for the URL path (e.g. `grok-imagine-video:generate`) must override
+        this to return the bare provider id instead, or the catalog lookup will
+        fail to match and the invocation cannot be declared.
+
+        Returns:
+            str: The model ID to match against declared catalog models
+        """
+        return self._get_api_model_id()
+
     def _validate_api_key(self) -> str:
         """Validate and return the API key.
 
@@ -190,10 +277,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Raises:
             ValueError: If API key is missing
         """
-        proxy_key = os.getenv("GT_CLOUD_PROXY_API_KEY")
-        if proxy_key:
-            return proxy_key
-        api_key = GriptapeNodes.SecretsManager().get_secret(self.API_KEY_NAME)
+        api_key = resolve_proxy_api_key(self.API_KEY_NAME)
         if not api_key:
             self._set_safe_defaults()
             msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
@@ -218,6 +302,39 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             f"proxy_auth_info_length={len(proxy_auth_info)}"
         )
 
+    def _elide_base64_in_payload(self, payload: dict[str, Any]) -> str:
+        """Create a log-safe version of payload with base64 data elided.
+
+        Replaces base64 strings in data URIs with length indicators to make logs readable.
+        Example: "data:image/png;base64,iVBORw0K..." becomes "data:image/png;base64,[123 chars]"
+
+        Args:
+            payload: The payload dictionary to process
+
+        Returns:
+            JSON string with base64 data elided
+        """
+
+        def elide_value(obj: Any) -> Any:
+            if isinstance(obj, str):
+                # Match data URIs with base64 encoding
+                match = re.match(r"^(data:[^;]+;base64,)(.+)$", obj)
+                if match:
+                    prefix, b64_data = match.groups()
+                    return f"{prefix}[{len(b64_data)} chars]"
+                # Truncate any long string (>100 chars) to first 100 chars
+                if len(obj) > 100:
+                    return f"{obj[:100]}... [{len(obj)} chars total]"
+                return obj
+            elif isinstance(obj, dict):
+                return {k: elide_value(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [elide_value(item) for item in obj]
+            return obj
+
+        elided = elide_value(payload)
+        return json.dumps(elided, indent=2)
+
     async def _submit_generation(
         self, payload: dict[str, Any], headers: dict[str, str], api_model_id: str
     ) -> str | None:
@@ -236,6 +353,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         proxy_url = urljoin(self._proxy_base, f"models/{api_model_id}")
         self._log(f"Submitting generation request to {proxy_url}")
+        self._log(f"Request payload:\n{self._elide_base64_in_payload(payload)}")
 
         try:
             async with httpx.AsyncClient() as client:
@@ -290,10 +408,14 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         if status == STATUS_COMPLETED:
             return True, result_json
 
+        generation_id = self.parameter_output_values.get("generation_id", "") or ""
+
         if status in [STATUS_FAILED, STATUS_ERRORED]:
             logger.error("%s: Generation failed with status: %s", self.name, status)
             logger.error("%s: Error response: %s", self.name, result_json)
             self._set_safe_defaults()
+            self.parameter_output_values["generation_id"] = generation_id
+            self.parameter_output_values["generation_status"] = status
             error_message = self._extract_error_message(result_json)
             logger.error("%s: Extracted error message: %s", self.name, error_message)
             if not error_message:
@@ -306,6 +428,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         if status == STATUS_CANCELLED:
             logger.info("%s: Generation cancelled.", self.name)
             self._set_safe_defaults()
+            self.parameter_output_values["generation_id"] = generation_id
+            self.parameter_output_values["generation_status"] = status
             status_detail = result_json.get("status_detail", {})
             details = ""
             if isinstance(status_detail, dict):
@@ -320,6 +444,15 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         return False, None
 
+    def _resolve_timeout_seconds(self) -> int:
+        try:
+            value = self.get_parameter_value("timeout")
+        except Exception:
+            value = None
+        if value is None:
+            return self.DEFAULT_MAX_ATTEMPTS * self.DEFAULT_POLL_INTERVAL
+        return max(0, int(value))
+
     async def _poll_generation_status(self, generation_id: str, headers: dict[str, str]) -> dict[str, Any] | None:
         """Poll generation status until terminal state is reached.
 
@@ -331,11 +464,14 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             dict | None: The final status response, or None if polling failed
         """
         get_url = urljoin(self._proxy_base, f"generations/{generation_id}")
-        max_attempts = self.DEFAULT_MAX_ATTEMPTS
         poll_interval = self.DEFAULT_POLL_INTERVAL
+        timeout_s = self._resolve_timeout_seconds()
+        # None means unbounded (timeout=0 set by user)
+        max_attempts = max(1, (timeout_s + poll_interval - 1) // poll_interval) if timeout_s > 0 else None
 
+        attempt = 0
         async with httpx.AsyncClient() as client:
-            for attempt in range(max_attempts):
+            while True:
                 try:
                     self._log(f"Polling attempt #{attempt + 1} for generation {generation_id}")
 
@@ -345,36 +481,52 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
                     status = result_json.get("status", "unknown")
                     self._log(f"Status: {status}")
+                    self.parameter_output_values["generation_status"] = status
 
                     is_terminal, terminal_result = self._handle_terminal_status(status, result_json)
                     if is_terminal:
                         return terminal_result
 
+                    attempt += 1
+
+                    # Timeout reached (only when max_attempts is set)
+                    if max_attempts is not None and attempt >= max_attempts:
+                        break
+
                     # Still processing (QUEUED or RUNNING), wait before next poll
-                    if attempt < max_attempts - 1:
-                        await asyncio.sleep(poll_interval)
+                    await asyncio.sleep(poll_interval)
 
                 except httpx.HTTPStatusError as e:
                     self._log(f"HTTP error while polling: {e.response.status_code} - {e.response.text}")
-                    if attempt == max_attempts - 1:
+                    attempt += 1
+                    if max_attempts is not None and attempt >= max_attempts:
                         self._set_safe_defaults()
                         error_msg = f"Failed to poll generation status: HTTP {e.response.status_code}"
                         self._set_status_results(was_successful=False, result_details=error_msg)
                         return None
+                    await asyncio.sleep(poll_interval)
                 except Exception as e:
                     self._log(f"Error while polling: {e}")
-                    if attempt == max_attempts - 1:
+                    attempt += 1
+                    if max_attempts is not None and attempt >= max_attempts:
                         self._set_safe_defaults()
                         error_msg = f"Failed to poll generation status: {e}"
                         self._set_status_results(was_successful=False, result_details=error_msg)
                         return None
+                    await asyncio.sleep(poll_interval)
 
-        # Timeout reached
+        # Timeout reached — preserve generation_id so the user can recover via Refresh
         self._log("Polling timed out waiting for result")
         self._set_safe_defaults()
+        self.parameter_output_values["generation_id"] = generation_id
+        self.parameter_output_values["generation_status"] = STATUS_TIMED_OUT
         self._set_status_results(
             was_successful=False,
-            result_details=f"Generation timed out after {max_attempts * poll_interval} seconds waiting for result.",
+            result_details=(
+                f"Generation `{generation_id}` did not finish within {timeout_s} seconds. "
+                f"It may still be running on Griptape Cloud — click the refresh icon on the "
+                f"`generation_status` parameter to re-check and pull the result onto this node."
+            ),
         )
         return None
 
@@ -460,6 +612,42 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._set_status_results(was_successful=False, result_details=error_msg)
         self._handle_failure_exception(e)
 
+    def _resolve_catalog_model_id(self, api_model_id: str) -> str | None:
+        """Resolve the selected provider model id to its stable catalog key.
+
+        The lookup is scoped to this node's own declared models, so the
+        provider_model_id -> stable key mapping is unambiguous: a node does not
+        declare the same upstream model under two catalog keys. Returns None
+        when the selection is not one of the node's declared catalog models.
+        """
+        matches = [
+            resolved.model_id
+            for resolved in get_declared_models(self)
+            if resolved.model.provider_model_id == api_model_id
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+    async def _declare_model_invocation(self, api_model_id: str) -> ResultPayload:
+        """Declare the impending model invocation so the permission layer can gate it.
+
+        Resolves the concrete provider model id to the stable catalog key the
+        permission system gates on, and declares that. The engine clears the
+        call by default; a registered policy can deny it, in which case the
+        result reports failure. The proxy enforces server-side as well; this
+        runs first, so a denied call fails fast and never leaves the engine.
+        """
+        model_id = self._resolve_catalog_model_id(api_model_id)
+        if model_id is None:
+            return DeclareModelInvocationResultFailure(
+                result_details=(
+                    f"{self.name}: '{api_model_id}' is not a declared catalog model for this node, "
+                    f"so the invocation cannot be declared."
+                )
+            )
+        return await GriptapeNodes.ahandle_request(
+            DeclareModelInvocationRequest(model_id=model_id, node_name=self.name)
+        )
+
     async def _submit_and_poll(self, headers: dict[str, str]) -> tuple[str, dict[str, Any]] | None:
         """Submit generation request and poll for completion.
 
@@ -482,6 +670,18 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._handle_missing_model_id()
             return None
 
+        # Declare the invocation so the engine's permission layer can gate it
+        # before any network call. The proxy still enforces server-side; this is
+        # the engine-side gate, so a denied invocation fails fast here. The
+        # declaration matches on the bare catalog id, which may differ from the
+        # URL-path id (e.g. when the latter carries an operation suffix).
+        declaration = await self._declare_model_invocation(self._get_catalog_model_id())
+        if declaration.failed():
+            self._set_safe_defaults()
+            details = str(declaration.result_details or f"{self.name}: model invocation was not permitted.")
+            self._set_status_results(was_successful=False, result_details=details)
+            return None
+
         # Submit request to get generation ID
         try:
             generation_id = await self._submit_generation(payload, headers, api_model_id)
@@ -496,9 +696,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._handle_submission_error(e)
             return None
 
-        # Store generation_id if output parameter exists
-        if "generation_id" in self.parameter_output_values:
-            self.parameter_output_values["generation_id"] = generation_id
+        # Store generation_id so the Refresh affordance can recover the result on timeout/failure.
+        # Subclasses declare a `generation_id` output parameter; writing here surfaces the value to the UI.
+        self.parameter_output_values["generation_id"] = generation_id
 
         # Poll for completion
         status_response = await self._poll_generation_status(generation_id, headers)
@@ -519,6 +719,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         # Clear execution status at the start
         self._clear_execution_status()
+        self.parameter_output_values["generation_id"] = ""
+        self.parameter_output_values["generation_status"] = ""
 
         try:
             self._prepare_user_auth_info()
@@ -550,6 +752,139 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             await self._parse_result(result_json, generation_id)
         except Exception as e:
             self._handle_result_parsing_error(e)
+
+    def _on_refresh_clicked(self, _button: Any, _details: Any) -> None:
+        """Sync entry point for the Refresh button — bridges into the async refresh flow.
+
+        Button.on_click_callback is invoked synchronously from a thread that may already
+        have a running event loop, so we run the coroutine on a dedicated worker thread
+        with its own fresh loop to avoid `RuntimeError: This event loop is already running`.
+        """
+
+        def _runner() -> None:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self._refresh_async())
+            finally:
+                loop.close()
+
+        thread = threading.Thread(target=_runner, name=f"{self.name}-refresh", daemon=True)
+        thread.start()
+        thread.join()
+
+    async def _fetch_status_for_refresh(self, generation_id: str, headers: dict[str, str]) -> dict[str, Any] | None:
+        """Single GET against the generations status endpoint for the Refresh flow.
+
+        Sets failure status and returns None on HTTP/transport errors.
+        """
+        get_url = urljoin(self._proxy_base, f"generations/{generation_id}")
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(get_url, headers=headers, timeout=60)
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPStatusError as e:
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"Failed to fetch status for `{generation_id}`: HTTP {e.response.status_code}",
+            )
+        except Exception as e:
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"Failed to fetch status for `{generation_id}`: {e}",
+            )
+        return None
+
+    async def _refresh_completed(self, generation_id: str) -> None:
+        """Fetch and parse the result onto the node."""
+        result_json = await self._fetch_generation_result(generation_id)
+        if not result_json:
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"Generation `{generation_id}` is COMPLETED, but fetching the result failed. See node logs.",
+            )
+            return
+        if "provider_response" in self.parameter_output_values:
+            self.parameter_output_values["provider_response"] = result_json
+        try:
+            await self._parse_result(result_json, generation_id)
+        except Exception as e:
+            self._handle_result_parsing_error(e)
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"Generation `{generation_id}` completed, but parsing the result failed: {e}",
+            )
+            return
+        self._set_status_results(
+            was_successful=True,
+            result_details=f"Refreshed: generation `{generation_id}` completed and result was retrieved.",
+        )
+
+    def _refresh_render_status(self, generation_id: str, status: str, status_json: dict[str, Any]) -> None:
+        """Update result_details for non-completed states."""
+        if status in (STATUS_FAILED, STATUS_ERRORED):
+            error_message = self._extract_error_message(status_json)
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"Generation `{generation_id}` ended with status {status}.\n\n{error_message}",
+            )
+            return
+
+        if status == STATUS_CANCELLED:
+            status_detail = status_json.get("status_detail", {})
+            details = ""
+            if isinstance(status_detail, dict):
+                details = status_detail.get("details") or ""
+            body = (
+                f"Generation `{generation_id}` was cancelled.\n\n{details}"
+                if details
+                else f"Generation `{generation_id}` was cancelled."
+            )
+            self._set_status_results(was_successful=False, result_details=body)
+            return
+
+        # QUEUED / RUNNING / unknown — still in flight
+        self._set_status_results(
+            was_successful=False,
+            result_details=(
+                f"Generation `{generation_id}` is still in progress (status: {status}). "
+                f"Click the refresh icon again to re-check."
+            ),
+        )
+
+    async def _refresh_async(self) -> None:
+        """Re-check the generation status and pull the result if it has completed.
+
+        A single GET to /generations/{id}; never re-enters the polling loop.
+        """
+        generation_id = (self.parameter_output_values.get("generation_id") or "").strip()
+        if not generation_id:
+            self._set_status_results(
+                was_successful=False,
+                result_details="No generation ID is available on this node yet. Run the node first to submit a generation.",
+            )
+            return
+
+        try:
+            api_key = self._validate_api_key()
+        except ValueError as e:
+            self._set_status_results(was_successful=False, result_details=f"Cannot refresh: {e}")
+            return
+
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        status_json = await self._fetch_status_for_refresh(generation_id, headers)
+        if status_json is None:
+            return
+
+        status = status_json.get("status", "unknown")
+        self.parameter_output_values["generation_status"] = status
+
+        if status == STATUS_COMPLETED:
+            await self._refresh_completed(generation_id)
+            return
+
+        self._refresh_render_status(generation_id, status, status_json)
 
     async def aprocess(self) -> None:
         """Async processing entry point."""

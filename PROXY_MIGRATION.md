@@ -148,6 +148,10 @@ def _extract_error_message(self, response_json: dict[str, Any]) -> str:
 - `eleven_labs_music_generation.py`
 - `eleven_labs_sound_effect.py`
 
+**Audio Transcription:**
+
+- `transcribe_audio.py` (replaces the previous driver-based node; no longer requires a user `OPENAI_API_KEY`)
+
 **Image Generation:**
 
 - `flux_2_image_generation.py`
@@ -184,14 +188,6 @@ def _extract_error_message(self, response_json: dict[str, Any]) -> str:
 - `omnihuman_video_generation.py`
 - `omnihuman_subject_recognition.py`
 - `omnihuman_subject_detection.py`
-
-**Image Upscaling:**
-
-- `seedvr_image_upscale.py`
-
-**Video Upscaling:**
-
-- `seedvr_video_upscale.py`
 
 ## Common Patterns
 

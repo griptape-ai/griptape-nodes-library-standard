@@ -2,10 +2,11 @@ from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter
-from griptape_nodes.exe_types.node_types import BaseNode, DataNode
+from griptape_nodes.exe_types.node_types import BaseNode, DataNode, NodeDependencies
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 
+from griptape_nodes_library.utils import ffmpeg_utils
 from griptape_nodes_library.utils.artifact_path_tethering import (
     ArtifactPathTethering,
     ArtifactTetheringConfig,
@@ -73,6 +74,17 @@ class LoadVideo(DataNode):
         self.add_node_element(self._external_warning)
         self.add_parameter(self._copy_button)
 
+    def get_node_dependencies(self) -> NodeDependencies | None:
+        deps = super().get_node_dependencies()
+        if deps is None:
+            deps = NodeDependencies()
+        value = self.get_parameter_value("path")
+        if not value or not isinstance(value, str):
+            return deps
+
+        deps.static_files.add(value)
+        return deps
+
     def after_incoming_connection(
         self,
         source_node: BaseNode,
@@ -139,8 +151,10 @@ class LoadVideo(DataNode):
             result = resolve_to_macro_path(video_artifact.value)  # pyright: ignore[reportAttributeAccessIssue]
             update_external_file_controls(result, self._external_warning, self._copy_button, self.name, "video")
             if not result.is_external:
-                video_artifact = VideoUrlArtifact(result.resolved_path)
-                path_value = result.resolved_path
+                resolved_path = result.resolved_path
+                extracted_metadata = ffmpeg_utils.extract_video_player_metadata(resolved_path)
+                video_artifact = VideoUrlArtifact(resolved_path, meta=extracted_metadata)
+                path_value = resolved_path
 
         self.parameter_output_values["video"] = video_artifact
         self.parameter_output_values["path"] = path_value

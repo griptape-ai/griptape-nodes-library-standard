@@ -22,6 +22,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
+from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -34,6 +35,11 @@ MAX_IMAGES_WITH_VIDEO = 4
 MAX_IMAGES_WITHOUT_VIDEO = 7
 MAX_IMAGES_FOR_END_FRAME = 2
 MAX_MULTI_PROMPT_COUNT = 6
+MODE_STD = "std"
+MODE_PRO = "pro"
+MODE_4K = "4k"
+BASE_MODE_CHOICES = [MODE_STD, MODE_PRO]
+DEFAULT_MODE = MODE_PRO
 
 
 MODEL_NAME_MAP: dict[str, dict[str, str]] = {
@@ -44,6 +50,22 @@ MODEL_NAME_MAP: dict[str, dict[str, str]] = {
     "Kling v3.0 Omni": {
         "api_model_id": "kling-v3-omni:omnivideo",
         "payload_model_name": "kling-v3-omni",
+    },
+}
+MODEL_CAPABILITIES: dict[str, dict[str, Any]] = {
+    "kling-video-o1": {
+        "modes": BASE_MODE_CHOICES,
+        "durations": list(range(3, 11)),
+        # Text-to-video and start-frame-only generation restrict to 5s or 10s
+        "restricted_durations": [5, 10],
+        "supports_4k_with_reference_video": False,
+    },
+    "kling-v3-omni": {
+        "modes": [MODE_STD, MODE_PRO, MODE_4K],
+        "durations": list(range(3, 16)),
+        # When reference video is set (std/pro), duration caps at 10s
+        "reference_video_max_duration": 10,
+        "supports_4k_with_reference_video": False,
     },
 }
 
@@ -151,6 +173,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 name="first_frame_image",
                 tooltip="First frame image (optional). Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "first frame"},
             )
         )
@@ -159,6 +182,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 name="end_frame_image",
                 tooltip="End frame image (optional). Requires first frame to be set.",
                 allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "end frame"},
             )
         )
@@ -176,7 +200,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 default_value=[],
                 tooltip="Reference images for generation. These appear first in the template (<<<image_1>>>, <<<image_2>>>, etc.)",
                 allowed_modes={ParameterMode.INPUT},
-                ui_options={"expander": True, "display_name": "reference images"},
+                ui_options={"expander": True, "display_name": "reference images", "hide_property": True},
             )
         )
 
@@ -198,8 +222,9 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             artifact_url_parameter=ParameterVideo(
                 name="reference_video",
                 tooltip="Reference video for editing or style reference (optional, max 1)",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
                 ui_options={"placeholder_text": "https://example.com/video.mp4"},
+                hide_property=True,
             ),
             disclaimer_message="The Kling Omni service utilizes this URL to access the video for generation.",
         )
@@ -223,10 +248,10 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             )
             ParameterString(
                 name="mode",
-                default_value="pro",
-                tooltip="Video generation mode (std: Standard, pro: Professional)",
+                default_value=DEFAULT_MODE,
+                tooltip="Video generation mode. Kling v3.0 Omni also supports 4k when reference_video is not set.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["std", "pro"])},
+                traits={Options(choices=[MODE_STD, MODE_PRO, MODE_4K])},
             )
             ParameterString(
                 name="aspect_ratio",
@@ -238,22 +263,13 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             ParameterInt(
                 name="duration",
                 default_value=5,
-                tooltip="Video length in seconds (3-10s). Only 5/10s for text-to-video and first-frame generation.",
+                tooltip="Video length in seconds. Range and restrictions vary by model.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=[3, 4, 5, 6, 7, 8, 9, 10])},
+                traits={Options(choices=list(range(3, 16)))},
             )
         self.add_node_element(gen_settings_group)
 
         # OUTPUTS
-        self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Griptape Cloud generation id",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide=True,
-            )
-        )
-
         self.add_parameter(
             ParameterDict(
                 name="provider_response",
@@ -296,11 +312,38 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             result_details_placeholder="Generation status and details will appear here.",
             parameter_group_initially_collapsed=True,
         )
+        self._update_mode_choices()
         self._update_multi_shot_parameter_visibility()
+        self.set_initial_node_size(height=1375)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to normalize image inputs."""
         super().after_value_set(parameter, value)
+
+        if parameter.name in {"model_name", "reference_video", "end_frame_image"}:
+            self._update_mode_choices()
+            # Update duration choices inline (WAN pattern)
+            model_name = self.get_parameter_value("model_name") or "Kling v3.0 Omni"
+            model_config = MODEL_NAME_MAP.get(model_name, MODEL_NAME_MAP["Kling v3.0 Omni"])
+            capabilities = MODEL_CAPABILITIES.get(model_config["payload_model_name"], {})
+            has_reference_video = bool(self.get_parameter_value("reference_video"))
+            has_end_frame = bool(self.get_parameter_value("end_frame_image"))
+            new_durations = list(capabilities.get("durations", list(range(3, 11))))
+            # kling-video-o1: text/start-frame-only → [5, 10]; end frame or reference video → full [3–10]
+            restricted_durations = capabilities.get("restricted_durations")
+            if restricted_durations and not has_reference_video and not has_end_frame:
+                new_durations = list(restricted_durations)
+            # kling-v3-omni: reference video with std/pro mode caps at 10s
+            ref_video_max = capabilities.get("reference_video_max_duration")
+            if ref_video_max and has_reference_video:
+                new_durations = [d for d in new_durations if d <= ref_video_max]
+            if not new_durations:
+                new_durations = [5]
+            current_duration = self.get_parameter_value("duration")
+            if current_duration in new_durations:
+                self._update_option_choices("duration", new_durations, current_duration)  # type: ignore[arg-type]
+            else:
+                self._update_option_choices("duration", new_durations, new_durations[0])  # type: ignore[arg-type]
 
         if parameter.name in {"multi_shot", "shot_count"}:
             self._update_multi_shot_parameter_visibility()
@@ -310,6 +353,30 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
             if updated_list != value:
                 self.set_parameter_value("reference_images", updated_list)
+
+    def _get_supported_modes(self) -> list[str]:
+        """Return the valid mode choices for the selected model and inputs."""
+        model_name = self.get_parameter_value("model_name") or "Kling v3.0 Omni"
+        model_config = MODEL_NAME_MAP.get(model_name, MODEL_NAME_MAP["Kling v3.0 Omni"])
+        capabilities = MODEL_CAPABILITIES.get(model_config["payload_model_name"], {"modes": BASE_MODE_CHOICES})
+        supported_modes = list(capabilities.get("modes", BASE_MODE_CHOICES))
+
+        if self.get_parameter_value("reference_video") and not capabilities.get(
+            "supports_4k_with_reference_video", True
+        ):
+            supported_modes = [mode for mode in supported_modes if mode != MODE_4K]
+
+        return supported_modes
+
+    def _update_mode_choices(self) -> None:
+        """Keep the mode dropdown aligned with the selected model and inputs."""
+        supported_modes = self._get_supported_modes()
+        current_mode = self.get_parameter_value("mode")
+        next_mode = current_mode if current_mode in supported_modes else DEFAULT_MODE
+        if next_mode not in supported_modes:
+            next_mode = supported_modes[0]
+
+        self._update_option_choices("mode", supported_modes, next_mode)
 
     def _update_multi_shot_parameter_visibility(self) -> None:
         """Toggle legacy prompt vs per-shot inputs based on multi-shot settings."""
@@ -471,7 +538,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             video_keep_sound = False
 
         video_refer_type = self.get_parameter_value("video_refer_type") or "base"
-        mode = self.get_parameter_value("mode") or "pro"
+        mode = self.get_parameter_value("mode") or DEFAULT_MODE
         aspect_ratio = self.get_parameter_value("aspect_ratio") or "16:9"
         duration = self.get_parameter_value("duration") or 5
 
@@ -621,6 +688,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         element_ids = (self.get_parameter_value("element_ids") or "").strip()
         reference_video_param = self.get_parameter_value("reference_video")
         duration = self.get_parameter_value("duration") or 5
+        mode = self.get_parameter_value("mode") or DEFAULT_MODE
 
         if multi_shot:
             self._validate_customize_multi_shot(exceptions, shot_count, duration)
@@ -650,6 +718,22 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
 
         # Build video list
         has_video = bool(reference_video_param)
+        supported_modes = self._get_supported_modes()
+        if mode not in supported_modes:
+            if mode == MODE_4K and has_video:
+                exceptions.append(
+                    ValueError(
+                        f"{self.name}: Model Kling v3.0 Omni does not support mode '{MODE_4K}' when reference_video is set. "
+                        f"Valid modes: {', '.join(supported_modes)}"
+                    )
+                )
+            else:
+                exceptions.append(
+                    ValueError(
+                        f"{self.name}: Selected configuration does not support mode '{mode}'. "
+                        f"Valid modes: {', '.join(supported_modes)}"
+                    )
+                )
 
         # Get reference images (already a list from ParameterList)
         ref_images_input = reference_images
@@ -703,14 +787,34 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 )
             )
 
-        # Validate duration constraints for text/first-frame generation
-        is_text_or_first_frame = not has_base_video
-        if is_text_or_first_frame and duration not in [5, 10]:
-            exceptions.append(
-                ValueError(
-                    f"{self.name} text-to-video and first-frame generation only support 5 or 10 second durations (got {duration}s)."
+        # kling-video-o1: text-to-video and start-frame-only generation restrict to 5s or 10s
+        model_name = self.get_parameter_value("model_name") or "Kling v3.0 Omni"
+        payload_model = MODEL_NAME_MAP.get(model_name, MODEL_NAME_MAP["Kling v3.0 Omni"])["payload_model_name"]
+        capabilities = MODEL_CAPABILITIES.get(payload_model, {})
+
+        if payload_model == "kling-video-o1":
+            is_text_or_first_frame = not has_base_video and not end_frame_image
+            restricted = capabilities.get("restricted_durations", [5, 10])
+            if is_text_or_first_frame and duration not in restricted:
+                exceptions.append(
+                    ValueError(
+                        f"{self.name} kling-video-o1 text-to-video and start-frame-only generation "
+                        f"only support {restricted} second durations (got {duration}s)."
+                    )
                 )
-            )
+
+        # kling-v3-omni: reference video with std/pro mode caps duration at 10s
+        if payload_model == "kling-v3-omni" and has_video:
+            video_refer_type = self.get_parameter_value("video_refer_type") or "base"
+            mode = self.get_parameter_value("mode") or DEFAULT_MODE
+            ref_video_max = capabilities.get("reference_video_max_duration", 10)
+            if mode != MODE_4K and duration > ref_video_max:
+                exceptions.append(
+                    ValueError(
+                        f"{self.name} kling-v3-omni with reference video (std/pro mode) "
+                        f"supports a maximum duration of {ref_video_max}s (got {duration}s)."
+                    )
+                )
 
         return exceptions if exceptions else None
 
@@ -719,7 +823,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         if not image_input:
             return None
 
-        image_url = self._coerce_image_url_or_data_uri(image_input)
+        image_url = coerce_media_url_or_data_uri(image_input, kind="image")
         if not image_url:
             return None
 
@@ -734,31 +838,3 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             return None
 
         return base64.b64encode(image_bytes).decode("utf-8")
-
-    @staticmethod
-    def _coerce_image_url_or_data_uri(val: Any) -> str | None:
-        """Convert various image input types to a URL or data URI string."""
-        if val is None:
-            return None
-
-        # String handling
-        if isinstance(val, str):
-            v = val.strip()
-            if not v:
-                return None
-            return v if v.startswith(("http://", "https://", "data:image/")) else f"data:image/png;base64,{v}"
-
-        # Artifact-like objects
-        try:
-            # ImageUrlArtifact: .value holds URL string
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.startswith(("http://", "https://", "data:image/")):
-                return v
-            # ImageArtifact: .base64 holds raw or data-URI
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:image/") else f"data:image/png;base64,{b64}"
-        except AttributeError:
-            pass
-
-        return None

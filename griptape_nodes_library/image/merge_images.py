@@ -14,6 +14,7 @@ from PIL import Image
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     image_to_bytes,
+    load_pil_from_url,
 )
 
 
@@ -25,9 +26,6 @@ class MergeImages(ControlNode):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="merged.png")
-        self._output_file.add_parameter()
 
         self.LAYOUT_METHODS = {
             "horizontal": self._process_horizontal_layout,
@@ -71,6 +69,9 @@ class MergeImages(ControlNode):
             )
         )
 
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="merged.png")
+        self._output_file.add_parameter()
+
     def get_images(self) -> list:
         images = self.get_parameter_value("Images")
         if images:
@@ -89,7 +90,8 @@ class MergeImages(ControlNode):
             # ImageArtifact has base64 data
             img = Image.open(io.BytesIO(img.to_bytes()))
         elif isinstance(img, ImageUrlArtifact):
-            img = Image.open(io.BytesIO(img.to_bytes()))
+            # Use load_pil_from_url so macro paths (e.g. "{inputs}/x.png") resolve via File.
+            img = load_pil_from_url(img.value)
         return img
 
     def _resize_image(self, img: Image.Image, target_width: int, target_height: int) -> Image.Image:

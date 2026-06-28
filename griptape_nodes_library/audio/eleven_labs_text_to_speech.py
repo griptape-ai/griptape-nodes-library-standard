@@ -207,16 +207,6 @@ class ElevenLabsTextToSpeechGeneration(GriptapeProxyNode):
 
         # OUTPUTS
         self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Generation ID from the API",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide_property=True,
-                hide=True,
-            )
-        )
-
-        self.add_parameter(
             ParameterDict(
                 name="provider_response",
                 tooltip="Verbatim response from Griptape model proxy",

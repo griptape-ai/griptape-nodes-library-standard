@@ -2,6 +2,7 @@ from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.exe_types.param_types.parameter_python import ParameterPython
 from griptape_nodes.retained_mode.events.arbitrary_python_events import (
     RunArbitraryPythonStringRequest,
     RunArbitraryPythonStringResultFailure,
@@ -20,16 +21,11 @@ class ExecutePython(SuccessFailureNode):
 
         # Add input parameters
         self.add_parameter(
-            Parameter(
+            ParameterPython(
                 name="python_code",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                type="str",
-                default_value="# Enter your Python code here. Assign the output to the variable 'result', and access input variables by passing a dict of their names and values'",
+                placeholder_text="# Enter your Python code here. Assign the output to the variable 'result', and access input variables by passing a dict of their names and values'",
                 tooltip="Python code to execute. Set the 'result' variable to specify the output value.",
-                ui_options={
-                    "multiline": True,
-                    "placeholder_text": "Enter your Python code here",
-                },
             )
         )
 
@@ -48,9 +44,9 @@ class ExecutePython(SuccessFailureNode):
             Parameter(
                 name="result",
                 allowed_modes={ParameterMode.OUTPUT},
-                output_type="str",
+                output_type="any",
                 default_value="",
-                tooltip="The printed value from the executed Python code.",
+                tooltip="The value of the result variable in the executed Python code.",
             )
         )
         self._create_status_parameters(
@@ -85,7 +81,7 @@ class ExecutePython(SuccessFailureNode):
         full_code = self._assign_vars(python_code, input_variables)
 
         # Create the request
-        request = RunArbitraryPythonStringRequest(python_string=full_code)
+        request = RunArbitraryPythonStringRequest(python_string=full_code, variable_names_to_capture=["result"])
 
         response = GriptapeNodes.handle_request(request)
 
@@ -103,8 +99,14 @@ class ExecutePython(SuccessFailureNode):
                 result_details=f"Failure: Unexpected response type from RunArbitraryPythonStringRequest: {type(response)}",
             )
         elif isinstance(response, RunArbitraryPythonStringResultSuccess):
-            output = response.python_output
-            self.set_parameter_value("result", output)
-            self._set_status_results(
-                was_successful=True, result_details="The Python code executed successfully with no exceptions."
-            )
+            if "result" in response.missing_variables:
+                self._set_status_results(
+                    was_successful=False,
+                    result_details="Failure: The executed Python code did not assign a 'result' variable.",
+                )
+                self.set_parameter_value("result", "")
+            else:
+                self.set_parameter_value("result", response.found_variable_values["result"])
+                self._set_status_results(
+                    was_successful=True, result_details="The Python code executed successfully with no exceptions."
+                )

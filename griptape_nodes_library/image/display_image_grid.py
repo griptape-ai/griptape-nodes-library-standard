@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
@@ -23,6 +24,8 @@ from griptape_nodes_library.utils.image_utils import (
     create_placeholder_image,
     image_to_bytes,
 )
+
+logger = logging.getLogger("griptape_nodes")
 
 
 class DisplayImageGrid(ControlNode):
@@ -219,15 +222,22 @@ class DisplayImageGrid(ControlNode):
             "output_format",
         }
         if parameter.name in visual_parameters:
-            self._process_sync()
+            # Live-preview render is best-effort: a failure here (e.g. transient
+            # write error mid-passthrough, partial inputs from upstream) must
+            # not abort the SetParameterValue request and halt the workflow.
+            # The authoritative render still happens in process() once all
+            # inputs are bound.
+            try:
+                self._process_sync()
+            except Exception:
+                logger.exception("%s: live-preview render failed; preview skipped", self.name)
 
         return super().after_value_set(parameter, value)
 
     def validate_before_node_run(self) -> list[Exception] | None:
+        # Note: empty `images` is intentionally allowed; _process_sync produces a
+        # placeholder image in that case.
         exceptions: list[Exception] = []
-        if not self.get_parameter_value("images"):
-            msg = f"{self.name}: Images parameter is required"
-            exceptions.append(ValueError(msg))
         if not self.get_parameter_value("output_image_width"):
             msg = f"{self.name}: Output image width parameter is required"
             exceptions.append(ValueError(msg))

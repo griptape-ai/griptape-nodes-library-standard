@@ -1,11 +1,11 @@
-from typing import Any
+from typing import Any, cast
 
 import requests
 from griptape.artifacts import BaseArtifact, ImageUrlArtifact
 from griptape.drivers.image_generation.base_image_generation_driver import BaseImageGenerationDriver
 from griptape.drivers.image_generation.griptape_cloud import GriptapeCloudImageGenerationDriver
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
-from griptape.tasks import PromptImageGenerationTask
+from griptape.tasks import PromptImageGenerationTask, PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
@@ -17,6 +17,7 @@ from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
+from griptape_nodes_library.utils.agent_utils import restore_provider_driver, unwrap_agent, wrap_agent
 from griptape_nodes_library.utils.error_utils import try_throw_error
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
@@ -211,8 +212,10 @@ class GenerateImage(ControlNode):
         if exception:
             raise exception
 
-        agent = self.get_parameter_value("agent")
-        if not agent:
+        agent_input = self.get_parameter_value("agent")
+        tool_configs: list = []
+        ruleset_configs: list = []
+        if not agent_input:
             prompt_driver = GriptapeCloudPromptDriver(
                 model="gpt-4o",
                 api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
@@ -220,7 +223,9 @@ class GenerateImage(ControlNode):
             )
             agent = GtAgent(prompt_driver=prompt_driver)
         else:
-            agent = GtAgent.from_dict(agent)
+            agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_input)
+            agent = GtAgent.from_dict(agent_core_dict)
+            restore_provider_driver(agent, agent_input)
 
         # Add some context to the prompt based on the agent's conversation memory.
         # We use this because otherwise the agent will not have the context of the prompt.
@@ -302,7 +307,12 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
         agent.restore_task()
 
         # Output the agent
-        self.parameter_output_values["agent"] = agent.to_dict()
+        if agent.tasks:
+            cast(PromptTask, agent.tasks[0]).tools = []
+        provider = agent_input.get("provider") if isinstance(agent_input, dict) else None
+        self.parameter_output_values["agent"] = wrap_agent(
+            agent.to_dict(), tool_configs, ruleset_configs, provider=provider
+        )
 
     def after_incoming_connection(
         self,

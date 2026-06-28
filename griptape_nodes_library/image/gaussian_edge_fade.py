@@ -28,9 +28,6 @@ class GaussianEdgeFade(DataNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="edge_fade.png")
-        self._output_file.add_parameter()
-
         self.category = "Image"
         self.description = "Apply Gaussian blur fade to image edges for smooth compositing"
 
@@ -144,6 +141,9 @@ class GaussianEdgeFade(DataNode):
                 allowed_modes={ParameterMode.OUTPUT},
             )
         )
+
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="edge_fade.png")
+        self._output_file.add_parameter()
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Update UI when fade_mode changes."""

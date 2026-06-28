@@ -4,16 +4,19 @@ import asyncio
 import base64
 import logging
 from io import BytesIO
+from pathlib import Path
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_three_d import Parameter3D
-from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.files.file import File, FileDestination, FileLoadError
+from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.traits.options import Options
 from PIL import Image
 
@@ -236,16 +239,6 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
 
         # OUTPUTS
         self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Generation ID from the API",
-                allow_input=False,
-                allow_property=False,
-                hide=True,
-            )
-        )
-
-        self.add_parameter(
             ParameterDict(
                 name="provider_response",
                 tooltip="Complete World object from World Labs",
@@ -269,7 +262,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterSplat(
                 name="splat_100k",
-                tooltip="100k resolution Gaussian splat file (.spz format)",
+                tooltip="100k resolution Gaussian splat file",
                 allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
                 settable=False,
                 pulse_on_run=True,
@@ -280,7 +273,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterSplat(
                 name="splat_500k",
-                tooltip="500k resolution Gaussian splat file (.spz format)",
+                tooltip="500k resolution Gaussian splat file",
                 allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
                 settable=False,
                 pulse_on_run=True,
@@ -291,7 +284,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterSplat(
                 name="splat_full_res",
-                tooltip="Full resolution Gaussian splat file (.spz format)",
+                tooltip="Full resolution Gaussian splat file",
                 allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
                 settable=False,
                 pulse_on_run=True,
@@ -345,6 +338,13 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
                 ui_options={"display_name": "Caption"},
             )
         )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="splat_full_res.spz",
+        )
+        self._output_file.add_parameter()
 
         # Status parameters MUST be last and use _create_status_parameters
         self._create_status_parameters(
@@ -610,31 +610,33 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         }
 
     async def _get_media_bytes(self, media_input: Any) -> bytes | None:
-        """Get raw bytes from a media input (image or video)."""
+        """Get raw bytes from a media input (image or video).
+
+        URL-bearing artifacts (``ImageUrlArtifact``, ``VideoUrlArtifact``) hold a
+        URL/path string in ``.value`` and their ``to_bytes()`` issues an HTTP GET
+        against that string — which fails for project macro paths. Resolve string
+        ``.value`` payloads via ``File`` first; only fall back to ``to_bytes()``
+        for raw-bytes artifacts (``ImageArtifact``, ``VideoArtifact``).
+        """
         if not media_input:
             return None
 
-        # Handle artifacts with to_bytes() method
+        # Plain string input: treat as URL / macro path / file path.
+        if isinstance(media_input, str):
+            return await self._string_to_bytes(media_input)
+
+        # Artifact-like with a string ``.value`` (URL / macro path / file path).
+        value = getattr(media_input, "value", None)
+        if isinstance(value, str) and value:
+            return await self._string_to_bytes(value)
+
+        # Raw-bytes artifacts: ``to_bytes()`` returns the in-memory payload.
         if hasattr(media_input, "to_bytes"):
             try:
                 return media_input.to_bytes()
             except Exception as e:
                 self._log(f"Failed to get bytes from artifact: {e}")
                 return None
-
-        # Extract string value from various input types
-        media_value: str | None = None
-
-        if isinstance(media_input, str):
-            media_value = media_input
-        elif hasattr(media_input, "value"):
-            value = getattr(media_input, "value", None)
-            if isinstance(value, str):
-                media_value = value
-
-        # Convert string value to bytes
-        if media_value:
-            return await self._string_to_bytes(media_value)
 
         return None
 
@@ -670,6 +672,26 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         except FileLoadError as e:
             self._log(f"Failed to load bytes from {value}: {e}")
             return None
+
+    async def _download_and_save_splat(self, url: str, dest: FileDestination) -> str | None:
+        """Download a splat URL and persist it into the project.
+
+        Returns the portable macro location or None if download or save failed.
+        One failed resolution must not block its siblings.
+        """
+        data = await self._download_bytes_from_url(url)
+        if not data:
+            self._log(f"Failed to download splat from {url}")
+            return None
+
+        try:
+            saved = await dest.awrite_bytes(data)
+        except Exception as e:
+            self._log(f"Failed to save splat: {e}")
+            return None
+
+        self._log(f"Saved splat: {saved.location} ({len(data):,} bytes)")
+        return saved.location
 
     async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
         """Parse the World object and populate outputs."""
@@ -717,24 +739,47 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
 
     async def _parse_assets(self, assets: dict[str, Any], world_id: str) -> None:
         """Parse and create artifact outputs from World assets."""
-        # Parse splat files
+        # Parse splat files — download and persist into the project.
+        # The primary output (full_res) follows the user's output_file parameter;
+        # sibling resolutions land in the same parent directory.
         splats = assets.get("splats") or {}
         spz_urls = splats.get("spz_urls") or {}
 
-        if "100k" in spz_urls:
-            self.parameter_output_values["splat_100k"] = SplatUrlArtifact(
-                value=spz_urls["100k"], meta={"resolution": "100k", "world_id": world_id}
-            )
+        output_file_value = self.get_parameter_value("output_file") or "splat_full_res.spz"
+        output_path = Path(output_file_value)
+        sub_dir = str(output_path.parent)
+        sub_dir_prefix = "" if sub_dir in ("", ".") else sub_dir
 
-        if "500k" in spz_urls:
-            self.parameter_output_values["splat_500k"] = SplatUrlArtifact(
-                value=spz_urls["500k"], meta={"resolution": "500k", "world_id": world_id}
-            )
+        def _splat_dest(filename: str) -> ProjectFileDestination:
+            qualified = str(Path(sub_dir_prefix) / filename) if sub_dir_prefix else filename
+            return ProjectFileDestination.from_situation(filename=qualified, situation="save_node_output")
 
-        if "full_res" in spz_urls:
-            self.parameter_output_values["splat_full_res"] = SplatUrlArtifact(
-                value=spz_urls["full_res"], meta={"resolution": "full_res", "world_id": world_id}
+        splat_jobs: list[tuple[str, str, FileDestination]] = []
+        for resolution in ("100k", "500k", "full_res"):
+            url = spz_urls.get(resolution)
+            if url:
+                if resolution == "full_res":
+                    dest = _splat_dest(output_path.name)
+                else:
+                    dest = _splat_dest(f"splat_{resolution}.spz")
+                splat_jobs.append((f"splat_{resolution}", url, dest))
+
+        if splat_jobs:
+            results = await asyncio.gather(
+                *(self._download_and_save_splat(url=url, dest=dest) for _, url, dest in splat_jobs),
+                return_exceptions=True,
             )
+            for (output_key, _url, _dest), result in zip(splat_jobs, results, strict=True):
+                if isinstance(result, BaseException):
+                    self._log(f"Splat job for {output_key} raised: {result}")
+                    continue
+                if not result:
+                    continue
+                resolution = output_key.removeprefix("splat_")
+                self.parameter_output_values[output_key] = SplatUrlArtifact(
+                    value=result,
+                    meta={"resolution": resolution, "world_id": world_id, "format": "spz"},
+                )
 
         # Parse mesh
         mesh = assets.get("mesh") or {}

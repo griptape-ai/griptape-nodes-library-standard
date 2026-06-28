@@ -12,7 +12,6 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
@@ -131,16 +130,14 @@ class OmnihumanSubjectDetection(GriptapeProxyNode):
 
     async def _build_payload(self) -> dict[str, Any]:
         model_id = self.get_parameter_value("model_id")
-        image_input = self.get_parameter_value("image_url")
-        image_value = extract_image_url(image_input)
+        image_value = extract_image_url(self.get_parameter_value("image_url"))
         if not image_value:
             msg = "Image URL is required"
             raise ValueError(msg)
 
-        image_url = await self._prepare_image_data_url_async(image_value)
-        if not image_url:
-            msg = "Failed to process input image"
-            raise ValueError(msg)
+        # OmniHuman downloads the image server-side, so it needs a publicly
+        # reachable URL rather than an inline data URI.
+        image_url = self._public_image_url_parameter.get_public_url_for_parameter()
 
         return {
             "req_key": self._get_req_key(model_id),
@@ -149,47 +146,6 @@ class OmnihumanSubjectDetection(GriptapeProxyNode):
 
     async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
         self._process_response(result_json)
-
-    async def _prepare_image_data_url_async(self, image_input: Any) -> str | None:
-        if not image_input:
-            return None
-
-        image_url = self._coerce_image_url_or_data_uri(image_input)
-        if not image_url:
-            return None
-
-        # Already a data URI — return as-is
-        if image_url.startswith("data:image/"):
-            return image_url
-
-        try:
-            return await File(image_url).aread_data_uri(fallback_mime="image/jpeg")
-        except FileLoadError as e:
-            logger.debug("%s failed to load image from %s: %s", self.name, image_url, e)
-            return None
-
-    @staticmethod
-    def _coerce_image_url_or_data_uri(val: Any) -> str | None:
-        if val is None:
-            return None
-
-        if isinstance(val, str):
-            v = val.strip()
-            if not v:
-                return None
-            return v if v.startswith(("http://", "https://", "data:image/")) else f"data:image/png;base64,{v}"
-
-        try:
-            v = getattr(val, "value", None)
-            if isinstance(v, str) and v.startswith(("http://", "https://", "data:image/")):
-                return v
-            b64 = getattr(val, "base64", None)
-            if isinstance(b64, str) and b64:
-                return b64 if b64.startswith("data:image/") else f"data:image/png;base64,{b64}"
-        except AttributeError:
-            pass
-
-        return None
 
     def _get_req_key(self, model_id: str) -> str:
         """Get the request key based on model_id."""

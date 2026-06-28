@@ -1,11 +1,14 @@
-from typing import Any
+from typing import Any, cast
 
 from griptape.artifacts import ErrorArtifact, TextArtifact
 from griptape.memory.structure import Run
-from griptape.structures.agent import Agent
+from griptape.tasks import PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+
+from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent
+from griptape_nodes_library.utils.agent_utils import restore_provider_driver, unwrap_agent, wrap_agent
 
 
 class SummarizeAgentMemory(ControlNode):
@@ -42,46 +45,42 @@ class SummarizeAgentMemory(ControlNode):
 
         self.add_parameter(self.summary)
 
-    def _get_agent(self) -> Agent | None:
-        """Get the agent object from the parameter value, returning None if unavailable."""
-        agent_dict = self.get_parameter_value("agent")
-        if agent_dict is None:
-            return None
+    def _get_agent(self) -> tuple[GriptapeNodesAgent | None, list, list]:
+        """Unwrap the agent wire and reconstruct the live agent."""
+        agent_value = self.get_parameter_value("agent")
+        if agent_value is None:
+            return None, [], []
 
-        agent = Agent.from_dict(agent_dict)
+        agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_value)
+        agent = GriptapeNodesAgent().from_dict(agent_core_dict)
+        restore_provider_driver(agent, agent_value)
         if agent is None or agent.conversation_memory is None:
-            return None
+            return None, [], []
 
-        return agent
+        return agent, tool_configs, ruleset_configs
 
     def process(self) -> None:
-        agent = self._get_agent()
+        agent, tool_configs, ruleset_configs = self._get_agent()
         prompt = self.get_parameter_value("prompt")
         if agent is None or agent.conversation_memory is None:
             return
 
-        # Check if there are any runs to summarize
+        agent_value = self.get_parameter_value("agent")
+        provider = agent_value.get("provider") if isinstance(agent_value, dict) else None
+
         if len(agent.conversation_memory.runs) == 0:
-            # No memory to summarize, just output the agent as-is
-            updated_agent_dict = agent.to_dict()
+            updated_agent_dict = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs, provider=provider)
             self.parameter_output_values["agent"] = updated_agent_dict
             self.publish_update_to_parameter("agent", updated_agent_dict)
             return
 
-        # Run the agent with the summarize prompt
         agent.run(prompt)
 
-        # Get the summary from the agent's output
-        if agent.output is None:
-            return
-
-        # Check for errors
-        if isinstance(agent.output, ErrorArtifact):
+        if agent.output is None or isinstance(agent.output, ErrorArtifact):
             return
 
         summary_text = agent.output.value if hasattr(agent.output, "value") else str(agent.output)
 
-        # Success path - set summary and replace memory
         self.parameter_output_values["summary"] = summary_text
         self.publish_update_to_parameter("summary", summary_text)
 
@@ -92,6 +91,8 @@ class SummarizeAgentMemory(ControlNode):
             )
         ]
 
-        updated_agent_dict = agent.to_dict()
+        if agent.tasks:
+            cast(PromptTask, agent.tasks[0]).tools = []
+        updated_agent_dict = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs, provider=provider)
         self.parameter_output_values["agent"] = updated_agent_dict
         self.publish_update_to_parameter("agent", updated_agent_dict)

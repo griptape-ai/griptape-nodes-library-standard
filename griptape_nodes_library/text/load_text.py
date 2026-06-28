@@ -3,7 +3,7 @@ from typing import Any
 
 from griptape.loaders import PdfLoader
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import ControlNode
+from griptape_nodes.exe_types.node_types import ControlNode, NodeDependencies
 from griptape_nodes.files.file import File
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 
@@ -48,6 +48,15 @@ class LoadText(ControlNode):
                 ui_options={"multiline": True, "placeholder_text": "Text will load here."},
             )
         )
+
+    def get_node_dependencies(self) -> NodeDependencies | None:
+        deps = super().get_node_dependencies()
+        if deps is None:
+            deps = NodeDependencies()
+        value = self.get_parameter_value("path")
+        if value and isinstance(value, str):
+            deps.static_files.add(value)
+        return deps
 
     def process(self) -> None:
         # Get the selected file

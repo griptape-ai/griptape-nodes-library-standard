@@ -71,22 +71,13 @@ class GrokVideoEdit(GriptapeProxyNode):
                 name="video",
                 default_value="",
                 tooltip="Input video to edit",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Video"},
             )
         )
 
         # OUTPUTS
-        self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Generation ID from the API",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide_property=True,
-                hide=True,
-            )
-        )
-
         self.add_parameter(
             ParameterDict(
                 name="provider_response",
@@ -119,6 +110,8 @@ class GrokVideoEdit(GriptapeProxyNode):
             result_details_placeholder="Editing status and details will appear here.",
             parameter_group_initially_collapsed=True,
         )
+
+        self.set_initial_node_size(height=1145)
 
     @staticmethod
     def _has_media_value(value: Any) -> bool:
@@ -170,6 +163,11 @@ class GrokVideoEdit(GriptapeProxyNode):
     def _get_payload_model_id(self) -> str:
         model_name = self.get_parameter_value("model") or "Grok Imagine Video"
         return self.MODEL_NAME_MAP.get(model_name, model_name)
+
+    def _get_catalog_model_id(self) -> str:
+        # The catalog declares the bare provider id (no `:edit` suffix), so
+        # resolve the declaration against the un-suffixed id.
+        return self._get_payload_model_id()
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []

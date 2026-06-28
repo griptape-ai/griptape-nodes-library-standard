@@ -26,6 +26,12 @@ __all__ = ["KlingTextToVideoGeneration"]
 MAX_PROMPT_LENGTH = 2500
 MAX_MULTI_PROMPT_COUNT = 6
 V3_MODEL_ID = "kling-v3"
+MODE_STD = "std"
+MODE_PRO = "pro"
+MODE_4K = "4k"
+BASE_MODE_CHOICES = [MODE_STD, MODE_PRO]
+V3_MODE_CHOICES = [MODE_STD, MODE_PRO, MODE_4K]
+DEFAULT_MODE = MODE_STD
 DEFAULT_MULTI_SHOTS = [{"name": "Shot1", "duration": 5, "description": ""}]
 
 
@@ -64,40 +70,41 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
     }
 
     # Model capability definitions
+    # modes: [] means no mode selection (model has a single fixed quality tier)
     MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
         "kling-v3": {
-            "modes": ["std", "pro"],
-            "durations": [5, 10],
+            "modes": V3_MODE_CHOICES,
+            "durations": list(range(3, 16)),
             "aspect_ratios": ["16:9", "9:16", "1:1"],
             "supports_sound": False,
             "supports_multi_shot": True,
         },
         "kling-v1-6": {
-            "modes": ["std", "pro"],
+            "modes": BASE_MODE_CHOICES,
             "durations": [5, 10],
             "aspect_ratios": ["16:9", "9:16", "1:1"],
             "supports_sound": False,
         },
         "kling-v2-master": {
-            "modes": ["std", "pro"],
+            "modes": [],
             "durations": [5, 10],
             "aspect_ratios": ["16:9", "9:16", "1:1"],
             "supports_sound": False,
         },
         "kling-v2-1-master": {
-            "modes": ["std", "pro"],
+            "modes": [],
             "durations": [5, 10],
             "aspect_ratios": ["16:9", "9:16", "1:1"],
             "supports_sound": False,
         },
         "kling-v2-5-turbo": {
-            "modes": ["pro"],
+            "modes": BASE_MODE_CHOICES,
             "durations": [5, 10],
-            "aspect_ratios": ["16:9"],
+            "aspect_ratios": ["16:9", "9:16", "1:1"],
             "supports_sound": False,
         },
         "kling-v2-6": {
-            "modes": ["pro"],
+            "modes": BASE_MODE_CHOICES,
             "durations": [5, 10],
             "aspect_ratios": ["16:9", "9:16", "1:1"],
             "supports_sound": True,
@@ -225,10 +232,10 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
 
             ParameterString(
                 name="mode",
-                default_value="std",
-                tooltip="Video generation mode (std: Standard, pro: Professional)",
+                default_value=DEFAULT_MODE,
+                tooltip="Video generation mode. Supported modes vary by model; Kling v3.0 also supports 4k.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["std", "pro"])},
+                traits={Options(choices=V3_MODE_CHOICES)},
             )
 
             ParameterString(
@@ -242,9 +249,9 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
             ParameterInt(
                 name="duration",
                 default_value=5,
-                tooltip="Video Length, unit: s (seconds)",
+                tooltip="Video length in seconds. Range varies by model.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=[5, 10])},
+                traits={Options(choices=list(range(3, 16)))},
             )
 
             ParameterString(
@@ -259,15 +266,6 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         self.add_node_element(gen_settings_group)
 
         # OUTPUTS
-        self.add_parameter(
-            ParameterString(
-                name="generation_id",
-                tooltip="Griptape Cloud generation id",
-                allowed_modes={ParameterMode.OUTPUT},
-                hide=True,
-            )
-        )
-
         self.add_parameter(
             ParameterDict(
                 name="provider_response",
@@ -322,37 +320,48 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         if parameter.name == "model_name":
             self._update_parameter_visibility_for_model(value)
             self._update_multi_shot_parameter_visibility()
+            # Update duration choices inline (WAN pattern)
+            model_id = self.MODEL_NAME_MAP.get(str(value), str(value))
+            capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
+            new_durations = capabilities.get("durations", [5, 10])
+            current_duration = self.get_parameter_value("duration")
+            if current_duration in new_durations:
+                self._update_option_choices("duration", new_durations, current_duration)  # type: ignore[arg-type]
+            else:
+                self._update_option_choices("duration", new_durations, new_durations[0])  # type: ignore[arg-type]
         elif parameter.name in {"multi_shot", "shot_type", "shot_count"}:
             self._update_multi_shot_parameter_visibility()
+        elif parameter.name == "mode":
+            self._update_mode_dependent_features()
 
     def _update_parameter_visibility_for_model(self, model_name: str) -> None:
         """Update parameter visibility based on selected model."""
-        # Map user-facing name to model ID
         model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
+        modes = capabilities.get("modes", BASE_MODE_CHOICES)
 
-        if model_id == "kling-v2-5-turbo":
-            self.hide_parameter_by_name(["mode", "aspect_ratio"])
-            current_mode = self.get_parameter_value("mode")
-            if current_mode != "pro":
-                self.set_parameter_value("mode", "pro")
-            current_aspect = self.get_parameter_value("aspect_ratio")
-            if current_aspect != "16:9":
-                self.set_parameter_value("aspect_ratio", "16:9")
-            current_duration = self.get_parameter_value("duration")
-            if current_duration not in [5, 10]:
-                self.set_parameter_value("duration", 5)
-            self.hide_parameter_by_name("sound")
-        elif model_id == "kling-v2-6":
+        self.show_parameter_by_name("duration")
+
+        if not modes:
+            # No mode selection for this model — hide selector, keep value as pro
             self.hide_parameter_by_name("mode")
-            self.show_parameter_by_name(["aspect_ratio", "duration", "sound"])
-            current_mode = self.get_parameter_value("mode")
-            if current_mode != "pro":
-                self.set_parameter_value("mode", "pro")
-            current_duration = self.get_parameter_value("duration")
-            if current_duration not in [5, 10]:
-                self.set_parameter_value("duration", 5)
+            if self.get_parameter_value("mode") != MODE_PRO:
+                self.set_parameter_value("mode", MODE_PRO)
         else:
-            self.show_parameter_by_name(["mode", "aspect_ratio", "duration"])
+            self.show_parameter_by_name("mode")
+            self._update_mode_choices(modes)
+
+        aspect_ratios = capabilities.get("aspect_ratios", ["16:9", "9:16", "1:1"])
+        if len(aspect_ratios) == 1:
+            self.hide_parameter_by_name("aspect_ratio")
+            if self.get_parameter_value("aspect_ratio") != aspect_ratios[0]:
+                self.set_parameter_value("aspect_ratio", aspect_ratios[0])
+        else:
+            self.show_parameter_by_name("aspect_ratio")
+
+        if capabilities.get("supports_sound", False):
+            self._update_mode_dependent_features()
+        else:
             self.hide_parameter_by_name("sound")
 
         if model_id == V3_MODEL_ID:
@@ -365,6 +374,28 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
             for shot_index in range(1, MAX_MULTI_PROMPT_COUNT + 1):
                 self.hide_parameter_by_name([f"shot_{shot_index}_prompt", f"shot_{shot_index}_duration"])
             self.show_parameter_by_name("prompt")
+
+    def _update_mode_choices(self, supported_modes: list[str]) -> None:
+        """Keep the mode dropdown aligned with the selected model."""
+        current_mode = self.get_parameter_value("mode")
+        next_mode = current_mode if current_mode in supported_modes else DEFAULT_MODE
+        if next_mode not in supported_modes:
+            next_mode = supported_modes[0]
+
+        self._update_option_choices("mode", supported_modes, next_mode)
+
+    def _update_mode_dependent_features(self) -> None:
+        """Show/hide features that depend on the current mode (e.g. sound for kling-v2-6)."""
+        model_name = self.get_parameter_value("model_name") or ""
+        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        if model_id == "kling-v2-6":
+            mode = self.get_parameter_value("mode") or MODE_PRO
+            if mode == MODE_PRO:
+                self.show_parameter_by_name("sound")
+            else:
+                self.hide_parameter_by_name("sound")
+                if self.get_parameter_value("sound") != "off":
+                    self.set_parameter_value("sound", "off")
 
     def _update_multi_shot_parameter_visibility(self) -> None:
         """Toggle prompt and shot inputs for v3 multi-shot configurations."""
@@ -606,7 +637,7 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
         negative_prompt = self.get_parameter_value("negative_prompt") or ""
         cfg_scale = self.get_parameter_value("cfg_scale")
-        mode = self.get_parameter_value("mode") or "std"
+        mode = self.get_parameter_value("mode") or DEFAULT_MODE
         aspect_ratio = self.get_parameter_value("aspect_ratio") or "16:9"
         duration = self.get_parameter_value("duration") or 5
         sound = self.get_parameter_value("sound") or "off"
@@ -766,17 +797,18 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         # Validate model-specific constraints
         model_name = self.get_parameter_value("model_name") or "Kling v2.6"
         model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
-        mode = self.get_parameter_value("mode") or "std"
+        mode = self.get_parameter_value("mode") or DEFAULT_MODE
         aspect_ratio = self.get_parameter_value("aspect_ratio") or "16:9"
 
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
+        model_modes = capabilities.get("modes", BASE_MODE_CHOICES)
 
-        if mode not in capabilities.get("modes", ["std", "pro"]):
-            valid_modes = capabilities.get("modes", [])
+        # Skip mode validation for no-mode models (modes: []) — mode is always pro internally
+        if model_modes and mode not in model_modes:
             exceptions.append(
                 ValueError(
                     f"{self.name}: Model {model_name} does not support mode '{mode}'. "
-                    f"Valid modes: {', '.join(valid_modes)}"
+                    f"Valid modes: {', '.join(model_modes)}"
                 )
             )
 

@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -18,6 +18,7 @@ class ExtractAudio(BaseVideoProcessor):
     # Audio format options
     AUDIO_FORMATS: ClassVar[list[str]] = ["mp3", "wav", "aac", "flac", "ogg", "m4a"]
     DEFAULT_AUDIO_FORMAT = "mp3"
+    OUTPUT_FILE_DEFAULT_FILENAME: ClassVar[str] = f"output.{DEFAULT_AUDIO_FORMAT}"
 
     # Audio quality options for lossy formats
     AUDIO_QUALITY_OPTIONS: ClassVar[dict[str, str]] = {
@@ -34,9 +35,24 @@ class ExtractAudio(BaseVideoProcessor):
         # Hide parameters that aren't relevant for audio extraction
         self.hide_parameter_by_name("output_frame_rate")
         self.hide_parameter_by_name("processing_speed")
-        self.hide_parameter_by_name("output")
 
-        # Add audio output parameter
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter.name == "audio_format" and isinstance(value, str) and value:
+            current = self.get_parameter_value("output_file")
+            updated = self._swap_filename_extension(current, value)
+            if updated != current:
+                self.set_parameter_value("output_file", updated)
+                self.publish_update_to_parameter("output_file", updated)
+        return super().after_value_set(parameter, value)
+
+    @staticmethod
+    def _swap_filename_extension(filename: Any, new_extension: str) -> str:
+        if not isinstance(filename, str) or not filename:
+            return f"output.{new_extension}"
+        path = Path(filename)
+        return str(path.with_suffix(f".{new_extension}"))
+
+    def _register_primary_output_parameter(self) -> None:
         self.add_parameter(
             ParameterAudio(
                 name="extracted_audio",

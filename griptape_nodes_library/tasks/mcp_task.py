@@ -4,6 +4,7 @@ from typing import Any
 from griptape.artifacts import BaseArtifact
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.events import ActionChunkEvent, FinishStructureRunEvent, StartStructureRunEvent, TextChunkEvent
+from griptape.rules import Rule, Ruleset
 from griptape.structures import Agent
 from griptape.tasks import PromptTask
 from griptape.tools import MCPTool
@@ -12,16 +13,32 @@ from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
-from griptape_nodes.retained_mode.managers.agent_manager import AgentManager
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent
+from griptape_nodes_library.utils.agent_utils import build_tools, restore_provider_driver, unwrap_agent, wrap_agent
 from griptape_nodes_library.utils.mcp_utils import (
     create_mcp_tool,
     get_available_mcp_servers,
     get_server_config,
     validate_mcp_server,
 )
+
+
+def _create_ruleset_from_rules_string(rules_string: str | None, server_name: str) -> Ruleset | None:
+    """Build a Ruleset from an MCP server's rules-string config.
+
+    Returns None when the string is missing or whitespace-only so the caller
+    can skip without conditional ladders. Mirrors the helper that used to
+    live on `AgentManager._create_ruleset_from_rules_string` (removed in
+    engine 0.86.0); inlined here because the original was a pure Griptape
+    SDK call with a small naming convention — no reason to depend on a
+    private engine method to compose it. Closes #307.
+    """
+    if not rules_string or not rules_string.strip():
+        return None
+    return Ruleset(name=f"mcp_{server_name}_rules", rules=[Rule(rules_string.strip())])
 
 
 class MCPTaskNode(SuccessFailureNode):
@@ -220,7 +237,7 @@ class MCPTaskNode(SuccessFailureNode):
         # Get MCP server rules and create ruleset
         rules_string = server_config.get("rules")
         if rules_string:
-            mcp_ruleset = AgentManager._create_ruleset_from_rules_string(rules_string, mcp_server_name)
+            mcp_ruleset = _create_ruleset_from_rules_string(rules_string, mcp_server_name)
             if mcp_ruleset is not None:
                 rulesets = [*list(rulesets), mcp_ruleset]
 
@@ -249,13 +266,25 @@ class MCPTaskNode(SuccessFailureNode):
         try:
             rulesets = []
             tools = []
-            agent = self.get_parameter_value("agent")
-            if isinstance(agent, dict):
-                agent = Agent().from_dict(agent)
+            self._tool_configs: list = []
+            self._ruleset_configs: list = []
+            self._provider: dict | None = None
+            agent_input = self.get_parameter_value("agent")
+            if isinstance(agent_input, dict):
+                agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_input)
+                agent = GriptapeNodesAgent().from_dict(agent_core_dict)
+                restore_provider_driver(agent, agent_input)
                 task = agent.tasks[0]
                 driver = task.prompt_driver
-                tools = task.tools
+                if tool_configs:
+                    live_tools, _ = build_tools(tool_configs)
+                    tools = live_tools
+                else:
+                    tools = task.tools
                 rulesets = task.rulesets
+                self._tool_configs = tool_configs
+                self._ruleset_configs = ruleset_configs
+                self._provider = agent_input.get("provider")
             else:
                 driver = self._create_driver()
                 agent = Agent()
@@ -348,12 +377,16 @@ class MCPTaskNode(SuccessFailureNode):
     def _set_success_output_values(self, result: Agent) -> None:
         """Set output parameter values on success."""
         self.parameter_output_values["output"] = str(result.output) if result.output else ""
-        # Remove the MCP Tool from the agent
+        # Remove MCPTool from agent before serializing — not serializable, travels via tool_configs
         if isinstance(result.tasks[0], PromptTask) and result.tasks[0].tools:
-            # Filter out MCPTool instances, keep other tools
             result.tasks[0].tools = [tool for tool in result.tasks[0].tools if not isinstance(tool, MCPTool)]
 
-        self.parameter_output_values["agent"] = result.to_dict()
+        self.parameter_output_values["agent"] = wrap_agent(
+            result.to_dict(),
+            getattr(self, "_tool_configs", []),
+            getattr(self, "_ruleset_configs", []),
+            provider=getattr(self, "_provider", None),
+        )
 
     def _set_failure_output_values(self) -> None:
         """Set output parameter values to defaults on failure."""
