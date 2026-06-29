@@ -895,12 +895,12 @@
     {
       "name": "CropVideoEditor",
       "path": "widgets/CropVideoEditor/CropVideoEditor.js",
-      "description": "Interactive video crop editor — drag handles on a live video frame with frame scrubber, aspect ratio, resolution, and position presets."
+      "description": "Interactive video crop editor \u2014 drag handles on a live video frame with frame scrubber, aspect ratio, resolution, and position presets."
     },
     {
       "name": "SelectFromGrid",
       "path": "widgets/SelectFromGrid/SelectFromGrid.js",
-      "description": "Interactive grid selector — displays list items as thumbnails (images, video, audio, text) and lets the user click to select one or more."
+      "description": "Interactive grid selector \u2014 displays list items as thumbnails (images, video, audio, text) and lets the user click to select one or more."
     }
   ],
   "categories": [
@@ -2802,6 +2802,24 @@
           "video",
           "combine",
           "ffmpeg"
+        ]
+      }
+    },
+    {
+      "class_name": "CreateVideoFromFrames",
+      "file_path": "griptape_nodes_library/video/create_video_from_frames.py",
+      "metadata": {
+        "category": "video",
+        "description": "Combine image frames or a numbered sequence into a video (mp4, mov, or gif) using ffmpeg",
+        "display_name": "Create Video from Frames",
+        "icon": "film",
+        "group": "create",
+        "tags": [
+          "video",
+          "frames",
+          "sequence",
+          "ffmpeg",
+          "combine"
         ]
       }
     },
