@@ -83,26 +83,43 @@ class ForEachStartNode(BaseIterativeStartNode):
         self.move_element_to_position("items", position="first")
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        if parameter == self.run_in_order and self.end_node:
-            # Hide or show break/skip controls based on parallel mode
-            skip_param = self.end_node.skip_control
-            break_param = self.end_node.break_control
-            if value:
-                # Show controls when running sequentially
-                if skip_param:
-                    skip_param.ui_options["hide"] = False
-                if break_param:
-                    break_param.ui_options["hide"] = False
-            else:
-                # Hide controls when running in parallel (not supported)
-                if skip_param:
-                    skip_param.ui_options["hide"] = True
-                if break_param:
-                    break_param.ui_options["hide"] = True
+        if parameter == self.run_in_order:
+            if self.end_node:
+                # Hide or show break/skip controls based on parallel mode
+                skip_param = self.end_node.skip_control
+                break_param = self.end_node.break_control
+                if value:
+                    # Show controls when running sequentially
+                    if skip_param:
+                        skip_param.hide = False
+                    if break_param:
+                        break_param.hide = False
+                else:
+                    # Hide controls when running in parallel (not supported)
+                    if skip_param:
+                        skip_param.hide = True
+                    if break_param:
+                        break_param.hide = True
+
+            # Progress indicators are only meaningful in sequential mode
+            status_message = self.get_parameter_by_name("status_message")
+            if status_message:
+                status_message.hide = not value
+            progress_bar = self.get_parameter_by_name("progress")
+            if progress_bar:
+                progress_bar.hide = not value
 
         if parameter == self.testing_mode:
             self.test_item_index.hide = not value
             self.run_in_order.hide = value
+            # Progress is hidden if testing OR if running in parallel
+            hide_progress = value or not self.get_parameter_value("run_in_order")
+            status_message = self.get_parameter_by_name("status_message")
+            if status_message:
+                status_message.hide = hide_progress
+            progress_bar = self.get_parameter_by_name("progress")
+            if progress_bar:
+                progress_bar.hide = hide_progress
 
     @classmethod
     def _get_compatible_end_classes(cls) -> set[type]:
