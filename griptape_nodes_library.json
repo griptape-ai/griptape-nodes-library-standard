@@ -3098,6 +3098,23 @@
       }
     },
     {
+      "class_name": "CsvToListOfDicts",
+      "file_path": "griptape_nodes_library/convert/csv_to_list_of_dicts.py",
+      "metadata": {
+        "category": "convert",
+        "description": "Parses CSV text into a list of dicts, using the header row as keys",
+        "display_name": "CSV to List of Dicts",
+        "group": "edit",
+        "tags": [
+          "convert",
+          "csv",
+          "data",
+          "list",
+          "dictionary"
+        ]
+      }
+    },
+    {
       "class_name": "DictToList",
       "file_path": "griptape_nodes_library/convert/dict_to_list.py",
       "metadata": {
