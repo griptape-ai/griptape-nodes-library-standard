@@ -622,7 +622,7 @@ class CreateVideoFromFrames(SuccessFailureNode):
             audio_url = audio_input
         elif isinstance(audio_input, dict) and "value" in audio_input:
             audio_url = str(audio_input["value"])
-        elif hasattr(audio_input, "value"):
+        elif not isinstance(audio_input, dict) and hasattr(audio_input, "value"):
             try:
                 val = audio_input.value
                 if val:
