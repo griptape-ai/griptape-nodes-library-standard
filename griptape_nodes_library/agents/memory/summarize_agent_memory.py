@@ -8,7 +8,7 @@ from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent
-from griptape_nodes_library.utils.agent_utils import restore_provider_driver, unwrap_agent, wrap_agent
+from griptape_nodes_library.utils.agent_utils import unwrap_agent, wrap_agent
 
 
 class SummarizeAgentMemory(ControlNode):
@@ -53,7 +53,6 @@ class SummarizeAgentMemory(ControlNode):
 
         agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_value)
         agent = GriptapeNodesAgent().from_dict(agent_core_dict)
-        restore_provider_driver(agent, agent_value)
         if agent is None or agent.conversation_memory is None:
             return None, [], []
 
@@ -65,11 +64,8 @@ class SummarizeAgentMemory(ControlNode):
         if agent is None or agent.conversation_memory is None:
             return
 
-        agent_value = self.get_parameter_value("agent")
-        provider = agent_value.get("provider") if isinstance(agent_value, dict) else None
-
         if len(agent.conversation_memory.runs) == 0:
-            updated_agent_dict = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs, provider=provider)
+            updated_agent_dict = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
             self.parameter_output_values["agent"] = updated_agent_dict
             self.publish_update_to_parameter("agent", updated_agent_dict)
             return
@@ -93,6 +89,6 @@ class SummarizeAgentMemory(ControlNode):
 
         if agent.tasks:
             cast(PromptTask, agent.tasks[0]).tools = []
-        updated_agent_dict = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs, provider=provider)
+        updated_agent_dict = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
         self.parameter_output_values["agent"] = updated_agent_dict
         self.publish_update_to_parameter("agent", updated_agent_dict)

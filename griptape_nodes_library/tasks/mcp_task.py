@@ -17,7 +17,7 @@ from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent
-from griptape_nodes_library.utils.agent_utils import build_tools, restore_provider_driver, unwrap_agent, wrap_agent
+from griptape_nodes_library.utils.agent_utils import build_tools, unwrap_agent, wrap_agent
 from griptape_nodes_library.utils.mcp_utils import (
     create_mcp_tool,
     get_available_mcp_servers,
@@ -268,12 +268,10 @@ class MCPTaskNode(SuccessFailureNode):
             tools = []
             self._tool_configs: list = []
             self._ruleset_configs: list = []
-            self._provider: dict | None = None
             agent_input = self.get_parameter_value("agent")
             if isinstance(agent_input, dict):
                 agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_input)
                 agent = GriptapeNodesAgent().from_dict(agent_core_dict)
-                restore_provider_driver(agent, agent_input)
                 task = agent.tasks[0]
                 driver = task.prompt_driver
                 if tool_configs:
@@ -284,7 +282,6 @@ class MCPTaskNode(SuccessFailureNode):
                 rulesets = task.rulesets
                 self._tool_configs = tool_configs
                 self._ruleset_configs = ruleset_configs
-                self._provider = agent_input.get("provider")
             else:
                 driver = self._create_driver()
                 agent = Agent()
@@ -385,7 +382,6 @@ class MCPTaskNode(SuccessFailureNode):
             result.to_dict(),
             getattr(self, "_tool_configs", []),
             getattr(self, "_ruleset_configs", []),
-            provider=getattr(self, "_provider", None),
         )
 
     def _set_failure_output_values(self) -> None:
