@@ -12,6 +12,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  version-check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check version has been bumped
+        run: |
+          BASE_VERSION=$(git show origin/${{ github.base_ref }}:griptape_nodes_library.json | jq -r '.metadata.library_version')
+          JSON_VERSION=$(jq -r '.metadata.library_version' griptape_nodes_library.json)
+          TOML_VERSION=$(awk -F'"' '/^version = / {print $2}' pyproject.toml)
+          echo "Base version: $BASE_VERSION"
+          echo "JSON version: $JSON_VERSION"
+          echo "TOML version: $TOML_VERSION"
+          if [ "$BASE_VERSION" = "$JSON_VERSION" ]; then
+            echo "::error::library_version in griptape_nodes_library.json has not been bumped (still $JSON_VERSION). Run 'make version/patch' or 'make version/minor' before merging."
+            exit 1
+          fi
+          if [ "$JSON_VERSION" != "$TOML_VERSION" ]; then
+            echo "::error::Version mismatch: griptape_nodes_library.json has $JSON_VERSION but pyproject.toml has $TOML_VERSION."
+            exit 1
+          fi
+
   check:
     runs-on: ubuntu-latest
     strategy:
