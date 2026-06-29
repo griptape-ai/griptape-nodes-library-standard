@@ -690,13 +690,20 @@ class CreateVideoFromFrames(SuccessFailureNode):
 
             case "mp4" | "mov":
                 preset, pix_fmt, crf = self._get_processing_speed_settings()
-                cmd.extend([
-                    "-c:v", "libx264",
-                    "-preset", preset,
-                    "-crf", str(crf),
-                    "-pix_fmt", pix_fmt,
-                    "-movflags", "+faststart",
-                ])
+                cmd.extend(
+                    [
+                        "-c:v",
+                        "libx264",
+                        "-preset",
+                        preset,
+                        "-crf",
+                        str(crf),
+                        "-pix_fmt",
+                        pix_fmt,
+                        "-movflags",
+                        "+faststart",
+                    ]
+                )
                 if audio_url:
                     cmd.extend(["-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "192k", "-shortest"])
                 else:
