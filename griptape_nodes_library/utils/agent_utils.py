@@ -60,7 +60,38 @@ def unwrap_agent(value: dict) -> tuple[dict, list, list]:
     return value, [], []
 
 
-def wrap_agent(agent_dict: dict, tool_configs: list, ruleset_configs: list) -> dict:
+def restore_provider_driver(agent: object, wrapper: dict) -> None:
+    """Rebuild the prompt driver from provider config stored in the wrapper.
+
+    When a non-GTC agent is serialized via to_dict(), griptape strips the api_key.
+    Callers that deserialize via from_dict() must call this immediately after to
+    restore the correct driver for OpenAI-compatible providers.
+    """
+    provider = wrapper.get("provider") if isinstance(wrapper, dict) else None
+    if not provider:
+        return
+    from typing import cast
+
+    from griptape.drivers.prompt.openai import OpenAiChatPromptDriver
+    from griptape.tasks import PromptTask
+
+    tasks = getattr(agent, "tasks", None)
+    if not tasks:
+        return
+    task = tasks[0]
+    if not isinstance(task, PromptTask):
+        return
+    model = task.prompt_driver.model
+    rebuilt = OpenAiChatPromptDriver(
+        model=model,
+        base_url=provider.get("base_url", ""),
+        api_key=provider.get("api_key") or "not-needed",
+        stream=True,
+    )
+    cast(PromptTask, task).prompt_driver = rebuilt
+
+
+def wrap_agent(agent_dict: dict, tool_configs: list, ruleset_configs: list, *, provider: dict | None = None) -> dict:
     """Strip non-serializable fields from the agent dict and return the wrapper.
 
     Tools, rulesets, and rules are cleared from the griptape dict — they live
@@ -91,11 +122,14 @@ def wrap_agent(agent_dict: dict, tool_configs: list, ruleset_configs: list) -> d
                 "value": value,
             }
 
-    return {
+    result: dict = {
         "agent": agent_dict,
         "tools": tool_configs,
         "rulesets": ruleset_configs,
     }
+    if provider:
+        result["provider"] = provider
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +259,7 @@ def build_tool_from_config(config: dict) -> object:
         agent_wrapper = config["agent_dict"]
         agent_core_dict, incoming_tool_configs, incoming_ruleset_configs = unwrap_agent(agent_wrapper)
         agent = GriptapeNodesAgent.from_dict(agent_core_dict)
+        restore_provider_driver(agent, agent_wrapper)
         if incoming_tool_configs:
             live_tools, _ = build_tools(incoming_tool_configs)
             if live_tools and agent.tasks:
