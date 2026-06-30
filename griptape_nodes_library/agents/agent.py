@@ -7,7 +7,7 @@ for tools, rulesets, prompts, and streams output back to the user interface.
 """
 
 import json
-from typing import Any, TYPE_CHECKING, cast  # cast used for handle_request narrowing
+from typing import TYPE_CHECKING, Any, cast  # cast used for handle_request narrowing
 
 from griptape.artifacts import BaseArtifact, ModelArtifact, TextArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
@@ -39,7 +39,6 @@ from griptape_nodes.retained_mode.events.connection_events import DeleteConnecti
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
-
 from jinja2 import Template
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
