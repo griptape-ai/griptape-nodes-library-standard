@@ -78,6 +78,7 @@ try:
         ListProviderModelsResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
         ProviderConfig,  # pyright: ignore[reportAttributeAccessIssue]
     )
+
     _AGENT_PROVIDERS_AVAILABLE = True
     _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
 except ImportError:
