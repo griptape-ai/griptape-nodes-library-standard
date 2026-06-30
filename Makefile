@@ -8,13 +8,7 @@ version/get: ## Get version.
 version/set: ## Set version. Usage: make version/set v=1.2.3
 	@jq --arg v "$(v)" '.metadata.library_version = $$v' griptape_nodes_library.json > griptape_nodes_library.json.tmp
 	@mv griptape_nodes_library.json.tmp griptape_nodes_library.json
-	@$(MAKE) --no-print-directory version/sync-toml
 	@make version/commit
-
-.PHONY: version/sync-toml
-version/sync-toml: ## Sync version from griptape_nodes_library.json to pyproject.toml.
-	@VERSION=$$($(MAKE) --no-print-directory version/get); \
-	uv version --frozen "$$VERSION"
 
 .PHONY: version/patch
 version/patch: ## Bump patch version.
@@ -24,7 +18,6 @@ version/patch: ## Bump patch version.
 	jq --arg v "$$NEW_VERSION" '.metadata.library_version = $$v' griptape_nodes_library.json > griptape_nodes_library.json.tmp; \
 	mv griptape_nodes_library.json.tmp griptape_nodes_library.json; \
 	echo "Bumped to $$NEW_VERSION"
-	@$(MAKE) --no-print-directory version/sync-toml
 	@$(MAKE) --no-print-directory version/commit
 
 .PHONY: version/minor
@@ -35,7 +28,6 @@ version/minor: ## Bump minor version.
 	jq --arg v "$$NEW_VERSION" '.metadata.library_version = $$v' griptape_nodes_library.json > griptape_nodes_library.json.tmp; \
 	mv griptape_nodes_library.json.tmp griptape_nodes_library.json; \
 	echo "Bumped to $$NEW_VERSION"
-	@$(MAKE) --no-print-directory version/sync-toml
 	@$(MAKE) --no-print-directory version/commit
 
 .PHONY: version/major
@@ -46,12 +38,11 @@ version/major: ## Bump major version.
 	jq --arg v "$$NEW_VERSION" '.metadata.library_version = $$v' griptape_nodes_library.json > griptape_nodes_library.json.tmp; \
 	mv griptape_nodes_library.json.tmp griptape_nodes_library.json; \
 	echo "Bumped to $$NEW_VERSION"
-	@$(MAKE) --no-print-directory version/sync-toml
 	@$(MAKE) --no-print-directory version/commit
 
 .PHONY: version/commit
 version/commit: ## Commit version.
-	@git add griptape_nodes_library.json pyproject.toml
+	@git add griptape_nodes_library.json
 	@git commit -m "chore: bump v$$($(MAKE) --no-print-directory version/get)"
 
 .PHONY: version/publish

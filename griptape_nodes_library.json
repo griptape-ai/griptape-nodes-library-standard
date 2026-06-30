@@ -885,12 +885,12 @@
     {
       "name": "SplatViewer",
       "path": "griptape_nodes_library/splat/widgets/SplatViewer.js",
-      "description": "Inline Gaussian splat viewer — auto-renders the highest-fidelity wired splat using OrbitControls, matching the vsl-gui SplatComponent appearance."
+      "description": "Inline Gaussian splat viewer \u2014 auto-renders the highest-fidelity wired splat using OrbitControls, matching the vsl-gui SplatComponent appearance."
     },
     {
       "name": "CropImageEditor",
       "path": "widgets/CropImageEditor/CropImageEditor.js",
-      "description": "Interactive crop editor — drag to move/resize the crop rectangle, draw a new crop area, with rule-of-thirds guides and live coordinate readout."
+      "description": "Interactive crop editor \u2014 drag to move/resize the crop rectangle, draw a new crop area, with rule-of-thirds guides and live coordinate readout."
     },
     {
       "name": "CropVideoEditor",
