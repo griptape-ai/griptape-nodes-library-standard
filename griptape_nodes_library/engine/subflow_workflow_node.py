@@ -19,6 +19,7 @@ from griptape_nodes.retained_mode.events.parameter_events import (
 
 # Add pyright ignore because this is a new event - we know it does exist
 from griptape_nodes.retained_mode.events.workflow_events import (
+    REFERENCED_SUBFLOW_NODE_NAME_MAP_METADATA_KEY,  # pyright: ignore[reportAttributeAccessIssue]
     ImportWorkflowAsReferencedSubFlowRequest,
     ImportWorkflowAsReferencedSubFlowResultSuccess,
     ListCallableWorkflowsRequest,  # pyright: ignore[reportAttributeAccessIssue]
@@ -299,7 +300,8 @@ class SubflowWorkflowNode(SuccessFailureNode):
     def _set_workflow_inputs(self, flow_name: str, workflow_shape: Any) -> None:
         flow = GriptapeNodes.FlowManager().get_flow_by_name(flow_name)
         for start_node_name, params in workflow_shape.inputs.items():
-            start_node = flow.nodes.get(start_node_name)
+            live_node_name = self._resolve_subflow_node_name(flow, start_node_name)
+            start_node = flow.nodes.get(live_node_name)
             if start_node is None:
                 continue
             for param_name, param_dict in params.items():
@@ -309,7 +311,7 @@ class SubflowWorkflowNode(SuccessFailureNode):
                 GriptapeNodes.handle_request(
                     SetParameterValueRequest(
                         parameter_name=param_name,
-                        node_name=start_node_name,
+                        node_name=live_node_name,
                         value=value,
                     )
                 )
@@ -317,7 +319,8 @@ class SubflowWorkflowNode(SuccessFailureNode):
     def _collect_workflow_outputs(self, flow_name: str, workflow_shape: Any) -> None:
         flow = GriptapeNodes.FlowManager().get_flow_by_name(flow_name)
         for end_node_name, params in workflow_shape.outputs.items():
-            end_node = flow.nodes.get(end_node_name)
+            live_node_name = self._resolve_subflow_node_name(flow, end_node_name)
+            end_node = flow.nodes.get(live_node_name)
             if end_node is None:
                 continue
             for param_name, param_dict in params.items():
@@ -329,3 +332,16 @@ class SubflowWorkflowNode(SuccessFailureNode):
                     value = end_node.get_parameter_value(param_name)
                 if value is not None:
                     self.parameter_output_values[param_name] = value
+
+    @staticmethod
+    def _resolve_subflow_node_name(flow: ControlFlow, shape_node_name: str) -> str:
+        """Translate a workflow-shape node name to its live name inside the imported subflow.
+
+        Node names are globally unique, so importing this workflow alongside another that
+        shares node names (e.g. both define a 'Start Flow') auto-renames the colliding nodes
+        (``Start Flow`` -> ``Start Flow_1``). The import stamps a requested -> assigned map on
+        the subflow's metadata; use it so inputs/outputs route to the renamed nodes. Falls
+        back to the original name when no remap was recorded.
+        """
+        name_map = flow.metadata.get(REFERENCED_SUBFLOW_NODE_NAME_MAP_METADATA_KEY, {})
+        return name_map.get(shape_node_name, shape_node_name)
