@@ -7,7 +7,7 @@ for tools, rulesets, prompts, and streams output back to the user interface.
 """
 
 import json
-from typing import Any, cast  # cast used for handle_request narrowing
+from typing import TYPE_CHECKING, Any, cast  # cast used for handle_request narrowing
 
 from griptape.artifacts import BaseArtifact, ModelArtifact, TextArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
@@ -39,20 +39,6 @@ from griptape_nodes.retained_mode.events.connection_events import DeleteConnecti
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
-
-try:
-    from griptape_nodes.retained_mode.events.agent_events import (
-        ListAgentProvidersRequest,  # pyright: ignore[reportAttributeAccessIssue]
-        ListAgentProvidersResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
-        ListProviderModelsRequest,  # pyright: ignore[reportAttributeAccessIssue]
-        ListProviderModelsResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
-        ProviderConfig,  # pyright: ignore[reportAttributeAccessIssue]
-    )
-
-    _AGENT_PROVIDERS_AVAILABLE = True
-    _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
-except ImportError:
-    _AGENT_PROVIDERS_AVAILABLE = False
 from jinja2 import Template
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
@@ -70,6 +56,32 @@ from griptape_nodes_library.utils.agent_utils import (
     wrap_agent,
 )
 from griptape_nodes_library.utils.error_utils import try_throw_error
+
+if TYPE_CHECKING:
+    from griptape_nodes.retained_mode.events.agent_events import (
+        ListAgentProvidersRequest,  # pyright: ignore[reportAttributeAccessIssue]
+        ListAgentProvidersResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
+        ListProviderModelsRequest,  # pyright: ignore[reportAttributeAccessIssue]
+        ListProviderModelsResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
+        ProviderConfig,  # pyright: ignore[reportAttributeAccessIssue]
+    )
+
+_AGENT_PROVIDERS_AVAILABLE: bool = False
+_GRIPTAPE_CLOUD_PROVIDER: "ProviderConfig" = cast("ProviderConfig", None)
+
+try:
+    from griptape_nodes.retained_mode.events.agent_events import (
+        ListAgentProvidersRequest,  # pyright: ignore[reportAttributeAccessIssue]
+        ListAgentProvidersResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
+        ListProviderModelsRequest,  # pyright: ignore[reportAttributeAccessIssue]
+        ListProviderModelsResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
+        ProviderConfig,  # pyright: ignore[reportAttributeAccessIssue]
+    )
+
+    _AGENT_PROVIDERS_AVAILABLE = True
+    _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
+except ImportError:
+    pass
 
 # --- Constants ---
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
@@ -341,16 +353,16 @@ class Agent(ControlNode):
 
     # --- Provider / Model Methods ---
 
-    def _fetch_providers(self) -> list[ProviderConfig]:  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+    def _fetch_providers(self) -> "list[ProviderConfig]":
         """Fetch configured providers from the engine, falling back to griptape_cloud only."""
         if not _AGENT_PROVIDERS_AVAILABLE:
             return []
-        _FALLBACK = [_GRIPTAPE_CLOUD_PROVIDER]  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+        _FALLBACK = [_GRIPTAPE_CLOUD_PROVIDER]
         try:
-            result = GriptapeNodes.handle_request(ListAgentProvidersRequest())  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
-            if not isinstance(result, ListAgentProvidersResultSuccess):  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+            result = GriptapeNodes.handle_request(ListAgentProvidersRequest())
+            if not isinstance(result, ListAgentProvidersResultSuccess):
                 return _FALLBACK
-            return cast(ListAgentProvidersResultSuccess, result).providers or _FALLBACK  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+            return cast(ListAgentProvidersResultSuccess, result).providers or _FALLBACK
         except Exception:
             return _FALLBACK
 
@@ -359,14 +371,14 @@ class Agent(ControlNode):
         providers = self._fetch_providers()
         return [p.name for p in providers] or ["griptape_cloud"]
 
-    def _resolve_provider_api_key(self, provider_config: ProviderConfig) -> str:  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+    def _resolve_provider_api_key(self, provider_config: "ProviderConfig") -> str:
         """Resolve the API key for a provider config.
 
         Provider configs carry api_key_secret_name (the name of a secret in the
         secrets manager) rather than a raw api_key value.  Fall back to
         "not-needed" for providers that don't require a key (e.g. Ollama).
         """
-        secret_name = provider_config.api_key_secret_name or ""  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+        secret_name = provider_config.api_key_secret_name or ""
         if secret_name:
             return (
                 GriptapeNodes.SecretsManager().get_secret(secret_name, should_error_on_not_found=False) or "not-needed"
@@ -383,14 +395,14 @@ class Agent(ControlNode):
             if provider_config is None:
                 return MODEL_CHOICES
             result = GriptapeNodes.handle_request(
-                ListProviderModelsRequest(  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+                ListProviderModelsRequest(
                     provider=provider_config.type,
                     base_url=provider_config.base_url or "",
                     api_key=self._resolve_provider_api_key(provider_config),
                 )
             )
-            if isinstance(result, ListProviderModelsResultSuccess):  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
-                return cast(ListProviderModelsResultSuccess, result).models or MODEL_CHOICES  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+            if isinstance(result, ListProviderModelsResultSuccess):
+                return cast(ListProviderModelsResultSuccess, result).models or MODEL_CHOICES
         except Exception:
             pass
         return MODEL_CHOICES
@@ -1018,8 +1030,11 @@ class Agent(ControlNode):
                 )
             else:
                 # Non-Griptape-Cloud provider: resolve config and use the OpenAI-compatible driver.
+                if not _AGENT_PROVIDERS_AVAILABLE:
+                    msg = f"Provider '{provider_name}' requires agent provider support which is not available in this engine version."
+                    raise RuntimeError(msg)
                 providers = self._fetch_providers()
-                provider_config = next((p for p in providers if p.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+                provider_config = next((p for p in providers if p.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
                 base_url = provider_config.base_url or ""
                 api_key = self._resolve_provider_api_key(provider_config)
                 prompt_driver = GtOpenAiChatPromptDriver(
@@ -1064,9 +1079,9 @@ class Agent(ControlNode):
         wrapper = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
         # Forward provider credentials so downstream nodes can rebuild the driver —
         # griptape strips api_key from non-GTC drivers during to_dict() serialization.
-        if provider_name != "griptape_cloud":
+        if provider_name != "griptape_cloud" and _AGENT_PROVIDERS_AVAILABLE:
             providers = self._fetch_providers()
-            p = next((x for x in providers if x.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+            p = next((x for x in providers if x.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
             wrapper["provider"] = {
                 "name": provider_name,
                 "base_url": p.base_url or "",
