@@ -77,26 +77,41 @@ class ForLoopStartNode(BaseIterativeStartNode):
         self.move_element_to_position("For Loop", position="last")
 
         # Move the status message to the very bottom
-        self.move_element_to_position("status_message", position="last")
+        status_message = self.get_parameter_by_name("status_message")
+        if status_message:
+            self.move_element_to_position("status_message", position="last")
+
+        progress_bar = self.get_parameter_by_name("progress")
+        if progress_bar:
+            self.move_element_to_position("progress", position="last")
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        if parameter == self.run_in_order and self.end_node:
-            # Hide or show break/skip controls based on parallel mode
-            skip_param = self.end_node.get_parameter_by_name("skip_iteration")
-            break_param = self.end_node.get_parameter_by_name("break_loop")
+        if parameter == self.run_in_order:
+            if self.end_node:
+                # Hide or show break/skip controls based on parallel mode
+                skip_param = self.end_node.get_parameter_by_name("skip_iteration")
+                break_param = self.end_node.get_parameter_by_name("break_loop")
 
-            if value:
-                # Show controls when running sequentially
-                if skip_param:
-                    skip_param.allowed_modes = {ParameterMode.INPUT}
-                if break_param:
-                    break_param.allowed_modes = {ParameterMode.INPUT}
-            else:
-                # Hide controls when running in parallel (not supported)
-                if skip_param:
-                    skip_param.allowed_modes = set()
-                if break_param:
-                    break_param.allowed_modes = set()
+                if value:
+                    # Show controls when running sequentially
+                    if skip_param:
+                        skip_param.allowed_modes = {ParameterMode.INPUT}
+                    if break_param:
+                        break_param.allowed_modes = {ParameterMode.INPUT}
+                else:
+                    # Hide controls when running in parallel (not supported)
+                    if skip_param:
+                        skip_param.allowed_modes = set()
+                    if break_param:
+                        break_param.allowed_modes = set()
+
+            # Progress indicators are only meaningful in sequential mode
+            status_message = self.get_parameter_by_name("status_message")
+            if status_message:
+                status_message.hide = not value
+            progress_bar = self.get_parameter_by_name("progress")
+            if progress_bar:
+                progress_bar.hide = not value
 
     @classmethod
     def _get_compatible_end_classes(cls) -> set[type]:
