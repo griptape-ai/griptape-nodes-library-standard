@@ -321,7 +321,8 @@ class TopazImageEnhance(GriptapeProxyNode):
             ParameterImage(
                 name="image_input",
                 tooltip="Input image to process",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Input Image"},
             )
         )
