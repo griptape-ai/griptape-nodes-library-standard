@@ -5006,6 +5006,24 @@
       }
     },
     {
+      "class_name": "RandomNumber",
+      "file_path": "griptape_nodes_library/number/random_number.py",
+      "metadata": {
+        "category": "number",
+        "description": "Generate a random integer or float within a given range, with an optional seed for reproducibility.",
+        "display_name": "Random Number",
+        "icon": "dices",
+        "group": "create",
+        "tags": [
+          "number",
+          "random",
+          "integer",
+          "float",
+          "generate"
+        ]
+      }
+    },
+    {
       "class_name": "Ruleset",
       "file_path": "griptape_nodes_library/rules/create_ruleset.py",
       "metadata": {
