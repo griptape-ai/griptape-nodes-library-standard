@@ -7,7 +7,7 @@ This directory contains integration tests for the Seedance video generation node
 1. **Local Griptape Cloud proxy running** at `http://localhost:8000`
 2. **ServiceModelConfig and ServiceModelConfigAuthDetails** configured in the local database:
    - Provider: BYTEPLUS_ARK
-   - Model IDs: `dreamina-seedance-2-0-260128`, `dreamina-seedance-2-0-fast-260128`
+   - Model IDs: `dreamina-seedance-2-0-260128`, `dreamina-seedance-2-0-fast-260128`, `dreamina-seedance-2-0-mini-260615`
    - API key configured
 
 ## Test Files
@@ -73,24 +73,37 @@ python tests/integration/test_seedance_2_0_features.py --storage-backend gtc --t
 
 ### Seedance 2.0 Fast
 - ✓ Text-to-video generation
-- ✓ 480p/720p resolution
+- ✓ 480p/720p resolution (no 1080p/4k)
+- ✓ First/last frame image-to-video
+- ✓ Multimodal references (images/videos/audio)
+- ✓ Private-asset (Human Reference Asset) references
 - ✓ Duration 4-15 seconds
 - ✓ Smart duration (-1)
 - ✓ Audio generation
 - ✓ Faster inference
 
+### Seedance 2.0 Mini
+- ✓ Text-to-video generation
+- ✓ 480p/720p resolution (no 1080p/4k)
+- ✓ First/last frame image-to-video
+- ✓ Multimodal references (images/videos/audio)
+- ✓ Private-asset (Human Reference Asset) references
+- ✓ Duration 4-15 seconds
+- ✓ Smart duration (-1)
+- ✓ Audio generation
+- ✓ Best cost performance
+
 ### Feature Validation
 - ✓ Parameter visibility based on model selection
-- ✓ 2.0 models hide `camera_fixed` parameter
 - ✓ 2.0 models show video/audio inputs
-- ✓ Duration range validation (4-15 or -1 for 2.0)
-- ✓ Resolution validation (no 1080p for 2.0)
+- ✓ Duration range validation (4-15 or -1)
+- ✓ Resolution validation (1080p/4k are Seedance 2.0 standard only; Fast/Mini cap at 720p)
+- ✓ First/last frame supported on all three variants
 
 ### Future Tests (TODO)
 - [ ] Reference images (multimodal, 0-9 images)
 - [ ] Reference videos (0-3 videos)
 - [ ] Reference audio (0-3 audio files)
-- [ ] First/last frame image-to-video
 - [ ] Validation: multimodal refs cannot mix with first/last frame
 - [ ] Validation: audio requires image/video
 
