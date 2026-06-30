@@ -341,7 +341,7 @@ class Agent(ControlNode):
 
     # --- Provider / Model Methods ---
 
-    def _fetch_providers(self) -> list[ProviderConfig]:  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+    def _fetch_providers(self) -> "list[ProviderConfig]":  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
         """Fetch configured providers from the engine, falling back to griptape_cloud only."""
         if not _AGENT_PROVIDERS_AVAILABLE:
             return []
@@ -359,7 +359,7 @@ class Agent(ControlNode):
         providers = self._fetch_providers()
         return [p.name for p in providers] or ["griptape_cloud"]
 
-    def _resolve_provider_api_key(self, provider_config: ProviderConfig) -> str:  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
+    def _resolve_provider_api_key(self, provider_config: "ProviderConfig") -> str:  # pyright: ignore[reportPossiblyUnbound,reportPossiblyUnboundVariable]
         """Resolve the API key for a provider config.
 
         Provider configs carry api_key_secret_name (the name of a secret in the
