@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMessage, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -148,21 +148,6 @@ class Rodin23DGeneration(GriptapeProxyNode):
             )
         )
 
-        # Only GLB renders in the built-in 3D viewer; warn users when they pick anything else.
-        self.add_node_element(
-            ParameterMessage(
-                name="non_glb_viewer_warning",
-                title="Preview not supported",
-                variant="warning",
-                value=(
-                    "The 3D viewer only renders GLB. Files in the selected format will still "
-                    "be saved to disk, but no in-app preview will appear. Use GLB if you need "
-                    "an in-app preview."
-                ),
-            )
-        )
-        self.hide_message_by_name("non_glb_viewer_warning")
-
         # Material parameter
         self.add_parameter(
             ParameterString(
@@ -296,13 +281,13 @@ class Rodin23DGeneration(GriptapeProxyNode):
             )
         )
 
-        # Preview image is shown in place of the 3D viewer for formats the viewer
-        # cannot render (anything other than GLB). Hidden by default; toggled in
-        # after_value_set whenever geometry_file_format changes.
+        # Rodin returns a .webp render alongside the mesh. The 3D viewer renders every
+        # format Rodin emits, so model_url always drives the in-app preview and this
+        # image is exposed only as a downstream output (hidden in the node body).
         self.add_parameter(
             ParameterImage(
                 name="preview_image",
-                tooltip="Preview image of the generated 3D model (shown when the selected format is not renderable in the 3D viewer).",
+                tooltip="Preview render of the generated 3D model.",
                 allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
                 settable=False,
                 ui_options={"pulse_on_run": True, "display_name": "Preview", "hide": True},
@@ -341,20 +326,6 @@ class Rodin23DGeneration(GriptapeProxyNode):
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
         self._seed_parameter.after_value_set(parameter, value)
-
-        # The 3D viewer only renders GLB. For other formats, swap the model_url
-        # display for the preview_image so the user still sees the generated result.
-        # output_file is the preview (.webp) and stays constant across format changes;
-        # all model files are saved next to it.
-        if parameter.name == "geometry_file_format" and isinstance(value, str) and value:
-            if value.lower() != GLB_FORMAT:
-                self.show_message_by_name("non_glb_viewer_warning")
-                self.hide_parameter_by_name("model_url")
-                self.show_parameter_by_name("preview_image")
-            else:
-                self.hide_message_by_name("non_glb_viewer_warning")
-                self.show_parameter_by_name("model_url")
-                self.hide_parameter_by_name("preview_image")
 
         # Convert string paths to ImageUrlArtifact by uploading to static storage
         # Handle both the list parameter itself and individual child parameters

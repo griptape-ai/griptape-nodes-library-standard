@@ -4,6 +4,7 @@ import asyncio
 import json as _json
 import logging
 from contextlib import suppress
+from dataclasses import dataclass
 from typing import Any, ClassVar
 from urllib.parse import urljoin
 from uuid import uuid4
@@ -49,11 +50,61 @@ INPUT_MODE_FIRST_LAST_FRAME = "First/Last Frame"
 INPUT_MODE_MULTIMODAL_REFERENCES = "Multimodal References"
 MODEL_NAME_SEEDANCE_2_0 = "Seedance 2.0"
 MODEL_NAME_SEEDANCE_2_0_FAST = "Seedance 2.0 Fast"
+MODEL_NAME_SEEDANCE_2_0_MINI = "Seedance 2.0 Mini"
 SEEDANCE_2_0_MODEL_ID = "dreamina-seedance-2-0-260128"
 SEEDANCE_2_0_FAST_MODEL_ID = "dreamina-seedance-2-0-fast-260128"
+SEEDANCE_2_0_MINI_MODEL_ID = "dreamina-seedance-2-0-mini-260615"
 
-# Provider-asset (private asset) registration via the GTC proxy. Only the Seedance 2.0 model
-# supports private-asset references; Seedance 2.0 Fast does not.
+
+@dataclass(frozen=True)
+class SeedanceModelCapabilities:
+    """Capabilities supported by a Seedance 2.0 model variant, per the BytePlus model docs.
+
+    All three variants share the same feature set; they differ only in the output resolutions
+    they support (Fast and Mini top out at 720p, standard 2.0 adds 1080p and 4k).
+    """
+
+    resolutions: tuple[str, ...]
+    supports_last_frame: bool
+    supports_private_assets: bool
+
+
+# Single source of truth for per-model capabilities, keyed by provider model id. Adding a new
+# variant is one row here. Values come straight from the BytePlus Seedance 2.0 capability matrix.
+SEEDANCE_MODEL_CAPABILITIES: dict[str, SeedanceModelCapabilities] = {
+    SEEDANCE_2_0_MODEL_ID: SeedanceModelCapabilities(
+        resolutions=("480p", "720p", "1080p", "4k"),
+        supports_last_frame=True,
+        supports_private_assets=True,
+    ),
+    SEEDANCE_2_0_FAST_MODEL_ID: SeedanceModelCapabilities(
+        resolutions=("480p", "720p"),
+        supports_last_frame=True,
+        supports_private_assets=True,
+    ),
+    SEEDANCE_2_0_MINI_MODEL_ID: SeedanceModelCapabilities(
+        resolutions=("480p", "720p"),
+        supports_last_frame=True,
+        supports_private_assets=True,
+    ),
+}
+
+# Capabilities used for an unrecognized model id: most permissive resolution-wise so we don't
+# wrongly hide options, but features that depend on backend wiring stay off until declared.
+_DEFAULT_MODEL_CAPABILITIES = SeedanceModelCapabilities(
+    resolutions=("480p", "720p"),
+    supports_last_frame=True,
+    supports_private_assets=False,
+)
+
+
+def _get_model_capabilities(model_id: str) -> SeedanceModelCapabilities:
+    """Return the capability record for a provider model id, defaulting safely if unknown."""
+    return SEEDANCE_MODEL_CAPABILITIES.get(model_id, _DEFAULT_MODEL_CAPABILITIES)
+
+
+# Provider-asset (private asset) registration via the GTC proxy. Supported by all Seedance 2.0
+# variants (see SEEDANCE_MODEL_CAPABILITIES), gated to Griptape auth (not BYOK).
 ASSET_PROVIDER = "byteplus_ark"
 ASSET_POLL_INTERVAL = 3  # seconds
 ASSET_MAX_ATTEMPTS = 60  # ~3 min cap, independent of the generation timeout
@@ -63,9 +114,44 @@ ASSET_STATUS_DELETED = "DELETED"
 # Skip provider-side moderation on private-asset ingestion (content is already moderated upstream).
 ASSET_MODERATION = {"Strategy": "Skip"}
 
+# Seedance only accepts audio data URIs whose subtype is exactly `wav` or `mp3` (per the BytePlus
+# docs). The local File/mimetypes layer emits other subtypes for the same formats (e.g. an .mp3
+# resolves to `audio/mpeg`, a .wav to `audio/x-wav`), which Seedance rejects as
+# "Invalid base64 audio_url". Map those aliases back to the accepted subtypes before sending.
+SEEDANCE_AUDIO_SUBTYPE_ALIASES = {
+    "mpeg": "mp3",
+    "mp3": "mp3",
+    "x-wav": "wav",
+    "wave": "wav",
+    "vnd.wave": "wav",
+    "wav": "wav",
+}
+
+
+def _normalize_audio_data_uri_subtype(data_uri: str) -> str:
+    """Rewrite an ``data:audio/<subtype>;base64,...`` URI to a Seedance-accepted subtype.
+
+    Returns the URI unchanged if it is not an audio data URI or the subtype has no known alias.
+    """
+    prefix = "data:audio/"
+    if not data_uri.startswith(prefix):
+        return data_uri
+    remainder = data_uri[len(prefix) :]
+    subtype, separator, rest = remainder.partition(";")
+    if not separator:
+        return data_uri
+    normalized_subtype = SEEDANCE_AUDIO_SUBTYPE_ALIASES.get(subtype.lower())
+    if normalized_subtype is None or normalized_subtype == subtype:
+        return data_uri
+    return f"{prefix}{normalized_subtype};{rest}"
+
 
 class Seedance20VideoGeneration(GriptapeProxyNode):
     """Generate a video using Seedance 2.0 models via Griptape Cloud model proxy.
+
+    Supports the Seedance 2.0, Seedance 2.0 Fast, and Seedance 2.0 Mini models. All three share
+    the same feature set; they differ in output resolution: standard 2.0 supports up to 4k, while
+    Fast and Mini top out at 720p.
 
     Supports three input modes:
     - Text Only: Pure text-to-video generation (default)
@@ -80,7 +166,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         - ratio (str): Output aspect ratio (default: adaptive)
         - duration (int): Video duration in seconds (default: 5, range: 4-15 or -1 for smart)
         - generate_audio (bool): Generate audio with video (default: False)
-        - first_frame/last_frame: Optional frame images (First/Last Frame mode only, last_frame requires Seedance 2.0)
+        - first_frame/last_frame: Optional frame images (First/Last Frame mode only)
         - reference_images/reference_video_1..3/reference_audio: Optional reference media (Multimodal mode only)
 
     Outputs:
@@ -93,6 +179,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
 
     MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
         MODEL_NAME_SEEDANCE_2_0_FAST: SEEDANCE_2_0_FAST_MODEL_ID,
+        MODEL_NAME_SEEDANCE_2_0_MINI: SEEDANCE_2_0_MINI_MODEL_ID,
         MODEL_NAME_SEEDANCE_2_0: SEEDANCE_2_0_MODEL_ID,
     }
 
@@ -114,7 +201,15 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 tooltip="Model to use for video generation",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"display_name": "Model", "hide": False},
-                traits={Options(choices=[MODEL_NAME_SEEDANCE_2_0, MODEL_NAME_SEEDANCE_2_0_FAST])},
+                traits={
+                    Options(
+                        choices=[
+                            MODEL_NAME_SEEDANCE_2_0,
+                            MODEL_NAME_SEEDANCE_2_0_FAST,
+                            MODEL_NAME_SEEDANCE_2_0_MINI,
+                        ]
+                    )
+                },
             )
         )
 
@@ -162,7 +257,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             ParameterImage(
                 name="last_frame",
                 default_value=None,
-                tooltip="Optional last frame image (Seedance 2.0 only)",
+                tooltip="Optional last frame image",
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
                 ui_options={"display_name": "Last Frame"},
@@ -175,7 +270,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 name="reference_images",
                 input_types=["ImageUrlArtifact", "ImageArtifact", "str", ASSET_REFERENCE_TYPE_NAMES[ASSET_KIND_IMAGE]],
                 default_value=[],
-                tooltip="Optional reference images (0-9 images). Connect a Seedance Human Reference Asset to register an image as a private asset (Seedance 2.0 only).",
+                tooltip="Optional reference images (0-9 images). Connect a Seedance Human Reference Asset to register an image as a private asset.",
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Reference Images", "expander": True, "hide_property": True},
                 max_items=9,
@@ -248,7 +343,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 name="reference_audio",
                 input_types=["AudioArtifact", "AudioUrlArtifact", "str", ASSET_REFERENCE_TYPE_NAMES[ASSET_KIND_AUDIO]],
                 default_value=[],
-                tooltip="Optional reference audio (0-3 audio files, 2-15s each, max 15s total). URLs, asset:// IDs, or base64/data URIs are supported. Connect a Seedance Human Reference Asset to register audio as a private asset (Seedance 2.0 only).",
+                tooltip="Optional reference audio (0-3 audio files, 2-15s each, max 15s total). URLs, asset:// IDs, or base64/data URIs are supported. Connect a Seedance Human Reference Asset to register audio as a private asset.",
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Reference Audio", "expander": True, "hide_property": True},
                 max_items=3,
@@ -435,11 +530,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         if resolution_param is None:
             return
 
-        available_resolutions = ["480p", "720p"]
-        if self._supports_1080p(model_id):
-            available_resolutions.append("1080p")
-        if self._supports_4k(model_id):
-            available_resolutions.append("4k")
+        available_resolutions = list(_get_model_capabilities(model_id).resolutions)
 
         existing_traits = resolution_param.find_elements_by_type(Options)
         if existing_traits:
@@ -571,8 +662,8 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
 
             if params.get("last_frame") and not self._supports_last_frame(params["model_id"]):
                 msg = (
-                    f"{self.name}: Seedance 2.0 Fast does not support last_frame. "
-                    "Use first_frame only, or switch to Seedance 2.0 for first+last frame generation."
+                    f"{self.name}: the selected model does not support a last frame. "
+                    "Use first_frame only, or switch to a model that supports first+last frame generation."
                 )
                 raise ValueError(msg)
 
@@ -618,23 +709,25 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             msg = f"{self.name}: Seedance 2.0 supports duration between 4-15 seconds or -1 for smart selection, got {duration}."
             raise ValueError(msg)
 
-        # 1080p is only supported on Seedance 2.0 (not Fast)
+        # 1080p is only supported on Seedance 2.0 (not Fast or Mini)
         if params.get("resolution") == "1080p" and not self._supports_1080p(params["model_id"]):
+            supported = ", ".join(_get_model_capabilities(params["model_id"]).resolutions)
             msg = (
-                f"{self.name}: Seedance 2.0 Fast does not support 1080p resolution. "
-                "Use 480p or 720p, or switch to Seedance 2.0 for 1080p generation."
+                f"{self.name}: the selected model does not support 1080p resolution "
+                f"(supported: {supported}). Use a supported resolution, or switch to Seedance 2.0 for 1080p generation."
             )
             raise ValueError(msg)
 
-        # 4k is only supported on Seedance 2.0 (not Fast)
+        # 4k is only supported on Seedance 2.0 (not Fast or Mini)
         if params.get("resolution") == "4k" and not self._supports_4k(params["model_id"]):
+            supported = ", ".join(_get_model_capabilities(params["model_id"]).resolutions)
             msg = (
-                f"{self.name}: Seedance 2.0 Fast does not support 4k resolution. "
-                "Use 480p or 720p, or switch to Seedance 2.0 for 4k generation."
+                f"{self.name}: the selected model does not support 4k resolution "
+                f"(supported: {supported}). Use a supported resolution, or switch to Seedance 2.0 for 4k generation."
             )
             raise ValueError(msg)
 
-        # Private-asset references require Seedance 2.0 and Griptape auth (not Fast, not BYOK).
+        # Private-asset references require a model that supports them and Griptape auth (not BYOK).
         # Gate first so the user gets a specific message before the per-kind check.
         self._validate_private_asset_model(params)
         self._validate_private_asset_auth(params)
@@ -664,8 +757,8 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         for value, _ in self._iter_reference_asset_checks(params):
             if is_provider_asset_reference(value):
                 msg = (
-                    f"{self.name}: Seedance 2.0 Fast does not support private-asset references "
-                    "(Seedance Human Reference Asset). Switch the model to Seedance 2.0, or remove the "
+                    f"{self.name}: the selected model does not support private-asset references "
+                    "(Seedance Human Reference Asset). Switch to a model that supports them, or remove the "
                     "private-asset reference inputs."
                 )
                 raise ValueError(msg)
@@ -828,7 +921,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             # Text Only mode: no media inputs
             self._log(f"{self.name} text-only mode, no media inputs")
 
-    # --- Provider private-asset registration (Seedance 2.0 only) ----------------------------
+    # --- Provider private-asset registration (Seedance 2.0 variants, Griptape auth only) -----
 
     def _proxy_headers(self) -> dict[str, str]:
         """Bearer headers for the GTC proxy (same auth as the generation requests)."""
@@ -1024,12 +1117,12 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
 
         if audio_url.startswith(("data:audio/", "http://", "https://", "asset://")):
             self._log(f"{self.name} {audio_label} prepared as direct audio URL/data URI")
-            return audio_url
+            return _normalize_audio_data_uri_subtype(audio_url)
 
         try:
             data_uri = await File(audio_url).aread_data_uri(fallback_mime="audio/wav")
             self._log(f"{self.name} {audio_label} loaded from file into data URI")
-            return data_uri
+            return _normalize_audio_data_uri_subtype(data_uri)
         except FileLoadError as e:
             self._log(f"{self.name} {audio_label} failed to load from {audio_url}: {e}")
             return None
@@ -1205,20 +1298,20 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
 
     @staticmethod
     def _supports_last_frame(model_id: str) -> bool:
-        return model_id == SEEDANCE_2_0_MODEL_ID
+        return _get_model_capabilities(model_id).supports_last_frame
 
     @staticmethod
     def _supports_1080p(model_id: str) -> bool:
-        return model_id == SEEDANCE_2_0_MODEL_ID
+        return "1080p" in _get_model_capabilities(model_id).resolutions
 
     @staticmethod
     def _supports_4k(model_id: str) -> bool:
-        return model_id == SEEDANCE_2_0_MODEL_ID
+        return "4k" in _get_model_capabilities(model_id).resolutions
 
     @staticmethod
     def _supports_private_assets(model_id: str) -> bool:
-        """Private-asset references are supported by Seedance 2.0 only (not 2.0 Fast)."""
-        return model_id == SEEDANCE_2_0_MODEL_ID
+        """Whether private-asset references (Seedance Human Reference Asset) are supported."""
+        return _get_model_capabilities(model_id).supports_private_assets
 
     def _is_byok_enabled(self) -> bool:
         """Whether the node is configured to use the customer's own key (BYOK) instead of Griptape auth."""
@@ -1227,9 +1320,9 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
     def _private_assets_active(self, model_id: str) -> bool:
         """Whether private-asset registration applies for this run.
 
-        Requires the Seedance 2.0 model AND Griptape auth: provider assets are registered through
-        the Griptape Cloud proxy on the org's behalf, which does not apply when the user brings
-        their own provider key (BYOK).
+        Requires a model that supports private assets AND Griptape auth: provider assets are
+        registered through the Griptape Cloud proxy on the org's behalf, which does not apply when
+        the user brings their own provider key (BYOK).
         """
         return self._supports_private_assets(model_id) and not self._is_byok_enabled()
 

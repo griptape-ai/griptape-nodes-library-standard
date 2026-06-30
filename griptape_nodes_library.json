@@ -372,6 +372,12 @@
                 "provider_model_id": "dreamina-seedance-2-0-fast-260128",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
+              "gtc_seedance_2_0_mini": {
+                "display_name": "Seedance 2.0 Mini",
+                "family": "Seedance",
+                "provider_model_id": "dreamina-seedance-2-0-mini-260615",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
               "gtc_omnihuman_1_0": {
                 "display_name": "OmniHuman 1.0",
                 "family": "OmniHuman",
@@ -2086,7 +2092,8 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_seedance_2_0",
-              "gtc_seedance_2_0_fast"
+              "gtc_seedance_2_0_fast",
+              "gtc_seedance_2_0_mini"
             ]
           }
         ]
@@ -3093,6 +3100,23 @@
         "tags": [
           "convert",
           "data",
+          "dictionary"
+        ]
+      }
+    },
+    {
+      "class_name": "CsvToListOfDicts",
+      "file_path": "griptape_nodes_library/convert/csv_to_list_of_dicts.py",
+      "metadata": {
+        "category": "convert",
+        "description": "Parses CSV text into a list of dicts, using the header row as keys",
+        "display_name": "CSV to List of Dicts",
+        "group": "edit",
+        "tags": [
+          "convert",
+          "csv",
+          "data",
+          "list",
           "dictionary"
         ]
       }
@@ -4985,6 +5009,24 @@
           "math",
           "logic",
           "expression"
+        ]
+      }
+    },
+    {
+      "class_name": "RandomNumber",
+      "file_path": "griptape_nodes_library/number/random_number.py",
+      "metadata": {
+        "category": "number",
+        "description": "Generate a random integer or float within a given range, with an optional seed for reproducibility.",
+        "display_name": "Random Number",
+        "icon": "dices",
+        "group": "create",
+        "tags": [
+          "number",
+          "random",
+          "integer",
+          "float",
+          "generate"
         ]
       }
     },
