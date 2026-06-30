@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from griptape.artifacts import ImageUrlArtifact
+from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
@@ -20,8 +21,11 @@ from griptape_nodes_library.assets import (
 )
 from griptape_nodes_library.video.seedance_2_0_video_generation import (
     SEEDANCE_2_0_FAST_MODEL_ID,
+    SEEDANCE_2_0_MINI_MODEL_ID,
     SEEDANCE_2_0_MODEL_ID,
+    SEEDANCE_MODEL_CAPABILITIES,
     Seedance20VideoGeneration,
+    _normalize_audio_data_uri_subtype,
 )
 
 
@@ -87,13 +91,21 @@ async def test_build_payload_normalizes_local_frame_paths(monkeypatch: pytest.Mo
     assert all(str(last_frame) not in item["image_url"]["url"] for item in frame_entries)
 
 
-def test_seedance_2_fast_rejects_last_frame() -> None:
+@pytest.mark.parametrize("model_id", [SEEDANCE_2_0_MODEL_ID, SEEDANCE_2_0_FAST_MODEL_ID, SEEDANCE_2_0_MINI_MODEL_ID])
+def test_all_models_support_last_frame(model_id: str) -> None:
+    # Per the BytePlus capability matrix, first+last frame i2v is supported by all three variants.
+    assert Seedance20VideoGeneration._supports_last_frame(model_id) is True
+
+
+@pytest.mark.parametrize("model_name", ["Seedance 2.0 Fast", "Seedance 2.0 Mini"])
+def test_fast_and_mini_accept_last_frame(model_name: str) -> None:
     node = Seedance20VideoGeneration(name="Seedance20")
-    node.set_parameter_value("model_id", "Seedance 2.0 Fast")
+    node.set_parameter_value("model_id", model_name)
+    node.set_parameter_value("input_mode", "First/Last Frame")
     node.set_parameter_value("last_frame", "data:image/png;base64,AAA")
 
-    with pytest.raises(ValueError, match="does not support last_frame"):
-        node._validate_parameters(node._get_parameters())
+    # Should validate without raising now that Fast/Mini support last_frame.
+    node._validate_parameters(node._get_parameters())
 
 
 def test_multimodal_mode_rejects_first_last_frame_inputs() -> None:
@@ -235,6 +247,48 @@ async def test_build_payload_includes_multimodal_video_url_and_audio_base64() ->
     ]
 
 
+@pytest.mark.parametrize(
+    ("data_uri", "expected"),
+    [
+        # mimetypes resolves .mp3 -> audio/mpeg and .wav -> audio/x-wav; Seedance only accepts
+        # audio/mp3 and audio/wav, so these aliases must be rewritten.
+        ("data:audio/mpeg;base64,AAA", "data:audio/mp3;base64,AAA"),
+        ("data:audio/x-wav;base64,BBB", "data:audio/wav;base64,BBB"),
+        # Already-accepted subtypes pass through unchanged.
+        ("data:audio/mp3;base64,CCC", "data:audio/mp3;base64,CCC"),
+        ("data:audio/wav;base64,DDD", "data:audio/wav;base64,DDD"),
+        # Non-audio data URIs and plain URLs are left alone.
+        ("data:image/png;base64,EEE", "data:image/png;base64,EEE"),
+        ("https://public.example/clip.mp3", "https://public.example/clip.mp3"),
+    ],
+)
+def test_normalize_audio_data_uri_subtype(data_uri: str, expected: str) -> None:
+    assert _normalize_audio_data_uri_subtype(data_uri) == expected
+
+
+@pytest.mark.asyncio
+async def test_build_payload_rewrites_mp3_audio_subtype_to_seedance_accepted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    # A connected mp3 file (e.g. ElevenLabs Music output) loads to a data:audio/mpeg URI; the node
+    # must rewrite it to data:audio/mp3 so Seedance does not reject it as "Invalid base64 audio_url".
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0 Mini")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    node.set_parameter_value("prompt", "Use the backing track")
+    node.set_parameter_value("reference_video_1", VideoUrlArtifact("https://public.example/reference.mp4"))
+
+    music = tmp_path / "music.mp3"
+    music.write_bytes(b"ID3fakeaudio")
+    _set_parameter_list_values(node, "reference_audio", [AudioUrlArtifact(str(music))])
+
+    payload = await node._build_payload()
+    audio_entries = [item for item in payload["content"] if item["type"] == "audio_url"]
+
+    assert len(audio_entries) == 1
+    assert audio_entries[0]["audio_url"]["url"].startswith("data:audio/mp3;base64,")
+
+
 @pytest.mark.asyncio
 async def test_build_payload_rejects_local_reference_video_path(tmp_path) -> None:
     node = Seedance20VideoGeneration(name="Seedance20")
@@ -283,9 +337,11 @@ async def test_build_payload_uses_public_artifact_url_parameter_for_reference_vi
 # --- Private-asset reference gating (Seedance 2.0 only) -------------------------------------
 
 
-def test_supports_private_assets_only_for_seedance_2_0() -> None:
-    assert Seedance20VideoGeneration._supports_private_assets(SEEDANCE_2_0_MODEL_ID) is True
-    assert Seedance20VideoGeneration._supports_private_assets(SEEDANCE_2_0_FAST_MODEL_ID) is False
+@pytest.mark.parametrize("model_id", [SEEDANCE_2_0_MODEL_ID, SEEDANCE_2_0_FAST_MODEL_ID, SEEDANCE_2_0_MINI_MODEL_ID])
+def test_all_models_support_private_assets(model_id: str) -> None:
+    # The GTC backend links provider assets for all Seedance 2.0 variant ids, so the node allows
+    # private-asset references on all three.
+    assert Seedance20VideoGeneration._supports_private_assets(model_id) is True
 
 
 # --- 4k resolution gating (Seedance 2.0 only) ----------------------------------------------
@@ -294,6 +350,23 @@ def test_supports_private_assets_only_for_seedance_2_0() -> None:
 def test_supports_4k_only_for_seedance_2_0() -> None:
     assert Seedance20VideoGeneration._supports_4k(SEEDANCE_2_0_MODEL_ID) is True
     assert Seedance20VideoGeneration._supports_4k(SEEDANCE_2_0_FAST_MODEL_ID) is False
+    assert Seedance20VideoGeneration._supports_4k(SEEDANCE_2_0_MINI_MODEL_ID) is False
+
+
+def test_capability_table_matches_documented_matrix() -> None:
+    # Regression guard on the single source of truth: values mirror the BytePlus capability matrix.
+    # All three variants support last_frame and private assets; only resolution ceiling differs.
+    standard = SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_0_MODEL_ID]
+    fast = SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_0_FAST_MODEL_ID]
+    mini = SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_0_MINI_MODEL_ID]
+
+    assert standard.resolutions == ("480p", "720p", "1080p", "4k")
+    assert fast.resolutions == ("480p", "720p")
+    assert mini.resolutions == ("480p", "720p")
+
+    for caps in (standard, fast, mini):
+        assert caps.supports_last_frame is True
+        assert caps.supports_private_assets is True
 
 
 def test_seedance_2_0_offers_4k_resolution_choice() -> None:
@@ -319,22 +392,36 @@ def test_seedance_2_fast_omits_4k_resolution_choice() -> None:
     assert choices == ["480p", "720p"]
 
 
-def test_seedance_2_fast_rejects_4k_resolution() -> None:
-    # The Options trait normally prevents selecting 4k on Fast via the UI, but resolution can
+def test_seedance_2_mini_omits_4k_resolution_choice() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0 Mini")
+    node._update_resolution_options(SEEDANCE_2_0_MINI_MODEL_ID)
+
+    resolution_param = _parameter_by_name(node, "resolution")
+    choices = resolution_param.find_elements_by_type(Options)[0].choices
+    assert "4k" not in choices
+    assert "1080p" not in choices
+    assert choices == ["480p", "720p"]
+
+
+@pytest.mark.parametrize("model_id", [SEEDANCE_2_0_FAST_MODEL_ID, SEEDANCE_2_0_MINI_MODEL_ID])
+def test_seedance_2_fast_and_mini_reject_4k_resolution(model_id: str) -> None:
+    # The Options trait normally prevents selecting 4k on Fast/Mini via the UI, but resolution can
     # also arrive over an INPUT connection that bypasses the trait — _validate_parameters is the
-    # backstop, mirroring the existing 1080p-on-Fast check.
+    # backstop, mirroring the existing 1080p check.
     node = Seedance20VideoGeneration(name="Seedance20")
     params = node._get_parameters()
-    params["model_id"] = SEEDANCE_2_0_FAST_MODEL_ID
+    params["model_id"] = model_id
     params["resolution"] = "4k"
 
     with pytest.raises(ValueError, match="does not support 4k resolution"):
         node._validate_parameters(params)
 
 
-def test_seedance_2_fast_rejects_private_asset_reference() -> None:
+@pytest.mark.parametrize("model_name", ["Seedance 2.0", "Seedance 2.0 Fast", "Seedance 2.0 Mini"])
+def test_all_models_accept_private_asset_reference(model_name: str) -> None:
     node = Seedance20VideoGeneration(name="Seedance20")
-    node.set_parameter_value("model_id", "Seedance 2.0 Fast")
+    node.set_parameter_value("model_id", model_name)
     node.set_parameter_value("input_mode", "Multimodal References")
     _set_parameter_list_values(
         node,
@@ -342,8 +429,8 @@ def test_seedance_2_fast_rejects_private_asset_reference() -> None:
         [create_provider_asset_reference(value="https://public.example/portrait.png", asset_kind=ASSET_KIND_IMAGE)],
     )
 
-    with pytest.raises(ValueError, match="Seedance 2.0 Fast does not support private-asset references"):
-        node._validate_parameters(node._get_parameters())
+    # Matching kind on any supported model validates without raising.
+    node._validate_parameters(node._get_parameters())
 
 
 def test_seedance_2_0_rejects_private_asset_reference_kind_mismatch() -> None:
@@ -411,7 +498,7 @@ async def test_build_payload_registers_private_asset_reference_for_seedance_2_0(
 
 
 @pytest.mark.asyncio
-async def test_build_payload_does_not_register_assets_for_seedance_2_fast(
+async def test_build_payload_does_not_register_assets_for_plain_media(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     node = Seedance20VideoGeneration(name="Seedance20")
@@ -421,13 +508,13 @@ async def test_build_payload_does_not_register_assets_for_seedance_2_fast(
     node.set_parameter_value("reference_video_1", VideoUrlArtifact("https://public.example/reference.mp4"))
 
     def fail_if_called(self, *args, **kwargs):
-        raise AssertionError("Seedance 2.0 Fast must not register private assets")
+        raise AssertionError("plain (non-private-asset) media must not register a provider asset")
 
     monkeypatch.setattr(Seedance20VideoGeneration, "_create_provider_asset", fail_if_called)
 
     payload = await node._build_payload()
 
-    # Normal media on Fast still flows through the standard (non-asset) path unchanged.
+    # Plain media (not a private-asset reference) flows through the standard (non-asset) path.
     assert payload["content"] == [
         {"type": "text", "text": "Use the reference video motion"},
         {
