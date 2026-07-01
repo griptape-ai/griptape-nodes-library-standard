@@ -294,6 +294,20 @@ class DescribeImage(ControlNode):
 
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
+    def _coerce_to_image_artifact(self, img: Any) -> Any:
+        """Load an image input into an ImageArtifact so the model receives image bytes, not text.
+
+        The ``images`` parameter accepts strings (a local file path or URL) in addition to
+        ImageUrlArtifact/ImageArtifact. A bare string left unconverted would be passed to the
+        agent as plain text, so the model can't actually see the image. Wrap strings in an
+        ImageUrlArtifact and load them through the same path as ImageUrlArtifact inputs.
+        """
+        if isinstance(img, str):
+            img = ImageUrlArtifact(img)
+        if isinstance(img, ImageUrlArtifact):
+            return load_image_from_url_artifact(img)
+        return img
+
     def process(self) -> AsyncResult[Structure]:  # noqa: C901, PLR0915, PLR0912
         # Get the parameters from the node
         params = self.parameter_values
@@ -390,9 +404,7 @@ class DescribeImage(ControlNode):
             prompt += "\n\nOutput image description only."
 
         image_artifacts = [
-            load_image_from_url_artifact(img) if isinstance(img, ImageUrlArtifact) else img
-            for img in (self.get_parameter_value("images") or [])
-            if img is not None
+            self._coerce_to_image_artifact(img) for img in (self.get_parameter_value("images") or []) if img is not None
         ]
 
         if not image_artifacts:
