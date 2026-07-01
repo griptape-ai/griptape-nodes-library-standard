@@ -67,7 +67,8 @@ class OmnihumanSubjectRecognition(GriptapeProxyNode):
             artifact_url_parameter=ParameterImage(
                 name="image_url",
                 tooltip="URL of the image to analyze for subject recognition.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={
                     "placeholder_text": "https://example.com/image.jpg",
                     "display_name": "Image URL",

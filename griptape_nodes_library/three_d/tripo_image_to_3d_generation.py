@@ -101,7 +101,8 @@ class TripoImageTo3DGeneration(GriptapeProxyNode):
             ParameterImage(
                 name="image",
                 tooltip="Reference image for 3D generation (PNG/JPEG/WEBP, <=10 MB)",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
                 ui_options={"display_name": "Image"},
             )
         )
