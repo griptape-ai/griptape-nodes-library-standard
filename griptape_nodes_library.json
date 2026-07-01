@@ -706,6 +706,12 @@
                 "family": "Tripo",
                 "provider_model_id": "tripo-text-to-3d",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_tripo_multiview_to_3d": {
+                "display_name": "Tripo Multiview to 3D",
+                "family": "Tripo",
+                "provider_model_id": "tripo-multiview-to-3d",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
           },
@@ -5747,6 +5753,31 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_tripo_image_to_3d"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "TripoMultiviewTo3DGeneration",
+      "file_path": "griptape_nodes_library/three_d/tripo_multiview_to_3d_generation.py",
+      "metadata": {
+        "category": "3D",
+        "description": "Generate 3D models from up to four view images using Tripo via Griptape model proxy",
+        "display_name": "Tripo Multiview to 3D",
+        "group": "create",
+        "tags": [
+          "3d",
+          "multiview-to-3d",
+          "ai",
+          "api",
+          "tripo"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_tripo_multiview_to_3d"
             ]
           }
         ]
