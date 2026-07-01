@@ -6,13 +6,25 @@ from typing import Any
 from griptape.artifacts import TextArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.memory.structure import Run
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
+from griptape_nodes.exe_types.core_types import (
+    NodeMessageResult,
+    Parameter,
+    ParameterGroup,
+    ParameterMessage,
+    ParameterMode,
+)
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.traits.button import Button
+from griptape_nodes.retained_mode.events.access_events import (
+    QueryModelAccessForNodeRequest,
+    QueryModelAccessForNodeResultSuccess,
+)
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.retained_mode.managers.authorization_checkpoint import CheckpointDenial
+from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
@@ -26,6 +38,7 @@ __all__ = ["TranscribeAudio"]
 
 MODEL_CHOICES = ["whisper-1"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
+
 
 # Deprecated models and their replacements (kept for backward-compat with saved graphs)
 DEPRECATED_MODELS = {
@@ -71,6 +84,13 @@ class TranscribeAudio(GriptapeProxyNode):
         self.category = "audio"
         self.description = "Transcribe audio to text using OpenAI models via Griptape Cloud proxy"
 
+        # Cache the per-provider denial map at node-init so before_value_set
+        # can render the notice without a round-trip on every selection change.
+        # _build_payload() re-asks the engine so a hook decision that flipped
+        # between creation and run still wins.
+        self._denial_by_provider_id: dict[str, CheckpointDenial] = self._fetch_denial_map()
+        default_model = self._pick_default_model()
+
         # --- INPUT PARAMETERS ---
         self.add_parameter(
             Parameter(
@@ -96,11 +116,20 @@ class TranscribeAudio(GriptapeProxyNode):
         self.add_parameter(
             ParameterString(
                 name="model",
-                default_value=DEFAULT_MODEL,
+                default_value=default_model,
                 tooltip="Transcription model to use",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=MODEL_CHOICES)},
-                ui_options={"display_name": "audio transcription model"},
+                traits={
+                    Options(choices=list(MODEL_CHOICES)),
+                    Button(
+                        icon="list-restart",
+                        size="icon",
+                        variant="secondary",
+                        on_click=self._on_refresh_access_click,
+                        tooltip="Refresh available models",
+                    ),
+                },
+                ui_options=self._model_ui_options(),
             )
         )
 
@@ -241,7 +270,38 @@ class TranscribeAudio(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
 
+        # Reflect the initial selection: a node born with a denied default gets
+        # the badge immediately.
+        self._update_model_access_badge(default_model)
+
+    def _update_model_access_badge(self, value: Any) -> None:
+        """Set or clear the `model` parameter's badge based on the selected value's policy verdict.
+
+        Reads the cached ``_denial_by_provider_id`` (built at init) so this is a
+        local map lookup, not a round-trip. ``_build_payload`` re-asks the engine
+        at run-time so a hook decision that changed between node creation and
+        run is still enforced.
+        """
+        param = self.get_parameter_by_name("model")
+        if param is None:
+            return
+        if not isinstance(value, str):
+            param.clear_badge()
+            return
+        denial = self._denial_by_provider_id.get(value)
+        if denial is None:
+            param.clear_badge()
+            return
+        param.set_badge(
+            variant="error",
+            title="Model Not Permitted",
+            message=f"Model `{value}` is not permitted. Running this node will fail.\n\nReason(s): {denial.reason()}",
+            icon="shield-off",
+        )
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter.name == "model":
+            self._update_model_access_badge(value)
         if parameter.name == "response_format":
             if value == "verbose_json":
                 self.show_parameter_by_name("segments")
@@ -267,6 +327,101 @@ class TranscribeAudio(GriptapeProxyNode):
         elif parameter.name == "model" and isinstance(value, str):
             self.hide_message_by_name("model_deprecation_notice")
         return super().before_value_set(parameter, value)
+
+    def _fetch_denial_map(self) -> dict[str, CheckpointDenial]:
+        """Return `{provider_model_id: CheckpointDenial}` for every denied catalog model.
+
+        Asks the engine which of the node's declared catalog models the
+        authorization hook denies, keyed by the upstream provider's name (which
+        is what the dropdown stores). Also populates ``_catalog_id_by_provider_id``
+        so the runtime check in ``_build_payload`` can translate the dropdown
+        name back to the catalog id the engine policy actually matches on.
+        Empty on engine failure -- internal errors must not silently strip the
+        dropdown.
+        """
+        self._catalog_id_by_provider_id: dict[str, str] = {}
+        result = GriptapeNodes.handle_request(QueryModelAccessForNodeRequest(node_type=type(self).__name__))
+        if not isinstance(result, QueryModelAccessForNodeResultSuccess):
+            return {}
+        denials: dict[str, CheckpointDenial] = {}
+        for verdict in result.verdicts:
+            if verdict.provider_model_id is not None:
+                self._catalog_id_by_provider_id[verdict.provider_model_id] = verdict.model_id
+                if verdict.denial is not None:
+                    denials[verdict.provider_model_id] = verdict.denial
+        return denials
+
+    def _pick_default_model(self) -> str:
+        """Return `DEFAULT_MODEL` if it's allowed; otherwise the first allowed entry.
+
+        Falls back to `DEFAULT_MODEL` when every entry is denied so the dropdown
+        still has a value the user can see and the warning notice can render.
+        The existing `INSTANTIATE_NODE` gate prevents the node from being created
+        at all when its single declared model is denied, so this fallback only
+        matters if the two checkpoints disagree.
+        """
+        if DEFAULT_MODEL not in self._denial_by_provider_id:
+            return DEFAULT_MODEL
+        for choice in MODEL_CHOICES:
+            if choice not in self._denial_by_provider_id:
+                return choice
+        return DEFAULT_MODEL
+
+    def _model_ui_options(self) -> dict[str, Any]:
+        """Build the `ui_options` dict for the model parameter, including per-row decoration."""
+        data: list[dict[str, str]] = []
+        for choice in MODEL_CHOICES:
+            if choice in self._denial_by_provider_id:
+                data.append({"name": choice, "icon": "shield-off", "subtitle": "Not permitted by your license"})
+            else:
+                data.append({"name": choice})
+        return {
+            "display_name": "audio transcription model",
+            "data": data,
+            "dropdown_row_icons": True,
+            "dropdown_row_subtitles": True,
+        }
+
+    def _fetch_runtime_denial(self, model_provider_id: str) -> CheckpointDenial | None:
+        """Ask the engine whether this specific model is permitted, right now.
+
+        Translates the dropdown name (e.g. ``"whisper-1"``) to the catalog id the
+        engine policy matches on (e.g. ``"gtc_whisper_1"``) via the mapping built
+        at init time. Falls through to ``None`` on any failure -- a missing
+        mapping means the dropdown got out of sync with the manifest; an engine
+        ``Failure`` means an internal error. In neither case do we want to gate
+        user work.
+        """
+        catalog_id = self._catalog_id_by_provider_id.get(model_provider_id)
+        if catalog_id is None:
+            return None
+        result = GriptapeNodes.handle_request(
+            QueryModelAccessForNodeRequest(
+                node_type=type(self).__name__,
+                candidate_model_ids=[catalog_id],
+            )
+        )
+        if not isinstance(result, QueryModelAccessForNodeResultSuccess) or not result.verdicts:
+            return None
+        return result.verdicts[0].denial
+
+    def _on_refresh_access_click(
+        self, _button: Button, _button_details: ButtonDetailsMessagePayload
+    ) -> NodeMessageResult | None:
+        """Re-query the engine and refresh the dropdown decoration + current-selection badge.
+
+        Fires when the user clicks the inline refresh button next to the model
+        dropdown. Useful when a license / permission state has changed under the
+        running engine (e.g. the user upgraded their plan) and the artist wants
+        the dropdown to reflect it without recreating the node or reloading the
+        workflow.
+        """
+        self._denial_by_provider_id = self._fetch_denial_map()
+        model_param = self.get_parameter_by_name("model")
+        if model_param is not None:
+            model_param.update_ui_options(self._model_ui_options())
+        self._update_model_access_badge(self.get_parameter_value("model"))
+        return None
 
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation."""
@@ -308,6 +463,16 @@ class TranscribeAudio(GriptapeProxyNode):
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for OpenAI audio transcription."""
+        # Runtime entitlement gate. Re-asks the engine rather than reading the
+        # cached _denial_by_provider_id so a hook decision that changed between
+        # node creation and run is honored.
+        model_input = self.get_parameter_value("model")
+        if isinstance(model_input, str):
+            denial = self._fetch_runtime_denial(model_input)
+            if denial is not None:
+                msg = f"Cannot run {type(self).__name__}: '{model_input}' is not permitted. {denial.reason()}"
+                raise RuntimeError(msg)
+
         audio_value = self.get_parameter_value("audio")
         if audio_value is None:
             msg = "No audio provided. Please connect an audio source."

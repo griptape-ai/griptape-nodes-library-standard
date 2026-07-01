@@ -6,13 +6,25 @@ from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
 from griptape.drivers.prompt.griptape_cloud_prompt_driver import GriptapeCloudPromptDriver
 from griptape.structures import Structure
 from griptape.tasks import PromptTask
-from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode, ParameterType
+from griptape_nodes.exe_types.core_types import (
+    NodeMessageResult,
+    Parameter,
+    ParameterList,
+    ParameterMode,
+    ParameterType,
+)
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.retained_mode.events.access_events import (
+    QueryModelAccessForNodeRequest,
+    QueryModelAccessForNodeResultSuccess,
+)
 from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest, DeleteConnectionRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.retained_mode.managers.authorization_checkpoint import CheckpointDenial
+from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
@@ -54,6 +66,13 @@ class DescribeImage(ControlNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
+        # Cache the per-provider denial map at node-init so after_value_set can
+        # toggle the badge without a round-trip on every selection change.
+        # process() re-asks the engine so a hook decision that flipped between
+        # creation and run still wins.
+        self._denial_by_provider_id: dict[str, CheckpointDenial] = self._fetch_denial_map()
+        default_model = self._pick_default_model()
+
         self.add_parameter(
             Parameter(
                 name="agent",
@@ -70,11 +89,20 @@ class DescribeImage(ControlNode):
                 input_types=["str", "Prompt Model Config"],
                 type="str",
                 output_type="str",
-                default_value=DEFAULT_MODEL,
+                default_value=default_model,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 tooltip="Choose a model, or connect a Prompt Model Configuration or an Agent",
-                traits={Options(choices=MODEL_CHOICES)},
-                ui_options={"display_name": "prompt model"},
+                traits={
+                    Options(choices=list(MODEL_CHOICES)),
+                    Button(
+                        icon="list-restart",
+                        size="icon",
+                        variant="secondary",
+                        on_click=self._on_refresh_access_click,
+                        tooltip="Refresh available models",
+                    ),
+                },
+                ui_options=self._model_ui_options(),
             )
         )
         self.add_parameter(
@@ -139,6 +167,101 @@ class DescribeImage(ControlNode):
                 hide=True,
             )
         )
+
+        # Reflect the initial selection: a node born with a denied default
+        # gets the badge immediately.
+        self._update_model_access_badge(default_model)
+
+    def _fetch_denial_map(self) -> dict[str, CheckpointDenial]:
+        """Return `{provider_model_id: CheckpointDenial}` for every denied catalog model.
+
+        Asks the engine which of the node's declared catalog models the
+        authorization hook denies, keyed by the upstream provider's name (which
+        is what the dropdown stores). Also populates ``_catalog_id_by_provider_id``
+        so the runtime check in ``process()`` can translate the dropdown name back
+        to the catalog id the engine policy actually matches on. Empty on engine
+        failure -- internal errors must not silently strip the dropdown.
+        """
+        self._catalog_id_by_provider_id: dict[str, str] = {}
+        result = GriptapeNodes.handle_request(QueryModelAccessForNodeRequest(node_type=type(self).__name__))
+        if not isinstance(result, QueryModelAccessForNodeResultSuccess):
+            return {}
+        denials: dict[str, CheckpointDenial] = {}
+        for verdict in result.verdicts:
+            if verdict.provider_model_id is not None:
+                self._catalog_id_by_provider_id[verdict.provider_model_id] = verdict.model_id
+                if verdict.denial is not None:
+                    denials[verdict.provider_model_id] = verdict.denial
+        return denials
+
+    def _pick_default_model(self) -> str:
+        """Return `DEFAULT_MODEL` if it's allowed; otherwise the first allowed entry.
+
+        Falls back to `DEFAULT_MODEL` when every entry is denied so the dropdown
+        still has a value the user can see and the warning notice can render.
+        """
+        if DEFAULT_MODEL not in self._denial_by_provider_id:
+            return DEFAULT_MODEL
+        for choice in MODEL_CHOICES:
+            if choice not in self._denial_by_provider_id:
+                return choice
+        return DEFAULT_MODEL
+
+    def _model_ui_options(self) -> dict[str, Any]:
+        """Build the `ui_options` dict for the model parameter, including per-row decoration."""
+        data: list[dict[str, str]] = []
+        for choice in MODEL_CHOICES:
+            if choice in self._denial_by_provider_id:
+                data.append({"name": choice, "icon": "shield-off", "subtitle": "Not permitted by your license"})
+            else:
+                data.append({"name": choice})
+        return {
+            "display_name": "prompt model",
+            "data": data,
+            "dropdown_row_icons": True,
+            "dropdown_row_subtitles": True,
+        }
+
+    def _fetch_runtime_denial(self, model_provider_id: str) -> CheckpointDenial | None:
+        """Ask the engine whether this specific model is permitted, right now.
+
+        Translates the dropdown name (e.g. ``"gpt-5.2"``) to the catalog id the
+        engine policy matches on (e.g. ``"gtc_gpt_5_2"``) via the mapping built
+        at init time. Falls through to ``None`` on any failure -- a missing
+        mapping means the dropdown got out of sync with the manifest; an engine
+        ``Failure`` means an internal error. In neither case do we want to gate
+        user work.
+        """
+        catalog_id = self._catalog_id_by_provider_id.get(model_provider_id)
+        if catalog_id is None:
+            return None
+        result = GriptapeNodes.handle_request(
+            QueryModelAccessForNodeRequest(
+                node_type=type(self).__name__,
+                candidate_model_ids=[catalog_id],
+            )
+        )
+        if not isinstance(result, QueryModelAccessForNodeResultSuccess) or not result.verdicts:
+            return None
+        return result.verdicts[0].denial
+
+    def _on_refresh_access_click(
+        self, _button: Button, _button_details: ButtonDetailsMessagePayload
+    ) -> NodeMessageResult | None:
+        """Re-query the engine and refresh the dropdown decoration + current-selection badge.
+
+        Fires when the user clicks the inline refresh button next to the model
+        dropdown. Useful when a license / permission state has changed under the
+        running engine (e.g. the user upgraded their plan) and the artist wants
+        the dropdown to reflect it without recreating the node or reloading the
+        workflow.
+        """
+        self._denial_by_provider_id = self._fetch_denial_map()
+        model_param = self.get_parameter_by_name("model")
+        if model_param is not None:
+            model_param.update_ui_options(self._model_ui_options())
+        self._update_model_access_badge(self.get_parameter_value("model"))
+        return None
 
     def _update_output_type_and_validate_connections(self, new_output_type: str) -> None:
         output_param = self.get_parameter_by_name("output")
@@ -284,20 +407,67 @@ class DescribeImage(ControlNode):
             # Enable PROPERTY so the user can set it
             target_parameter.allowed_modes = {ParameterMode.INPUT, ParameterMode.PROPERTY}
 
-            target_parameter.add_trait(Options(choices=MODEL_CHOICES))
-            target_parameter.set_default_value(DEFAULT_MODEL)
-            target_parameter.default_value = DEFAULT_MODEL
-            ui_options = target_parameter.ui_options
-            ui_options["display_name"] = "prompt model"
-            target_parameter.ui_options = ui_options
-            self.set_parameter_value("model", DEFAULT_MODEL)
+            # Refresh the cached denial map first so the reinstalled dropdown reflects
+            # the current policy, then reinstall Options with the full choice set --
+            # denied entries stay in the list with their `shield-off` decoration via
+            # _model_ui_options(), matching the parameter's original construction.
+            self._denial_by_provider_id = self._fetch_denial_map()
+            default_model = self._pick_default_model()
+            target_parameter.add_trait(Options(choices=list(MODEL_CHOICES)))
+            target_parameter.set_default_value(default_model)
+            target_parameter.default_value = default_model
+            target_parameter.update_ui_options(self._model_ui_options())
+            self.set_parameter_value("model", default_model)
 
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
+
+    def _update_model_access_badge(self, value: Any) -> None:
+        """Set or clear the `model` parameter's badge based on the selected value's policy verdict.
+
+        Reads the cached ``_denial_by_provider_id`` (built at init) so this is a
+        local map lookup, not a round-trip to the engine. ``process()`` re-asks
+        the engine at run-time so a hook decision that changed between node
+        creation and run is still enforced.
+        """
+        param = self.get_parameter_by_name("model")
+        if param is None:
+            return
+        if not isinstance(value, str):
+            # Driver / Agent connection in flight -- the dropdown isn't the truth.
+            param.clear_badge()
+            return
+        denial = self._denial_by_provider_id.get(value)
+        if denial is None:
+            param.clear_badge()
+            return
+        param.set_badge(
+            variant="error",
+            title="Model Not Permitted",
+            message=f"Model `{value}` is not permitted. Running this node will fail.\n\nReason(s): {denial.reason()}",
+            icon="shield-off",
+        )
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        super().after_value_set(parameter, value)
+        if parameter.name == "model":
+            self._update_model_access_badge(value)
 
     def process(self) -> AsyncResult[Structure]:  # noqa: C901, PLR0915, PLR0912
         # Get the parameters from the node
         params = self.parameter_values
         model_input = self.get_parameter_value("model")
+
+        # Runtime entitlement gate. We re-ask the engine rather than reading the
+        # cached _denial_by_provider_id so a hook decision that changed between
+        # node creation and run is honored. Only checks string-valued model
+        # selections; connected driver objects (BasePromptDriver) bypass this --
+        # they carry their own model identity that the node doesn't introspect.
+        if isinstance(model_input, str):
+            denial = self._fetch_runtime_denial(model_input)
+            if denial is not None:
+                msg = f"Cannot run {type(self).__name__}: '{model_input}' is not permitted. {denial.reason()}"
+                raise RuntimeError(msg)
+
         agent = None
 
         default_prompt_driver = GriptapeCloudPromptDriver(
