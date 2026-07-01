@@ -20,7 +20,6 @@ from griptape_nodes.node_library.library_registry import get_declared_models
 from griptape_nodes.retained_mode.events.base_events import ResultPayload
 from griptape_nodes.retained_mode.events.model_events import (
     DeclareModelInvocationRequest,
-    DeclareModelInvocationResultFailure,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
@@ -638,12 +637,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         model_id = self._resolve_catalog_model_id(api_model_id)
         if model_id is None:
-            return DeclareModelInvocationResultFailure(
-                result_details=(
-                    f"{self.name}: '{api_model_id}' is not a declared catalog model for this node, "
-                    f"so the invocation cannot be declared."
-                )
+            logger.warning(
+                "%s: '%s' is not a declared catalog model for this node; "
+                "declaring the invocation with the provider model id for now.",
+                self.name,
+                api_model_id,
             )
+            model_id = api_model_id
         return await GriptapeNodes.ahandle_request(
             DeclareModelInvocationRequest(model_id=model_id, node_name=self.name)
         )
