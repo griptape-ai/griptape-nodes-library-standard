@@ -28,6 +28,7 @@ from griptape_nodes.retained_mode.events.os_events import (
     ScanSequencesResultSuccess,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.file_system_picker import FileSystemPicker
 
 from griptape_nodes_library.sequence.advanced_sequence_component import AdvancedSequenceControls
 
@@ -60,6 +61,7 @@ class ScanSplitSequenceNode(SuccessFailureNode):
                 "`{inputs}` form), so workflows stay portable across machines."
             ),
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            traits={FileSystemPicker(allow_files=True, allow_directories=True, allow_sequences=True)},
             ui_options={"display_name": "Path or pattern"},
         )
         self.add_parameter(self._path_param)
