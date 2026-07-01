@@ -3140,6 +3140,24 @@
       }
     },
     {
+      "class_name": "MarkdownTableToListOfDicts",
+      "file_path": "griptape_nodes_library/convert/markdown_table_to_list_of_dicts.py",
+      "metadata": {
+        "category": "convert",
+        "description": "Parses a Markdown table into a list of dicts, using the header row as keys",
+        "display_name": "Markdown Table to List of Dicts",
+        "group": "edit",
+        "tags": [
+          "convert",
+          "markdown",
+          "table",
+          "data",
+          "list",
+          "dictionary"
+        ]
+      }
+    },
+    {
       "class_name": "DictToList",
       "file_path": "griptape_nodes_library/convert/dict_to_list.py",
       "metadata": {
