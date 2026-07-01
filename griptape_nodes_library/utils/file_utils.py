@@ -10,6 +10,7 @@ SUPPORTED_TEXT_EXTENSIONS = {
     ".json",
     ".yaml",
     ".yml",
+    ".html",
     ".xml",
     ".env",
     ".py",
