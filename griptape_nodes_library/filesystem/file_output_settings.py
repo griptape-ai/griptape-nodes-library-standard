@@ -36,6 +36,7 @@ from griptape_nodes.retained_mode.events.project_events import (
     GetSituationRequest,
     GetSituationResultSuccess,
     MacroPath,
+    UnresolvedSequenceSlotBehavior,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
@@ -291,7 +292,14 @@ class FileOutputSettings(BaseNode):
             ClassifiedPath with scenario classification, or error message string
         """
         parsed_macro = ParsedMacro(file_name_value)
-        parse_result = GriptapeNodes.handle_request(GetPathForMacroRequest(parsed_macro=parsed_macro, variables={}))
+        # Preview-only resolve: render an unbound `{###}` as `###` instead of failing.
+        parse_result = GriptapeNodes.handle_request(
+            GetPathForMacroRequest(
+                parsed_macro=parsed_macro,
+                variables={},
+                unresolved_sequence_slot_behavior=UnresolvedSequenceSlotBehavior.RENDER_SEQUENCE_PATTERN,
+            )
+        )
 
         if not isinstance(parse_result, GetPathForMacroResultSuccess):
             return "Failed to parse macro"
@@ -382,8 +390,13 @@ class FileOutputSettings(BaseNode):
         variables = self._build_relative_variables(classified)
 
         parsed_macro = ParsedMacro(macro_template)
+        # Preview-only resolve: render an unbound `{###}` as `###` instead of failing.
         resolve_result = GriptapeNodes.handle_request(
-            GetPathForMacroRequest(parsed_macro=parsed_macro, variables=variables)
+            GetPathForMacroRequest(
+                parsed_macro=parsed_macro,
+                variables=variables,
+                unresolved_sequence_slot_behavior=UnresolvedSequenceSlotBehavior.RENDER_SEQUENCE_PATTERN,
+            )
         )
 
         if not isinstance(resolve_result, GetPathForMacroResultSuccess):
@@ -399,7 +412,14 @@ class FileOutputSettings(BaseNode):
         macro_template = classified.normalized_path
 
         parsed_macro = ParsedMacro(macro_template)
-        resolve_result = GriptapeNodes.handle_request(GetPathForMacroRequest(parsed_macro=parsed_macro, variables={}))
+        # Preview-only resolve: render an unbound `{###}` as `###` instead of failing.
+        resolve_result = GriptapeNodes.handle_request(
+            GetPathForMacroRequest(
+                parsed_macro=parsed_macro,
+                variables={},
+                unresolved_sequence_slot_behavior=UnresolvedSequenceSlotBehavior.RENDER_SEQUENCE_PATTERN,
+            )
+        )
 
         if not isinstance(resolve_result, GetPathForMacroResultSuccess):
             logger.error("%s: Failed to resolve macro: %s", self.name, macro_template)
