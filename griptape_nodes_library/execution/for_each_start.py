@@ -6,6 +6,8 @@ from griptape_nodes.exe_types.core_types import (
     ParameterMode,
     ParameterTypeBuiltin,
 )
+from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
+from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 
 
 class ForEachStartNode(BaseIterativeStartNode):
@@ -32,15 +34,35 @@ class ForEachStartNode(BaseIterativeStartNode):
         self.add_parameter(self.items_list)
 
         # Add parallel execution control parameter
-        self.run_in_order = Parameter(
+        self.run_in_order = ParameterBool(
             name="run_in_order",
             tooltip="Execute all iterations in order or concurrently",
-            type=ParameterTypeBuiltin.BOOL.value,
             allowed_modes={ParameterMode.PROPERTY},
             default_value=True,
-            ui_options={"display_name": "Run in Order"},
+            display_name="Run in Order",
         )
         self.add_parameter(self.run_in_order)
+
+        # Testing mode — run the loop body for a single chosen item
+        self.testing_mode = ParameterBool(
+            name="testing_mode",
+            tooltip="When enabled, run only one iteration using the item at the chosen index",
+            allowed_modes={ParameterMode.PROPERTY},
+            default_value=False,
+            display_name="Testing Mode",
+        )
+        self.add_parameter(self.testing_mode)
+
+        self.test_item_index = ParameterInt(
+            name="test_item_index",
+            tooltip="Index of the item to test (0-based). Clamped to the valid range at runtime.",
+            allowed_modes={ParameterMode.PROPERTY},
+            default_value=0,
+            min_val=0,
+            display_name="Test Item Index",
+            hide=True,
+        )
+        self.add_parameter(self.test_item_index)
 
         # Add current_item parameter specific to ForEach
         self.current_item = Parameter(
@@ -55,28 +77,54 @@ class ForEachStartNode(BaseIterativeStartNode):
         if group:
             group.add_child(self.current_item)
 
+        self.move_element_to_position("run_in_order", position="first")
+        self.move_element_to_position("test_item_index", position="first")
+        self.move_element_to_position("testing_mode", position="first")
+        self.move_element_to_position("items", position="first")
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        if parameter == self.run_in_order and self.end_node:
-            # Hide or show break/skip controls based on parallel mode
-            skip_param = self.end_node.skip_control
-            break_param = self.end_node.break_control
-            if value:
-                # Show controls when running sequentially
-                if skip_param:
-                    skip_param.ui_options["hide"] = False
-                if break_param:
-                    break_param.ui_options["hide"] = False
-            else:
-                # Hide controls when running in parallel (not supported)
-                if skip_param:
-                    skip_param.ui_options["hide"] = True
-                if break_param:
-                    break_param.ui_options["hide"] = True
+        if parameter == self.run_in_order:
+            if self.end_node:
+                # Hide or show break/skip controls based on parallel mode
+                skip_param = self.end_node.skip_control
+                break_param = self.end_node.break_control
+                if value:
+                    # Show controls when running sequentially
+                    if skip_param:
+                        skip_param.hide = False
+                    if break_param:
+                        break_param.hide = False
+                else:
+                    # Hide controls when running in parallel (not supported)
+                    if skip_param:
+                        skip_param.hide = True
+                    if break_param:
+                        break_param.hide = True
+
+            # Progress indicators are only meaningful in sequential mode
+            status_message = self.get_parameter_by_name("status_message")
+            if status_message:
+                status_message.hide = not value
+            progress_bar = self.get_parameter_by_name("progress")
+            if progress_bar:
+                progress_bar.hide = not value
+
+        if parameter == self.testing_mode:
+            self.test_item_index.hide = not value
+            self.run_in_order.hide = value
+            # Progress is hidden if testing OR if running in parallel
+            hide_progress = value or not self.get_parameter_value("run_in_order")
+            status_message = self.get_parameter_by_name("status_message")
+            if status_message:
+                status_message.hide = hide_progress
+            progress_bar = self.get_parameter_by_name("progress")
+            if progress_bar:
+                progress_bar.hide = hide_progress
 
     @classmethod
     def _get_compatible_end_classes(cls) -> set[type]:
         """Return the set of End node classes that this Start node can connect to."""
-        from griptape_nodes_library.execution.for_each_end import ForEachEndNode
+        from griptape_nodes_library.execution.for_each_end import ForEachEndNode  # avoid circular import
 
         return {ForEachEndNode}
 
@@ -96,34 +144,36 @@ class ForEachStartNode(BaseIterativeStartNode):
         """Get the list of items to iterate over.
 
         Accepts either a list or dict. If dict, converts to list of {"key": k, "value": v} dicts.
+        In testing mode, returns only the single item at test_item_index.
         """
         items = self.get_parameter_value("items")
 
-        # Handle case where items parameter is not connected or has no value
         if items is None:
             self._logger.info("ForEach Start '%s': No items provided, skipping loop execution", self.name)
             return []
 
-        # Handle dict input - convert to list of {"key": k, "value": v} dicts
         if isinstance(items, dict):
             if len(items) == 0:
                 self._logger.info("ForEach Start '%s': Empty dictionary provided, skipping loop execution", self.name)
                 return []
-            return [{"key": k, "value": v} for k, v in items.items()]
-
-        # Handle list input
-        if isinstance(items, list):
+            all_items = [{"key": k, "value": v} for k, v in items.items()]
+        elif isinstance(items, list):
             if len(items) == 0:
                 self._logger.info("ForEach Start '%s': Empty list provided, skipping loop execution", self.name)
-            return items
+            all_items = items
+        else:
+            error_msg = f"ForEach Start '{self.name}' expected a list or dict but got {type(items).__name__}: {items}"
+            raise TypeError(error_msg)
 
-        # Invalid type
-        error_msg = f"ForEach Start '{self.name}' expected a list or dict but got {type(items).__name__}: {items}"
-        raise TypeError(error_msg)
+        if self.get_parameter_value("testing_mode") and all_items:
+            index = self.get_parameter_value("test_item_index") or 0
+            index = max(0, min(index, len(all_items) - 1))
+            return [all_items[index]]
+
+        return all_items
 
     def _initialize_iteration_data(self) -> None:
         """Initialize iteration-specific data and state."""
-        # Get the items list for ForEach
         self._items = self._get_iteration_items()
 
     def is_loop_finished(self) -> bool:
@@ -152,7 +202,6 @@ class ForEachStartNode(BaseIterativeStartNode):
         """Get the current iteration value."""
         if self._items and self._current_iteration_count < len(self._items):
             current_item_value = self._items[self._current_iteration_count]
-            # Set the current_item output parameter
             self.parameter_output_values["current_item"] = current_item_value
             self.publish_update_to_parameter("current_item", current_item_value)
             return current_item_value
