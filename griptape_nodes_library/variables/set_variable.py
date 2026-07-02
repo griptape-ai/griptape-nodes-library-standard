@@ -41,7 +41,7 @@ from griptape_nodes_library.variables.variable_utils import (
 
 logger = logging.getLogger("griptape_nodes")
 
-CREATE_NEW_SENTINEL = "[+ Create new variable]"
+CREATE_NEW_SENTINEL = "Create new variable"
 
 
 class SetVariable(ControlNode):
@@ -56,10 +56,11 @@ class SetVariable(ControlNode):
             name="variable_name",
             placeholder_text="Select an existing variable or create a new one",
             allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT, ParameterMode.PROPERTY},
+            ui_options={"dropdown_row_icons": True},
             tooltip="Name of the variable to set. The variable is created if it does not exist.",
         )
         available_names = self._get_variable_names()
-        self.variable_name_param.add_trait(Options(choices=[*available_names, CREATE_NEW_SENTINEL]))
+        self.variable_name_param.add_trait(Options(choices=[*available_names, CREATE_NEW_SENTINEL], show_search=True))
         self.variable_name_param.add_trait(
             Button(
                 icon="list-restart",
@@ -69,6 +70,12 @@ class SetVariable(ControlNode):
             )
         )
         self.add_parameter(self.variable_name_param)
+        self.variable_name_param.update_ui_options(
+            {
+                "data": self._build_variable_data(available_names),
+                "dropdown_row_icons": True,
+            }
+        )
 
         self.new_variable_name_param = ParameterString(
             name="new_variable_name",
@@ -98,6 +105,9 @@ class SetVariable(ControlNode):
         scope = scope_string_to_variable_scope(scope_str) if scope_str else VariableScope.HIERARCHICAL
         return list_variables(node_name=self.name, scope=scope)
 
+    def _build_variable_data(self, names: list[str]) -> list[dict]:
+        return [{"name": name} for name in names] + [{"name": CREATE_NEW_SENTINEL, "icon": "circle-plus"}]
+
     def _resolve_variable_name(self) -> str:
         """Return the effective variable name, resolving the 'create new' sentinel if selected."""
         name = self.get_parameter_value(self.variable_name_param.name)
@@ -113,6 +123,7 @@ class SetVariable(ControlNode):
         current = self.get_parameter_value("variable_name")
         default = names[0] if names else CREATE_NEW_SENTINEL
         self._update_option_choices(param="variable_name", choices=choices, default=default)
+        self.variable_name_param.update_ui_options({"data": self._build_variable_data(names)})
         if current and current in choices:
             self.set_parameter_value("variable_name", current)
         return None
