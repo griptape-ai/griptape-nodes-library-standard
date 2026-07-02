@@ -29,8 +29,8 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.80.1",
-    "engine_version": "0.87.0",
+    "library_version": "0.81.0",
+    "engine_version": "0.89.0",
     "tags": [
       "Griptape",
       "AI"
@@ -370,6 +370,12 @@
                 "display_name": "Seedance 2.0 Fast",
                 "family": "Seedance",
                 "provider_model_id": "dreamina-seedance-2-0-fast-260128",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedance_2_0_mini": {
+                "display_name": "Seedance 2.0 Mini",
+                "family": "Seedance",
+                "provider_model_id": "dreamina-seedance-2-0-mini-260615",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_omnihuman_1_0": {
@@ -891,12 +897,12 @@
     {
       "name": "SplatViewer",
       "path": "griptape_nodes_library/splat/widgets/SplatViewer.js",
-      "description": "Inline Gaussian splat viewer \u2014 auto-renders the highest-fidelity wired splat using OrbitControls, matching the vsl-gui SplatComponent appearance."
+      "description": "Inline Gaussian splat viewer — auto-renders the highest-fidelity wired splat using OrbitControls, matching the vsl-gui SplatComponent appearance."
     },
     {
       "name": "CropImageEditor",
       "path": "widgets/CropImageEditor/CropImageEditor.js",
-      "description": "Interactive crop editor \u2014 drag to move/resize the crop rectangle, draw a new crop area, with rule-of-thirds guides and live coordinate readout."
+      "description": "Interactive crop editor — drag to move/resize the crop rectangle, draw a new crop area, with rule-of-thirds guides and live coordinate readout."
     },
     {
       "name": "CropVideoEditor",
@@ -2092,7 +2098,8 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_seedance_2_0",
-              "gtc_seedance_2_0_fast"
+              "gtc_seedance_2_0_fast",
+              "gtc_seedance_2_0_mini"
             ]
           }
         ]
@@ -2812,6 +2819,24 @@
       }
     },
     {
+      "class_name": "CreateVideoFromFrames",
+      "file_path": "griptape_nodes_library/video/create_video_from_frames.py",
+      "metadata": {
+        "category": "video",
+        "description": "Combine image frames or a numbered sequence into a video (mp4, mov, or gif) using ffmpeg",
+        "display_name": "Create Video from Frames",
+        "icon": "film",
+        "group": "create",
+        "tags": [
+          "video",
+          "frames",
+          "sequence",
+          "ffmpeg",
+          "combine"
+        ]
+      }
+    },
+    {
       "class_name": "CombineMasksVideo",
       "file_path": "griptape_nodes_library/video/combine_masks_video.py",
       "metadata": {
@@ -3099,6 +3124,23 @@
         "tags": [
           "convert",
           "data",
+          "dictionary"
+        ]
+      }
+    },
+    {
+      "class_name": "CsvToListOfDicts",
+      "file_path": "griptape_nodes_library/convert/csv_to_list_of_dicts.py",
+      "metadata": {
+        "category": "convert",
+        "description": "Parses CSV text into a list of dicts, using the header row as keys",
+        "display_name": "CSV to List of Dicts",
+        "group": "edit",
+        "tags": [
+          "convert",
+          "csv",
+          "data",
+          "list",
           "dictionary"
         ]
       }
@@ -4991,6 +5033,24 @@
           "math",
           "logic",
           "expression"
+        ]
+      }
+    },
+    {
+      "class_name": "RandomNumber",
+      "file_path": "griptape_nodes_library/number/random_number.py",
+      "metadata": {
+        "category": "number",
+        "description": "Generate a random integer or float within a given range, with an optional seed for reproducibility.",
+        "display_name": "Random Number",
+        "icon": "dices",
+        "group": "create",
+        "tags": [
+          "number",
+          "random",
+          "integer",
+          "float",
+          "generate"
         ]
       }
     },
