@@ -703,7 +703,7 @@ loaders-pdf = [
 
 [[package]]
 name = "griptape-nodes-engine"
-version = "0.88.0"
+version = "0.89.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -741,14 +741,14 @@ dependencies = [
     { name = "websockets" },
     { name = "xdg-base-dirs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/37/92/85dcb7206cf5b725606f17e6364c8583e5f858fcef07b59039152de8d912/griptape_nodes_engine-0.88.0.tar.gz", hash = "sha256:19de433dbfe68f6f58e7ecf20d6e666dca09e221eea6b6a8d29459b855955ddd", size = 935218, upload-time = "2026-06-23T22:41:39.937Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ca/21/a5b13929a22a44f4c92b695fcb6ad6d8a07aeb9e7d156fdc94299d7d8f9e/griptape_nodes_engine-0.89.0.tar.gz", hash = "sha256:c0a6202681d7ccaa639c54c2e9d2f57299a5f26a260b4e187e9e1b3a6e53955c", size = 981672, upload-time = "2026-06-30T22:08:25.405Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ad/dc/cc463c97aede417956c7136cfa09c0ab665c790dba1bc7ff26e98dec9a9c/griptape_nodes_engine-0.88.0-py3-none-any.whl", hash = "sha256:cd88c1008d4fbfb4aaa4b0e44427dea5a26532f518af41c080456e8c8bb66032", size = 1170364, upload-time = "2026-06-23T22:41:38.14Z" },
+    { url = "https://files.pythonhosted.org/packages/28/e0/a77da498845566ccd011477379bad1b391c0ca789a3ba3bb88fb0ffecf4d/griptape_nodes_engine-0.89.0-py3-none-any.whl", hash = "sha256:291178e9308b4862b0cbebf14e38bf52fe5af38085f423aa28f39b289865b4c8", size = 1219385, upload-time = "2026-06-30T22:08:23.906Z" },
 ]
 
 [[package]]
 name = "griptape-nodes-library-standard"
-version = "0.67.0"
+version = "0.81.0"
 source = { editable = "." }
 dependencies = [
     { name = "asteval" },
@@ -781,7 +781,7 @@ requires-dist = [
     { name = "asteval", specifier = ">=1.0.8" },
     { name = "color-matcher" },
     { name = "griptape", extras = ["drivers-prompt-amazon-bedrock", "drivers-prompt-anthropic", "drivers-prompt-cohere", "drivers-prompt-ollama", "drivers-web-scraper-trafilatura", "drivers-web-search-duckduckgo", "drivers-web-search-exa", "loaders-image", "loaders-pdf"], specifier = ">=1.9.4" },
-    { name = "griptape-nodes-engine", specifier = ">=0.88.0" },
+    { name = "griptape-nodes-engine", specifier = ">=0.89.0" },
     { name = "jmespath", specifier = ">=1.0.1" },
     { name = "json-repair", specifier = ">=0.46.1" },
     { name = "json-schema-to-pydantic", specifier = ">=0.4.6" },
