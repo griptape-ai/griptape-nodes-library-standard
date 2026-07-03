@@ -748,7 +748,7 @@ wheels = [
 
 [[package]]
 name = "griptape-nodes-library-standard"
-version = "0.80.1"
+version = "0.81.0"
 source = { editable = "." }
 dependencies = [
     { name = "asteval" },

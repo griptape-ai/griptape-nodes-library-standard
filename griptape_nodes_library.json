@@ -706,6 +706,12 @@
                 "family": "Tripo",
                 "provider_model_id": "tripo-text-to-3d",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_tripo_multiview_to_3d": {
+                "display_name": "Tripo Multiview to 3D",
+                "family": "Tripo",
+                "provider_model_id": "tripo-multiview-to-3d",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
           },
@@ -891,22 +897,22 @@
     {
       "name": "SplatViewer",
       "path": "griptape_nodes_library/splat/widgets/SplatViewer.js",
-      "description": "Inline Gaussian splat viewer — auto-renders the highest-fidelity wired splat using OrbitControls, matching the vsl-gui SplatComponent appearance."
+      "description": "Inline Gaussian splat viewer \u2014 auto-renders the highest-fidelity wired splat using OrbitControls, matching the vsl-gui SplatComponent appearance."
     },
     {
       "name": "CropImageEditor",
       "path": "widgets/CropImageEditor/CropImageEditor.js",
-      "description": "Interactive crop editor — drag to move/resize the crop rectangle, draw a new crop area, with rule-of-thirds guides and live coordinate readout."
+      "description": "Interactive crop editor \u2014 drag to move/resize the crop rectangle, draw a new crop area, with rule-of-thirds guides and live coordinate readout."
     },
     {
       "name": "CropVideoEditor",
       "path": "widgets/CropVideoEditor/CropVideoEditor.js",
-      "description": "Interactive video crop editor — drag handles on a live video frame with frame scrubber, aspect ratio, resolution, and position presets."
+      "description": "Interactive video crop editor \u2014 drag handles on a live video frame with frame scrubber, aspect ratio, resolution, and position presets."
     },
     {
       "name": "SelectFromGrid",
       "path": "widgets/SelectFromGrid/SelectFromGrid.js",
-      "description": "Interactive grid selector — displays list items as thumbnails (images, video, audio, text) and lets the user click to select one or more."
+      "description": "Interactive grid selector \u2014 displays list items as thumbnails (images, video, audio, text) and lets the user click to select one or more."
     }
   ],
   "categories": [
@@ -5765,6 +5771,31 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_tripo_image_to_3d"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "TripoMultiviewTo3DGeneration",
+      "file_path": "griptape_nodes_library/three_d/tripo_multiview_to_3d_generation.py",
+      "metadata": {
+        "category": "3D",
+        "description": "Generate 3D models from up to four view images using Tripo via Griptape model proxy",
+        "display_name": "Tripo Multiview to 3D",
+        "group": "create",
+        "tags": [
+          "3d",
+          "multiview-to-3d",
+          "ai",
+          "api",
+          "tripo"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_tripo_multiview_to_3d"
             ]
           }
         ]

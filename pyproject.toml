@@ -1,6 +1,6 @@
 [project]
 name = "griptape-nodes-library-standard"
-version = "0.80.1"
+version = "0.81.0"
 description = "Default nodes for Griptape Nodes"
 authors = [{ name = "Griptape, Inc" }]
 requires-python = ">=3.12,<3.13"
@@ -17,7 +17,7 @@ dependencies = [
   "asteval>=1.0.8",
   "color-matcher",
   "zstandard>=0.22.0",
-  "griptape-nodes-engine>=0.89.0",
+  "griptape-nodes-engine>=0.90.0",
   "lxml>=5.0.0",
 ]
 
