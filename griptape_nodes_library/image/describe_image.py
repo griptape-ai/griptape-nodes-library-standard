@@ -8,6 +8,7 @@ from griptape.structures import Structure
 from griptape.tasks import PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode, ParameterType
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
+from griptape_nodes.exe_types.param_components.model_access_parameter import ModelAccessParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -54,6 +55,16 @@ class DescribeImage(ControlNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
+        # License-policy helper for the "model" dropdown. Owns the model list,
+        # installs the Options + refresh Button traits, applies per-row
+        # decoration + badge, exposes pick_permitted_default / query_for_denial /
+        # raise_if_denied.
+        self._model_access = ModelAccessParameter(
+            node=self,
+            model_choices=MODEL_CHOICES,
+            default_model=DEFAULT_MODEL,
+        )
+
         self.add_parameter(
             Parameter(
                 name="agent",
@@ -64,19 +75,18 @@ class DescribeImage(ControlNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
             )
         )
-        self.add_parameter(
-            Parameter(
-                name="model",
-                input_types=["str", "Prompt Model Config"],
-                type="str",
-                output_type="str",
-                default_value=DEFAULT_MODEL,
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                tooltip="Choose a model, or connect a Prompt Model Configuration or an Agent",
-                traits={Options(choices=MODEL_CHOICES)},
-                ui_options={"display_name": "prompt model"},
-            )
+        model_param = Parameter(
+            name="model",
+            input_types=["str", "Prompt Model Config"],
+            type="str",
+            output_type="str",
+            default_value=self._model_access.pick_permitted_default() or DEFAULT_MODEL,
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            tooltip="Choose a model, or connect a Prompt Model Configuration or an Agent",
+            ui_options={"display_name": "prompt model"},
         )
+        self.add_parameter(model_param)
+        self._model_access.install(model_param)
         self.add_parameter(
             ParameterList(
                 name="images",
@@ -284,20 +294,35 @@ class DescribeImage(ControlNode):
             # Enable PROPERTY so the user can set it
             target_parameter.allowed_modes = {ParameterMode.INPUT, ParameterMode.PROPERTY}
 
-            target_parameter.add_trait(Options(choices=MODEL_CHOICES))
-            target_parameter.set_default_value(DEFAULT_MODEL)
-            target_parameter.default_value = DEFAULT_MODEL
+            default_model = self._model_access.pick_permitted_default() or DEFAULT_MODEL
+            target_parameter.set_default_value(default_model)
+            target_parameter.default_value = default_model
             ui_options = target_parameter.ui_options
             ui_options["display_name"] = "prompt model"
             target_parameter.ui_options = ui_options
-            self.set_parameter_value("model", DEFAULT_MODEL)
+            self.set_parameter_value("model", default_model)
+            # Helper reinstalls its Options trait + decoration + badge on the freshly-uncovered
+            # parameter (the incoming-connection handler stripped Options when the driver connected).
+            self._model_access.reinstall_options()
 
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        super().after_value_set(parameter, value)
+        if parameter.name == "model":
+            self._model_access.on_value_changed(value)
 
     def process(self) -> AsyncResult[Structure]:  # noqa: C901, PLR0915, PLR0912
         # Get the parameters from the node
         params = self.parameter_values
         model_input = self.get_parameter_value("model")
+
+        # License-policy runtime gate. Raises RuntimeError if the currently-selected
+        # model is denied, which propagates as an error toast in the workflow.
+        # Bypasses non-string values (e.g. a connected Prompt Model Config driver
+        # carries its own model identity that the helper isn't aware of).
+        self._model_access.raise_if_denied(model_input)
+
         agent = None
 
         default_prompt_driver = GriptapeCloudPromptDriver(
@@ -369,7 +394,7 @@ class DescribeImage(ControlNode):
         elif isinstance(model_input, BasePromptDriver):
             agent = GtAgent(prompt_driver=model_input, output_schema=pydantic_schema)
         elif isinstance(model_input, str):
-            if model_input not in MODEL_CHOICES:
+            if model_input not in self._model_access.model_choices:
                 model_input = DEFAULT_MODEL
             prompt_driver = GriptapeCloudPromptDriver(
                 model=model_input,

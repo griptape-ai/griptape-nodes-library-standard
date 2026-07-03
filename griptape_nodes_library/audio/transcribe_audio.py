@@ -7,6 +7,7 @@ from griptape.artifacts import TextArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.memory.structure import Run
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_parameter import ModelAccessParameter
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -71,6 +72,15 @@ class TranscribeAudio(GriptapeProxyNode):
         self.category = "audio"
         self.description = "Transcribe audio to text using OpenAI models via Griptape Cloud proxy"
 
+        # License-policy helper for the "model" dropdown. Owns the model list,
+        # installs the Options + refresh Button traits, applies per-row
+        # decoration + badge, exposes pick_permitted_default / query_for_denial.
+        self._model_access = ModelAccessParameter(
+            node=self,
+            model_choices=MODEL_CHOICES,
+            default_model=DEFAULT_MODEL,
+        )
+
         # --- INPUT PARAMETERS ---
         self.add_parameter(
             Parameter(
@@ -93,16 +103,15 @@ class TranscribeAudio(GriptapeProxyNode):
             )
         )
 
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value=DEFAULT_MODEL,
-                tooltip="Transcription model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=MODEL_CHOICES)},
-                ui_options={"display_name": "audio transcription model"},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value=self._model_access.pick_permitted_default() or DEFAULT_MODEL,
+            tooltip="Transcription model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={"display_name": "audio transcription model"},
         )
+        self.add_parameter(model_param)
+        self._model_access.install(model_param)
 
         self.add_node_element(
             ParameterMessage(
@@ -242,6 +251,8 @@ class TranscribeAudio(GriptapeProxyNode):
         )
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter.name == "model":
+            self._model_access.on_value_changed(value)
         if parameter.name == "response_format":
             if value == "verbose_json":
                 self.show_parameter_by_name("segments")
@@ -308,6 +319,18 @@ class TranscribeAudio(GriptapeProxyNode):
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for OpenAI audio transcription."""
+        # License-policy runtime gate. SuccessFailure idiom: route the denial
+        # through _set_status_results and return an empty payload so the outer
+        # proxy pipeline sees was_successful=False rather than an exception.
+        # Runs BEFORE the proxy's own INVOKE_MODEL gate so a denied model fails
+        # immediately instead of after payload construction.
+        model_value = self.get_parameter_value("model")
+        denial = self._model_access.query_for_denial(model_value)
+        if denial is not None:
+            self._set_safe_defaults()
+            self._set_status_results(was_successful=False, result_details=denial.reason())
+            return {}
+
         audio_value = self.get_parameter_value("audio")
         if audio_value is None:
             msg = "No audio provided. Please connect an audio source."
