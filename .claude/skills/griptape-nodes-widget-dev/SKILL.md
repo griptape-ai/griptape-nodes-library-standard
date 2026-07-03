@@ -382,48 +382,6 @@ The canvas/image area can keep a hardcoded dark background (`#111`) since it's a
 
 ---
 
-## ResizeObserver on scrollable containers — prevent jitter
-
-When a widget uses a `ResizeObserver` to measure a scroll container and writes back a layout property (e.g. `gridAutoRows`, a canvas dimension), a feedback loop can form:
-
-1. Content grows → scrollbar appears → `clientWidth` shrinks
-2. ResizeObserver fires → layout property updated → content height changes
-3. Scrollbar disappears → `clientWidth` grows → ResizeObserver fires again
-4. **Repeat → visible jitter**
-
-### Fix 1 (CSS) — `scrollbar-gutter: stable`
-
-Reserve the scrollbar track space permanently so layout width never shifts when the scrollbar appears:
-
-```css
-.my-scroll-container {
-  overflow-y: auto;
-  scrollbar-gutter: stable;   /* width is constant whether scrollbar is shown or not */
-  scrollbar-width: thin;
-}
-```
-
-This is the root fix — the content area width never changes, so the observer has nothing to react to.
-
-> Supported in Chrome 94+, Firefox 97+, Safari 15.8+. Degrades gracefully (Safari falls back to the old shifting behavior; it doesn't break).
-
-### Fix 2 (JS) — width-only guard
-
-As a second line of defence (or when CSS alone isn't enough), only run the callback when the **width** actually changes. A layout property that controls row height cannot change `contentRect.width`, so the guard breaks the loop immediately:
-
-```js
-let _lastW = 0;
-const ro = new ResizeObserver((entries) => {
-  const w = Math.round(entries[0].contentRect.width);
-  if (w !== _lastW) { _lastW = w; updateLayout(); }
-});
-ro.observe(scrollContainer);
-```
-
-Use both: the CSS fix prevents the trigger, the JS guard stops any residual re-fires.
-
----
-
 ## Common gotchas
 
 - `nodrag nowheel` class on wrapper — prevents canvas drag/scroll stealing events
@@ -431,4 +389,4 @@ Use both: the CSS fix prevents the trigger, the JS guard stops any residual re-f
 - Call `onChange` on `blur`, not on every `input` event — avoids focus-stealing
 - Pass a copy to `onChange`, never internal state: `onChange({ ...value, field: newVal })`
 - Cleanup must remove DOM elements and delete `container._instance`
-- Any `ResizeObserver` that writes a layout property on a `overflow-y: auto` container needs `scrollbar-gutter: stable` + a width-only guard to avoid jitter (see section above)
+- Scrollable containers that drive a `ResizeObserver` layout callback need `scrollbar-gutter: stable` to prevent jitter (scrollbar appearance otherwise shifts `clientWidth`, re-triggering the observer)
