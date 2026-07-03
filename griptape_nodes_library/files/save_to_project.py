@@ -8,12 +8,20 @@ from griptape.artifacts import UrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.events.project_events import (
     AttemptMapAbsolutePathToProjectRequest,
     AttemptMapAbsolutePathToProjectResultSuccess,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.options import Options
+
+from griptape_nodes_library.utils.situation_utils import (
+    DEFAULT_SITUATION,
+    build_situation_data,
+    fetch_situations_with_descriptions,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -46,6 +54,21 @@ class SaveToProject(SuccessFailureNode):
             )
         )
 
+        situation_names, situation_descriptions = fetch_situations_with_descriptions()
+        situation_param = ParameterString(
+            name="situation",
+            default_value=DEFAULT_SITUATION,
+            allowed_modes={ParameterMode.PROPERTY},
+            tooltip="File save situation — determines the output directory and naming conventions.",
+            traits={Options(choices=situation_names)},
+            settable=True,
+        )
+        self.add_parameter(situation_param)
+        situation_param.update_ui_options({
+            "data": build_situation_data(situation_names, situation_descriptions),
+            "dropdown_row_subtitles": True,
+        })
+
         self._file_param = ProjectFileParameter(
             node=self,
             name="output_file",
@@ -73,6 +96,8 @@ class SaveToProject(SuccessFailureNode):
             source_path = _extract_source_path(value)
             if source_path:
                 self._update_default_filename(source_path)
+        elif parameter.name == "situation":
+            self._file_param._situation_name = str(value)
         return super().after_value_set(parameter, value)
 
     def validate_before_node_run(self) -> list[Exception] | None:

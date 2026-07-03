@@ -5,14 +5,23 @@ from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import (
+    Parameter,
     ParameterMode,
 )
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
+from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import logger
+from griptape_nodes.traits.options import Options
 from PIL import Image
+
+from griptape_nodes_library.utils.situation_utils import (
+    DEFAULT_SITUATION,
+    build_situation_data,
+    fetch_situations_with_descriptions,
+)
 
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
@@ -60,12 +69,32 @@ class SaveImage(SuccessFailureNode):
             result_details_placeholder="Details on the save attempt will be presented here.",
         )
 
+        situation_names, situation_descriptions = fetch_situations_with_descriptions()
+        situation_param = ParameterString(
+            name="situation",
+            default_value=DEFAULT_SITUATION,
+            allowed_modes={ParameterMode.PROPERTY},
+            tooltip="File save situation — determines the output directory and naming conventions.",
+            traits={Options(choices=situation_names)},
+            settable=True,
+        )
+        self.add_parameter(situation_param)
+        situation_param.update_ui_options({
+            "data": build_situation_data(situation_names, situation_descriptions),
+            "dropdown_row_subtitles": True,
+        })
+
         self._output_file = ProjectFileParameter(
             node=self,
             name="output_file",
             default_filename="griptape_nodes.png",
         )
         self._output_file.add_parameter()
+
+    def after_value_set(self, parameter: Parameter, value: object, **kwargs: object) -> None:
+        if parameter.name == "situation":
+            self._output_file._situation_name = str(value)
+        super().after_value_set(parameter, value, **kwargs)
 
     def _get_target_pil_format(self) -> str:
         """Determine the target PIL format string from the output_file parameter."""
