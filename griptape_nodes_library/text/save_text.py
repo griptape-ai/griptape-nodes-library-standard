@@ -51,8 +51,6 @@ class SaveText(ControlNode):
             saved_path = saved.location
             logger.info("Saved file: %s", saved_path)
 
-            self.parameter_output_values["output_file"] = saved_path
-
         except Exception as e:
             error_message = str(e)
             msg = f"Error saving file: {error_message}"
