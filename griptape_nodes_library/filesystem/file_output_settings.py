@@ -43,7 +43,7 @@ from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.utils.situation_utils import (
     build_situation_data,
-    fetch_situation_names,
+    fetch_situations,
 )
 
 logger = logging.getLogger("griptape_nodes")
@@ -100,11 +100,7 @@ class FileOutputSettings(BaseNode):
 
         self._updating_lock = False
 
-        # GetAllSituationsForProjectRequest is init-safe (does not trigger the
-        # reentrant-bus-in-init rule). Descriptions are not available until the
-        # user clicks refresh, which uses the slower two-request fetch.
-        self._available_situations: list[str] = fetch_situation_names()
-        self._situation_descriptions: dict[str, str] = {}
+        self._available_situations, self._situation_descriptions = fetch_situations()
         self._create_parameters()
         self._load_project_situation()
 
