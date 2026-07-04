@@ -37,7 +37,7 @@ class SaveText(ControlNode):
         self._output_file.add_parameter()
 
     def after_value_set(self, parameter: Parameter, value: object, **kwargs: object) -> None:
-        if parameter.name == "situation":
+        if parameter.name == "situation" and not kwargs.get("initial_setup"):
             self._output_file._situation_name = str(value)
         super().after_value_set(parameter, value, **kwargs)
 

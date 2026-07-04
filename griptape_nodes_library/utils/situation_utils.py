@@ -64,6 +64,18 @@ def add_situation_parameter(node: Any, file_param: ProjectFileParameter) -> None
     def _on_refresh(_button: Button, button_details: ButtonDetailsMessagePayload) -> NodeMessageResult:
         refreshed_names, refreshed_descriptions = fetch_situations_with_descriptions()
 
+        if not refreshed_names:
+            return NodeMessageResult(
+                success=False,
+                details="No situations available — project template could not be loaded",
+                response=button_details,
+                altered_workflow_state=False,
+            )
+
+        # Update trait choices (for validation) and ui_options (for subtitle display).
+        # Both are needed: the trait attribute governs value validation; update_ui_options
+        # drives the rich dropdown rendering. FileOutputSettings omits the trait mutation
+        # because it never refreshes in-place; here we need both.
         options_trait.choices = refreshed_names
         situation_param.update_ui_options({
             "data": build_situation_data(refreshed_names, refreshed_descriptions),
@@ -75,7 +87,7 @@ def add_situation_parameter(node: Any, file_param: ProjectFileParameter) -> None
             new_val = (
                 DEFAULT_SITUATION
                 if DEFAULT_SITUATION in refreshed_names
-                else (refreshed_names[0] if refreshed_names else DEFAULT_SITUATION)
+                else refreshed_names[0]
             )
             node.set_parameter_value("situation", new_val)
             file_param._situation_name = new_val

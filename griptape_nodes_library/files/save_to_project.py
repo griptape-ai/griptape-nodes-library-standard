@@ -76,7 +76,7 @@ class SaveToProject(SuccessFailureNode):
             source_path = _extract_source_path(value)
             if source_path:
                 self._update_default_filename(source_path)
-        elif parameter.name == "situation":
+        elif parameter.name == "situation" and not kwargs.get("initial_setup"):
             self._file_param._situation_name = str(value)
         return super().after_value_set(parameter, value, **kwargs)
 
