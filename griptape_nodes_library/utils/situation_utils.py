@@ -1,8 +1,12 @@
 """Shared helpers for situation dropdown parameters in save nodes."""
 
 import logging
+from typing import Any
 
+from griptape_nodes.exe_types.core_types import NodeMessageResult, ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
+from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.events.project_events import (
     GetCurrentProjectRequest,
     GetCurrentProjectResultSuccess,
@@ -10,6 +14,8 @@ from griptape_nodes.retained_mode.events.project_events import (
     GetProjectTemplateResultSuccess,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
+from griptape_nodes.traits.options import Options
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -40,6 +46,71 @@ def fetch_situations_with_descriptions() -> tuple[list[str], dict[str, str]]:
     return names, descriptions
 
 
-def build_situation_data(names: list[str], descriptions: dict[str, str]) -> list[dict]:
+def build_situation_data(names: list[str], descriptions: dict[str, str]) -> list[dict[str, str]]:
     """Build the ui_options data list for dropdown_row_subtitles display."""
     return [{"name": n, "subtitle": descriptions.get(n, "")} for n in names]
+
+
+def add_situation_parameter(node: Any, file_param: ProjectFileParameter) -> None:
+    """Add a situation dropdown and refresh button to a save node.
+
+    ``file_param`` must be created (but NOT yet added via ``add_parameter()``)
+    before calling this so that ``after_value_set`` can safely reference it.
+    """
+    names, descriptions = fetch_situations_with_descriptions()
+    default = DEFAULT_SITUATION if DEFAULT_SITUATION in names else (names[0] if names else DEFAULT_SITUATION)
+
+    situation_param = ParameterString(
+        name="situation",
+        default_value=default,
+        allowed_modes={ParameterMode.PROPERTY},
+        tooltip="File save situation — determines the output directory and naming conventions.",
+        traits={Options(choices=names)},
+        settable=True,
+    )
+    node.add_parameter(situation_param)
+    situation_param.update_ui_options({
+        "data": build_situation_data(names, descriptions),
+        "dropdown_row_subtitles": True,
+    })
+    file_param._situation_name = default
+
+    def _on_refresh(button: Button, button_details: ButtonDetailsMessagePayload) -> NodeMessageResult:  # noqa: ARG001
+        refreshed_names, refreshed_descriptions = fetch_situations_with_descriptions()
+
+        for trait in situation_param.traits:
+            if isinstance(trait, Options):
+                trait.choices = refreshed_names
+                break
+
+        situation_param.update_ui_options({
+            "data": build_situation_data(refreshed_names, refreshed_descriptions),
+            "dropdown_row_subtitles": True,
+        })
+
+        current = node.get_parameter_value("situation")
+        if current not in refreshed_names:
+            new_val = (
+                DEFAULT_SITUATION
+                if DEFAULT_SITUATION in refreshed_names
+                else (refreshed_names[0] if refreshed_names else DEFAULT_SITUATION)
+            )
+            node.set_parameter_value("situation", new_val)
+            file_param._situation_name = new_val
+
+        return NodeMessageResult(
+            success=True,
+            details=f"Refreshed {len(refreshed_names)} situation(s)",
+            response=button_details,
+            altered_workflow_state=True,
+        )
+
+    node.add_node_element(
+        ParameterButton(
+            name="refresh_situations",
+            label="Refresh Situations",
+            variant="default",
+            icon="refresh-cw",
+            on_click=_on_refresh,
+        )
+    )

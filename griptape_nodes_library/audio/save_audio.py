@@ -8,20 +8,14 @@ from griptape_nodes.exe_types.core_types import (
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
-from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import logger
-from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.utils.audio_utils import (
     extract_url_from_audio_object,
     is_audio_url_artifact,
 )
-from griptape_nodes_library.utils.situation_utils import (
-    DEFAULT_SITUATION,
-    build_situation_data,
-    fetch_situations_with_descriptions,
-)
+from griptape_nodes_library.utils.situation_utils import add_situation_parameter
 
 
 @dataclass
@@ -48,26 +42,12 @@ class SaveAudio(SuccessFailureNode):
             )
         )
 
-        situation_names, situation_descriptions = fetch_situations_with_descriptions()
-        situation_param = ParameterString(
-            name="situation",
-            default_value=DEFAULT_SITUATION,
-            allowed_modes={ParameterMode.PROPERTY},
-            tooltip="File save situation — determines the output directory and naming conventions.",
-            traits={Options(choices=situation_names)},
-            settable=True,
-        )
-        self.add_parameter(situation_param)
-        situation_param.update_ui_options({
-            "data": build_situation_data(situation_names, situation_descriptions),
-            "dropdown_row_subtitles": True,
-        })
-
         self._output_file = ProjectFileParameter(
             node=self,
             name="output_file",
             default_filename="griptape_nodes.mp3",
         )
+        add_situation_parameter(self, self._output_file)
         self._output_file.add_parameter()
 
         # Add status parameters using the helper method
