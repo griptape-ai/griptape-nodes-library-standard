@@ -244,6 +244,7 @@ class TripoMultiviewTo3DGeneration(GriptapeProxyNode):
     def after_value_set(self, parameter: Any, value: Any) -> None:
         if parameter.name == "model_version":
             self._update_parameter_visibility_for_model(value)
+        super().after_value_set(parameter, value)
 
     def _get_api_model_id(self) -> str:
         return TRIPO_MODEL_ID

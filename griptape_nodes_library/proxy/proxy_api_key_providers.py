@@ -144,6 +144,7 @@ _NODE_PROVIDER_CONFIGS = {
     "TopazImageEnhance": TOPAZ,
     "TranscribeAudio": OPENAI,
     "TripoImageTo3DGeneration": TRIPO,
+    "TripoMultiviewTo3DGeneration": TRIPO,
     "TripoTextTo3DGeneration": TRIPO,
     "Veo3VideoGeneration": GOOGLE,
     "WanAnimateGeneration": DASHSCOPE,
