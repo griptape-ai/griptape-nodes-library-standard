@@ -14,11 +14,6 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.events.artifact_events import (
-    CheckArtifactReadPermissionRequest,
-    CheckArtifactReadPermissionResultSuccess,
-)
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.utils.file_utils import generate_filename
@@ -395,11 +390,6 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
             # Validate URL before using in subprocess
             self._validate_url_safety(input_url)
 
-            # Gate the read against the codec-permission policy before spawning ffmpeg.
-            # Falls open when ffprobe cannot classify the source; a denied read raises
-            # here so we never build or run the ffmpeg command.
-            self._check_read_codec_permission(input_url)
-
             # Get FFmpeg paths
             _ffmpeg_path, ffprobe_path = self._get_ffmpeg_paths()
 
@@ -416,24 +406,6 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
             error_msg = f"Error during video processing: {e!s}"
             self.append_value_to_parameter("logs", f"ERROR: {error_msg}\n")
             raise ValueError(error_msg) from e
-
-    def _check_read_codec_permission(self, input_url: str) -> None:
-        """Ask the engine whether reading this input is permitted.
-
-        Sends a ``CheckArtifactReadPermissionRequest`` so the decision is
-        made by whichever provider owns the file's format (video, audio, etc.)
-        without the node needing to know which provider that is. Raises
-        ``ValueError`` on denial so the surrounding exception handler on
-        ``_process_video`` funnels the message through the node's standard
-        error reporting.
-        """
-        result = GriptapeNodes.handle_request(CheckArtifactReadPermissionRequest(source_path=input_url))
-        if not isinstance(result, CheckArtifactReadPermissionResultSuccess):
-            return
-        if result.denial is None:
-            return
-        msg = f"Cannot load '{Path(input_url).name}': {result.denial.reason()}"
-        raise ValueError(msg)
 
     def _process(self, input_url: str, detected_format: str, **kwargs) -> None:
         """Common processing wrapper."""
