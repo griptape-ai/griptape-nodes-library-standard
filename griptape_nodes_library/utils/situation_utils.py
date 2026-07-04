@@ -80,10 +80,12 @@ def add_situation_parameter(node: BaseNode, file_param: ProjectFileParameter) ->
         # Both are needed: the trait attribute governs value validation; update_ui_options
         # drives the rich dropdown rendering.
         options_trait.choices = refreshed_names
-        situation_param.update_ui_options({
-            "data": build_situation_data(refreshed_names, refreshed_descriptions),
-            "dropdown_row_subtitles": True,
-        })
+        situation_param.update_ui_options(
+            {
+                "data": build_situation_data(refreshed_names, refreshed_descriptions),
+                "dropdown_row_subtitles": True,
+            }
+        )
 
         current = node.get_parameter_value("situation")
         if current not in refreshed_names:
@@ -117,8 +119,10 @@ def add_situation_parameter(node: BaseNode, file_param: ProjectFileParameter) ->
     node.add_parameter(situation_param)
     # update_ui_options must follow add_parameter — subtitle data is pushed to the
     # UI layer after the param is registered.
-    situation_param.update_ui_options({
-        "data": build_situation_data(names, descriptions),
-        "dropdown_row_subtitles": True,
-    })
+    situation_param.update_ui_options(
+        {
+            "data": build_situation_data(names, descriptions),
+            "dropdown_row_subtitles": True,
+        }
+    )
     file_param._situation_name = default
