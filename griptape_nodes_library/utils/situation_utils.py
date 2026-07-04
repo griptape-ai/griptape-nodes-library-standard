@@ -26,7 +26,14 @@ def fetch_situations() -> tuple[list[str], dict[str, str]]:
     (does not trigger the reentrant-bus-in-init strict-mode rule). Falls back to
     ([DEFAULT_SITUATION], {}) when the project template is not yet loaded.
     """
-    result = GriptapeNodes.handle_request(GetAllSituationsForProjectRequest())
+    try:
+        # Request only the fields we need. The `fields` parameter was added in a later engine
+        # release — see https://github.com/griptape-ai/griptape-nodes-engine/pull/5047.
+        # Falls back to the unfiltered call on older engines that raise TypeError for the
+        # unknown kwarg.
+        result = GriptapeNodes.handle_request(GetAllSituationsForProjectRequest(fields=["situations", "descriptions"]))  # type: ignore[call-arg]
+    except TypeError:
+        result = GriptapeNodes.handle_request(GetAllSituationsForProjectRequest())
     if not isinstance(result, GetAllSituationsForProjectResultSuccess):
         logger.warning("Could not fetch situations; using default situation")
         return [DEFAULT_SITUATION], {}
