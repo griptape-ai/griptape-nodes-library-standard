@@ -63,8 +63,11 @@ class SetVariablesFromData(ControlNode):
             input_types=["dict", "json", "str", "list", ParameterTypeBuiltin.ANY.value],
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             tooltip=(
-                "A dict, a JSON string, or a list of key/value pairs "
-                '(e.g. [{"key": "NAME", "value": "Jason"}] or [["NAME", "Jason"]]). '
+                "A dict, a JSON string, or a list of key/value pairs. "
+                "Accepted list-item forms: "
+                '[{"key": "NAME", "value": "Jason"}], '
+                '[["NAME", "Jason"]], or '
+                '[{"NAME": "Jason"}] (single-entry dict). '
                 "Each key becomes a workflow variable."
             ),
         )
@@ -127,10 +130,17 @@ class SetVariablesFromData(ControlNode):
         for raw_key, value in raw_pairs:
             variable_name = _sanitize_name(raw_key) if sanitize else str(raw_key)
             if not _is_valid_name(variable_name):
-                msg = (
-                    f"Key {raw_key!r} is not a valid variable name. Enable 'sanitize_names' or "
-                    f"provide keys without spaces/punctuation."
-                )
+                if sanitize:
+                    msg = (
+                        f"Key {raw_key!r} cannot be made into a valid variable name even after "
+                        f"sanitization (result: {variable_name!r}). Provide a key with at least "
+                        f"one alphanumeric character."
+                    )
+                else:
+                    msg = (
+                        f"Key {raw_key!r} is not a valid variable name. Enable 'sanitize_names' or "
+                        f"provide keys without spaces/punctuation."
+                    )
                 raise ValueError(msg)
             if variable_name not in final_values:
                 seen_order.append(variable_name)
@@ -222,17 +232,15 @@ class SetVariablesFromData(ControlNode):
         sanitize = bool(self.get_parameter_value(self.sanitize_names_param.name))
 
         try:
-            pairs = self._resolve_pairs()
+            seen_order, _ = self._build_variable_map(self._resolve_pairs(), sanitize)
         except (ValueError, TypeError):
-            # Source isn't in a usable shape yet (e.g. nothing propagated). Nothing to declare.
+            # Source isn't in a usable shape yet, or contains invalid names — nothing to declare.
             return deps
 
-        for raw_key, _ in pairs:
-            variable_name = _sanitize_name(raw_key) if sanitize else str(raw_key)
-            if _is_valid_name(variable_name):
-                deps.variable_references.add(
-                    VariableReference(name=variable_name, scope=scope, access=VariableAccess.READ_WRITE)
-                )
+        for variable_name in seen_order:
+            deps.variable_references.add(
+                VariableReference(name=variable_name, scope=scope, access=VariableAccess.READ_WRITE)
+            )
 
         return deps
 
@@ -321,14 +329,18 @@ def _list_item_to_pair(item: Any, index: int) -> tuple[str, Any]:
 
 
 def _sanitize_name(raw_key: Any) -> str:
-    """Coerce a key into a safe variable name: trim, replace runs of invalid chars with '_'."""
+    """Coerce a key into a safe variable name: trim, then replace runs of invalid chars with '_'.
+
+    If the key is already a valid identifier after trimming (e.g. "_config"), it is returned
+    as-is so that intentional leading underscores are not silently dropped.
+    """
     text = str(raw_key).strip()
-    # Replace any run of characters that aren't alphanumeric or underscore with a single underscore.
-    text = re.sub(r"[^0-9A-Za-z_]+", "_", text).strip("_")
-    # Names can't start with a digit; prefix with underscore if so.
-    if text and text[0].isdigit():
-        text = f"_{text}"
-    return text
+    if _is_valid_name(text):
+        return text
+    sanitized = re.sub(r"[^0-9A-Za-z_]+", "_", text).strip("_")
+    if sanitized and sanitized[0].isdigit():
+        sanitized = f"_{sanitized}"
+    return sanitized
 
 
 def _is_valid_name(name: str) -> bool:

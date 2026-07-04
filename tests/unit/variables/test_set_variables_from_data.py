@@ -126,6 +126,10 @@ class TestSanitizeName:
     def test_leading_digit_prefixed(self) -> None:
         assert _sanitize_name("123abc").startswith("_")
 
+    def test_leading_underscore_preserved(self) -> None:
+        # Already a valid identifier — sanitization must not strip intentional leading underscores.
+        assert _sanitize_name("_config") == "_config"
+
 
 class TestInferType:
     def test_bool_before_int(self) -> None:
@@ -245,3 +249,43 @@ class TestSetVariablesFromDataProcess:
 
         assert _get_variable_value("Full_Name", flow) == "second"
         assert node.parameter_output_values["variable_names"] == ["Full_Name"]
+
+    @pytest.mark.asyncio
+    async def test_empty_dict_is_noop(self, node: BaseNode) -> None:
+        # An empty dict is a valid (if useless) source — nothing is created and no error raised.
+        node.set_parameter_value("source", {})
+
+        await node.aprocess()
+
+        assert node.parameter_output_values["variable_names"] == []
+
+    @pytest.mark.asyncio
+    async def test_empty_list_is_noop(self, node: BaseNode) -> None:
+        node.set_parameter_value("source", [])
+
+        await node.aprocess()
+
+        assert node.parameter_output_values["variable_names"] == []
+
+
+class TestGetNodeDependencies:
+    """Exercises get_node_dependencies() — sync, no aprocess() calls needed."""
+
+    def test_no_source_emits_no_deps(self, node: BaseNode) -> None:
+        # Source is unset — _resolve_pairs raises, so no variable_references emitted.
+        deps = node.get_node_dependencies()
+        assert deps is not None
+        assert len(deps.variable_references) == 0
+
+    def test_declares_sanitized_names(self, node: BaseNode) -> None:
+        node.set_parameter_value("source", {"NAME": "Jason", "PHONE": "027"})
+        deps = node.get_node_dependencies()
+        assert deps is not None
+        assert {ref.name for ref in deps.variable_references} == {"NAME", "PHONE"}
+
+    def test_sanitized_collision_single_dep(self, node: BaseNode) -> None:
+        # "Full Name" and "Full_Name" both sanitize to "Full_Name" — only one dep declared.
+        node.set_parameter_value("source", {"Full Name": "first", "Full_Name": "second"})
+        deps = node.get_node_dependencies()
+        assert deps is not None
+        assert {ref.name for ref in deps.variable_references} == {"Full_Name"}
