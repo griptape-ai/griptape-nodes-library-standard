@@ -1,9 +1,9 @@
 """Shared helpers for situation dropdown parameters in save nodes."""
 
 import logging
-from typing import Any
 
-from griptape_nodes.exe_types.core_types import NodeMessageResult, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
+from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.events.project_events import (
@@ -50,7 +50,21 @@ def build_situation_data(names: list[str], descriptions: dict[str, str]) -> list
     return [{"name": n, "subtitle": descriptions.get(n, "")} for n in names]
 
 
-def add_situation_parameter(node: Any, file_param: ProjectFileParameter) -> None:
+def update_file_param_situation(
+    file_param: ProjectFileParameter, parameter: Parameter, value: object, **kwargs: object
+) -> None:
+    """Sync situation name to file_param when the situation parameter changes.
+
+    Centralises the single write to the private ``_situation_name`` attribute so
+    all five save nodes share one call site instead of five.  The ``initial_setup``
+    guard mirrors ``FileOutputSettings.after_value_set`` — skip internal framework
+    setup calls because ``add_situation_parameter`` already seeds the correct default.
+    """
+    if parameter.name == "situation" and not kwargs.get("initial_setup"):
+        file_param._situation_name = str(value)
+
+
+def add_situation_parameter(node: BaseNode, file_param: ProjectFileParameter) -> None:
     """Add a situation dropdown and refresh button to a save node.
 
     ``file_param`` must be created (but NOT yet added via ``add_parameter()``)
@@ -116,6 +130,8 @@ def add_situation_parameter(node: Any, file_param: ProjectFileParameter) -> None
         settable=True,
     )
     node.add_parameter(situation_param)
+    # update_ui_options must follow add_parameter — subtitle data is separate from
+    # the trait and must be pushed to the UI layer after the param is registered.
     situation_param.update_ui_options({
         "data": build_situation_data(names, descriptions),
         "dropdown_row_subtitles": True,

@@ -8,7 +8,7 @@ from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.retained_mode.griptape_nodes import logger
 
-from griptape_nodes_library.utils.situation_utils import add_situation_parameter
+from griptape_nodes_library.utils.situation_utils import add_situation_parameter, update_file_param_situation
 
 
 class SaveText(ControlNode):
@@ -37,8 +37,7 @@ class SaveText(ControlNode):
         self._output_file.add_parameter()
 
     def after_value_set(self, parameter: Parameter, value: object, **kwargs: object) -> None:
-        if parameter.name == "situation" and not kwargs.get("initial_setup"):
-            self._output_file._situation_name = str(value)
+        update_file_param_situation(self._output_file, parameter, value, **kwargs)
         super().after_value_set(parameter, value, **kwargs)
 
     def process(self) -> None:

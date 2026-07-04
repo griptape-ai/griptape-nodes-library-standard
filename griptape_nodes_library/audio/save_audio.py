@@ -15,7 +15,7 @@ from griptape_nodes_library.utils.audio_utils import (
     extract_url_from_audio_object,
     is_audio_url_artifact,
 )
-from griptape_nodes_library.utils.situation_utils import add_situation_parameter
+from griptape_nodes_library.utils.situation_utils import add_situation_parameter, update_file_param_situation
 
 
 @dataclass
@@ -57,8 +57,7 @@ class SaveAudio(SuccessFailureNode):
         )
 
     def after_value_set(self, parameter: Parameter, value: object, **kwargs: object) -> None:
-        if parameter.name == "situation" and not kwargs.get("initial_setup"):
-            self._output_file._situation_name = str(value)
+        update_file_param_situation(self._output_file, parameter, value, **kwargs)
         super().after_value_set(parameter, value, **kwargs)
 
     def _extract_bytes_from_artifact(self, artifact: Any) -> bytes | None:

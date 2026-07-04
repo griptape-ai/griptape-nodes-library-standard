@@ -15,14 +15,13 @@ from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from PIL import Image
 
-from griptape_nodes_library.utils.situation_utils import add_situation_parameter
-
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     image_to_bytes,
     load_image_from_url_artifact,
     validate_pil_format,
 )
+from griptape_nodes_library.utils.situation_utils import add_situation_parameter, update_file_param_situation
 
 PREVIEW_LENGTH = 50
 
@@ -72,8 +71,7 @@ class SaveImage(SuccessFailureNode):
         self._output_file.add_parameter()
 
     def after_value_set(self, parameter: Parameter, value: object, **kwargs: object) -> None:
-        if parameter.name == "situation" and not kwargs.get("initial_setup"):
-            self._output_file._situation_name = str(value)
+        update_file_param_situation(self._output_file, parameter, value, **kwargs)
         super().after_value_set(parameter, value, **kwargs)
 
     def _get_target_pil_format(self) -> str:

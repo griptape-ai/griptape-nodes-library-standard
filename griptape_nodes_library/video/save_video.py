@@ -15,7 +15,7 @@ from griptape_nodes.retained_mode.events.artifact_events import (
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 
-from griptape_nodes_library.utils.situation_utils import add_situation_parameter
+from griptape_nodes_library.utils.situation_utils import add_situation_parameter, update_file_param_situation
 from griptape_nodes_library.utils.video_utils import (
     extract_url_from_video_object,
     is_video_url_artifact,
@@ -61,8 +61,7 @@ class SaveVideo(SuccessFailureNode):
         )
 
     def after_value_set(self, parameter: Parameter, value: object, **kwargs: object) -> None:
-        if parameter.name == "situation" and not kwargs.get("initial_setup"):
-            self._output_file._situation_name = str(value)
+        update_file_param_situation(self._output_file, parameter, value, **kwargs)
         super().after_value_set(parameter, value, **kwargs)
 
     def _extract_bytes_from_artifact(self, artifact: Any) -> bytes | None:

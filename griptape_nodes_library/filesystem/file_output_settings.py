@@ -41,7 +41,11 @@ from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.utils.situation_utils import build_situation_data, fetch_situations_with_descriptions
+from griptape_nodes_library.utils.situation_utils import (
+    DEFAULT_SITUATION,
+    build_situation_data,
+    fetch_situations_with_descriptions,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -139,12 +143,21 @@ class FileOutputSettings(BaseNode):
 
     def _create_parameters(self) -> None:
         """Create all parameters for the node."""
+        self._situation_options_trait = Options(choices=self._available_situations)
         self.situation = ParameterString(
             name="situation",
             default_value=self._available_situations[0],
             allowed_modes={ParameterMode.PROPERTY},
             tooltip="Select the file save situation template to use for path resolution",
-            traits={Options(choices=self._available_situations)},
+            traits={
+                self._situation_options_trait,
+                Button(
+                    icon="refresh-cw",
+                    size="icon",
+                    variant="secondary",
+                    on_click=self._on_refresh_situations,
+                ),
+            },
             settable=True,
         )
         self.add_parameter(self.situation)
@@ -495,6 +508,38 @@ class FileOutputSettings(BaseNode):
     def process(self) -> None:
         """Resolve the path and set output parameter values."""
         self._resolve_and_update_path()
+
+    def _on_refresh_situations(
+        self,
+        _button: Button,
+        button_details: ButtonDetailsMessagePayload,
+    ) -> NodeMessageResult:
+        """Refresh the situations dropdown from the current project template."""
+        names, descriptions = fetch_situations_with_descriptions()
+        if not names:
+            return NodeMessageResult(
+                success=False,
+                details="No situations available — project template could not be loaded",
+                response=button_details,
+                altered_workflow_state=False,
+            )
+        self._available_situations = names
+        self._situation_descriptions = descriptions
+        self._situation_options_trait.choices = names
+        self.situation.update_ui_options({
+            "data": build_situation_data(names, descriptions),
+            "dropdown_row_subtitles": True,
+        })
+        current = self.get_parameter_value(self.situation.name)
+        if current not in names:
+            new_val = DEFAULT_SITUATION if DEFAULT_SITUATION in names else names[0]
+            self.set_parameter_value(self.situation.name, new_val)
+        return NodeMessageResult(
+            success=True,
+            details=f"Refreshed {len(names)} situation(s)",
+            response=button_details,
+            altered_workflow_state=True,
+        )
 
     def _on_reset_situation_clicked(
         self,
