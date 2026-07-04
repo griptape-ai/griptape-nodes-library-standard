@@ -7,6 +7,8 @@ from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.events.project_events import (
+    GetAllSituationsForProjectRequest,
+    GetAllSituationsForProjectResultSuccess,
     GetCurrentProjectRequest,
     GetCurrentProjectResultSuccess,
     GetProjectTemplateRequest,
@@ -19,6 +21,21 @@ from griptape_nodes.traits.options import Options
 logger = logging.getLogger("griptape_nodes")
 
 DEFAULT_SITUATION = ProjectFileParameter.DEFAULT_SITUATION
+
+
+def fetch_situation_names() -> list[str]:
+    """Return sorted situation names from the current project.
+
+    Uses GetAllSituationsForProjectRequest, which is safe to call from __init__
+    (does not trigger the reentrant-bus-in-init strict-mode rule). Falls back to
+    [DEFAULT_SITUATION] when the project template is not yet loaded.
+    """
+    result = GriptapeNodes.handle_request(GetAllSituationsForProjectRequest())
+    if not isinstance(result, GetAllSituationsForProjectResultSuccess):
+        logger.warning("Could not fetch situation names; using default situation")
+        return [DEFAULT_SITUATION]
+    names = sorted(result.situations.keys())
+    return names if names else [DEFAULT_SITUATION]
 
 
 def fetch_situations_with_descriptions() -> tuple[list[str], dict[str, str]]:
@@ -69,9 +86,13 @@ def add_situation_parameter(node: BaseNode, file_param: ProjectFileParameter) ->
 
     ``file_param`` must be created (but NOT yet added via ``add_parameter()``)
     before calling this so that ``after_value_set`` can safely reference it.
+
+    Uses GetAllSituationsForProjectRequest (init-safe) for the initial list.
+    Descriptions are not available until the user clicks the refresh button,
+    which calls the slower two-request fetch that includes them.
     """
-    names, descriptions = fetch_situations_with_descriptions()
-    default = DEFAULT_SITUATION if DEFAULT_SITUATION in names else (names[0] if names else DEFAULT_SITUATION)
+    names = fetch_situation_names()
+    default = DEFAULT_SITUATION if DEFAULT_SITUATION in names else names[0]
 
     options_trait = Options(choices=names)
 
@@ -91,18 +112,16 @@ def add_situation_parameter(node: BaseNode, file_param: ProjectFileParameter) ->
         # drives the rich dropdown rendering. FileOutputSettings omits the trait mutation
         # because it never refreshes in-place; here we need both.
         options_trait.choices = refreshed_names
-        situation_param.update_ui_options({
-            "data": build_situation_data(refreshed_names, refreshed_descriptions),
-            "dropdown_row_subtitles": True,
-        })
+        situation_param.update_ui_options(
+            {
+                "data": build_situation_data(refreshed_names, refreshed_descriptions),
+                "dropdown_row_subtitles": True,
+            }
+        )
 
         current = node.get_parameter_value("situation")
         if current not in refreshed_names:
-            new_val = (
-                DEFAULT_SITUATION
-                if DEFAULT_SITUATION in refreshed_names
-                else refreshed_names[0]
-            )
+            new_val = DEFAULT_SITUATION if DEFAULT_SITUATION in refreshed_names else refreshed_names[0]
             node.set_parameter_value("situation", new_val)
             file_param._situation_name = new_val
 
@@ -130,10 +149,4 @@ def add_situation_parameter(node: BaseNode, file_param: ProjectFileParameter) ->
         settable=True,
     )
     node.add_parameter(situation_param)
-    # update_ui_options must follow add_parameter — subtitle data is separate from
-    # the trait and must be pushed to the UI layer after the param is registered.
-    situation_param.update_ui_options({
-        "data": build_situation_data(names, descriptions),
-        "dropdown_row_subtitles": True,
-    })
     file_param._situation_name = default
