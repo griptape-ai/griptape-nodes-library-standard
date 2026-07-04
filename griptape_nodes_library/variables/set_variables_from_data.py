@@ -107,35 +107,24 @@ class SetVariablesFromData(ControlNode):
         self.add_node_element(advanced.parameter_group)
 
     def _resolve_pairs(self) -> list[tuple[str, Any]]:
-        """Normalize whatever is on ``source`` into an ordered list of (key, value) pairs.
-
-        Duplicate keys are collapsed last-write-wins while preserving first-seen ordering.
-        """
+        """Normalize whatever is on ``source`` into an ordered list of (key, value) pairs."""
         source = self.get_parameter_value(self.source_param.name)
-        pairs = _source_to_pairs(source)
+        return _source_to_pairs(source)
 
-        # Collapse duplicates: last write wins, first-seen order preserved.
-        collapsed: dict[str, Any] = {}
-        for key, value in pairs:
-            collapsed[key] = value
-        return list(collapsed.items())
+    def _build_variable_map(
+        self, raw_pairs: list[tuple[str, Any]], sanitize: bool
+    ) -> tuple[list[str], dict[str, Any]]:
+        """Validate and sanitize raw pairs, collapse duplicates on the sanitized name.
 
-    async def aprocess(self) -> None:
-        pairs = self._resolve_pairs()
-        sanitize = bool(self.get_parameter_value(self.sanitize_names_param.name))
-        overwrite = bool(self.get_parameter_value(self.overwrite_existing_param.name))
-        scope_str = self.get_parameter_value(self.scope_param.name)
-        scope = scope_string_to_variable_scope(scope_str)
+        Dedup happens after sanitization so that e.g. "Full Name" and "Full_Name" correctly
+        merge rather than producing a duplicate "Full_Name" entry. Last-write-wins; first-seen
+        ordering is preserved.
 
-        flow_request = GetFlowForNodeRequest(node_name=self.name)
-        flow_result = await GriptapeNodes.ahandle_request(flow_request)
-        if not isinstance(flow_result, GetFlowForNodeResultSuccess):
-            msg = f"Failed to get flow for node '{self.name}': {flow_result.result_details}"
-            raise TypeError(msg)
-        current_flow_name = flow_result.flow_name
-
-        created_names: list[str] = []
-        for raw_key, value in pairs:
+        Returns (seen_order, final_values).
+        """
+        seen_order: list[str] = []
+        final_values: dict[str, Any] = {}
+        for raw_key, value in raw_pairs:
             variable_name = _sanitize_name(raw_key) if sanitize else str(raw_key)
             if not _is_valid_name(variable_name):
                 msg = (
@@ -143,50 +132,77 @@ class SetVariablesFromData(ControlNode):
                     f"provide keys without spaces/punctuation."
                 )
                 raise ValueError(msg)
+            if variable_name not in final_values:
+                seen_order.append(variable_name)
+            final_values[variable_name] = value
+        return seen_order, final_values
 
-            has_request = HasVariableRequest(
-                name=variable_name,
-                lookup_scope=scope,
-                starting_flow=current_flow_name,
-            )
-            has_result = await GriptapeNodes.ahandle_request(has_request)
-            if not isinstance(has_result, HasVariableResultSuccess):
-                msg = f"Failed to check if variable '{variable_name}' exists: {has_result.result_details}"
-                raise TypeError(msg)
+    async def _write_variable(
+        self,
+        variable_name: str,
+        value: Any,
+        overwrite: bool,
+        scope: VariableScope,
+        flow_name: str,
+    ) -> bool:
+        """Create or update a single variable. Returns True if written, False if skipped."""
+        has_result = await GriptapeNodes.ahandle_request(
+            HasVariableRequest(name=variable_name, lookup_scope=scope, starting_flow=flow_name)
+        )
+        if not isinstance(has_result, HasVariableResultSuccess):
+            msg = f"Failed to check if variable '{variable_name}' exists: {has_result.result_details}"
+            raise TypeError(msg)
 
-            if has_result.exists:
-                if not overwrite:
-                    logger.debug(
-                        "SetVariablesFromData '%s' skipped existing variable '%s' (overwrite_existing is off)",
-                        self.name,
-                        variable_name,
-                    )
-                    continue
-                set_request = SetVariableValueRequest(
-                    value=value,
-                    name=variable_name,
-                    lookup_scope=scope,
-                    starting_flow=current_flow_name,
+        if has_result.exists:
+            if not overwrite:
+                logger.debug(
+                    "SetVariablesFromData '%s' skipped existing variable '%s' (overwrite_existing is off)",
+                    self.name,
+                    variable_name,
                 )
-                set_result = await GriptapeNodes.ahandle_request(set_request)
-                if not isinstance(set_result, SetVariableValueResultSuccess):
-                    msg = f"Failed to set variable '{variable_name}': {set_result.result_details}"
-                    raise TypeError(msg)
-            else:
-                create_request = CreateVariableRequest(
+                return False
+            set_result = await GriptapeNodes.ahandle_request(
+                SetVariableValueRequest(
+                    value=value, name=variable_name, lookup_scope=scope, starting_flow=flow_name
+                )
+            )
+            if not isinstance(set_result, SetVariableValueResultSuccess):
+                msg = f"Failed to set variable '{variable_name}': {set_result.result_details}"
+                raise TypeError(msg)
+        else:
+            create_result = await GriptapeNodes.ahandle_request(
+                CreateVariableRequest(
                     name=variable_name,
                     type=_infer_type(value),
                     is_global=False,
                     value=value,
-                    owning_flow=current_flow_name,
+                    owning_flow=flow_name,
                 )
-                create_result = await GriptapeNodes.ahandle_request(create_request)
-                if not isinstance(create_result, CreateVariableResultSuccess):
-                    msg = f"Failed to create variable '{variable_name}': {create_result.result_details}"
-                    raise TypeError(msg)
+            )
+            if not isinstance(create_result, CreateVariableResultSuccess):
+                msg = f"Failed to create variable '{variable_name}': {create_result.result_details}"
+                raise TypeError(msg)
+        return True
 
-            created_names.append(variable_name)
+    async def aprocess(self) -> None:
+        sanitize = bool(self.get_parameter_value(self.sanitize_names_param.name))
+        overwrite = bool(self.get_parameter_value(self.overwrite_existing_param.name))
+        scope_str = self.get_parameter_value(self.scope_param.name)
+        scope = scope_string_to_variable_scope(scope_str) if scope_str else VariableScope.HIERARCHICAL
 
+        seen_order, final_values = self._build_variable_map(self._resolve_pairs(), sanitize)
+
+        flow_result = await GriptapeNodes.ahandle_request(GetFlowForNodeRequest(node_name=self.name))
+        if not isinstance(flow_result, GetFlowForNodeResultSuccess):
+            msg = f"Failed to get flow for node '{self.name}': {flow_result.result_details}"
+            raise TypeError(msg)
+        flow_name = flow_result.flow_name
+
+        created_names = [
+            variable_name
+            for variable_name in seen_order
+            if await self._write_variable(variable_name, final_values[variable_name], overwrite, scope, flow_name)
+        ]
         self.parameter_output_values[self.created_names_param.name] = created_names
 
     def get_node_dependencies(self) -> NodeDependencies | None:
@@ -220,18 +236,19 @@ class SetVariablesFromData(ControlNode):
 
         return deps
 
-    def validate_before_workflow_run(self) -> list[Exception] | None:
-        """Variable nodes have side effects and need to execute every workflow run."""
+    def _reset_resolution_state(self) -> None:
         self.make_node_unresolved(
             current_states_to_trigger_change_event={NodeResolutionState.RESOLVED, NodeResolutionState.RESOLVING}
         )
+
+    def validate_before_workflow_run(self) -> list[Exception] | None:
+        """Variable nodes have side effects and need to execute every workflow run."""
+        self._reset_resolution_state()
         return None
 
     def validate_before_node_run(self) -> list[Exception] | None:
         """Variable nodes have side effects and need to execute every time they run."""
-        self.make_node_unresolved(
-            current_states_to_trigger_change_event={NodeResolutionState.RESOLVED, NodeResolutionState.RESOLVING}
-        )
+        self._reset_resolution_state()
         return None
 
 
@@ -275,6 +292,13 @@ def _list_item_to_pair(item: Any, index: int) -> tuple[str, Any]:
     """
     if isinstance(item, dict):
         if "key" in item and "value" in item:
+            extra = set(item) - {"key", "value"}
+            if extra:
+                logger.debug(
+                    "_list_item_to_pair: item %d has extra keys %r — only 'key' and 'value' are used.",
+                    index,
+                    sorted(extra),
+                )
             return (str(item["key"]), item["value"])
         if len(item) == 1:
             key, value = next(iter(item.items()))

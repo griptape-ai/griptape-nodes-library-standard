@@ -227,3 +227,21 @@ class TestSetVariablesFromDataProcess:
         await node.aprocess()
 
         assert _get_variable_value("NAME", flow) == "new"
+        assert node.parameter_output_values["variable_names"] == ["NAME"]
+
+    @pytest.mark.asyncio
+    async def test_none_source_raises(self, node: BaseNode) -> None:
+        # source is unset (None) by default — should raise before touching the engine.
+        with pytest.raises(ValueError, match="non-empty"):
+            await node.aprocess()
+
+    @pytest.mark.asyncio
+    async def test_sanitized_collision_last_write_wins(self, node: BaseNode, flow: str) -> None:
+        # "Full Name" and "Full_Name" both sanitize to "Full_Name"; last write wins and only
+        # one variable entry is emitted.
+        node.set_parameter_value("source", {"Full Name": "first", "Full_Name": "second"})
+
+        await node.aprocess()
+
+        assert _get_variable_value("Full_Name", flow) == "second"
+        assert node.parameter_output_values["variable_names"] == ["Full_Name"]
