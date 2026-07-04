@@ -5911,6 +5911,24 @@
       }
     },
     {
+      "class_name": "DictToVariables",
+      "file_path": "griptape_nodes_library/variables/dict_to_variables.py",
+      "metadata": {
+        "category": "variables",
+        "description": "Convert a dict, JSON object, or list of key/value pairs into workflow variables in one step.",
+        "display_name": "Dict to Variables",
+        "icon": "Braces",
+        "group": "create",
+        "tags": [
+          "data",
+          "variable",
+          "workflow",
+          "dict",
+          "json"
+        ]
+      }
+    },
+    {
       "class_name": "GetVariable",
       "file_path": "griptape_nodes_library/variables/get_variable.py",
       "metadata": {
