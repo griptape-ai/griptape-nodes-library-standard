@@ -50,6 +50,9 @@ class SaveText(ControlNode):
             saved = dest.write_bytes(text.encode("utf-8"))
             saved_path = saved.location
             logger.info("Saved file: %s", saved_path)
+            # Do NOT write saved_path back to parameter_output_values["output_file"] —
+            # that clobbers the user's filename with the resolved macro path. No other
+            # node using ProjectFileParameter does this; the path is log-only here.
 
         except Exception as e:
             error_message = str(e)
