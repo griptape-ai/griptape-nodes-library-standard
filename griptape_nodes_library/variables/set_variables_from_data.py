@@ -34,7 +34,7 @@ from griptape_nodes_library.variables.variable_utils import (
 logger = logging.getLogger("griptape_nodes")
 
 
-class DictToVariables(ControlNode):
+class SetVariablesFromData(ControlNode):
     """Turn a dict / JSON object / list of key-value pairs into workflow variables in one step.
 
     The ``source`` input is intentionally permissive. The node sniffs the runtime shape rather
@@ -157,7 +157,7 @@ class DictToVariables(ControlNode):
             if has_result.exists:
                 if not overwrite:
                     logger.debug(
-                        "DictToVariables '%s' skipped existing variable '%s' (overwrite_existing is off)",
+                        "SetVariablesFromData '%s' skipped existing variable '%s' (overwrite_existing is off)",
                         self.name,
                         variable_name,
                     )
@@ -242,14 +242,14 @@ def _source_to_pairs(source: Any) -> list[tuple[str, Any]]:
         ValueError: if ``source`` (or a list item) isn't a recognizable key/value shape.
     """
     if source is None:
-        msg = "DictToVariables requires a non-empty 'source' (dict, JSON string, or list of key/value pairs)."
+        msg = "SetVariablesFromData requires a non-empty 'source' (dict, JSON string, or list of key/value pairs)."
         raise ValueError(msg)
 
     # JSON string -> parse, then fall through to dict/list handling.
     if isinstance(source, str):
         text = source.strip()
         if not text:
-            msg = "DictToVariables received an empty string for 'source'."
+            msg = "SetVariablesFromData received an empty string for 'source'."
             raise ValueError(msg)
         try:
             source = json.loads(text)

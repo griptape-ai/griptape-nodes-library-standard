@@ -1,4 +1,4 @@
-"""Tests for the DictToVariables node.
+"""Tests for the SetVariablesFromData node.
 
 Covers turning a dict / JSON string / list of key-value pairs into workflow variables in one
 step, plus name sanitization, duplicate-key last-write-wins, and overwrite behavior.
@@ -25,7 +25,7 @@ from griptape_nodes.retained_mode.events.variable_events import (
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.variable_types import VariableScope
 
-from griptape_nodes_library.variables.dict_to_variables import (
+from griptape_nodes_library.variables.set_variables_from_data import (
     _infer_type,
     _sanitize_name,
     _source_to_pairs,
@@ -38,7 +38,7 @@ FLOW_NAME = "canvas"
 def flow(griptape_nodes: GriptapeNodes) -> Generator[str, None, None]:  # noqa: ARG001
     """Create a fresh top-level flow (under an ambient test workflow) for each test."""
     context_manager = GriptapeNodes.ContextManager()
-    context_manager.push_workflow(workflow_name="test_dict_to_variables_workflow")
+    context_manager.push_workflow(workflow_name="test_set_variables_from_data_workflow")
     try:
         result = GriptapeNodes.handle_request(CreateFlowRequest(parent_flow_name=None, flow_name=FLOW_NAME))
         assert isinstance(result, CreateFlowResultSuccess)
@@ -50,18 +50,18 @@ def flow(griptape_nodes: GriptapeNodes) -> Generator[str, None, None]:  # noqa: 
 
 @pytest.fixture
 def node(flow: str) -> BaseNode:
-    """Create a DictToVariables node inside the test flow and return the instance.
+    """Create a SetVariablesFromData node inside the test flow and return the instance.
 
     Returns the node as ``BaseNode`` because library nodes are loaded via a dynamic module,
     so the imported class and the instantiated class are different class objects even though
     they share a name.
     """
     result = GriptapeNodes.handle_request(
-        CreateNodeRequest(node_type="DictToVariables", override_parent_flow_name=flow)
+        CreateNodeRequest(node_type="SetVariablesFromData", override_parent_flow_name=flow)
     )
     assert isinstance(result, CreateNodeResultSuccess)
     instance = GriptapeNodes.NodeManager().get_node_by_name(result.node_name)
-    assert type(instance).__name__ == "DictToVariables"
+    assert type(instance).__name__ == "SetVariablesFromData"
     return instance
 
 
@@ -142,7 +142,7 @@ class TestInferType:
         assert _infer_type({"a": 1}) == "json"
 
 
-class TestDictToVariablesProcess:
+class TestSetVariablesFromDataProcess:
     """Exercises ``aprocess()`` end-to-end against the engine."""
 
     @pytest.mark.asyncio
