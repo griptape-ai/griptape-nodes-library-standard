@@ -5,7 +5,6 @@ from typing import Any
 
 from griptape_nodes.exe_types.core_types import NodeMessageResult, ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
-from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.events.project_events import (
     GetCurrentProjectRequest,
@@ -60,29 +59,12 @@ def add_situation_parameter(node: Any, file_param: ProjectFileParameter) -> None
     names, descriptions = fetch_situations_with_descriptions()
     default = DEFAULT_SITUATION if DEFAULT_SITUATION in names else (names[0] if names else DEFAULT_SITUATION)
 
-    situation_param = ParameterString(
-        name="situation",
-        default_value=default,
-        allowed_modes={ParameterMode.PROPERTY},
-        tooltip="File save situation — determines the output directory and naming conventions.",
-        traits={Options(choices=names)},
-        settable=True,
-    )
-    node.add_parameter(situation_param)
-    situation_param.update_ui_options({
-        "data": build_situation_data(names, descriptions),
-        "dropdown_row_subtitles": True,
-    })
-    file_param._situation_name = default
+    options_trait = Options(choices=names)
 
-    def _on_refresh(button: Button, button_details: ButtonDetailsMessagePayload) -> NodeMessageResult:  # noqa: ARG001
+    def _on_refresh(_button: Button, button_details: ButtonDetailsMessagePayload) -> NodeMessageResult:
         refreshed_names, refreshed_descriptions = fetch_situations_with_descriptions()
 
-        for trait in situation_param.traits:
-            if isinstance(trait, Options):
-                trait.choices = refreshed_names
-                break
-
+        options_trait.choices = refreshed_names
         situation_param.update_ui_options({
             "data": build_situation_data(refreshed_names, refreshed_descriptions),
             "dropdown_row_subtitles": True,
@@ -105,12 +87,25 @@ def add_situation_parameter(node: Any, file_param: ProjectFileParameter) -> None
             altered_workflow_state=True,
         )
 
-    node.add_node_element(
-        ParameterButton(
-            name="refresh_situations",
-            label="Refresh Situations",
-            variant="default",
-            icon="refresh-cw",
-            on_click=_on_refresh,
-        )
+    situation_param = ParameterString(
+        name="situation",
+        default_value=default,
+        allowed_modes={ParameterMode.PROPERTY},
+        tooltip="File save situation — determines the output directory and naming conventions.",
+        traits={
+            options_trait,
+            Button(
+                icon="refresh-cw",
+                size="icon",
+                variant="secondary",
+                on_click=_on_refresh,
+            ),
+        },
+        settable=True,
     )
+    node.add_parameter(situation_param)
+    situation_param.update_ui_options({
+        "data": build_situation_data(names, descriptions),
+        "dropdown_row_subtitles": True,
+    })
+    file_param._situation_name = default
