@@ -114,9 +114,7 @@ class SetVariablesFromData(ControlNode):
         source = self.get_parameter_value(self.source_param.name)
         return _source_to_pairs(source)
 
-    def _build_variable_map(
-        self, raw_pairs: list[tuple[str, Any]], sanitize: bool
-    ) -> tuple[list[str], dict[str, Any]]:
+    def _build_variable_map(self, raw_pairs: list[tuple[str, Any]], sanitize: bool) -> tuple[list[str], dict[str, Any]]:
         """Validate and sanitize raw pairs, collapse duplicates on the sanitized name.
 
         Dedup happens after sanitization so that e.g. "Full Name" and "Full_Name" correctly
@@ -172,9 +170,7 @@ class SetVariablesFromData(ControlNode):
                 )
                 return False
             set_result = await GriptapeNodes.ahandle_request(
-                SetVariableValueRequest(
-                    value=value, name=variable_name, lookup_scope=scope, starting_flow=flow_name
-                )
+                SetVariableValueRequest(value=value, name=variable_name, lookup_scope=scope, starting_flow=flow_name)
             )
             if not isinstance(set_result, SetVariableValueResultSuccess):
                 msg = f"Failed to set variable '{variable_name}': {set_result.result_details}"
