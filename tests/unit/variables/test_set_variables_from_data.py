@@ -107,9 +107,24 @@ class TestSourceToPairs:
         with pytest.raises(ValueError, match="non-empty"):
             _source_to_pairs(None)
 
-    def test_invalid_json_string_raises(self) -> None:
-        with pytest.raises(ValueError, match="not valid JSON"):
-            _source_to_pairs("{not json}")
+    def test_yaml_single_pair(self) -> None:
+        assert _source_to_pairs("shot: banana") == [("shot", "banana")]
+
+    def test_yaml_multiline_mapping(self) -> None:
+        assert _source_to_pairs("shot: banana\nseq: '01'") == [("shot", "banana"), ("seq", "01")]
+
+    def test_yaml_list_of_pairs(self) -> None:
+        assert _source_to_pairs("- [NAME, Jason]\n- [PHONE, '027']") == [("NAME", "Jason"), ("PHONE", "027")]
+
+    def test_unparseable_string_raises(self) -> None:
+        # An unclosed brace is invalid JSON and invalid YAML.
+        with pytest.raises(ValueError, match="could not be parsed"):
+            _source_to_pairs("{")
+
+    def test_scalar_string_raises(self) -> None:
+        # A bare number is valid JSON but not a mapping — cannot produce pairs.
+        with pytest.raises(ValueError, match="must be a dict"):
+            _source_to_pairs("42")
 
     def test_bad_list_item_raises(self) -> None:
         with pytest.raises(ValueError, match="exactly two elements"):

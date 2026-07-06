@@ -3,6 +3,8 @@ import logging
 import re
 from typing import Any
 
+from ruamel.yaml import YAML
+
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
 from griptape_nodes.exe_types.node_types import (
     NodeDependencies,
@@ -32,22 +34,29 @@ from griptape_nodes_library.variables.variable_utils import (
 )
 
 logger = logging.getLogger("griptape_nodes")
+_yaml = YAML()
 
 
 class SetVariablesFromData(SuccessFailureNode):
-    """Turn a dict / JSON object / list of key-value pairs into workflow variables in one step.
+    """Turn a dict / JSON / YAML / list of key-value pairs into workflow variables in one step.
 
     The ``source`` input is intentionally permissive. The node sniffs the runtime shape rather
     than making the user pick a mode:
 
-    - ``dict`` -> used directly (the common case).
-    - ``str`` -> parsed as JSON, then treated as the resulting dict or list.
+    - ``dict`` -> used directly (the common case when wired from another node).
+    - ``str`` -> tried as JSON first, then as YAML. Both ``{"shot": "banana"}`` (JSON) and
+      ``shot: banana`` (YAML block mapping) work. Multi-pair YAML must be on separate lines::
+
+          shot: banana
+          seq: "01"
+
     - ``list`` -> treated as an ordered sequence of key/value pairs. Two item forms are accepted:
       ``[{"key": ..., "value": ...}, ...]`` and ``[["NAME", "Jason"], ...]``.
 
-    ``dict`` and JSON-object inputs silently collapse duplicate keys (Python dict semantics). The
-    list form can carry duplicate keys; the defined rule is **last write wins** — the final value
-    for a repeated key is its last occurrence in the list.
+    ``dict`` and JSON/YAML-object inputs silently collapse duplicate keys (Python dict semantics).
+    The list form can carry duplicate keys; the defined rule is **last write wins** — the final
+    value for a repeated key is its last occurrence in the list.
+
     """
 
     def __init__(
@@ -63,11 +72,11 @@ class SetVariablesFromData(SuccessFailureNode):
             input_types=["dict", "json", "str", "list", ParameterTypeBuiltin.ANY.value],
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             tooltip=(
-                "A dict, a JSON string, or a list of key/value pairs. "
-                "Accepted list-item forms: "
-                '[{"key": "NAME", "value": "Jason"}], '
-                '[["NAME", "Jason"]], or '
-                '[{"NAME": "Jason"}] (single-entry dict). '
+                "A dict, JSON string, YAML string, or list of key/value pairs. "
+                "String inputs are tried as JSON first, then YAML — so both "
+                '\'{"shot": "banana"}\' and \'shot: banana\' work. '
+                "Multi-pair YAML uses newlines: 'shot: banana\\nseq: \"01\"'. "
+                "List items may be [key, value] pairs or {key: …, value: …} dicts. "
                 "Each key becomes a workflow variable."
             ),
         )
@@ -274,26 +283,25 @@ class SetVariablesFromData(SuccessFailureNode):
 
 
 def _source_to_pairs(source: Any) -> list[tuple[str, Any]]:
-    """Normalize a dict / JSON string / list-of-pairs into an ordered list of (key, value) tuples.
+    """Normalize a dict / JSON string / YAML string / list-of-pairs into (key, value) tuples.
+
+    String inputs are tried as JSON first, then YAML. Both ``{"shot": "banana"}`` (JSON) and
+    ``shot: banana`` (YAML block mapping) produce ``[("shot", "banana")]``. Multi-pair YAML
+    requires newlines between entries.
 
     Raises:
         ValueError: if ``source`` (or a list item) isn't a recognizable key/value shape.
     """
     if source is None:
-        msg = "SetVariablesFromData requires a non-empty 'source' (dict, JSON string, or list of key/value pairs)."
+        msg = "SetVariablesFromData requires a non-empty 'source' (dict, JSON string, YAML string, or list of key/value pairs)."
         raise ValueError(msg)
 
-    # JSON string -> parse, then fall through to dict/list handling.
     if isinstance(source, str):
         text = source.strip()
         if not text:
             msg = "SetVariablesFromData received an empty string for 'source'."
             raise ValueError(msg)
-        try:
-            source = json.loads(text)
-        except json.JSONDecodeError as exc:
-            msg = f"'source' is a string but not valid JSON: {exc}"
-            raise ValueError(msg) from exc
+        source = _parse_string_source(text)
 
     if isinstance(source, dict):
         return [(str(key), value) for key, value in source.items()]
@@ -301,8 +309,72 @@ def _source_to_pairs(source: Any) -> list[tuple[str, Any]]:
     if isinstance(source, list):
         return [_list_item_to_pair(item, index) for index, item in enumerate(source)]
 
-    msg = f"'source' must be a dict, JSON object/array string, or list of key/value pairs; got {type(source).__name__}."
+    msg = f"'source' must be a dict, JSON/YAML string, or list of key/value pairs; got {type(source).__name__}."
     raise ValueError(msg)
+
+
+def _parse_string_source(text: str) -> Any:
+    """Parse a non-empty string as JSON → YAML → plain key/value text.
+
+    1. JSON: ``{"shot": "banana"}`` or ``[["shot", "banana"]]``
+    2. YAML: ``shot: banana`` (block mapping) or multi-line ``shot: banana\\nseq: '01'``
+    3. Text fallback: one ``key: value`` or ``key=value`` pair per line.  Only reached
+       when YAML can't produce a dict or list — e.g. for ``key=value`` format that YAML
+       treats as a plain scalar.
+
+    Values produced by the text fallback are always strings.
+
+    Returns the parsed Python object (dict, list, or scalar).
+    Raises ValueError if no parser can produce a usable result.
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    yaml_exc: Exception | None = None
+    parsed: Any = None
+    try:
+        parsed = _yaml.load(text)
+        if isinstance(parsed, (dict, list)):
+            return parsed
+        # YAML returned a scalar — fall through to text parsing.
+    except Exception as exc:  # noqa: BLE001 — ruamel raises many exception subtypes
+        yaml_exc = exc
+
+    pairs = _text_to_pairs(text)
+    if pairs:
+        return [[k, v] for k, v in pairs]
+
+    if yaml_exc is not None:
+        msg = f"'source' could not be parsed as JSON, YAML, or key/value text: {yaml_exc}"
+        raise ValueError(msg) from yaml_exc
+
+    msg = (
+        f"'source' string parsed as {type(parsed).__name__!r} — "
+        "expected a mapping or list of pairs."
+    )
+    raise ValueError(msg)
+
+
+def _text_to_pairs(text: str) -> list[tuple[str, str]]:
+    """Parse newline-separated ``key: value`` or ``key=value`` text into string pairs.
+
+    One pair per line; blank lines are skipped. Values are split on the first ``:`` or
+    ``=`` so values that contain those characters are preserved intact (e.g. URLs).
+    """
+    pairs: list[tuple[str, str]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if ":" in line:
+            key, _, value = line.partition(":")
+            pairs.append((key.strip(), value.strip()))
+        elif "=" in line:
+            key, _, value = line.partition("=")
+            pairs.append((key.strip(), value.strip()))
+    return pairs
 
 
 def _list_item_to_pair(item: Any, index: int) -> tuple[str, Any]:
