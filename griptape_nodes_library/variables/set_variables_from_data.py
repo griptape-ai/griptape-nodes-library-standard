@@ -40,7 +40,7 @@ _yaml = YAML()
 class SetVariablesFromData(SuccessFailureNode):
     """Turn a dict / JSON / YAML / list of key-value pairs into workflow variables in one step.
 
-    The ``source`` input is intentionally permissive. The node sniffs the runtime shape rather
+    The ``data`` input is intentionally permissive. The node sniffs the runtime shape rather
     than making the user pick a mode:
 
     - ``dict`` -> used directly (the common case when wired from another node).
@@ -66,21 +66,21 @@ class SetVariablesFromData(SuccessFailureNode):
     ) -> None:
         super().__init__(name, metadata)
 
-        self.source_param = Parameter(
-            name="source",
+        self.data_param = Parameter(
+            name="data",
             type=ParameterTypeBuiltin.ANY.value,
-            input_types=["dict", "json", "str", "list", ParameterTypeBuiltin.ANY.value],
+            input_types=["dict", "json", "yaml", "str", "list", ParameterTypeBuiltin.ANY.value],
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             tooltip=(
                 "A dict, JSON string, YAML string, or list of key/value pairs. "
                 "String inputs are tried as JSON first, then YAML — so both "
-                '\'{"shot": "banana"}\' and \'shot: banana\' work. '
+                "'{\"shot\": \"banana\"}' and 'shot: banana' work. "
                 "Multi-pair YAML uses newlines: 'shot: banana\\nseq: \"01\"'. "
                 "List items may be [key, value] pairs or {key: …, value: …} dicts. "
                 "Each key becomes a workflow variable."
             ),
         )
-        self.add_parameter(self.source_param)
+        self.add_parameter(self.data_param)
 
         self.sanitize_names_param = Parameter(
             name="sanitize_names",
@@ -124,9 +124,9 @@ class SetVariablesFromData(SuccessFailureNode):
         )
 
     def _resolve_pairs(self) -> list[tuple[str, Any]]:
-        """Normalize whatever is on ``source`` into an ordered list of (key, value) pairs."""
-        source = self.get_parameter_value(self.source_param.name)
-        return _source_to_pairs(source)
+        """Normalize whatever is on ``data`` into an ordered list of (key, value) pairs."""
+        data = self.get_parameter_value(self.data_param.name)
+        return _data_to_pairs(data)
 
     def _build_variable_map(self, raw_pairs: list[tuple[str, Any]], sanitize: bool) -> tuple[list[str], dict[str, Any]]:
         """Validate and sanitize raw pairs, collapse duplicates on the sanitized name.
@@ -230,7 +230,7 @@ class SetVariablesFromData(SuccessFailureNode):
             detail = (
                 f"Set {len(created_names)} variable(s): {', '.join(created_names)}"
                 if created_names
-                else "No variables written (all skipped or source was empty)."
+                else "No variables written (all skipped or data was empty)."
             )
             self._set_status_results(was_successful=True, result_details=detail)
         except Exception as exc:
@@ -242,7 +242,7 @@ class SetVariablesFromData(SuccessFailureNode):
 
         Access is READ_WRITE: ``aprocess()`` checks existence before deciding to set or create,
         so the node both reads and writes each variable's state. Names are resolved from the
-        current ``source`` value; if ``source`` is driven by a connection that hasn't propagated
+        current ``data`` value; if ``data`` is driven by a connection that hasn't propagated
         yet, no references are emitted (they'll be created when the flow runs).
         """
         deps = super().get_node_dependencies()
@@ -282,7 +282,7 @@ class SetVariablesFromData(SuccessFailureNode):
         return None
 
 
-def _source_to_pairs(source: Any) -> list[tuple[str, Any]]:
+def _data_to_pairs(data: Any) -> list[tuple[str, Any]]:
     """Normalize a dict / JSON string / YAML string / list-of-pairs into (key, value) tuples.
 
     String inputs are tried as JSON first, then YAML. Both ``{"shot": "banana"}`` (JSON) and
@@ -290,30 +290,30 @@ def _source_to_pairs(source: Any) -> list[tuple[str, Any]]:
     requires newlines between entries.
 
     Raises:
-        ValueError: if ``source`` (or a list item) isn't a recognizable key/value shape.
+        ValueError: if ``data`` (or a list item) isn't a recognizable key/value shape.
     """
-    if source is None:
-        msg = "SetVariablesFromData requires a non-empty 'source' (dict, JSON string, YAML string, or list of key/value pairs)."
+    if data is None:
+        msg = "SetVariablesFromData requires a non-empty 'data' (dict, JSON string, YAML string, or list of key/value pairs)."
         raise ValueError(msg)
 
-    if isinstance(source, str):
-        text = source.strip()
+    if isinstance(data, str):
+        text = data.strip()
         if not text:
-            msg = "SetVariablesFromData received an empty string for 'source'."
+            msg = "SetVariablesFromData received an empty string for 'data'."
             raise ValueError(msg)
-        source = _parse_string_source(text)
+        data = _parse_string_data(text)
 
-    if isinstance(source, dict):
-        return [(str(key), value) for key, value in source.items()]
+    if isinstance(data, dict):
+        return [(str(key), value) for key, value in data.items()]
 
-    if isinstance(source, list):
-        return [_list_item_to_pair(item, index) for index, item in enumerate(source)]
+    if isinstance(data, list):
+        return [_list_item_to_pair(item, index) for index, item in enumerate(data)]
 
-    msg = f"'source' must be a dict, JSON/YAML string, or list of key/value pairs; got {type(source).__name__}."
+    msg = f"'data' must be a dict, JSON/YAML string, or list of key/value pairs; got {type(data).__name__}."
     raise ValueError(msg)
 
 
-def _parse_string_source(text: str) -> Any:
+def _parse_string_data(text: str) -> Any:
     """Parse a non-empty string as JSON → YAML → plain key/value text.
 
     1. JSON: ``{"shot": "banana"}`` or ``[["shot", "banana"]]``
@@ -347,13 +347,10 @@ def _parse_string_source(text: str) -> Any:
         return [[k, v] for k, v in pairs]
 
     if yaml_exc is not None:
-        msg = f"'source' could not be parsed as JSON, YAML, or key/value text: {yaml_exc}"
+        msg = f"'data' could not be parsed as JSON, YAML, or key/value text: {yaml_exc}"
         raise ValueError(msg) from yaml_exc
 
-    msg = (
-        f"'source' string parsed as {type(parsed).__name__!r} — "
-        "expected a mapping or list of pairs."
-    )
+    msg = f"'data' string parsed as {type(parsed).__name__!r} — expected a mapping or list of pairs."
     raise ValueError(msg)
 
 

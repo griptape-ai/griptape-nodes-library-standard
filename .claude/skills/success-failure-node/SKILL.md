@@ -60,7 +60,7 @@ Call on every exit path — both success and failure. Sets the `was_successful` 
 # Success — include useful summary
 self._set_status_results(
     was_successful=True,
-    result_details=f"Wrote {len(names)} variable(s): {', '.join(names)}",
+    result_details=f"Processed {len(items)} item(s).",
 )
 
 # Failure — include the exception message
@@ -143,8 +143,8 @@ from griptape_nodes.exe_types.node_types import (
 
 ```python
 @pytest.mark.asyncio
-async def test_success_sets_was_successful(node, flow):
-    node.set_parameter_value("source", {"NAME": "Jason"})
+async def test_success_sets_was_successful(node):
+    node.set_parameter_value("my_input", "some value")
     await node.aprocess()
     assert node.parameter_output_values["was_successful"] is True
 

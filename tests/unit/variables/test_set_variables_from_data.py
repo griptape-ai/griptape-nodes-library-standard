@@ -26,9 +26,9 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.variable_types import VariableScope
 
 from griptape_nodes_library.variables.set_variables_from_data import (
+    _data_to_pairs,
     _infer_type,
     _sanitize_name,
-    _source_to_pairs,
 )
 
 FLOW_NAME = "canvas"
@@ -81,54 +81,54 @@ def _get_variable_value(name: str, flow_name: str) -> object:
     return result.variable.value
 
 
-class TestSourceToPairs:
+class TestDataToPairs:
     """The pure normalization helper — no engine required."""
 
     def test_dict_input(self) -> None:
-        assert _source_to_pairs({"NAME": "Jason", "PHONE": "027"}) == [("NAME", "Jason"), ("PHONE", "027")]
+        assert _data_to_pairs({"NAME": "Jason", "PHONE": "027"}) == [("NAME", "Jason"), ("PHONE", "027")]
 
     def test_json_object_string(self) -> None:
-        assert _source_to_pairs('{"NAME": "Jason"}') == [("NAME", "Jason")]
+        assert _data_to_pairs('{"NAME": "Jason"}') == [("NAME", "Jason")]
 
     def test_json_array_string(self) -> None:
-        assert _source_to_pairs('[["NAME", "Jason"]]') == [("NAME", "Jason")]
+        assert _data_to_pairs('[["NAME", "Jason"]]') == [("NAME", "Jason")]
 
     def test_list_of_key_value_dicts(self) -> None:
-        source = [{"key": "NAME", "value": "Jason"}, {"key": "PHONE", "value": "027"}]
-        assert _source_to_pairs(source) == [("NAME", "Jason"), ("PHONE", "027")]
+        data = [{"key": "NAME", "value": "Jason"}, {"key": "PHONE", "value": "027"}]
+        assert _data_to_pairs(data) == [("NAME", "Jason"), ("PHONE", "027")]
 
     def test_list_of_pairs(self) -> None:
-        assert _source_to_pairs([["NAME", "Jason"], ["PHONE", "027"]]) == [("NAME", "Jason"), ("PHONE", "027")]
+        assert _data_to_pairs([["NAME", "Jason"], ["PHONE", "027"]]) == [("NAME", "Jason"), ("PHONE", "027")]
 
     def test_list_of_single_entry_dicts(self) -> None:
-        assert _source_to_pairs([{"NAME": "Jason"}, {"PHONE": "027"}]) == [("NAME", "Jason"), ("PHONE", "027")]
+        assert _data_to_pairs([{"NAME": "Jason"}, {"PHONE": "027"}]) == [("NAME", "Jason"), ("PHONE", "027")]
 
     def test_none_raises(self) -> None:
         with pytest.raises(ValueError, match="non-empty"):
-            _source_to_pairs(None)
+            _data_to_pairs(None)
 
     def test_yaml_single_pair(self) -> None:
-        assert _source_to_pairs("shot: banana") == [("shot", "banana")]
+        assert _data_to_pairs("shot: banana") == [("shot", "banana")]
 
     def test_yaml_multiline_mapping(self) -> None:
-        assert _source_to_pairs("shot: banana\nseq: '01'") == [("shot", "banana"), ("seq", "01")]
+        assert _data_to_pairs("shot: banana\nseq: '01'") == [("shot", "banana"), ("seq", "01")]
 
     def test_yaml_list_of_pairs(self) -> None:
-        assert _source_to_pairs("- [NAME, Jason]\n- [PHONE, '027']") == [("NAME", "Jason"), ("PHONE", "027")]
+        assert _data_to_pairs("- [NAME, Jason]\n- [PHONE, '027']") == [("NAME", "Jason"), ("PHONE", "027")]
 
     def test_unparseable_string_raises(self) -> None:
         # An unclosed brace is invalid JSON and invalid YAML.
         with pytest.raises(ValueError, match="could not be parsed"):
-            _source_to_pairs("{")
+            _data_to_pairs("{")
 
     def test_scalar_string_raises(self) -> None:
         # A bare number is valid JSON but not a mapping — cannot produce pairs.
         with pytest.raises(ValueError, match="must be a dict"):
-            _source_to_pairs("42")
+            _data_to_pairs("42")
 
     def test_bad_list_item_raises(self) -> None:
         with pytest.raises(ValueError, match="exactly two elements"):
-            _source_to_pairs([["a", "b", "c"]])
+            _data_to_pairs([["a", "b", "c"]])
 
 
 class TestSanitizeName:
@@ -166,7 +166,7 @@ class TestSetVariablesFromDataProcess:
 
     @pytest.mark.asyncio
     async def test_dict_creates_variables(self, node: BaseNode, flow: str) -> None:
-        node.set_parameter_value("source", {"NAME": "Jason", "PHONE": "027"})
+        node.set_parameter_value("data", {"NAME": "Jason", "PHONE": "027"})
 
         await node.aprocess()
 
@@ -177,7 +177,7 @@ class TestSetVariablesFromDataProcess:
 
     @pytest.mark.asyncio
     async def test_json_string_creates_variables(self, node: BaseNode, flow: str) -> None:
-        node.set_parameter_value("source", '{"NAME": "Jason"}')
+        node.set_parameter_value("data", '{"NAME": "Jason"}')
 
         await node.aprocess()
 
@@ -185,7 +185,7 @@ class TestSetVariablesFromDataProcess:
 
     @pytest.mark.asyncio
     async def test_list_of_pairs_creates_variables(self, node: BaseNode, flow: str) -> None:
-        node.set_parameter_value("source", [["NAME", "Jason"], ["CITY", "Wellington"]])
+        node.set_parameter_value("data", [["NAME", "Jason"], ["CITY", "Wellington"]])
 
         await node.aprocess()
 
@@ -194,7 +194,7 @@ class TestSetVariablesFromDataProcess:
 
     @pytest.mark.asyncio
     async def test_duplicate_keys_last_write_wins(self, node: BaseNode, flow: str) -> None:
-        node.set_parameter_value("source", [["NAME", "first"], ["NAME", "second"]])
+        node.set_parameter_value("data", [["NAME", "first"], ["NAME", "second"]])
 
         await node.aprocess()
 
@@ -204,7 +204,7 @@ class TestSetVariablesFromDataProcess:
 
     @pytest.mark.asyncio
     async def test_sanitizes_names_by_default(self, node: BaseNode, flow: str) -> None:
-        node.set_parameter_value("source", {"Full Name": "Jason Schleifer"})
+        node.set_parameter_value("data", {"Full Name": "Jason Schleifer"})
 
         await node.aprocess()
 
@@ -213,7 +213,7 @@ class TestSetVariablesFromDataProcess:
 
     @pytest.mark.asyncio
     async def test_invalid_name_without_sanitize_raises(self, node: BaseNode) -> None:
-        node.set_parameter_value("source", {"Full Name": "Jason"})
+        node.set_parameter_value("data", {"Full Name": "Jason"})
         node.set_parameter_value("sanitize_names", False)
 
         with pytest.raises(ValueError, match="not a valid variable name"):
@@ -228,7 +228,7 @@ class TestSetVariablesFromDataProcess:
         )
         assert isinstance(create_result, CreateVariableResultSuccess)
 
-        node.set_parameter_value("source", {"NAME": "new"})
+        node.set_parameter_value("data", {"NAME": "new"})
         node.set_parameter_value("overwrite_existing", False)
 
         await node.aprocess()
@@ -244,7 +244,7 @@ class TestSetVariablesFromDataProcess:
         )
         assert isinstance(create_result, CreateVariableResultSuccess)
 
-        node.set_parameter_value("source", {"NAME": "new"})
+        node.set_parameter_value("data", {"NAME": "new"})
 
         await node.aprocess()
 
@@ -252,8 +252,8 @@ class TestSetVariablesFromDataProcess:
         assert node.parameter_output_values["variable_names"] == ["NAME"]
 
     @pytest.mark.asyncio
-    async def test_none_source_raises(self, node: BaseNode) -> None:
-        # source is unset (None) by default — should raise before touching the engine.
+    async def test_none_data_raises(self, node: BaseNode) -> None:
+        # data is unset (None) by default — should raise before touching the engine.
         with pytest.raises(ValueError, match="non-empty"):
             await node.aprocess()
 
@@ -263,7 +263,7 @@ class TestSetVariablesFromDataProcess:
     async def test_sanitized_collision_last_write_wins(self, node: BaseNode, flow: str) -> None:
         # "Full Name" and "Full_Name" both sanitize to "Full_Name"; last write wins and only
         # one variable entry is emitted.
-        node.set_parameter_value("source", {"Full Name": "first", "Full_Name": "second"})
+        node.set_parameter_value("data", {"Full Name": "first", "Full_Name": "second"})
 
         await node.aprocess()
 
@@ -273,7 +273,7 @@ class TestSetVariablesFromDataProcess:
     @pytest.mark.asyncio
     async def test_empty_dict_is_noop(self, node: BaseNode) -> None:
         # An empty dict is a valid (if useless) source — nothing is created and no error raised.
-        node.set_parameter_value("source", {})
+        node.set_parameter_value("data", {})
 
         await node.aprocess()
 
@@ -281,7 +281,7 @@ class TestSetVariablesFromDataProcess:
 
     @pytest.mark.asyncio
     async def test_empty_list_is_noop(self, node: BaseNode) -> None:
-        node.set_parameter_value("source", [])
+        node.set_parameter_value("data", [])
 
         await node.aprocess()
 
@@ -291,21 +291,21 @@ class TestSetVariablesFromDataProcess:
 class TestGetNodeDependencies:
     """Exercises get_node_dependencies() — sync, no aprocess() calls needed."""
 
-    def test_no_source_emits_no_deps(self, node: BaseNode) -> None:
+    def test_no_data_emits_no_deps(self, node: BaseNode) -> None:
         # Source is unset — _resolve_pairs raises, so no variable_references emitted.
         deps = node.get_node_dependencies()
         assert deps is not None
         assert len(deps.variable_references) == 0
 
     def test_declares_sanitized_names(self, node: BaseNode) -> None:
-        node.set_parameter_value("source", {"NAME": "Jason", "PHONE": "027"})
+        node.set_parameter_value("data", {"NAME": "Jason", "PHONE": "027"})
         deps = node.get_node_dependencies()
         assert deps is not None
         assert {ref.name for ref in deps.variable_references} == {"NAME", "PHONE"}
 
     def test_sanitized_collision_single_dep(self, node: BaseNode) -> None:
         # "Full Name" and "Full_Name" both sanitize to "Full_Name" — only one dep declared.
-        node.set_parameter_value("source", {"Full Name": "first", "Full_Name": "second"})
+        node.set_parameter_value("data", {"Full Name": "first", "Full_Name": "second"})
         deps = node.get_node_dependencies()
         assert deps is not None
         assert {ref.name for ref in deps.variable_references} == {"Full_Name"}
