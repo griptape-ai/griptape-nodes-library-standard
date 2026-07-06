@@ -5929,6 +5929,24 @@
       }
     },
     {
+      "class_name": "SetVariablesFromData",
+      "file_path": "griptape_nodes_library/variables/set_variables_from_data.py",
+      "metadata": {
+        "category": "variables",
+        "description": "Set workflow variables from a dict, JSON object, or list of key/value pairs in one step. Creates new variables and updates existing ones.",
+        "display_name": "Set Variables from Data",
+        "icon": "Braces",
+        "group": "create",
+        "tags": [
+          "data",
+          "variable",
+          "workflow",
+          "dict",
+          "json"
+        ]
+      }
+    },
+    {
       "class_name": "GetVariable",
       "file_path": "griptape_nodes_library/variables/get_variable.py",
       "metadata": {
