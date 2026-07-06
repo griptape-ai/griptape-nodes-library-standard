@@ -77,6 +77,29 @@ Call after `_set_status_results` on the failure path. Behavior depends on wiring
 
 Always call `_set_status_results` *before* `_handle_failure_exception` so the Status group is populated even when the exception is swallowed.
 
+## Emitting empty outputs on failure
+
+When a failure edge is wired, downstream nodes can still read this node's output parameters. If those outputs hold values from a *previous* successful run, stale data flows downstream — usually not what you want.
+
+Emit safe empty values for each output parameter in the `except` block, before `_handle_failure_exception`:
+
+```python
+async def aprocess(self) -> None:
+    self._clear_execution_status()
+    try:
+        result = do_work()
+        self.parameter_output_values["items"] = result
+        self.parameter_output_values["count"] = len(result)
+        self._set_status_results(was_successful=True, result_details=f"Done: {len(result)} item(s).")
+    except Exception as exc:
+        self._set_status_results(was_successful=False, result_details=str(exc))
+        self.parameter_output_values["items"] = []   # don't let stale values flow downstream
+        self.parameter_output_values["count"] = 0
+        self._handle_failure_exception(exc)
+```
+
+Use the natural empty value for the type: `[]` for lists, `{}` for dicts, `""` for strings, `0` for numbers, `None` for any/unknown. You only need to clear outputs that a failure-path downstream node might actually use.
+
 ## `_create_status_parameters` options
 
 ```python

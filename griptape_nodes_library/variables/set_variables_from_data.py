@@ -258,6 +258,7 @@ class SetVariablesFromData(SuccessFailureNode):
             self._set_status_results(was_successful=True, result_details=detail)
         except Exception as exc:
             self._set_status_results(was_successful=False, result_details=str(exc))
+            self.parameter_output_values[self.created_names_param.name] = []
             self._handle_failure_exception(exc)
 
     def get_node_dependencies(self) -> NodeDependencies | None:
