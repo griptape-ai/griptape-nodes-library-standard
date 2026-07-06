@@ -222,14 +222,14 @@ class TestSetVariablesFromDataProcess:
         assert node.parameter_output_values["was_successful"] is False
 
     @pytest.mark.asyncio
-    async def test_overwrite_off_leaves_existing(self, node: BaseNode, flow: str) -> None:
+    async def test_preserve_existing_leaves_existing(self, node: BaseNode, flow: str) -> None:
         create_result = GriptapeNodes.handle_request(
             CreateVariableRequest(name="NAME", type="str", is_global=False, value="original", owning_flow=flow)
         )
         assert isinstance(create_result, CreateVariableResultSuccess)
 
         node.set_parameter_value("data", {"NAME": "new"})
-        node.set_parameter_value("overwrite_existing", False)
+        node.set_parameter_value("collision_behavior", "Preserve existing")
 
         await node.aprocess()
 
@@ -238,7 +238,7 @@ class TestSetVariablesFromDataProcess:
         assert node.parameter_output_values["variable_names"] == []
 
     @pytest.mark.asyncio
-    async def test_overwrite_on_updates_existing(self, node: BaseNode, flow: str) -> None:
+    async def test_overwrite_existing_updates_existing(self, node: BaseNode, flow: str) -> None:
         create_result = GriptapeNodes.handle_request(
             CreateVariableRequest(name="NAME", type="str", is_global=False, value="original", owning_flow=flow)
         )
@@ -250,6 +250,22 @@ class TestSetVariablesFromDataProcess:
 
         assert _get_variable_value("NAME", flow) == "new"
         assert node.parameter_output_values["variable_names"] == ["NAME"]
+
+    @pytest.mark.asyncio
+    async def test_error_on_collision_raises(self, node: BaseNode, flow: str) -> None:
+        create_result = GriptapeNodes.handle_request(
+            CreateVariableRequest(name="NAME", type="str", is_global=False, value="original", owning_flow=flow)
+        )
+        assert isinstance(create_result, CreateVariableResultSuccess)
+
+        node.set_parameter_value("data", {"NAME": "new"})
+        node.set_parameter_value("collision_behavior", "Error on collision")
+
+        with pytest.raises(ValueError, match="already exists"):
+            await node.aprocess()
+
+        assert node.parameter_output_values["was_successful"] is False
+        assert _get_variable_value("NAME", flow) == "original"
 
     @pytest.mark.asyncio
     async def test_none_data_raises(self, node: BaseNode) -> None:

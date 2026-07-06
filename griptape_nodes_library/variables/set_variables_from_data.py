@@ -1,9 +1,8 @@
 import json
 import logging
 import re
+from enum import StrEnum
 from typing import Any
-
-from ruamel.yaml import YAML
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
 from griptape_nodes.exe_types.node_types import (
@@ -27,6 +26,8 @@ from griptape_nodes.retained_mode.events.variable_events import (
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.variable_types import VariableScope
+from griptape_nodes.traits.options import Options
+from ruamel.yaml import YAML
 
 from griptape_nodes_library.variables.variable_utils import (
     create_advanced_parameter_group,
@@ -35,6 +36,12 @@ from griptape_nodes_library.variables.variable_utils import (
 
 logger = logging.getLogger("griptape_nodes")
 _yaml = YAML()
+
+
+class CollisionBehavior(StrEnum):
+    OVERWRITE = "Overwrite existing"
+    PRESERVE = "Preserve existing"
+    ERROR = "Error on collision"
 
 
 class SetVariablesFromData(SuccessFailureNode):
@@ -94,14 +101,20 @@ class SetVariablesFromData(SuccessFailureNode):
         )
         self.add_parameter(self.sanitize_names_param)
 
-        self.overwrite_existing_param = Parameter(
-            name="overwrite_existing",
-            type=ParameterTypeBuiltin.BOOL.value,
-            default_value=True,
+        self.collision_behavior_param = Parameter(
+            name="collision_behavior",
+            type=ParameterTypeBuiltin.STR.value,
+            default_value=CollisionBehavior.OVERWRITE,
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            tooltip="If a variable with the same name already exists, overwrite its value. When off, existing variables are left untouched.",
+            tooltip=(
+                "What to do when a variable with the same name already exists. "
+                "'Overwrite existing' replaces its value. "
+                "'Preserve existing' skips it silently. "
+                "'Error on collision' fails the node immediately."
+            ),
         )
-        self.add_parameter(self.overwrite_existing_param)
+        self.collision_behavior_param.add_trait(Options(choices=list(CollisionBehavior)))
+        self.add_parameter(self.collision_behavior_param)
 
         self.created_names_param = Parameter(
             name="variable_names",
@@ -163,7 +176,7 @@ class SetVariablesFromData(SuccessFailureNode):
         self,
         variable_name: str,
         value: Any,
-        overwrite: bool,
+        collision: CollisionBehavior,
         scope: VariableScope,
         flow_name: str,
     ) -> bool:
@@ -176,19 +189,29 @@ class SetVariablesFromData(SuccessFailureNode):
             raise TypeError(msg)
 
         if has_result.exists:
-            if not overwrite:
-                logger.debug(
-                    "SetVariablesFromData '%s' skipped existing variable '%s' (overwrite_existing is off)",
-                    self.name,
-                    variable_name,
-                )
-                return False
-            set_result = await GriptapeNodes.ahandle_request(
-                SetVariableValueRequest(value=value, name=variable_name, lookup_scope=scope, starting_flow=flow_name)
-            )
-            if not isinstance(set_result, SetVariableValueResultSuccess):
-                msg = f"Failed to set variable '{variable_name}': {set_result.result_details}"
-                raise TypeError(msg)
+            match collision:
+                case CollisionBehavior.PRESERVE:
+                    logger.debug(
+                        "SetVariablesFromData '%s' skipped existing variable '%s' (Preserve existing)",
+                        self.name,
+                        variable_name,
+                    )
+                    return False
+                case CollisionBehavior.ERROR:
+                    msg = f"Variable '{variable_name}' already exists (collision_behavior is 'Error on collision')."
+                    raise ValueError(msg)
+                case CollisionBehavior.OVERWRITE:
+                    set_result = await GriptapeNodes.ahandle_request(
+                        SetVariableValueRequest(
+                            value=value, name=variable_name, lookup_scope=scope, starting_flow=flow_name
+                        )
+                    )
+                    if not isinstance(set_result, SetVariableValueResultSuccess):
+                        msg = f"Failed to set variable '{variable_name}': {set_result.result_details}"
+                        raise TypeError(msg)
+                case _:
+                    msg = f"Unknown collision_behavior: {collision!r}"
+                    raise ValueError(msg)
         else:
             create_result = await GriptapeNodes.ahandle_request(
                 CreateVariableRequest(
@@ -208,7 +231,7 @@ class SetVariablesFromData(SuccessFailureNode):
         self._clear_execution_status()
         try:
             sanitize = bool(self.get_parameter_value(self.sanitize_names_param.name))
-            overwrite = bool(self.get_parameter_value(self.overwrite_existing_param.name))
+            collision = CollisionBehavior(self.get_parameter_value(self.collision_behavior_param.name))
             scope_str = self.get_parameter_value(self.scope_param.name)
             scope = scope_string_to_variable_scope(scope_str) if scope_str else VariableScope.HIERARCHICAL
 
@@ -223,7 +246,7 @@ class SetVariablesFromData(SuccessFailureNode):
             created_names = [
                 variable_name
                 for variable_name in seen_order
-                if await self._write_variable(variable_name, final_values[variable_name], overwrite, scope, flow_name)
+                if await self._write_variable(variable_name, final_values[variable_name], collision, scope, flow_name)
             ]
             self.parameter_output_values[self.created_names_param.name] = created_names
 
