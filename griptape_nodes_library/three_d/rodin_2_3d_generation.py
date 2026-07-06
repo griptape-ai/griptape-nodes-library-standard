@@ -86,6 +86,12 @@ class Rodin23DGeneration(GriptapeProxyNode):
     SERVICE_NAME = "Griptape"
     API_KEY_NAME = "GT_CLOUD_API_KEY"
 
+    # Rodin Gen-2 generations routinely run longer than the base 10-minute poll
+    # window (especially at high quality / HighPack), so default to 20 minutes
+    # (240 attempts x 5s) to avoid false client-side timeouts on generations that
+    # are still succeeding on Griptape Cloud.
+    DEFAULT_MAX_ATTEMPTS = 240
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.category = "API Nodes"

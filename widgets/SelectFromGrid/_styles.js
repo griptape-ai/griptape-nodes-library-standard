@@ -104,6 +104,7 @@ export const STYLES = `
   overflow-x: hidden;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
+  scrollbar-gutter: stable;
   align-content: start;
 }
 .sfg-grid::-webkit-scrollbar { width: 6px; }

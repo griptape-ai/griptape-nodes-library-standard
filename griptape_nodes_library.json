@@ -29,7 +29,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.80.1",
+    "library_version": "0.81.0",
     "engine_version": "0.89.0",
     "tags": [
       "Griptape",
@@ -706,6 +706,12 @@
                 "family": "Tripo",
                 "provider_model_id": "tripo-text-to-3d",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_tripo_multiview_to_3d": {
+                "display_name": "Tripo Multiview to 3D",
+                "family": "Tripo",
+                "provider_model_id": "tripo-multiview-to-3d",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
           },
@@ -901,12 +907,12 @@
     {
       "name": "CropVideoEditor",
       "path": "widgets/CropVideoEditor/CropVideoEditor.js",
-      "description": "Interactive video crop editor — drag handles on a live video frame with frame scrubber, aspect ratio, resolution, and position presets."
+      "description": "Interactive video crop editor \u2014 drag handles on a live video frame with frame scrubber, aspect ratio, resolution, and position presets."
     },
     {
       "name": "SelectFromGrid",
       "path": "widgets/SelectFromGrid/SelectFromGrid.js",
-      "description": "Interactive grid selector — displays list items as thumbnails (images, video, audio, text) and lets the user click to select one or more."
+      "description": "Interactive grid selector \u2014 displays list items as thumbnails (images, video, audio, text) and lets the user click to select one or more."
     }
   ],
   "categories": [
@@ -2809,6 +2815,24 @@
           "video",
           "combine",
           "ffmpeg"
+        ]
+      }
+    },
+    {
+      "class_name": "CreateVideoFromFrames",
+      "file_path": "griptape_nodes_library/video/create_video_from_frames.py",
+      "metadata": {
+        "category": "video",
+        "description": "Combine image frames or a numbered sequence into a video (mp4, mov, or gif) using ffmpeg",
+        "display_name": "Create Video from Frames",
+        "icon": "film",
+        "group": "create",
+        "tags": [
+          "video",
+          "frames",
+          "sequence",
+          "ffmpeg",
+          "combine"
         ]
       }
     },
@@ -5765,6 +5789,31 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_tripo_image_to_3d"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "TripoMultiviewTo3DGeneration",
+      "file_path": "griptape_nodes_library/three_d/tripo_multiview_to_3d_generation.py",
+      "metadata": {
+        "category": "3D",
+        "description": "Generate 3D models from up to four view images using Tripo via Griptape model proxy",
+        "display_name": "Tripo Multiview to 3D",
+        "group": "create",
+        "tags": [
+          "3d",
+          "multiview-to-3d",
+          "ai",
+          "api",
+          "tripo"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_tripo_multiview_to_3d"
             ]
           }
         ]

@@ -24,9 +24,9 @@ def process(self) -> None:
     ...
 ```
 
-### Use `StrEnum` for string option sets
+### Use `StrEnum` for repeated string constants in logic
 
-When a parameter has a fixed set of string choices (e.g. a dropdown), declare them as a `StrEnum` rather than bare module-level constants. This keeps the options co-located, makes comparisons type-safe, and lets you pass `list(MyEnum)` directly to `Options(choices=...)`.
+Use `StrEnum` when the same string values appear repeatedly across logic (comparisons, branches, return values) and a typo would cause a silent bug. The canonical case is a value that drives behaviour in multiple methods — not just a list of choices passed to a single `Options(choices=...)` call.
 
 ```python
 from enum import StrEnum
@@ -36,15 +36,20 @@ class CaseStyle(StrEnum):
     CAMEL = "camelCase"
     PASCAL = "PascalCase"
 
-# In __init__:
-param.add_trait(Options(choices=list(CaseStyle)))
-
-# In logic:
+# In logic across multiple methods:
 if case_style == CaseStyle.SNAKE:
     ...
 ```
 
 Use `StrEnum` (not plain `Enum`) so values compare equal to their string equivalents — parameter values coming back from the UI are plain strings, and `StrEnum` members match them without explicit `.value` lookups.
+
+For **dropdown-only option lists** that are passed straight to `Options(choices=...)` and never repeated in logic, a plain module-level list is fine and less ceremony:
+
+```python
+# Fine for a simple dropdown — no need for StrEnum
+ORDERING_MODES = ["Sequential", "Respect frame numbers"]
+traits={Options(choices=ORDERING_MODES)}
+```
 
 ### Use `match`/`case` instead of `if`/`elif` chains
 
