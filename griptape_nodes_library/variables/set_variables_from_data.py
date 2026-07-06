@@ -5,9 +5,9 @@ from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
 from griptape_nodes.exe_types.node_types import (
-    ControlNode,
     NodeDependencies,
     NodeResolutionState,
+    SuccessFailureNode,
     VariableAccess,
     VariableReference,
 )
@@ -34,7 +34,7 @@ from griptape_nodes_library.variables.variable_utils import (
 logger = logging.getLogger("griptape_nodes")
 
 
-class SetVariablesFromData(ControlNode):
+class SetVariablesFromData(SuccessFailureNode):
     """Turn a dict / JSON object / list of key-value pairs into workflow variables in one step.
 
     The ``source`` input is intentionally permissive. The node sniffs the runtime shape rather
@@ -108,6 +108,11 @@ class SetVariablesFromData(ControlNode):
         advanced = create_advanced_parameter_group()
         self.scope_param = advanced.scope_param
         self.add_node_element(advanced.parameter_group)
+
+        self._create_status_parameters(
+            result_details_tooltip="Details about the variables created or updated.",
+            result_details_placeholder="Variable creation details will appear here after the node runs.",
+        )
 
     def _resolve_pairs(self) -> list[tuple[str, Any]]:
         """Normalize whatever is on ``source`` into an ordered list of (key, value) pairs."""
@@ -191,25 +196,37 @@ class SetVariablesFromData(ControlNode):
         return True
 
     async def aprocess(self) -> None:
-        sanitize = bool(self.get_parameter_value(self.sanitize_names_param.name))
-        overwrite = bool(self.get_parameter_value(self.overwrite_existing_param.name))
-        scope_str = self.get_parameter_value(self.scope_param.name)
-        scope = scope_string_to_variable_scope(scope_str) if scope_str else VariableScope.HIERARCHICAL
+        self._clear_execution_status()
+        try:
+            sanitize = bool(self.get_parameter_value(self.sanitize_names_param.name))
+            overwrite = bool(self.get_parameter_value(self.overwrite_existing_param.name))
+            scope_str = self.get_parameter_value(self.scope_param.name)
+            scope = scope_string_to_variable_scope(scope_str) if scope_str else VariableScope.HIERARCHICAL
 
-        seen_order, final_values = self._build_variable_map(self._resolve_pairs(), sanitize)
+            seen_order, final_values = self._build_variable_map(self._resolve_pairs(), sanitize)
 
-        flow_result = await GriptapeNodes.ahandle_request(GetFlowForNodeRequest(node_name=self.name))
-        if not isinstance(flow_result, GetFlowForNodeResultSuccess):
-            msg = f"Failed to get flow for node '{self.name}': {flow_result.result_details}"
-            raise TypeError(msg)
-        flow_name = flow_result.flow_name
+            flow_result = await GriptapeNodes.ahandle_request(GetFlowForNodeRequest(node_name=self.name))
+            if not isinstance(flow_result, GetFlowForNodeResultSuccess):
+                msg = f"Failed to get flow for node '{self.name}': {flow_result.result_details}"
+                raise TypeError(msg)
+            flow_name = flow_result.flow_name
 
-        created_names = [
-            variable_name
-            for variable_name in seen_order
-            if await self._write_variable(variable_name, final_values[variable_name], overwrite, scope, flow_name)
-        ]
-        self.parameter_output_values[self.created_names_param.name] = created_names
+            created_names = [
+                variable_name
+                for variable_name in seen_order
+                if await self._write_variable(variable_name, final_values[variable_name], overwrite, scope, flow_name)
+            ]
+            self.parameter_output_values[self.created_names_param.name] = created_names
+
+            detail = (
+                f"Set {len(created_names)} variable(s): {', '.join(created_names)}"
+                if created_names
+                else "No variables written (all skipped or source was empty)."
+            )
+            self._set_status_results(was_successful=True, result_details=detail)
+        except Exception as exc:
+            self._set_status_results(was_successful=False, result_details=str(exc))
+            self._handle_failure_exception(exc)
 
     def get_node_dependencies(self) -> NodeDependencies | None:
         """Declare every variable this node creates/updates so they survive serialization.

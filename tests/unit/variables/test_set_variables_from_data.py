@@ -158,6 +158,7 @@ class TestSetVariablesFromDataProcess:
         assert _get_variable_value("NAME", flow) == "Jason"
         assert _get_variable_value("PHONE", flow) == "027"
         assert node.parameter_output_values["variable_names"] == ["NAME", "PHONE"]
+        assert node.parameter_output_values["was_successful"] is True
 
     @pytest.mark.asyncio
     async def test_json_string_creates_variables(self, node: BaseNode, flow: str) -> None:
@@ -203,6 +204,8 @@ class TestSetVariablesFromDataProcess:
         with pytest.raises(ValueError, match="not a valid variable name"):
             await node.aprocess()
 
+        assert node.parameter_output_values["was_successful"] is False
+
     @pytest.mark.asyncio
     async def test_overwrite_off_leaves_existing(self, node: BaseNode, flow: str) -> None:
         create_result = GriptapeNodes.handle_request(
@@ -238,6 +241,8 @@ class TestSetVariablesFromDataProcess:
         # source is unset (None) by default — should raise before touching the engine.
         with pytest.raises(ValueError, match="non-empty"):
             await node.aprocess()
+
+        assert node.parameter_output_values["was_successful"] is False
 
     @pytest.mark.asyncio
     async def test_sanitized_collision_last_write_wins(self, node: BaseNode, flow: str) -> None:
