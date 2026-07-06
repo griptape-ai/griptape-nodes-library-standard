@@ -703,7 +703,7 @@ loaders-pdf = [
 
 [[package]]
 name = "griptape-nodes-engine"
-version = "0.90.0"
+version = "0.88.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -741,9 +741,9 @@ dependencies = [
     { name = "websockets" },
     { name = "xdg-base-dirs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/50/78/1090a534483bfb8e932563bab419b3a80aaeb75b4b93a44fc4c4de482e10/griptape_nodes_engine-0.90.0.tar.gz", hash = "sha256:d9b90af3e49b02ae1a359b15ebaa928eaa3dfc871956864c62890661eb4638bc", size = 1008976, upload-time = "2026-07-02T21:39:21.9Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/37/92/85dcb7206cf5b725606f17e6364c8583e5f858fcef07b59039152de8d912/griptape_nodes_engine-0.88.0.tar.gz", hash = "sha256:19de433dbfe68f6f58e7ecf20d6e666dca09e221eea6b6a8d29459b855955ddd", size = 935218, upload-time = "2026-06-23T22:41:39.937Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0f/7c/f2e5bf0b4c95130408b6a57313ab1fabd84deaf759f201b85215c1ebdf6d/griptape_nodes_engine-0.90.0-py3-none-any.whl", hash = "sha256:a2925ea7800a6d47af265d5efd7cf458f96a57f1c9d52cc6b0250180c3d303e5", size = 1247926, upload-time = "2026-07-02T21:39:20.321Z" },
+    { url = "https://files.pythonhosted.org/packages/ad/dc/cc463c97aede417956c7136cfa09c0ab665c790dba1bc7ff26e98dec9a9c/griptape_nodes_engine-0.88.0-py3-none-any.whl", hash = "sha256:cd88c1008d4fbfb4aaa4b0e44427dea5a26532f518af41c080456e8c8bb66032", size = 1170364, upload-time = "2026-06-23T22:41:38.14Z" },
 ]
 
 [[package]]
@@ -781,7 +781,7 @@ requires-dist = [
     { name = "asteval", specifier = ">=1.0.8" },
     { name = "color-matcher" },
     { name = "griptape", extras = ["drivers-prompt-amazon-bedrock", "drivers-prompt-anthropic", "drivers-prompt-cohere", "drivers-prompt-ollama", "drivers-web-scraper-trafilatura", "drivers-web-search-duckduckgo", "drivers-web-search-exa", "loaders-image", "loaders-pdf"], specifier = ">=1.9.4" },
-    { name = "griptape-nodes-engine", specifier = ">=0.89.0" },
+    { name = "griptape-nodes-engine", specifier = ">=0.88.0" },
     { name = "jmespath", specifier = ">=1.0.1" },
     { name = "json-repair", specifier = ">=0.46.1" },
     { name = "json-schema-to-pydantic", specifier = ">=0.4.6" },
