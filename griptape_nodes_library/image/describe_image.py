@@ -8,7 +8,7 @@ from griptape.structures import Structure
 from griptape.tasks import PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode, ParameterType
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
-from griptape_nodes.exe_types.param_components.model_access_parameter import ModelAccessParameter
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -55,16 +55,6 @@ class DescribeImage(ControlNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        # License-policy helper for the "model" dropdown. Owns the model list,
-        # installs the Options + refresh Button traits, applies per-row
-        # decoration + badge, exposes pick_permitted_default / query_for_denial /
-        # raise_if_denied.
-        self._model_access = ModelAccessParameter(
-            node=self,
-            model_choices=MODEL_CHOICES,
-            default_model=DEFAULT_MODEL,
-        )
-
         self.add_parameter(
             Parameter(
                 name="agent",
@@ -80,13 +70,21 @@ class DescribeImage(ControlNode):
             input_types=["str", "Prompt Model Config"],
             type="str",
             output_type="str",
-            default_value=self._model_access.pick_permitted_default() or DEFAULT_MODEL,
+            default_value=DEFAULT_MODEL,
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             tooltip="Choose a model, or connect a Prompt Model Configuration or an Agent",
             ui_options={"display_name": "prompt model"},
         )
         self.add_parameter(model_param)
-        self._model_access.install(model_param)
+        # License-policy helper: adds Options + refresh Button traits, applies per-row
+        # decoration + badge, exposes query_for_denial / raise_if_denied, and
+        # relocates the stored value to a permitted alternative if DEFAULT_MODEL is denied.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_CHOICES,
+            default_model=DEFAULT_MODEL,
+        )
         self.add_parameter(
             ParameterList(
                 name="images",

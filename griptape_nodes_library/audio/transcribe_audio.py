@@ -7,7 +7,7 @@ from griptape.artifacts import TextArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.memory.structure import Run
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
-from griptape_nodes.exe_types.param_components.model_access_parameter import ModelAccessParameter
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -72,15 +72,6 @@ class TranscribeAudio(GriptapeProxyNode):
         self.category = "audio"
         self.description = "Transcribe audio to text using OpenAI models via Griptape Cloud proxy"
 
-        # License-policy helper for the "model" dropdown. Owns the model list,
-        # installs the Options + refresh Button traits, applies per-row
-        # decoration + badge, exposes pick_permitted_default / query_for_denial.
-        self._model_access = ModelAccessParameter(
-            node=self,
-            model_choices=MODEL_CHOICES,
-            default_model=DEFAULT_MODEL,
-        )
-
         # --- INPUT PARAMETERS ---
         self.add_parameter(
             Parameter(
@@ -105,13 +96,21 @@ class TranscribeAudio(GriptapeProxyNode):
 
         model_param = ParameterString(
             name="model",
-            default_value=self._model_access.pick_permitted_default() or DEFAULT_MODEL,
+            default_value=DEFAULT_MODEL,
             tooltip="Transcription model to use",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             ui_options={"display_name": "audio transcription model"},
         )
         self.add_parameter(model_param)
-        self._model_access.install(model_param)
+        # License-policy helper: adds Options + refresh Button traits, applies per-row
+        # decoration + badge, exposes query_for_denial, and relocates the stored value
+        # to a permitted alternative if DEFAULT_MODEL is denied.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_CHOICES,
+            default_model=DEFAULT_MODEL,
+        )
 
         self.add_node_element(
             ParameterMessage(
