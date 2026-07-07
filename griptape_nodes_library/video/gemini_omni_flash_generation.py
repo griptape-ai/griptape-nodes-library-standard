@@ -36,9 +36,9 @@ class Task(StrEnum):
 class GeminiOmniFlashGeneration(GriptapeProxyNode):
     """Generate a video using Google's Gemini Omni Flash model via Griptape Cloud model proxy.
 
-    Gemini Omni Flash turns text and images into short (3-10s), 720p video with
-    audio. It is served synchronously by the Gemini API interactions endpoint; the
-    proxy bridges that into the standard async generation flow this node uses.
+    Gemini Omni Flash turns text and images into short, 720p video with audio. It
+    is served synchronously by the Gemini API interactions endpoint; the proxy
+    bridges that into the standard async generation flow this node uses.
 
     Inputs:
         - prompt (str): Text prompt for the video
@@ -96,7 +96,7 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
             ParameterString(
                 name="duration_seconds",
                 default_value="8",
-                tooltip="Video duration in seconds (3-10s clips)",
+                tooltip="Video duration in seconds",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=["4", "6", "8"])},
             )
@@ -190,21 +190,25 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
         if image_b64:
             task = Task.IMAGE_TO_VIDEO
             mime_type, base64_data = image_b64
+            # Interactions `input` items are flat and type-discriminated:
+            # {"type": "image", "data": ..., "mime_type": ...} / {"type": "text", "text": ...}
             model_input = [
-                {"text": prompt},
-                {"image": {"mime_type": mime_type, "data": base64_data}},
+                {"type": "image", "data": base64_data, "mime_type": mime_type},
+                {"type": "text", "text": prompt},
             ]
         else:
             task = Task.TEXT_TO_VIDEO
             model_input = prompt
 
+        # `delivery` is omitted so the API returns the default inline base64 in
+        # the response `data` field (the "uri" mode is for >4MB results and would
+        # need an authenticated download; the proxy's /result also returns inline
+        # base64 regardless). `duration_seconds` is not a documented request field.
         return {
             "input": model_input,
             "response_format": {
                 "type": "video",
                 "aspect_ratio": aspect_ratio,
-                "duration_seconds": duration_seconds,
-                "delivery": "inline",
             },
             "generation_config": {"video_config": {"task": task.value}},
         }
