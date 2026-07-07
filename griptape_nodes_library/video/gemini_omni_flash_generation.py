@@ -45,7 +45,6 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
         - image (ImageArtifact|ImageUrlArtifact|str): Optional reference/start image
           (when provided, the task is image_to_video)
         - aspect_ratio (str): Output aspect ratio (default: 16:9, options: 16:9, 9:16)
-        - duration_seconds (str): Video duration in seconds (default: 8, options: 4, 6, 8)
 
     Outputs:
         - generation_id (str): Griptape Cloud generation id
@@ -173,7 +172,6 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
     async def _build_payload(self) -> dict[str, Any]:
         prompt = self.get_parameter_value("prompt") or ""
         aspect_ratio = self.get_parameter_value("aspect_ratio") or "16:9"
-        duration_seconds = int(self.get_parameter_value("duration_seconds") or "8")
         image_input = self.get_parameter_value("image")
 
         image_b64 = await self._image_to_base64(image_input)
@@ -197,7 +195,7 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
         # `delivery` is omitted so the API returns the default inline base64 in
         # the response `data` field (the "uri" mode is for >4MB results and would
         # need an authenticated download; the proxy's /result also returns inline
-        # base64 regardless). `duration_seconds` is not a documented request field.
+        # base64 regardless).
         return {
             "input": model_input,
             "response_format": {
