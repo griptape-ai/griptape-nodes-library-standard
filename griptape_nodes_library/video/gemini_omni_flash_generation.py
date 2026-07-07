@@ -85,20 +85,14 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
         )
 
         with ParameterGroup(name="Generation Settings") as generation_settings_group:
+            # The model chooses clip length itself (3-10s); duration is not a
+            # request parameter, so aspect ratio is the only output control.
             ParameterString(
                 name="aspect_ratio",
                 default_value="16:9",
                 tooltip="Output aspect ratio",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=["16:9", "9:16"])},
-            )
-
-            ParameterString(
-                name="duration_seconds",
-                default_value="8",
-                tooltip="Video duration in seconds",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["4", "6", "8"])},
             )
 
         self.add_node_element(generation_settings_group)
