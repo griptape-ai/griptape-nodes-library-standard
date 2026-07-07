@@ -115,6 +115,7 @@ _NODE_PROVIDER_CONFIGS = {
     "ElevenLabsTextToSpeechGeneration": ELEVENLABS,
     "Flux2ImageGeneration": BLACK_FOREST_LABS,
     "FluxImageGeneration": BLACK_FOREST_LABS,
+    "GeminiOmniFlashGeneration": GOOGLE,
     "GoogleImageGeneration": GOOGLE,
     "GrokImageEdit": GROK,
     "GrokImageGeneration": GROK,
@@ -156,6 +157,7 @@ _NODE_PROVIDER_CONFIGS = {
 }
 
 _DISABLED_NODE_PROVIDER_CONFIGS: set[str] = {
+    "GeminiOmniFlashGeneration",
     "GoogleImageGeneration",
     "Veo3VideoGeneration",
 }
