@@ -23,6 +23,7 @@ from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.files.file import File
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import _resolve_file_path
@@ -633,8 +634,11 @@ class CreateVideoFromFrames(SuccessFailureNode):
         if not audio_url:
             return None
 
-        resolved = _resolve_file_path(audio_url)
-        return str(resolved) if resolved else audio_url
+        try:
+            return File(audio_url).resolve()
+        except Exception:
+            resolved = _resolve_file_path(audio_url)
+            return str(resolved) if resolved else audio_url
 
     def _build_ffmpeg_command(
         self,
