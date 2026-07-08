@@ -1,5 +1,6 @@
 import hashlib
 import json
+import pathlib
 from typing import Any
 
 from griptape.artifacts import AudioArtifact, ImageArtifact, ImageUrlArtifact
@@ -124,6 +125,8 @@ class SelectFromGrid(ControlNode):
             "columns": current.get("columns", 3),
             "layout": current.get("layout", "grid"),
             "settings": current.get("settings", {"multi_select": True}),
+            "show_labels": current.get("show_labels", True),
+            "label_size": current.get("label_size", 10),
         }
 
         if not isinstance(list_values, list):
@@ -193,6 +196,18 @@ class SelectFromGrid(ControlNode):
             self.parameter_output_values[self.selected_item.name] = item
             self.publish_update_to_parameter(self.selected_item.name, item)
 
+    @staticmethod
+    def _extract_media_label(item: Any) -> str:
+        """Return the filename component of a media item's path or URL, or empty string."""
+        if isinstance(item, str):
+            return pathlib.Path(item).name
+        # Use artifact.name when it looks like a real filename; otherwise fall back to the value URL/path
+        name = getattr(item, "name", "") or ""
+        if name:
+            return name
+        value = getattr(item, "value", "") or ""
+        return pathlib.Path(str(value)).name if isinstance(value, str) and value else ""
+
     def _serialize_item_placeholder(self, item: Any) -> dict[str, Any]:
         """Return a lightweight placeholder for an item with no resolved URL.
 
@@ -206,21 +221,25 @@ class SelectFromGrid(ControlNode):
                 result["label"] = str(item["label"])
             return result
         if isinstance(item, (ImageUrlArtifact, ImageArtifact)):
-            return {"type": "image", "url": ""}
+            label = self._extract_media_label(item)
+            return {"type": "image", "url": "", **({"label": label} if label else {})}
         if is_video_url_artifact(item):
-            return {"type": "video", "url": ""}
+            label = self._extract_media_label(item)
+            return {"type": "video", "url": "", **({"label": label} if label else {})}
         if is_audio_url_artifact(item) or isinstance(item, AudioArtifact):
-            return {"type": "audio", "url": ""}
+            label = self._extract_media_label(item)
+            return {"type": "audio", "url": "", **({"label": label} if label else {})}
         if isinstance(item, str):
             lower = item.lower()
             dot = lower.rfind(".")
             ext = lower[dot:] if dot != -1 else ""
+            label = pathlib.Path(item).name if ext else ""
             if ext in _IMAGE_EXTENSIONS:
-                return {"type": "image", "url": ""}
+                return {"type": "image", "url": "", **({"label": label} if label else {})}
             if ext in _VIDEO_EXTENSIONS:
-                return {"type": "video", "url": ""}
+                return {"type": "video", "url": "", **({"label": label} if label else {})}
             if ext in _AUDIO_EXTENSIONS:
-                return {"type": "audio", "url": ""}
+                return {"type": "audio", "url": "", **({"label": label} if label else {})}
             return {"type": "text", "value": item}
         if isinstance(item, dict):
             return {"type": "dict", "value": ""}
@@ -238,29 +257,33 @@ class SelectFromGrid(ControlNode):
         # Image artifacts
         if isinstance(item, (ImageUrlArtifact, ImageArtifact)):
             url = self._resolve_artifact_url(item)
-            return {"type": "image", "url": url}
+            label = self._extract_media_label(item)
+            return {"type": "image", "url": url, **({"label": label} if label else {})}
 
         # Video artifacts
         if is_video_url_artifact(item):
             url = self._resolve_url_string(getattr(item, "value", ""))
-            return {"type": "video", "url": url}
+            label = self._extract_media_label(item)
+            return {"type": "video", "url": url, **({"label": label} if label else {})}
 
         # Audio artifacts
         if is_audio_url_artifact(item) or isinstance(item, AudioArtifact):
             url = self._resolve_url_string(getattr(item, "value", ""))
-            return {"type": "audio", "url": url}
+            label = self._extract_media_label(item)
+            return {"type": "audio", "url": url, **({"label": label} if label else {})}
 
         # Strings — detect media by file extension
         if isinstance(item, str):
             lower = item.lower()
             dot = lower.rfind(".")
             ext = lower[dot:] if dot != -1 else ""
+            label = pathlib.Path(item).name if ext else ""
             if ext in _IMAGE_EXTENSIONS:
-                return {"type": "image", "url": self._resolve_image_url(item)}
+                return {"type": "image", "url": self._resolve_image_url(item), **({"label": label} if label else {})}
             if ext in _VIDEO_EXTENSIONS:
-                return {"type": "video", "url": self._resolve_url_string(item)}
+                return {"type": "video", "url": self._resolve_url_string(item), **({"label": label} if label else {})}
             if ext in _AUDIO_EXTENSIONS:
-                return {"type": "audio", "url": self._resolve_url_string(item)}
+                return {"type": "audio", "url": self._resolve_url_string(item), **({"label": label} if label else {})}
             return {"type": "text", "value": item}
 
         # Dicts without a "value" key — render as formatted JSON

@@ -60,15 +60,18 @@ export default function SelectFromGrid(container, props) {
   let columns         = latestValue.columns          || 3;
   let layout          = latestValue.layout           || "grid";
   let multiSelect     = (latestValue.settings?.multi_select) !== false;
+  let showLabels      = latestValue.show_labels !== false;
+  let labelSize       = latestValue.label_size  || 10;
 
   // ── DOM: wrapper ──────────────────────────────────────────────────────────
   const wrapper = document.createElement("div");
   wrapper.className = "sfg-widget nodrag nowheel";
 
   // ── Toolbar ───────────────────────────────────────────────────────────────
-  const { controls, colSlider, colVal, gridBtn, masonryBtn, countEl, clearBtn, setDisabled } =
+  const { controls, colSlider, colVal, gridBtn, masonryBtn, countEl, clearBtn,
+          labelsBtn, labelSizeSlider, labelSizeVal, setDisabled } =
     createToolbar({
-      layout, columns, isDisabled,
+      layout, columns, isDisabled, showLabels, labelSize,
       onColumnsChange(n) { columns = n; renderGrid(/* skeleton */ true); },
       onColumnsCommit(n) { columns = n; animateGridChange(); emitChange(); },
       onLayoutChange(l)  { layout = l; animateGridChange(); emitChange(); },
@@ -79,9 +82,24 @@ export default function SelectFromGrid(container, props) {
         updateCount();
         emitChange();
       },
+      onLabelsToggle(v)  {
+        showLabels = v;
+        wrapper.classList.toggle("sfg-hide-labels", !showLabels);
+        emitChange();
+      },
+      onLabelSizeChange(n) {
+        labelSize = n;
+        wrapper.style.setProperty("--sfg-label-size", n + "px");
+      },
+      onLabelSizeCommit(n) {
+        labelSize = n;
+        emitChange();
+      },
     });
 
   wrapper.appendChild(controls);
+  if (!showLabels) wrapper.classList.add("sfg-hide-labels");
+  wrapper.style.setProperty("--sfg-label-size", labelSize + "px");
 
   // ── DOM: grid ─────────────────────────────────────────────────────────────
   const grid = document.createElement("div");
@@ -98,6 +116,8 @@ export default function SelectFromGrid(container, props) {
       selected_indices: selectedIndices,
       columns,
       layout,
+      show_labels: showLabels,
+      label_size:  labelSize,
     });
   }
 
@@ -106,6 +126,7 @@ export default function SelectFromGrid(container, props) {
     countEl.textContent = has ? `${selectedIndices.length} selected` : "";
     countEl.classList.toggle("active", has);
     clearBtn.classList.toggle("active", has);
+    grid.classList.toggle("has-selection", has);
   }
 
   function updateGridRows() {
@@ -536,12 +557,14 @@ export default function SelectFromGrid(container, props) {
     isDisabled  = newProps.disabled || false;
     setDisabled(isDisabled);
 
-    const newVal        = newProps.value || {};
-    const newItems      = newVal.items             || [];
-    const newSelected   = newVal.selected_indices   || [];
-    const newColumns    = newVal.columns            || 3;
-    const newLayout     = newVal.layout             || "grid";
+    const newVal         = newProps.value || {};
+    const newItems       = newVal.items             || [];
+    const newSelected    = newVal.selected_indices   || [];
+    const newColumns     = newVal.columns            || 3;
+    const newLayout      = newVal.layout             || "grid";
     const newMultiSelect = (newVal.settings?.multi_select) !== false;
+    const newShowLabels  = newVal.show_labels !== false;
+    const newLabelSize   = newVal.label_size  || 10;
 
     let needsRender = false;
 
@@ -572,6 +595,17 @@ export default function SelectFromGrid(container, props) {
         selectedIndices = [];
         needsRender = true;
       }
+    }
+    if (newShowLabels !== showLabels) {
+      showLabels = newShowLabels;
+      labelsBtn.classList.toggle("active", showLabels);
+      wrapper.classList.toggle("sfg-hide-labels", !showLabels);
+    }
+    if (newLabelSize !== labelSize) {
+      labelSize = newLabelSize;
+      labelSizeSlider.value  = labelSize;
+      labelSizeVal.textContent = labelSize;
+      wrapper.style.setProperty("--sfg-label-size", labelSize + "px");
     }
 
     latestValue = newVal;
