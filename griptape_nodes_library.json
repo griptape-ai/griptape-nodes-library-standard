@@ -6050,6 +6050,36 @@
       }
     },
     {
+      "class_name": "ResolveMacroPath",
+      "file_path": "griptape_nodes_library/files/resolve_macro_path.py",
+      "metadata": {
+        "category": "files",
+        "description": "Resolve a macro path to an absolute filesystem path (e.g. {inputs}/file.txt → /home/user/project/inputs/file.txt).",
+        "display_name": "Resolve Macro Path",
+        "icon": "FolderSearch",
+        "tags": [
+          "file",
+          "macro",
+          "path"
+        ]
+      }
+    },
+    {
+      "class_name": "ResolveMacroPaths",
+      "file_path": "griptape_nodes_library/files/resolve_macro_paths.py",
+      "metadata": {
+        "category": "files",
+        "description": "Resolve a list of macro paths to absolute filesystem paths (e.g. [{inputs}/file.txt, {outputs}/image.png] → [/home/user/project/inputs/file.txt, /home/user/project/outputs/image.png]).",
+        "display_name": "Resolve Macro Path List",
+        "icon": "FolderSearch",
+        "tags": [
+          "file",
+          "macro",
+          "path"
+        ]
+      }
+    },
+    {
       "class_name": "FilePathComponents",
       "file_path": "griptape_nodes_library/files/path.py",
       "metadata": {
