@@ -193,6 +193,12 @@
                 "family": "Veo",
                 "provider_model_id": "veo-3.0-fast-generate-001",
                 "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gemini_omni_flash": {
+                "display_name": "Gemini Omni Flash",
+                "family": "Gemini Omni",
+                "provider_model_id": "gemini-omni-flash-preview",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
               }
             }
           },
@@ -2681,6 +2687,34 @@
               "gtc_veo_3_1_fast",
               "gtc_veo_3_0",
               "gtc_veo_3_0_fast"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "GeminiOmniFlashGeneration",
+      "file_path": "griptape_nodes_library/video/gemini_omni_flash_generation.py",
+      "metadata": {
+        "category": "video",
+        "description": "Generate video using Google Gemini Omni Flash via Griptape Cloud model proxy",
+        "display_name": "Gemini Omni Flash Video Generation",
+        "icon": "Sparkles",
+        "group": "create",
+        "tags": [
+          "video",
+          "generation",
+          "ai",
+          "api",
+          "gemini",
+          "omni",
+          "google"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gemini_omni_flash"
             ]
           }
         ]
