@@ -6021,6 +6021,19 @@
       }
     },
     {
+      "class_name": "FileExists",
+      "file_path": "griptape_nodes_library/files/file_exists.py",
+      "metadata": {
+        "category": "files",
+        "description": "Check whether a file or directory exists at a given path. Outputs a boolean result suitable for wiring into an If/Else node.",
+        "display_name": "File Exists",
+        "icon": "FileSearch",
+        "tags": [
+          "file"
+        ]
+      }
+    },
+    {
       "class_name": "FilePathComponents",
       "file_path": "griptape_nodes_library/files/path.py",
       "metadata": {
