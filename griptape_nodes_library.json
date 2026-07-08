@@ -6038,8 +6038,23 @@
       "file_path": "griptape_nodes_library/files/resolve_macro_path.py",
       "metadata": {
         "category": "files",
-        "description": "Resolve one or more macro paths (e.g. {inputs}/file.txt) to absolute filesystem paths.",
+        "description": "Resolve a macro path (e.g. {inputs}/file.txt) to an absolute filesystem path.",
         "display_name": "Resolve Macro Path",
+        "icon": "FolderSearch",
+        "tags": [
+          "file",
+          "macro",
+          "path"
+        ]
+      }
+    },
+    {
+      "class_name": "ResolveMacroPaths",
+      "file_path": "griptape_nodes_library/files/resolve_macro_paths.py",
+      "metadata": {
+        "category": "files",
+        "description": "Resolve a list of macro paths (e.g. {inputs}/file.txt) to absolute filesystem paths.",
+        "display_name": "Resolve Macro Paths",
         "icon": "FolderSearch",
         "tags": [
           "file",
