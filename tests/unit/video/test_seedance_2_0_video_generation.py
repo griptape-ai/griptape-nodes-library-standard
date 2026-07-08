@@ -10,10 +10,10 @@ from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
+from griptape_nodes.exe_types.param_types import parameter_image
 from griptape_nodes.files.file import File
 from griptape_nodes.traits.options import Options
 
-import griptape_nodes_library.video.seedance_2_0_video_generation as seedance_2_0_module
 from griptape_nodes_library.assets import (
     ASSET_KIND_AUDIO,
     ASSET_KIND_IMAGE,
@@ -67,9 +67,10 @@ async def test_build_payload_normalizes_local_frame_paths(monkeypatch: pytest.Mo
             return ImageUrlArtifact(f"https://example.com/{Path(value).name}")
         return value
 
-    monkeypatch.setattr(seedance_2_0_module, "normalize_artifact_input", fake_normalize_artifact_input)
+    monkeypatch.setattr(parameter_image, "normalize_artifact_input", fake_normalize_artifact_input)
 
     node.set_parameter_value("model_id", "Seedance 2.0")
+    node.set_parameter_value("input_mode", "First/Last Frame")
     node.set_parameter_value("prompt", "A fox runs through a forest")
     node.set_parameter_value("first_frame", str(first_frame))
     node.set_parameter_value("last_frame", str(last_frame))
@@ -165,6 +166,7 @@ def test_multimodal_reference_video_inputs_require_contiguous_order() -> None:
 async def test_build_payload_accepts_serialized_image_artifact_dict(monkeypatch: pytest.MonkeyPatch) -> None:
     node = Seedance20VideoGeneration(name="Seedance20")
     node.set_parameter_value("model_id", "Seedance 2.0")
+    node.set_parameter_value("input_mode", "First/Last Frame")
     node.set_parameter_value("prompt", "A fox runs through a forest")
     node.set_parameter_value(
         "first_frame",
@@ -197,6 +199,7 @@ async def test_build_payload_accepts_image_url_artifact_with_file_path_value(
     frame_path.write_bytes(b"frame")
 
     node.set_parameter_value("model_id", "Seedance 2.0")
+    node.set_parameter_value("input_mode", "First/Last Frame")
     node.set_parameter_value("prompt", "A fox runs through a forest")
     node.set_parameter_value("first_frame", ImageUrlArtifact(str(frame_path)))
 
