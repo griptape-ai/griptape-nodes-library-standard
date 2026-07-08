@@ -51,7 +51,10 @@ class SetVariableSubstitution(SuccessFailureNode):
             if isinstance(result, SetVariableSubstitutionEnabledResultFailure):
                 msg = result.result_details or "Failed to set variable substitution state."
                 raise RuntimeError(msg)  # noqa: TRY301
-            if not isinstance(result, SetVariableSubstitutionEnabledResultSuccess | SetVariableSubstitutionEnabledResultNotAlteredSuccess):
+            if not isinstance(
+                result,
+                SetVariableSubstitutionEnabledResultSuccess | SetVariableSubstitutionEnabledResultNotAlteredSuccess,
+            ):
                 msg = f"Unexpected result type: {type(result).__name__}"
                 raise RuntimeError(msg)  # noqa: TRY301
             state = "enabled" if enabled else "disabled"
