@@ -6012,6 +6012,22 @@
       }
     },
     {
+      "class_name": "SetVariableSubstitution",
+      "file_path": "griptape_nodes_library/variables/set_variable_substitution.py",
+      "metadata": {
+        "category": "variables",
+        "description": "Enable or disable inline variable substitution ({VARIABLE_NAME} token replacement) for this workflow. The setting is scoped to the current workflow and saved with it.",
+        "display_name": "Set Variable Substitution",
+        "icon": "Replace",
+        "group": "edit",
+        "tags": [
+          "variable",
+          "workflow",
+          "substitution"
+        ]
+      }
+    },
+    {
       "class_name": "FileOutputSettings",
       "file_path": "griptape_nodes_library/filesystem/file_output_settings.py",
       "metadata": {
@@ -6051,6 +6067,49 @@
         "icon": "Trash",
         "tags": [
           "file"
+        ]
+      }
+    },
+    {
+      "class_name": "FileExists",
+      "file_path": "griptape_nodes_library/files/file_exists.py",
+      "metadata": {
+        "category": "files",
+        "description": "Check whether a file or directory exists at a given path. Outputs a boolean result suitable for wiring into an If/Else node.",
+        "display_name": "File Exists",
+        "icon": "FileSearch",
+        "tags": [
+          "file"
+        ]
+      }
+    },
+    {
+      "class_name": "ResolveMacroPath",
+      "file_path": "griptape_nodes_library/files/resolve_macro_path.py",
+      "metadata": {
+        "category": "files",
+        "description": "Resolve a macro path to an absolute filesystem path (e.g. {inputs}/file.txt → /home/user/project/inputs/file.txt).",
+        "display_name": "Resolve Macro Path",
+        "icon": "FolderSearch",
+        "tags": [
+          "file",
+          "macro",
+          "path"
+        ]
+      }
+    },
+    {
+      "class_name": "ResolveMacroPaths",
+      "file_path": "griptape_nodes_library/files/resolve_macro_paths.py",
+      "metadata": {
+        "category": "files",
+        "description": "Resolve a list of macro paths to absolute filesystem paths (e.g. [{inputs}/file.txt, {outputs}/image.png] → [/home/user/project/inputs/file.txt, /home/user/project/outputs/image.png]).",
+        "display_name": "Resolve Macro Path List",
+        "icon": "FolderSearch",
+        "tags": [
+          "file",
+          "macro",
+          "path"
         ]
       }
     },
