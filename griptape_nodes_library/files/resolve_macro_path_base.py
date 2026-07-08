@@ -31,9 +31,7 @@ class BaseResolveMacroPath(SuccessFailureNode):
 
     def _resolve_one(self, path_str: str) -> str:
         """Resolve a single macro path to an absolute path. Raises on malformed or unresolvable macros."""
-        result = GriptapeNodes.handle_request(
-            GetPathForMacroRequest(parsed_macro=ParsedMacro(path_str), variables={})
-        )
+        result = GriptapeNodes.handle_request(GetPathForMacroRequest(parsed_macro=ParsedMacro(path_str), variables={}))
         if isinstance(result, GetPathForMacroResultSuccess):
             return str(result.resolved_path)
         if isinstance(result, GetPathForMacroResultFailure):
