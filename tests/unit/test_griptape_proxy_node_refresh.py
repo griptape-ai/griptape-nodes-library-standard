@@ -133,7 +133,7 @@ async def test_refresh_async_running_updates_status_without_parsing(monkeypatch:
 
     monkeypatch.setattr("griptape_nodes_library.proxy.griptape_proxy_node.httpx.AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(
-        "griptape_nodes_library.proxy.griptape_proxy_node.GriptapeNodes.SecretsManager",
+        "griptape_nodes_library.proxy.provider_asset_access.GriptapeNodes.SecretsManager",
         lambda: type("S", (), {"get_secret": lambda self, _name: "fake-key"})(),
     )
 
@@ -196,7 +196,7 @@ async def test_refresh_async_completed_invokes_parse_result(monkeypatch: pytest.
 
     monkeypatch.setattr("griptape_nodes_library.proxy.griptape_proxy_node.httpx.AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(
-        "griptape_nodes_library.proxy.griptape_proxy_node.GriptapeNodes.SecretsManager",
+        "griptape_nodes_library.proxy.provider_asset_access.GriptapeNodes.SecretsManager",
         lambda: type("S", (), {"get_secret": lambda self, _name: "fake-key"})(),
     )
 
