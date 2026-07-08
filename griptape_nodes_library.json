@@ -5978,6 +5978,22 @@
       }
     },
     {
+      "class_name": "SetVariableSubstitution",
+      "file_path": "griptape_nodes_library/variables/set_variable_substitution.py",
+      "metadata": {
+        "category": "variables",
+        "description": "Enable or disable inline variable substitution ({VARIABLE_NAME} token replacement) for this workflow. The setting is scoped to the current workflow and saved with it.",
+        "display_name": "Set Variable Substitution",
+        "icon": "Replace",
+        "group": "edit",
+        "tags": [
+          "variable",
+          "workflow",
+          "substitution"
+        ]
+      }
+    },
+    {
       "class_name": "FileOutputSettings",
       "file_path": "griptape_nodes_library/filesystem/file_output_settings.py",
       "metadata": {
