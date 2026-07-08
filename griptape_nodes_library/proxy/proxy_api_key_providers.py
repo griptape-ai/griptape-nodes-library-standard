@@ -5,7 +5,6 @@ from dataclasses import dataclass
 __all__ = [
     "ProxyApiKeyProviderConfig",
     "get_proxy_api_key_provider_config",
-    "is_proxy_api_key_provider_disabled",
 ]
 
 
@@ -128,7 +127,9 @@ _NODE_PROVIDER_CONFIGS = {
     "LTXAudioToVideoGeneration": LTX,
     "LTXImageToVideoGeneration": LTX,
     "LTXTextToVideoGeneration": LTX,
+    "LTXVideoExtend": LTX,
     "LTXVideoRetake": LTX,
+    "LTXVideoToVideoHDR": LTX,
     "MinimaxHailuoVideoGeneration": MINIMAX,
     "OmnihumanSubjectDetection": SEED,
     "OmnihumanSubjectRecognition": SEED,
@@ -144,6 +145,7 @@ _NODE_PROVIDER_CONFIGS = {
     "TopazImageEnhance": TOPAZ,
     "TranscribeAudio": OPENAI,
     "TripoImageTo3DGeneration": TRIPO,
+    "TripoMultiviewTo3DGeneration": TRIPO,
     "TripoTextTo3DGeneration": TRIPO,
     "Veo3VideoGeneration": GOOGLE,
     "WanAnimateGeneration": DASHSCOPE,
@@ -154,15 +156,6 @@ _NODE_PROVIDER_CONFIGS = {
     "WorldLabsWorldGeneration": WORLD_LABS,
 }
 
-_DISABLED_NODE_PROVIDER_CONFIGS: set[str] = {
-    "GoogleImageGeneration",
-    "Veo3VideoGeneration",
-}
-
 
 def get_proxy_api_key_provider_config(node_class_name: str) -> ProxyApiKeyProviderConfig | None:
     return _NODE_PROVIDER_CONFIGS.get(node_class_name)
-
-
-def is_proxy_api_key_provider_disabled(node_class_name: str) -> bool:
-    return node_class_name in _DISABLED_NODE_PROVIDER_CONFIGS

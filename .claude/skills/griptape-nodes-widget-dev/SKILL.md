@@ -389,3 +389,4 @@ The canvas/image area can keep a hardcoded dark background (`#111`) since it's a
 - Call `onChange` on `blur`, not on every `input` event — avoids focus-stealing
 - Pass a copy to `onChange`, never internal state: `onChange({ ...value, field: newVal })`
 - Cleanup must remove DOM elements and delete `container._instance`
+- Scrollable containers that drive a `ResizeObserver` layout callback need `scrollbar-gutter: stable` to prevent jitter (scrollbar appearance otherwise shifts `clientWidth`, re-triggering the observer)
