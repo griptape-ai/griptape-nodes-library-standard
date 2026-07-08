@@ -17,7 +17,17 @@ from typing import Any
 
 import pytest
 
+from griptape_nodes_library.config.image.griptape_cloud_image_driver import (
+    MODEL_CHOICES as GRIPTAPE_CLOUD_IMAGE_MODEL_CHOICES,
+)
+from griptape_nodes_library.config.image.grok_image_driver import MODEL_CHOICES as GROK_IMAGE_MODEL_CHOICES
+from griptape_nodes_library.config.image.openai_image_driver import MODEL_CHOICES as OPENAI_IMAGE_MODEL_CHOICES
 from griptape_nodes_library.config.prompt.cloud_models import MODEL_CHOICES_ARGS
+from griptape_nodes_library.config.prompt.cohere_prompt import MODEL_CHOICES as COHERE_PROMPT_MODEL_CHOICES
+from griptape_nodes_library.config.prompt.grok_prompt import MODEL_CHOICES as GROK_PROMPT_MODEL_CHOICES
+from griptape_nodes_library.config.prompt.groq_prompt import MODEL_CHOICES as GROQ_PROMPT_MODEL_CHOICES
+from griptape_nodes_library.config.prompt.nim_prompt import MODEL_CHOICES as NIM_PROMPT_MODEL_CHOICES
+from griptape_nodes_library.image.create_image import MODEL_CHOICES as GENERATE_IMAGE_MODEL_CHOICES
 
 LIBRARY_JSON = Path(__file__).parents[2] / "griptape_nodes_library.json"
 
@@ -66,6 +76,36 @@ def test_chat_node_model_usage_matches_static_choices(class_name: str) -> None:
     served = [model["name"] for model in MODEL_CHOICES_ARGS]
 
     assert declared == served
+
+
+@pytest.mark.parametrize(
+    ("class_name", "expected_provider_model_ids"),
+    [
+        ("GenerateImage", GENERATE_IMAGE_MODEL_CHOICES),
+        ("GriptapeCloudImage", GRIPTAPE_CLOUD_IMAGE_MODEL_CHOICES),
+        ("OpenAiImage", OPENAI_IMAGE_MODEL_CHOICES),
+        ("GrokImage", GROK_IMAGE_MODEL_CHOICES),
+        ("GrokPrompt", GROK_PROMPT_MODEL_CHOICES),
+        ("CoherePrompt", COHERE_PROMPT_MODEL_CHOICES),
+        ("GroqPrompt", GROQ_PROMPT_MODEL_CHOICES),
+        ("NimPrompt", NIM_PROMPT_MODEL_CHOICES),
+    ],
+)
+def test_model_selection_node_usage_matches_static_choices(
+    class_name: str, expected_provider_model_ids: list[str]
+) -> None:
+    """The model list in Python and the models the node declares must agree.
+
+    Each node's `model_usage` ids resolve (through the catalog) to the same
+    ordered provider model ids the node's `MODEL_CHOICES` constant serves. A
+    mismatch means the manifest and the code drifted and one side needs updating.
+    """
+    library = _load_library()
+    provider_model_id_by_catalog_id = _provider_model_id_by_catalog_id(library)
+
+    declared = [provider_model_id_by_catalog_id[model_id] for model_id in _model_usage_ids(library, class_name)]
+
+    assert declared == expected_provider_model_ids
 
 
 def test_declared_models_resolve_uniquely_per_node() -> None:
