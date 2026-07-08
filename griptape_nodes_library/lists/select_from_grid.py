@@ -322,9 +322,7 @@ class SelectFromGrid(ControlNode):
             **extra,
         )
         saved = dest.write_bytes(thumb)
-        url_result = GriptapeNodes.handle_request(
-            CreateStaticFileDownloadUrlFromPathRequest(file_path=saved.location)
-        )
+        url_result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=saved.location))
         if isinstance(url_result, CreateStaticFileDownloadUrlFromPathResultSuccess):
             return url_result.url
         return saved.location
