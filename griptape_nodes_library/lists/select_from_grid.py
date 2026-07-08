@@ -4,6 +4,7 @@ import pathlib
 from typing import Any
 
 from griptape.artifacts import AudioArtifact, ImageArtifact, ImageUrlArtifact
+from griptape_nodes.common.project_templates.situation import BuiltInSituation
 from griptape_nodes.exe_types.core_types import (
     Parameter,
     ParameterMode,
@@ -12,6 +13,11 @@ from griptape_nodes.exe_types.core_types import (
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.files.file import File
+from griptape_nodes.files.project_file import ProjectFileDestination
+from griptape_nodes.retained_mode.events.project_events import (
+    GetSituationRequest,
+    GetSituationResultSuccess,
+)
 from griptape_nodes.retained_mode.events.static_file_events import (
     CreateStaticFileDownloadUrlFromPathRequest,
     CreateStaticFileDownloadUrlFromPathResultSuccess,
@@ -293,6 +299,36 @@ class SelectFromGrid(ControlNode):
         # Primitives and anything else
         return {"type": "text", "value": str(item)}
 
+    def _save_thumbnail(self, thumb: bytes, stem: str, ext: str) -> str:
+        """Write thumbnail bytes via the project's preview situation and return a browser URL.
+
+        Uses SAVE_GRIPTAPE_NODES_PREVIEW when the project defines it; falls back to
+        SAVE_STATIC_FILE for projects that don't have the preview situation configured.
+        """
+        situation_check = GriptapeNodes.handle_request(
+            GetSituationRequest(situation_name=BuiltInSituation.SAVE_GRIPTAPE_NODES_PREVIEW)
+        )
+        if isinstance(situation_check, GetSituationResultSuccess):
+            situation = BuiltInSituation.SAVE_GRIPTAPE_NODES_PREVIEW
+            extra: dict = {"source_file_name": stem, "preview_format": ext}
+        else:
+            situation = BuiltInSituation.SAVE_STATIC_FILE
+            extra = {}
+
+        dest = ProjectFileDestination.from_situation(
+            filename=f"{stem}.{ext}",
+            situation=situation,
+            node_name=self.name,
+            **extra,
+        )
+        saved = dest.write_bytes(thumb)
+        url_result = GriptapeNodes.handle_request(
+            CreateStaticFileDownloadUrlFromPathRequest(file_path=saved.location)
+        )
+        if isinstance(url_result, CreateStaticFileDownloadUrlFromPathResultSuccess):
+            return url_result.url
+        return saved.location
+
     def _make_thumbnail(self, image_bytes: bytes) -> tuple[bytes, str]:
         """Resize image bytes to _THUMBNAIL_MAX_DIM on the longest side.
 
@@ -322,11 +358,9 @@ class SelectFromGrid(ControlNode):
         if isinstance(artifact, ImageArtifact):
             try:
                 thumb, ext = self._make_thumbnail(artifact.value)
-                # Same image bytes always produce the same filename, so if the same image
-                # appears more than once it reuses the existing file instead of writing another.
-                # Follows the pattern in add_text_to_existing_image.py.
                 content_hash = hashlib.md5(artifact.value).hexdigest()[:16]  # noqa: S324
-                return GriptapeNodes.StaticFilesManager().save_static_file(thumb, f"grid_thumb_{content_hash}.{ext}")
+                stem = f"grid_thumb_{content_hash}"
+                return self._save_thumbnail(thumb, stem, ext)
             except Exception:
                 return ""
         # ImageUrlArtifact — value is a URL string (possibly macro://)
@@ -344,11 +378,10 @@ class SelectFromGrid(ControlNode):
             resolved = path
         # Load, thumbnail, and serve the local file
         try:
-            import pathlib
-
             image_bytes = pathlib.Path(resolved).read_bytes()
             thumb, ext = self._make_thumbnail(image_bytes)
-            return GriptapeNodes.StaticFilesManager().save_static_file(thumb, f"grid_thumb_{hash(resolved)}.{ext}")
+            stem = f"grid_thumb_{hash(resolved)}"
+            return self._save_thumbnail(thumb, stem, ext)
         except Exception:
             pass
         # Fallback: resolve to a static download URL without thumbnailing
