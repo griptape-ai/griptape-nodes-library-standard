@@ -897,22 +897,22 @@
     {
       "name": "SplatViewer",
       "path": "griptape_nodes_library/splat/widgets/SplatViewer.js",
-      "description": "Inline Gaussian splat viewer — auto-renders the highest-fidelity wired splat using OrbitControls, matching the vsl-gui SplatComponent appearance."
+      "description": "Inline Gaussian splat viewer \u2014 auto-renders the highest-fidelity wired splat using OrbitControls, matching the vsl-gui SplatComponent appearance."
     },
     {
       "name": "CropImageEditor",
       "path": "widgets/CropImageEditor/CropImageEditor.js",
-      "description": "Interactive crop editor — drag to move/resize the crop rectangle, draw a new crop area, with rule-of-thirds guides and live coordinate readout."
+      "description": "Interactive crop editor \u2014 drag to move/resize the crop rectangle, draw a new crop area, with rule-of-thirds guides and live coordinate readout."
     },
     {
       "name": "CropVideoEditor",
       "path": "widgets/CropVideoEditor/CropVideoEditor.js",
-      "description": "Interactive video crop editor — drag handles on a live video frame with frame scrubber, aspect ratio, resolution, and position presets."
+      "description": "Interactive video crop editor \u2014 drag handles on a live video frame with frame scrubber, aspect ratio, resolution, and position presets."
     },
     {
       "name": "SelectFromGrid",
       "path": "widgets/SelectFromGrid/SelectFromGrid.js",
-      "description": "Interactive grid selector — displays list items as thumbnails (images, video, audio, text) and lets the user click to select one or more."
+      "description": "Interactive grid selector \u2014 displays list items as thumbnails (images, video, audio, text) and lets the user click to select one or more."
     }
   ],
   "categories": [
@@ -3962,6 +3962,28 @@
           "text",
           "ai",
           "vision"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_5_2",
+              "gtc_gpt_5_1",
+              "gtc_gpt_5",
+              "gtc_gpt_5_mini",
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_4o",
+              "gtc_o4_mini",
+              "gtc_o3",
+              "gtc_claude_opus_4_7",
+              "gtc_claude_sonnet_4_6",
+              "gtc_claude_sonnet_4_5",
+              "gtc_gemini_3_1_pro",
+              "gtc_gemini_2_5_pro"
+            ]
+          }
         ]
       }
     },
@@ -6054,7 +6076,7 @@
       "file_path": "griptape_nodes_library/files/resolve_macro_path.py",
       "metadata": {
         "category": "files",
-        "description": "Resolve a macro path to an absolute filesystem path (e.g. {inputs}/file.txt → /home/user/project/inputs/file.txt).",
+        "description": "Resolve a macro path to an absolute filesystem path (e.g. {inputs}/file.txt \u2192 /home/user/project/inputs/file.txt).",
         "display_name": "Resolve Macro Path",
         "icon": "FolderSearch",
         "tags": [
@@ -6069,7 +6091,7 @@
       "file_path": "griptape_nodes_library/files/resolve_macro_paths.py",
       "metadata": {
         "category": "files",
-        "description": "Resolve a list of macro paths to absolute filesystem paths (e.g. [{inputs}/file.txt, {outputs}/image.png] → [/home/user/project/inputs/file.txt, /home/user/project/outputs/image.png]).",
+        "description": "Resolve a list of macro paths to absolute filesystem paths (e.g. [{inputs}/file.txt, {outputs}/image.png] \u2192 [/home/user/project/inputs/file.txt, /home/user/project/outputs/image.png]).",
         "display_name": "Resolve Macro Path List",
         "icon": "FolderSearch",
         "tags": [
