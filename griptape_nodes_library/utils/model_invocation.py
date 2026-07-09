@@ -27,7 +27,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 logger = logging.getLogger("griptape_nodes")
 
-__all__ = ["declare_model_invocation", "resolve_catalog_model_id"]
+__all__ = ["declare_model_invocation", "declare_model_invocation_sync", "resolve_catalog_model_id"]
 
 
 def resolve_catalog_model_id(node: BaseNode, api_model_id: str) -> str | None:
@@ -53,6 +53,21 @@ async def declare_model_invocation(node: BaseNode, api_model_id: str) -> ResultP
     result reports failure. The proxy enforces server-side as well; this
     runs first, so a denied call fails fast and never leaves the engine.
     """
+    return await GriptapeNodes.ahandle_request(_build_declaration(node, api_model_id))
+
+
+def declare_model_invocation_sync(node: BaseNode, api_model_id: str) -> ResultPayload:
+    """Synchronous twin of `declare_model_invocation` for non-async call sites.
+
+    Nodes whose model call happens outside an async context (e.g. a generator
+    `process()` that runs framework drivers synchronously) declare through
+    this variant. Identical contract: dispatch before any network call and
+    treat a failed result as do-not-invoke.
+    """
+    return GriptapeNodes.handle_request(_build_declaration(node, api_model_id))
+
+
+def _build_declaration(node: BaseNode, api_model_id: str) -> DeclareModelInvocationRequest:
     model_id = resolve_catalog_model_id(node, api_model_id)
     if model_id is None:
         logger.warning(
@@ -62,4 +77,4 @@ async def declare_model_invocation(node: BaseNode, api_model_id: str) -> ResultP
             api_model_id,
         )
         model_id = api_model_id
-    return await GriptapeNodes.ahandle_request(DeclareModelInvocationRequest(model_id=model_id, node_name=node.name))
+    return DeclareModelInvocationRequest(model_id=model_id, node_name=node.name)
