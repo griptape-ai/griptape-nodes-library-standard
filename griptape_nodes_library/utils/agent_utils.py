@@ -67,7 +67,7 @@ def unwrap_agent(value: dict) -> tuple[dict, list, list]:
     return value, [], []
 
 
-def ollama_host_from_base_url(base_url: str) -> str | None:
+def _ollama_host_from_base_url(base_url: str) -> str | None:
     """Convert an OpenAI-compat Ollama base_url to the host expected by OllamaPromptDriver.
 
     Provider configs store the OpenAI-compat URL (e.g. http://localhost:11434/v1).
@@ -102,7 +102,10 @@ def build_prompt_driver(
       https://github.com/griptape-ai/griptape/issues/2238
     """
     if provider_type == ProviderID.OLLAMA:
-        return OllamaPromptDriver(model=model, host=ollama_host_from_base_url(base_url), stream=stream)
+        # Ollama's OpenAI-compat /v1 endpoint drops tool_calls from streamed responses
+        # (ollama/ollama#9084). The native /api/chat endpoint handles tool-call streaming
+        # correctly, so we use OllamaPromptDriver instead of the OpenAI-compat driver.
+        return OllamaPromptDriver(model=model, host=_ollama_host_from_base_url(base_url), stream=stream)
     return OpenAiChatPromptDriver(
         model=model,
         base_url=base_url,
