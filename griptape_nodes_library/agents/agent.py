@@ -352,6 +352,8 @@ class Agent(ControlNode):
         return "\n".join(lines) + "\n\n"
 
     # --- Provider / Model Methods ---
+    # TODO: extract into ProviderSelectionComponent shared with DescribeImage
+    # https://github.com/griptape-ai/griptape-nodes-library-standard/issues/442
 
     def _fetch_providers(self) -> "list[ProviderConfig]":
         """Fetch configured providers from the engine, falling back to griptape_cloud only."""

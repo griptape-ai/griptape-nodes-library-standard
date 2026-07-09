@@ -209,6 +209,8 @@ class DescribeImage(ControlNode):
         )
 
     # --- Provider / model helpers (mirrors agent.py) ---
+    # TODO: extract into ProviderSelectionComponent shared with Agent
+    # https://github.com/griptape-ai/griptape-nodes-library-standard/issues/442
 
     def _fetch_providers(self) -> "list[ProviderConfig]":
         if not _AGENT_PROVIDERS_AVAILABLE:
