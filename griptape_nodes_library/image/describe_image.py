@@ -214,7 +214,7 @@ class DescribeImage(ControlNode):
 
     def _fetch_providers(self) -> "list[ProviderConfig]":
         if not _AGENT_PROVIDERS_AVAILABLE:
-            return ["griptape_cloud"]  # type: ignore[return-value]
+            return []  # _fetch_provider_names falls back to ["griptape_cloud"] via `or`
         _FALLBACK = [_GRIPTAPE_CLOUD_PROVIDER]
         try:
             result = GriptapeNodes.handle_request(ListAgentProvidersRequest())
@@ -238,7 +238,7 @@ class DescribeImage(ControlNode):
 
     def _fetch_models_for_provider(self, provider_name: str) -> list[str]:
         if not _AGENT_PROVIDERS_AVAILABLE:
-            return GTC_VISION_MODEL_CHOICES
+            return GTC_VISION_MODEL_CHOICES if provider_name == "griptape_cloud" else []
         try:
             providers = self._fetch_providers()
             provider_config = next((p for p in providers if p.name == provider_name), None)
@@ -259,6 +259,7 @@ class DescribeImage(ControlNode):
 
     def _update_model_choices_for_provider(self, provider_name: str) -> None:
         if provider_name == "griptape_cloud":
+            # Use a curated vision-only subset rather than the full GTC model list.
             models = GTC_VISION_MODEL_CHOICES
             new_data = MODEL_CHOICES_ARGS
         else:
@@ -532,6 +533,9 @@ class DescribeImage(ControlNode):
         elif isinstance(model_input, BasePromptDriver):
             agent = GtAgent(prompt_driver=model_input, output_schema=pydantic_schema)
         elif provider_name != "griptape_cloud":
+            if not _AGENT_PROVIDERS_AVAILABLE:
+                msg = f"DescribeImage '{self.name}': provider '{provider_name}' requires agent provider support which is not available in this engine version."
+                raise RuntimeError(msg)
             providers = self._fetch_providers()
             non_gtc_provider_config = next((p for p in providers if p.name == provider_name), None)
             if non_gtc_provider_config is None:
@@ -579,7 +583,7 @@ class DescribeImage(ControlNode):
 
         image_artifacts = []
         for img in flat_images:
-            if img is None:
+            if img is None or img == "":
                 continue
             if isinstance(img, ImageUrlArtifact):
                 image_artifacts.append(load_image_from_url_artifact(img))
