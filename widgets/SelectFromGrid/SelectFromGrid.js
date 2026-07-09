@@ -275,6 +275,7 @@ export default function SelectFromGrid(container, props) {
       case "video": {
         const vid       = document.createElement("video");
         vid.src         = item.url;
+        if (item.thumbnail) vid.poster = item.thumbnail;
         vid.muted       = true;
         vid.loop        = true;
         vid.playsInline = true;
