@@ -45,13 +45,6 @@ def _parameter_by_name(node: Seedance20VideoGeneration, parameter_name: str):
     return next(parameter for parameter in node.parameters if parameter.name == parameter_name)
 
 
-@pytest.fixture(autouse=True)
-def stub_public_artifact_bucket_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        PublicArtifactUrlParameter, "_get_bucket_id", staticmethod(lambda *_args, **_kwargs: "test-bucket")
-    )
-
-
 @pytest.mark.asyncio
 async def test_build_payload_normalizes_local_frame_paths(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     node = Seedance20VideoGeneration(name="Seedance20")
