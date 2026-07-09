@@ -211,6 +211,8 @@ class DescribeImage(ControlNode):
     # --- Provider / model helpers (mirrors agent.py) ---
 
     def _fetch_providers(self) -> "list[ProviderConfig]":
+        if not _AGENT_PROVIDERS_AVAILABLE:
+            return ["griptape_cloud"]  # type: ignore[return-value]
         _FALLBACK = [_GRIPTAPE_CLOUD_PROVIDER]
         try:
             result = GriptapeNodes.handle_request(ListAgentProvidersRequest())
@@ -275,15 +277,6 @@ class DescribeImage(ControlNode):
         current = self.get_parameter_value("model_provider") or "griptape_cloud"
         default = current if current in provider_names else (provider_names[0] if provider_names else "griptape_cloud")
         self._update_option_choices(param="model_provider", choices=provider_names, default=default)
-        return None
-
-    def _refresh_models_button(
-        self,
-        button: Button,
-        button_details: ButtonDetailsMessagePayload,  # noqa: ARG002
-    ) -> NodeMessageResult | None:
-        provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
-        self._update_model_choices_for_provider(provider_name)
         return None
 
     def _uses_griptape_cloud_driver(self) -> bool:
@@ -517,7 +510,7 @@ class DescribeImage(ControlNode):
 
         tool_configs: list = []
         ruleset_configs: list = []
-        non_gtc_provider_config = None
+        provider_info: dict | None = None
         agent_value = self.get_parameter_value("agent")
         if isinstance(agent_value, dict):
             agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_value)
@@ -539,15 +532,18 @@ class DescribeImage(ControlNode):
         elif provider_name != "griptape_cloud":
             providers = self._fetch_providers()
             non_gtc_provider_config = next((p for p in providers if p.name == provider_name), None)
-            if non_gtc_provider_config is not None:
-                prompt_driver = GtOpenAiChatPromptDriver(
-                    model=model_input if isinstance(model_input, str) else DEFAULT_MODEL,
-                    base_url=non_gtc_provider_config.base_url or "",
-                    api_key=self._resolve_provider_api_key(non_gtc_provider_config),
-                    stream=True,
-                )
-            else:
-                prompt_driver = default_prompt_driver
+            if non_gtc_provider_config is None:
+                msg = f"DescribeImage '{self.name}': provider '{provider_name}' not found in configured providers."
+                raise ValueError(msg)
+            api_key = self._resolve_provider_api_key(non_gtc_provider_config)
+            base_url = non_gtc_provider_config.base_url or ""
+            prompt_driver = GtOpenAiChatPromptDriver(
+                model=model_input if isinstance(model_input, str) else DEFAULT_MODEL,
+                base_url=base_url,
+                api_key=api_key,
+                stream=True,
+            )
+            provider_info = {"name": provider_name, "base_url": base_url, "api_key": api_key}
             agent = GtAgent(prompt_driver=prompt_driver, output_schema=pydantic_schema)
         elif isinstance(model_input, str):
             if model_input not in self._model_access.model_choices:
@@ -615,15 +611,7 @@ class DescribeImage(ControlNode):
         if agent.tasks:
             cast(PromptTask, agent.tasks[0]).tools = []
 
-        # For non-GTC providers, include provider info so downstream nodes can restore the driver.
         incoming_provider = agent_value.get("provider") if isinstance(agent_value, dict) else None
-        provider_info = None
-        if non_gtc_provider_config is not None:
-            provider_info = {
-                "name": provider_name,
-                "base_url": non_gtc_provider_config.base_url or "",
-                "api_key": self._resolve_provider_api_key(non_gtc_provider_config),
-            }
 
         self.parameter_output_values["agent"] = wrap_agent(
             agent.to_dict(),
