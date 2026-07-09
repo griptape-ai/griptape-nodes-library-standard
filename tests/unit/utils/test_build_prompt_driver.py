@@ -3,8 +3,8 @@
 import pytest
 from griptape.drivers.prompt.ollama import OllamaPromptDriver
 from griptape.drivers.prompt.openai import OpenAiChatPromptDriver
-
 from griptape_nodes.drivers.cloud_models import ProviderID
+
 from griptape_nodes_library.utils.agent_utils import build_prompt_driver
 
 
