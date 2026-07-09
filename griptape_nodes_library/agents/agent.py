@@ -52,6 +52,7 @@ from griptape_nodes_library.config.prompt.cloud_models import (
 from griptape_nodes_library.utils.agent_utils import (
     build_rulesets_from_configs,
     build_tools,
+    ollama_host_from_base_url,
     ruleset_to_config,
     unwrap_agent,
     wrap_agent,
@@ -442,19 +443,6 @@ class Agent(ControlNode):
         return None
 
     # --- Helper Methods ---
-
-    @staticmethod
-    def _ollama_host_from_base_url(base_url: str) -> str | None:
-        """Convert an OpenAI-compat Ollama base_url to the host expected by OllamaPromptDriver.
-
-        Provider configs store the OpenAI-compat URL (e.g. http://localhost:11434/v1).
-        OllamaPromptDriver uses the native Ollama client, which expects just the host
-        without any path suffix (e.g. http://localhost:11434).
-        """
-        host = base_url.rstrip("/")
-        if host.endswith("/v1"):
-            host = host[:-3]
-        return host or None
 
     def _find_runs_in_data(self, data: Any) -> list[dict[str, Any]]:
         """Recursively find 'runs' array in data structure.
@@ -1020,12 +1008,13 @@ class Agent(ControlNode):
             else:
                 agent.tasks[0].output_schema = pydantic_schema
             # Rebuild the prompt driver for non-GTC providers — griptape strips api_key during serialization.
+            # Wrappers from older versions lack "type"; those fall through to the OpenAI-compat driver.
             if incoming_provider:
                 incoming_base_url = incoming_provider.get("base_url", "")
                 if incoming_provider.get("type") == "ollama":
                     rebuilt_driver = GtOllamaPromptDriver(
                         model=cast(PromptTask, agent.tasks[0]).prompt_driver.model,
-                        host=self._ollama_host_from_base_url(incoming_base_url),
+                        host=ollama_host_from_base_url(incoming_base_url),
                         stream=True,
                     )
                 else:
@@ -1062,7 +1051,7 @@ class Agent(ControlNode):
                 if provider_config.type == "ollama":
                     prompt_driver = GtOllamaPromptDriver(
                         model=model_input,
-                        host=self._ollama_host_from_base_url(base_url),
+                        host=ollama_host_from_base_url(base_url),
                         stream=True,
                     )
                 else:

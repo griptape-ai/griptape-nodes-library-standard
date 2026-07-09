@@ -65,12 +65,31 @@ def unwrap_agent(value: dict) -> tuple[dict, list, list]:
     return value, [], []
 
 
+def ollama_host_from_base_url(base_url: str) -> str | None:
+    """Convert an OpenAI-compat Ollama base_url to the host expected by OllamaPromptDriver.
+
+    Provider configs store the OpenAI-compat URL (e.g. http://localhost:11434/v1).
+    OllamaPromptDriver uses the native Ollama client, which takes just the host
+    without any path suffix (e.g. http://localhost:11434). Passing None is valid
+    and causes ollama.Client to default to http://localhost:11434.
+    """
+    host = base_url.rstrip("/")
+    if host.endswith("/v1"):
+        host = host[:-3]
+    return host or None
+
+
 def restore_provider_driver(agent: object, wrapper: dict) -> None:
     """Rebuild the prompt driver from provider config stored in the wrapper.
 
     When a non-GTC agent is serialized via to_dict(), griptape strips the api_key.
     Callers that deserialize via from_dict() must call this immediately after to
     restore the correct driver for the provider (Ollama native or OpenAI-compatible).
+
+    Note: wrappers produced before the "type" key was added to the provider dict
+    (i.e. saved workflows from older versions) will have no "type" entry and fall
+    through to the OpenAI-compat driver. This is a known gap — those workflows
+    will need to be re-run once to pick up the correct driver.
     """
     provider = wrapper.get("provider") if isinstance(wrapper, dict) else None
     if not provider:
@@ -87,10 +106,7 @@ def restore_provider_driver(agent: object, wrapper: dict) -> None:
     base_url = provider.get("base_url", "")
 
     if provider.get("type") == "ollama":
-        host = base_url.rstrip("/")
-        if host.endswith("/v1"):
-            host = host[:-3]
-        rebuilt = OllamaPromptDriver(model=model, host=host or None, stream=True)
+        rebuilt = OllamaPromptDriver(model=model, host=ollama_host_from_base_url(base_url), stream=True)
     else:
         rebuilt = OpenAiChatPromptDriver(
             model=model,
