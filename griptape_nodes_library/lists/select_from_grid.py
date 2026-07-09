@@ -420,9 +420,7 @@ class SelectFromGrid(ControlNode):
         except Exception:
             resolved = path
         try:
-            url_result = GriptapeNodes.handle_request(
-                CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved)
-            )
+            url_result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved))
             if isinstance(url_result, CreateStaticFileDownloadUrlFromPathResultSuccess):
                 return url_result.url
         except Exception:
