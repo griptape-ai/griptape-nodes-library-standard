@@ -1005,6 +1005,13 @@ class Agent(ControlNode):
             agent._rulesets = build_rulesets_from_configs(ruleset_configs)
             # make sure the agent is using a PromptTask — replace rather than add to avoid two tasks
             if not isinstance(agent.tasks[0], PromptTask):
+                if incoming_provider:
+                    msg = (
+                        f"Incoming agent has a {type(agent.tasks[0]).__name__} as its first task, "
+                        "not a PromptTask. Cannot apply a non-GTC provider driver to this agent. "
+                        "Check your chain topology."
+                    )
+                    raise RuntimeError(msg)
                 agent.tasks[0] = PromptTask(prompt_driver=default_prompt_driver, output_schema=pydantic_schema)
             else:
                 agent.tasks[0].output_schema = pydantic_schema
@@ -1012,15 +1019,16 @@ class Agent(ControlNode):
             # Wrappers from older versions lack "type"; those fall through to the OpenAI-compat driver.
             if incoming_provider:
                 incoming_base_url = incoming_provider.get("base_url", "")
+                model = agent.tasks[0].prompt_driver.model
                 if incoming_provider.get("type") == ProviderID.OLLAMA:
                     rebuilt_driver = GtOllamaPromptDriver(
-                        model=cast(PromptTask, agent.tasks[0]).prompt_driver.model,
+                        model=model,
                         host=ollama_host_from_base_url(incoming_base_url),
                         stream=True,
                     )
                 else:
                     rebuilt_driver = GtOpenAiChatPromptDriver(
-                        model=cast(PromptTask, agent.tasks[0]).prompt_driver.model,
+                        model=model,
                         base_url=incoming_base_url,
                         api_key=incoming_provider.get("api_key") or "not-needed",
                         stream=True,
