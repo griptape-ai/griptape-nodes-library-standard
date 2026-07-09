@@ -5,6 +5,7 @@ wire and rebuilt fresh at the point of use.  Every node that produces or
 consumes an Agent value imports from here so the logic lives in one place.
 """
 
+import logging
 from typing import cast
 
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
@@ -47,6 +48,7 @@ def _patch_exa_driver() -> None:
 
 _patch_exa_driver()
 
+logger = logging.getLogger("griptape_nodes")
 
 # ---------------------------------------------------------------------------
 # Wrap / unwrap
@@ -137,8 +139,15 @@ def restore_provider_driver(agent: object, wrapper: dict) -> None:
     if not isinstance(task, PromptTask):
         return
 
+    provider_type = provider.get("type")
+    if provider_type is None:
+        logger.warning(
+            "Saved agent wrapper has no provider 'type' — falling back to the OpenAI-compat driver. "
+            "If this is an Ollama provider, tool calls may silently fail. "
+            "Re-run the upstream Agent node to write the correct driver type into the wrapper."
+        )
     cast(PromptTask, task).prompt_driver = build_prompt_driver(
-        provider_type=provider.get("type"),
+        provider_type=provider_type,
         model=task.prompt_driver.model,
         base_url=provider.get("base_url", ""),
         api_key=provider.get("api_key"),
