@@ -69,14 +69,6 @@ def add_situation_parameter(node: BaseNode, file_param: ProjectFileParameter) ->
     def _on_refresh(_button: Button, button_details: ButtonDetailsMessagePayload) -> NodeMessageResult:
         refreshed_names, refreshed_descriptions = fetch_situations()
 
-        if not refreshed_names:
-            return NodeMessageResult(
-                success=False,
-                details="No situations available — project template could not be loaded",
-                response=button_details,
-                altered_workflow_state=False,
-            )
-
         # Update trait choices (for validation) and ui_options (for subtitle display).
         # Both are needed: the trait attribute governs value validation; update_ui_options
         # drives the rich dropdown rendering.
