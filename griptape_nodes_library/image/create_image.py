@@ -19,6 +19,7 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
 from griptape_nodes_library.utils.agent_utils import restore_provider_driver, unwrap_agent, wrap_agent
 from griptape_nodes_library.utils.error_utils import try_throw_error
+from griptape_nodes_library.utils.model_invocation import declare_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
@@ -285,6 +286,19 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
             )
 
         kwargs["image_generation_driver"] = driver
+
+        # The image generation driver is settled above -- every branch produces a
+        # concrete BaseImageGenerationDriver, and `model` is a required field on it.
+        # Declare the invocation before swapping in the task (and the network call it
+        # triggers below) so a denied invocation fails closed here.
+        api_model_id = getattr(driver, "model", None) or type(driver).__name__
+        declaration = declare_model_invocation_sync(self, api_model_id)
+        if declaration.failed():
+            details = str(
+                declaration.result_details
+                or f"GenerateImage '{self.name}': invocation of model '{api_model_id}' was not permitted."
+            )
+            raise RuntimeError(details)
 
         # Set new Image Generation Task
         # Cool trick to swap the task of the agent from PromptTask to ImageGenerationTask

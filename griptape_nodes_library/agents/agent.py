@@ -63,6 +63,7 @@ from griptape_nodes_library.utils.agent_utils import (
     wrap_agent,
 )
 from griptape_nodes_library.utils.error_utils import try_throw_error
+from griptape_nodes_library.utils.model_invocation import declare_model_invocation_sync
 
 _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
 
@@ -1047,6 +1048,21 @@ class Agent(ControlNode):
             self._apply_memory_to_agent(agent, agent_memory)
 
         if prompt and not prompt.isspace():
+            # The model identity is settled above -- whichever branch built `agent`, its
+            # PromptTask always carries a concrete prompt driver with a `model` attribute
+            # (griptape's Agent structure guarantees a PromptTask, and BasePromptDriver
+            # requires `model`). Declare it before the network call below so a denied
+            # invocation fails closed here rather than reaching the provider.
+            prompt_driver = cast(PromptTask, agent.tasks[0]).prompt_driver
+            api_model_id = getattr(prompt_driver, "model", None) or type(prompt_driver).__name__
+            declaration = declare_model_invocation_sync(self, api_model_id)
+            if declaration.failed():
+                details = str(
+                    declaration.result_details
+                    or f"Agent '{self.name}': invocation of model '{api_model_id}' was not permitted."
+                )
+                raise RuntimeError(details)
+
             # Run the agent asynchronously
             self.append_value_to_parameter("logs", "[Started processing agent..]\n")
             yield lambda: self._process(agent, prompt)
