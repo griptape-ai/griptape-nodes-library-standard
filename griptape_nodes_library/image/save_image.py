@@ -4,10 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import (
-    Parameter,
-    ParameterMode,
-)
+from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -21,7 +18,7 @@ from griptape_nodes_library.utils.image_utils import (
     load_image_from_url_artifact,
     validate_pil_format,
 )
-from griptape_nodes_library.utils.situation_utils import add_situation_parameter, update_file_param_situation
+from griptape_nodes_library.utils.situation_utils import add_situation_parameter
 
 PREVIEW_LENGTH = 50
 
@@ -70,10 +67,6 @@ class SaveImage(SuccessFailureNode):
         add_situation_parameter(self, self._output_file)
         self._output_file.add_parameter()
 
-    def after_value_set(self, parameter: Parameter, value: object, **kwargs: object) -> None:
-        update_file_param_situation(self._output_file, parameter, value, **kwargs)
-        super().after_value_set(parameter, value, **kwargs)
-
     def _get_target_pil_format(self) -> str:
         """Determine the target PIL format string from the output_file parameter."""
         param_value = self.get_parameter_value("output_file")
@@ -109,6 +102,7 @@ class SaveImage(SuccessFailureNode):
     def process(self) -> None:
         # Reset execution state and result details at the start of each run
         self._clear_execution_status()
+        self._output_file._situation_name = self.get_parameter_value("situation")
 
         image = self.get_parameter_value("image")
         self.parameter_output_values["image"] = image

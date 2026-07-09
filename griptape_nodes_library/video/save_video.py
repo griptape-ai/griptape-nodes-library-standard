@@ -1,17 +1,14 @@
 from dataclasses import dataclass
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import (
-    Parameter,
-    ParameterMode,
-)
+from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import logger
 
-from griptape_nodes_library.utils.situation_utils import add_situation_parameter, update_file_param_situation
+from griptape_nodes_library.utils.situation_utils import add_situation_parameter
 from griptape_nodes_library.utils.video_utils import (
     extract_url_from_video_object,
     is_video_url_artifact,
@@ -55,10 +52,6 @@ class SaveVideo(SuccessFailureNode):
             result_details_tooltip="Details about the video save operation result",
             result_details_placeholder="Details on the save attempt will be presented here.",
         )
-
-    def after_value_set(self, parameter: Parameter, value: object, **kwargs: object) -> None:
-        update_file_param_situation(self._output_file, parameter, value, **kwargs)
-        super().after_value_set(parameter, value, **kwargs)
 
     def _extract_bytes_from_artifact(self, artifact: Any) -> bytes | None:
         """Extract bytes from various artifact types."""
@@ -138,6 +131,7 @@ class SaveVideo(SuccessFailureNode):
     async def aprocess(self) -> None:
         """Async process method."""
         self._clear_execution_status()
+        self._output_file._situation_name = self.get_parameter_value("situation")
 
         try:
             raw_video = self.get_parameter_value("video")
@@ -159,6 +153,7 @@ class SaveVideo(SuccessFailureNode):
     def process(self) -> None:
         """Sync process method."""
         self._clear_execution_status()
+        self._output_file._situation_name = self.get_parameter_value("situation")
 
         try:
             raw_video = self.get_parameter_value("video")

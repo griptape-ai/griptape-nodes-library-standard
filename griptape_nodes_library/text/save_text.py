@@ -1,14 +1,11 @@
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import (
-    Parameter,
-    ParameterMode,
-)
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.retained_mode.griptape_nodes import logger
 
-from griptape_nodes_library.utils.situation_utils import add_situation_parameter, update_file_param_situation
+from griptape_nodes_library.utils.situation_utils import add_situation_parameter
 
 
 class SaveText(ControlNode):
@@ -36,12 +33,9 @@ class SaveText(ControlNode):
         add_situation_parameter(self, self._output_file)
         self._output_file.add_parameter()
 
-    def after_value_set(self, parameter: Parameter, value: object, **kwargs: object) -> None:
-        update_file_param_situation(self._output_file, parameter, value, **kwargs)
-        super().after_value_set(parameter, value, **kwargs)
-
     def process(self) -> None:
         """Process the node by saving text to a file."""
+        self._output_file._situation_name = self.get_parameter_value("situation")
         text = self.parameter_values.get("text", "")
 
         try:

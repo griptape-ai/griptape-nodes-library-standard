@@ -2,7 +2,7 @@
 
 import logging
 
-from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeMessageResult, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -47,25 +47,19 @@ def build_situation_data(names: list[str], descriptions: dict[str, str]) -> list
     return [{"name": n, "subtitle": descriptions.get(n, "")} for n in names]
 
 
-def update_file_param_situation(
-    file_param: ProjectFileParameter, parameter: Parameter, value: object, **kwargs: object
-) -> None:
-    """Sync situation name to file_param when the situation parameter changes.
-
-    Centralises the single write to the private ``_situation_name`` attribute so
-    all five save nodes share one call site instead of five.  The ``initial_setup``
-    guard mirrors ``FileOutputSettings.after_value_set`` — skip internal framework
-    setup calls because ``add_situation_parameter`` already seeds the correct default.
-    """
-    if parameter.name == "situation" and not kwargs.get("initial_setup"):
-        file_param._situation_name = str(value)
-
-
 def add_situation_parameter(node: BaseNode, file_param: ProjectFileParameter) -> None:
     """Add a situation dropdown and refresh button to a save node.
 
-    ``file_param`` must be created (but NOT yet added via ``add_parameter()``)
-    before calling this so that ``after_value_set`` can safely reference it.
+    ``file_param`` must be created before calling this (it seeds ``_situation_name``
+    to the dropdown default). Callers must resolve the situation fresh at process time:
+    set ``file_param._situation_name = node.get_parameter_value("situation")`` at the
+    top of each process/aprocess before calling ``build_file()``. Do NOT sync via
+    ``after_value_set`` — that hook is skipped on workflow reload, causing files to
+    land in the wrong situation directory after a save/reload cycle.
+
+    TODO: remove the per-node sync lines once the engine resolves situation natively
+    in ProjectFileParameter.build_file() — see
+    https://github.com/griptape-ai/griptape-nodes-engine/issues/5105
     """
     names, descriptions = fetch_situations()
     default = DEFAULT_SITUATION if DEFAULT_SITUATION in names else names[0]

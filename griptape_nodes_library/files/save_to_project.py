@@ -15,7 +15,7 @@ from griptape_nodes.retained_mode.events.project_events import (
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
-from griptape_nodes_library.utils.situation_utils import add_situation_parameter, update_file_param_situation
+from griptape_nodes_library.utils.situation_utils import add_situation_parameter
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -76,7 +76,6 @@ class SaveToProject(SuccessFailureNode):
             source_path = _extract_source_path(value)
             if source_path:
                 self._update_default_filename(source_path)
-        update_file_param_situation(self._file_param, parameter, value, **kwargs)
         return super().after_value_set(parameter, value, **kwargs)
 
     def validate_before_node_run(self) -> list[Exception] | None:
@@ -98,6 +97,7 @@ class SaveToProject(SuccessFailureNode):
 
     async def aprocess(self) -> None:
         self._clear_execution_status()
+        self._file_param._situation_name = self.get_parameter_value("situation")
 
         source_value = self.get_parameter_value("source")
         source_path = _extract_source_path(source_value)

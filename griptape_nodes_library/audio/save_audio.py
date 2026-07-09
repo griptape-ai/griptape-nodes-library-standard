@@ -1,10 +1,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import (
-    Parameter,
-    ParameterMode,
-)
+from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
@@ -15,7 +12,7 @@ from griptape_nodes_library.utils.audio_utils import (
     extract_url_from_audio_object,
     is_audio_url_artifact,
 )
-from griptape_nodes_library.utils.situation_utils import add_situation_parameter, update_file_param_situation
+from griptape_nodes_library.utils.situation_utils import add_situation_parameter
 
 
 @dataclass
@@ -55,10 +52,6 @@ class SaveAudio(SuccessFailureNode):
             result_details_tooltip="Details about the audio save operation result",
             result_details_placeholder="Details on the save attempt will be presented here.",
         )
-
-    def after_value_set(self, parameter: Parameter, value: object, **kwargs: object) -> None:
-        update_file_param_situation(self._output_file, parameter, value, **kwargs)
-        super().after_value_set(parameter, value, **kwargs)
 
     def _extract_bytes_from_artifact(self, artifact: Any) -> bytes | None:
         """Extract bytes from various artifact types."""
@@ -138,6 +131,7 @@ class SaveAudio(SuccessFailureNode):
     async def aprocess(self) -> None:
         """Async process method."""
         self._clear_execution_status()
+        self._output_file._situation_name = self.get_parameter_value("situation")
 
         try:
             raw_audio = self.get_parameter_value("audio")
@@ -159,6 +153,7 @@ class SaveAudio(SuccessFailureNode):
     def process(self) -> None:
         """Sync process method."""
         self._clear_execution_status()
+        self._output_file._situation_name = self.get_parameter_value("situation")
 
         try:
             raw_audio = self.get_parameter_value("audio")
