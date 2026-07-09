@@ -1,12 +1,23 @@
 // _toolbar.js — Controls bar for the SelectFromGrid widget.
 //
 // Layout:
-//   [Columns ──●── N]  [Grid] [Masonry]  · · ·  [N selected]  [Clear]
+//   [Columns ──●── N]  [Grid|Masonry]  [☑ Labels] [Aa ──●── N]  · · ·  [N selected]  [Clear]
 //
 // createToolbar(opts) →
-//   { controls, colSlider, colVal, gridBtn, masonryBtn, countEl, clearBtn, setDisabled }
+//   { controls, colSlider, colVal, gridBtn, masonryBtn, countEl, clearBtn,
+//     labelsBtn, labelSizeSlider, labelSizeVal, setDisabled }
 
-export function createToolbar({ layout, columns, isDisabled, onColumnsChange, onColumnsCommit, onLayoutChange, onClear }) {
+import { mkIcon } from './_icons.js';
+
+export function createToolbar({
+  layout, columns, isDisabled,
+  showLabels, labelSize,
+  onColumnsChange, onColumnsCommit,
+  onLayoutChange,
+  onClear,
+  onLabelsToggle,
+  onLabelSizeChange, onLabelSizeCommit,
+}) {
 
   const controls = document.createElement("div");
   controls.className = "sfg-controls";
@@ -30,7 +41,7 @@ export function createToolbar({ layout, columns, isDisabled, onColumnsChange, on
   colVal.textContent = columns;
   colLabel.appendChild(colVal);
 
-  // ── Layout toggle buttons ──────────────────────────────────────────────────
+  // ── Layout toggle — segmented control ─────────────────────────────────────
 
   const layoutBtns = document.createElement("div");
   layoutBtns.className = "sfg-layout-btns";
@@ -50,6 +61,38 @@ export function createToolbar({ layout, columns, isDisabled, onColumnsChange, on
   layoutBtns.appendChild(gridBtn);
   layoutBtns.appendChild(masonryBtn);
 
+  // ── Labels checkbox toggle ─────────────────────────────────────────────────
+
+  const labelsBtn = document.createElement("button");
+  labelsBtn.type = "button";
+  labelsBtn.className = "sfg-labels-btn" + (showLabels !== false ? " active" : "");
+  labelsBtn.disabled = isDisabled;
+
+  const cbBox = document.createElement("span");
+  cbBox.className = "sfg-cb-box";
+  cbBox.appendChild(mkIcon("check", 9));
+  labelsBtn.appendChild(cbBox);
+  labelsBtn.appendChild(document.createTextNode("Labels"));
+
+  // ── Label size slider ──────────────────────────────────────────────────────
+
+  const labelSizeGroup = document.createElement("label");
+  labelSizeGroup.className = "sfg-label sfg-label-size-group";
+  labelSizeGroup.textContent = "Aa ";
+
+  const labelSizeSlider = document.createElement("input");
+  labelSizeSlider.type = "range";
+  labelSizeSlider.className = "sfg-slider";
+  labelSizeSlider.min = 8;
+  labelSizeSlider.max = 32;
+  labelSizeSlider.value = labelSize || 10;
+  labelSizeSlider.disabled = isDisabled;
+  labelSizeGroup.appendChild(labelSizeSlider);
+
+  const labelSizeVal = document.createElement("span");
+  labelSizeVal.textContent = labelSize || 10;
+  labelSizeGroup.appendChild(labelSizeVal);
+
   // ── Selection count + clear ────────────────────────────────────────────────
 
   const countEl = document.createElement("span");
@@ -65,6 +108,8 @@ export function createToolbar({ layout, columns, isDisabled, onColumnsChange, on
 
   controls.appendChild(colLabel);
   controls.appendChild(layoutBtns);
+  controls.appendChild(labelsBtn);
+  controls.appendChild(labelSizeGroup);
   controls.appendChild(countEl);
   controls.appendChild(clearBtn);
 
@@ -101,14 +146,39 @@ export function createToolbar({ layout, columns, isDisabled, onColumnsChange, on
     onClear();
   });
 
+  labelsBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+  labelsBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    labelsBtn.classList.toggle("active");
+    if (onLabelsToggle) onLabelsToggle(labelsBtn.classList.contains("active"));
+  });
+
+  labelSizeSlider.addEventListener("pointerdown", (e) => e.stopPropagation());
+  labelSizeSlider.addEventListener("input", () => {
+    const n = parseInt(labelSizeSlider.value, 10);
+    labelSizeVal.textContent = n;
+    if (onLabelSizeChange) onLabelSizeChange(n);
+  });
+  labelSizeSlider.addEventListener("change", () => {
+    if (onLabelSizeCommit) onLabelSizeCommit(parseInt(labelSizeSlider.value, 10));
+  });
+
   // ── Toolbar API ────────────────────────────────────────────────────────────
 
   function setDisabled(disabled) {
-    colSlider.disabled  = disabled;
-    gridBtn.disabled  = disabled;
-    masonryBtn.disabled = disabled;
-    clearBtn.disabled   = disabled;
+    colSlider.disabled      = disabled;
+    gridBtn.disabled        = disabled;
+    masonryBtn.disabled     = disabled;
+    clearBtn.disabled       = disabled;
+    labelsBtn.disabled      = disabled;
+    labelSizeSlider.disabled = disabled;
   }
 
-  return { controls, colSlider, colVal, gridBtn, masonryBtn, countEl, clearBtn, setDisabled };
+  return {
+    controls, colSlider, colVal,
+    gridBtn, masonryBtn,
+    countEl, clearBtn,
+    labelsBtn, labelSizeSlider, labelSizeVal,
+    setDisabled,
+  };
 }
