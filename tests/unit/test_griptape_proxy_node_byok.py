@@ -8,9 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
-    PublicArtifactUrlParameter,
-)
 
 from griptape_nodes_library.image.flux_2_image_generation import Flux2ImageGeneration
 from griptape_nodes_library.proxy import get_proxy_api_key_provider_config
@@ -35,13 +32,6 @@ def _iter_proxy_node_classes() -> Iterator[tuple[str, str]]:
 
 
 PROXY_NODE_CLASSES = tuple(_iter_proxy_node_classes())
-
-
-@pytest.fixture(autouse=True)
-def stub_public_artifact_bucket_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        PublicArtifactUrlParameter, "_get_bucket_id", staticmethod(lambda *_args, **_kwargs: "test-bucket")
-    )
 
 
 @pytest.mark.parametrize(("class_name", "module_name"), PROXY_NODE_CLASSES)
