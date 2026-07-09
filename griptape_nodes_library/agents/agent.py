@@ -1021,6 +1021,11 @@ class Agent(ControlNode):
                 incoming_base_url = incoming_provider.get("base_url", "")
                 model = agent.tasks[0].prompt_driver.model
                 if incoming_provider.get("type") == ProviderID.OLLAMA:
+                    # Native Ollama driver is required for tool calling; the OpenAI-compat path produces blank output.
+                    # Trade-off: ollama.Client accepts no api_key, so Ollama instances behind an auth reverse proxy
+                    # cannot have their credentials forwarded here. Use a non-ollama provider type for that setup.
+                    # TODO: remove once griptape exposes headers/api_key on OllamaPromptDriver
+                    #   https://github.com/griptape-ai/griptape/issues/2238
                     rebuilt_driver = GtOllamaPromptDriver(
                         model=model,
                         host=ollama_host_from_base_url(incoming_base_url),
@@ -1058,6 +1063,11 @@ class Agent(ControlNode):
                 base_url = provider_config.base_url or ""
                 api_key = self._resolve_provider_api_key(provider_config)
                 if provider_config.type == ProviderID.OLLAMA:
+                    # Native Ollama driver is required for tool calling; the OpenAI-compat path produces blank output.
+                    # Trade-off: ollama.Client accepts no api_key, so Ollama instances behind an auth reverse proxy
+                    # cannot have their credentials forwarded here. Use a non-ollama provider type for that setup.
+                    # TODO: remove once griptape exposes headers/api_key on OllamaPromptDriver
+                    #   https://github.com/griptape-ai/griptape/issues/2238
                     prompt_driver = GtOllamaPromptDriver(
                         model=model_input,
                         host=ollama_host_from_base_url(base_url),
