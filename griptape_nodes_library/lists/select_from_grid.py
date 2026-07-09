@@ -243,9 +243,7 @@ class SelectFromGrid(ControlNode):
         """Return the filename component of a media item's path or URL, or empty string."""
         if isinstance(item, str):
             return pathlib.Path(item).name
-        name = getattr(item, "name", "") or ""
-        if name:
-            return name
+        # artifact.name is a generated hash by default — use value (the file path/URL) instead
         value = getattr(item, "value", "") or ""
         return pathlib.Path(str(value)).name if isinstance(value, str) and value else ""
 
