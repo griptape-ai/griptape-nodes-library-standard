@@ -24,6 +24,7 @@ from griptape.events import (
 from griptape.memory.structure import ConversationMemory, Run
 from griptape.structures import Structure
 from griptape.tasks import PromptTask
+from griptape_nodes.drivers.cloud_models import ProviderID
 from griptape_nodes.exe_types.core_types import (
     NodeMessageResult,
     Parameter,
@@ -1011,7 +1012,7 @@ class Agent(ControlNode):
             # Wrappers from older versions lack "type"; those fall through to the OpenAI-compat driver.
             if incoming_provider:
                 incoming_base_url = incoming_provider.get("base_url", "")
-                if incoming_provider.get("type") == "ollama":
+                if incoming_provider.get("type") == ProviderID.OLLAMA:
                     rebuilt_driver = GtOllamaPromptDriver(
                         model=cast(PromptTask, agent.tasks[0]).prompt_driver.model,
                         host=ollama_host_from_base_url(incoming_base_url),
@@ -1048,7 +1049,7 @@ class Agent(ControlNode):
                 provider_config = next((p for p in providers if p.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
                 base_url = provider_config.base_url or ""
                 api_key = self._resolve_provider_api_key(provider_config)
-                if provider_config.type == "ollama":
+                if provider_config.type == ProviderID.OLLAMA:
                     prompt_driver = GtOllamaPromptDriver(
                         model=model_input,
                         host=ollama_host_from_base_url(base_url),

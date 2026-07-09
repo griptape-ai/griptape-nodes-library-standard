@@ -11,6 +11,7 @@ from griptape.drivers.prompt.ollama import OllamaPromptDriver
 from griptape.drivers.prompt.openai import OpenAiChatPromptDriver
 from griptape.rules import Rule, Ruleset
 from griptape.tasks import PromptTask
+from griptape_nodes.drivers.cloud_models import ProviderID
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +106,7 @@ def restore_provider_driver(agent: object, wrapper: dict) -> None:
     model = task.prompt_driver.model
     base_url = provider.get("base_url", "")
 
-    if provider.get("type") == "ollama":
+    if provider.get("type") == ProviderID.OLLAMA:
         rebuilt = OllamaPromptDriver(model=model, host=ollama_host_from_base_url(base_url), stream=True)
     else:
         rebuilt = OpenAiChatPromptDriver(
