@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, cast  # cast used for handle_request narr
 from griptape.artifacts import BaseArtifact, ModelArtifact, TextArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
+from griptape.drivers.prompt.ollama import OllamaPromptDriver as GtOllamaPromptDriver
 from griptape.drivers.prompt.openai import OpenAiChatPromptDriver as GtOpenAiChatPromptDriver
 from griptape.events import (
     ActionChunkEvent,
@@ -441,6 +442,19 @@ class Agent(ControlNode):
         return None
 
     # --- Helper Methods ---
+
+    @staticmethod
+    def _ollama_host_from_base_url(base_url: str) -> str | None:
+        """Convert an OpenAI-compat Ollama base_url to the host expected by OllamaPromptDriver.
+
+        Provider configs store the OpenAI-compat URL (e.g. http://localhost:11434/v1).
+        OllamaPromptDriver uses the native Ollama client, which expects just the host
+        without any path suffix (e.g. http://localhost:11434).
+        """
+        host = base_url.rstrip("/")
+        if host.endswith("/v1"):
+            host = host[:-3]
+        return host or None
 
     def _find_runs_in_data(self, data: Any) -> list[dict[str, Any]]:
         """Recursively find 'runs' array in data structure.
@@ -1007,12 +1021,20 @@ class Agent(ControlNode):
                 agent.tasks[0].output_schema = pydantic_schema
             # Rebuild the prompt driver for non-GTC providers — griptape strips api_key during serialization.
             if incoming_provider:
-                rebuilt_driver = GtOpenAiChatPromptDriver(
-                    model=cast(PromptTask, agent.tasks[0]).prompt_driver.model,
-                    base_url=incoming_provider.get("base_url", ""),
-                    api_key=incoming_provider.get("api_key") or "not-needed",
-                    stream=True,
-                )
+                incoming_base_url = incoming_provider.get("base_url", "")
+                if incoming_provider.get("type") == "ollama":
+                    rebuilt_driver = GtOllamaPromptDriver(
+                        model=cast(PromptTask, agent.tasks[0]).prompt_driver.model,
+                        host=self._ollama_host_from_base_url(incoming_base_url),
+                        stream=True,
+                    )
+                else:
+                    rebuilt_driver = GtOpenAiChatPromptDriver(
+                        model=cast(PromptTask, agent.tasks[0]).prompt_driver.model,
+                        base_url=incoming_base_url,
+                        api_key=incoming_provider.get("api_key") or "not-needed",
+                        stream=True,
+                    )
                 cast(PromptTask, agent.tasks[0]).prompt_driver = rebuilt_driver
         elif isinstance(model_input, BasePromptDriver):
             agent = GtAgent(prompt_driver=model_input, tools=tools, rulesets=rulesets, output_schema=pydantic_schema)
@@ -1029,7 +1051,7 @@ class Agent(ControlNode):
                     **args,
                 )
             else:
-                # Non-Griptape-Cloud provider: resolve config and use the OpenAI-compatible driver.
+                # Non-Griptape-Cloud provider: resolve config and pick the right driver.
                 if not _AGENT_PROVIDERS_AVAILABLE:
                     msg = f"Provider '{provider_name}' requires agent provider support which is not available in this engine version."
                     raise RuntimeError(msg)
@@ -1037,12 +1059,19 @@ class Agent(ControlNode):
                 provider_config = next((p for p in providers if p.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
                 base_url = provider_config.base_url or ""
                 api_key = self._resolve_provider_api_key(provider_config)
-                prompt_driver = GtOpenAiChatPromptDriver(
-                    model=model_input,
-                    base_url=base_url,
-                    api_key=api_key,
-                    stream=True,
-                )
+                if provider_config.type == "ollama":
+                    prompt_driver = GtOllamaPromptDriver(
+                        model=model_input,
+                        host=self._ollama_host_from_base_url(base_url),
+                        stream=True,
+                    )
+                else:
+                    prompt_driver = GtOpenAiChatPromptDriver(
+                        model=model_input,
+                        base_url=base_url,
+                        api_key=api_key,
+                        stream=True,
+                    )
             agent = GtAgent(prompt_driver=prompt_driver, tools=tools, rulesets=rulesets, output_schema=pydantic_schema)
 
         if agent is None:
@@ -1084,6 +1113,7 @@ class Agent(ControlNode):
             p = next((x for x in providers if x.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
             wrapper["provider"] = {
                 "name": provider_name,
+                "type": p.type,
                 "base_url": p.base_url or "",
                 "api_key": self._resolve_provider_api_key(p),
             }

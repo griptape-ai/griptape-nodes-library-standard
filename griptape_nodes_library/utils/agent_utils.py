@@ -5,7 +5,12 @@ wire and rebuilt fresh at the point of use.  Every node that produces or
 consumes an Agent value imports from here so the logic lives in one place.
 """
 
+from typing import cast
+
+from griptape.drivers.prompt.ollama import OllamaPromptDriver
+from griptape.drivers.prompt.openai import OpenAiChatPromptDriver
 from griptape.rules import Rule, Ruleset
+from griptape.tasks import PromptTask
 
 
 # ---------------------------------------------------------------------------
@@ -65,15 +70,11 @@ def restore_provider_driver(agent: object, wrapper: dict) -> None:
 
     When a non-GTC agent is serialized via to_dict(), griptape strips the api_key.
     Callers that deserialize via from_dict() must call this immediately after to
-    restore the correct driver for OpenAI-compatible providers.
+    restore the correct driver for the provider (Ollama native or OpenAI-compatible).
     """
     provider = wrapper.get("provider") if isinstance(wrapper, dict) else None
     if not provider:
         return
-    from typing import cast
-
-    from griptape.drivers.prompt.openai import OpenAiChatPromptDriver
-    from griptape.tasks import PromptTask
 
     tasks = getattr(agent, "tasks", None)
     if not tasks:
@@ -81,13 +82,22 @@ def restore_provider_driver(agent: object, wrapper: dict) -> None:
     task = tasks[0]
     if not isinstance(task, PromptTask):
         return
+
     model = task.prompt_driver.model
-    rebuilt = OpenAiChatPromptDriver(
-        model=model,
-        base_url=provider.get("base_url", ""),
-        api_key=provider.get("api_key") or "not-needed",
-        stream=True,
-    )
+    base_url = provider.get("base_url", "")
+
+    if provider.get("type") == "ollama":
+        host = base_url.rstrip("/")
+        if host.endswith("/v1"):
+            host = host[:-3]
+        rebuilt = OllamaPromptDriver(model=model, host=host or None, stream=True)
+    else:
+        rebuilt = OpenAiChatPromptDriver(
+            model=model,
+            base_url=base_url,
+            api_key=provider.get("api_key") or "not-needed",
+            stream=True,
+        )
     cast(PromptTask, task).prompt_driver = rebuilt
 
 
