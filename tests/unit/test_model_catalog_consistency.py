@@ -73,10 +73,10 @@ def test_declared_models_resolve_uniquely_per_node() -> None:
 
     The proxy base node resolves a selected provider model id back to its
     stable catalog key by matching within the node's own declared models
-    (`GriptapeProxyNode._resolve_catalog_model_id`). That match is unambiguous
-    only when a node does not declare two catalog ids that share a
-    `provider_model_id`; a duplicate would make the runtime resolver fail
-    closed. Guard the manifest against introducing one.
+    (`griptape_nodes_library.utils.model_invocation.resolve_catalog_model_id`).
+    That match is unambiguous only when a node does not declare two catalog
+    ids that share a `provider_model_id`; a duplicate would make the runtime
+    resolver fail closed. Guard the manifest against introducing one.
     """
     library = _load_library()
     provider_model_id_by_catalog_id = _provider_model_id_by_catalog_id(library)
