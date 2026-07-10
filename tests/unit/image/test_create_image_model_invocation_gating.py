@@ -87,3 +87,43 @@ def test_raises_before_running_when_declaration_is_denied(
         next(gen)
 
     assert ran["called"] is False
+
+
+def test_declares_enhancement_invocation_before_running_when_enabled(
+    generate_image_node: GenerateImage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With enhance_prompt on, the prompt-enhancement call is declared first.
+
+    The enhancement runs the agent's own prompt driver (default gpt-4o), a
+    distinct invocation from the image-generation driver, so it gets its own
+    declaration before `agent.run`.
+    """
+    generate_image_node.set_parameter_value("enhance_prompt", True)
+    declared: list[str] = []
+
+    def _fake_declare(_node: GenerateImage, api_model_id: str) -> _FakeDeclaration:
+        declared.append(api_model_id)
+        return _FakeDeclaration(ok=True)
+
+    monkeypatch.setattr(create_image_module, "declare_model_invocation_sync", _fake_declare)
+
+    gen = generate_image_node.process()
+    runner = next(gen)
+
+    assert declared[0] == "gpt-4o"
+    assert callable(runner)
+
+
+def test_raises_before_enhancing_when_enhancement_declaration_is_denied(
+    generate_image_node: GenerateImage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    generate_image_node.set_parameter_value("enhance_prompt", True)
+
+    def _fake_declare(_node: GenerateImage, _api_model_id: str) -> _FakeDeclaration:
+        return _FakeDeclaration(ok=False, details="enhancement denied by policy")
+
+    monkeypatch.setattr(create_image_module, "declare_model_invocation_sync", _fake_declare)
+
+    gen = generate_image_node.process()
+    with pytest.raises(RuntimeError, match="enhancement denied by policy"):
+        next(gen)

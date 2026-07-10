@@ -239,6 +239,18 @@ class GenerateImage(ControlNode):
 
         if enhance_prompt:
             self.append_value_to_parameter("logs", "Enhancing prompt...\n")
+            # This runs the agent's own prompt driver (the default gpt-4o driver, or a
+            # connected agent's) -- a model invocation distinct from the image-generation
+            # driver below, and one no dropdown selects, so its model comes from the task
+            # driver. Declare it so a denied invocation fails closed before the call.
+            enhance_model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
+            enhance_declaration = declare_model_invocation_sync(self, enhance_model)
+            if enhance_declaration.failed():
+                details = str(
+                    enhance_declaration.result_details
+                    or f"GenerateImage '{self.name}': prompt enhancement with model '{enhance_model}' was not permitted."
+                )
+                raise RuntimeError(details)
             # agent.run is a blocking operation that will hold up the rest of the engine.
             # By using `yield lambda`, the engine can run this in the background and resume when it's done.
             result = yield lambda: agent.run(
