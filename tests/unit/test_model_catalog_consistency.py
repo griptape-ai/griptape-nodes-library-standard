@@ -22,12 +22,15 @@ from griptape_nodes_library.config.image.griptape_cloud_image_driver import (
 )
 from griptape_nodes_library.config.image.grok_image_driver import MODEL_CHOICES as GROK_IMAGE_MODEL_CHOICES
 from griptape_nodes_library.config.image.openai_image_driver import MODEL_CHOICES as OPENAI_IMAGE_MODEL_CHOICES
+from griptape_nodes_library.config.prompt.anthropic_prompt import MODEL_CHOICES as ANTHROPIC_MODEL_CHOICES
 from griptape_nodes_library.config.prompt.cloud_models import MODEL_CHOICES_ARGS
 from griptape_nodes_library.config.prompt.cohere_prompt import MODEL_CHOICES as COHERE_PROMPT_MODEL_CHOICES
 from griptape_nodes_library.config.prompt.grok_prompt import MODEL_CHOICES as GROK_PROMPT_MODEL_CHOICES
 from griptape_nodes_library.config.prompt.groq_prompt import MODEL_CHOICES as GROQ_PROMPT_MODEL_CHOICES
 from griptape_nodes_library.config.prompt.nim_prompt import MODEL_CHOICES as NIM_PROMPT_MODEL_CHOICES
+from griptape_nodes_library.config.prompt.openai_prompt import MODEL_CHOICES as OPENAI_MODEL_CHOICES
 from griptape_nodes_library.image.create_image import MODEL_CHOICES as GENERATE_IMAGE_MODEL_CHOICES
+from griptape_nodes_library.image.describe_image import GTC_VISION_MODEL_CHOICES as DESCRIBE_IMAGE_MODEL_CHOICES
 
 LIBRARY_JSON = Path(__file__).parents[2] / "griptape_nodes_library.json"
 
@@ -85,6 +88,9 @@ def test_chat_node_model_usage_matches_static_choices(class_name: str) -> None:
         ("GriptapeCloudImage", GRIPTAPE_CLOUD_IMAGE_MODEL_CHOICES),
         ("OpenAiImage", OPENAI_IMAGE_MODEL_CHOICES),
         ("GrokImage", GROK_IMAGE_MODEL_CHOICES),
+        ("DescribeImage", DESCRIBE_IMAGE_MODEL_CHOICES),
+        ("OpenAiPrompt", OPENAI_MODEL_CHOICES),
+        ("AnthropicPrompt", ANTHROPIC_MODEL_CHOICES),
         ("GrokPrompt", GROK_PROMPT_MODEL_CHOICES),
         ("CoherePrompt", COHERE_PROMPT_MODEL_CHOICES),
         ("GroqPrompt", GROQ_PROMPT_MODEL_CHOICES),

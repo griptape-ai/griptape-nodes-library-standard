@@ -63,13 +63,13 @@
                 "display_name": "Claude Opus 4.7",
                 "family": "Claude 4",
                 "provider_model_id": "claude-opus-4-7",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_claude_sonnet_4_6": {
                 "display_name": "Claude Sonnet 4.6",
                 "family": "Claude 4",
                 "provider_model_id": "claude-sonnet-4-6",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_claude_sonnet_4_5": {
                 "display_name": "Claude Sonnet 4.5",
@@ -81,7 +81,7 @@
                 "display_name": "Claude Haiku 4.5",
                 "family": "Claude 4",
                 "provider_model_id": "claude-haiku-4-5",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
           },
@@ -209,7 +209,7 @@
                 "display_name": "GPT-5.2",
                 "family": "GPT",
                 "provider_model_id": "gpt-5.2",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_5_2_chat": {
                 "display_name": "GPT-5.2 Chat",
@@ -221,73 +221,73 @@
                 "display_name": "GPT-5.1",
                 "family": "GPT",
                 "provider_model_id": "gpt-5.1",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_5": {
                 "display_name": "GPT-5",
                 "family": "GPT",
                 "provider_model_id": "gpt-5",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_5_mini": {
                 "display_name": "GPT-5 mini",
                 "family": "GPT",
                 "provider_model_id": "gpt-5-mini",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_5_nano": {
                 "display_name": "GPT-5 nano",
                 "family": "GPT",
                 "provider_model_id": "gpt-5-nano",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_4_1": {
                 "display_name": "GPT-4.1",
                 "family": "GPT",
                 "provider_model_id": "gpt-4.1",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_4_1_mini": {
                 "display_name": "GPT-4.1 mini",
                 "family": "GPT",
                 "provider_model_id": "gpt-4.1-mini",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_4_1_nano": {
                 "display_name": "GPT-4.1 nano",
                 "family": "GPT",
                 "provider_model_id": "gpt-4.1-nano",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_4o": {
                 "display_name": "GPT-4o",
                 "family": "GPT",
                 "provider_model_id": "gpt-4o",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_o4_mini": {
                 "display_name": "o4 mini",
                 "family": "o-series",
                 "provider_model_id": "o4-mini",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_o3": {
                 "display_name": "o3",
                 "family": "o-series",
                 "provider_model_id": "o3",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_o3_mini": {
                 "display_name": "o3 mini",
                 "family": "o-series",
                 "provider_model_id": "o3-mini",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_o1": {
                 "display_name": "o1",
                 "family": "o-series",
                 "provider_model_id": "o1",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_image_1": {
                 "display_name": "GPT Image 1",
@@ -4046,6 +4046,16 @@
           "config",
           "anthropic",
           "llm"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_claude_opus_4_7",
+              "gtc_claude_sonnet_4_6",
+              "gtc_claude_haiku_4_5"
+            ]
+          }
         ]
       }
     },
@@ -4282,6 +4292,26 @@
           "config",
           "openai",
           "llm"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_5_2",
+              "gtc_gpt_5_1",
+              "gtc_gpt_5",
+              "gtc_gpt_5_mini",
+              "gtc_gpt_5_nano",
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_4o",
+              "gtc_o4_mini",
+              "gtc_o3",
+              "gtc_o3_mini",
+              "gtc_o1"
+            ]
+          }
         ]
       }
     },
