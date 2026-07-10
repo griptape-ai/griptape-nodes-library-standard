@@ -18,7 +18,7 @@ from griptape_nodes_library.utils.image_utils import (
     load_image_from_url_artifact,
     validate_pil_format,
 )
-from griptape_nodes_library.utils.situation_utils import add_situation_parameter
+from griptape_nodes_library.utils.situation_utils import add_situation_parameter, on_output_file_connected, on_output_file_disconnected
 
 PREVIEW_LENGTH = 50
 
@@ -257,3 +257,11 @@ class SaveImage(SuccessFailureNode):
         )
         # Use the helper to handle exception based on connection status
         self._handle_failure_exception(RuntimeError(error_details))
+
+    def after_incoming_connection(self, source_node, source_parameter, target_parameter) -> None:
+        on_output_file_connected(self, target_parameter)
+        return super().after_incoming_connection(source_node, source_parameter, target_parameter)
+
+    def after_incoming_connection_removed(self, source_node, source_parameter, target_parameter) -> None:
+        on_output_file_disconnected(self, target_parameter)
+        return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)

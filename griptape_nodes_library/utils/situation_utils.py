@@ -2,7 +2,7 @@
 
 import logging
 
-from griptape_nodes.exe_types.core_types import NodeMessageResult, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -17,6 +17,23 @@ from griptape_nodes.traits.options import Options
 logger = logging.getLogger("griptape_nodes")
 
 DEFAULT_SITUATION = ProjectFileParameter.DEFAULT_SITUATION
+_OUTPUT_FILE_PARAM = "output_file"
+
+
+def on_output_file_connected(node: BaseNode, target_parameter: Parameter) -> None:
+    """Call from after_incoming_connection to hide the situation dropdown."""
+    if target_parameter.name == _OUTPUT_FILE_PARAM:
+        param = node.get_parameter_by_name("situation")
+        if param is not None:
+            param.hide = True
+
+
+def on_output_file_disconnected(node: BaseNode, target_parameter: Parameter) -> None:
+    """Call from after_incoming_connection_removed to restore the situation dropdown."""
+    if target_parameter.name == _OUTPUT_FILE_PARAM:
+        param = node.get_parameter_by_name("situation")
+        if param is not None:
+            param.hide = False
 
 
 def fetch_situations() -> tuple[list[str], dict[str, str]]:

@@ -15,7 +15,7 @@ from griptape_nodes.retained_mode.events.project_events import (
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
-from griptape_nodes_library.utils.situation_utils import add_situation_parameter
+from griptape_nodes_library.utils.situation_utils import add_situation_parameter, on_output_file_connected, on_output_file_disconnected
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -154,3 +154,11 @@ class SaveToProject(SuccessFailureNode):
         if isinstance(result, AttemptMapAbsolutePathToProjectResultSuccess) and result.mapped_path is not None:
             return UrlArtifact(result.mapped_path)
         return UrlArtifact(str(saved_path))
+
+    def after_incoming_connection(self, source_node, source_parameter, target_parameter) -> None:
+        on_output_file_connected(self, target_parameter)
+        return super().after_incoming_connection(source_node, source_parameter, target_parameter)
+
+    def after_incoming_connection_removed(self, source_node, source_parameter, target_parameter) -> None:
+        on_output_file_disconnected(self, target_parameter)
+        return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
