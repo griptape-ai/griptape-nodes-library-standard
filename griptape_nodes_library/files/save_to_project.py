@@ -160,7 +160,7 @@ class SaveToProject(SuccessFailureNode):
         return UrlArtifact(str(saved_path))
 
     def after_incoming_connection(self, source_node, source_parameter, target_parameter) -> None:
-        on_output_file_connected(self, target_parameter)
+        on_output_file_connected(self, source_node, target_parameter)
         return super().after_incoming_connection(source_node, source_parameter, target_parameter)
 
     def after_incoming_connection_removed(self, source_node, source_parameter, target_parameter) -> None:

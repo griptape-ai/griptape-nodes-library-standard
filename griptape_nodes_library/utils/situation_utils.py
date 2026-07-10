@@ -5,6 +5,7 @@ import logging
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.files.file import FileDestinationProvider
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.events.project_events import (
     GetAllSituationsForProjectRequest,
@@ -20,9 +21,15 @@ DEFAULT_SITUATION = ProjectFileParameter.DEFAULT_SITUATION
 _OUTPUT_FILE_PARAM = "output_file"
 
 
-def on_output_file_connected(node: BaseNode, target_parameter: Parameter) -> None:
-    """Call from after_incoming_connection to hide the situation dropdown."""
-    if target_parameter.name == _OUTPUT_FILE_PARAM:
+def on_output_file_connected(node: BaseNode, source_node: BaseNode, target_parameter: Parameter) -> None:
+    """Call from after_incoming_connection to hide the situation dropdown.
+
+    Only hides when the source is a FileDestinationProvider — the same predicate
+    build_file() uses to bypass situation resolution. Plain-string connections to
+    output_file still let the situation govern the save path, so the dropdown must
+    remain visible.
+    """
+    if target_parameter.name == _OUTPUT_FILE_PARAM and isinstance(source_node, FileDestinationProvider):
         param = node.get_parameter_by_name("situation")
         if param is not None:
             param.hide = True
