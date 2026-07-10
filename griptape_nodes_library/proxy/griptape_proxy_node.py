@@ -20,7 +20,6 @@ from griptape_nodes.node_library.library_registry import get_declared_models
 from griptape_nodes.retained_mode.events.base_events import ResultPayload
 from griptape_nodes.retained_mode.events.model_events import (
     DeclareModelInvocationRequest,
-    DeclareModelInvocationResultFailure,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
@@ -315,19 +314,21 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             JSON string with base64 data elided
         """
 
-        def elide_value(obj: Any) -> Any:
+        def elide_value(obj: Any, *, key: str | None = None) -> Any:
             if isinstance(obj, str):
                 # Match data URIs with base64 encoding
                 match = re.match(r"^(data:[^;]+;base64,)(.+)$", obj)
                 if match:
                     prefix, b64_data = match.groups()
                     return f"{prefix}[{len(b64_data)} chars]"
+                if key == "bytesBase64Encoded":
+                    return f"[{len(obj)} chars base64]"
                 # Truncate any long string (>100 chars) to first 100 chars
                 if len(obj) > 100:
                     return f"{obj[:100]}... [{len(obj)} chars total]"
                 return obj
             elif isinstance(obj, dict):
-                return {k: elide_value(v) for k, v in obj.items()}
+                return {k: elide_value(v, key=k) for k, v in obj.items()}
             elif isinstance(obj, list):
                 return [elide_value(item) for item in obj]
             return obj
@@ -638,12 +639,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         model_id = self._resolve_catalog_model_id(api_model_id)
         if model_id is None:
-            return DeclareModelInvocationResultFailure(
-                result_details=(
-                    f"{self.name}: '{api_model_id}' is not a declared catalog model for this node, "
-                    f"so the invocation cannot be declared."
-                )
+            logger.warning(
+                "%s: '%s' is not a declared catalog model for this node; "
+                "declaring the invocation with the provider model id for now.",
+                self.name,
+                api_model_id,
             )
+            model_id = api_model_id
         return await GriptapeNodes.ahandle_request(
             DeclareModelInvocationRequest(model_id=model_id, node_name=self.name)
         )

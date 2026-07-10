@@ -10,6 +10,7 @@ from griptape_nodes.exe_types.node_types import (
     VariableAccess,
     VariableReference,
 )
+from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.events.node_events import (
     GetFlowForNodeRequest,
     GetFlowForNodeResultSuccess,
@@ -40,6 +41,8 @@ from griptape_nodes_library.variables.variable_utils import (
 
 logger = logging.getLogger("griptape_nodes")
 
+CREATE_NEW_SENTINEL = "Create new variable"
+
 
 class SetVariable(ControlNode):
     def __init__(
@@ -49,14 +52,15 @@ class SetVariable(ControlNode):
     ) -> None:
         super().__init__(name, metadata)
 
-        self.variable_name_param = Parameter(
+        self.variable_name_param = ParameterString(
             name="variable_name",
-            type="str",
+            placeholder_text="Select an existing variable or create a new one",
             allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT, ParameterMode.PROPERTY},
+            ui_options={"dropdown_row_icons": True},
             tooltip="Name of the variable to set. The variable is created if it does not exist.",
         )
         available_names = self._get_variable_names()
-        self.variable_name_param.add_trait(Options(choices=available_names))
+        self.variable_name_param.add_trait(Options(choices=[*available_names, CREATE_NEW_SENTINEL], show_search=True))
         self.variable_name_param.add_trait(
             Button(
                 icon="list-restart",
@@ -66,6 +70,22 @@ class SetVariable(ControlNode):
             )
         )
         self.add_parameter(self.variable_name_param)
+        self.variable_name_param.update_ui_options(
+            {
+                "data": self._build_variable_data(available_names),
+                "dropdown_row_icons": True,
+            }
+        )
+
+        self.new_variable_name_param = ParameterString(
+            name="new_variable_name",
+            allow_input=True,
+            allow_property=True,
+            placeholder_text="Enter new variable name",
+            tooltip="Name for the new variable to create.",
+        )
+        self.new_variable_name_param.hide = True
+        self.add_parameter(self.new_variable_name_param)
 
         self.value_param = Parameter(
             name="value",
@@ -85,15 +105,32 @@ class SetVariable(ControlNode):
         scope = scope_string_to_variable_scope(scope_str) if scope_str else VariableScope.HIERARCHICAL
         return list_variables(node_name=self.name, scope=scope)
 
+    def _build_variable_data(self, names: list[str]) -> list[dict]:
+        return [{"name": name} for name in names] + [{"name": CREATE_NEW_SENTINEL, "icon": "circle-plus"}]
+
+    def _resolve_variable_name(self) -> str:
+        """Return the effective variable name, resolving the 'create new' sentinel if selected."""
+        name = self.get_parameter_value(self.variable_name_param.name)
+        if name == CREATE_NEW_SENTINEL:
+            name = self.get_parameter_value(self.new_variable_name_param.name)
+        return name or ""
+
     def _refresh_variable_names(
         self, button: Button, button_details: ButtonDetailsMessagePayload
     ) -> NodeMessageResult | None:  # noqa: ARG002
         names = self._get_variable_names()
+        choices = [*names, CREATE_NEW_SENTINEL]
         current = self.get_parameter_value("variable_name")
-        self._update_option_choices(param="variable_name", choices=names, default=names[0] if names else "")
-        if current and current in names:
+        default = names[0] if names else CREATE_NEW_SENTINEL
+        self._update_option_choices(param="variable_name", choices=choices, default=default)
+        self.variable_name_param.update_ui_options({"data": self._build_variable_data(names)})
+        if current and current in choices:
             self.set_parameter_value("variable_name", current)
         return None
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter is self.variable_name_param:
+            self.new_variable_name_param.hide = value != CREATE_NEW_SENTINEL
 
     def after_incoming_connection(
         self,
@@ -147,8 +184,7 @@ class SetVariable(ControlNode):
             return value
 
         new_name = value
-        if not new_name:
-            # Clearing the field: nothing to register yet.
+        if not new_name or new_name == CREATE_NEW_SENTINEL:
             return value
 
         try:
@@ -186,7 +222,7 @@ class SetVariable(ControlNode):
     def _try_sync_variable_type(self, new_type: str) -> None:
         """Best-effort update of the engine-side variable's type; silent on any failure."""
         try:
-            variable_name = self.get_parameter_value(self.variable_name_param.name)
+            variable_name = self._resolve_variable_name()
             if not variable_name:
                 return
             current_flow_name = _get_flow_for_node(self.name)
@@ -209,7 +245,7 @@ class SetVariable(ControlNode):
             logger.debug("SetVariable '%s' skipped variable type sync: %s", self.name, exc)
 
     async def aprocess(self) -> None:
-        variable_name = self.get_parameter_value(self.variable_name_param.name)
+        variable_name = self._resolve_variable_name()
         if not variable_name:
             msg = f"SetVariable node '{self.name}' requires a non-empty variable_name."
             raise ValueError(msg)
@@ -260,7 +296,12 @@ class SetVariable(ControlNode):
                 msg = f"Failed to create variable '{variable_name}': {create_result.result_details}"
                 raise TypeError(msg)
 
-        self.parameter_output_values[self.variable_name_param.name] = variable_name
+        # Only propagate the output value when the dropdown itself holds the name.
+        # When the sentinel is active, the resolved name came from new_variable_name and
+        # writing it back through parameter_output_values would trigger the Options converter,
+        # snapping the dropdown away from the sentinel.
+        if self.get_parameter_value(self.variable_name_param.name) != CREATE_NEW_SENTINEL:
+            self.parameter_output_values[self.variable_name_param.name] = variable_name
 
     def get_node_dependencies(self) -> NodeDependencies | None:
         """Declare the variable this node reads/writes so it survives serialization.
@@ -277,7 +318,7 @@ class SetVariable(ControlNode):
         if deps is None:
             deps = NodeDependencies()
 
-        variable_name = self.get_parameter_value(self.variable_name_param.name)
+        variable_name = self._resolve_variable_name()
         if isinstance(variable_name, str) and variable_name:
             scope_str = self.get_parameter_value(self.scope_param.name)
             scope = scope_string_to_variable_scope(scope_str) if scope_str else VariableScope.HIERARCHICAL
@@ -291,7 +332,7 @@ class SetVariable(ControlNode):
     def state(self) -> NodeResolutionState:
         """Overrides BaseNode.state @property to treat it as volatile (if the value has changed, mark as unresolved)."""
         if self._state == NodeResolutionState.RESOLVED:
-            variable_name = self.get_parameter_value(self.variable_name_param.name)
+            variable_name = self._resolve_variable_name()
             scope_str = self.get_parameter_value(self.scope_param.name)
 
             # Convert scope string to VariableScope enum

@@ -8,15 +8,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
-    PublicArtifactUrlParameter,
-)
 
 from griptape_nodes_library.image.flux_2_image_generation import Flux2ImageGeneration
-from griptape_nodes_library.proxy import (
-    get_proxy_api_key_provider_config,
-    is_proxy_api_key_provider_disabled,
-)
+from griptape_nodes_library.proxy import get_proxy_api_key_provider_config
 
 
 def _iter_proxy_node_classes() -> Iterator[tuple[str, str]]:
@@ -40,20 +34,6 @@ def _iter_proxy_node_classes() -> Iterator[tuple[str, str]]:
 PROXY_NODE_CLASSES = tuple(_iter_proxy_node_classes())
 
 
-@pytest.fixture(autouse=True)
-def stub_public_artifact_bucket_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        PublicArtifactUrlParameter, "_get_bucket_id", staticmethod(lambda *_args, **_kwargs: "test-bucket")
-    )
-
-
-@pytest.mark.parametrize(("class_name", "_module_name"), PROXY_NODE_CLASSES)
-def test_every_proxy_node_explicitly_declares_byok_support_state(class_name: str, _module_name: str) -> None:
-    provider_config = get_proxy_api_key_provider_config(class_name)
-    is_disabled = is_proxy_api_key_provider_disabled(class_name)
-    assert (provider_config is not None) != is_disabled
-
-
 @pytest.mark.parametrize(("class_name", "module_name"), PROXY_NODE_CLASSES)
 def test_every_proxy_node_exposes_shared_byok_ui(class_name: str, module_name: str) -> None:
     provider_config = get_proxy_api_key_provider_config(class_name)
@@ -65,12 +45,6 @@ def test_every_proxy_node_exposes_shared_byok_ui(class_name: str, module_name: s
         (parameter for parameter in node.parameters if parameter.name == "api_key_provider"), None
     )
     api_key_provider_message = node.get_message_by_name_or_element_id("api_key_provider_message")
-
-    if is_proxy_api_key_provider_disabled(class_name):
-        assert provider_config is None
-        assert api_key_provider_parameter is None
-        assert api_key_provider_message is None
-        return
 
     assert provider_config is not None
     assert api_key_provider_parameter is not None

@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any, cast  # cast used for handle_request narr
 from griptape.artifacts import BaseArtifact, ModelArtifact, TextArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
-from griptape.drivers.prompt.openai import OpenAiChatPromptDriver as GtOpenAiChatPromptDriver
 from griptape.events import (
     ActionChunkEvent,
     FinishActionsSubtaskEvent,
@@ -49,6 +48,7 @@ from griptape_nodes_library.config.prompt.cloud_models import (
     MODEL_CHOICES_ARGS,
 )
 from griptape_nodes_library.utils.agent_utils import (
+    build_prompt_driver,
     build_rulesets_from_configs,
     build_tools,
     ruleset_to_config,
@@ -1002,18 +1002,25 @@ class Agent(ControlNode):
             agent._rulesets = build_rulesets_from_configs(ruleset_configs)
             # make sure the agent is using a PromptTask — replace rather than add to avoid two tasks
             if not isinstance(agent.tasks[0], PromptTask):
+                if incoming_provider:
+                    msg = (
+                        f"Incoming agent has a {type(agent.tasks[0]).__name__} as its first task, "
+                        "not a PromptTask. Cannot apply a non-GTC provider driver to this agent. "
+                        "Check your chain topology."
+                    )
+                    raise RuntimeError(msg)
                 agent.tasks[0] = PromptTask(prompt_driver=default_prompt_driver, output_schema=pydantic_schema)
             else:
                 agent.tasks[0].output_schema = pydantic_schema
             # Rebuild the prompt driver for non-GTC providers — griptape strips api_key during serialization.
+            # Wrappers from older versions lack "type"; those fall through to the OpenAI-compat driver.
             if incoming_provider:
-                rebuilt_driver = GtOpenAiChatPromptDriver(
-                    model=cast(PromptTask, agent.tasks[0]).prompt_driver.model,
+                cast(PromptTask, agent.tasks[0]).prompt_driver = build_prompt_driver(
+                    provider_type=incoming_provider.get("type"),
+                    model=agent.tasks[0].prompt_driver.model,
                     base_url=incoming_provider.get("base_url", ""),
-                    api_key=incoming_provider.get("api_key") or "not-needed",
-                    stream=True,
+                    api_key=incoming_provider.get("api_key"),
                 )
-                cast(PromptTask, agent.tasks[0]).prompt_driver = rebuilt_driver
         elif isinstance(model_input, BasePromptDriver):
             agent = GtAgent(prompt_driver=model_input, tools=tools, rulesets=rulesets, output_schema=pydantic_schema)
         elif isinstance(model_input, str):
@@ -1029,7 +1036,7 @@ class Agent(ControlNode):
                     **args,
                 )
             else:
-                # Non-Griptape-Cloud provider: resolve config and use the OpenAI-compatible driver.
+                # Non-Griptape-Cloud provider: resolve config and pick the right driver.
                 if not _AGENT_PROVIDERS_AVAILABLE:
                     msg = f"Provider '{provider_name}' requires agent provider support which is not available in this engine version."
                     raise RuntimeError(msg)
@@ -1037,11 +1044,11 @@ class Agent(ControlNode):
                 provider_config = next((p for p in providers if p.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
                 base_url = provider_config.base_url or ""
                 api_key = self._resolve_provider_api_key(provider_config)
-                prompt_driver = GtOpenAiChatPromptDriver(
+                prompt_driver = build_prompt_driver(
+                    provider_type=provider_config.type,
                     model=model_input,
                     base_url=base_url,
                     api_key=api_key,
-                    stream=True,
                 )
             agent = GtAgent(prompt_driver=prompt_driver, tools=tools, rulesets=rulesets, output_schema=pydantic_schema)
 
@@ -1084,6 +1091,7 @@ class Agent(ControlNode):
             p = next((x for x in providers if x.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
             wrapper["provider"] = {
                 "name": provider_name,
+                "type": p.type,
                 "base_url": p.base_url or "",
                 "api_key": self._resolve_provider_api_key(p),
             }

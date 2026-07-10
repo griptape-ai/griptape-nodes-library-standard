@@ -4,9 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import (
-    ParameterMode,
-)
+from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -19,6 +17,11 @@ from griptape_nodes_library.utils.image_utils import (
     image_to_bytes,
     load_image_from_url_artifact,
     validate_pil_format,
+)
+from griptape_nodes_library.utils.situation_utils import (
+    add_situation_parameter,
+    on_output_file_connected,
+    on_output_file_disconnected,
 )
 
 PREVIEW_LENGTH = 50
@@ -65,6 +68,7 @@ class SaveImage(SuccessFailureNode):
             name="output_file",
             default_filename="griptape_nodes.png",
         )
+        add_situation_parameter(self, self._output_file)
         self._output_file.add_parameter()
 
     def _get_target_pil_format(self) -> str:
@@ -102,6 +106,7 @@ class SaveImage(SuccessFailureNode):
     def process(self) -> None:
         # Reset execution state and result details at the start of each run
         self._clear_execution_status()
+        self._output_file._situation_name = self.get_parameter_value("situation")
 
         image = self.get_parameter_value("image")
         self.parameter_output_values["image"] = image
@@ -256,3 +261,11 @@ class SaveImage(SuccessFailureNode):
         )
         # Use the helper to handle exception based on connection status
         self._handle_failure_exception(RuntimeError(error_details))
+
+    def after_incoming_connection(self, source_node, source_parameter, target_parameter) -> None:
+        on_output_file_connected(self, source_node, target_parameter)
+        return super().after_incoming_connection(source_node, source_parameter, target_parameter)
+
+    def after_incoming_connection_removed(self, source_node, source_parameter, target_parameter) -> None:
+        on_output_file_disconnected(self, target_parameter)
+        return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)

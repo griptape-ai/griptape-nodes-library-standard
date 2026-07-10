@@ -5,7 +5,15 @@ wire and rebuilt fresh at the point of use.  Every node that produces or
 consumes an Agent value imports from here so the logic lives in one place.
 """
 
+import logging
+from typing import cast
+
+from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
+from griptape.drivers.prompt.ollama import OllamaPromptDriver
+from griptape.drivers.prompt.openai import OpenAiChatPromptDriver
 from griptape.rules import Rule, Ruleset
+from griptape.tasks import PromptTask
+from griptape_nodes.drivers.cloud_models import ProviderID
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +48,7 @@ def _patch_exa_driver() -> None:
 
 _patch_exa_driver()
 
+logger = logging.getLogger("griptape_nodes")
 
 # ---------------------------------------------------------------------------
 # Wrap / unwrap
@@ -60,20 +69,68 @@ def unwrap_agent(value: dict) -> tuple[dict, list, list]:
     return value, [], []
 
 
+def _ollama_host_from_base_url(base_url: str) -> str | None:
+    """Convert an OpenAI-compat Ollama base_url to the host expected by OllamaPromptDriver.
+
+    Provider configs store the OpenAI-compat URL (e.g. http://localhost:11434/v1).
+    OllamaPromptDriver uses the native Ollama client, which takes just the host
+    without any path suffix (e.g. http://localhost:11434). Passing None is valid
+    and causes ollama.Client to default to http://localhost:11434.
+    """
+    host = base_url.rstrip("/")
+    if host.endswith("/v1"):
+        host = host[:-3]
+    return host or None
+
+
+def build_prompt_driver(
+    *,
+    provider_type: str | None,
+    model: str,
+    base_url: str,
+    api_key: str | None = None,
+    stream: bool = True,
+) -> BasePromptDriver:
+    """Build the correct prompt driver for a provider config.
+
+    Uses the native OllamaPromptDriver for Ollama providers (required for tool
+    calling — the OpenAI-compat path produces blank output). Falls through to
+    OpenAiChatPromptDriver for all other provider types, including unknown/missing.
+
+    Note: ollama.Client accepts no api_key, so api_key is silently ignored for
+    Ollama providers. Ollama instances behind an auth reverse proxy should use a
+    non-ollama provider type to have credentials forwarded.
+    TODO: remove caveat once griptape exposes headers/api_key on OllamaPromptDriver
+      https://github.com/griptape-ai/griptape/issues/2238
+    """
+    if provider_type == ProviderID.OLLAMA:
+        # Ollama's OpenAI-compat /v1 endpoint drops tool_calls from streamed responses
+        # (ollama/ollama#9084). The native /api/chat endpoint handles tool-call streaming
+        # correctly, so we use OllamaPromptDriver instead of the OpenAI-compat driver.
+        return OllamaPromptDriver(model=model, host=_ollama_host_from_base_url(base_url), stream=stream)
+    return OpenAiChatPromptDriver(
+        model=model,
+        base_url=base_url,
+        api_key=api_key or "not-needed",
+        stream=stream,
+    )
+
+
 def restore_provider_driver(agent: object, wrapper: dict) -> None:
     """Rebuild the prompt driver from provider config stored in the wrapper.
 
     When a non-GTC agent is serialized via to_dict(), griptape strips the api_key.
     Callers that deserialize via from_dict() must call this immediately after to
-    restore the correct driver for OpenAI-compatible providers.
+    restore the correct driver for the provider (Ollama native or OpenAI-compatible).
+
+    Note: wrappers produced before the "type" key was added to the provider dict
+    (i.e. saved workflows from older versions) will have no "type" entry and fall
+    through to the OpenAI-compat driver. This is a known gap — those workflows
+    will need to be re-run once to pick up the correct driver.
     """
     provider = wrapper.get("provider") if isinstance(wrapper, dict) else None
     if not provider:
         return
-    from typing import cast
-
-    from griptape.drivers.prompt.openai import OpenAiChatPromptDriver
-    from griptape.tasks import PromptTask
 
     tasks = getattr(agent, "tasks", None)
     if not tasks:
@@ -81,14 +138,20 @@ def restore_provider_driver(agent: object, wrapper: dict) -> None:
     task = tasks[0]
     if not isinstance(task, PromptTask):
         return
-    model = task.prompt_driver.model
-    rebuilt = OpenAiChatPromptDriver(
-        model=model,
+
+    provider_type = provider.get("type")
+    if provider_type is None:
+        logger.warning(
+            "Saved agent wrapper has no provider 'type' — falling back to the OpenAI-compat driver. "
+            "If this is an Ollama provider, tool calls may silently fail. "
+            "Re-run the upstream Agent node to write the correct driver type into the wrapper."
+        )
+    cast(PromptTask, task).prompt_driver = build_prompt_driver(
+        provider_type=provider_type,
+        model=task.prompt_driver.model,
         base_url=provider.get("base_url", ""),
-        api_key=provider.get("api_key") or "not-needed",
-        stream=True,
+        api_key=provider.get("api_key"),
     )
-    cast(PromptTask, task).prompt_driver = rebuilt
 
 
 def wrap_agent(agent_dict: dict, tool_configs: list, ruleset_configs: list, *, provider: dict | None = None) -> dict:

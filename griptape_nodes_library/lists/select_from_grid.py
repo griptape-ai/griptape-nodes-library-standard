@@ -1,8 +1,9 @@
-import hashlib
 import json
+import pathlib
 from typing import Any
 
 from griptape.artifacts import AudioArtifact, ImageArtifact, ImageUrlArtifact
+from griptape_nodes.common.macro_parser import ParsedMacro
 from griptape_nodes.exe_types.core_types import (
     Parameter,
     ParameterMode,
@@ -11,6 +12,11 @@ from griptape_nodes.exe_types.core_types import (
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.files.file import File
+from griptape_nodes.retained_mode.events.artifact_events import (
+    GetPreviewForArtifactRequest,
+    GetPreviewForArtifactResultSuccess,
+)
+from griptape_nodes.retained_mode.events.project_events import MacroPath
 from griptape_nodes.retained_mode.events.static_file_events import (
     CreateStaticFileDownloadUrlFromPathRequest,
     CreateStaticFileDownloadUrlFromPathResultSuccess,
@@ -26,7 +32,6 @@ _IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
 _VIDEO_EXTENSIONS = frozenset({".mp4", ".webm", ".mov", ".avi", ".mkv"})
 _AUDIO_EXTENSIONS = frozenset({".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a"})
 
-_THUMBNAIL_MAX_DIM = 300
 # Thumbnails are resolved in chunks so the browser receives incremental updates
 # rather than waiting for all items to be processed in one silent blocking pass.
 _RESOLVE_CHUNK_SIZE = 100
@@ -103,11 +108,41 @@ class SelectFromGrid(ControlNode):
             self._apply_multi_select(bool(value))
         return super().after_value_set(parameter, value)
 
-    def process(self) -> None:
-        grid_value = self.get_parameter_value(self.grid_param.name) or {}
-        selected_indices = grid_value.get("selected_indices", [])
+    async def aprocess(self) -> None:
         list_values = self.get_parameter_value(self.list_input.name) or []
-        selected = [list_values[i] for i in selected_indices if isinstance(i, int) and i < len(list_values)]
+        current = self.get_parameter_value(self.grid_param.name) or {}
+
+        base: dict = {
+            "columns": current.get("columns", 3),
+            "layout": current.get("layout", "grid"),
+            "settings": current.get("settings", {"multi_select": True}),
+            "show_labels": current.get("show_labels", True),
+            "label_size": current.get("label_size", 10),
+        }
+        kept_indices = current.get("selected_indices", [])
+
+        # Phase 2 — resolve image previews via the engine's async preview generator,
+        # pushing chunk updates so the browser receives thumbnails incrementally.
+        widget_items = list(current.get("items", [self._serialize_item_placeholder(v) for v in list_values]))
+        for chunk_start in range(0, len(list_values), _RESOLVE_CHUNK_SIZE):
+            chunk_end = min(chunk_start + _RESOLVE_CHUNK_SIZE, len(list_values))
+            changed = False
+            for i in range(chunk_start, chunk_end):
+                item = list_values[i]
+                if self._is_image_item(item):
+                    widget_items[i] = await self._serialize_image_item_async(item)
+                    changed = True
+                elif self._is_video_item(item):
+                    widget_items[i] = await self._serialize_video_item_async(item)
+                    changed = True
+            if changed:
+                self.set_parameter_value(
+                    self.grid_param.name,
+                    {**base, "items": list(widget_items), "selected_indices": kept_indices},
+                )
+
+        # Output selected items
+        selected = [list_values[i] for i in kept_indices if isinstance(i, int) and i < len(list_values)]
         is_multi = self.get_parameter_value(self.multi_select.name)
         if is_multi is None:
             is_multi = True
@@ -117,13 +152,15 @@ class SelectFromGrid(ControlNode):
             self.parameter_output_values[self.selected_item.name] = selected[0] if selected else None
 
     def _sync_grid_items(self, list_values: Any) -> None:
-        """Serialize the incoming list to widget-friendly items and push to the grid parameter."""
+        """Phase 1 — push immediately-serializable items; image items show spinners until aprocess runs."""
         current = self.get_parameter_value(self.grid_param.name) or {}
 
         base: dict = {
             "columns": current.get("columns", 3),
             "layout": current.get("layout", "grid"),
             "settings": current.get("settings", {"multi_select": True}),
+            "show_labels": current.get("show_labels", True),
+            "label_size": current.get("label_size", 10),
         }
 
         if not isinstance(list_values, list):
@@ -133,31 +170,17 @@ class SelectFromGrid(ControlNode):
             )
             return
 
-        # Preserve the selection when the list length is unchanged (e.g. node re-run
-        # with the same inputs). Reset only when items are added or removed, because
-        # existing selected indices may no longer point to the right items.
         current_len = len(current.get("items", []))
-        placeholder_items = [self._serialize_item_placeholder(item) for item in list_values]
-        kept_indices = current.get("selected_indices", []) if len(placeholder_items) == current_len else []
+        # All items resolve synchronously in Phase 1 — images get a direct file URL
+        # (no thumbnail generation), everything else resolves as normal. aprocess
+        # upgrades image cells to engine-generated previews when the node runs.
+        phase1_items = [self._serialize_item_sync(item) for item in list_values]
+        kept_indices = current.get("selected_indices", []) if len(phase1_items) == current_len else []
 
-        # Phase 1 — push placeholders immediately so the widget shows spinners
-        # while thumbnail generation is in progress.
         self.set_parameter_value(
             self.grid_param.name,
-            {**base, "items": placeholder_items, "selected_indices": kept_indices},
+            {**base, "items": phase1_items, "selected_indices": kept_indices},
         )
-
-        # Phase 2 — resolve thumbnails in chunks and push after each chunk so the
-        # browser receives incremental updates instead of waiting for all items.
-        widget_items = list(placeholder_items)
-        for chunk_start in range(0, len(list_values), _RESOLVE_CHUNK_SIZE):
-            chunk_end = min(chunk_start + _RESOLVE_CHUNK_SIZE, len(list_values))
-            for i in range(chunk_start, chunk_end):
-                widget_items[i] = self._serialize_item(list_values[i])
-            self.set_parameter_value(
-                self.grid_param.name,
-                {**base, "items": list(widget_items), "selected_indices": kept_indices},
-            )
 
     def _apply_multi_select(self, is_multi: bool) -> None:
         """Switch between multi-select and single-select mode."""
@@ -193,6 +216,37 @@ class SelectFromGrid(ControlNode):
             self.parameter_output_values[self.selected_item.name] = item
             self.publish_update_to_parameter(self.selected_item.name, item)
 
+    @staticmethod
+    def _is_video_item(item: Any) -> bool:
+        """Return True if the item will be rendered as a video cell."""
+        if isinstance(item, dict) and "value" in item:
+            return SelectFromGrid._is_video_item(item["value"])
+        if is_video_url_artifact(item):
+            return True
+        if isinstance(item, str):
+            return pathlib.Path(item).suffix.lower() in _VIDEO_EXTENSIONS
+        return False
+
+    @staticmethod
+    def _is_image_item(item: Any) -> bool:
+        """Return True if the item will be rendered as an image cell."""
+        if isinstance(item, dict) and "value" in item:
+            return SelectFromGrid._is_image_item(item["value"])
+        if isinstance(item, (ImageUrlArtifact, ImageArtifact)):
+            return True
+        if isinstance(item, str):
+            return pathlib.Path(item).suffix.lower() in _IMAGE_EXTENSIONS
+        return False
+
+    @staticmethod
+    def _extract_media_label(item: Any) -> str:
+        """Return the filename component of a media item's path or URL, or empty string."""
+        if isinstance(item, str):
+            return pathlib.Path(item).name
+        # artifact.name is a generated hash by default — use value (the file path/URL) instead
+        value = getattr(item, "value", "") or ""
+        return pathlib.Path(str(value)).name if isinstance(value, str) and value else ""
+
     def _serialize_item_placeholder(self, item: Any) -> dict[str, Any]:
         """Return a lightweight placeholder for an item with no resolved URL.
 
@@ -206,133 +260,169 @@ class SelectFromGrid(ControlNode):
                 result["label"] = str(item["label"])
             return result
         if isinstance(item, (ImageUrlArtifact, ImageArtifact)):
-            return {"type": "image", "url": ""}
+            label = self._extract_media_label(item)
+            return {"type": "image", "url": "", **({"label": label} if label else {})}
         if is_video_url_artifact(item):
-            return {"type": "video", "url": ""}
+            label = self._extract_media_label(item)
+            return {"type": "video", "url": "", **({"label": label} if label else {})}
         if is_audio_url_artifact(item) or isinstance(item, AudioArtifact):
-            return {"type": "audio", "url": ""}
+            label = self._extract_media_label(item)
+            return {"type": "audio", "url": "", **({"label": label} if label else {})}
         if isinstance(item, str):
             lower = item.lower()
             dot = lower.rfind(".")
             ext = lower[dot:] if dot != -1 else ""
+            label = pathlib.Path(item).name if ext else ""
             if ext in _IMAGE_EXTENSIONS:
-                return {"type": "image", "url": ""}
+                return {"type": "image", "url": "", **({"label": label} if label else {})}
             if ext in _VIDEO_EXTENSIONS:
-                return {"type": "video", "url": ""}
+                return {"type": "video", "url": "", **({"label": label} if label else {})}
             if ext in _AUDIO_EXTENSIONS:
-                return {"type": "audio", "url": ""}
+                return {"type": "audio", "url": "", **({"label": label} if label else {})}
             return {"type": "text", "value": item}
         if isinstance(item, dict):
             return {"type": "dict", "value": ""}
         return {"type": "text", "value": str(item)}
 
     def _serialize_item(self, item: Any) -> dict[str, Any]:
-        """Convert a Python item to a JSON-serializable dict for the grid widget."""
-        # Dicts with a "value" key — display the inner value, optionally with a label
+        """Convert a non-image item to a JSON-serializable dict for the grid widget.
+
+        Image items are handled asynchronously in aprocess via _serialize_image_item_async.
+        """
         if isinstance(item, dict) and "value" in item:
             result = self._serialize_item(item["value"])
             if "label" in item:
                 result["label"] = str(item["label"])
             return result
 
-        # Image artifacts
-        if isinstance(item, (ImageUrlArtifact, ImageArtifact)):
-            url = self._resolve_artifact_url(item)
-            return {"type": "image", "url": url}
-
-        # Video artifacts
         if is_video_url_artifact(item):
             url = self._resolve_url_string(getattr(item, "value", ""))
-            return {"type": "video", "url": url}
+            label = self._extract_media_label(item)
+            return {"type": "video", "url": url, **({"label": label} if label else {})}
 
-        # Audio artifacts
         if is_audio_url_artifact(item) or isinstance(item, AudioArtifact):
             url = self._resolve_url_string(getattr(item, "value", ""))
-            return {"type": "audio", "url": url}
+            label = self._extract_media_label(item)
+            return {"type": "audio", "url": url, **({"label": label} if label else {})}
 
-        # Strings — detect media by file extension
         if isinstance(item, str):
             lower = item.lower()
             dot = lower.rfind(".")
             ext = lower[dot:] if dot != -1 else ""
-            if ext in _IMAGE_EXTENSIONS:
-                return {"type": "image", "url": self._resolve_image_url(item)}
+            label = pathlib.Path(item).name if ext else ""
             if ext in _VIDEO_EXTENSIONS:
-                return {"type": "video", "url": self._resolve_url_string(item)}
+                return {"type": "video", "url": self._resolve_url_string(item), **({"label": label} if label else {})}
             if ext in _AUDIO_EXTENSIONS:
-                return {"type": "audio", "url": self._resolve_url_string(item)}
-            return {"type": "text", "value": item}
+                return {"type": "audio", "url": self._resolve_url_string(item), **({"label": label} if label else {})}
+            if ext not in _IMAGE_EXTENSIONS:
+                return {"type": "text", "value": item}
 
-        # Dicts without a "value" key — render as formatted JSON
         if isinstance(item, dict):
             return {"type": "dict", "value": json.dumps(item, indent=2, default=str)}
 
-        # Primitives and anything else
         return {"type": "text", "value": str(item)}
 
-    def _make_thumbnail(self, image_bytes: bytes) -> tuple[bytes, str]:
-        """Resize image bytes to _THUMBNAIL_MAX_DIM on the longest side.
+    def _serialize_item_sync(self, item: Any) -> dict[str, Any]:
+        """Like _serialize_item but resolves image paths to a direct URL without preview generation.
 
-        Returns (thumbnail_bytes, extension). Falls back to original bytes + "png" on error.
+        Gives instant feedback in Phase 1; aprocess replaces these with proper engine previews.
         """
-        try:
-            import io
+        if isinstance(item, dict) and "value" in item:
+            result = self._serialize_item_sync(item["value"])
+            if "label" in item:
+                result["label"] = str(item["label"])
+            return result
+        if isinstance(item, (ImageUrlArtifact, ImageArtifact)):
+            path = getattr(item, "value", "")
+            url = self._resolve_url_string(str(path))
+            label = self._extract_media_label(item)
+            return {"type": "image", "url": url, **({"label": label} if label else {})}
+        if isinstance(item, str):
+            ext = pathlib.Path(item).suffix.lower()
+            label = pathlib.Path(item).name if ext else ""
+            if ext in _IMAGE_EXTENSIONS:
+                url = self._resolve_url_string(item)
+                return {"type": "image", "url": url, **({"label": label} if label else {})}
+        return self._serialize_item(item)
 
-            from PIL import Image
+    async def _serialize_image_item_async(self, item: Any) -> dict[str, Any]:
+        """Resolve an image item to a grid dict, generating a preview via the engine."""
+        if isinstance(item, dict) and "value" in item:
+            result = await self._serialize_image_item_async(item["value"])
+            if "label" in item:
+                result["label"] = str(item["label"])
+            return result
+        label = self._extract_media_label(item)
+        path = item if isinstance(item, str) else getattr(item, "value", "")
+        url = await self._resolve_image_url_async(str(path))
+        return {"type": "image", "url": url, **({"label": label} if label else {})}
 
-            img = Image.open(io.BytesIO(image_bytes))
-            if max(img.width, img.height) > _THUMBNAIL_MAX_DIM:
-                img.thumbnail((_THUMBNAIL_MAX_DIM, _THUMBNAIL_MAX_DIM), Image.Resampling.LANCZOS)
-            out = io.BytesIO()
-            try:
-                img.save(out, format="WEBP", quality=75)
-                return out.getvalue(), "webp"
-            except Exception:
-                out = io.BytesIO()
-                img.save(out, format="PNG")
-                return out.getvalue(), "png"
-        except Exception:
-            return image_bytes, "png"
+    async def _serialize_video_item_async(self, item: Any) -> dict[str, Any]:
+        """Resolve a video item, adding an engine-generated thumbnail as the poster frame."""
+        if isinstance(item, dict) and "value" in item:
+            result = await self._serialize_video_item_async(item["value"])
+            if "label" in item:
+                result["label"] = str(item["label"])
+            return result
+        label = self._extract_media_label(item)
+        path = item if isinstance(item, str) else getattr(item, "value", "")
+        url = self._resolve_url_string(str(path))
+        thumbnail = await self._resolve_preview_url_async(str(path), "Video")
+        return {
+            "type": "video",
+            "url": url,
+            **({"thumbnail": thumbnail} if thumbnail else {}),
+            **({"label": label} if label else {}),
+        }
 
-    def _resolve_artifact_url(self, artifact: ImageUrlArtifact | ImageArtifact) -> str:
-        """Resolve an image artifact to a browser-accessible thumbnail URL."""
-        if isinstance(artifact, ImageArtifact):
-            try:
-                thumb, ext = self._make_thumbnail(artifact.value)
-                # Same image bytes always produce the same filename, so if the same image
-                # appears more than once it reuses the existing file instead of writing another.
-                # Follows the pattern in add_text_to_existing_image.py.
-                content_hash = hashlib.md5(artifact.value).hexdigest()[:16]  # noqa: S324
-                return GriptapeNodes.StaticFilesManager().save_static_file(thumb, f"grid_thumb_{content_hash}.{ext}")
-            except Exception:
-                return ""
-        # ImageUrlArtifact — value is a URL string (possibly macro://)
-        return self._resolve_image_url(artifact.value)
-
-    def _resolve_image_url(self, path: str) -> str:
-        """Resolve a path to a browser URL, thumbnailing local image files."""
-        if not path:
+    async def _resolve_preview_url_async(self, path: str, provider: str) -> str:
+        """Ask the engine to generate (or load cached) preview for any artifact type, return a browser URL."""
+        if not path or path.startswith(("http://", "https://")):
             return ""
-        if path.startswith(("http://", "https://")):
-            return path
         try:
             resolved = File(path).resolve()
         except Exception:
             resolved = path
-        # Load, thumbnail, and serve the local file
         try:
-            import pathlib
-
-            image_bytes = pathlib.Path(resolved).read_bytes()
-            thumb, ext = self._make_thumbnail(image_bytes)
-            return GriptapeNodes.StaticFilesManager().save_static_file(thumb, f"grid_thumb_{hash(resolved)}.{ext}")
+            result = await GriptapeNodes.ahandle_request(
+                GetPreviewForArtifactRequest(
+                    macro_path=MacroPath(ParsedMacro(resolved), {}),
+                    artifact_provider_name=provider,
+                )
+            )
+            if isinstance(result, GetPreviewForArtifactResultSuccess):
+                preview_path = (
+                    result.paths_to_preview
+                    if isinstance(result.paths_to_preview, str)
+                    else next(iter(result.paths_to_preview.values()))
+                )
+                url_result = GriptapeNodes.handle_request(
+                    CreateStaticFileDownloadUrlFromPathRequest(file_path=preview_path)
+                )
+                if isinstance(url_result, CreateStaticFileDownloadUrlFromPathResultSuccess):
+                    return url_result.url
         except Exception:
             pass
-        # Fallback: resolve to a static download URL without thumbnailing
+        return ""
+
+    async def _resolve_image_url_async(self, path: str) -> str:
+        """Resolve an image path to a browser URL via the engine's preview generator."""
+        if not path:
+            return ""
+        if path.startswith(("http://", "https://")):
+            return path
+        url = await self._resolve_preview_url_async(path, "Image")
+        if url:
+            return url
+        # Fallback: serve the original file directly without preview generation
         try:
-            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved))
-            if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
-                return result.url
+            resolved = File(path).resolve()
+        except Exception:
+            resolved = path
+        try:
+            url_result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved))
+            if isinstance(url_result, CreateStaticFileDownloadUrlFromPathResultSuccess):
+                return url_result.url
         except Exception:
             pass
         return path

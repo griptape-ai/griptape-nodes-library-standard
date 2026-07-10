@@ -1,11 +1,11 @@
 # /// script
 # dependencies = []
 # [tool.griptape-nodes]
-# name = "test_write_image_metadata"
+# name = "test_tripo_multiview_to_3d_generation"
 # schema_version = "0.16.0"
 # engine_version_created_with = "0.77.3"
 # node_libraries_referenced = [["Griptape Nodes Library", "0.67.0"], ["Griptape Nodes Testing Library", "0.1.0"]]
-# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "WriteImageMetadataNode"], ["Griptape Nodes Library", "ToText"]]
+# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "TripoMultiviewTo3DGeneration"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
 # is_internal = true
@@ -24,7 +24,7 @@ from griptape_nodes.retained_mode.events.flow_events import (
 )
 from griptape_nodes.retained_mode.events.library_events import RegisterLibraryFromFileRequest
 from griptape_nodes.retained_mode.events.node_events import CreateNodeRequest
-from griptape_nodes.retained_mode.events.parameter_events import AddParameterToNodeRequest, SetParameterValueRequest
+from griptape_nodes.retained_mode.events.parameter_events import AddParameterToNodeRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 GriptapeNodes.handle_request(
@@ -40,20 +40,29 @@ flow_name = GriptapeNodes.handle_request(
 ).flow_name
 
 with GriptapeNodes.ContextManager().flow(flow_name):
-    source_node = GriptapeNodes.handle_request(
+    front_source_node = GriptapeNodes.handle_request(
         CreateNodeRequest(
             node_type="CreateColorBars",
             specific_library_name="Griptape Nodes Library",
-            node_name="Create Color Bars",
+            node_name="Create Color Bars Front",
+            metadata={},
+            initial_setup=True,
+        )
+    ).node_name
+    left_source_node = GriptapeNodes.handle_request(
+        CreateNodeRequest(
+            node_type="CreateColorBars",
+            specific_library_name="Griptape Nodes Library",
+            node_name="Create Color Bars Left",
             metadata={},
             initial_setup=True,
         )
     ).node_name
     gen_node = GriptapeNodes.handle_request(
         CreateNodeRequest(
-            node_type="WriteImageMetadataNode",
+            node_type="TripoMultiviewTo3DGeneration",
             specific_library_name="Griptape Nodes Library",
-            node_name="WriteImageMetadataNode",
+            node_name="TripoMultiviewTo3DGeneration",
             metadata={},
             initial_setup=True,
         )
@@ -101,27 +110,26 @@ with GriptapeNodes.ContextManager().flow(flow_name):
         )
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
-            source_node_name=source_node,
+            source_node_name=front_source_node,
             source_parameter_name="image",
             target_node_name=gen_node,
-            target_parameter_name="input_image",
+            target_parameter_name="front_image",
             initial_setup=True,
         )
     )
-    with GriptapeNodes.ContextManager().node(gen_node):
-        GriptapeNodes.handle_request(
-            SetParameterValueRequest(
-                parameter_name="metadata",
-                node_name=gen_node,
-                value={"author": "griptape-nodes-tests", "description": "integration test"},
-                initial_setup=True,
-                is_output=False,
-            )
+    GriptapeNodes.handle_request(
+        CreateConnectionRequest(
+            source_node_name=left_source_node,
+            source_parameter_name="image",
+            target_node_name=gen_node,
+            target_parameter_name="left_image",
+            initial_setup=True,
         )
+    )
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
             source_node_name=gen_node,
-            source_parameter_name="output_image",
+            source_parameter_name="model_url",
             target_node_name=to_text_node,
             target_parameter_name="from",
             initial_setup=True,
