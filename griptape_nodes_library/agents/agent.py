@@ -7,7 +7,7 @@ for tools, rulesets, prompts, and streams output back to the user interface.
 """
 
 import json
-from typing import TYPE_CHECKING, Any, cast  # cast used for handle_request narrowing
+from typing import Any, cast  # cast used for handle_request narrowing
 
 from griptape.artifacts import BaseArtifact, ModelArtifact, TextArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
@@ -57,31 +57,15 @@ from griptape_nodes_library.utils.agent_utils import (
 )
 from griptape_nodes_library.utils.error_utils import try_throw_error
 
-if TYPE_CHECKING:
-    from griptape_nodes.retained_mode.events.agent_events import (
-        ListAgentProvidersRequest,  # pyright: ignore[reportAttributeAccessIssue]
-        ListAgentProvidersResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
-        ListProviderModelsRequest,  # pyright: ignore[reportAttributeAccessIssue]
-        ListProviderModelsResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
-        ProviderConfig,  # pyright: ignore[reportAttributeAccessIssue]
-    )
+from griptape_nodes.retained_mode.events.agent_events import (
+    ListAgentProvidersRequest,
+    ListAgentProvidersResultSuccess,
+    ListProviderModelsRequest,
+    ListProviderModelsResultSuccess,
+    ProviderConfig,
+)
 
-_AGENT_PROVIDERS_AVAILABLE: bool = False
-_GRIPTAPE_CLOUD_PROVIDER: "ProviderConfig" = cast("ProviderConfig", None)
-
-try:
-    from griptape_nodes.retained_mode.events.agent_events import (
-        ListAgentProvidersRequest,  # pyright: ignore[reportAttributeAccessIssue]
-        ListAgentProvidersResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
-        ListProviderModelsRequest,  # pyright: ignore[reportAttributeAccessIssue]
-        ListProviderModelsResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
-        ProviderConfig,  # pyright: ignore[reportAttributeAccessIssue]
-    )
-
-    _AGENT_PROVIDERS_AVAILABLE = True
-    _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
-except ImportError:
-    pass
+_GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
 
 # --- Constants ---
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
@@ -357,8 +341,6 @@ class Agent(ControlNode):
 
     def _fetch_providers(self) -> "list[ProviderConfig]":
         """Fetch configured providers from the engine, falling back to griptape_cloud only."""
-        if not _AGENT_PROVIDERS_AVAILABLE:
-            return []
         _FALLBACK = [_GRIPTAPE_CLOUD_PROVIDER]
         try:
             result = GriptapeNodes.handle_request(ListAgentProvidersRequest())
@@ -389,8 +371,6 @@ class Agent(ControlNode):
 
     def _fetch_models_for_provider(self, provider_name: str) -> list[str]:
         """Return the model list for a given provider name."""
-        if not _AGENT_PROVIDERS_AVAILABLE:
-            return MODEL_CHOICES
         try:
             providers = self._fetch_providers()
             provider_config = next((p for p in providers if p.name == provider_name), None)
@@ -1039,9 +1019,6 @@ class Agent(ControlNode):
                 )
             else:
                 # Non-Griptape-Cloud provider: resolve config and pick the right driver.
-                if not _AGENT_PROVIDERS_AVAILABLE:
-                    msg = f"Provider '{provider_name}' requires agent provider support which is not available in this engine version."
-                    raise RuntimeError(msg)
                 providers = self._fetch_providers()
                 provider_config = next((p for p in providers if p.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
                 base_url = provider_config.base_url or ""
@@ -1088,7 +1065,7 @@ class Agent(ControlNode):
         wrapper = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
         # Forward provider credentials so downstream nodes can rebuild the driver —
         # griptape strips api_key from non-GTC drivers during to_dict() serialization.
-        if provider_name != "griptape_cloud" and _AGENT_PROVIDERS_AVAILABLE:
+        if provider_name != "griptape_cloud":
             providers = self._fetch_providers()
             p = next((x for x in providers if x.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
             wrapper["provider"] = {

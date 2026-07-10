@@ -1,5 +1,5 @@
 import json
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from griptape.artifacts import ImageUrlArtifact, ModelArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
@@ -37,31 +37,15 @@ from griptape_nodes_library.utils.agent_utils import (
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
 
-if TYPE_CHECKING:
-    from griptape_nodes.retained_mode.events.agent_events import (
-        ListAgentProvidersRequest,  # pyright: ignore[reportAttributeAccessIssue]
-        ListAgentProvidersResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
-        ListProviderModelsRequest,  # pyright: ignore[reportAttributeAccessIssue]
-        ListProviderModelsResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
-        ProviderConfig,  # pyright: ignore[reportAttributeAccessIssue]
-    )
+from griptape_nodes.retained_mode.events.agent_events import (
+    ListAgentProvidersRequest,
+    ListAgentProvidersResultSuccess,
+    ListProviderModelsRequest,
+    ListProviderModelsResultSuccess,
+    ProviderConfig,
+)
 
-_AGENT_PROVIDERS_AVAILABLE: bool = False
-_GRIPTAPE_CLOUD_PROVIDER: "ProviderConfig" = cast("ProviderConfig", None)
-
-try:
-    from griptape_nodes.retained_mode.events.agent_events import (
-        ListAgentProvidersRequest,  # pyright: ignore[reportAttributeAccessIssue]
-        ListAgentProvidersResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
-        ListProviderModelsRequest,  # pyright: ignore[reportAttributeAccessIssue]
-        ListProviderModelsResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
-        ProviderConfig,  # pyright: ignore[reportAttributeAccessIssue]
-    )
-
-    _AGENT_PROVIDERS_AVAILABLE = True
-    _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
-except ImportError:
-    pass
+_GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
 
 SERVICE = "Griptape"
 API_KEY_URL = "https://cloud.griptape.ai/configuration/api-keys"
@@ -212,9 +196,7 @@ class DescribeImage(ControlNode):
     # TODO: extract into ProviderSelectionComponent shared with Agent
     # https://github.com/griptape-ai/griptape-nodes-library-standard/issues/442
 
-    def _fetch_providers(self) -> "list[ProviderConfig]":
-        if not _AGENT_PROVIDERS_AVAILABLE:
-            return []  # _fetch_provider_names falls back to ["griptape_cloud"] via `or`
+    def _fetch_providers(self) -> list[ProviderConfig]:
         _FALLBACK = [_GRIPTAPE_CLOUD_PROVIDER]
         try:
             result = GriptapeNodes.handle_request(ListAgentProvidersRequest())
@@ -237,8 +219,6 @@ class DescribeImage(ControlNode):
         return "not-needed"
 
     def _fetch_models_for_provider(self, provider_name: str) -> list[str]:
-        if not _AGENT_PROVIDERS_AVAILABLE:
-            return GTC_VISION_MODEL_CHOICES if provider_name == "griptape_cloud" else []
         try:
             providers = self._fetch_providers()
             provider_config = next((p for p in providers if p.name == provider_name), None)
@@ -533,9 +513,6 @@ class DescribeImage(ControlNode):
         elif isinstance(model_input, BasePromptDriver):
             agent = GtAgent(prompt_driver=model_input, output_schema=pydantic_schema)
         elif provider_name != "griptape_cloud":
-            if not _AGENT_PROVIDERS_AVAILABLE:
-                msg = f"DescribeImage '{self.name}': provider '{provider_name}' requires agent provider support which is not available in this engine version."
-                raise RuntimeError(msg)
             providers = self._fetch_providers()
             non_gtc_provider_config = next((p for p in providers if p.name == provider_name), None)
             if non_gtc_provider_config is None:
