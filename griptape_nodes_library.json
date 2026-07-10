@@ -5219,6 +5219,24 @@
       }
     },
     {
+      "class_name": "ResolveMacroTemplate",
+      "file_path": "griptape_nodes_library/text/resolve_macro_template.py",
+      "metadata": {
+        "category": "text",
+        "description": "Resolve a macro template string by substituting variables from a dictionary. Fails with details if a variable is missing or the template has invalid syntax.",
+        "display_name": "Resolve Macro Template",
+        "icon": "braces",
+        "group": "edit",
+        "tags": [
+          "text",
+          "template",
+          "macro",
+          "resolve",
+          "substitute"
+        ]
+      }
+    },
+    {
       "class_name": "SearchWeb",
       "file_path": "griptape_nodes_library/text/search_web.py",
       "metadata": {
