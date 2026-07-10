@@ -29,8 +29,6 @@ from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
 from griptape_nodes.retained_mode.events.project_events import (
     AttemptMapAbsolutePathToProjectRequest,
     AttemptMapAbsolutePathToProjectResultSuccess,
-    GetAllSituationsForProjectRequest,
-    GetAllSituationsForProjectResultSuccess,
     GetPathForMacroRequest,
     GetPathForMacroResultSuccess,
     GetSituationRequest,
@@ -42,6 +40,11 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 from griptape_nodes.traits.options import Options
+
+from griptape_nodes_library.utils.situation_utils import (
+    build_situation_data,
+    fetch_situations,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -97,7 +100,7 @@ class FileOutputSettings(BaseNode):
 
         self._updating_lock = False
 
-        self._available_situations = self._fetch_available_situations()
+        self._available_situations, self._situation_descriptions = fetch_situations()
         self._create_parameters()
         self._load_project_situation()
 
@@ -137,28 +140,24 @@ class FileOutputSettings(BaseNode):
             coerce_extension_to_match_bytes=coerce_ext,
         )
 
-    def _fetch_available_situations(self) -> list[str]:
-        """Fetch available situations from the project manager."""
-        request = GetAllSituationsForProjectRequest()
-        result = GriptapeNodes.handle_request(request)
-
-        if not isinstance(result, GetAllSituationsForProjectResultSuccess):
-            logger.error("%s: Failed to fetch situations from project", self.name)
-            return []
-
-        return sorted(result.situations.keys())
-
     def _create_parameters(self) -> None:
         """Create all parameters for the node."""
+        self._situation_options_trait = Options(choices=self._available_situations)
         self.situation = ParameterString(
             name="situation",
             default_value=self._available_situations[0],
             allowed_modes={ParameterMode.PROPERTY},
             tooltip="Select the file save situation template to use for path resolution",
-            traits={Options(choices=self._available_situations)},
+            traits={self._situation_options_trait},
             settable=True,
         )
         self.add_parameter(self.situation)
+        self.situation.update_ui_options(
+            {
+                "data": build_situation_data(self._available_situations, self._situation_descriptions),
+                "dropdown_row_subtitles": True,
+            }
+        )
 
         with ParameterGroup(name="Situation Options") as situation_group:
             self.macro = ParameterString(
