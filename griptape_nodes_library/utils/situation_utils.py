@@ -5,8 +5,8 @@ import logging
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
-from griptape_nodes.files.file import FileDestinationProvider
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.file import FileDestinationProvider
 from griptape_nodes.retained_mode.events.project_events import (
     GetAllSituationsForProjectRequest,
     GetAllSituationsForProjectResultSuccess,
