@@ -25,17 +25,18 @@ def test_kling_text_v3_adds_4k_mode_choice() -> None:
     node.set_parameter_value("mode", "4k")
     node.set_parameter_value("model_name", "Kling v2.6")
 
-    assert _mode_choices(node) == ["pro"]
-    assert node.get_parameter_value("mode") == "pro"
-
-
-def test_kling_text_non_v3_models_do_not_accept_4k_mode() -> None:
-    node = KlingTextToVideoGeneration(name="KlingText")
-    node.set_parameter_value("model_name", "Kling v2 Master")
-    node.set_parameter_value("mode", "4k")
-
     assert _mode_choices(node) == ["std", "pro"]
     assert node.get_parameter_value("mode") == "std"
+
+
+def test_kling_text_v2_master_hides_mode_selector_and_forces_pro() -> None:
+    node = KlingTextToVideoGeneration(name="KlingText")
+    node.set_parameter_value("mode", "4k")
+
+    node.set_parameter_value("model_name", "Kling v2 Master")
+
+    assert _parameter_by_name(node, "mode").hide is True
+    assert node.get_parameter_value("mode") == "pro"
 
 
 def test_kling_image_v3_adds_4k_mode_choice() -> None:
@@ -46,7 +47,7 @@ def test_kling_image_v3_adds_4k_mode_choice() -> None:
     node.set_parameter_value("mode", "4k")
     node.set_parameter_value("model_name", "Kling v2.6")
 
-    assert _mode_choices(node) == ["pro"]
+    assert _mode_choices(node) == ["std", "pro"]
     assert node.get_parameter_value("mode") == "pro"
 
 
