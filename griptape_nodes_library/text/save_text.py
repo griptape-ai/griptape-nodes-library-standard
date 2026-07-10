@@ -5,7 +5,11 @@ from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.retained_mode.griptape_nodes import logger
 
-from griptape_nodes_library.utils.situation_utils import add_situation_parameter, on_output_file_connected, on_output_file_disconnected
+from griptape_nodes_library.utils.situation_utils import (
+    add_situation_parameter,
+    on_output_file_connected,
+    on_output_file_disconnected,
+)
 
 
 class SaveText(ControlNode):

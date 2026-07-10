@@ -18,7 +18,11 @@ from griptape_nodes_library.utils.image_utils import (
     load_image_from_url_artifact,
     validate_pil_format,
 )
-from griptape_nodes_library.utils.situation_utils import add_situation_parameter, on_output_file_connected, on_output_file_disconnected
+from griptape_nodes_library.utils.situation_utils import (
+    add_situation_parameter,
+    on_output_file_connected,
+    on_output_file_disconnected,
+)
 
 PREVIEW_LENGTH = 50
 

@@ -15,7 +15,11 @@ from griptape_nodes.retained_mode.events.project_events import (
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
-from griptape_nodes_library.utils.situation_utils import add_situation_parameter, on_output_file_connected, on_output_file_disconnected
+from griptape_nodes_library.utils.situation_utils import (
+    add_situation_parameter,
+    on_output_file_connected,
+    on_output_file_disconnected,
+)
 
 logger = logging.getLogger("griptape_nodes")
 

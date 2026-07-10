@@ -12,7 +12,11 @@ from griptape_nodes_library.utils.audio_utils import (
     extract_url_from_audio_object,
     is_audio_url_artifact,
 )
-from griptape_nodes_library.utils.situation_utils import add_situation_parameter, on_output_file_connected, on_output_file_disconnected
+from griptape_nodes_library.utils.situation_utils import (
+    add_situation_parameter,
+    on_output_file_connected,
+    on_output_file_disconnected,
+)
 
 
 @dataclass
