@@ -34,6 +34,13 @@ from griptape_nodes.exe_types.core_types import (
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.retained_mode.events.agent_events import (
+    ListAgentProvidersRequest,
+    ListAgentProvidersResultSuccess,
+    ListProviderModelsRequest,
+    ListProviderModelsResultSuccess,
+    ProviderConfig,
+)
 from griptape_nodes.retained_mode.events.connection_events import DeleteConnectionRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
@@ -56,14 +63,6 @@ from griptape_nodes_library.utils.agent_utils import (
     wrap_agent,
 )
 from griptape_nodes_library.utils.error_utils import try_throw_error
-
-from griptape_nodes.retained_mode.events.agent_events import (
-    ListAgentProvidersRequest,
-    ListAgentProvidersResultSuccess,
-    ListProviderModelsRequest,
-    ListProviderModelsResultSuccess,
-    ProviderConfig,
-)
 
 _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
 
