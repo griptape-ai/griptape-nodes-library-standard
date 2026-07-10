@@ -241,7 +241,8 @@ class DescribeImage(ControlNode):
         if provider_name == "griptape_cloud":
             # Use a curated vision-only subset rather than the full GTC model list.
             models = GTC_VISION_MODEL_CHOICES
-            new_data = MODEL_CHOICES_ARGS
+            vision_names = set(GTC_VISION_MODEL_CHOICES)
+            new_data = [entry for entry in MODEL_CHOICES_ARGS if entry["name"] in vision_names]
         else:
             models = self._fetch_models_for_provider(provider_name)
             new_data = [{"name": m, "icon": "", "args": {}} for m in models]
