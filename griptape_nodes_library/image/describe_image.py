@@ -575,12 +575,19 @@ class DescribeImage(ControlNode):
             self.parameter_output_values["output"] = "No image provided"
             return
 
-        # The model identity is settled above -- whichever branch built `agent`, its
-        # PromptTask carries a concrete prompt driver whose `model` is a required field.
-        # The util resolves that provider model id to its stable catalog key (via the
-        # node's model_usage) before declaring. Declare before the network call below so
-        # a denied invocation fails closed here rather than reaching the provider.
-        model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
+        # Declare the model that will actually run, taken from the node's own model
+        # parameter where possible: a dropdown selection is the resolved string, a
+        # directly connected driver exposes its `model`. Only a connected Agent keeps the
+        # model inside its restored task, so fall back to that there. The util resolves
+        # the provider model id to its stable catalog key (via the node's model_usage)
+        # before declaring. Declare before the network call below so a denied invocation
+        # fails closed rather than reaching the provider.
+        if isinstance(model_input, str):
+            model = model_input
+        elif isinstance(model_input, BasePromptDriver):
+            model = model_input.model
+        else:
+            model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
         declaration = declare_model_invocation_sync(self, model)
         if declaration.failed():
             details = str(
