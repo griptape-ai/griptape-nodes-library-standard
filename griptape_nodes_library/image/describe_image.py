@@ -576,17 +576,16 @@ class DescribeImage(ControlNode):
             return
 
         # The model identity is settled above -- whichever branch built `agent`, its
-        # PromptTask always carries a concrete prompt driver with a `model` attribute
-        # (griptape's Agent structure guarantees a PromptTask, and BasePromptDriver
-        # requires `model`). Declare it before the network call below so a denied
-        # invocation fails closed here rather than reaching the provider.
-        prompt_driver = cast(PromptTask, agent.tasks[0]).prompt_driver
-        api_model_id = getattr(prompt_driver, "model", None) or type(prompt_driver).__name__
-        declaration = declare_model_invocation_sync(self, api_model_id)
+        # PromptTask carries a concrete prompt driver whose `model` is a required field.
+        # The util resolves that provider model id to its stable catalog key (via the
+        # node's model_usage) before declaring. Declare before the network call below so
+        # a denied invocation fails closed here rather than reaching the provider.
+        model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
+        declaration = declare_model_invocation_sync(self, model)
         if declaration.failed():
             details = str(
                 declaration.result_details
-                or f"DescribeImage '{self.name}': invocation of model '{api_model_id}' was not permitted."
+                or f"DescribeImage '{self.name}': invocation of model '{model}' was not permitted."
             )
             raise RuntimeError(details)
 

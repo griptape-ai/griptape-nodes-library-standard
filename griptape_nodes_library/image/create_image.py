@@ -288,15 +288,15 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
         kwargs["image_generation_driver"] = driver
 
         # The image generation driver is settled above -- every branch produces a
-        # concrete BaseImageGenerationDriver, and `model` is a required field on it.
-        # Declare the invocation before swapping in the task (and the network call it
-        # triggers below) so a denied invocation fails closed here.
-        api_model_id = getattr(driver, "model", None) or type(driver).__name__
-        declaration = declare_model_invocation_sync(self, api_model_id)
+        # concrete BaseImageGenerationDriver whose `model` is a required field. The util
+        # resolves that provider model id to its stable catalog key (via the node's
+        # model_usage) before declaring. Declare before swapping in the task (and the
+        # network call it triggers below) so a denied invocation fails closed here.
+        declaration = declare_model_invocation_sync(self, driver.model)
         if declaration.failed():
             details = str(
                 declaration.result_details
-                or f"GenerateImage '{self.name}': invocation of model '{api_model_id}' was not permitted."
+                or f"GenerateImage '{self.name}': invocation of model '{driver.model}' was not permitted."
             )
             raise RuntimeError(details)
 
