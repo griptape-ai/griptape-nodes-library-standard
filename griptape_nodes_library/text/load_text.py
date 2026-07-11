@@ -70,6 +70,7 @@ class LoadText(ControlNode):
         # Get the selected file
         text_path = self.get_parameter_value("path")
 
+        # Wire-connected paths bypass after_value_set, so resolve here too
         macro_result = resolve_to_macro_path(text_path)
         if not macro_result.is_external:
             text_path = macro_result.resolved_path
