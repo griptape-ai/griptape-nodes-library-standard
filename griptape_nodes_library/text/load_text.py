@@ -8,6 +8,7 @@ from griptape_nodes.files.file import File
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 
 from griptape_nodes_library.utils.file_utils import SUPPORTED_TEXT_EXTENSIONS
+from griptape_nodes_library.utils.macro_path_utils import resolve_to_macro_path
 
 
 class LoadText(ControlNode):
@@ -49,6 +50,13 @@ class LoadText(ControlNode):
             )
         )
 
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter == self.path and value:
+            result = resolve_to_macro_path(value)
+            if not result.is_external and result.resolved_path != value:
+                self.set_parameter_value("path", result.resolved_path)
+        return super().after_value_set(parameter, value)
+
     def get_node_dependencies(self) -> NodeDependencies | None:
         deps = super().get_node_dependencies()
         if deps is None:
@@ -61,6 +69,10 @@ class LoadText(ControlNode):
     def process(self) -> None:
         # Get the selected file
         text_path = self.get_parameter_value("path")
+
+        macro_result = resolve_to_macro_path(text_path)
+        if not macro_result.is_external:
+            text_path = macro_result.resolved_path
 
         # Load file content based on extension
         ext = os.path.splitext(text_path)[1]  # noqa: PTH122
