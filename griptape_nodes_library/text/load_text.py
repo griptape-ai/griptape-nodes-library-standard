@@ -75,5 +75,4 @@ class LoadText(ControlNode):
         self.parameter_output_values["output"] = output_text
 
         # Also set in parameter_values for get_value compatibility
-        self.parameter_values["path"] = text_path
         self.parameter_values["output"] = output_text
