@@ -114,6 +114,9 @@ class ForEachGroupNode(BaseIterativeNodeGroup):
         if parameter == self.testing_mode:
             self.test_item_index.hide = not value
             self.execution_mode.hide = value
+            if not value:
+                # Restore skip/break visibility to match current execution_mode
+                super().after_value_set(self.execution_mode, self.get_parameter_value("execution_mode"))
 
     def _get_iteration_items(self) -> list[Any]:
         """Get the list of items to iterate over.
@@ -141,7 +144,7 @@ class ForEachGroupNode(BaseIterativeNodeGroup):
             raise TypeError(error_msg)
 
         if self.get_parameter_value("testing_mode") and all_items:
-            index = self.get_parameter_value("test_item_index") or 0
+            index = self.get_parameter_value("test_item_index")
             index = max(0, min(index, len(all_items) - 1))
             return [all_items[index]]
 
