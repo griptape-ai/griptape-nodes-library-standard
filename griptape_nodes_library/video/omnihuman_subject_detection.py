@@ -12,10 +12,10 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key
 from griptape_nodes_library.utils.image_utils import extract_image_url
 
 logger = logging.getLogger("griptape_nodes")
@@ -119,7 +119,7 @@ class OmnihumanSubjectDetection(GriptapeProxyNode):
 
     def _validate_api_key(self) -> str:
         """Validate that the API key is available."""
-        api_key = GriptapeNodes.SecretsManager().get_secret(self.API_KEY_NAME)
+        api_key = resolve_proxy_api_key(self.API_KEY_NAME)
         if not api_key:
             msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
             raise ValueError(msg)

@@ -18,11 +18,11 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.exe_types.param_types.parameter_three_d import Parameter3D
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.files.project_file import ProjectFileDestination
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key
 from griptape_nodes_library.three_d.three_d_artifact import ThreeDUrlArtifact
 
 logger = logging.getLogger("griptape_nodes")
@@ -387,7 +387,7 @@ class Rodin23DGeneration(GriptapeProxyNode):
         }
 
     def _validate_api_key(self) -> str:
-        api_key = GriptapeNodes.SecretsManager().get_secret(self.API_KEY_NAME)
+        api_key = resolve_proxy_api_key(self.API_KEY_NAME)
         if not api_key:
             self._set_safe_defaults()
             msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."

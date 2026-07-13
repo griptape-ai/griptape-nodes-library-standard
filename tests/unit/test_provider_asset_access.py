@@ -5,8 +5,11 @@ import pytest
 
 import griptape_nodes_library.proxy.provider_asset_access as access_module
 from griptape_nodes_library.proxy.provider_asset_access import (
+    API_KEY_NAME,
+    LICENSE_SECRET_NAME,
     ProviderAssetAccessOutcome,
     check_provider_asset_access,
+    resolve_proxy_api_key,
 )
 
 
@@ -94,3 +97,46 @@ def test_missing_api_key_is_indeterminate(monkeypatch: pytest.MonkeyPatch) -> No
     result = check_provider_asset_access()
     assert result.outcome is ProviderAssetAccessOutcome.INDETERMINATE
     assert result.is_denied is False
+
+
+def _stub_secrets(monkeypatch: pytest.MonkeyPatch, secrets: dict[str, str | None]) -> None:
+    """Make GriptapeNodes.SecretsManager().get_secret() read from an in-memory dict."""
+    monkeypatch.setattr(
+        access_module.GriptapeNodes,
+        "SecretsManager",
+        lambda: type("S", (), {"get_secret": lambda self, name: secrets.get(name)})(),
+    )
+
+
+def test_resolve_prefers_proxy_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    # GT_CLOUD_PROXY_API_KEY wins over both the License and the API key secret.
+    monkeypatch.setenv("GT_CLOUD_PROXY_API_KEY", "env-override")
+    _stub_secrets(monkeypatch, {LICENSE_SECRET_NAME: "the-license", API_KEY_NAME: "the-api-key"})
+    assert resolve_proxy_api_key() == "env-override"
+
+
+def test_resolve_prefers_license_over_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    # With no env override, a configured License wins over the API key.
+    monkeypatch.delenv("GT_CLOUD_PROXY_API_KEY", raising=False)
+    _stub_secrets(monkeypatch, {LICENSE_SECRET_NAME: "the-license", API_KEY_NAME: "the-api-key"})
+    assert resolve_proxy_api_key() == "the-license"
+
+
+def test_resolve_falls_back_to_api_key_without_license(monkeypatch: pytest.MonkeyPatch) -> None:
+    # License-only is the new path; the API-key-only path must still work unchanged.
+    monkeypatch.delenv("GT_CLOUD_PROXY_API_KEY", raising=False)
+    _stub_secrets(monkeypatch, {LICENSE_SECRET_NAME: None, API_KEY_NAME: "the-api-key"})
+    assert resolve_proxy_api_key() == "the-api-key"
+
+
+def test_resolve_uses_license_when_api_key_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The reported case: License configured, no GT_CLOUD_API_KEY set.
+    monkeypatch.delenv("GT_CLOUD_PROXY_API_KEY", raising=False)
+    _stub_secrets(monkeypatch, {LICENSE_SECRET_NAME: "the-license", API_KEY_NAME: None})
+    assert resolve_proxy_api_key() == "the-license"
+
+
+def test_resolve_returns_none_when_nothing_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GT_CLOUD_PROXY_API_KEY", raising=False)
+    _stub_secrets(monkeypatch, {LICENSE_SECRET_NAME: None, API_KEY_NAME: None})
+    assert resolve_proxy_api_key() is None
