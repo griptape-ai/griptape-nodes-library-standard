@@ -5,7 +5,7 @@ from typing import Any
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
 from griptape_nodes.exe_types.flow import ControlFlow
 from griptape_nodes.exe_types.node_types import NodeDependencies, SuccessFailureNode
-from griptape_nodes.node_library.workflow_registry import WorkflowRegistry
+from griptape_nodes.node_library.workflow_registry import WorkflowRegistry, WorkflowShape
 from griptape_nodes.retained_mode.events.execution_events import (
     StartLocalSubflowRequest,
     StartLocalSubflowResultFailure,
@@ -264,15 +264,8 @@ class SubflowWorkflowNode(SuccessFailureNode):
             self._handle_failure_exception(RuntimeError(msg))
             return
 
-        workflow = WorkflowRegistry.get_workflow_by_name(workflow_name)
-        workflow_shape = workflow.metadata.workflow_shape
-        if workflow_shape is None:
-            msg = f"Workflow '{workflow_name}' has no shape defined."
-            self._set_status_results(was_successful=False, result_details=msg)
-            self._handle_failure_exception(RuntimeError(msg))
-            return
-
-        # Use the pre-loaded subflow if available; otherwise load it now.
+        # Use the pre-loaded subflow if available; otherwise load it now. Load it before
+        # deriving the shape so the shape reflects the live (imported) nodes.
         existing_flow_names = set(GriptapeNodes.ObjectManager().get_filtered_subset(type=ControlFlow).keys())
         subflow_name = self.metadata.get("subflow_name")
         if not subflow_name or subflow_name not in existing_flow_names:
@@ -283,6 +276,20 @@ class SubflowWorkflowNode(SuccessFailureNode):
                 self._set_status_results(was_successful=False, result_details=msg)
                 self._handle_failure_exception(RuntimeError(msg))
                 return
+
+        # Re-derive the shape from the freshly-imported subflow instead of
+        # trusting the shape saved with the workflow. Importing renames any node
+        # whose name collides with an existing one (e.g. 'Start Flow' -> 'Start
+        # Flow_1'), which leaves the saved shape's node-name keys pointing at
+        # nodes that no longer exist.
+        try:
+            shape = GriptapeNodes.WorkflowManager().extract_workflow_shape(workflow_name, flow_name=subflow_name)
+        except ValueError:
+            msg = f"Workflow '{workflow_name}' has no shape defined."
+            self._set_status_results(was_successful=False, result_details=msg)
+            self._handle_failure_exception(RuntimeError(msg))
+            return
+        workflow_shape = WorkflowShape(inputs=shape["input"], outputs=shape["output"])
 
         self._set_workflow_inputs(subflow_name, workflow_shape)
         result = await GriptapeNodes.ahandle_request(StartLocalSubflowRequest(flow_name=subflow_name))
