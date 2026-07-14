@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import threading
+import time
 from abc import ABC, abstractmethod
 from contextlib import suppress
 from typing import Any
@@ -33,6 +34,12 @@ STATUS_ERRORED = "ERRORED"
 STATUS_FAILED = "FAILED"
 STATUS_COMPLETED = "COMPLETED"
 STATUS_TIMED_OUT = "TIMED_OUT"
+
+# Minimum spacing between generation submissions to the same provider, to avoid
+# overwhelming the upstream proxy when a parallel for-each loop fires many iterations at once.
+SUBMIT_SPACING_SECONDS = 0.25
+_submit_spacing_lock = asyncio.Lock()
+_last_submit_time_by_key: dict[str, float] = {}
 
 
 class GriptapeProxyNode(SuccessFailureNode, ABC):
@@ -331,6 +338,22 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         elided = elide_value(payload)
         return json.dumps(elided, indent=2)
 
+    async def _throttle_submission(self, key: str) -> None:
+        """Stagger concurrent submissions to the same provider by SUBMIT_SPACING_SECONDS.
+
+        Holding the lock across the sleep serializes the *spacing* (not the POST): the first
+        caller passes through immediately, each subsequent caller within the window is delayed
+        so starts land ~SUBMIT_SPACING_SECONDS apart. No-op when submissions are already spread out.
+        """
+        async with _submit_spacing_lock:
+            last = _last_submit_time_by_key.get(key, 0.0)
+            elapsed = time.monotonic() - last
+            if last and elapsed < SUBMIT_SPACING_SECONDS:
+                wait = SUBMIT_SPACING_SECONDS - elapsed
+                self._log(f"Spacing submission by {wait:.2f}s to avoid proxy burst")
+                await asyncio.sleep(wait)
+            _last_submit_time_by_key[key] = time.monotonic()
+
     async def _submit_generation(
         self, payload: dict[str, Any], headers: dict[str, str], api_model_id: str
     ) -> str | None:
@@ -347,6 +370,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Raises:
             RuntimeError: If the API request fails
         """
+        throttle_key = self._api_key_provider.provider_id if self._api_key_provider else api_model_id
+        await self._throttle_submission(throttle_key)
+
         proxy_url = urljoin(self._proxy_base, f"models/{api_model_id}")
         self._log(f"Submitting generation request to {proxy_url}")
         self._log(f"Request payload:\n{self._elide_base64_in_payload(payload)}")
