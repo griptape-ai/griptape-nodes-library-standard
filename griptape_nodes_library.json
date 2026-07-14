@@ -1018,7 +1018,7 @@
           },
           "nvidia_nim": {
             "display_name": "NVIDIA NIM",
-            "notes": "NVIDIA NIM is a serving platform, not a model vendor; the models below (Llama, Gemma, DeepSeek, Mistral, etc.) are served through NVIDIA's infrastructure under NVIDIA's own model ids. Using the serving platform as the provider key here is provisional pending the platform-as-provider convention discussion in issue #429 (Amazon Bedrock).",
+            "notes": "NVIDIA NIM is a serving platform, not a model vendor; the models below (Llama, Gemma, DeepSeek, Mistral, etc.) are served through NVIDIA's infrastructure under NVIDIA's own model ids. Cataloguing the serving platform as the provider key follows the same convention settled for Amazon Bedrock (see issue #429): provider_model_id stays the literal wire id the platform's API expects, even when it duplicates a model also catalogued under its original vendor.",
             "models": {
               "nim_deepseek_v3_1": {
                 "display_name": "DeepSeek V3.1",
@@ -1111,6 +1111,84 @@
                 "key_support": "REQUIRES_CUSTOMER_KEY"
               }
             }
+          },
+          "amazon_bedrock": {
+            "display_name": "Amazon Bedrock",
+            "notes": "Amazon Bedrock re-serves models from other vendors (Anthropic, DeepSeek, Meta) plus Amazon's own Titan models, all under Bedrock's own wire ids -- often region-prefixed cross-region inference profile ids (a 'us.' prefix) and sometimes date-suffixed -- which don't match the bare provider_model_ids the same underlying models use under the anthropic, deepseek, and meta providers elsewhere in this catalog. Bedrock is catalogued as its own provider so provider_model_id stays the literal wire id Bedrock's API expects; the same underlying model can therefore appear under two providers with two different provider_model_ids.",
+            "models": {
+              "bedrock_claude_opus_4_7": {
+                "display_name": "Claude Opus 4.7",
+                "family": "Claude 4",
+                "provider_model_id": "us.anthropic.claude-opus-4-7",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_claude_sonnet_4_6": {
+                "display_name": "Claude Sonnet 4.6",
+                "family": "Claude 4",
+                "provider_model_id": "us.anthropic.claude-sonnet-4-6",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_claude_sonnet_4_5": {
+                "display_name": "Claude Sonnet 4.5",
+                "family": "Claude 4",
+                "provider_model_id": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_claude_haiku_4_5": {
+                "display_name": "Claude Haiku 4.5",
+                "family": "Claude 4",
+                "provider_model_id": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_deepseek_v3_2": {
+                "display_name": "DeepSeek V3.2",
+                "family": "DeepSeek V3",
+                "provider_model_id": "deepseek.v3.2",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_deepseek_r1": {
+                "display_name": "DeepSeek R1",
+                "family": "DeepSeek R1",
+                "provider_model_id": "us.deepseek.r1-v1:0",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_llama_3_3_70b": {
+                "display_name": "Llama 3.3 70B Instruct",
+                "family": "Llama 3",
+                "provider_model_id": "us.meta.llama3-3-70b-instruct-v1:0",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_llama_3_1_70b": {
+                "display_name": "Llama 3.1 70B Instruct",
+                "family": "Llama 3",
+                "provider_model_id": "us.meta.llama3-1-70b-instruct-v1:0",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_titan_text_premier": {
+                "display_name": "Titan Text Premier",
+                "family": "Titan Text",
+                "provider_model_id": "amazon.titan-text-premier-v1:0",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_titan_text_express": {
+                "display_name": "Titan Text Express",
+                "family": "Titan Text",
+                "provider_model_id": "amazon.titan-text-express-v1",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_titan_text_lite": {
+                "display_name": "Titan Text Lite",
+                "family": "Titan Text",
+                "provider_model_id": "amazon.titan-text-lite-v1",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              }
+            }
+          },
+          "ollama": {
+            "display_name": "Ollama",
+            "notes": "Ollama is a local-runtime provider: models are whatever the user has pulled into their own local Ollama server, discovered dynamically by OllamaPrompt at runtime rather than declared statically here. The provider declares no models and sets key_support at the provider level instead, per KeySupport's documented default for a local-runtime provider with no enumerated models of its own.",
+            "key_support": "NO_KEY_REQUIRED",
+            "models": {}
           }
         }
       }
@@ -4025,6 +4103,24 @@
           "aws",
           "bedrock",
           "llm"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "bedrock_claude_opus_4_7",
+              "bedrock_claude_sonnet_4_6",
+              "bedrock_claude_sonnet_4_5",
+              "bedrock_claude_haiku_4_5",
+              "bedrock_deepseek_v3_2",
+              "bedrock_deepseek_r1",
+              "bedrock_llama_3_3_70b",
+              "bedrock_llama_3_1_70b",
+              "bedrock_titan_text_premier",
+              "bedrock_titan_text_express",
+              "bedrock_titan_text_lite"
+            ]
+          }
         ]
       }
     },
@@ -4271,6 +4367,14 @@
           "ollama",
           "llm",
           "local"
+        ],
+        "declarations": [
+          {
+            "type": "model_provider_usage",
+            "provider_ids": [
+              "ollama"
+            ]
+          }
         ]
       }
     },
