@@ -5467,6 +5467,17 @@
           "agent",
           "math",
           "fun"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_5"
+            ]
+          }
         ]
       }
     },
@@ -5659,6 +5670,14 @@
         "tags": [
           "text",
           "random"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_4_1_nano"
+            ]
+          }
         ]
       }
     },
@@ -5675,6 +5694,17 @@
           "text",
           "utility",
           "datetime"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_5"
+            ]
+          }
         ]
       }
     },
@@ -5720,6 +5750,17 @@
           "agent",
           "ai",
           "evaluation"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_5"
+            ]
+          }
         ]
       }
     },
@@ -5753,6 +5794,17 @@
           "web",
           "api",
           "scrape"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_5"
+            ]
+          }
         ]
       }
     },
@@ -5786,6 +5838,17 @@
           "web",
           "api",
           "search"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_5"
+            ]
+          }
         ]
       }
     },
@@ -5803,6 +5866,17 @@
           "agent",
           "ai",
           "summarize"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_5"
+            ]
+          }
         ]
       }
     },
@@ -5899,6 +5973,14 @@
           "agent",
           "mcp",
           "api"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_4_1"
+            ]
+          }
         ]
       }
     },
