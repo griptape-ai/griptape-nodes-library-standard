@@ -86,19 +86,28 @@ class SaveVideo(SuccessFailureNode):
         if is_video_url_artifact(raw_input):
             url = extract_url_from_video_object(raw_input)
             if url:
+                # Resolve macro paths (e.g. "{inputs}/videos/clip.mp4") to a concrete
+                # path before the permission check. The engine ffprobes source_path
+                # as-is, and an unresolved macro is not a probeable file, so passing
+                # the raw macro fails the check closed even for permitted codecs.
+                # Plain paths and remote URLs pass through resolve() unchanged. This
+                # mirrors BaseVideoProcessor, which resolves in _get_video_input_data
+                # before its own read-permission check.
+                source_file = File(url)
+                resolved_path = source_file.resolve()
                 # Ask the engine whether this file may be read before loading its bytes.
                 # A denial raises here so the URL is never fetched. The write side (final
                 # File.write_bytes on aprocess/process) is still checked independently by
                 # the engine's OSManager -- this call is a UX shortcut so denials surface
                 # before the bytes are pulled over the network.
-                result = GriptapeNodes.handle_request(CheckArtifactReadPermissionRequest(source_path=url))
+                result = GriptapeNodes.handle_request(CheckArtifactReadPermissionRequest(source_path=resolved_path))
                 if not isinstance(result, CheckArtifactReadPermissionResultSuccess):
                     msg = f"Cannot load '{url}': the video codec permission check failed. {result.result_details}"
                     raise ValueError(msg)
                 if result.denial is not None:
                     msg = f"Cannot load '{url}': {result.denial.reason()}"
                     raise ValueError(msg)
-                video_bytes = File(url).read_bytes()
+                video_bytes = source_file.read_bytes()
                 return VideoInput(data=video_bytes, source_url=url)
 
         # Handle all other cases - try to extract bytes
