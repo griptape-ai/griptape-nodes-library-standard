@@ -1048,19 +1048,15 @@ class Agent(ControlNode):
             self._apply_memory_to_agent(agent, agent_memory)
 
         if prompt and not prompt.isspace():
-            # Declare the model that will actually run, taken from the node's own model
-            # parameter where possible: a dropdown selection is the resolved string, a
-            # directly connected driver exposes its `model`. Only a connected Agent keeps
-            # the model inside its restored task, so fall back to that there. The util
-            # resolves the provider model id to its stable catalog key (via the node's
-            # model_usage) before declaring. Declare before the network call below so a
-            # denied invocation fails closed rather than reaching the provider.
-            if isinstance(model_input, str):
-                model = model_input
-            elif isinstance(model_input, BasePromptDriver):
-                model = model_input.model
-            else:
-                model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
+            # Declare the model that will actually run. Every construction branch above
+            # ends with the concrete prompt driver installed on the agent's PromptTask,
+            # so read the model from there. The node's own `model` parameter is not a
+            # trustworthy source: it keeps its last dropdown value (hidden, not cleared)
+            # while a connected Agent supplies the real driver. The util resolves the
+            # provider model id to its stable catalog key (via the node's model_usage)
+            # before declaring. Declare before the network call below so a denied
+            # invocation fails closed rather than reaching the provider.
+            model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
             declaration = declare_model_invocation_sync(self, model)
             if declaration.failed():
                 details = str(

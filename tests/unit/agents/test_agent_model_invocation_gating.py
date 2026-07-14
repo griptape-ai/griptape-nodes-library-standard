@@ -95,3 +95,40 @@ def test_falls_back_to_default_message_when_result_details_missing(
     gen = agent_node.process()
     with pytest.raises(RuntimeError, match="was not permitted"):
         next(gen)
+
+
+def test_declares_connected_agents_model_over_stale_dropdown_value(
+    agent_node: Agent, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A connected Agent supplies the model that actually runs.
+
+    The node's own `model` dropdown keeps its last value when an upstream Agent
+    is connected -- the parameter is hidden, not cleared -- so the declaration
+    must read the model from the restored agent's task driver, not from the
+    stale parameter value.
+    """
+    from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
+    from griptape.structures import Agent as GtStructureAgent
+
+    from griptape_nodes_library.utils.agent_utils import wrap_agent
+
+    # Restoring the wrapper rebuilds a GriptapeCloudPromptDriver, whose api_key
+    # default reads this env var.
+    monkeypatch.setenv("GT_CLOUD_API_KEY", "fake-key")
+    upstream = GtStructureAgent(prompt_driver=GriptapeCloudPromptDriver(model="gpt-4.1", api_key="fake-key"))
+    agent_node.set_parameter_value("agent", wrap_agent(upstream.to_dict(), [], []))
+    # The dropdown still holds its previous selection (set in the fixture).
+    assert agent_node.get_parameter_value("model") == "claude-sonnet-4-6"
+
+    captured: dict[str, Any] = {}
+
+    def _fake_declare(node: Agent, api_model_id: str) -> _FakeDeclaration:
+        captured["api_model_id"] = api_model_id
+        return _FakeDeclaration(ok=True)
+
+    monkeypatch.setattr(agent_module, "declare_model_invocation_sync", _fake_declare)
+
+    gen = agent_node.process()
+    next(gen)
+
+    assert captured["api_model_id"] == "gpt-4.1"
