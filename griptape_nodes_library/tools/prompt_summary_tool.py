@@ -28,6 +28,13 @@ class PromptSummary(BaseTool):
             msg = "Prompt driver is required for PromptSummaryTool."
             raise ValueError(msg)
 
+        # Gate every actual model call the summary engine makes through this
+        # driver. `PromptSummaryEngine` invokes `prompt_driver.run(...)` directly,
+        # well after this `process()` call has returned control -- see
+        # `BaseTool._gate_prompt_driver` for why the declaration has to be wrapped
+        # onto the driver here rather than dispatched from this method.
+        self._gate_prompt_driver(prompt_driver)
+
         # Create the engine with the prompt driver (engine handles the summarization logic)
         engine = PromptSummaryEngine(prompt_driver=prompt_driver)
 
