@@ -712,8 +712,11 @@ class Agent(ControlNode):
             self.hide_parameter_by_name(params_to_toggle)
 
         if target_parameter.name == "model" and source_parameter.name == "prompt_model_config":
-            # Remove the options trait
-            target_parameter.remove_trait(trait_type=target_parameter.find_elements_by_type(Options)[0])
+            # Remove the options trait. Defensive guard so this stays idempotent instead
+            # of raising IndexError.
+            options_traits = target_parameter.find_elements_by_type(Options)
+            if options_traits:
+                target_parameter.remove_trait(trait_type=options_traits[0])
 
             # Check and see if the incoming connection is from a prompt model config or an agent.
             target_parameter.type = source_parameter.type
@@ -774,6 +777,10 @@ class Agent(ControlNode):
             # Restore choices for the currently selected provider.
             current_provider = self.get_parameter_value("model_provider") or "griptape_cloud"
             restored_models = self._fetch_models_for_provider(current_provider)
+            # The connect hook stripped the Options trait; reinstall it before updating
+            # choices, otherwise _update_option_choices raises "No Options trait found".
+            if not target_parameter.find_elements_by_type(Options):
+                target_parameter.add_trait(Options(choices=restored_models))
             self._update_option_choices(param="model", choices=restored_models, default=DEFAULT_MODEL)
 
             # Change the display name to be appropriate
