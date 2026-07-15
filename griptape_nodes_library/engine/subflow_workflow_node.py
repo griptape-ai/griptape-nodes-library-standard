@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import uuid4
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
 from griptape_nodes.exe_types.flow import ControlFlow
@@ -10,7 +11,7 @@ from griptape_nodes.retained_mode.events.execution_events import (
     StartLocalSubflowRequest,
     StartLocalSubflowResultFailure,
 )
-from griptape_nodes.retained_mode.events.flow_events import DeleteFlowRequest
+from griptape_nodes.retained_mode.events.flow_events import DeleteFlowRequest, SetFlowMetadataRequest
 from griptape_nodes.retained_mode.events.node_events import GetFlowForNodeRequest, GetFlowForNodeResultSuccess
 from griptape_nodes.retained_mode.events.parameter_events import (
     RemoveParameterFromNodeRequest,
@@ -28,10 +29,30 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
+# Node-metadata key holding the name of the imported child flow this node last
+# bound to. It is a fast hint only; ``SUBFLOW_OWNER_KEY`` is the authoritative
+# link (see below).
+SUBFLOW_NAME_KEY = "subflow_name"
+
+# Node-metadata key recording which registered workflow the current subflow was
+# imported from, so a reload can tell "already loaded" from "workflow changed".
+SUBFLOW_WORKFLOW_KEY = "_subflow_workflow"
+
+# Metadata key stored on BOTH the Workflow node and its imported child flow. The
+# shared UUID binds a specific node to the specific subflow it imported, so the
+# two stay linked across saves, flow-name de-duplication, and nesting where the
+# recorded ``subflow_name`` may no longer match.
+SUBFLOW_OWNER_KEY = "subflow_owner_uuid"
+
 
 class SubflowWorkflowNode(SuccessFailureNode):
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
+        # Establish this node's stable owner UUID once, up front, so it exists
+        # before any subflow import needs it. Preserved from saved metadata on
+        # load; generated for brand-new nodes. It binds the node to the specific
+        # child flow it imports.
+        self.metadata.setdefault(SUBFLOW_OWNER_KEY, str(uuid4()))
         result = GriptapeNodes.handle_request(ListCallableWorkflowsRequest())
         if isinstance(result, ListCallableWorkflowsResultSuccess):
             # Add pyright ignore here becuase we know ListCallableWOrkflowsResultSuccess reutrns workflow_names
@@ -76,13 +97,22 @@ class SubflowWorkflowNode(SuccessFailureNode):
         self._create_status_parameters()
 
     def after_node_deleted(self) -> None:
-        subflow_name = self.metadata.get("subflow_name")
-        if subflow_name is not None:
-            # The subflow may have already been deleted if the parent flow was deleted first
-            # (parent flow deletion deletes child flows before nodes).
-            subflow = GriptapeNodes.ObjectManager().attempt_get_object_by_name_as_type(subflow_name, ControlFlow)
-            if subflow is not None:
-                GriptapeNodes.handle_request(DeleteFlowRequest(flow_name=subflow_name))
+        # Delete the child flow we own.
+        #
+        # A None result can mean either:
+        #
+        # - our subflow was already legitimately deleted (flows are cleaned
+        #   before nodes when the parent flow is deleted); or
+        # - we point to a legacy subflow (i.e. without UUID) AND this node has
+        #   never been executed (so a matching subflow has not been claimed).
+        #
+        # In the second case, we may leak the subflow. This seems preferable to
+        # potentially deleting an unrelated flow (since in this case we only have
+        # subflow_name to match with, which is an unstable reference).
+        owned_subflow = self._find_owned_subflow_name()
+        if owned_subflow is None:
+            return
+        GriptapeNodes.handle_request(DeleteFlowRequest(flow_name=owned_subflow))
 
     def _on_refresh_workflow(self, button: Button, button_details: ButtonDetailsMessagePayload) -> None:  # noqa: ARG002
         workflow_name = self.get_parameter_value("workflow_file")
@@ -90,7 +120,7 @@ class SubflowWorkflowNode(SuccessFailureNode):
             return
         self._update_workflow_shape_parameters(workflow_name, preserve_matching=True)
         # Clear so _reload_subflow doesn't skip the reload for the same workflow.
-        self.metadata.pop("_subflow_workflow", None)
+        self.metadata.pop(SUBFLOW_WORKFLOW_KEY, None)
         self._reload_subflow(workflow_name)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
@@ -118,17 +148,19 @@ class SubflowWorkflowNode(SuccessFailureNode):
         return deps
 
     def _reload_subflow(self, workflow_name: str) -> None:
-        existing_subflow = self.metadata.get("subflow_name")
-        if existing_subflow:
-            existing_flow_names = set(GriptapeNodes.ObjectManager().get_filtered_subset(type=ControlFlow).keys())
-            # Skip if this workflow is already loaded and the flow still exists.
-            if self.metadata.get("_subflow_workflow") == workflow_name and existing_subflow in existing_flow_names:
+        # Find the subflow this node actually owns (by UUID), never one it
+        # merely shares a name with.
+        owned_subflow = self._resolve_subflow_name(workflow_name)
+        if owned_subflow is not None:
+            # Already own a live subflow for THIS workflow -> keep it.
+            if self.metadata.get(SUBFLOW_WORKFLOW_KEY) == workflow_name:
+                self.metadata[SUBFLOW_NAME_KEY] = owned_subflow
                 return
-            # Only delete if the flow still exists (it may be stale from a previous session).
-            if existing_subflow in existing_flow_names:
-                GriptapeNodes.handle_request(DeleteFlowRequest(flow_name=existing_subflow))
-            del self.metadata["subflow_name"]
-            self.metadata.pop("_subflow_workflow", None)
+            # Own a subflow for a DIFFERENT workflow -> tear it down before
+            # importing the new one.
+            GriptapeNodes.handle_request(DeleteFlowRequest(flow_name=owned_subflow))
+        self.metadata.pop(SUBFLOW_NAME_KEY, None)
+        self.metadata.pop(SUBFLOW_WORKFLOW_KEY, None)
 
         if not workflow_name or not WorkflowRegistry.has_workflow_with_name(workflow_name):
             return
@@ -142,8 +174,106 @@ class SubflowWorkflowNode(SuccessFailureNode):
             ImportWorkflowAsReferencedSubFlowRequest(workflow_name=workflow_name, flow_name=flow_result.flow_name)
         )
         if isinstance(result, ImportWorkflowAsReferencedSubFlowResultSuccess):
-            self.metadata["subflow_name"] = result.created_flow_name
-            self.metadata["_subflow_workflow"] = workflow_name
+            self.metadata[SUBFLOW_NAME_KEY] = result.created_flow_name
+            self.metadata[SUBFLOW_WORKFLOW_KEY] = workflow_name
+            # Mirror this node's owner UUID (established in __init__) onto the
+            # imported flow so the pairing survives serialization and any later
+            # flow-name changes.
+            self._stamp_subflow_uuid(result.created_flow_name, self.metadata[SUBFLOW_OWNER_KEY])
+
+    def _resolve_subflow_name(self, workflow_name: str) -> str | None:
+        """Return the name of the subflow this node owns, or ``None`` if it isn't loaded.
+
+        Prefers the flow stamped with this node's owner UUID, so two nodes
+        referencing the same workflow - or a nested node whose recorded name
+        shifted on import - each bind to their OWN subflow rather than
+        colliding. Falls back to adopting a legacy (pre-UUID) recorded subflow,
+        stamping it so future lookups match by UUID.
+        """
+        owned = self._find_owned_subflow_name()
+        if owned is not None:
+            return owned
+
+        # Fallback for legacy workflows saved without UUID metadata.
+        recorded = self._recorded_subflow_if_unclaimed()
+        if recorded is None:
+            return None
+
+        # Legacy (pre-UUID) subflow: adopt the recorded flow by stamping this
+        # node's owner UUID.
+        self._stamp_subflow_uuid(recorded, self.metadata[SUBFLOW_OWNER_KEY])
+        logger.warning(
+            "Node '%s' adopted legacy referenced subflow '%s' (workflow '%s') that carried no owner UUID. Stamped"
+            " owner UUID '%s' onto it; re-save the workflow to persist the link.",
+            self.name,
+            recorded,
+            workflow_name,
+            self.metadata[SUBFLOW_OWNER_KEY],
+        )
+        return recorded
+
+    def _find_owned_subflow_name(self) -> str | None:
+        """Return the flow stamped with this node's owner UUID, or ``None``.
+
+        The authoritative node<->flow link, with no side effects. Tries the
+        recorded ``subflow_name`` first as an O(1) lookup (the common case) and
+        only scans every flow when that hint is missing or no longer points at a
+        flow we own (e.g. after de-dup / nesting renames).
+        """
+        owner_uuid = self.metadata[SUBFLOW_OWNER_KEY]
+
+        # Quick path: the recorded name usually still points at the flow we own.
+        recorded = self.metadata.get(SUBFLOW_NAME_KEY)
+        if recorded:
+            recorded_flow = GriptapeNodes.ObjectManager().attempt_get_object_by_name_as_type(recorded, ControlFlow)
+            if recorded_flow is not None and recorded_flow.metadata.get(SUBFLOW_OWNER_KEY) == owner_uuid:
+                return recorded
+
+        # Slow path: scan every flow for this node's owner UUID.
+        flows = GriptapeNodes.ObjectManager().get_filtered_subset(type=ControlFlow)
+        for candidate_name, flow in flows.items():
+            if flow.metadata.get(SUBFLOW_OWNER_KEY) == owner_uuid:
+                return candidate_name
+        return None
+
+    def _recorded_subflow_if_unclaimed(self) -> str | None:
+        """Return the recorded ``subflow_name`` only if it is safe to treat as ours.
+
+        .. deprecated::
+            Legacy-compatibility only. Covers pre-UUID subflows that were never
+            stamped with an owner UUID (so ``_find_owned_subflow_name`` misses
+            them), binding by recorded name instead. Once every saved workflow
+            carries owner UUIDs, nothing reaches this path and it (with its
+            callers' fallbacks) can be removed.
+
+        We only claim the recorded flow if it still exists, carries no owner
+        UUID (or ours) — never one already owned by a different node — AND was
+        imported from the workflow this node expects. O(1) name lookup.
+        """
+        recorded = self.metadata.get(SUBFLOW_NAME_KEY)
+        expected_workflow = self.metadata.get(SUBFLOW_WORKFLOW_KEY)
+        # SUBFLOW_NAME_KEY and SUBFLOW_WORKFLOW_KEY are always written together;
+        # require both so we never adopt a flow without knowing which workflow
+        # it should reference.
+        if not recorded or not expected_workflow:
+            return None
+        flow = GriptapeNodes.ObjectManager().attempt_get_object_by_name_as_type(recorded, ControlFlow)
+        if flow is None:
+            return None
+        if flow.metadata.get(SUBFLOW_OWNER_KEY) not in (None, self.metadata[SUBFLOW_OWNER_KEY]):
+            # Already claimed by a different owner.
+            return None
+        # Confidence check: the recorded flow must actually be an import of the
+        # workflow we expect.
+        if GriptapeNodes.FlowManager().get_referenced_workflow_name(flow) != expected_workflow:
+            return None
+
+        return recorded
+
+    def _stamp_subflow_uuid(self, flow_name: str, owner_uuid: str) -> None:
+        GriptapeNodes.handle_request(
+            SetFlowMetadataRequest(flow_name=flow_name, metadata={SUBFLOW_OWNER_KEY: owner_uuid})
+        )
 
     def _create_shape_parameter(
         self, param_name: str, param_dict: dict, allowed_modes: set[ParameterMode]
@@ -264,18 +394,19 @@ class SubflowWorkflowNode(SuccessFailureNode):
             self._handle_failure_exception(RuntimeError(msg))
             return
 
-        # Use the pre-loaded subflow if available; otherwise load it now. Load it before
-        # deriving the shape so the shape reflects the live (imported) nodes.
-        existing_flow_names = set(GriptapeNodes.ObjectManager().get_filtered_subset(type=ControlFlow).keys())
-        subflow_name = self.metadata.get("subflow_name")
-        if not subflow_name or subflow_name not in existing_flow_names:
+        # Bind to the subflow this node owns (by UUID); import it if it isn't
+        # loaded yet. Bind before deriving the shape so the shape reflects the
+        # live (imported) nodes.
+        subflow_name = self._resolve_subflow_name(workflow_name)
+        if subflow_name is None:
             self._reload_subflow(workflow_name)
-            subflow_name = self.metadata.get("subflow_name")
+            subflow_name = self.metadata.get(SUBFLOW_NAME_KEY)
             if not subflow_name:
                 msg = f"Failed to load subflow for workflow '{workflow_name}'."
                 self._set_status_results(was_successful=False, result_details=msg)
                 self._handle_failure_exception(RuntimeError(msg))
                 return
+        self.metadata[SUBFLOW_NAME_KEY] = subflow_name
 
         # Re-derive the shape from the freshly-imported subflow instead of
         # trusting the shape saved with the workflow. Importing renames any node

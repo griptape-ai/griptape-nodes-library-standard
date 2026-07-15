@@ -2,16 +2,16 @@
 # dependencies = []
 #
 # [tool.griptape-nodes]
-# name = "subflow_outer_nested"
+# name = "test_subflow_workflow_node_legacy"
 # schema_version = "0.20.0"
 # engine_version_created_with = "0.93.0"
 # node_libraries_referenced = [["Griptape Nodes Testing Library", "0.1.0"], ["Griptape Nodes Library", "0.82.0"]]
 # node_types_used = [["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "SubflowWorkflowNode"], ["Griptape Nodes Testing Library", "AssertStrings"]]
-# workflows_referenced = ["subflow_middle_echo"]
+# workflows_referenced = ["subflow_middle_echo_legacy"]
 # is_griptape_provided = false
 # is_internal = false
-# creation_date = 2026-07-15T11:50:17.799272Z
-# last_modified_date = 2026-07-15T11:50:17.803425Z
+# creation_date = 2026-07-15T16:26:41.850456Z
+# last_modified_date = 2026-07-15T16:28:06.782714Z
 # workflow_shape = "{\"inputs\":{\"Start Flow\":{\"exec_out\":{\"name\":\"exec_out\",\"tooltip\":\"Connection to the next node in the execution chain\",\"type\":\"parametercontroltype\",\"input_types\":[\"parametercontroltype\"],\"output_type\":\"parametercontroltype\",\"default_value\":null,\"tooltip_as_input\":null,\"tooltip_as_property\":null,\"tooltip_as_output\":null,\"mode_allowed_input\":false,\"mode_allowed_property\":false,\"mode_allowed_output\":true,\"ui_options\":{\"parameter_render_location\":\"top\",\"display_name\":\"Flow Out\"},\"settable\":true,\"is_user_defined\":true,\"private\":false,\"parent_container_name\":null,\"parent_element_name\":null}}},\"outputs\":{\"End Flow\":{\"exec_in\":{\"name\":\"exec_in\",\"tooltip\":\"Control path when the flow completed successfully\",\"type\":\"parametercontroltype\",\"input_types\":[\"parametercontroltype\"],\"output_type\":\"parametercontroltype\",\"default_value\":null,\"tooltip_as_input\":null,\"tooltip_as_property\":null,\"tooltip_as_output\":null,\"mode_allowed_input\":true,\"mode_allowed_property\":false,\"mode_allowed_output\":false,\"ui_options\":{\"parameter_render_location\":\"top\",\"display_name\":\"Succeeded\"},\"settable\":true,\"is_user_defined\":true,\"private\":false,\"parent_container_name\":null,\"parent_element_name\":null},\"failed\":{\"name\":\"failed\",\"tooltip\":\"Control path when the flow failed\",\"type\":\"parametercontroltype\",\"input_types\":[\"parametercontroltype\"],\"output_type\":\"parametercontroltype\",\"default_value\":null,\"tooltip_as_input\":null,\"tooltip_as_property\":null,\"tooltip_as_output\":null,\"mode_allowed_input\":true,\"mode_allowed_property\":false,\"mode_allowed_output\":false,\"ui_options\":{\"parameter_render_location\":\"top\",\"display_name\":\"Failed\"},\"settable\":true,\"is_user_defined\":true,\"private\":false,\"parent_container_name\":null,\"parent_element_name\":null},\"was_successful\":{\"name\":\"was_successful\",\"tooltip\":\"Indicates whether it completed without errors.\",\"type\":\"bool\",\"input_types\":[\"bool\"],\"output_type\":\"bool\",\"default_value\":false,\"tooltip_as_input\":null,\"tooltip_as_property\":null,\"tooltip_as_output\":null,\"mode_allowed_input\":false,\"mode_allowed_property\":true,\"mode_allowed_output\":false,\"ui_options\":{},\"settable\":false,\"is_user_defined\":true,\"private\":false,\"parent_container_name\":null,\"parent_element_name\":\"Status\"},\"result_details\":{\"name\":\"result_details\",\"tooltip\":\"Details about the operation result\",\"type\":\"str\",\"input_types\":[\"str\"],\"output_type\":\"str\",\"default_value\":null,\"tooltip_as_input\":null,\"tooltip_as_property\":null,\"tooltip_as_output\":null,\"mode_allowed_input\":true,\"mode_allowed_property\":false,\"mode_allowed_output\":false,\"ui_options\":{\"multiline\":true,\"placeholder_text\":\"Details about the completion or failure will be shown here.\"},\"settable\":false,\"is_user_defined\":true,\"private\":false,\"parent_container_name\":null,\"parent_element_name\":\"Status\"}}}}"
 #
 # ///
@@ -38,10 +38,7 @@ from griptape_nodes.retained_mode.events.flow_events import (
 )
 from griptape_nodes.retained_mode.events.library_events import RegisterLibraryFromFileRequest
 from griptape_nodes.retained_mode.events.node_events import CreateNodeRequest
-from griptape_nodes.retained_mode.events.parameter_events import (
-    AlterParameterDetailsRequest,
-    SetParameterValueRequest,
-)
+from griptape_nodes.retained_mode.events.parameter_events import AlterParameterDetailsRequest, SetParameterValueRequest
 from griptape_nodes.retained_mode.events.workflow_events import (
     ImportWorkflowAsReferencedSubFlowRequest,
     LoadWorkflowMetadata,
@@ -53,26 +50,22 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 
 # === ADDED FOR THE INTEGRATION TEST — NOT PART OF THE SERIALISED WORKFLOW ===
-# This test exercises a THREE-level stack: this outer workflow -> subflow_middle_echo ->
-# subflow_inner_echo (x2). It covers both subflow bugs at once:
-#   * #5134 — importing subflow_inner_echo twice into the middle (and the middle into this outer)
-#     renames colliding Start/End nodes ("Start Flow_1", ...), which the Workflow node must survive
-#     by re-deriving the shape from the live subflow.
-#   * #5116 — the middle's two Workflow nodes bake subflow_names captured when the middle was saved
-#     standalone; once nested here those names collide with the middle's own top flow, so each node
-#     must rebind to the flow it actually imported via its owner UUID rather than the stale name.
-# The middle sends distinct values down each branch (a="alpha" -> out_a, b="bravo" -> out_b); if the
-# nodes cross-bind or bind to the wrong flow, the per-branch asserts below flip or come back empty.
-_REFERENCED_WORKFLOWS = ("subflow_inner_echo", "subflow_middle_echo")
+# LEGACY variant of test_subflow_workflow_node: the same three-level stack (outer ->
+# subflow_middle_echo_legacy -> subflow_inner_echo x2) but serialised on a PRE-UUID engine, so no
+# node/flow carries a ``subflow_owner_uuid``. It proves the fix still binds nested subflows correctly
+# for workflows saved before the owner-UUID mechanism existed: on the fix branch each node establishes
+# a fresh UUID and adopts its recorded (unstamped) subflow via the legacy-claim path — no infinite
+# recursion, and the per-branch asserts (a="alpha" -> out_a, b="bravo" -> out_b) still hold.
+_REFERENCED_WORKFLOWS = ("subflow_inner_echo", "subflow_middle_echo_legacy")
 
 
 async def _ensure_referenced_workflows_registered() -> None:
     """Register the co-located referenced workflows under their bare registry keys.
 
-    The serialised outer refers to ``subflow_middle_echo`` by its bare key, which in turn refers to
-    ``subflow_inner_echo`` by its bare key. At test time neither is in the engine workspace (they
-    live next to this file), so we register both here. Called from build_workflow() (so the build-time
-    import resolves) and again after the executor is entered (entry broadcasts
+    The serialised outer refers to ``subflow_middle_echo_legacy`` by its bare key, which in turn
+    refers to ``subflow_inner_echo`` by its bare key. At test time neither is in the engine workspace
+    (they live next to this file), so we register both here. Called from build_workflow() (so the
+    build-time import resolves) and again after the executor is entered (entry broadcasts
     AppInitializationComplete -> refresh_workflow_registry -> clear_user_workflows(), which would
     otherwise drop these registrations before the flow runs in the standalone __main__ path).
     """
@@ -113,20 +106,20 @@ async def build_workflow() -> None:
     #    them consistently save and load. It allows us to serialize complex objects like custom classes, which otherwise
     #    would be difficult to serialize.
     top_level_unique_values_dict = {
-        "cb7e1d46-5c87-4de6-a0cf-0ec1f4373ddb": pickle.loads(b"\x80\x04\x89."),
-        "e47798de-024a-4899-9937-d2f4ac9602ae": pickle.loads(
-            b"\x80\x04\x95\x17\x00\x00\x00\x00\x00\x00\x00\x8c\x13subflow_middle_echo\x94."
+        "df2be1af-e3af-4c24-85ea-6284477c3d6b": pickle.loads(b"\x80\x04\x89."),
+        "10a91064-91b5-4977-aa19-dba0d63c7333": pickle.loads(
+            b"\x80\x04\x95\x1e\x00\x00\x00\x00\x00\x00\x00\x8c\x1asubflow_middle_echo_legacy\x94."
         ),
-        "e1dfe0b3-b278-4300-b551-2428dfea6610": pickle.loads(
+        "5856d55d-72f0-42d4-8b20-ea741ff27a05": pickle.loads(
             b"\x80\x04\x95\t\x00\x00\x00\x00\x00\x00\x00\x8c\x05alpha\x94."
         ),
-        "672d0f6f-6009-4879-b1e2-035eb417bec1": pickle.loads(
+        "1b1146b1-de22-43df-a9d6-c68c86903b10": pickle.loads(
             b"\x80\x04\x95\t\x00\x00\x00\x00\x00\x00\x00\x8c\x05bravo\x94."
         ),
-        "53246268-6e99-412e-bed0-ae9a2379e7f4": pickle.loads(
+        "51750017-4791-4916-b2d5-433e606dcfae": pickle.loads(
             b"\x80\x04\x95\x04\x00\x00\x00\x00\x00\x00\x00\x8c\x00\x94."
         ),
-        "a859bf93-0101-4549-87e2-e3d0340c507b": pickle.loads(
+        "b3df0b06-0237-4202-8c45-657fe7980756": pickle.loads(
             b"\x80\x04\x95\x06\x00\x00\x00\x00\x00\x00\x00\x8c\x02==\x94."
         ),
     }
@@ -213,13 +206,12 @@ async def build_workflow() -> None:
                         "library": "Griptape Nodes Library",
                         "node_type": "SubflowWorkflowNode",
                         "workflow_node": True,
-                        "workflow_shape_params": ["a", "out_a", "out_b", "b"],
+                        "workflow_shape_params": ["out_b", "b", "a", "out_a"],
                         "left_parameters": ["a", "b"],
                         "right_parameters": ["out_a", "out_b"],
-                        "_workflow_file_value": "subflow_middle_echo",
+                        "_workflow_file_value": "subflow_middle_echo_legacy",
                         "subflow_name": "ControlFlow_2",
-                        "_subflow_workflow": "subflow_middle_echo",
-                        "subflow_owner_uuid": "778e0b2b-4770-4a59-9136-66a7a87a0c7d",
+                        "_subflow_workflow": "subflow_middle_echo_legacy",
                     },
                     initial_setup=True,
                 )
@@ -298,13 +290,12 @@ async def build_workflow() -> None:
                 )
             )
         ).node_name
-        # Serialiser emits `flow1_name = (await ...).created_flow_name`; the returned name is unused
-        # (the Workflow node rebinds its own subflow by owner UUID at run time), so we keep only the
-        # side-effecting import to satisfy ruff (F841).
+        # Serialiser emits `flow1_name = (await ...).created_flow_name`; the returned name is unused,
+        # so we keep only the side-effecting import to satisfy ruff (F841). LEGACY: imported_flow_metadata
+        # is empty (pre-UUID), so the recreated middle carries no owner UUID.
         await GriptapeNodes.ahandle_request(
             ImportWorkflowAsReferencedSubFlowRequest(
-                workflow_name="subflow_middle_echo",
-                imported_flow_metadata={"subflow_owner_uuid": "778e0b2b-4770-4a59-9136-66a7a87a0c7d"},
+                workflow_name="subflow_middle_echo_legacy", imported_flow_metadata={}
             )
         )
         await GriptapeNodes.ahandle_request(
@@ -366,7 +357,7 @@ async def build_workflow() -> None:
                 SetParameterValueRequest(
                     parameter_name="was_successful",
                     node_name=node1_name,
-                    value=top_level_unique_values_dict["cb7e1d46-5c87-4de6-a0cf-0ec1f4373ddb"],
+                    value=top_level_unique_values_dict["df2be1af-e3af-4c24-85ea-6284477c3d6b"],
                     initial_setup=True,
                     is_output=False,
                 )
@@ -376,7 +367,7 @@ async def build_workflow() -> None:
                 SetParameterValueRequest(
                     parameter_name="workflow_file",
                     node_name=node2_name,
-                    value=top_level_unique_values_dict["e47798de-024a-4899-9937-d2f4ac9602ae"],
+                    value=top_level_unique_values_dict["10a91064-91b5-4977-aa19-dba0d63c7333"],
                     initial_setup=True,
                     is_output=False,
                 )
@@ -385,7 +376,7 @@ async def build_workflow() -> None:
                 SetParameterValueRequest(
                     parameter_name="was_successful",
                     node_name=node2_name,
-                    value=top_level_unique_values_dict["cb7e1d46-5c87-4de6-a0cf-0ec1f4373ddb"],
+                    value=top_level_unique_values_dict["df2be1af-e3af-4c24-85ea-6284477c3d6b"],
                     initial_setup=True,
                     is_output=False,
                 )
@@ -394,7 +385,7 @@ async def build_workflow() -> None:
                 SetParameterValueRequest(
                     parameter_name="a",
                     node_name=node2_name,
-                    value=top_level_unique_values_dict["e1dfe0b3-b278-4300-b551-2428dfea6610"],
+                    value=top_level_unique_values_dict["5856d55d-72f0-42d4-8b20-ea741ff27a05"],
                     initial_setup=True,
                     is_output=False,
                 )
@@ -403,7 +394,7 @@ async def build_workflow() -> None:
                 SetParameterValueRequest(
                     parameter_name="b",
                     node_name=node2_name,
-                    value=top_level_unique_values_dict["672d0f6f-6009-4879-b1e2-035eb417bec1"],
+                    value=top_level_unique_values_dict["1b1146b1-de22-43df-a9d6-c68c86903b10"],
                     initial_setup=True,
                     is_output=False,
                 )
@@ -412,7 +403,7 @@ async def build_workflow() -> None:
                 SetParameterValueRequest(
                     parameter_name="out_a",
                     node_name=node2_name,
-                    value=top_level_unique_values_dict["53246268-6e99-412e-bed0-ae9a2379e7f4"],
+                    value=top_level_unique_values_dict["51750017-4791-4916-b2d5-433e606dcfae"],
                     initial_setup=True,
                     is_output=False,
                 )
@@ -421,7 +412,7 @@ async def build_workflow() -> None:
                 SetParameterValueRequest(
                     parameter_name="out_b",
                     node_name=node2_name,
-                    value=top_level_unique_values_dict["53246268-6e99-412e-bed0-ae9a2379e7f4"],
+                    value=top_level_unique_values_dict["51750017-4791-4916-b2d5-433e606dcfae"],
                     initial_setup=True,
                     is_output=False,
                 )
@@ -431,7 +422,7 @@ async def build_workflow() -> None:
                 SetParameterValueRequest(
                     parameter_name="expected",
                     node_name=node3_name,
-                    value=top_level_unique_values_dict["e1dfe0b3-b278-4300-b551-2428dfea6610"],
+                    value=top_level_unique_values_dict["5856d55d-72f0-42d4-8b20-ea741ff27a05"],
                     initial_setup=True,
                     is_output=False,
                 )
@@ -440,7 +431,7 @@ async def build_workflow() -> None:
                 SetParameterValueRequest(
                     parameter_name="operator",
                     node_name=node3_name,
-                    value=top_level_unique_values_dict["a859bf93-0101-4549-87e2-e3d0340c507b"],
+                    value=top_level_unique_values_dict["b3df0b06-0237-4202-8c45-657fe7980756"],
                     initial_setup=True,
                     is_output=False,
                 )
@@ -449,7 +440,7 @@ async def build_workflow() -> None:
                 SetParameterValueRequest(
                     parameter_name="message",
                     node_name=node3_name,
-                    value=top_level_unique_values_dict["53246268-6e99-412e-bed0-ae9a2379e7f4"],
+                    value=top_level_unique_values_dict["51750017-4791-4916-b2d5-433e606dcfae"],
                     initial_setup=True,
                     is_output=False,
                 )
@@ -458,7 +449,7 @@ async def build_workflow() -> None:
                 SetParameterValueRequest(
                     parameter_name="was_successful",
                     node_name=node3_name,
-                    value=top_level_unique_values_dict["cb7e1d46-5c87-4de6-a0cf-0ec1f4373ddb"],
+                    value=top_level_unique_values_dict["df2be1af-e3af-4c24-85ea-6284477c3d6b"],
                     initial_setup=True,
                     is_output=False,
                 )
@@ -468,7 +459,7 @@ async def build_workflow() -> None:
                 SetParameterValueRequest(
                     parameter_name="expected",
                     node_name=node4_name,
-                    value=top_level_unique_values_dict["672d0f6f-6009-4879-b1e2-035eb417bec1"],
+                    value=top_level_unique_values_dict["1b1146b1-de22-43df-a9d6-c68c86903b10"],
                     initial_setup=True,
                     is_output=False,
                 )
@@ -477,7 +468,7 @@ async def build_workflow() -> None:
                 SetParameterValueRequest(
                     parameter_name="operator",
                     node_name=node4_name,
-                    value=top_level_unique_values_dict["a859bf93-0101-4549-87e2-e3d0340c507b"],
+                    value=top_level_unique_values_dict["b3df0b06-0237-4202-8c45-657fe7980756"],
                     initial_setup=True,
                     is_output=False,
                 )
@@ -486,7 +477,7 @@ async def build_workflow() -> None:
                 SetParameterValueRequest(
                     parameter_name="message",
                     node_name=node4_name,
-                    value=top_level_unique_values_dict["53246268-6e99-412e-bed0-ae9a2379e7f4"],
+                    value=top_level_unique_values_dict["51750017-4791-4916-b2d5-433e606dcfae"],
                     initial_setup=True,
                     is_output=False,
                 )
@@ -495,7 +486,7 @@ async def build_workflow() -> None:
                 SetParameterValueRequest(
                     parameter_name="was_successful",
                     node_name=node4_name,
-                    value=top_level_unique_values_dict["cb7e1d46-5c87-4de6-a0cf-0ec1f4373ddb"],
+                    value=top_level_unique_values_dict["df2be1af-e3af-4c24-85ea-6284477c3d6b"],
                     initial_setup=True,
                     is_output=False,
                 )
@@ -533,7 +524,7 @@ async def aexecute_workflow(
         # Entering the executor broadcasts AppInitializationComplete -> refresh_workflow_registry
         # -> clear_user_workflows(), which drops the referenced workflows registered during
         # build_workflow() above. Re-register them here so the Workflow node (and the nested import
-        # inside subflow_middle_echo) can resolve them when the flow runs.
+        # inside subflow_middle_echo_legacy) can resolve them when the flow runs.
         await _ensure_referenced_workflows_registered()
         # === END ADDED SECTION ===
         await executor.arun(flow_input=input, **kwargs)
