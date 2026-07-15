@@ -17,7 +17,7 @@ dependencies = [
   "asteval>=1.0.8",
   "color-matcher",
   "zstandard>=0.22.0",
-  "griptape-nodes-engine>=0.92.0",
+  "griptape-nodes-engine>=0.93.0",
   "lxml>=5.0.0",
 ]
 
