@@ -18,14 +18,17 @@ class HasVariable(BaseVariableNode):
     ) -> None:
         super().__init__(name, metadata)
 
-        self._add_variable_name_parameter(
-            Parameter(
-                name="variable_name",
-                type="str",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT, ParameterMode.PROPERTY},
-                tooltip="Name of the variable to check for existence",
-            )
+        # Unlike the other variable nodes, HasVariable intentionally does NOT use
+        # _add_variable_name_parameter's Options dropdown of existing variables: the whole point of
+        # the node is to test whether a variable exists, so it must accept arbitrary names —
+        # including ones that don't exist yet — typed directly or driven by a connection.
+        self.variable_name_param = Parameter(
+            name="variable_name",
+            type="str",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT, ParameterMode.PROPERTY},
+            tooltip="Name of the variable to check for existence",
         )
+        self.add_parameter(self.variable_name_param)
 
         self.exists_param = Parameter(
             name="exists",
