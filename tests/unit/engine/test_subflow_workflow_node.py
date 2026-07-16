@@ -462,6 +462,43 @@ class TestOnRefreshWorkflow:
         assert any(isinstance(r, ImportWorkflowAsReferencedSubFlowRequest) for r in requests)
         assert node.metadata[SUBFLOW_NAME_KEY] == "ControlFlow_9"
 
+    def test_forces_reload_of_unclaimed_legacy_workflow_deletes_old_flow(
+        self, node: SubflowWorkflowNode, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Legacy node: the recorded flow exists but was never UUID-stamped (pre-UUID save, never
+        # executed), so it resolves only via the legacy path, which needs SUBFLOW_WORKFLOW_KEY.
+        # Refresh must adopt-and-delete the old flow, then re-import — not orphan it. Regression for
+        # the bug where refresh popped SUBFLOW_WORKFLOW_KEY, blinding the legacy resolver so the old
+        # flow leaked (a fresh flow imported while the original was left behind).
+        node.metadata[SUBFLOW_NAME_KEY] = "ControlFlow_2"
+        node.metadata[SUBFLOW_OWNER_KEY] = "U1"  # the node has a UUID, but its flow does NOT (legacy)
+        node.metadata[SUBFLOW_WORKFLOW_KEY] = "child"
+        monkeypatch.setattr(node, "_update_workflow_shape_parameters", lambda *args, **kwargs: None)
+        monkeypatch.setattr(WorkflowRegistry, "has_workflow_with_name", lambda _name: True)
+        _stub_flows(monkeypatch, {"ControlFlow_2": _flow(None)})  # unclaimed legacy flow
+        _stub_referenced_workflow(monkeypatch, "child")  # it does reference the expected workflow
+
+        requests: list[Any] = []
+
+        def _handle(request: Any) -> Any:
+            requests.append(request)
+            if isinstance(request, GetFlowForNodeRequest):
+                return GetFlowForNodeResultSuccess(flow_name="ParentFlow", result_details="stubbed")
+            if isinstance(request, ImportWorkflowAsReferencedSubFlowRequest):
+                return ImportWorkflowAsReferencedSubFlowResultSuccess(
+                    created_flow_name="ControlFlow_9", result_details="stubbed"
+                )
+            return Mock()
+
+        monkeypatch.setattr(GriptapeNodes, "handle_request", _handle)
+
+        node._on_refresh_workflow(Mock(), Mock())
+
+        # The old legacy flow was torn down (not orphaned) and a fresh one imported.
+        assert "ControlFlow_2" in [r.flow_name for r in requests if isinstance(r, DeleteFlowRequest)]
+        assert any(isinstance(r, ImportWorkflowAsReferencedSubFlowRequest) for r in requests)
+        assert node.metadata[SUBFLOW_NAME_KEY] == "ControlFlow_9"
+
     def test_noop_when_no_workflow_selected(self, node: SubflowWorkflowNode, monkeypatch: pytest.MonkeyPatch) -> None:
         # No workflow selected -> refresh is a no-op (stub the getter to avoid after_value_set churn).
         monkeypatch.setattr(node, "get_parameter_value", lambda name: "" if name == "workflow_file" else None)

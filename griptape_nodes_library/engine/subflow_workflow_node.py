@@ -119,9 +119,8 @@ class SubflowWorkflowNode(SuccessFailureNode):
         if not workflow_name:
             return
         self._update_workflow_shape_parameters(workflow_name, preserve_matching=True)
-        # Clear so _reload_subflow doesn't skip the reload for the same workflow.
-        self.metadata.pop(SUBFLOW_WORKFLOW_KEY, None)
-        self._reload_subflow(workflow_name)
+        # Force the reload even though the workflow is unchanged.
+        self._reload_subflow(workflow_name, force_reload=True)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter == self.workflow_file:
@@ -147,17 +146,19 @@ class SubflowWorkflowNode(SuccessFailureNode):
             logger.warning(msg)
         return deps
 
-    def _reload_subflow(self, workflow_name: str) -> None:
+    def _reload_subflow(self, workflow_name: str, *, force_reload: bool = False) -> None:
         # Find the subflow this node actually owns (by UUID), never one it
         # merely shares a name with.
         owned_subflow = self._resolve_subflow_name(workflow_name)
         if owned_subflow is not None:
-            # Already own a live subflow for THIS workflow -> keep it.
-            if self.metadata.get(SUBFLOW_WORKFLOW_KEY) == workflow_name:
+            # Already own a live subflow for THIS workflow -> keep it, unless the
+            # caller forces a reload (e.g. the Refresh button re-pulling the
+            # latest definition), in which case fall through to re-import it.
+            if not force_reload and self.metadata.get(SUBFLOW_WORKFLOW_KEY) == workflow_name:
                 self.metadata[SUBFLOW_NAME_KEY] = owned_subflow
                 return
-            # Own a subflow for a DIFFERENT workflow -> tear it down before
-            # importing the new one.
+            # Own a subflow for a DIFFERENT workflow (or a forced reload) -> tear
+            # it down before importing the new one.
             GriptapeNodes.handle_request(DeleteFlowRequest(flow_name=owned_subflow))
         self.metadata.pop(SUBFLOW_NAME_KEY, None)
         self.metadata.pop(SUBFLOW_WORKFLOW_KEY, None)
