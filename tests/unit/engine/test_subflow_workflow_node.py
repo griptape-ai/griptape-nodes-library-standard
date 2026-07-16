@@ -25,7 +25,12 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import EndNode, StartNode
 from griptape_nodes.node_library.workflow_registry import WorkflowRegistry, WorkflowShape
 from griptape_nodes.retained_mode.events.execution_events import StartLocalSubflowResultSuccess
-from griptape_nodes.retained_mode.events.flow_events import DeleteFlowRequest, SetFlowMetadataRequest
+from griptape_nodes.retained_mode.events.flow_events import (
+    DeleteFlowRequest,
+    GetFlowDetailsRequest,
+    GetFlowDetailsResultSuccess,
+    SetFlowMetadataRequest,
+)
 from griptape_nodes.retained_mode.events.node_events import GetFlowForNodeRequest, GetFlowForNodeResultSuccess
 from griptape_nodes.retained_mode.events.parameter_events import SetParameterValueRequest
 from griptape_nodes.retained_mode.events.workflow_events import (
@@ -147,9 +152,9 @@ class TestAprocessReDerivesShapeFromSubflow:
         flow_manager.get_flow_by_name.return_value = flow
         monkeypatch.setattr(GriptapeNodes, "FlowManager", lambda: flow_manager)
 
-        # Let _set_workflow_inputs run and capture the SetParameterValueRequests it issues.
-        requests: list[Any] = []
-        monkeypatch.setattr(GriptapeNodes, "handle_request", requests.append)
+        # Answer the resolver's topology queries (so the node binds its owned "sub") and capture the
+        # SetParameterValueRequests _set_workflow_inputs issues.
+        requests = _install_topology_handler(monkeypatch)
 
         await node.aprocess()
 
@@ -162,9 +167,13 @@ class TestAprocessReDerivesShapeFromSubflow:
         assert node.parameter_output_values["text_out"] == "world"
 
     @pytest.mark.asyncio
-    async def test_missing_shape_reports_failure(self, node: SubflowWorkflowNode, workflow_manager: Mock) -> None:
+    async def test_missing_shape_reports_failure(
+        self, node: SubflowWorkflowNode, monkeypatch: pytest.MonkeyPatch, workflow_manager: Mock
+    ) -> None:
         # extract_workflow_shape raises ValueError when the subflow has no Start/End nodes.
         workflow_manager.extract_workflow_shape.side_effect = ValueError("no start/end nodes")
+        # Let the node bind its owned "sub" so aprocess reaches the shape-extraction step.
+        _install_topology_handler(monkeypatch)
 
         # The failure output is unconnected on a bare node, so the failure re-raises.
         with pytest.raises(RuntimeError, match="has no shape defined"):
@@ -194,6 +203,146 @@ def _stub_referenced_workflow(monkeypatch: pytest.MonkeyPatch, workflow_name: st
     monkeypatch.setattr(GriptapeNodes, "FlowManager", lambda: flow_manager)
 
 
+def _install_topology_handler(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    node_flow: str = "ParentFlow",
+    parents: dict[str, str | None] | None = None,
+    import_created_flow_name: str | None = None,
+) -> list[Any]:
+    """Install a ``handle_request`` that answers the flow-topology queries the resolver makes.
+
+    ``_is_owner_of_flow`` issues ``GetFlowForNodeRequest`` (this node's containing flow) and
+    ``GetFlowDetailsRequest`` (a candidate flow's parent) to confirm a candidate is parented to
+    this node's own flow. This handler answers both — every flow defaults to being parented to
+    ``node_flow`` (i.e. owned), unless overridden in ``parents`` (to model a sibling's flow that
+    must be skipped). It also captures every request and returns the capture list, and optionally
+    answers ``ImportWorkflowAsReferencedSubFlowRequest`` with ``import_created_flow_name``.
+    """
+    parents = parents or {}
+    requests: list[Any] = []
+
+    def _handle(request: Any) -> Any:
+        requests.append(request)
+        if isinstance(request, GetFlowForNodeRequest):
+            return GetFlowForNodeResultSuccess(flow_name=node_flow, result_details="stubbed")
+        if isinstance(request, GetFlowDetailsRequest):
+            flow_name = request.flow_name
+            parent_flow_name = parents.get(flow_name, node_flow) if flow_name is not None else node_flow
+            return GetFlowDetailsResultSuccess(
+                referenced_workflow_name="child",
+                parent_flow_name=parent_flow_name,
+                flow_type=None,
+                result_details="stubbed",
+            )
+        if isinstance(request, ImportWorkflowAsReferencedSubFlowRequest) and import_created_flow_name is not None:
+            return ImportWorkflowAsReferencedSubFlowResultSuccess(
+                created_flow_name=import_created_flow_name, result_details="stubbed"
+            )
+        return None
+
+    monkeypatch.setattr(GriptapeNodes, "handle_request", _handle)
+    return requests
+
+
+def _make_subflow_node(monkeypatch: pytest.MonkeyPatch, name: str) -> SubflowWorkflowNode:
+    """Construct a ``SubflowWorkflowNode`` with the workflow dropdown stubbed (see the ``node`` fixture)."""
+    list_result = Mock(spec=ListCallableWorkflowsResultSuccess)
+    list_result.workflow_names = ["child"]
+    monkeypatch.setattr(GriptapeNodes, "handle_request", lambda _request: list_result)
+    return SubflowWorkflowNode(name=name)
+
+
+def _stub_flow_topology(
+    monkeypatch: pytest.MonkeyPatch,
+    flows: dict[str, tuple[str | None, str | None]],
+    node_to_flow: dict[str, str],
+) -> None:
+    """Stub the flow graph the scoped resolver walks.
+
+    ``flows`` maps flow name -> (owner UUID or None, parent flow name or None); ``node_to_flow`` maps
+    node name -> its containing flow. Backs ObjectManager lookups plus the ``GetFlowForNodeRequest`` /
+    ``GetFlowDetailsRequest`` calls used to check whether a candidate flow is parented to the node.
+    """
+    flow_objs = {
+        name: SimpleNamespace(metadata=({SUBFLOW_OWNER_KEY: owner} if owner is not None else {}))
+        for name, (owner, _parent) in flows.items()
+    }
+    object_manager = Mock(spec=ObjectManager)
+    object_manager.get_filtered_subset.return_value = flow_objs
+    object_manager.attempt_get_object_by_name_as_type.side_effect = lambda name, _type: flow_objs.get(name)
+    monkeypatch.setattr(GriptapeNodes, "ObjectManager", lambda: object_manager)
+
+    def _handle(request: Any) -> Any:
+        if isinstance(request, GetFlowForNodeRequest):
+            return GetFlowForNodeResultSuccess(flow_name=node_to_flow[request.node_name], result_details="stubbed")
+        if isinstance(request, GetFlowDetailsRequest):
+            flow_name = request.flow_name
+            entry = flows.get(flow_name) if flow_name is not None else None
+            parent_flow_name = entry[1] if entry is not None else None
+            return GetFlowDetailsResultSuccess(
+                referenced_workflow_name="child",
+                parent_flow_name=parent_flow_name,
+                flow_type=None,
+                result_details="stubbed",
+            )
+        return Mock()
+
+    monkeypatch.setattr(GriptapeNodes, "handle_request", _handle)
+
+
+class TestFindOwnedScopesByContainingFlow:
+    """``_find_owned_subflow_name`` disambiguates flows that share an owner UUID by containing flow.
+
+    Regression coverage for the nested duplicate-UUID case: a middle workflow that imports an inner
+    workflow bakes its Workflow node's owner UUID into the file. When an outer workflow imports that
+    middle TWICE, both instances' Workflow nodes carry the SAME baked UUID and each stamps its own
+    imported child flow with it — so two live flows share the UUID. Matching node<->flow by UUID alone
+    is then ambiguous; the tie-breaker is that a node's real subflow is the one parented to that
+    node's OWN containing flow.
+    """
+
+    def test_two_nested_nodes_sharing_uuid_bind_to_own_child_flows(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        node_a = _make_subflow_node(monkeypatch, "Workflow A")
+        node_b = _make_subflow_node(monkeypatch, "Workflow B")
+        for subflow_node in (node_a, node_b):
+            subflow_node.metadata[SUBFLOW_OWNER_KEY] = "shared-uuid"
+            subflow_node.metadata[SUBFLOW_WORKFLOW_KEY] = "child"
+            # Both bake the same recorded name (from the same middle file); it resolves to A's flow.
+            subflow_node.metadata[SUBFLOW_NAME_KEY] = "ControlFlow_2"
+
+        _stub_flow_topology(
+            monkeypatch,
+            flows={
+                "ControlFlow_2": ("shared-uuid", "ParentA"),  # node A's child
+                "ControlFlow_5": ("shared-uuid", "ParentB"),  # node B's child (deduped on import)
+            },
+            node_to_flow={"Workflow A": "ParentA", "Workflow B": "ParentB"},
+        )
+
+        # Each node binds the child parented to its OWN flow — not simply the first UUID match.
+        assert node_a._find_owned_subflow_name() == "ControlFlow_2"
+        assert node_b._find_owned_subflow_name() == "ControlFlow_5"
+
+    def test_slow_scan_prefers_flow_parented_to_this_node(
+        self, node: SubflowWorkflowNode, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # No usable recorded name -> slow scan. A sibling's flow (same UUID, different parent) is
+        # scanned first; the resolver must skip it and pick the flow parented to this node.
+        node.metadata[SUBFLOW_OWNER_KEY] = "shared-uuid"
+        node.metadata.pop(SUBFLOW_NAME_KEY, None)
+        _stub_flow_topology(
+            monkeypatch,
+            flows={
+                "sibling_child": ("shared-uuid", "OtherParent"),
+                "my_child": ("shared-uuid", "MyFlow"),
+            },
+            node_to_flow={"Workflow Node": "MyFlow"},
+        )
+
+        assert node._find_owned_subflow_name() == "my_child"
+
+
 class TestResolveOwnedSubflow:
     """``_resolve_subflow_name`` binds a node to the subflow it owns via a stable owner UUID.
 
@@ -208,6 +357,7 @@ class TestResolveOwnedSubflow:
         node.metadata[SUBFLOW_OWNER_KEY] = "U1"
         node.metadata[SUBFLOW_NAME_KEY] = "ControlFlow_2"
         _stub_flows(monkeypatch, {"ControlFlow_2": _flow("U1")})
+        _install_topology_handler(monkeypatch)
 
         assert node._resolve_subflow_name("child") == "ControlFlow_2"
 
@@ -219,6 +369,7 @@ class TestResolveOwnedSubflow:
         node.metadata[SUBFLOW_OWNER_KEY] = "U1"
         node.metadata[SUBFLOW_NAME_KEY] = "ControlFlow_2"
         _stub_flows(monkeypatch, {"ControlFlow_2": _flow("OTHER"), "ControlFlow_3": _flow("U1")})
+        _install_topology_handler(monkeypatch)
 
         assert node._resolve_subflow_name("child") == "ControlFlow_3"
 
@@ -227,6 +378,7 @@ class TestResolveOwnedSubflow:
     ) -> None:
         # Same recorded name, different owner UUIDs -> each node resolves to its own flow.
         _stub_flows(monkeypatch, {"ControlFlow_2": _flow("U1"), "ControlFlow_3": _flow("U2")})
+        _install_topology_handler(monkeypatch)
         node.metadata[SUBFLOW_NAME_KEY] = "ControlFlow_2"
 
         node.metadata[SUBFLOW_OWNER_KEY] = "U1"
@@ -369,8 +521,7 @@ class TestAfterNodeDeleted:
         node.metadata[SUBFLOW_OWNER_KEY] = "U1"
         node.metadata[SUBFLOW_NAME_KEY] = "ControlFlow_2"
         _stub_flows(monkeypatch, {"ControlFlow_2": _flow("OTHER"), "ControlFlow_5": _flow("U1")})
-        requests: list[Any] = []
-        monkeypatch.setattr(GriptapeNodes, "handle_request", requests.append)
+        requests = _install_topology_handler(monkeypatch)
 
         node.after_node_deleted()
 
@@ -439,20 +590,7 @@ class TestOnRefreshWorkflow:
         monkeypatch.setattr(node, "_update_workflow_shape_parameters", lambda *args, **kwargs: None)
         monkeypatch.setattr(WorkflowRegistry, "has_workflow_with_name", lambda _name: True)
         _stub_flows(monkeypatch, {"ControlFlow_2": _flow("owner-sub")})
-
-        requests: list[Any] = []
-
-        def _handle(request: Any) -> Any:
-            requests.append(request)
-            if isinstance(request, GetFlowForNodeRequest):
-                return GetFlowForNodeResultSuccess(flow_name="ParentFlow", result_details="stubbed")
-            if isinstance(request, ImportWorkflowAsReferencedSubFlowRequest):
-                return ImportWorkflowAsReferencedSubFlowResultSuccess(
-                    created_flow_name="ControlFlow_9", result_details="stubbed"
-                )
-            return Mock()
-
-        monkeypatch.setattr(GriptapeNodes, "handle_request", _handle)
+        requests = _install_topology_handler(monkeypatch, import_created_flow_name="ControlFlow_9")
 
         node._on_refresh_workflow(Mock(), Mock())
 

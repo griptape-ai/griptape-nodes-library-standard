@@ -11,7 +11,12 @@ from griptape_nodes.retained_mode.events.execution_events import (
     StartLocalSubflowRequest,
     StartLocalSubflowResultFailure,
 )
-from griptape_nodes.retained_mode.events.flow_events import DeleteFlowRequest, SetFlowMetadataRequest
+from griptape_nodes.retained_mode.events.flow_events import (
+    DeleteFlowRequest,
+    GetFlowDetailsRequest,
+    GetFlowDetailsResultSuccess,
+    SetFlowMetadataRequest,
+)
 from griptape_nodes.retained_mode.events.node_events import GetFlowForNodeRequest, GetFlowForNodeResultSuccess
 from griptape_nodes.retained_mode.events.parameter_events import (
     RemoveParameterFromNodeRequest,
@@ -214,28 +219,54 @@ class SubflowWorkflowNode(SuccessFailureNode):
         return recorded
 
     def _find_owned_subflow_name(self) -> str | None:
-        """Return the flow stamped with this node's owner UUID, or ``None``.
+        """Return the flow this node owns, or ``None``.
 
-        The authoritative node<->flow link, with no side effects. Tries the
-        recorded ``subflow_name`` first as an O(1) lookup (the common case) and
-        only scans every flow when that hint is missing or no longer points at a
-        flow we own (e.g. after de-dup / nesting renames).
+        A flow is ours per ``_is_owner_of_flow`` (our owner UUID AND parented to
+        this node's own flow). No side effects. Tries the recorded
+        ``subflow_name`` first as an O(1) hint, then scans if that no longer
+        resolves to a flow we own (e.g. after de-dup / nesting renames).
         """
-        owner_uuid = self.metadata[SUBFLOW_OWNER_KEY]
-
         # Quick path: the recorded name usually still points at the flow we own.
         recorded = self.metadata.get(SUBFLOW_NAME_KEY)
-        if recorded:
-            recorded_flow = GriptapeNodes.ObjectManager().attempt_get_object_by_name_as_type(recorded, ControlFlow)
-            if recorded_flow is not None and recorded_flow.metadata.get(SUBFLOW_OWNER_KEY) == owner_uuid:
-                return recorded
+        if recorded and self._is_owner_of_flow(recorded):
+            return recorded
 
-        # Slow path: scan every flow for this node's owner UUID.
+        # Slow path: scan for a flow we own.
         flows = GriptapeNodes.ObjectManager().get_filtered_subset(type=ControlFlow)
-        for candidate_name, flow in flows.items():
-            if flow.metadata.get(SUBFLOW_OWNER_KEY) == owner_uuid:
+        for candidate_name in flows:
+            if self._is_owner_of_flow(candidate_name):
                 return candidate_name
         return None
+
+    def _is_owner_of_flow(self, flow_name: str) -> bool:
+        """Whether this node owns ``flow_name``: it carries our owner UUID AND
+        is a direct child of this node's containing flow.
+
+        Both halves are required because the owner UUID alone isn't a unique key.
+        Consider:
+            - ``middle.py`` contains a Workflow node that imports ``inner.py``
+              and stamps the created flow with the node's baked UUID ``U``.
+            - ``outer.py`` contains TWO Workflow nodes that both import
+              ``middle.py``.
+        Importing the middle twice re-runs its file, so both instances' Workflow
+        nodes carry the same baked ``U`` and each stamps its own imported inner
+        flow with ``U`` — leaving two live flows stamped ``U``. Matching by UUID
+        alone is ambiguous (and can bind a node to a flow that transitively
+        contains it → infinite recursion). But a node's imported subflow is
+        always created as a direct child of the node's OWN flow, and the two
+        ``U`` flows have different parents, so ``(containing flow, UUID)`` is
+        the real primary key.
+        """
+        flow = GriptapeNodes.ObjectManager().attempt_get_object_by_name_as_type(flow_name, ControlFlow)
+        if flow is None or flow.metadata.get(SUBFLOW_OWNER_KEY) != self.metadata[SUBFLOW_OWNER_KEY]:
+            return False
+        flow_for_node = GriptapeNodes.handle_request(GetFlowForNodeRequest(node_name=self.name))
+        if not isinstance(flow_for_node, GetFlowForNodeResultSuccess):
+            return False
+        details = GriptapeNodes.handle_request(GetFlowDetailsRequest(flow_name=flow_name))
+        if not isinstance(details, GetFlowDetailsResultSuccess):
+            return False
+        return details.parent_flow_name == flow_for_node.flow_name
 
     def _recorded_subflow_if_unclaimed(self) -> str | None:
         """Return the recorded ``subflow_name`` only if it is safe to treat as ours.
