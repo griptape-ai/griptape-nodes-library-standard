@@ -41,6 +41,14 @@ from griptape_nodes_library.config.prompt.nim_prompt import MODEL_CHOICES as NIM
 from griptape_nodes_library.config.prompt.openai_prompt import MODEL_CHOICES as OPENAI_MODEL_CHOICES
 from griptape_nodes_library.image.create_image import MODEL_CHOICES as GENERATE_IMAGE_MODEL_CHOICES
 from griptape_nodes_library.image.describe_image import GTC_VISION_MODEL_CHOICES as DESCRIBE_IMAGE_MODEL_CHOICES
+from griptape_nodes_library.number.askulator import MODEL_CHOICES as ASKULATOR_MODEL_CHOICES
+from griptape_nodes_library.tasks.mcp_task import DEFAULT_MODEL as MCP_TASK_DEFAULT_MODEL
+from griptape_nodes_library.text.date_and_time import MODEL_CHOICES as DATE_AND_TIME_MODEL_CHOICES
+from griptape_nodes_library.text.evaluate_text_result import MODEL_CHOICES as EVALUATE_TEXT_RESULT_MODEL_CHOICES
+from griptape_nodes_library.text.random_text import MODEL as RANDOM_TEXT_MODEL
+from griptape_nodes_library.text.scrape_web import MODEL_CHOICES as SCRAPE_WEB_MODEL_CHOICES
+from griptape_nodes_library.text.search_web import MODEL_CHOICES as SEARCH_WEB_MODEL_CHOICES
+from griptape_nodes_library.text.summarize_text_task import MODEL_CHOICES as SUMMARIZE_TEXT_MODEL_CHOICES
 
 LIBRARY_JSON = Path(__file__).parents[2] / "griptape_nodes_library.json"
 
@@ -117,6 +125,14 @@ def test_chat_node_model_usage_matches_static_choices(class_name: str) -> None:
         ("GroqPrompt", GROQ_PROMPT_MODEL_CHOICES),
         ("NimPrompt", NIM_PROMPT_MODEL_CHOICES),
         ("AmazonBedrockPrompt", AMAZON_BEDROCK_MODEL_CHOICES),
+        ("Askulator", ASKULATOR_MODEL_CHOICES),
+        ("DateAndTime", DATE_AND_TIME_MODEL_CHOICES),
+        ("EvaluateTextResult", EVALUATE_TEXT_RESULT_MODEL_CHOICES),
+        ("ScrapeWeb", SCRAPE_WEB_MODEL_CHOICES),
+        ("SearchWeb", SEARCH_WEB_MODEL_CHOICES),
+        ("SummarizeText", SUMMARIZE_TEXT_MODEL_CHOICES),
+        ("RandomText", [RANDOM_TEXT_MODEL]),
+        ("MCPTaskNode", [MCP_TASK_DEFAULT_MODEL]),
     ],
 )
 def test_model_selection_node_usage_matches_static_choices(
