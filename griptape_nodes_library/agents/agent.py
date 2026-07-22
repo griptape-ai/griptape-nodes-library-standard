@@ -880,13 +880,10 @@ class Agent(ControlNode):
         model_input = self.get_parameter_value("model")
         provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
         agent_input = self.get_parameter_value("agent")
-        # License-policy runtime gate. Only enforced for Griptape Cloud models
-        # (other providers are ungated) and only when the node's own dropdown drives
-        # the run. A connected Agent supplies its own driver, so the dropdown value
-        # (kept hidden and stale, not cleared) must not gate that run — the
-        # INVOKE_MODEL declaration below gates the real model instead. Fails closed
-        # before any driver is built.
-        if agent_input is None and provider_name == "griptape_cloud":
+        # License-policy runtime gate, skipped when an Agent is connected: it supplies its
+        # own driver, so the node's (hidden, not cleared) dropdown value is stale. The
+        # INVOKE_MODEL declaration below gates the model that actually runs.
+        if agent_input is None:
             self._model_access.raise_if_denied(model_input)
         agent = None
         include_details = self.get_parameter_value("include_details")
