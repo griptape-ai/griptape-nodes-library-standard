@@ -30,6 +30,11 @@ class MacroPathResult:
     is_external: bool  # True if path is outside project or is a URL
 
 
+def _is_url(path: str) -> bool:
+    """Return True if the value is an http(s) URL rather than a filesystem path."""
+    return urlparse(path).scheme in ("http", "https")
+
+
 def resolve_to_macro_path(path: str) -> MacroPathResult:
     """Attempt to resolve a path to a project macro path.
 
@@ -38,6 +43,13 @@ def resolve_to_macro_path(path: str) -> MacroPathResult:
     exist on disk (e.g. a remote URL), returns the original path with is_external=True
     so the caller can prompt the user to copy it into the project.
     """
+    # A remote URL is external by definition — never treat it as a filesystem path.
+    # This must run before Path(path).resolve(), which would otherwise anchor the URL
+    # to the current working directory and produce an overlong path that raises
+    # "[Errno 63/36] File name too long" when its existence is checked.
+    if _is_url(path):
+        return MacroPathResult(resolved_path=path, is_external=True)
+
     # Already a macro path (e.g. "{inputs}/image.png") — treat as in-project
     try:
         parsed = ParsedMacro(path)
@@ -46,8 +58,16 @@ def resolve_to_macro_path(path: str) -> MacroPathResult:
     except MacroSyntaxError:
         pass
 
-    resolved = Path(path).resolve()
-    if resolved.exists():
+    # Guard the filesystem access: an invalid or overlong path (e.g. a value that
+    # slipped past the URL check) raises OSError here rather than returning cleanly,
+    # so degrade to "external" instead of surfacing a set-parameter failure.
+    try:
+        resolved = Path(path).resolve()
+        exists = resolved.exists()
+    except OSError:
+        return MacroPathResult(resolved_path=path, is_external=True)
+
+    if exists:
         result = GriptapeNodes.handle_request(AttemptMapAbsolutePathToProjectRequest(absolute_path=resolved))
         if isinstance(result, AttemptMapAbsolutePathToProjectResultSuccess) and result.mapped_path is not None:
             return MacroPathResult(resolved_path=result.mapped_path, is_external=False)
