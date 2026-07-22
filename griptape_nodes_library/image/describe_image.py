@@ -442,9 +442,14 @@ class DescribeImage(ControlNode):
         params = self.parameter_values
         model_input = self.get_parameter_value("model")
         provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
+        agent_value = self.get_parameter_value("agent")
 
-        # License-policy runtime gate — only enforced for Griptape Cloud models.
-        if provider_name == "griptape_cloud":
+        # License-policy runtime gate — only enforced for Griptape Cloud models and
+        # only when the node's own dropdown drives the run. A connected Agent supplies
+        # its own driver, so the dropdown value (kept hidden and stale, not cleared)
+        # must not gate that run — the INVOKE_MODEL declaration below gates the real
+        # model instead.
+        if agent_value is None and provider_name == "griptape_cloud":
             self._model_access.raise_if_denied(model_input)
 
         agent = None
@@ -495,7 +500,6 @@ class DescribeImage(ControlNode):
         tool_configs: list = []
         ruleset_configs: list = []
         provider_info: dict | None = None
-        agent_value = self.get_parameter_value("agent")
         if isinstance(agent_value, dict):
             agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_value)
             agent = GtAgent().from_dict(agent_core_dict)
@@ -575,19 +579,15 @@ class DescribeImage(ControlNode):
             self.parameter_output_values["output"] = "No image provided"
             return
 
-        # Declare the model that will actually run, taken from the node's own model
-        # parameter where possible: a dropdown selection is the resolved string, a
-        # directly connected driver exposes its `model`. Only a connected Agent keeps the
-        # model inside its restored task, so fall back to that there. The util resolves
-        # the provider model id to its stable catalog key (via the node's model_usage)
-        # before declaring. Declare before the network call below so a denied invocation
-        # fails closed rather than reaching the provider.
-        if isinstance(model_input, str):
-            model = model_input
-        elif isinstance(model_input, BasePromptDriver):
-            model = model_input.model
-        else:
-            model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
+        # Declare the model that will actually run. Every construction branch above
+        # ends with the concrete prompt driver installed on the agent's PromptTask,
+        # so read the model from there. The node's own `model` parameter is not a
+        # trustworthy source: it keeps its last dropdown value (hidden, not cleared)
+        # while a connected Agent supplies the real driver. The util resolves the
+        # provider model id to its stable catalog key (via the node's model_usage)
+        # before declaring. Declare before the network call below so a denied
+        # invocation fails closed rather than reaching the provider.
+        model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
         declaration = declare_model_invocation_sync(self, model)
         if declaration.failed():
             details = str(

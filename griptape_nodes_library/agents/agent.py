@@ -879,9 +879,14 @@ class Agent(ControlNode):
         """
         model_input = self.get_parameter_value("model")
         provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
+        agent_input = self.get_parameter_value("agent")
         # License-policy runtime gate. Only enforced for Griptape Cloud models
-        # (other providers are ungated). Fails closed before any driver is built.
-        if provider_name == "griptape_cloud":
+        # (other providers are ungated) and only when the node's own dropdown drives
+        # the run. A connected Agent supplies its own driver, so the dropdown value
+        # (kept hidden and stale, not cleared) must not gate that run — the
+        # INVOKE_MODEL declaration below gates the real model instead. Fails closed
+        # before any driver is built.
+        if agent_input is None and provider_name == "griptape_cloud":
             self._model_access.raise_if_denied(model_input)
         agent = None
         include_details = self.get_parameter_value("include_details")
@@ -957,7 +962,6 @@ class Agent(ControlNode):
         # If a prompt_driver is provided, we'll use that
         # If neither are provided, we'll create a new one with the selected model.
         # Otherwise, we'll just use the default model
-        agent_input = self.get_parameter_value("agent")
         incoming_provider: dict | None = None
         if isinstance(agent_input, dict):
             # Unwrap the new-format wrapper (or handle old raw agent dict gracefully).
