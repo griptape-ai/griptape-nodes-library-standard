@@ -7,6 +7,7 @@ from griptape.tasks import PromptTask
 from griptape.tools import WebSearchTool
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
@@ -24,6 +25,8 @@ SEARCH_ENGINE_MAP = {
     },
 }
 SEARCH_ENGINES = list(SEARCH_ENGINE_MAP.keys())
+MODEL_CHOICES = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-5"]
+DEFAULT_MODEL = "gpt-4.1-mini"
 
 
 class SearchWeb(BaseTask):
@@ -47,15 +50,19 @@ class SearchWeb(BaseTask):
                 ui_options={"hide": False},
             )
         )
-        self.add_parameter(
-            Parameter(
-                name="model",
-                type="str",
-                default_value="gpt-4.1-mini",
-                tooltip="The model to use for the task.",
-                traits={Options(choices=["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-5"])},
-                ui_options={"hide": True},
-            )
+        model_param = Parameter(
+            name="model",
+            type="str",
+            default_value=DEFAULT_MODEL,
+            tooltip="The model to use for the task.",
+            ui_options={"hide": True},
+        )
+        self.add_parameter(model_param)
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_CHOICES,
+            default_model=DEFAULT_MODEL,
         )
         self.add_parameter(
             Parameter(
@@ -131,6 +138,8 @@ class SearchWeb(BaseTask):
                     self.show_message_by_name("api_keys_message")
                 else:
                     self.hide_message_by_name("api_keys_message")
+        if parameter.name == "model":
+            self._model_access.on_value_changed(value)
         super().after_value_set(parameter, value)
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
@@ -141,6 +150,11 @@ class SearchWeb(BaseTask):
     def process(self) -> AsyncResult[Structure]:
         prompt = self.get_parameter_value("prompt")
         search_engine = self.get_parameter_value("search_engine")
+        model = self.get_parameter_value("model")
+
+        # License-policy runtime gate. Raises RuntimeError if the currently-selected
+        # model is denied.
+        self._model_access.raise_if_denied(model)
 
         if search_engine == "DuckDuckGo":
             driver = self._duck_duck_go_driver()
@@ -157,7 +171,7 @@ class SearchWeb(BaseTask):
         task = PromptTask(
             tools=[tool],
             reflect_on_tool_use=self.get_parameter_value("summarize"),
-            prompt_driver=GriptapeCloudPromptDriver(model=self.get_parameter_value("model"), stream=True),
+            prompt_driver=GriptapeCloudPromptDriver(model=model, stream=True),
         )
 
         agent = Agent(tasks=[task])
@@ -165,6 +179,6 @@ class SearchWeb(BaseTask):
         user_input = f"Search the web for {prompt}"
         if prompt and not prompt.isspace():
             # Run the agent asynchronously
-            yield lambda: self._process(agent, user_input)
+            yield lambda: self._process(agent, user_input, model)
 
         self.parameter_output_values["output"] = str(agent.output)

@@ -16,7 +16,7 @@ from griptape.artifacts.image_url_artifact import ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.common.sequences import Sequence
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.exe_types.node_types import BaseNode, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -72,8 +72,9 @@ class CreateVideoFromFrames(SuccessFailureNode):
         super().__init__(name, metadata)
 
         self.add_parameter(
-            ParameterString(
+            Parameter(
                 name="frames_input",
+                type="str",
                 input_types=["Sequence", "list", "str", "ImageUrlArtifact"],
                 tooltip=(
                     "Frame source. Use the file browser to pick a folder or image sequence "
@@ -195,6 +196,19 @@ class CreateVideoFromFrames(SuccessFailureNode):
                 self.hide_parameter_by_name("output_gif_file")
                 self.show_parameter_by_name("output_file")
                 self.show_parameter_by_name("processing_speed")
+
+    def after_incoming_connection_removed(
+        self,
+        source_node: BaseNode,
+        source_parameter: Parameter,
+        target_parameter: Parameter,
+    ) -> None:
+        # Clear the stale connection value so the FileSystemPicker doesn't try to
+        # open a serialized Sequence dict as a path. A connection overwrites any
+        # previously-picked path anyway, so an empty field is the correct end state.
+        if target_parameter.name == "frames_input":
+            self.set_parameter_value("frames_input", "")
+        super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
     async def aprocess(self) -> None:
         self._clear_execution_status()

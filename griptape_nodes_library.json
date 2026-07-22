@@ -30,7 +30,7 @@
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
     "library_version": "0.82.0",
-    "engine_version": "0.90.0",
+    "engine_version": "0.93.0",
     "tags": [
       "Griptape",
       "AI"
@@ -63,13 +63,13 @@
                 "display_name": "Claude Opus 4.7",
                 "family": "Claude 4",
                 "provider_model_id": "claude-opus-4-7",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_claude_sonnet_4_6": {
                 "display_name": "Claude Sonnet 4.6",
                 "family": "Claude 4",
                 "provider_model_id": "claude-sonnet-4-6",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_claude_sonnet_4_5": {
                 "display_name": "Claude Sonnet 4.5",
@@ -81,7 +81,7 @@
                 "display_name": "Claude Haiku 4.5",
                 "family": "Claude 4",
                 "provider_model_id": "claude-haiku-4-5",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
           },
@@ -209,7 +209,7 @@
                 "display_name": "GPT-5.2",
                 "family": "GPT",
                 "provider_model_id": "gpt-5.2",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_5_2_chat": {
                 "display_name": "GPT-5.2 Chat",
@@ -221,78 +221,84 @@
                 "display_name": "GPT-5.1",
                 "family": "GPT",
                 "provider_model_id": "gpt-5.1",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_5": {
                 "display_name": "GPT-5",
                 "family": "GPT",
                 "provider_model_id": "gpt-5",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_5_mini": {
                 "display_name": "GPT-5 mini",
                 "family": "GPT",
                 "provider_model_id": "gpt-5-mini",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_5_nano": {
                 "display_name": "GPT-5 nano",
                 "family": "GPT",
                 "provider_model_id": "gpt-5-nano",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_4_1": {
                 "display_name": "GPT-4.1",
                 "family": "GPT",
                 "provider_model_id": "gpt-4.1",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_4_1_mini": {
                 "display_name": "GPT-4.1 mini",
                 "family": "GPT",
                 "provider_model_id": "gpt-4.1-mini",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_4_1_nano": {
                 "display_name": "GPT-4.1 nano",
                 "family": "GPT",
                 "provider_model_id": "gpt-4.1-nano",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_4o": {
                 "display_name": "GPT-4o",
                 "family": "GPT",
                 "provider_model_id": "gpt-4o",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_o4_mini": {
                 "display_name": "o4 mini",
                 "family": "o-series",
                 "provider_model_id": "o4-mini",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_o3": {
                 "display_name": "o3",
                 "family": "o-series",
                 "provider_model_id": "o3",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_o3_mini": {
                 "display_name": "o3 mini",
                 "family": "o-series",
                 "provider_model_id": "o3-mini",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_o1": {
                 "display_name": "o1",
                 "family": "o-series",
                 "provider_model_id": "o1",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_image_1": {
                 "display_name": "GPT Image 1",
                 "family": "GPT Image",
                 "provider_model_id": "gpt-image-1",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_image_1_mini": {
+                "display_name": "GPT Image 1 Mini",
+                "family": "GPT Image",
+                "provider_model_id": "gpt-image-1-mini",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_gpt_image_1_5": {
@@ -324,6 +330,18 @@
                 "family": "Whisper",
                 "provider_model_id": "whisper-1",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "openai_dall_e_3": {
+                "display_name": "DALL-E 3",
+                "family": "DALL-E",
+                "provider_model_id": "dall-e-3",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "openai_dall_e_2": {
+                "display_name": "DALL-E 2",
+                "family": "DALL-E",
+                "provider_model_id": "dall-e-2",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
               }
             }
           },
@@ -465,6 +483,42 @@
                 "family": "Grok Imagine",
                 "provider_model_id": "grok-imagine-video",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "xai_grok_2_image_1212": {
+                "display_name": "Grok 2 Image",
+                "family": "Grok Image",
+                "provider_model_id": "grok-2-image-1212",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "xai_grok_3_beta": {
+                "display_name": "Grok 3 Beta",
+                "family": "Grok 3",
+                "provider_model_id": "grok-3-beta",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "xai_grok_3_fast_beta": {
+                "display_name": "Grok 3 Fast Beta",
+                "family": "Grok 3",
+                "provider_model_id": "grok-3-fast-beta",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "xai_grok_3_mini_beta": {
+                "display_name": "Grok 3 Mini Beta",
+                "family": "Grok 3",
+                "provider_model_id": "grok-3-mini-beta",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "xai_grok_3_mini_fast_beta": {
+                "display_name": "Grok 3 Mini Fast Beta",
+                "family": "Grok 3",
+                "provider_model_id": "grok-3-mini-fast-beta",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "xai_grok_2_vision_1212": {
+                "display_name": "Grok 2 Vision",
+                "family": "Grok 2",
+                "provider_model_id": "grok-2-vision-1212",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
               }
             }
           },
@@ -884,6 +938,257 @@
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
+          },
+          "cohere": {
+            "display_name": "Cohere",
+            "models": {
+              "cohere_command_r_plus": {
+                "display_name": "Command R+",
+                "family": "Command R",
+                "provider_model_id": "command-r-plus",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              }
+            }
+          },
+          "groq": {
+            "display_name": "Groq",
+            "notes": "Groq is a serving platform, not a model vendor; the models below (Llama, Gemma, DeepSeek, etc.) are served through Groq's infrastructure under Groq's own model ids. Using the serving platform as the provider key here is provisional pending the platform-as-provider convention discussion in issue #429 (Amazon Bedrock).",
+            "models": {
+              "groq_gemma2_9b_it": {
+                "display_name": "Gemma 2 9B IT",
+                "family": "Gemma 2",
+                "provider_model_id": "gemma2-9b-it",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "groq_llama_guard_4_12b": {
+                "display_name": "Llama Guard 4 12B",
+                "family": "Llama Guard",
+                "provider_model_id": "meta-llama/llama-guard-4-12b",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "groq_llama_3_3_70b_versatile": {
+                "display_name": "Llama 3.3 70B Versatile",
+                "family": "Llama 3",
+                "provider_model_id": "llama-3.3-70b-versatile",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "groq_llama_3_1_8b_instant": {
+                "display_name": "Llama 3.1 8B Instant",
+                "family": "Llama 3",
+                "provider_model_id": "llama-3.1-8b-instant",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "groq_llama3_70b_8192": {
+                "display_name": "Llama 3 70B 8192",
+                "family": "Llama 3",
+                "provider_model_id": "llama3-70b-8192",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "groq_llama3_8b_8192": {
+                "display_name": "Llama 3 8B 8192",
+                "family": "Llama 3",
+                "provider_model_id": "llama3-8b-8192",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "groq_allam_2_7b": {
+                "display_name": "Allam 2 7B",
+                "family": "Allam",
+                "provider_model_id": "allam-2-7b",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "groq_deepseek_r1_distill_llama_70b": {
+                "display_name": "DeepSeek R1 Distill Llama 70B",
+                "family": "DeepSeek R1",
+                "provider_model_id": "deepseek-r1-distill-llama-70b",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "groq_llama_4_scout_17b_16e_instruct": {
+                "display_name": "Llama 4 Scout 17B 16E Instruct",
+                "family": "Llama 4",
+                "provider_model_id": "meta-llama/llama-4-scout-17b-16e-instruct",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "groq_llama_4_maverick_17b_128e_instruct": {
+                "display_name": "Llama 4 Maverick 17B 128E Instruct",
+                "family": "Llama 4",
+                "provider_model_id": "meta-llama/llama-4-maverick-17b-128e-instruct",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              }
+            }
+          },
+          "nvidia_nim": {
+            "display_name": "NVIDIA NIM",
+            "notes": "NVIDIA NIM is a serving platform, not a model vendor; the models below (Llama, Gemma, DeepSeek, Mistral, etc.) are served through NVIDIA's infrastructure under NVIDIA's own model ids. Cataloguing the serving platform as the provider key follows the same convention settled for Amazon Bedrock (see issue #429): provider_model_id stays the literal wire id the platform's API expects, even when it duplicates a model also catalogued under its original vendor.",
+            "models": {
+              "nim_deepseek_v3_1": {
+                "display_name": "DeepSeek V3.1",
+                "family": "DeepSeek V3",
+                "provider_model_id": "deepseek-ai/deepseek-v3.1",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "nim_gemma_3_1b_it": {
+                "display_name": "Gemma 3 1B IT",
+                "family": "Gemma 3",
+                "provider_model_id": "google/gemma-3-1b-it",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "nim_llama_4_maverick_17b_128e_instruct": {
+                "display_name": "Llama 4 Maverick 17B 128E Instruct",
+                "family": "Llama 4",
+                "provider_model_id": "meta/llama-4-maverick-17b-128e-instruct",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "nim_llama_4_scout_17b_16e_instruct": {
+                "display_name": "Llama 4 Scout 17B 16E Instruct",
+                "family": "Llama 4",
+                "provider_model_id": "meta/llama-4-scout-17b-16e-instruct",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "nim_llama_3_2_11b_vision_instruct": {
+                "display_name": "Llama 3.2 11B Vision Instruct",
+                "family": "Llama 3",
+                "provider_model_id": "meta/llama-3.2-11b-vision-instruct",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "nim_llama_3_2_90b_vision_instruct": {
+                "display_name": "Llama 3.2 90B Vision Instruct",
+                "family": "Llama 3",
+                "provider_model_id": "meta/llama-3.2-90b-vision-instruct",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "nim_llama3_8b_instruct": {
+                "display_name": "Llama 3 8B Instruct",
+                "family": "Llama 3",
+                "provider_model_id": "meta/llama3-8b-instruct",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "nim_llama_3_3_nemotron_super_49b_v1_5": {
+                "display_name": "Llama 3.3 Nemotron Super 49B v1.5",
+                "family": "Nemotron",
+                "provider_model_id": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "nim_llama_3_1_nemotron_nano_vl_8b_v1": {
+                "display_name": "Llama 3.1 Nemotron Nano VL 8B v1",
+                "family": "Nemotron",
+                "provider_model_id": "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "nim_nemotron_nano_9b_v2": {
+                "display_name": "Nemotron Nano 9B v2",
+                "family": "Nemotron",
+                "provider_model_id": "nvidia/nvidia-nemotron-nano-9b-v2",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "nim_gpt_oss_20b": {
+                "display_name": "GPT-OSS 20B",
+                "family": "GPT-OSS",
+                "provider_model_id": "openai/gpt-oss-20b",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "nim_gpt_oss_120b": {
+                "display_name": "GPT-OSS 120B",
+                "family": "GPT-OSS",
+                "provider_model_id": "openai/gpt-oss-120b",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "nim_teuken_7b_instruct_commercial_v0_4": {
+                "display_name": "Teuken 7B Instruct Commercial v0.4",
+                "family": "Teuken",
+                "provider_model_id": "opengpt-x/teuken-7b-instruct-commercial-v0.4",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "nim_kimi_k2_instruct": {
+                "display_name": "Kimi K2 Instruct",
+                "family": "Kimi",
+                "provider_model_id": "moonshotai/kimi-k2-instruct",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "nim_magistral_small_2506": {
+                "display_name": "Magistral Small 2506",
+                "family": "Magistral",
+                "provider_model_id": "mistralai/magistral-small-2506",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              }
+            }
+          },
+          "amazon_bedrock": {
+            "display_name": "Amazon Bedrock",
+            "notes": "Amazon Bedrock re-serves models from other vendors (Anthropic, DeepSeek, Meta) plus Amazon's own Titan models, all under Bedrock's own wire ids -- often region-prefixed cross-region inference profile ids (a 'us.' prefix) and sometimes date-suffixed -- which don't match the bare provider_model_ids the same underlying models use under the anthropic, deepseek, and meta providers elsewhere in this catalog. Bedrock is catalogued as its own provider so provider_model_id stays the literal wire id Bedrock's API expects; the same underlying model can therefore appear under two providers with two different provider_model_ids.",
+            "models": {
+              "bedrock_claude_opus_4_7": {
+                "display_name": "Claude Opus 4.7",
+                "family": "Claude 4",
+                "provider_model_id": "us.anthropic.claude-opus-4-7",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_claude_sonnet_4_6": {
+                "display_name": "Claude Sonnet 4.6",
+                "family": "Claude 4",
+                "provider_model_id": "us.anthropic.claude-sonnet-4-6",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_claude_sonnet_4_5": {
+                "display_name": "Claude Sonnet 4.5",
+                "family": "Claude 4",
+                "provider_model_id": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_claude_haiku_4_5": {
+                "display_name": "Claude Haiku 4.5",
+                "family": "Claude 4",
+                "provider_model_id": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_deepseek_v3_2": {
+                "display_name": "DeepSeek V3.2",
+                "family": "DeepSeek V3",
+                "provider_model_id": "deepseek.v3.2",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_deepseek_r1": {
+                "display_name": "DeepSeek R1",
+                "family": "DeepSeek R1",
+                "provider_model_id": "us.deepseek.r1-v1:0",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_llama_3_3_70b": {
+                "display_name": "Llama 3.3 70B Instruct",
+                "family": "Llama 3",
+                "provider_model_id": "us.meta.llama3-3-70b-instruct-v1:0",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_llama_3_1_70b": {
+                "display_name": "Llama 3.1 70B Instruct",
+                "family": "Llama 3",
+                "provider_model_id": "us.meta.llama3-1-70b-instruct-v1:0",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_titan_text_premier": {
+                "display_name": "Titan Text Premier",
+                "family": "Titan Text",
+                "provider_model_id": "amazon.titan-text-premier-v1:0",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_titan_text_express": {
+                "display_name": "Titan Text Express",
+                "family": "Titan Text",
+                "provider_model_id": "amazon.titan-text-express-v1",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              },
+              "bedrock_titan_text_lite": {
+                "display_name": "Titan Text Lite",
+                "family": "Titan Text",
+                "provider_model_id": "amazon.titan-text-lite-v1",
+                "key_support": "REQUIRES_CUSTOMER_KEY"
+              }
+            }
+          },
+          "ollama": {
+            "display_name": "Ollama",
+            "notes": "Ollama is a local-runtime provider: models are whatever the user has pulled into their own local Ollama server, discovered dynamically by OllamaPrompt at runtime rather than declared statically here. The provider declares no models and sets key_support at the provider level instead, per KeySupport's documented default for a local-runtime provider with no enumerated models of its own.",
+            "key_support": "NO_KEY_REQUIRED",
+            "models": {}
           }
         }
       }
@@ -3706,6 +4011,15 @@
           "driver",
           "config",
           "griptape"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_image_1_mini",
+              "gtc_gpt_image_1_5"
+            ]
+          }
         ]
       }
     },
@@ -3728,6 +4042,14 @@
           "config",
           "grok",
           "xai"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "xai_grok_2_image_1212"
+            ]
+          }
         ]
       }
     },
@@ -3749,6 +4071,16 @@
           "driver",
           "config",
           "openai"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_image_1",
+              "openai_dall_e_3",
+              "openai_dall_e_2"
+            ]
+          }
         ]
       }
     },
@@ -3771,6 +4103,24 @@
           "aws",
           "bedrock",
           "llm"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "bedrock_claude_opus_4_7",
+              "bedrock_claude_sonnet_4_6",
+              "bedrock_claude_sonnet_4_5",
+              "bedrock_claude_haiku_4_5",
+              "bedrock_deepseek_v3_2",
+              "bedrock_deepseek_r1",
+              "bedrock_llama_3_3_70b",
+              "bedrock_llama_3_1_70b",
+              "bedrock_titan_text_premier",
+              "bedrock_titan_text_express",
+              "bedrock_titan_text_lite"
+            ]
+          }
         ]
       }
     },
@@ -3792,6 +4142,16 @@
           "config",
           "anthropic",
           "llm"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_claude_opus_4_7",
+              "gtc_claude_sonnet_4_6",
+              "gtc_claude_haiku_4_5"
+            ]
+          }
         ]
       }
     },
@@ -3810,6 +4170,14 @@
           "config",
           "cohere",
           "llm"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "cohere_command_r_plus"
+            ]
+          }
         ]
       }
     },
@@ -3888,6 +4256,18 @@
           "grok",
           "xai",
           "llm"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "xai_grok_3_beta",
+              "xai_grok_3_fast_beta",
+              "xai_grok_3_mini_beta",
+              "xai_grok_3_mini_fast_beta",
+              "xai_grok_2_vision_1212"
+            ]
+          }
         ]
       }
     },
@@ -3909,6 +4289,23 @@
           "config",
           "groq",
           "llm"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "groq_gemma2_9b_it",
+              "groq_llama_guard_4_12b",
+              "groq_llama_3_3_70b_versatile",
+              "groq_llama_3_1_8b_instant",
+              "groq_llama3_70b_8192",
+              "groq_llama3_8b_8192",
+              "groq_allam_2_7b",
+              "groq_deepseek_r1_distill_llama_70b",
+              "groq_llama_4_scout_17b_16e_instruct",
+              "groq_llama_4_maverick_17b_128e_instruct"
+            ]
+          }
         ]
       }
     },
@@ -3927,6 +4324,28 @@
           "nvidia",
           "nim",
           "llm"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "nim_deepseek_v3_1",
+              "nim_gemma_3_1b_it",
+              "nim_llama_4_maverick_17b_128e_instruct",
+              "nim_llama_4_scout_17b_16e_instruct",
+              "nim_llama_3_2_11b_vision_instruct",
+              "nim_llama_3_2_90b_vision_instruct",
+              "nim_llama3_8b_instruct",
+              "nim_llama_3_3_nemotron_super_49b_v1_5",
+              "nim_llama_3_1_nemotron_nano_vl_8b_v1",
+              "nim_nemotron_nano_9b_v2",
+              "nim_gpt_oss_20b",
+              "nim_gpt_oss_120b",
+              "nim_teuken_7b_instruct_commercial_v0_4",
+              "nim_kimi_k2_instruct",
+              "nim_magistral_small_2506"
+            ]
+          }
         ]
       }
     },
@@ -3948,6 +4367,14 @@
           "ollama",
           "llm",
           "local"
+        ],
+        "declarations": [
+          {
+            "type": "model_provider_usage",
+            "provider_ids": [
+              "ollama"
+            ]
+          }
         ]
       }
     },
@@ -3969,6 +4396,26 @@
           "config",
           "openai",
           "llm"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_5_2",
+              "gtc_gpt_5_1",
+              "gtc_gpt_5",
+              "gtc_gpt_5_mini",
+              "gtc_gpt_5_nano",
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_4o",
+              "gtc_o4_mini",
+              "gtc_o3",
+              "gtc_o3_mini",
+              "gtc_o1"
+            ]
+          }
         ]
       }
     },
@@ -4081,6 +4528,15 @@
           "image",
           "generation",
           "ai"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_image_1_mini",
+              "gtc_gpt_image_1_5"
+            ]
+          }
         ]
       }
     },
@@ -5011,6 +5467,17 @@
           "agent",
           "math",
           "fun"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_5"
+            ]
+          }
         ]
       }
     },
@@ -5203,6 +5670,14 @@
         "tags": [
           "text",
           "random"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_4_1_nano"
+            ]
+          }
         ]
       }
     },
@@ -5219,6 +5694,17 @@
           "text",
           "utility",
           "datetime"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_5"
+            ]
+          }
         ]
       }
     },
@@ -5264,6 +5750,17 @@
           "agent",
           "ai",
           "evaluation"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_5"
+            ]
+          }
         ]
       }
     },
@@ -5297,6 +5794,17 @@
           "web",
           "api",
           "scrape"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_5"
+            ]
+          }
         ]
       }
     },
@@ -5348,6 +5856,17 @@
           "web",
           "api",
           "search"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_5"
+            ]
+          }
         ]
       }
     },
@@ -5365,6 +5884,17 @@
           "agent",
           "ai",
           "summarize"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_5"
+            ]
+          }
         ]
       }
     },
@@ -5461,6 +5991,14 @@
           "agent",
           "mcp",
           "api"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_gpt_4_1"
+            ]
+          }
         ]
       }
     },

@@ -6,11 +6,6 @@ from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
 from griptape_nodes_library.agents.agent import API_KEY_ENV_VAR, Agent
 
 
-@pytest.fixture
-def agent_node() -> Agent:
-    return Agent(name="Agent")
-
-
 def _stub_secret(monkeypatch: pytest.MonkeyPatch, value: str | None) -> None:
     """Make the engine's SecretsManager return *value* for any secret lookup."""
     import griptape_nodes_library.agents.agent as agent_module

@@ -7,11 +7,15 @@ from griptape.rules import Rule
 from griptape.structures import Agent, Structure
 from griptape.tools import CalculatorTool as GtCalculatorTool
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.traits.options import Options
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from json_repair import repair_json  # json_repair
 from pydantic import BaseModel
 
 from griptape_nodes_library.tasks.base_task import BaseTask
+from griptape_nodes_library.utils.model_invocation import declare_model_invocation_sync
+
+MODEL_CHOICES = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-5"]
+DEFAULT_MODEL = "gpt-4.1-mini"
 
 
 class Output(BaseModel):
@@ -31,15 +35,19 @@ class Askulator(BaseTask):
                 ui_options={"multiline": True, "placeholder_text": "Enter something to calculate."},
             )
         )
-        self.add_parameter(
-            Parameter(
-                name="model",
-                type="str",
-                default_value="gpt-4.1-mini",
-                tooltip="The model to use for the task.",
-                traits={Options(choices=["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-5"])},
-                ui_options={"hide": True},
-            )
+        model_param = Parameter(
+            name="model",
+            type="str",
+            default_value=DEFAULT_MODEL,
+            tooltip="The model to use for the task.",
+            ui_options={"hide": True},
+        )
+        self.add_parameter(model_param)
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_CHOICES,
+            default_model=DEFAULT_MODEL,
         )
         self.add_parameter(
             Parameter(
@@ -63,7 +71,25 @@ class Askulator(BaseTask):
             )
         )
 
-    def _process(self, agent: Agent, prompt: BaseArtifact | str) -> Structure:
+    def after_value_set(
+        self,
+        parameter: Parameter,
+        value: Any,
+    ) -> None:
+        if parameter.name == "model":
+            self._model_access.on_value_changed(value)
+        return super().after_value_set(parameter, value)
+
+    def _process(self, agent: Agent, prompt: BaseArtifact | str, model: str) -> Structure:
+        # License-policy gate immediately before the framework driver call. Askulator overrides
+        # BaseTask._process wholesale (different streaming/parsing loop), so it declares here
+        # rather than relying on the base implementation's declaration.
+        declaration = declare_model_invocation_sync(self, model)
+        if declaration.failed():
+            details = str(declaration.result_details or f"{self.name}: model invocation was not permitted.")
+            msg = f"Cannot run {type(self).__name__}: {details}"
+            raise RuntimeError(msg)
+
         args = [prompt] if prompt else []
         full_result = ""
         last_reasoning = ""
@@ -95,6 +121,10 @@ class Askulator(BaseTask):
         instruction = self.get_parameter_value("instruction")
         model = self.get_parameter_value("model")
 
+        # License-policy runtime gate. Raises RuntimeError if the currently-selected
+        # model is denied.
+        self._model_access.raise_if_denied(model)
+
         # Create the tool
         tool = GtCalculatorTool()
 
@@ -121,4 +151,4 @@ class Askulator(BaseTask):
 
         if instruction and not instruction.isspace():
             # Run the agent asynchronously
-            yield lambda: self._process(agent, user_input)
+            yield lambda: self._process(agent, user_input, model)

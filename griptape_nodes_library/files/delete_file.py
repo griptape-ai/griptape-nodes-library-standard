@@ -586,7 +586,7 @@ class DeleteFile(SuccessFailureNode):
 
         for target in deletion_order:
             # Create and send delete request
-            request = DeleteFileRequest(path=target.path, workspace_only=False)
+            request = DeleteFileRequest(path=target.path, workspace_only=False, collect_deleted_paths=True)
             result = GriptapeNodes.handle_request(request)
 
             if isinstance(result, DeleteFileResultFailure):
