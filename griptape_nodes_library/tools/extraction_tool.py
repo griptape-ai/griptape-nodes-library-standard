@@ -24,6 +24,14 @@ class StructuredDataExtractor(BaseTool):
         if not prompt_driver:
             prompt_driver = GriptapeCloudPromptDriver(model="gpt-4o")
 
+        # Gate every actual model call the extraction engine makes through this
+        # driver. `JsonExtractionEngine`/`CsvExtractionEngine` invoke
+        # `prompt_driver.run(...)` directly, well after this `process()` call has
+        # returned control -- see `BaseTool._gate_prompt_driver` for why the
+        # declaration has to be wrapped onto the driver here rather than dispatched
+        # from this method.
+        self._gate_prompt_driver(prompt_driver)
+
         # Create the appropriate extraction engine based on type
         engine = None
         if extraction_type == "csv":
