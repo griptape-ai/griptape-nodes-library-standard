@@ -3,16 +3,20 @@ from __future__ import annotations
 import base64
 import logging
 import re
+from contextlib import suppress
 from typing import Any, ClassVar
+from uuid import uuid4
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
+    PublicArtifactUrlParameter,
+)
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
@@ -86,6 +90,11 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         super().__init__(**kwargs)
         self.category = "API Nodes"
         self.description = "Generate images using OpenAI GPT Image models via Griptape model proxy"
+
+        # Reference images are uploaded to Griptape Cloud and passed to the proxy as public URLs
+        # rather than base64-inlined into the request body. Each upload uses a transient
+        # PublicArtifactUrlParameter tracked here so it can be cleaned up after the run.
+        self._pending_reference_uploads: list[tuple[PublicArtifactUrlParameter, str]] = []
 
         self.add_parameter(
             ParameterString(
@@ -492,6 +501,20 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
         return exceptions if exceptions else None
 
+    async def _process_generation(self) -> None:
+        self._pending_reference_uploads = []
+        try:
+            await super()._process_generation()
+        finally:
+            # Delete each uploaded reference and remove its scratch parameter. The scratch name is
+            # unique per upload, so leaving it would accumulate parameters on the node across runs.
+            for helper, scratch_name in self._pending_reference_uploads:
+                with suppress(Exception):
+                    helper.delete_uploaded_artifact()
+                with suppress(Exception):
+                    self.remove_parameter_element_by_name(scratch_name)
+            self._pending_reference_uploads = []
+
     async def _build_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": self._get_payload_model_id(),
@@ -592,14 +615,50 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         if not image_value:
             raise ValueError(f"{self.name}: Input image must be a file path, URL, data URI, or image artifact.")
 
-        if image_value.startswith("data:"):
+        # Upload the reference to Griptape Cloud and pass the proxy a public URL instead of
+        # base64-inlining the bytes. Base64 inflates the payload ~33%, so a couple of large
+        # references can exceed the proxy's request-body cap; a URL keeps the body tiny.
+        try:
+            return self._resolve_public_url_for_reference(image_value)
+        except Exception as e:
+            msg = f"{self.name}: Failed to prepare input image {image_input!r}: {e}"
+            raise ValueError(msg) from e
+
+    def _resolve_public_url_for_reference(self, image_value: str) -> str:
+        """Return a publicly fetchable URL for a reference image.
+
+        Already-public http(s) URLs pass through unchanged. Everything else — local paths, data
+        URIs, and localhost URLs — is uploaded to Griptape Cloud via a transient
+        PublicArtifactUrlParameter (tracked for cleanup) and its public URL is returned.
+        """
+        if image_value.startswith(("http://", "https://")) and "localhost" not in image_value:
             return image_value
 
-        try:
-            return await File(image_value).aread_data_uri(fallback_mime=self.DEFAULT_INPUT_IMAGE_MIME_TYPE)
-        except FileLoadError as e:
-            msg = f"{self.name}: Failed to read input image {image_input!r}: {e}"
-            raise ValueError(msg) from e
+        # The scratch parameter is a transient, worker-local helper that only exists to feed the
+        # upload (PublicArtifactUrlParameter reads its value locally). Its name is unique per call
+        # and it is removed before the run ends. Mutating parameters during aprocess trips the
+        # strict-mode warning, which is expected and harmless here.
+        scratch_name = f"_reference_upload_{uuid4().hex}"
+        helper = PublicArtifactUrlParameter(
+            node=self,
+            artifact_url_parameter=Parameter(
+                name=scratch_name,
+                input_types=["ImageUrlArtifact"],
+                type="ImageUrlArtifact",
+                default_value="",
+                tooltip="",
+                allowed_modes={ParameterMode.PROPERTY},
+                hide=True,
+                hide_property=True,
+            ),
+        )
+        helper.add_input_parameters()
+        self._pending_reference_uploads.append((helper, scratch_name))
+        self.set_parameter_value(scratch_name, image_value)
+
+        # Must run on the aprocess event loop, not a worker thread: the upload resolves macro paths
+        # (e.g. "{inputs}/...") via GriptapeNodes.handle_request, which needs the node's project context.
+        return helper.get_public_url_for_parameter()
 
     def _extract_input_image_value(self, image_input: Any) -> str | None:
         if isinstance(image_input, str):
