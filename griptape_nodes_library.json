@@ -4534,7 +4534,8 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_gpt_image_1_mini",
-              "gtc_gpt_image_1_5"
+              "gtc_gpt_image_1_5",
+              "gtc_gpt_4o"
             ]
           }
         ]

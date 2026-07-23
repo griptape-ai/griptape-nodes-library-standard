@@ -43,6 +43,7 @@ from griptape_nodes_library.utils.agent_utils import (
 )
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
+from griptape_nodes_library.utils.model_invocation import declare_model_invocation_sync
 
 _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
 
@@ -441,9 +442,12 @@ class DescribeImage(ControlNode):
         params = self.parameter_values
         model_input = self.get_parameter_value("model")
         provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
+        agent_value = self.get_parameter_value("agent")
 
-        # License-policy runtime gate — only enforced for Griptape Cloud models.
-        if provider_name == "griptape_cloud":
+        # License-policy runtime gate, skipped when an Agent is connected: it supplies its
+        # own driver, so the node's (hidden, not cleared) dropdown value is stale. The
+        # INVOKE_MODEL declaration below gates the model that actually runs.
+        if agent_value is None:
             self._model_access.raise_if_denied(model_input)
 
         agent = None
@@ -494,7 +498,6 @@ class DescribeImage(ControlNode):
         tool_configs: list = []
         ruleset_configs: list = []
         provider_info: dict | None = None
-        agent_value = self.get_parameter_value("agent")
         if isinstance(agent_value, dict):
             agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_value)
             agent = GtAgent().from_dict(agent_core_dict)
@@ -574,6 +577,24 @@ class DescribeImage(ControlNode):
             self.parameter_output_values["output"] = "No image provided"
             return
 
+        # Declare the model that will actually run. Every construction branch above
+        # ends with the concrete prompt driver installed on the agent's PromptTask,
+        # so read the model from there. The node's own `model` parameter is not a
+        # trustworthy source: it keeps its last dropdown value (hidden, not cleared)
+        # while a connected Agent supplies the real driver. The util resolves the
+        # provider model id to its stable catalog key (via the node's model_usage)
+        # before declaring. Declare before the network call below so a denied
+        # invocation fails closed rather than reaching the provider.
+        model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
+        declaration = declare_model_invocation_sync(self, model)
+        if declaration.failed():
+            details = str(
+                declaration.result_details
+                or f"DescribeImage '{self.name}': invocation of model '{model}' was not permitted."
+            )
+            raise RuntimeError(details)
+
+        # Run the agent
         yield lambda: agent.run([prompt, *image_artifacts])
         agent_output = agent.output
         output_value = agent_output.value

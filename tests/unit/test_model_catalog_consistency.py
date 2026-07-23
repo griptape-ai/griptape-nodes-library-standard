@@ -52,6 +52,15 @@ from griptape_nodes_library.text.summarize_text_task import MODEL_CHOICES as SUM
 
 LIBRARY_JSON = Path(__file__).parents[2] / "griptape_nodes_library.json"
 
+# Models a node invokes internally without offering them in its dropdown, keyed
+# by class name. Declared after the dropdown models in `model_usage` so the
+# dropdown prefix stays aligned with the node's `MODEL_CHOICES` constant.
+# GenerateImage's prompt-enhancement step runs the default gpt-4o prompt driver,
+# a model invocation distinct from the image-generation driver it selects.
+INTERNAL_PROVIDER_MODEL_IDS: dict[str, list[str]] = {
+    "GenerateImage": ["gpt-4o"],
+}
+
 
 def _load_library() -> dict[str, Any]:
     return json.loads(LIBRARY_JSON.read_text())
@@ -141,15 +150,17 @@ def test_model_selection_node_usage_matches_static_choices(
     """The model list in Python and the models the node declares must agree.
 
     Each node's `model_usage` ids resolve (through the catalog) to the same
-    ordered provider model ids the node's `MODEL_CHOICES` constant serves. A
-    mismatch means the manifest and the code drifted and one side needs updating.
+    ordered provider model ids the node's `MODEL_CHOICES` constant serves,
+    followed by any models the node invokes internally without offering them
+    (`INTERNAL_PROVIDER_MODEL_IDS`). A mismatch means the manifest and the code
+    drifted and one side needs updating.
     """
     library = _load_library()
     provider_model_id_by_catalog_id = _provider_model_id_by_catalog_id(library)
 
     declared = [provider_model_id_by_catalog_id[model_id] for model_id in _model_usage_ids(library, class_name)]
 
-    assert declared == expected_provider_model_ids
+    assert declared == expected_provider_model_ids + INTERNAL_PROVIDER_MODEL_IDS.get(class_name, [])
 
 
 def test_declared_models_resolve_uniquely_per_node() -> None:

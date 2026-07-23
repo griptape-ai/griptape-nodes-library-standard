@@ -19,6 +19,7 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
 from griptape_nodes_library.utils.agent_utils import restore_provider_driver, unwrap_agent, wrap_agent
 from griptape_nodes_library.utils.error_utils import try_throw_error
+from griptape_nodes_library.utils.model_invocation import declare_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
@@ -238,6 +239,18 @@ class GenerateImage(ControlNode):
 
         if enhance_prompt:
             self.append_value_to_parameter("logs", "Enhancing prompt...\n")
+            # This runs the agent's own prompt driver (the default gpt-4o driver, or a
+            # connected agent's) -- a model invocation distinct from the image-generation
+            # driver below, and one no dropdown selects, so its model comes from the task
+            # driver. Declare it so a denied invocation fails closed before the call.
+            enhance_model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
+            enhance_declaration = declare_model_invocation_sync(self, enhance_model)
+            if enhance_declaration.failed():
+                details = str(
+                    enhance_declaration.result_details
+                    or f"GenerateImage '{self.name}': prompt enhancement with model '{enhance_model}' was not permitted."
+                )
+                raise RuntimeError(details)
             # agent.run is a blocking operation that will hold up the rest of the engine.
             # By using `yield lambda`, the engine can run this in the background and resume when it's done.
             result = yield lambda: agent.run(
@@ -285,6 +298,19 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
             )
 
         kwargs["image_generation_driver"] = driver
+
+        # The image generation driver is settled above -- every branch produces a
+        # concrete BaseImageGenerationDriver whose `model` is a required field. The util
+        # resolves that provider model id to its stable catalog key (via the node's
+        # model_usage) before declaring. Declare before swapping in the task (and the
+        # network call it triggers below) so a denied invocation fails closed here.
+        declaration = declare_model_invocation_sync(self, driver.model)
+        if declaration.failed():
+            details = str(
+                declaration.result_details
+                or f"GenerateImage '{self.name}': invocation of model '{driver.model}' was not permitted."
+            )
+            raise RuntimeError(details)
 
         # Set new Image Generation Task
         # Cool trick to swap the task of the agent from PromptTask to ImageGenerationTask
