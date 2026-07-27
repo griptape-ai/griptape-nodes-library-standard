@@ -55,8 +55,8 @@ class ListFiles(SuccessFailureNode):
         self.match_pattern = ParameterString(
             name="match_pattern",
             default_value="",
-            tooltip="Filter by filename using wildcards. Use * to match anything (e.g. *.jpg, render_*.png). Include a folder name or ** to search inside subfolders (e.g. **/outputs/*.png finds PNGs in any outputs/ folder). Leave empty to include everything.",
-            placeholder_text="Filter files (e.g. *.jpg or **/outputs/*.png)",
+            tooltip="Filter by filename using wildcards. Use * to match anything (e.g. *.jpg, render_*.png). Include a folder name or ** to search inside subfolders (e.g. **/outputs/images/*.png finds PNGs in any outputs/images/ folder). Leave empty to include everything.",
+            placeholder_text="Filter files (e.g. *.jpg or **/outputs/images/*.png)",
         )
         self.match_pattern_case_sensitive = ParameterBool(
             name="match_pattern_case_sensitive",
