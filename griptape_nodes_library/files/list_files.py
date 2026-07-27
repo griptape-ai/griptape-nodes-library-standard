@@ -80,7 +80,7 @@ class ListFiles(SuccessFailureNode):
             name="recursive",
             allow_output=False,
             default_value=False,
-            tooltip="If True, walk subdirectories and include matches at every depth. If False, only the directory_path level is listed.",
+            tooltip="If True, walk subdirectories and include matches at every depth. If False, only the directory_path level is listed. Automatically enabled when match_pattern contains / or **.",
         )
 
         self.use_absolute_paths = ParameterBool(
@@ -252,10 +252,14 @@ class ListFiles(SuccessFailureNode):
                     if use_pattern:
                         if is_path_pattern:
                             try:
-                                candidate = Path(entry.absolute_path).relative_to(root_resolved).as_posix()
+                                # Resolve both sides so symlinked roots (/tmp → /private/tmp on macOS) don't break relative_to
+                                candidate = Path(entry.absolute_path).resolve().relative_to(root_resolved).as_posix()
                             except ValueError:
                                 candidate = entry.name
                             matched = PurePosixPath(candidate).match(pattern, case_sensitive=match_pattern_case_sensitive)
+                            # Fallback: Python 3.12 match() may require ≥1 segment before **; retry without leading **/
+                            if not matched and pattern.startswith("**/"):
+                                matched = PurePosixPath(candidate).match(pattern[3:], case_sensitive=match_pattern_case_sensitive)
                         else:
                             matched = self._name_matches_pattern(entry.name, pattern, case_sensitive=match_pattern_case_sensitive)
                         if matched:
@@ -281,7 +285,7 @@ class ListFiles(SuccessFailureNode):
         list_options = self.get_parameter_value("list_options")
         recursive = self.get_parameter_value("recursive")
         if self._is_path_pattern(match_pattern.strip()):
-            if not directory_path:
+            if not (directory_path or "").strip():
                 msg = f"{self.name}: directory_path is required when match_pattern contains / or **"
                 self._set_status_results(was_successful=False, result_details=f"Failure: {msg}")
                 return
