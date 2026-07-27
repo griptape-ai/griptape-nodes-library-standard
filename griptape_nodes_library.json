@@ -54,6 +54,10 @@
     },
     "declarations": [
       {
+        "type": "lifecycle_stage",
+        "stage": "STABLE"
+      },
+      {
         "type": "model_catalog",
         "providers": {
           "anthropic": {
