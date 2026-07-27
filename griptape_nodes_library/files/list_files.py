@@ -53,7 +53,8 @@ class ListFiles(SuccessFailureNode):
         self.match_pattern = ParameterString(
             name="match_pattern",
             default_value="",
-            tooltip="Optional shell-style glob for entry names (e.g. *.jpg, report_*.txt). Empty includes all. Applies to both files and folders when listed.",
+            tooltip="Filter by filename using wildcards. Use * to match anything (e.g. *.jpg, render_*.png). Include a folder name or ** to search inside subfolders (e.g. **/outputs/*.png finds PNGs in any outputs/ folder). Leave empty to include everything.",
+            placeholder_text="Filter files (e.g. *.jpg or **/outputs/*.png)",
         )
         self.match_pattern_case_sensitive = ParameterBool(
             name="match_pattern_case_sensitive",
@@ -153,6 +154,10 @@ class ListFiles(SuccessFailureNode):
         )
 
     @staticmethod
+    def _is_path_pattern(pattern: str) -> bool:
+        return "/" in pattern or "**" in pattern
+
+    @staticmethod
     def _directory_visit_key(directory_path: str | None) -> str:
         """Stable key for visited dirs (avoids repeated work on symlink cycles)."""
         if not directory_path:
@@ -214,6 +219,10 @@ class ListFiles(SuccessFailureNode):
         collected: list = []
         stack: list[str | None] = [root_directory_path]
         visited: set[str] = set()
+        pattern = match_pattern.strip()
+        use_pattern = bool(pattern)
+        is_path_pat = use_pattern and self._is_path_pattern(pattern)
+        root_resolved = str(Path(root_directory_path).resolve()) if root_directory_path and is_path_pat else ""
 
         while stack:
             current = stack.pop()
@@ -238,15 +247,20 @@ class ListFiles(SuccessFailureNode):
             # Descend into subdirs in a stable order (reverse so first listed dir is processed next on pop).
             subdirs: list[str] = []
             for entry in result.entries:
-                collected.extend(
-                    self._filter_entries(
-                        [entry],
-                        include_files=include_files,
-                        include_folders=include_folders,
-                        match_pattern=match_pattern,
-                        match_pattern_case_sensitive=match_pattern_case_sensitive,
-                    )
-                )
+                include = (entry.is_dir and include_folders) or (not entry.is_dir and include_files)
+                if include:
+                    if use_pattern:
+                        if is_path_pat:
+                            try:
+                                candidate = Path(entry.absolute_path).relative_to(root_resolved).as_posix()
+                            except ValueError:
+                                candidate = entry.name
+                        else:
+                            candidate = entry.name
+                        if self._name_matches_pattern(candidate, pattern, case_sensitive=match_pattern_case_sensitive):
+                            collected.append(entry)
+                    else:
+                        collected.append(entry)
                 if entry.is_dir:
                     subdirs.append(entry.path)
             for d in reversed(subdirs):
@@ -265,6 +279,8 @@ class ListFiles(SuccessFailureNode):
         match_pattern_case_sensitive = self.get_parameter_value("match_pattern_case_sensitive")
         list_options = self.get_parameter_value("list_options")
         recursive = self.get_parameter_value("recursive")
+        if self._is_path_pattern(match_pattern.strip()):
+            recursive = True
         use_absolute_paths = self.get_parameter_value("use_absolute_paths")
 
         # Determine include_files and include_folders based on list_options
