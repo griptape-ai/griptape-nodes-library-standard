@@ -1,6 +1,7 @@
 import logging
+import re
 from fnmatch import fnmatchcase
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter
@@ -41,6 +42,7 @@ class ListFiles(SuccessFailureNode):
             allow_output=False,
             default_value="",
             tooltip="The directory path to list files from.",
+            placeholder_text="Enter a directory path (e.g. /path/to/folder) or leave empty for workspace root",
         )
         self.directory_path.add_trait(
             FileSystemPicker(
@@ -158,6 +160,30 @@ class ListFiles(SuccessFailureNode):
         return "/" in pattern or "**" in pattern
 
     @staticmethod
+    def _compile_path_pattern(pattern: str, *, case_sensitive: bool) -> re.Pattern:
+        """Compile a path glob to a regex. ** matches zero or more path components; * stays within one segment."""
+        flags = 0 if case_sensitive else re.IGNORECASE
+        result = []
+        i = 0
+        while i < len(pattern):
+            if pattern[i : i + 3] == "**/":
+                result.append("(?:.*/)?")
+                i += 3
+            elif pattern[i : i + 2] == "**":
+                result.append(".*")
+                i += 2
+            elif pattern[i] == "*":
+                result.append("[^/]*")
+                i += 1
+            elif pattern[i] == "?":
+                result.append("[^/]")
+                i += 1
+            else:
+                result.append(re.escape(pattern[i]))
+                i += 1
+        return re.compile("".join(result), flags)
+
+    @staticmethod
     def _directory_visit_key(directory_path: str | None) -> str:
         """Stable key for visited dirs (avoids repeated work on symlink cycles)."""
         if not directory_path:
@@ -223,6 +249,7 @@ class ListFiles(SuccessFailureNode):
         use_pattern = bool(pattern)
         is_path_pattern = use_pattern and self._is_path_pattern(pattern)
         root_resolved = str(Path(root_directory_path).resolve()) if root_directory_path and is_path_pattern else ""
+        compiled_path_pattern = self._compile_path_pattern(pattern, case_sensitive=match_pattern_case_sensitive) if is_path_pattern else None
 
         while stack:
             current = stack.pop()
@@ -256,12 +283,11 @@ class ListFiles(SuccessFailureNode):
                                 candidate = Path(entry.absolute_path).resolve().relative_to(root_resolved).as_posix()
                             except ValueError:
                                 candidate = entry.name
-                            matched = PurePosixPath(candidate).match(pattern, case_sensitive=match_pattern_case_sensitive)
-                            # Fallback: Python 3.12 match() may require ≥1 segment before **; retry without leading **/
-                            if not matched and pattern.startswith("**/"):
-                                matched = PurePosixPath(candidate).match(pattern[3:], case_sensitive=match_pattern_case_sensitive)
+                            matched = bool(compiled_path_pattern and compiled_path_pattern.fullmatch(candidate))
                         else:
-                            matched = self._name_matches_pattern(entry.name, pattern, case_sensitive=match_pattern_case_sensitive)
+                            matched = self._name_matches_pattern(
+                                entry.name, pattern, case_sensitive=match_pattern_case_sensitive
+                            )
                         if matched:
                             collected.append(entry)
                     else:
