@@ -1,6 +1,6 @@
 import logging
 from fnmatch import fnmatchcase
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter
@@ -221,8 +221,8 @@ class ListFiles(SuccessFailureNode):
         visited: set[str] = set()
         pattern = match_pattern.strip()
         use_pattern = bool(pattern)
-        is_path_pat = use_pattern and self._is_path_pattern(pattern)
-        root_resolved = str(Path(root_directory_path).resolve()) if root_directory_path and is_path_pat else ""
+        is_path_pattern = use_pattern and self._is_path_pattern(pattern)
+        root_resolved = str(Path(root_directory_path).resolve()) if root_directory_path and is_path_pattern else ""
 
         while stack:
             current = stack.pop()
@@ -250,14 +250,15 @@ class ListFiles(SuccessFailureNode):
                 include = (entry.is_dir and include_folders) or (not entry.is_dir and include_files)
                 if include:
                     if use_pattern:
-                        if is_path_pat:
+                        if is_path_pattern:
                             try:
                                 candidate = Path(entry.absolute_path).relative_to(root_resolved).as_posix()
                             except ValueError:
                                 candidate = entry.name
+                            matched = PurePosixPath(candidate).match(pattern, case_sensitive=match_pattern_case_sensitive)
                         else:
-                            candidate = entry.name
-                        if self._name_matches_pattern(candidate, pattern, case_sensitive=match_pattern_case_sensitive):
+                            matched = self._name_matches_pattern(entry.name, pattern, case_sensitive=match_pattern_case_sensitive)
+                        if matched:
                             collected.append(entry)
                     else:
                         collected.append(entry)
@@ -280,6 +281,12 @@ class ListFiles(SuccessFailureNode):
         list_options = self.get_parameter_value("list_options")
         recursive = self.get_parameter_value("recursive")
         if self._is_path_pattern(match_pattern.strip()):
+            if not directory_path:
+                msg = f"{self.name}: directory_path is required when match_pattern contains / or **"
+                self._set_status_results(was_successful=False, result_details=f"Failure: {msg}")
+                return
+            # Path patterns need recursion; _collect_entries_recursive does path-relative
+            # matching while _filter_entries (flat branch) only matches basenames.
             recursive = True
         use_absolute_paths = self.get_parameter_value("use_absolute_paths")
 
