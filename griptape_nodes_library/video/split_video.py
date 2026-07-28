@@ -46,13 +46,16 @@ class Segment:
     end_sec: float
     title: str
     raw_id: str | None = None
+    frame_accurate: bool = False
 
 
 def build_ffmpeg_cmd(input_path: str, seg: Segment, outdir: str) -> list[str]:
     """Return a single ffmpeg command as a list for the given segment."""
     Path(outdir).mkdir(parents=True, exist_ok=True)
     out_path = Path(outdir) / f"{sanitize_filename(seg.title)}.mp4"
-    return build_video_segment_cmd("ffmpeg", input_path, seg.start_sec, seg.end_sec, str(out_path))
+    return build_video_segment_cmd(
+        "ffmpeg", input_path, seg.start_sec, seg.end_sec, str(out_path), frame_accurate=seg.frame_accurate
+    )
 
 
 class SplitVideo(SuccessFailureNode):
@@ -435,7 +438,7 @@ If no title is provided, just use "Segment X:" format.
 
             start_sec = start_frame / frame_rate
             end_sec = end_frame / frame_rate
-            segments.append(Segment(start_sec=start_sec, end_sec=end_sec, title=title.strip()))
+            segments.append(Segment(start_sec=start_sec, end_sec=end_sec, title=title.strip(), frame_accurate=True))
 
         return segments
 
