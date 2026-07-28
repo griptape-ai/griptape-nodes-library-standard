@@ -126,8 +126,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                 name="size",
                 default_value=initial_size_choices[0],
                 tooltip=(
-                    "Output image size. GPT Image 2 supports presets up to 4K (3840x2160); "
-                    "choose 'custom' to enter any width and height within the model's limits."
+                    "Output image size. Choose 'custom' to enter any width and height within the model's limits."
                 ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=initial_size_choices)},
