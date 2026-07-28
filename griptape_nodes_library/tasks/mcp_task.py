@@ -24,6 +24,9 @@ from griptape_nodes_library.utils.mcp_utils import (
     get_server_config,
     validate_mcp_server,
 )
+from griptape_nodes_library.utils.model_invocation import declare_model_invocation_sync
+
+DEFAULT_MODEL = "gpt-4.1"
 
 
 def _create_ruleset_from_rules_string(rules_string: str | None, server_name: str) -> Ruleset | None:
@@ -343,6 +346,17 @@ class MCPTaskNode(SuccessFailureNode):
             raise TypeError(msg)
         prompt_driver = task.prompt_driver
 
+        # License-policy gate immediately before the framework driver call. MCPTaskNode has no
+        # user-facing model dropdown -- the model is either the fixed default declared below
+        # (no upstream agent connected) or comes from a connected agent's own driver, whose
+        # model identity that agent's own node is responsible for gating. Either way, the
+        # declaration below is this node's own gate on the actual invocation.
+        declaration = declare_model_invocation_sync(self, prompt_driver.model)
+        if declaration.failed():
+            details = str(declaration.result_details or f"{self.name}: model invocation was not permitted.")
+            msg = f"Cannot run {type(self).__name__}: {details}"
+            raise RuntimeError(msg)
+
         if prompt_driver.stream:
             for event in agent.run_stream(
                 *args, event_types=[StartStructureRunEvent, TextChunkEvent, ActionChunkEvent, FinishStructureRunEvent]
@@ -366,7 +380,7 @@ class MCPTaskNode(SuccessFailureNode):
 
         return agent
 
-    def _create_driver(self, model: str = "gpt-4.1") -> GriptapeCloudPromptDriver:
+    def _create_driver(self, model: str = DEFAULT_MODEL) -> GriptapeCloudPromptDriver:
         """Create a GriptapeCloudPromptDriver."""
         return GriptapeCloudPromptDriver(
             model=model,

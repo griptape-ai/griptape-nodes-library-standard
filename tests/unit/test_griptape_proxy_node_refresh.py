@@ -4,9 +4,6 @@ from typing import Any
 
 import pytest
 from griptape_nodes.exe_types.core_types import ParameterMode
-from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
-    PublicArtifactUrlParameter,
-)
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
@@ -17,13 +14,6 @@ from griptape_nodes_library.proxy.griptape_proxy_node import (
     STATUS_RUNNING,
     STATUS_TIMED_OUT,
 )
-
-
-@pytest.fixture(autouse=True)
-def stub_public_artifact_bucket_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        PublicArtifactUrlParameter, "_get_bucket_id", staticmethod(lambda *_args, **_kwargs: "test-bucket")
-    )
 
 
 def _find_status_group_children(node: Any) -> dict[str, Any]:
@@ -143,7 +133,7 @@ async def test_refresh_async_running_updates_status_without_parsing(monkeypatch:
 
     monkeypatch.setattr("griptape_nodes_library.proxy.griptape_proxy_node.httpx.AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(
-        "griptape_nodes_library.proxy.griptape_proxy_node.GriptapeNodes.SecretsManager",
+        "griptape_nodes_library.proxy.provider_asset_access.GriptapeNodes.SecretsManager",
         lambda: type("S", (), {"get_secret": lambda self, _name: "fake-key"})(),
     )
 
@@ -206,7 +196,7 @@ async def test_refresh_async_completed_invokes_parse_result(monkeypatch: pytest.
 
     monkeypatch.setattr("griptape_nodes_library.proxy.griptape_proxy_node.httpx.AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(
-        "griptape_nodes_library.proxy.griptape_proxy_node.GriptapeNodes.SecretsManager",
+        "griptape_nodes_library.proxy.provider_asset_access.GriptapeNodes.SecretsManager",
         lambda: type("S", (), {"get_secret": lambda self, _name: "fake-key"})(),
     )
 

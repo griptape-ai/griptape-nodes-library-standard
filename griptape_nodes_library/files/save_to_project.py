@@ -15,6 +15,12 @@ from griptape_nodes.retained_mode.events.project_events import (
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
+from griptape_nodes_library.utils.situation_utils import (
+    add_situation_parameter,
+    on_output_file_connected,
+    on_output_file_disconnected,
+)
+
 logger = logging.getLogger("griptape_nodes")
 
 
@@ -51,6 +57,7 @@ class SaveToProject(SuccessFailureNode):
             name="output_file",
             default_filename="output",
         )
+        add_situation_parameter(self, self._file_param)
         self._file_param.add_parameter()
 
         self.add_parameter(
@@ -68,12 +75,12 @@ class SaveToProject(SuccessFailureNode):
             result_details_placeholder="Details on the save attempt will be presented here.",
         )
 
-    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+    def after_value_set(self, parameter: Parameter, value: Any, **kwargs: object) -> None:
         if parameter.name == "source":
             source_path = _extract_source_path(value)
             if source_path:
                 self._update_default_filename(source_path)
-        return super().after_value_set(parameter, value)
+        return super().after_value_set(parameter, value, **kwargs)
 
     def validate_before_node_run(self) -> list[Exception] | None:
         """Validate that required parameters are provided."""
@@ -94,6 +101,7 @@ class SaveToProject(SuccessFailureNode):
 
     async def aprocess(self) -> None:
         self._clear_execution_status()
+        self._file_param._situation_name = self.get_parameter_value("situation")
 
         source_value = self.get_parameter_value("source")
         source_path = _extract_source_path(source_value)
@@ -150,3 +158,11 @@ class SaveToProject(SuccessFailureNode):
         if isinstance(result, AttemptMapAbsolutePathToProjectResultSuccess) and result.mapped_path is not None:
             return UrlArtifact(result.mapped_path)
         return UrlArtifact(str(saved_path))
+
+    def after_incoming_connection(self, source_node, source_parameter, target_parameter) -> None:
+        on_output_file_connected(self, source_node, target_parameter)
+        return super().after_incoming_connection(source_node, source_parameter, target_parameter)
+
+    def after_incoming_connection_removed(self, source_node, source_parameter, target_parameter) -> None:
+        on_output_file_disconnected(self, target_parameter)
+        return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)

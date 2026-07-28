@@ -17,11 +17,11 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -431,7 +431,7 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
         }
 
     def _validate_api_key(self) -> str:
-        api_key = GriptapeNodes.SecretsManager().get_secret(self.API_KEY_NAME)
+        api_key = resolve_proxy_api_key(self.API_KEY_NAME)
         if not api_key:
             self._set_safe_defaults()
             msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."

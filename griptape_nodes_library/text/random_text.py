@@ -14,6 +14,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
+from griptape_nodes_library.utils.model_invocation import declare_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
@@ -243,6 +244,15 @@ class RandomText(DataNode):
 
         # Run the agent
         if self.agent:
+            # License-policy gate immediately before the framework driver call. RandomText has
+            # no user-facing model selection (MODEL is a fixed constant), so there is no
+            # dropdown to gate with ModelAccessComponent -- this declaration is the sole gate.
+            declaration = declare_model_invocation_sync(self, MODEL)
+            if declaration.failed():
+                details = str(declaration.result_details or f"{self.name}: model invocation was not permitted.")
+                msg = f"Cannot run {type(self).__name__}: {details}"
+                raise RuntimeError(msg)
+
             result = self.agent.run(prompt)
             if isinstance(result, BaseArtifact):
                 return result.output.value

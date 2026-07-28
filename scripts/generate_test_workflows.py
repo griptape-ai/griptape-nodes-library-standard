@@ -159,6 +159,8 @@ ADVANCED_CONFIGS = [
         "image_in": "input_image",
         "output_param": "output_image",
         "suffix": "write_image_metadata",
+        # WriteImageMetadataNode rejects empty metadata, so the workflow must set it.
+        "set_params": {"metadata": {"author": "griptape-nodes-tests", "description": "integration test"}},
     },
     # single_image — API proxy nodes
     {
@@ -427,6 +429,12 @@ _SET_PARAM = """\
             parameter_name="{param}", node_name={node_var},
             value="{value}", initial_setup=True, is_output=False))"""
 
+_SET_PARAM_VALUE = """\
+    with GriptapeNodes.ContextManager().node({node_var}):
+        GriptapeNodes.handle_request(SetParameterValueRequest(
+            parameter_name="{param}", node_name={node_var},
+            value={value}, initial_setup=True, is_output=False))"""
+
 _TAIL_CONNECTIONS = """\
     GriptapeNodes.handle_request(CreateConnectionRequest(
         source_node_name=gen_node, source_parameter_name="{output_param}",
@@ -463,6 +471,13 @@ def _tail_connections(output_param: str) -> str:
 
 def _set_param(node_var: str, param: str, value: str) -> str:
     return _SET_PARAM.format(node_var=node_var, param=param, value=value)
+
+
+def _set_params(node_var: str, params: dict) -> str:
+    """Emit SetParameterValueRequest calls for parameter presets from a config's set_params."""
+    return "\n".join(
+        _SET_PARAM_VALUE.format(node_var=node_var, param=param, value=repr(value)) for param, value in params.items()
+    )
 
 
 def _add_param_list_child(
@@ -516,8 +531,10 @@ def _body_single_image(cfg: dict) -> str:
         _create_node("gen_node", node_type, node_type),
         _common_utility_nodes(),
         _connect("source_node", "image", "gen_node", image_in),
-        _tail_connections(output_param),
     ]
+    if cfg.get("set_params"):
+        parts.append(_set_params("gen_node", cfg["set_params"]))
+    parts.append(_tail_connections(output_param))
     return "\n".join(parts)
 
 
@@ -859,6 +876,8 @@ def generate_advanced_workflow(cfg: dict) -> str:
 MANUAL_FLOW_INPUTS: dict[str, dict] = {
     "test_seedance_2_0.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_seedance_2_0_fast.py": {"Start Flow": {"prompt": "A ball bouncing"}},
+    "test_openai_image_generation_wide.py": {"Start Flow": {"prompt": "A red circle"}},
+    "test_openai_image_generation_tall.py": {"Start Flow": {"prompt": "A red circle"}},
 }
 
 

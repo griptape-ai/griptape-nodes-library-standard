@@ -6,6 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 from griptape.artifacts import ImageArtifact
+from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
+    PublicArtifactUrlParameter,
+)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
@@ -15,6 +18,7 @@ from griptape_nodes_library.image.openai_image_generation import (
     GPT_IMAGE_2_MODEL_NAME,
     OpenAiImageGeneration,
 )
+from griptape_nodes_library.proxy.griptape_proxy_node import GriptapeProxyNode
 
 
 def _is_param_hidden(node: OpenAiImageGeneration, name: str) -> bool:
@@ -23,10 +27,10 @@ def _is_param_hidden(node: OpenAiImageGeneration, name: str) -> bool:
     return bool(parameter.ui_options.get("hide", False))
 
 
-def _is_message_hidden(node: OpenAiImageGeneration, name: str) -> bool:
-    message = node.get_message_by_name_or_element_id(name)
-    assert message is not None
-    return bool(message.ui_options.get("hide", False))
+def _has_size_badge(node: OpenAiImageGeneration) -> bool:
+    size_param = node.get_parameter_by_name("size")
+    assert size_param is not None
+    return size_param.get_badge() is not None
 
 
 @pytest.fixture
@@ -197,7 +201,18 @@ async def test_build_payload_sends_new_aspect_ratio_to_api(node: OpenAiImageGene
 
 
 @pytest.mark.asyncio
-async def test_build_payload_uses_base64_from_image_artifact(node: OpenAiImageGeneration) -> None:
+async def test_build_payload_uploads_reference_image_and_sends_public_url(
+    node: OpenAiImageGeneration, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Reference images are uploaded to Griptape Cloud and passed to the proxy as public URLs
+    # rather than base64-inlined into the request body.
+    monkeypatch.setattr(
+        PublicArtifactUrlParameter,
+        "get_public_url_for_parameter",
+        lambda self: "https://public.example/reference.png",
+    )
+    monkeypatch.setattr(PublicArtifactUrlParameter, "delete_uploaded_artifact", lambda self: None)
+
     node.set_parameter_value("model", "GPT Image 1")
     node.set_parameter_value("prompt", "Use the artifact image")
     node.set_parameter_value("size", "1024x1024")
@@ -208,20 +223,94 @@ async def test_build_payload_uses_base64_from_image_artifact(node: OpenAiImageGe
 
     payload = await node._build_payload()
 
-    assert payload["images"] == [
-        {"image_url": f"data:image/png;base64,{base64.b64encode(b'artifact-image-bytes').decode('utf-8')}"}
-    ]
+    assert payload["images"] == [{"image_url": "https://public.example/reference.png"}]
 
 
 @pytest.mark.asyncio
-async def test_build_payload_raises_for_invalid_input_image(node: OpenAiImageGeneration) -> None:
+async def test_build_payload_passes_public_url_reference_through_unchanged(
+    node: OpenAiImageGeneration, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # An already-public http(s) URL must not be re-uploaded.
+    def fail_if_uploaded(self: PublicArtifactUrlParameter) -> str:
+        msg = "should not upload an already-public URL"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", fail_if_uploaded)
+
+    node.set_parameter_value("model", "GPT Image 1.5")
+    node.set_parameter_value("prompt", "Use the reference image")
+    node.set_parameter_value("size", "1024x1024")
+    node.set_parameter_value("input_images", ["https://cdn.example/already-public.png"])
+
+    payload = await node._build_payload()
+
+    assert payload["images"] == [{"image_url": "https://cdn.example/already-public.png"}]
+    assert node._pending_reference_uploads == []
+
+
+@pytest.mark.asyncio
+async def test_build_payload_raises_for_invalid_input_image(
+    node: OpenAiImageGeneration, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def raise_load_error(self: PublicArtifactUrlParameter) -> str:
+        msg = "file not found"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", raise_load_error)
+    monkeypatch.setattr(PublicArtifactUrlParameter, "delete_uploaded_artifact", lambda self: None)
+
     node.set_parameter_value("model", "GPT Image 1.5")
     node.set_parameter_value("prompt", "Use the reference image")
     node.set_parameter_value("size", "1024x1024")
     node.set_parameter_value("input_images", ["/definitely/missing/image.png"])
 
-    with pytest.raises(ValueError, match="Failed to read input image"):
+    with pytest.raises(ValueError, match="Failed to prepare input image"):
         await node._build_payload()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("base_raises", [False, True])
+async def test_reference_upload_scratch_parameters_removed_after_generation(
+    node: OpenAiImageGeneration, monkeypatch: pytest.MonkeyPatch, *, base_raises: bool
+) -> None:
+    # Each uploaded reference creates a uniquely-named scratch parameter; _process_generation's
+    # finally block must remove it so parameters don't accumulate across runs — even when the
+    # underlying generation raises.
+    monkeypatch.setattr(
+        PublicArtifactUrlParameter,
+        "get_public_url_for_parameter",
+        lambda self: "https://public.example/uploaded.png",
+    )
+    delete_calls: list[PublicArtifactUrlParameter] = []
+    monkeypatch.setattr(PublicArtifactUrlParameter, "delete_uploaded_artifact", lambda self: delete_calls.append(self))
+
+    # A data URI forces the upload path that mints a scratch parameter. Build the payload from
+    # inside the stubbed base generation so the scratch params exist when the finally block runs.
+    reference = ImageArtifact(value=b"artifact-image-bytes", format="png", width=1, height=1)
+    node.set_parameter_value("input_images", [reference])
+
+    captured: dict[str, list[str]] = {}
+
+    async def fake_base_generation(self: OpenAiImageGeneration) -> None:
+        await self._build_input_images_payload()
+        captured["scratch_names"] = [name for _, name in self._pending_reference_uploads]
+        if base_raises:
+            msg = "generation failed"
+            raise RuntimeError(msg)
+
+    monkeypatch.setattr(GriptapeProxyNode, "_process_generation", fake_base_generation)
+
+    if base_raises:
+        with pytest.raises(RuntimeError, match="generation failed"):
+            await node._process_generation()
+    else:
+        await node._process_generation()
+
+    scratch_names = captured["scratch_names"]
+    assert scratch_names, "expected a scratch upload parameter to be created"
+    assert all(node.get_parameter_by_name(name) is None for name in scratch_names)
+    assert len(delete_calls) == len(scratch_names)
+    assert node._pending_reference_uploads == []
 
 
 @pytest.mark.asyncio
@@ -329,7 +418,7 @@ def test_size_choices_omit_custom_for_legacy_models(node: OpenAiImageGeneration)
 def test_custom_size_params_hidden_by_default(node: OpenAiImageGeneration) -> None:
     assert _is_param_hidden(node, "custom_width")
     assert _is_param_hidden(node, "custom_height")
-    assert _is_message_hidden(node, "custom_size_help")
+    assert not _has_size_badge(node)
 
 
 def test_selecting_custom_size_reveals_dimension_inputs(node: OpenAiImageGeneration) -> None:
@@ -337,7 +426,7 @@ def test_selecting_custom_size_reveals_dimension_inputs(node: OpenAiImageGenerat
 
     assert not _is_param_hidden(node, "custom_width")
     assert not _is_param_hidden(node, "custom_height")
-    assert not _is_message_hidden(node, "custom_size_help")
+    assert _has_size_badge(node)
 
 
 def test_switching_off_custom_size_hides_dimension_inputs(node: OpenAiImageGeneration) -> None:
@@ -346,7 +435,7 @@ def test_switching_off_custom_size_hides_dimension_inputs(node: OpenAiImageGener
 
     assert _is_param_hidden(node, "custom_width")
     assert _is_param_hidden(node, "custom_height")
-    assert _is_message_hidden(node, "custom_size_help")
+    assert not _has_size_badge(node)
 
 
 def test_switching_to_legacy_model_hides_custom_size_inputs(node: OpenAiImageGeneration) -> None:
@@ -355,7 +444,7 @@ def test_switching_to_legacy_model_hides_custom_size_inputs(node: OpenAiImageGen
 
     assert _is_param_hidden(node, "custom_width")
     assert _is_param_hidden(node, "custom_height")
-    assert _is_message_hidden(node, "custom_size_help")
+    assert not _has_size_badge(node)
 
 
 @pytest.mark.parametrize(
@@ -428,7 +517,7 @@ def test_initial_setup_sync_restores_custom_size_visibility(
 
     assert not _is_param_hidden(fresh_node, "custom_width")
     assert not _is_param_hidden(fresh_node, "custom_height")
-    assert not _is_message_hidden(fresh_node, "custom_size_help")
+    assert _has_size_badge(fresh_node)
 
 
 def test_initial_setup_does_not_snap_custom_dimensions(
@@ -444,8 +533,12 @@ def test_initial_setup_does_not_snap_custom_dimensions(
     assert fresh_node.get_parameter_value("custom_width") == 1000
 
 
-def test_custom_size_help_message_uses_markdown(node: OpenAiImageGeneration) -> None:
-    message = node.get_message_by_name_or_element_id("custom_size_help")
-
-    assert message is not None
-    assert message.ui_options.get("markdown") is True
+def test_custom_size_badge_contains_constraint_rules(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("size", "custom")
+    size_param = node.get_parameter_by_name("size")
+    assert size_param is not None
+    badge = size_param.get_badge()
+    assert badge is not None
+    assert badge.variant == "help"
+    assert "Multiples of" in badge.message
+    assert "Aspect ratio" in badge.message

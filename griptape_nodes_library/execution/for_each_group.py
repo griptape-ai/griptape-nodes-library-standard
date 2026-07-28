@@ -11,6 +11,8 @@ from griptape_nodes.exe_types.core_types import (
     ParameterTypeBuiltin,
 )
 from griptape_nodes.exe_types.node_groups import BaseIterativeNodeGroup
+from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
+from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -79,10 +81,42 @@ class ForEachGroupNode(BaseIterativeNodeGroup):
         else:
             self.metadata["left_parameters"] = ["items", "current_item", "index"]
 
+        # Testing mode — run the loop body for a single chosen item
+        self.testing_mode = ParameterBool(
+            name="testing_mode",
+            tooltip="When enabled, run only one iteration using the item at the chosen index",
+            allowed_modes={ParameterMode.PROPERTY},
+            default_value=False,
+            display_name="Testing Mode",
+        )
+        self.add_parameter(self.testing_mode)
+
+        self.test_item_index = ParameterInt(
+            name="test_item_index",
+            tooltip="Index of the item to test (0-based). Clamped to the valid range at runtime.",
+            allowed_modes={ParameterMode.PROPERTY},
+            default_value=0,
+            min_val=0,
+            display_name="Test Item Index",
+            hide=True,
+        )
+        self.add_parameter(self.test_item_index)
+
         self.move_element_to_position("items", 0)
         self.move_element_to_position("results", 1)
         self.move_element_to_position("execution_mode", 2)
         self.add_parameter_to_group_settings(self.execution_mode)
+        self.add_parameter_to_group_settings(self.testing_mode)
+        self.add_parameter_to_group_settings(self.test_item_index)
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        super().after_value_set(parameter, value)
+        if parameter == self.testing_mode:
+            self.test_item_index.hide = not value
+            self.execution_mode.hide = value
+            if not value:
+                # Restore skip/break visibility to match current execution_mode
+                super().after_value_set(self.execution_mode, self.get_parameter_value("execution_mode"))
 
     def _get_iteration_items(self) -> list[Any]:
         """Get the list of items to iterate over.
@@ -96,22 +130,25 @@ class ForEachGroupNode(BaseIterativeNodeGroup):
             logger.info("ForEach Group '%s': No items provided, skipping loop execution", self.name)
             return []
 
-        # Handle dict input - convert to list of {"key": k, "value": v} dicts
         if isinstance(items, dict):
             if len(items) == 0:
                 logger.info("ForEach Group '%s': Empty dictionary provided, skipping loop execution", self.name)
                 return []
-            return [{"key": k, "value": v} for k, v in items.items()]
-
-        # Handle list input
-        if isinstance(items, list):
+            all_items = [{"key": k, "value": v} for k, v in items.items()]
+        elif isinstance(items, list):
             if len(items) == 0:
                 logger.info("ForEach Group '%s': Empty list provided, skipping loop execution", self.name)
-            return items
+            all_items = items
+        else:
+            error_msg = f"ForEach Group '{self.name}' expected a list or dict but got {type(items).__name__}: {items}"
+            raise TypeError(error_msg)
 
-        # Invalid type
-        error_msg = f"ForEach Group '{self.name}' expected a list or dict but got {type(items).__name__}: {items}"
-        raise TypeError(error_msg)
+        if self.get_parameter_value("testing_mode") and all_items:
+            index = self.get_parameter_value("test_item_index")
+            index = max(0, min(index, len(all_items) - 1))
+            return [all_items[index]]
+
+        return all_items
 
     def _get_current_item_value(self, iteration_index: int) -> Any:
         """Get the current item value for a specific iteration.

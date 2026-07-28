@@ -49,5 +49,8 @@ class GriptapeNodesLibraryAdvanced(AdvancedNodeLibrary):
                 end_flow_node_type="EndFlow",
                 end_flow_node_library_name=library_data.name,
                 get_publish_options=get_local_publish_options,
+                display_name="Publish to Folder",
+                description="Package the workflow as a self-contained project written to a local folder.",
+                icon="folder",
             ),
         )

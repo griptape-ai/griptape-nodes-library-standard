@@ -25,6 +25,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = [
+    "LICENSE_SECRET_NAME",
     "ProviderAssetAccess",
     "ProviderAssetAccessOutcome",
     "check_provider_asset_access",
@@ -34,6 +35,11 @@ __all__ = [
 
 # Secret name for the Griptape Cloud API key (mirrors GriptapeProxyNode.API_KEY_NAME).
 API_KEY_NAME = "GT_CLOUD_API_KEY"
+
+# Secret name for the Griptape Nodes License. The Griptape Cloud proxy accepts a License as a
+# valid credential in addition to the API key, so a License-only user (no GT_CLOUD_API_KEY set)
+# can still reach the proxy. When both are configured we prefer the License.
+LICENSE_SECRET_NAME = "GRIPTAPE_NODES_LICENSE"
 
 # Probe asset id used purely to reach the provider-asset handler. It is not expected to exist;
 # an access-granted org returns a 404 "provider asset not found" for it.
@@ -77,14 +83,27 @@ def resolve_proxy_base() -> str:
 
 
 def resolve_proxy_api_key(secret_name: str = API_KEY_NAME) -> str | None:
-    """Return the API key for proxy requests, or None if unavailable.
+    """Return the credential for proxy requests, or None if unavailable.
 
-    GT_CLOUD_PROXY_API_KEY overrides the key used for proxy requests without affecting other
-    engine systems that use the ``secret_name`` secret (GT_CLOUD_API_KEY by default).
+    Resolution order:
+
+    1. ``GT_CLOUD_PROXY_API_KEY`` env var — an explicit override for the proxy credential that
+       does not affect other engine systems using the ``secret_name`` secret.
+    2. The Griptape Nodes License (``GRIPTAPE_NODES_LICENSE`` secret) — the proxy accepts a
+       License as a valid credential, so a License-only user (no ``GT_CLOUD_API_KEY``) can still
+       reach the proxy. When both a License and an API key are configured, the License wins.
+    3. The Griptape Cloud API key (``secret_name``, ``GT_CLOUD_API_KEY`` by default).
+
+    This does not touch BYOK (bring-your-own-key) provider credentials; those are resolved
+    separately and take precedence when present.
     """
     proxy_key = os.getenv("GT_CLOUD_PROXY_API_KEY")
     if proxy_key:
         return proxy_key
+    with suppress(Exception):
+        license_key = GriptapeNodes.SecretsManager().get_secret(LICENSE_SECRET_NAME)
+        if license_key:
+            return license_key
     with suppress(Exception):
         return GriptapeNodes.SecretsManager().get_secret(secret_name)
     return None

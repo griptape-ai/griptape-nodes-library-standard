@@ -1,19 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
-    PublicArtifactUrlParameter,
-)
 
 import griptape_nodes_library.video.wan_animate_generation as wan_animate_module
 from griptape_nodes_library.video.wan_animate_generation import WanAnimateGeneration
-
-
-@pytest.fixture(autouse=True)
-def stub_public_artifact_bucket_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        PublicArtifactUrlParameter, "_get_bucket_id", staticmethod(lambda *_args, **_kwargs: "test-bucket")
-    )
 
 
 def _stub_video_duration(monkeypatch: pytest.MonkeyPatch, seconds: float = 4.0) -> None:
