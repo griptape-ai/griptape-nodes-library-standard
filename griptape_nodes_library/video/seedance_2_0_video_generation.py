@@ -1139,35 +1139,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             return
 
         # Download and save video
-        try:
-            self._log("Downloading video bytes from provider URL")
-            video_bytes = await self._download_bytes_from_url(extracted_url)
-        except Exception as e:
-            self._log(f"Failed to download video: {e}")
-            video_bytes = None
-
-        if video_bytes:
-            try:
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(video_bytes)
-                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-                self._log(f"Saved video as {saved.name}")
-                self._set_status_results(
-                    was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
-                )
-            except Exception as e:
-                self._log(f"Failed to save video: {e}, using provider URL")
-                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=extracted_url)
-                self._set_status_results(
-                    was_successful=True,
-                    result_details=f"Video generated successfully. Using provider URL (could not save to storage: {e}).",
-                )
-        else:
-            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=extracted_url)
-            self._set_status_results(
-                was_successful=True,
-                result_details="Video generated successfully. Using provider URL (could not download video bytes).",
-            )
+        await self._download_and_save(extracted_url, "video_url", lambda v, n: VideoUrlArtifact(value=v, name=n))
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:
         """Extract error message from failed response."""

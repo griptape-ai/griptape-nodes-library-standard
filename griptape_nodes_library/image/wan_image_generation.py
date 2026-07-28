@@ -276,17 +276,24 @@ class WanImageGeneration(GriptapeProxyNode):
 
         # Download and save all images
         image_artifacts: list[ImageUrlArtifact] = []
+        failed_urls: list[str] = []
         for index, url in enumerate(image_urls):
             artifact = await self._save_single_image_from_url(url, index)
             if artifact:
                 image_artifacts.append(artifact)
+            else:
+                failed_urls.append(url)
 
         if not image_artifacts:
             self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details="Generation completed but no images could be saved.",
-            )
+            if failed_urls:
+                details = (
+                    f"{self.name} generation completed upstream but the image(s) could not be retrieved. "
+                    f"Provider URL(s) (may be temporary): {', '.join(failed_urls)}"
+                )
+            else:
+                details = "Generation completed but no images could be saved."
+            self._set_status_results(was_successful=False, result_details=details)
             return
 
         # Show the appropriate number of image output parameters
@@ -320,16 +327,19 @@ class WanImageGeneration(GriptapeProxyNode):
             logger.info("Downloading image %d from URL", index)
             image_bytes = await File(image_url).aread_bytes()
             if not image_bytes:
-                logger.warning("Could not download image %d, using provider URL", index)
-                return ImageUrlArtifact(value=image_url)
+                msg = "downloaded image was empty"
+                raise ValueError(msg)  # noqa: TRY301
 
             dest = self._output_file.build_file(_index=index)
             saved = await dest.awrite_bytes(image_bytes)
             logger.info("Saved image %d as %s", index, saved.name)
             return ImageUrlArtifact(value=saved.location, name=saved.name)
         except Exception as e:
-            logger.error("Failed to save image %d from URL: %s", index, e)
-            return ImageUrlArtifact(value=image_url)
+            # A billed generation whose image cannot be retrieved is a failure, not a
+            # silent success. Return None so this image is not counted as saved; the
+            # caller reports failure and surfaces the provider URL for manual retrieval.
+            logger.error("Failed to retrieve image %d from %s: %s", index, image_url, e)
+            return None
 
     def _set_safe_defaults(self) -> None:
         """Set safe default values for outputs."""

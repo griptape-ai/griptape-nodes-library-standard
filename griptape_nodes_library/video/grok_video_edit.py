@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import logging
-from contextlib import suppress
 from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
@@ -14,8 +12,6 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
-
-logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["GrokVideoEdit"]
 
@@ -210,32 +206,8 @@ class GrokVideoEdit(GriptapeProxyNode):
             )
             return
 
-        try:
-            video_bytes = await self._download_bytes_from_url(video_url)
-        except Exception as e:
-            with suppress(Exception):
-                logger.warning("%s failed to download video: %s", self.name, e)
-            video_bytes = None
-
-        if video_bytes:
-            try:
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(video_bytes)
-            except (OSError, PermissionError) as e:
-                with suppress(Exception):
-                    logger.warning("%s failed to save video: %s", self.name, e)
-            else:
-                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-                self._set_status_results(
-                    was_successful=True,
-                    result_details=f"Video edited successfully and saved as {saved.name}.",
-                )
-                return
-
-        self.parameter_output_values["video_url"] = VideoUrlArtifact(value=video_url)
-        self._set_status_results(
-            was_successful=True,
-            result_details="Video edited successfully. Using provider URL (could not save to static storage).",
+        await self._download_and_save(
+            video_url, "video_url", lambda v, n: VideoUrlArtifact(value=v, name=n), action="edited"
         )
 
     def _set_safe_defaults(self) -> None:

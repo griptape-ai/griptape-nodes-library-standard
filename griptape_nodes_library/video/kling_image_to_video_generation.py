@@ -918,35 +918,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             logger.info("Video ID: %s", video_id)
 
         # Download and save video
-        try:
-            logger.info("%s downloading video from provider URL", self.name)
-            video_bytes = await self._download_bytes_from_url(download_url)
-        except Exception as e:
-            logger.warning("%s failed to download video: %s", self.name, e)
-            video_bytes = None
-
-        if video_bytes:
-            try:
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(video_bytes)
-                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-                logger.info("%s saved video as %s", self.name, saved.name)
-                self._set_status_results(
-                    was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
-                )
-            except (OSError, PermissionError) as e:
-                logger.warning("%s failed to save video: %s, using provider URL", self.name, e)
-                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=download_url)
-                self._set_status_results(
-                    was_successful=True,
-                    result_details=f"Video generated successfully. Using provider URL (could not save to storage: {e}).",
-                )
-        else:
-            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=download_url)
-            self._set_status_results(
-                was_successful=True,
-                result_details="Video generated successfully. Using provider URL (could not download video bytes).",
-            )
+        await self._download_and_save(download_url, "video_url", lambda v, n: VideoUrlArtifact(value=v, name=n))
 
     def _set_safe_defaults(self) -> None:
         """Clear output parameters on error."""

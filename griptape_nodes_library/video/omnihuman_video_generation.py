@@ -516,25 +516,7 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
             )
             return
 
-        self.parameter_output_values["video_url"] = VideoUrlArtifact(value=video_url)
-        try:
-            self._log("Downloading video bytes from provider URL")
-            saved_location = await self._save_video_bytes(video_url)
-        except Exception as e:
-            self._log(f"Failed to download video: {e}")
-            saved_location = None
-
-        if saved_location:
-            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved_location)
-            self._set_status_results(
-                was_successful=True,
-                result_details=f"Video generation completed successfully. Saved as: {saved_location}",
-            )
-        else:
-            self._set_status_results(
-                was_successful=True,
-                result_details=f"Video generation completed successfully. Video URL: {video_url}",
-            )
+        await self._download_and_save(video_url, "video_url", lambda v, n: VideoUrlArtifact(value=v, name=n))
 
     @staticmethod
     def _extract_video_url(response_json: dict[str, Any]) -> str | None:
@@ -545,20 +527,6 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
             return video_url
 
         return None
-
-    async def _save_video_bytes(self, url: str) -> str | None:
-        """Download video bytes from URL and save to project storage."""
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(url, timeout=120)
-                resp.raise_for_status()
-                video_bytes = resp.content
-            dest = self._output_file.build_file()
-            saved = await dest.awrite_bytes(video_bytes)
-        except Exception:
-            return None
-
-        return saved.location
 
     def _set_safe_defaults(self) -> None:
         """Set safe default values for outputs on error."""

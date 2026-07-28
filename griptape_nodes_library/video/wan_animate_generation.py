@@ -319,35 +319,7 @@ class WanAnimateGeneration(GriptapeProxyNode):
             )
             return
 
-        try:
-            logger.debug("Downloading video bytes from provider URL")
-            video_bytes = await self._download_bytes_from_url(extracted_url)
-        except Exception as e:
-            logger.debug("Failed to download video: %s", e)
-            video_bytes = None
-
-        if video_bytes:
-            try:
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(video_bytes)
-                self.parameter_output_values["video"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-                logger.debug("Saved video as %s", saved.name)
-                self._set_status_results(
-                    was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
-                )
-            except Exception as e:
-                logger.debug("Failed to save video: %s, using provider URL", e)
-                self.parameter_output_values["video"] = VideoUrlArtifact(value=extracted_url)
-                self._set_status_results(
-                    was_successful=True,
-                    result_details=f"Video generated successfully. Using provider URL (could not save: {e}).",
-                )
-        else:
-            self.parameter_output_values["video"] = VideoUrlArtifact(value=extracted_url)
-            self._set_status_results(
-                was_successful=True,
-                result_details="Video generated successfully. Using provider URL (could not download video bytes).",
-            )
+        await self._download_and_save(extracted_url, "video", lambda v, n: VideoUrlArtifact(value=v, name=n))
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
         """Extract error details from API response."""

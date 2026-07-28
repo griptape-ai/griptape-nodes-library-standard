@@ -277,6 +277,7 @@ class GrokImageGeneration(GriptapeProxyNode):
             return
 
         image_artifacts: list[ImageUrlArtifact] = []
+        failed_urls: list[str] = []
         for idx, image_data in enumerate(data):
             image_url = image_data.get("url")
             if not image_url:
@@ -285,13 +286,19 @@ class GrokImageGeneration(GriptapeProxyNode):
             artifact = await self._save_single_image_from_url(image_url, generation_id, idx)
             if artifact:
                 image_artifacts.append(artifact)
+            else:
+                failed_urls.append(image_url)
 
         if not image_artifacts:
             self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no image URLs were found in the response.",
-            )
+            if failed_urls:
+                details = (
+                    f"{self.name} generation completed upstream but the image(s) could not be retrieved. "
+                    f"Provider URL(s) (may be temporary): {', '.join(failed_urls)}"
+                )
+            else:
+                details = f"{self.name} generation completed but no image URLs were found in the response."
+            self._set_status_results(was_successful=False, result_details=details)
             return
 
         self._show_image_output_parameters(len(image_artifacts))
@@ -319,12 +326,16 @@ class GrokImageGeneration(GriptapeProxyNode):
         try:
             image_bytes = await File(image_url).aread_bytes()
             if not image_bytes:
-                return ImageUrlArtifact(value=image_url)
+                msg = "downloaded image was empty"
+                raise ValueError(msg)  # noqa: TRY301
 
             dest = self._output_file.build_file()
             saved = await dest.awrite_bytes(image_bytes)
             return ImageUrlArtifact(value=saved.location, name=saved.name)
         except Exception as e:
+            # A billed generation whose image cannot be retrieved is a failure, not a
+            # silent success. Return None so this image is not counted as saved; the
+            # caller reports failure and surfaces the provider URL for manual retrieval.
             with suppress(Exception):
-                logger.warning("%s failed to save image %s: %s", self.name, index, e)
-            return ImageUrlArtifact(value=image_url)
+                logger.warning("%s failed to retrieve image %s from %s: %s", self.name, index, image_url, e)
+            return None
