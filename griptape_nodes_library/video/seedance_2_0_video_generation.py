@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json as _json
 import logging
+import os
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, ClassVar
@@ -40,6 +41,9 @@ from griptape_nodes_library.assets import (
 )
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.utils.audio_utils import is_audio_url_artifact
+from griptape_nodes_library.utils.image_utils import SUPPORTED_IMAGE_EXTENSIONS
+from griptape_nodes_library.utils.video_utils import SUPPORTED_VIDEO_EXTENSIONS, is_video_url_artifact
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -48,12 +52,20 @@ __all__ = ["Seedance20VideoGeneration"]
 INPUT_MODE_TEXT_ONLY = "Text Only"
 INPUT_MODE_FIRST_LAST_FRAME = "First/Last Frame"
 INPUT_MODE_MULTIMODAL_REFERENCES = "Multimodal References"
+INPUT_MODE_MULTIMODAL_REFERENCE_LIST = "Multimodal Reference List"
 MODEL_NAME_SEEDANCE_2_0 = "Seedance 2.0"
 MODEL_NAME_SEEDANCE_2_0_FAST = "Seedance 2.0 Fast"
 MODEL_NAME_SEEDANCE_2_0_MINI = "Seedance 2.0 Mini"
 SEEDANCE_2_0_MODEL_ID = "dreamina-seedance-2-0-260128"
 SEEDANCE_2_0_FAST_MODEL_ID = "dreamina-seedance-2-0-fast-260128"
 SEEDANCE_2_0_MINI_MODEL_ID = "dreamina-seedance-2-0-mini-260615"
+
+# Maximum number of each reference media type Seedance 2.0 accepts per request (BytePlus
+# docs). Applied both to the individual reference inputs (Multimodal References) and the
+# mixed list (Multimodal Reference List).
+MAX_REFERENCE_IMAGES = 9
+MAX_REFERENCE_VIDEOS = 3
+MAX_REFERENCE_AUDIO = 3
 
 
 @dataclass(frozen=True)
@@ -118,6 +130,8 @@ ASSET_MODERATION = {"Strategy": "Skip"}
 # docs). The local File/mimetypes layer emits other subtypes for the same formats (e.g. an .mp3
 # resolves to `audio/mpeg`, a .wav to `audio/x-wav`), which Seedance rejects as
 # "Invalid base64 audio_url". Map those aliases back to the accepted subtypes before sending.
+SEEDANCE_SUPPORTED_AUDIO_EXTENSIONS = {".mp3", ".wav"}
+
 SEEDANCE_AUDIO_SUBTYPE_ALIASES = {
     "mpeg": "mp3",
     "mp3": "mp3",
@@ -153,21 +167,23 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
     the same feature set; they differ in output resolution: standard 2.0 supports up to 4k, while
     Fast and Mini top out at 720p.
 
-    Supports three input modes:
+    Supports four input modes:
     - Text Only: Pure text-to-video generation (default)
     - First/Last Frame: Traditional i2v with first and/or last frame images
-    - Multimodal References: Up to 9 images + 3 videos + 3 audio files as references
+    - Multimodal References: Up to 9 images + 3 videos + 3 audio files as separate reference inputs
+    - Multimodal Reference List: Single mixed-type list input for images, videos, and audio
 
     Inputs:
         - prompt (str): Text prompt for the video
         - model_id (str): Model to use (default: Seedance 2.0)
-        - input_mode (str): "Text Only", "First/Last Frame", or "Multimodal References" (default: Text Only)
+        - input_mode (str): "Text Only", "First/Last Frame", "Multimodal References", or "Multimodal Reference List" (default: Text Only)
         - resolution (str): Output resolution (default: 720p, options: 480p, 720p, 1080p, 4k [1080p and 4k are Seedance 2.0 only])
         - ratio (str): Output aspect ratio (default: adaptive)
         - duration (int): Video duration in seconds (default: 5, range: 4-15 or -1 for smart)
         - generate_audio (bool): Generate audio with video (default: False)
         - first_frame/last_frame: Optional frame images (First/Last Frame mode only)
-        - reference_images/reference_video_1..3/reference_audio: Optional reference media (Multimodal mode only)
+        - reference_images/reference_video_1..3/reference_audio: Optional reference media (Multimodal References mode only)
+        - reference_media: Mixed list of reference images, audio, and videos (Multimodal Reference List mode only)
 
     Outputs:
         - generation_id (str): Griptape Cloud generation id
@@ -218,12 +234,20 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             ParameterString(
                 name="input_mode",
                 default_value=INPUT_MODE_TEXT_ONLY,
-                tooltip="Input mode: Text Only for pure text-to-video, First/Last Frame for i2v, or Multimodal References for images/videos/audio",
+                tooltip=(
+                    "Input mode: Text Only for pure text-to-video, First/Last Frame for i2v, Multimodal References for"
+                    " images/videos/audio, or Multimodal Reference List for a single mixed-type list input."
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"display_name": "Input Mode", "hide": False},
                 traits={
                     Options(
-                        choices=[INPUT_MODE_TEXT_ONLY, INPUT_MODE_FIRST_LAST_FRAME, INPUT_MODE_MULTIMODAL_REFERENCES]
+                        choices=[
+                            INPUT_MODE_TEXT_ONLY,
+                            INPUT_MODE_FIRST_LAST_FRAME,
+                            INPUT_MODE_MULTIMODAL_REFERENCES,
+                            INPUT_MODE_MULTIMODAL_REFERENCE_LIST,
+                        ]
                     )
                 },
             )
@@ -350,6 +374,38 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             )
         )
 
+        # A plain list-typed Parameter (not a ParameterList): the whole point of this
+        # mode is to wire in a single list produced by a list node (CreateList /
+        # CreateImageList / CombineLists, whose `output` is a bare `list`).
+        reference_media_param = Parameter(
+            name="reference_media",
+            type="list",
+            input_types=["list"],
+            output_type="list",
+            default_value=[],
+            tooltip=(
+                "Mixed list of reference images, audio, and videos, produced by a list node (e.g. Create List). Each"
+                f" item is routed by type (up to {MAX_REFERENCE_IMAGES} images, {MAX_REFERENCE_VIDEOS} videos,"
+                f" {MAX_REFERENCE_AUDIO} audio). Local videos are uploaded to a short-lived public URL on execution;"
+                " audio must be mp3 or wav format."
+            ),
+            allowed_modes={ParameterMode.INPUT},
+            ui_options={"display_name": "Reference Media"},
+        )
+        # Mirror the per-slot "Media Upload" badge shown by the individual
+        reference_media_param.set_badge(
+            variant="cloud-upload",
+            title="Media Upload",
+            message=(
+                f"The {self.name} node requires a public URL for any videos in this list.\n\n"
+                "The Seedance 2.0 service utilizes this URL to access the reference video.\n"
+                "Executing this node will generate a short lived, public URL for each local video, which will be"
+                " cleaned up after execution. Images and audio are sent inline and are not uploaded.\n"
+            ),
+            hide_clear_button=False,
+        )
+        self.add_parameter(reference_media_param)
+
         # Generation settings
         with ParameterGroup(name="Generation Settings") as settings_group:
             ParameterString(
@@ -458,6 +514,23 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             if updated_list != value:
                 self.set_parameter_value("reference_audio", updated_list)
 
+        if parameter.name == "reference_media" and isinstance(value, list):
+            updated_list: list[Any] = []
+            changed = False
+            for item in value:
+                kind = self._classify_media_item(item)
+                if kind == ASSET_KIND_IMAGE:
+                    normalized = normalize_artifact_input(item, ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                elif kind == ASSET_KIND_AUDIO:
+                    normalized = normalize_artifact_input(item, AudioUrlArtifact, accepted_types=(AudioArtifact,))
+                else:
+                    normalized = item
+                if normalized is not item:
+                    changed = True
+                updated_list.append(normalized)
+            if changed:
+                self.set_parameter_value("reference_media", updated_list)
+
         return super().after_value_set(parameter, value)
 
     def _update_parameter_visibility(self) -> None:
@@ -467,36 +540,50 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
 
         self._update_resolution_options(model_id)
 
-        if input_mode == INPUT_MODE_MULTIMODAL_REFERENCES:
-            # Show multimodal inputs, hide first/last frame
-            self.hide_parameter_by_name("first_frame")
-            self.hide_parameter_by_name("last_frame")
-            self.show_parameter_by_name("reference_images")
-            self.show_parameter_by_name("reference_audio")
-            self._update_reference_video_visibility()
-        elif input_mode == INPUT_MODE_FIRST_LAST_FRAME:
-            # Show first/last frame, hide multimodal inputs
-            self.show_parameter_by_name("first_frame")
-            self.hide_parameter_by_name("reference_images")
-            self.hide_parameter_by_name("reference_audio")
-            self.hide_parameter_by_name(["reference_video_1", "reference_video_2", "reference_video_3"])
-            self.hide_message_by_name("artifact_url_parameter_message_reference_video_1")
-            self.hide_message_by_name("artifact_url_parameter_message_reference_video_2")
-            self.hide_message_by_name("artifact_url_parameter_message_reference_video_3")
-            if self._supports_last_frame(model_id):
-                self.show_parameter_by_name("last_frame")
-            else:
+        match input_mode:
+            case x if x == INPUT_MODE_MULTIMODAL_REFERENCES:
+                self.hide_parameter_by_name("first_frame")
                 self.hide_parameter_by_name("last_frame")
-        else:
-            # Text Only mode: hide all media inputs
-            self.hide_parameter_by_name("first_frame")
-            self.hide_parameter_by_name("last_frame")
-            self.hide_parameter_by_name("reference_images")
-            self.hide_parameter_by_name("reference_audio")
-            self.hide_parameter_by_name(["reference_video_1", "reference_video_2", "reference_video_3"])
-            self.hide_message_by_name("artifact_url_parameter_message_reference_video_1")
-            self.hide_message_by_name("artifact_url_parameter_message_reference_video_2")
-            self.hide_message_by_name("artifact_url_parameter_message_reference_video_3")
+                self.show_parameter_by_name("reference_images")
+                self.show_parameter_by_name("reference_audio")
+                self._update_reference_video_visibility()
+                self.hide_parameter_by_name("reference_media")
+            case x if x == INPUT_MODE_MULTIMODAL_REFERENCE_LIST:
+                self.hide_parameter_by_name("first_frame")
+                self.hide_parameter_by_name("last_frame")
+                self.hide_parameter_by_name("reference_images")
+                self.hide_parameter_by_name("reference_audio")
+                self.hide_parameter_by_name(["reference_video_1", "reference_video_2", "reference_video_3"])
+                self.hide_message_by_name("artifact_url_parameter_message_reference_video_1")
+                self.hide_message_by_name("artifact_url_parameter_message_reference_video_2")
+                self.hide_message_by_name("artifact_url_parameter_message_reference_video_3")
+                self.show_parameter_by_name("reference_media")
+            case x if x == INPUT_MODE_FIRST_LAST_FRAME:
+                self.show_parameter_by_name("first_frame")
+                self.hide_parameter_by_name("reference_images")
+                self.hide_parameter_by_name("reference_audio")
+                self.hide_parameter_by_name(["reference_video_1", "reference_video_2", "reference_video_3"])
+                self.hide_message_by_name("artifact_url_parameter_message_reference_video_1")
+                self.hide_message_by_name("artifact_url_parameter_message_reference_video_2")
+                self.hide_message_by_name("artifact_url_parameter_message_reference_video_3")
+                self.hide_parameter_by_name("reference_media")
+                if self._supports_last_frame(model_id):
+                    self.show_parameter_by_name("last_frame")
+                else:
+                    self.hide_parameter_by_name("last_frame")
+            case x if x == INPUT_MODE_TEXT_ONLY:
+                self.hide_parameter_by_name("first_frame")
+                self.hide_parameter_by_name("last_frame")
+                self.hide_parameter_by_name("reference_images")
+                self.hide_parameter_by_name("reference_audio")
+                self.hide_parameter_by_name(["reference_video_1", "reference_video_2", "reference_video_3"])
+                self.hide_message_by_name("artifact_url_parameter_message_reference_video_1")
+                self.hide_message_by_name("artifact_url_parameter_message_reference_video_2")
+                self.hide_message_by_name("artifact_url_parameter_message_reference_video_3")
+                self.hide_parameter_by_name("reference_media")
+            case _:
+                msg = f"{self.name}: unknown input_mode {input_mode!r}"
+                raise ValueError(msg)
 
     def _update_reference_video_visibility(self) -> None:
         """Progressively reveal reference video inputs in multimodal mode."""
@@ -609,6 +696,21 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             else []
         )
 
+        reference_media = self.get_parameter_value("reference_media") or []
+        normalized_reference_media: list[Any] = []
+        for item in reference_media:
+            kind = self._classify_media_item(item)
+            if kind == ASSET_KIND_IMAGE:
+                normalized_reference_media.append(
+                    normalize_artifact_input(item, ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                )
+            elif kind == ASSET_KIND_AUDIO:
+                normalized_reference_media.append(
+                    normalize_artifact_input(item, AudioUrlArtifact, accepted_types=(AudioArtifact,))
+                )
+            else:
+                normalized_reference_media.append(item)
+
         return {
             "prompt": self.get_parameter_value("prompt") or "",
             "model_id": model_id,
@@ -624,6 +726,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             "reference_video_2": self.get_parameter_value("reference_video_2"),
             "reference_video_3": self.get_parameter_value("reference_video_3"),
             "reference_audio": normalized_reference_audio,
+            "reference_media": normalized_reference_media,
         }
 
     def _validate_parameters(self, params: dict[str, Any]) -> None:
@@ -636,71 +739,103 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         reference_video_inputs = self._get_reference_video_inputs(params)
         has_reference_videos = bool(reference_video_inputs)
         has_reference_audio = bool(params.get("reference_audio") and len(params["reference_audio"]) > 0)
+        has_reference_media = bool(params.get("reference_media"))
         has_any_media = (
-            has_first_frame or has_last_frame or has_reference_images or has_reference_videos or has_reference_audio
+            has_first_frame
+            or has_last_frame
+            or has_reference_images
+            or has_reference_videos
+            or has_reference_audio
+            or has_reference_media
         )
 
-        # Text Only mode: no media allowed
-        if input_mode == INPUT_MODE_TEXT_ONLY:
-            if has_any_media:
-                msg = (
-                    f"{self.name}: {INPUT_MODE_TEXT_ONLY} mode does not accept any media inputs. "
-                    f"Switch to {INPUT_MODE_FIRST_LAST_FRAME} or {INPUT_MODE_MULTIMODAL_REFERENCES} mode, "
-                    "or clear all media inputs."
-                )
-                raise ValueError(msg)
-
-        # First/Last Frame mode: only first/last frame allowed
-        elif input_mode == INPUT_MODE_FIRST_LAST_FRAME:
-            if has_reference_images or has_reference_videos or has_reference_audio:
-                msg = (
-                    f"{self.name}: reference_images/reference_video_1/reference_video_2/reference_video_3/reference_audio are only used in "
-                    f"{INPUT_MODE_MULTIMODAL_REFERENCES} mode. Switch input_mode to {INPUT_MODE_MULTIMODAL_REFERENCES} "
-                    "or clear the multimodal reference inputs."
-                )
-                raise ValueError(msg)
-
-            if params.get("last_frame") and not self._supports_last_frame(params["model_id"]):
-                msg = (
-                    f"{self.name}: the selected model does not support a last frame. "
-                    "Use first_frame only, or switch to a model that supports first+last frame generation."
-                )
-                raise ValueError(msg)
-
-        # Multimodal References mode: only reference media allowed
-        elif input_mode == INPUT_MODE_MULTIMODAL_REFERENCES:
-            if has_first_frame or has_last_frame:
-                msg = (
-                    f"{self.name}: first_frame/last_frame inputs are only used in {INPUT_MODE_FIRST_LAST_FRAME} mode. "
-                    f"Switch input_mode to {INPUT_MODE_FIRST_LAST_FRAME} or clear the frame inputs."
-                )
-                raise ValueError(msg)
-
-        # Multimodal mode validation
-        if input_mode == INPUT_MODE_MULTIMODAL_REFERENCES:
-            # Audio requires at least one image or video
-            if has_reference_audio and not (has_reference_images or has_reference_videos):
-                msg = (
-                    f"{self.name}: Seedance 2.0 requires at least one reference image or video when using audio. "
-                    "Audio cannot be used alone."
-                )
-                raise ValueError(msg)
-
-            # Validate counts
-            if has_reference_images and len(params["reference_images"]) > 9:
-                msg = f"{self.name}: Seedance 2.0 supports up to 9 reference images, got {len(params['reference_images'])}."
-                raise ValueError(msg)
-
-            if params.get("reference_video_2") and not params.get("reference_video_1"):
-                msg = f"{self.name}: reference_video_2 requires reference_video_1 to be set first."
-                raise ValueError(msg)
-
-            if params.get("reference_video_3") and not params.get("reference_video_2"):
-                msg = f"{self.name}: reference_video_3 requires reference_video_2 to be set first."
-                raise ValueError(msg)
-
-            if has_reference_audio and len(params["reference_audio"]) > 3:
-                msg = f"{self.name}: Seedance 2.0 supports up to 3 reference audio files, got {len(params['reference_audio'])}."
+        match input_mode:
+            case x if x == INPUT_MODE_TEXT_ONLY:
+                if has_any_media:
+                    msg = (
+                        f"{self.name}: {INPUT_MODE_TEXT_ONLY} mode does not accept any media inputs. "
+                        f"Switch to {INPUT_MODE_FIRST_LAST_FRAME} or {INPUT_MODE_MULTIMODAL_REFERENCES} mode, "
+                        "or clear all media inputs."
+                    )
+                    raise ValueError(msg)
+            case x if x == INPUT_MODE_FIRST_LAST_FRAME:
+                if has_reference_images or has_reference_videos or has_reference_audio or has_reference_media:
+                    msg = (
+                        f"{self.name}: reference_images/reference_video_1/reference_video_2/reference_video_3/reference_audio are only used in "
+                        f"{INPUT_MODE_MULTIMODAL_REFERENCES} mode. Switch input_mode to {INPUT_MODE_MULTIMODAL_REFERENCES} "
+                        "or clear the multimodal reference inputs."
+                    )
+                    raise ValueError(msg)
+                if params.get("last_frame") and not self._supports_last_frame(params["model_id"]):
+                    msg = (
+                        f"{self.name}: the selected model does not support a last frame. "
+                        "Use first_frame only, or switch to a model that supports first+last frame generation."
+                    )
+                    raise ValueError(msg)
+            case x if x == INPUT_MODE_MULTIMODAL_REFERENCES:
+                if has_first_frame or has_last_frame:
+                    msg = (
+                        f"{self.name}: first_frame/last_frame inputs are only used in {INPUT_MODE_FIRST_LAST_FRAME} mode. "
+                        f"Switch input_mode to {INPUT_MODE_FIRST_LAST_FRAME} or clear the frame inputs."
+                    )
+                    raise ValueError(msg)
+                if has_reference_media:
+                    msg = (
+                        f"{self.name}: reference_media is not used in {INPUT_MODE_MULTIMODAL_REFERENCES} mode. "
+                        "Use the individual reference inputs, or switch to Multimodal Reference List mode."
+                    )
+                    raise ValueError(msg)
+                if has_reference_audio and not (has_reference_images or has_reference_videos):
+                    msg = (
+                        f"{self.name}: Seedance 2.0 requires at least one reference image or video when using audio. "
+                        "Audio cannot be used alone."
+                    )
+                    raise ValueError(msg)
+                if has_reference_images and len(params["reference_images"]) > MAX_REFERENCE_IMAGES:
+                    msg = f"{self.name}: Seedance 2.0 supports up to {MAX_REFERENCE_IMAGES} reference images, got {len(params['reference_images'])}."
+                    raise ValueError(msg)
+                if params.get("reference_video_2") and not params.get("reference_video_1"):
+                    msg = f"{self.name}: reference_video_2 requires reference_video_1 to be set first."
+                    raise ValueError(msg)
+                if params.get("reference_video_3") and not params.get("reference_video_2"):
+                    msg = f"{self.name}: reference_video_3 requires reference_video_2 to be set first."
+                    raise ValueError(msg)
+                if has_reference_audio and len(params["reference_audio"]) > MAX_REFERENCE_AUDIO:
+                    msg = f"{self.name}: Seedance 2.0 supports up to {MAX_REFERENCE_AUDIO} reference audio files, got {len(params['reference_audio'])}."
+                    raise ValueError(msg)
+            case x if x == INPUT_MODE_MULTIMODAL_REFERENCE_LIST:
+                if has_first_frame or has_last_frame:
+                    msg = (
+                        f"{self.name}: first_frame/last_frame inputs are only used in {INPUT_MODE_FIRST_LAST_FRAME} mode. "
+                        f"Switch input_mode to {INPUT_MODE_FIRST_LAST_FRAME} or clear the frame inputs."
+                    )
+                    raise ValueError(msg)
+                if has_reference_images or has_reference_audio or has_reference_videos:
+                    msg = (
+                        f"{self.name}: reference_images/reference_audio/reference_video are not used in "
+                        f"{INPUT_MODE_MULTIMODAL_REFERENCE_LIST} mode. "
+                        "Use the reference_media list instead, or switch to Multimodal References mode."
+                    )
+                    raise ValueError(msg)
+                reference_media = params.get("reference_media") or []
+                list_images, list_videos, list_audio = self._split_media_list(reference_media)
+                if list_audio and not (list_images or list_videos):
+                    msg = (
+                        f"{self.name}: Seedance 2.0 requires at least one reference image or video when using audio. "
+                        "Audio cannot be used alone."
+                    )
+                    raise ValueError(msg)
+                if len(list_images) > MAX_REFERENCE_IMAGES:
+                    msg = f"{self.name}: Seedance 2.0 supports up to {MAX_REFERENCE_IMAGES} reference images in the list, got {len(list_images)}."
+                    raise ValueError(msg)
+                if len(list_videos) > MAX_REFERENCE_VIDEOS:
+                    msg = f"{self.name}: Seedance 2.0 supports up to {MAX_REFERENCE_VIDEOS} reference videos in the list, got {len(list_videos)}."
+                    raise ValueError(msg)
+                if len(list_audio) > MAX_REFERENCE_AUDIO:
+                    msg = f"{self.name}: Seedance 2.0 supports up to {MAX_REFERENCE_AUDIO} reference audio files in the list, got {len(list_audio)}."
+                    raise ValueError(msg)
+            case _:
+                msg = f"{self.name}: unknown input_mode {input_mode!r}"
                 raise ValueError(msg)
 
         # Validate duration range (4-15 or -1)
@@ -748,6 +883,8 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 checks.append((value, ASSET_KIND_VIDEO))
         for item in params.get("reference_audio") or []:
             checks.append((item, ASSET_KIND_AUDIO))
+        for item in params.get("reference_media") or []:
+            checks.append((item, self._classify_media_item(item)))
         return checks
 
     def _validate_private_asset_model(self, params: dict[str, Any]) -> None:
@@ -807,7 +944,8 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             f"last_frame_type={type(params['last_frame']).__name__ if params['last_frame'] is not None else 'None'}, "
             f"reference_images={len(params['reference_images'])}, "
             f"reference_videos={len(self._get_reference_video_inputs(params))}, "
-            f"reference_audio={len(params['reference_audio'])}"
+            f"reference_audio={len(params['reference_audio'])}, "
+            f"reference_media={len(params.get('reference_media') or [])}"
         )
 
         # Build payload with text prompt
@@ -837,89 +975,202 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         """Add media inputs to content list based on input mode."""
         input_mode = params["input_mode"]
 
-        if input_mode == INPUT_MODE_MULTIMODAL_REFERENCES:
-            self._log(f"{self.name} building multimodal content")
-            supports_assets = self._private_assets_active(params["model_id"])
-            order_log: list[str] = []
+        match input_mode:
+            case x if x == INPUT_MODE_MULTIMODAL_REFERENCES:
+                self._log(f"{self.name} building multimodal content")
+                supports_assets = self._private_assets_active(params["model_id"])
+                order_log: list[str] = []
 
-            # Reference images (Image 1..N within this list, normal or private asset).
-            for idx, ref_image in enumerate(params.get("reference_images", [])[:9], start=1):
-                if supports_assets and is_provider_asset_reference(ref_image):
-                    asset_url = await self._append_private_asset(
-                        ref_image, expected_kind=ASSET_KIND_IMAGE, label=f"reference image {idx}"
+                for idx, ref_image in enumerate(params.get("reference_images", [])[:MAX_REFERENCE_IMAGES], start=1):
+                    tag = await self._append_reference_image(
+                        content_list,
+                        ref_image,
+                        idx,
+                        supports_assets=supports_assets,
+                        asset_label=f"reference image {idx}",
                     )
+                    if tag:
+                        order_log.append(tag)
+
+                for idx, ref_video in enumerate(self._get_reference_video_inputs(params), start=1):
+                    order_log.append(
+                        await self._append_reference_video(
+                            content_list,
+                            ref_video["value"],
+                            idx,
+                            supports_assets=supports_assets,
+                            asset_label=f"reference video {idx}",
+                            slot_param_name=ref_video["parameter_name"],
+                        )
+                    )
+
+                for idx, ref_audio in enumerate(params.get("reference_audio", [])[:MAX_REFERENCE_AUDIO], start=1):
+                    tag = await self._append_reference_audio(
+                        content_list,
+                        ref_audio,
+                        idx,
+                        supports_assets=supports_assets,
+                        asset_label=f"reference audio {idx}",
+                    )
+                    if tag:
+                        order_log.append(tag)
+
+                if order_log:
+                    self._log(f"{self.name} resolved reference order: " + "; ".join(order_log))
+
+            case x if x == INPUT_MODE_MULTIMODAL_REFERENCE_LIST:
+                self._log(f"{self.name} building multimodal reference-list content")
+                supports_assets = self._private_assets_active(params["model_id"])
+                reference_media = params.get("reference_media") or []
+                list_images, list_videos, list_audio = self._split_media_list(reference_media)
+                order_log_list: list[str] = []
+
+                for idx, ref_image in enumerate(list_images[:MAX_REFERENCE_IMAGES], start=1):
+                    tag = await self._append_reference_image(
+                        content_list,
+                        ref_image,
+                        idx,
+                        supports_assets=supports_assets,
+                        asset_label=f"reference_media image {idx}",
+                    )
+                    if tag:
+                        order_log_list.append(tag)
+
+                for idx, ref_video in enumerate(list_videos[:MAX_REFERENCE_VIDEOS], start=1):
+                    order_log_list.append(
+                        await self._append_reference_video(
+                            content_list,
+                            ref_video,
+                            idx,
+                            supports_assets=supports_assets,
+                            asset_label=f"reference_media video {idx}",
+                            slot_param_name=None,
+                        )
+                    )
+
+                for idx, ref_audio in enumerate(list_audio[:MAX_REFERENCE_AUDIO], start=1):
+                    tag = await self._append_reference_audio(
+                        content_list,
+                        ref_audio,
+                        idx,
+                        supports_assets=supports_assets,
+                        asset_label=f"reference_media audio {idx}",
+                    )
+                    if tag:
+                        order_log_list.append(tag)
+
+                if order_log_list:
+                    self._log(f"{self.name} resolved reference_media order: " + "; ".join(order_log_list))
+
+            case x if x == INPUT_MODE_FIRST_LAST_FRAME:
+                self._log(f"{self.name} building first/last-frame content")
+                first_frame_url = await self._prepare_frame_url_async(params["first_frame"], frame_label="first_frame")
+                if first_frame_url:
                     content_list.append(
-                        {"type": "image_url", "image_url": {"url": asset_url}, "role": "reference_image"}
+                        {"type": "image_url", "image_url": {"url": first_frame_url}, "role": "first_frame"}
                     )
-                    order_log.append(f"Image {idx}: private asset")
-                else:
-                    ref_url = await self._prepare_frame_url_async(ref_image, frame_label="reference_image")
-                    if ref_url:
+
+                if self._supports_last_frame(params["model_id"]):
+                    last_frame_url = await self._prepare_frame_url_async(params["last_frame"], frame_label="last_frame")
+                    if last_frame_url:
                         content_list.append(
-                            {"type": "image_url", "image_url": {"url": ref_url}, "role": "reference_image"}
+                            {"type": "image_url", "image_url": {"url": last_frame_url}, "role": "last_frame"}
                         )
-                        order_log.append(f"Image {idx}: reference")
 
-            # Reference videos (Video 1..3 by slot).
-            for idx, ref_video in enumerate(self._get_reference_video_inputs(params), start=1):
-                value = ref_video["value"]
-                if supports_assets and is_provider_asset_reference(value):
-                    asset_url = await self._append_private_asset(
-                        value, expected_kind=ASSET_KIND_VIDEO, label=f"reference video {idx}"
-                    )
-                    content_list.append(
-                        {"type": "video_url", "video_url": {"url": asset_url}, "role": "reference_video"}
-                    )
-                    order_log.append(f"Video {idx}: private asset")
-                else:
-                    video_url = self._get_reference_video_url(ref_video["parameter_name"], value)
-                    if not video_url:
-                        msg = (
-                            f"{self.name}: {ref_video['parameter_name']} only supports public URLs, uploaded asset URLs, "
-                            "or asset:// IDs. Seedance 2.0 does not accept video base64."
-                        )
-                        raise ValueError(msg)
-                    content_list.append(
-                        {"type": "video_url", "video_url": {"url": video_url}, "role": "reference_video"}
-                    )
-                    order_log.append(f"Video {idx}: reference")
+            case x if x == INPUT_MODE_TEXT_ONLY:
+                self._log(f"{self.name} text-only mode, no media inputs")
 
-            # Reference audio (Audio 1..N within this list, normal or private asset).
-            for idx, ref_audio in enumerate(params.get("reference_audio", [])[:3], start=1):
-                if supports_assets and is_provider_asset_reference(ref_audio):
-                    asset_url = await self._append_private_asset(
-                        ref_audio, expected_kind=ASSET_KIND_AUDIO, label=f"reference audio {idx}"
-                    )
-                    content_list.append(
-                        {"type": "audio_url", "audio_url": {"url": asset_url}, "role": "reference_audio"}
-                    )
-                    order_log.append(f"Audio {idx}: private asset")
-                else:
-                    audio_url = await self._prepare_audio_url_async(ref_audio, audio_label="reference_audio")
-                    if audio_url:
-                        content_list.append(
-                            {"type": "audio_url", "audio_url": {"url": audio_url}, "role": "reference_audio"}
-                        )
-                        order_log.append(f"Audio {idx}: reference")
+            case _:
+                msg = f"{self.name}: unknown input_mode {input_mode!r}"
+                raise ValueError(msg)
 
-            if order_log:
-                self._log(f"{self.name} resolved reference order: " + "; ".join(order_log))
-        elif input_mode == INPUT_MODE_FIRST_LAST_FRAME:
-            self._log(f"{self.name} building first/last-frame content")
-            # First/Last Frame mode
-            first_frame_url = await self._prepare_frame_url_async(params["first_frame"], frame_label="first_frame")
-            if first_frame_url:
-                content_list.append({"type": "image_url", "image_url": {"url": first_frame_url}, "role": "first_frame"})
+    async def _append_reference_image(
+        self,
+        content_list: list[dict[str, Any]],
+        ref_image: Any,
+        idx: int,
+        *,
+        supports_assets: bool,
+        asset_label: str,
+    ) -> str | None:
+        """Append one reference image to the payload content, routing private assets vs public/data URLs.
 
-            if self._supports_last_frame(params["model_id"]):
-                last_frame_url = await self._prepare_frame_url_async(params["last_frame"], frame_label="last_frame")
-                if last_frame_url:
-                    content_list.append(
-                        {"type": "image_url", "image_url": {"url": last_frame_url}, "role": "last_frame"}
-                    )
-        else:
-            # Text Only mode: no media inputs
-            self._log(f"{self.name} text-only mode, no media inputs")
+        Shared by Multimodal References and Multimodal Reference List modes; only the source list and
+        the private-asset `asset_label` differ. Returns an order-log tag, or None if the image was skipped.
+        """
+        if supports_assets and is_provider_asset_reference(ref_image):
+            asset_url = await self._append_private_asset(ref_image, expected_kind=ASSET_KIND_IMAGE, label=asset_label)
+            content_list.append({"type": "image_url", "image_url": {"url": asset_url}, "role": "reference_image"})
+            return f"Image {idx}: private asset"
+        ref_url = await self._prepare_frame_url_async(ref_image, frame_label="reference_image")
+        if ref_url:
+            content_list.append({"type": "image_url", "image_url": {"url": ref_url}, "role": "reference_image"})
+            return f"Image {idx}: reference"
+        return None
+
+    async def _append_reference_audio(
+        self,
+        content_list: list[dict[str, Any]],
+        ref_audio: Any,
+        idx: int,
+        *,
+        supports_assets: bool,
+        asset_label: str,
+    ) -> str | None:
+        """Append one reference audio clip to the payload content, routing private assets vs public/data URLs.
+
+        Shared by Multimodal References and Multimodal Reference List modes; only the source list and
+        the private-asset `asset_label` differ. Returns an order-log tag, or None if the audio was skipped.
+        """
+        if supports_assets and is_provider_asset_reference(ref_audio):
+            asset_url = await self._append_private_asset(ref_audio, expected_kind=ASSET_KIND_AUDIO, label=asset_label)
+            content_list.append({"type": "audio_url", "audio_url": {"url": asset_url}, "role": "reference_audio"})
+            return f"Audio {idx}: private asset"
+        audio_url = await self._prepare_audio_url_async(ref_audio, audio_label="reference_audio")
+        if audio_url:
+            content_list.append({"type": "audio_url", "audio_url": {"url": audio_url}, "role": "reference_audio"})
+            return f"Audio {idx}: reference"
+        return None
+
+    async def _append_reference_video(
+        self,
+        content_list: list[dict[str, Any]],
+        ref_video: Any,
+        idx: int,
+        *,
+        supports_assets: bool,
+        asset_label: str,
+        slot_param_name: str | None,
+    ) -> str:
+        """Append one reference video to the payload content.
+
+        Shared by Multimodal References (`slot_param_name` set → upload via the slot's
+        PublicArtifactUrlParameter) and Multimodal Reference List (`slot_param_name` None → upload via
+        a transient helper). Provider-asset references register as `asset://`; other inputs are
+        resolved to a public URL, uploading local media if needed (Seedance requires a public URL for
+        video, unlike images/audio which can be sent inline). Returns an order-log tag; raises if a
+        video can't be resolved to a public URL.
+        """
+        if supports_assets and is_provider_asset_reference(ref_video):
+            asset_url = await self._append_private_asset(ref_video, expected_kind=ASSET_KIND_VIDEO, label=asset_label)
+            content_list.append({"type": "video_url", "video_url": {"url": asset_url}, "role": "reference_video"})
+            return f"Video {idx}: private asset"
+
+        video_url = self._resolve_reference_video_url(ref_video, slot_param_name=slot_param_name, label=asset_label)
+        if not video_url:
+            if slot_param_name is not None:
+                msg = (
+                    f"{self.name}: {slot_param_name} only supports public URLs, uploaded asset URLs, or asset:// IDs. "
+                    "Seedance 2.0 does not accept video base64."
+                )
+            else:
+                msg = (
+                    f"{self.name}: video #{idx} in reference_media could not be resolved to a public URL. "
+                    "Provide a public http/https or asset:// URL, or a local video that can be uploaded to public storage."
+                )
+            raise ValueError(msg)
+        content_list.append({"type": "video_url", "video_url": {"url": video_url}, "role": "reference_video"})
+        return f"Video {idx}: reference"
 
     # --- Provider private-asset registration (Seedance 2.0 variants, Griptape auth only) -----
 
@@ -962,6 +1213,17 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         if media_value.startswith(("http://", "https://")) and "localhost" not in media_value:
             return media_value
 
+        return self._upload_media_to_public_url(
+            media_value, asset_kind=asset_kind, label=f"the {asset_kind} private asset"
+        )
+
+    def _upload_media_to_public_url(self, media_value: Any, *, asset_kind: str, label: str) -> str:
+        """Upload a non-public media value to GTC static storage and return its public URL.
+
+        Uses a transient PublicArtifactUrlParameter tracked in `_pending_asset_uploads` for cleanup —
+        the same upload path the named reference-video slots use. Raises if a public URL can't be
+        obtained (e.g. a data URI, which the provider cannot fetch).
+        """
         artifact_type = {
             ASSET_KIND_IMAGE: "ImageUrlArtifact",
             ASSET_KIND_VIDEO: "VideoUrlArtifact",
@@ -994,8 +1256,8 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         public_url = helper.get_public_url_for_parameter()
         if not (public_url.startswith(("http://", "https://")) and "localhost" not in public_url):
             msg = (
-                f"{self.name}: could not obtain a public URL for the {asset_kind} private asset. "
-                "Provider asset registration requires a publicly fetchable URL (data URIs are not supported)."
+                f"{self.name}: could not obtain a public URL for {label}. "
+                "A publicly fetchable URL is required (data URIs are not supported)."
             )
             raise RuntimeError(msg)
         return public_url
@@ -1229,6 +1491,54 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         return None
 
     @staticmethod
+    def _classify_media_item(item: Any) -> str:
+        """Classify as ASSET_KIND_IMAGE / ASSET_KIND_VIDEO / ASSET_KIND_AUDIO."""
+        if is_provider_asset_reference(item):
+            kind = get_provider_asset_kind(item)
+            if kind in (ASSET_KIND_IMAGE, ASSET_KIND_VIDEO, ASSET_KIND_AUDIO):
+                return kind
+            return ASSET_KIND_IMAGE
+        if isinstance(item, (ImageUrlArtifact, ImageArtifact)):
+            return ASSET_KIND_IMAGE
+        if is_video_url_artifact(item):
+            return ASSET_KIND_VIDEO
+        if is_audio_url_artifact(item) or isinstance(item, AudioArtifact):
+            return ASSET_KIND_AUDIO
+        if isinstance(item, str):
+            # Strip any query string first so os.path.splitext doesn't fold it into the
+            # extension (e.g. ".mp4?token=abc"), then take the extension of the final
+            # path component.
+            path = item.strip().split("?", 1)[0]
+            ext = os.path.splitext(path)[1].lower()
+            if ext in SEEDANCE_SUPPORTED_AUDIO_EXTENSIONS:
+                return ASSET_KIND_AUDIO
+            if ext in SUPPORTED_VIDEO_EXTENSIONS:
+                return ASSET_KIND_VIDEO
+            if ext in SUPPORTED_IMAGE_EXTENSIONS:
+                return ASSET_KIND_IMAGE
+        return ASSET_KIND_IMAGE
+
+    @classmethod
+    def _split_media_list(cls, media_list: list[Any]) -> tuple[list[Any], list[Any], list[Any]]:
+        """Split a mixed reference_media list into (images, videos, audio)."""
+        images: list[Any] = []
+        videos: list[Any] = []
+        audio: list[Any] = []
+        for item in media_list:
+            kind = cls._classify_media_item(item)
+            match kind:
+                case s if s == ASSET_KIND_IMAGE:
+                    images.append(item)
+                case s if s == ASSET_KIND_VIDEO:
+                    videos.append(item)
+                case s if s == ASSET_KIND_AUDIO:
+                    audio.append(item)
+                case _:
+                    msg = f"Unknown media kind {kind!r} returned by _classify_media_item"
+                    raise ValueError(msg)
+        return images, videos, audio
+
+    @staticmethod
     def _coerce_video_url(val: Any) -> str | None:
         """Convert video input to a Seedance-supported public URL or asset ID."""
         if val is None:
@@ -1274,27 +1584,39 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             if params.get(parameter_name)
         ]
 
-    def _get_reference_video_url(self, parameter_name: str, value: Any) -> str | None:
+    def _resolve_reference_video_url(self, value: Any, *, slot_param_name: str | None, label: str) -> str | None:
+        """Resolve a reference video to a Seedance-ready public/asset URL, uploading local media if needed.
+
+        Already-public http(s) / asset:// URLs pass through. Otherwise the local media is uploaded to
+        GTC static storage so the provider can fetch it (Seedance does not accept video base64):
+        Multimodal References (`slot_param_name` set) uploads via the slot's dedicated
+        PublicArtifactUrlParameter; Multimodal Reference List (`slot_param_name` None) uploads via a
+        transient helper. Returns None if the media can't be resolved or uploaded.
+        """
         direct_url = self._coerce_video_url(value)
         if direct_url:
             return direct_url
 
-        helper_map = {
-            "reference_video_1": self._public_reference_video_parameter_1,
-            "reference_video_2": self._public_reference_video_parameter_2,
-            "reference_video_3": self._public_reference_video_parameter_3,
-        }
-        helper = helper_map.get(parameter_name)
-        if helper is None:
-            return None
+        if slot_param_name is not None:
+            helper = {
+                "reference_video_1": self._public_reference_video_parameter_1,
+                "reference_video_2": self._public_reference_video_parameter_2,
+                "reference_video_3": self._public_reference_video_parameter_3,
+            }.get(slot_param_name)
+            if helper is None:
+                return None
+            try:
+                public_url = helper.get_public_url_for_parameter()
+            except Exception as e:
+                self._log(f"{self.name} failed to prepare public URL for {slot_param_name}: {e}")
+                return None
+            return self._coerce_video_url(public_url)
 
         try:
-            public_url = helper.get_public_url_for_parameter()
+            return self._upload_media_to_public_url(value, asset_kind=ASSET_KIND_VIDEO, label=label)
         except Exception as e:
-            self._log(f"{self.name} failed to prepare public URL for {parameter_name}: {e}")
+            self._log(f"{self.name} failed to upload {label} to a public URL: {e}")
             return None
-
-        return self._coerce_video_url(public_url)
 
     @staticmethod
     def _supports_last_frame(model_id: str) -> bool:
