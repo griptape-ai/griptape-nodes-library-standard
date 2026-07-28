@@ -249,7 +249,11 @@ class ListFiles(SuccessFailureNode):
         use_pattern = bool(pattern)
         is_path_pattern = use_pattern and self._is_path_pattern(pattern)
         root_resolved = str(Path(root_directory_path).resolve()) if root_directory_path and is_path_pattern else ""
-        compiled_path_pattern = self._compile_path_pattern(pattern, case_sensitive=match_pattern_case_sensitive) if is_path_pattern else None
+        compiled_path_pattern = (
+            self._compile_path_pattern(pattern, case_sensitive=match_pattern_case_sensitive)
+            if is_path_pattern
+            else None
+        )
 
         while stack:
             current = stack.pop()
