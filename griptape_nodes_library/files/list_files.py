@@ -184,6 +184,14 @@ class ListFiles(SuccessFailureNode):
         return re.compile("".join(result), flags)
 
     @staticmethod
+    def _match_path_entry(entry, root_resolved: str, compiled: re.Pattern) -> bool:
+        try:
+            candidate = Path(entry.absolute_path).resolve().relative_to(root_resolved).as_posix()
+        except ValueError:
+            candidate = entry.name
+        return bool(compiled.fullmatch(candidate))
+
+    @staticmethod
     def _directory_visit_key(directory_path: str | None) -> str:
         """Stable key for visited dirs (avoids repeated work on symlink cycles)."""
         if not directory_path:
@@ -249,7 +257,7 @@ class ListFiles(SuccessFailureNode):
         use_pattern = bool(pattern)
         is_path_pattern = use_pattern and self._is_path_pattern(pattern)
         root_resolved = str(Path(root_directory_path).resolve()) if root_directory_path and is_path_pattern else ""
-        compiled_path_pattern = (
+        compiled_path_pattern: re.Pattern | None = (
             self._compile_path_pattern(pattern, case_sensitive=match_pattern_case_sensitive)
             if is_path_pattern
             else None
@@ -282,12 +290,8 @@ class ListFiles(SuccessFailureNode):
                 if include:
                     if use_pattern:
                         if is_path_pattern:
-                            try:
-                                # Resolve both sides so symlinked roots (/tmp → /private/tmp on macOS) don't break relative_to
-                                candidate = Path(entry.absolute_path).resolve().relative_to(root_resolved).as_posix()
-                            except ValueError:
-                                candidate = entry.name
-                            matched = bool(compiled_path_pattern and compiled_path_pattern.fullmatch(candidate))
+                            assert compiled_path_pattern is not None
+                            matched = self._match_path_entry(entry, root_resolved, compiled_path_pattern)
                         else:
                             matched = self._name_matches_pattern(
                                 entry.name, pattern, case_sensitive=match_pattern_case_sensitive
