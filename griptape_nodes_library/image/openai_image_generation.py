@@ -125,9 +125,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             ParameterString(
                 name="size",
                 default_value=initial_size_choices[0],
-                tooltip=(
-                    "Output image size. Choose 'custom' to enter any width and height within the model's limits."
-                ),
+                tooltip=("Output image size. Choose 'custom' to enter any width and height within the model's limits."),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=initial_size_choices)},
             )
