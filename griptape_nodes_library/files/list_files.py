@@ -186,8 +186,11 @@ class ListFiles(SuccessFailureNode):
     @staticmethod
     def _match_path_entry(entry, root_resolved: str, compiled: re.Pattern) -> bool:
         try:
+            # Both sides are resolved so symlinked roots (/tmp → /private/tmp on macOS) don't break relative_to.
             candidate = Path(entry.absolute_path).resolve().relative_to(root_resolved).as_posix()
         except ValueError:
+            # Entry resolves outside root (e.g. symlink target elsewhere); fall back to basename.
+            # A multi-segment pattern like **/outputs/*.png won't match a bare name, so the entry is excluded.
             candidate = entry.name
         return bool(compiled.fullmatch(candidate))
 
@@ -290,7 +293,7 @@ class ListFiles(SuccessFailureNode):
                 if include:
                     if use_pattern:
                         if is_path_pattern:
-                            assert compiled_path_pattern is not None
+                            assert compiled_path_pattern is not None  # guaranteed by is_path_pattern guard above
                             matched = self._match_path_entry(entry, root_resolved, compiled_path_pattern)
                         else:
                             matched = self._name_matches_pattern(
