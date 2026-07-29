@@ -7,7 +7,8 @@ from enum import StrEnum
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -43,11 +44,11 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
 
     Inputs:
         - prompt (str): Text prompt for the video
-        - image (ImageArtifact|ImageUrlArtifact|str): Optional starting frame
-          (when provided, the task is image_to_video)
         - reference_images (list): Optional reference images (when any are provided, the task is
-          reference_to_video and `image` is ignored). Reference roles are assigned by prompt tags
-          such as <IMAGE_REF_0>. Audio references are not supported by this model.
+          reference_to_video). Reference roles are assigned by prompt tags such as <IMAGE_REF_0>.
+          Audio references are not supported by this model.
+        - image (ImageArtifact|ImageUrlArtifact|str): Deprecated, superseded by reference_images.
+          Hidden unless a workflow still sets or connects it; when set, the task is image_to_video.
         - aspect_ratio (str): Output aspect ratio (default: 16:9, options: 16:9, 9:16)
 
     Outputs:
@@ -64,6 +65,10 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
+        # Tracked from the connection hooks; there is no public API to query a parameter's
+        # incoming connections, and the deprecated `image` stays visible while one exists.
+        self._legacy_image_connected = False
+
         # INPUTS / PROPERTIES
         self.add_parameter(
             ParameterString(
@@ -76,14 +81,17 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
             )
         )
 
+        # Superseded by reference_images. Kept so workflows saved against it still load (renaming
+        # a parameter breaks both its saved value and its saved connection on load), but hidden
+        # unless a workflow actually uses it. See _update_legacy_image_visibility.
         self.add_parameter(
             ParameterImage(
                 name="image",
                 default_value=None,
-                tooltip="Optional starting frame; when provided the task is image_to_video",
+                tooltip="Deprecated: use 'reference images' instead. When set, the task is image_to_video.",
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
-                ui_options={"display_name": "image"},
+                ui_options={"display_name": "image (deprecated)"},
             )
         )
 
@@ -93,8 +101,7 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
                 input_types=["ImageUrlArtifact", "ImageArtifact", "str"],
                 default_value=[],
                 tooltip=(
-                    "Optional reference images; when any are provided the task is reference_to_video "
-                    "and 'image' is ignored. Refer to them in the prompt as <IMAGE_REF_0>, "
+                    "Optional reference images. Refer to them in the prompt as <IMAGE_REF_0>, "
                     "<IMAGE_REF_1>, and so on (zero-indexed) to control how each one is used, "
                     "for example 'in the style of <IMAGE_REF_0> a woman <IMAGE_REF_1> is walking'. "
                     "Audio references are not supported by this model."
@@ -103,6 +110,8 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
                 ui_options={"display_name": "reference images", "expander": True, "hide_property": True},
             )
         )
+
+        self._update_legacy_image_visibility()
 
         with ParameterGroup(name="Generation Settings") as generation_settings_group:
             # The model chooses clip length itself (3-10s); duration is not a
@@ -152,11 +161,50 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
 
+    def after_incoming_connection(
+        self,
+        source_node: BaseNode,
+        source_parameter: Parameter,
+        target_parameter: Parameter,
+    ) -> None:
+        if target_parameter.name == "image":
+            self._legacy_image_connected = True
+            self._update_legacy_image_visibility()
+        return super().after_incoming_connection(source_node, source_parameter, target_parameter)
+
+    def after_incoming_connection_removed(
+        self,
+        source_node: BaseNode,
+        source_parameter: Parameter,
+        target_parameter: Parameter,
+    ) -> None:
+        if target_parameter.name == "image":
+            self._legacy_image_connected = False
+            self._update_legacy_image_visibility()
+        return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter.name == "image":
+            self._update_legacy_image_visibility()
+        return super().after_value_set(parameter, value)
+
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []
         if not self.get_parameter_value("prompt"):
             exceptions.append(ValueError(f"{self.name} prompt must be provided"))
         return exceptions or None
+
+    def _update_legacy_image_visibility(self) -> None:
+        """Show the deprecated `image` parameter only while a workflow still uses it.
+
+        New graphs never see it; graphs saved before `reference_images` existed keep working and
+        can still see what they are wired to.
+        """
+        in_use = bool(self.get_parameter_value("image")) or self._legacy_image_connected
+        if in_use:
+            self.show_parameter_by_name("image")
+        else:
+            self.hide_parameter_by_name("image")
 
     def _get_api_model_id(self) -> str:
         # Bare provider id; the base class builds POST /api/proxy/v2/models/{id}.
