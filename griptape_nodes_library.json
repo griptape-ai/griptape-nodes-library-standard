@@ -1897,6 +1897,22 @@
       }
     },
     {
+      "class_name": "SplitListByType",
+      "file_path": "griptape_nodes_library/lists/split_list_by_type.py",
+      "metadata": {
+        "category": "lists",
+        "description": "Routes a mixed list into a separate output list per media type (images, audio, video, text), so a single list can feed a multi-modal node's per-type inputs.",
+        "display_name": "Split List By Type",
+        "icon": "split",
+        "group": "edit",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
+      }
+    },
+    {
       "class_name": "SortList",
       "file_path": "griptape_nodes_library/lists/sort_list.py",
       "metadata": {
