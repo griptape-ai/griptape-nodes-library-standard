@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -31,6 +31,7 @@ class Task(StrEnum):
 
     TEXT_TO_VIDEO = "text_to_video"
     IMAGE_TO_VIDEO = "image_to_video"
+    REFERENCE_TO_VIDEO = "reference_to_video"
 
 
 class GeminiOmniFlashGeneration(GriptapeProxyNode):
@@ -42,8 +43,11 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
 
     Inputs:
         - prompt (str): Text prompt for the video
-        - image (ImageArtifact|ImageUrlArtifact|str): Optional reference/start image
+        - image (ImageArtifact|ImageUrlArtifact|str): Optional starting frame
           (when provided, the task is image_to_video)
+        - reference_images (list): Optional reference images (when any are provided, the task is
+          reference_to_video and `image` is ignored). Reference roles are assigned by prompt tags
+          such as <IMAGE_REF_0>. Audio references are not supported by this model.
         - aspect_ratio (str): Output aspect ratio (default: 16:9, options: 16:9, 9:16)
 
     Outputs:
@@ -76,10 +80,27 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
             ParameterImage(
                 name="image",
                 default_value=None,
-                tooltip="Optional reference image; when provided the task is image_to_video",
+                tooltip="Optional starting frame; when provided the task is image_to_video",
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
                 ui_options={"display_name": "image"},
+            )
+        )
+
+        self.add_parameter(
+            ParameterList(
+                name="reference_images",
+                input_types=["ImageUrlArtifact", "ImageArtifact", "str"],
+                default_value=[],
+                tooltip=(
+                    "Optional reference images; when any are provided the task is reference_to_video "
+                    "and 'image' is ignored. Refer to them in the prompt as <IMAGE_REF_0>, "
+                    "<IMAGE_REF_1>, and so on (zero-indexed) to control how each one is used, "
+                    "for example 'in the style of <IMAGE_REF_0> a woman <IMAGE_REF_1> is walking'. "
+                    "Audio references are not supported by this model."
+                ),
+                allowed_modes={ParameterMode.INPUT},
+                ui_options={"display_name": "reference images", "expander": True, "hide_property": True},
             )
         )
 
@@ -173,17 +194,37 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
         prompt = self.get_parameter_value("prompt") or ""
         aspect_ratio = self.get_parameter_value("aspect_ratio") or "16:9"
         image_input = self.get_parameter_value("image")
+        reference_images = self.get_parameter_list_value("reference_images")
+
+        # Interactions `input` items are flat and type-discriminated:
+        # {"type": "image", "data": ..., "mime_type": ...} / {"type": "text", "text": ...}
+        reference_items = []
+        for reference in reference_images:
+            reference_b64 = await self._image_to_base64(reference)
+            if reference_b64 is None:
+                continue
+            mime_type, base64_data = reference_b64
+            reference_items.append({"type": "image", "data": base64_data, "mime_type": mime_type})
 
         image_b64 = await self._image_to_base64(image_input)
 
-        # The interactions `input` is either a plain prompt string (text_to_video)
-        # or a list of content objects mixing text and image (image_to_video).
+        # The interactions `input` is either a plain prompt string (text_to_video) or a list of
+        # content objects mixing text and images. Reference images and a starting frame mean
+        # different things to the model, so they select different tasks rather than combining.
         model_input: Any
-        if image_b64:
+        if reference_items:
+            if image_b64 is not None:
+                logger.warning(
+                    "%s received both 'image' and 'reference_images'. Using reference_images "
+                    "(task %s) and ignoring 'image'.",
+                    self.name,
+                    Task.REFERENCE_TO_VIDEO.value,
+                )
+            task = Task.REFERENCE_TO_VIDEO
+            model_input = [*reference_items, {"type": "text", "text": prompt}]
+        elif image_b64:
             task = Task.IMAGE_TO_VIDEO
             mime_type, base64_data = image_b64
-            # Interactions `input` items are flat and type-discriminated:
-            # {"type": "image", "data": ..., "mime_type": ...} / {"type": "text", "text": ...}
             model_input = [
                 {"type": "image", "data": base64_data, "mime_type": mime_type},
                 {"type": "text", "text": prompt},
