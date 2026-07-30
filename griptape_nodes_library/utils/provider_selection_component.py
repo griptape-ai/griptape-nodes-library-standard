@@ -13,19 +13,16 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
-
 _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
 
 
 class ProviderSelectionComponent:
-
     def __init__(self, node, model_param, *, gtc_model_choices, gtc_model_data):
         # adds model_provider parameter to the node (buttons wired to self)
         self._node = node
         self._model_param = model_param
         self._gtc_model_choices = gtc_model_choices
         self._gtc_model_data = gtc_model_data
-
 
         provider_names = self._fetch_provider_names()
 
@@ -69,7 +66,6 @@ class ProviderSelectionComponent:
         provider_name = self._node.get_parameter_value("model_provider") or "griptape_cloud"
         return provider_name == "griptape_cloud"
 
-
     def _fetch_providers(self) -> list[ProviderConfig]:
 
         _FALLBACK = [_GRIPTAPE_CLOUD_PROVIDER]
@@ -84,7 +80,6 @@ class ProviderSelectionComponent:
     def _fetch_provider_names(self) -> list[str]:
         providers = self._fetch_providers()
         return [p.name for p in providers] or ["griptape_cloud"]
-
 
     def resolve_provider_api_key(self, provider_config: "ProviderConfig") -> str:
         secret_name = provider_config.api_key_secret_name or ""
@@ -109,7 +104,7 @@ class ProviderSelectionComponent:
     ) -> NodeMessageResult | None:  # noqa: ARG002
         """Refresh the model dropdown for the currently selected provider."""
         provider_name = self._node.get_parameter_value("model_provider") or "griptape_cloud"
-        self._update_model_choices_for_provider(provider_name)
+        self.update_model_choices_for_provider(provider_name)
         return None
 
     def update_model_choices_for_provider(self, provider_name: str) -> None:

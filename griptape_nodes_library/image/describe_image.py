@@ -8,7 +8,6 @@ from griptape.drivers.prompt.openai import OpenAiChatPromptDriver as GtOpenAiCha
 from griptape.structures import Structure
 from griptape.tasks import PromptTask
 from griptape_nodes.exe_types.core_types import (
-    NodeMessageResult,
     Parameter,
     ParameterList,
     ParameterMode,
@@ -21,7 +20,6 @@ from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest, DeleteConnectionRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
-from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
@@ -38,7 +36,6 @@ from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
 from griptape_nodes_library.utils.model_invocation import declare_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
-
 
 SERVICE = "Griptape"
 API_KEY_URL = "https://cloud.griptape.ai/configuration/api-keys"
@@ -169,7 +166,6 @@ class DescribeImage(ControlNode):
                 hide=True,
             )
         )
-
 
     # --- Connection / UI helpers ---
 
@@ -333,7 +329,7 @@ class DescribeImage(ControlNode):
         if parameter.name == "model":
             self._model_access.on_value_changed(value)
         elif parameter.name == "model_provider":
-            self._provider.update_model_choices_for_provider(value)  # pylint: disable=protected-access
+            self._provider.update_model_choices_for_provider(str(value))
 
     def process(self) -> AsyncResult[Structure]:  # noqa: C901, PLR0915, PLR0912
         # Get the parameters from the node
