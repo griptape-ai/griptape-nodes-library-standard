@@ -16,6 +16,7 @@ from griptape_nodes.traits.slider import Slider
 
 from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.video.public_video_url_mixin import MAX_VIDEO_FILE_SIZE_BYTES, PublicVideoUrlMixin
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -35,7 +36,7 @@ MODEL_MAPPING = {
 DEFAULT_MODEL = "LTX 2.3 Pro"
 
 
-class LTXVideoExtend(GriptapeProxyNode):
+class LTXVideoExtend(PublicVideoUrlMixin, GriptapeProxyNode):
     """Extend an existing video by 2-20 seconds using LTX AI via Griptape Cloud model proxy.
 
     Inputs:
@@ -239,15 +240,35 @@ class LTXVideoExtend(GriptapeProxyNode):
             msg = f"{self.name} requires an input video to extend."
             raise ValueError(msg)
 
-        try:
-            video_data_uri = await self._prepare_video_data_uri_async(video)
-        except Exception as e:
-            logger.error("%s failed to process video: %s", self.name, e)
-            video_data_uri = None
+        # Tier 1: resolve to a public presigned URL (cloud deployments — avoids 413 entirely)
+        video_uri: str | None = self._resolve_to_public_url(video)
 
-        if not video_data_uri:
-            msg = f"{self.name} failed to process input video."
-            raise ValueError(msg)
+        if not video_uri:
+            # Tier 2: fall back to base64 with a pre-flight size check
+            try:
+                video_data_uri = await self._prepare_video_data_uri_async(video)
+            except Exception as e:
+                logger.error("%s failed to process video: %s", self.name, e)
+                video_data_uri = None
+
+            if not video_data_uri:
+                msg = f"{self.name} failed to process input video."
+                raise ValueError(msg)
+
+            _prefix, _sep, b64_content = video_data_uri.partition(",")
+            if _sep:
+                decoded_size = (len(b64_content) // 4) * 3 - b64_content.count("=")
+                if decoded_size > MAX_VIDEO_FILE_SIZE_BYTES:
+                    size_mb = decoded_size / 1_048_576
+                    limit_mb = MAX_VIDEO_FILE_SIZE_BYTES // 1_048_576
+                    msg = (
+                        f"{self.name}: Source video is too large ({size_mb:.1f} MB). "
+                        f"The maximum supported size is {limit_mb} MB. "
+                        "Trim the video to a shorter segment and try again."
+                    )
+                    raise ValueError(msg)
+
+            video_uri = video_data_uri
 
         if len(params["prompt"]) > MAX_PROMPT_LENGTH:
             msg = (
@@ -265,7 +286,7 @@ class LTXVideoExtend(GriptapeProxyNode):
         context = int(params["context"]) if params["context"] is not None else 0
 
         payload: dict[str, Any] = {
-            "video_uri": video_data_uri,
+            "video_uri": video_uri,
             "duration": duration,
             "mode": params["mode"],
             "model": MODEL_MAPPING.get(params["model"], MODEL_MAPPING[DEFAULT_MODEL]),
@@ -377,11 +398,6 @@ class LTXVideoExtend(GriptapeProxyNode):
             return
 
         super()._handle_payload_build_error(e)
-
-    def _handle_api_key_validation_error(self, e: ValueError) -> None:
-        self._set_safe_defaults()
-        self._set_status_results(was_successful=False, result_details=str(e))
-        logger.error("%s API key validation failed: %s", self.name, e)
 
     def _set_safe_defaults(self) -> None:
         self.parameter_output_values["generation_id"] = ""
