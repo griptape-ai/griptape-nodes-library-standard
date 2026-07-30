@@ -44,6 +44,8 @@ from griptape_nodes_library.utils.agent_utils import (
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
 from griptape_nodes_library.utils.model_invocation import declare_model_invocation_sync
+from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
+
 
 _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
 
@@ -87,28 +89,6 @@ class DescribeImage(ControlNode):
             )
         )
 
-        # Provider selector — populated from the engine's configured providers.
-        provider_names = self._fetch_provider_names()
-        self.add_parameter(
-            Parameter(
-                name="model_provider",
-                type="str",
-                default_value=provider_names[0] if provider_names else "griptape_cloud",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                tooltip="Choose a provider. Refresh to see all configured providers.",
-                traits={
-                    Options(choices=provider_names),
-                    Button(
-                        icon="list-restart",
-                        size="icon",
-                        variant="secondary",
-                        on_click=self._refresh_providers_button,
-                    ),
-                },
-                ui_options={"display_name": "provider"},
-            )
-        )
-
         model_param = Parameter(
             name="model",
             input_types=["str", "Prompt Model Config"],
@@ -119,7 +99,14 @@ class DescribeImage(ControlNode):
             tooltip="Choose a model, or connect a Prompt Model Configuration or an Agent",
             ui_options={"display_name": "prompt model"},
         )
-        self.add_parameter(model_param)
+
+        self._provider = ProviderSelectionComponent(
+            node=self,
+            model_param=model_param,
+            gtc_model_choices=GTC_VISION_MODEL_CHOICES,
+            gtc_model_data=MODEL_CHOICES_ARGS,
+        )
+
         # License-policy helper: adds Options + refresh Button traits, applies per-row
         # decoration + badge, exposes query_for_denial / raise_if_denied, and
         # relocates the stored value to a permitted alternative if DEFAULT_MODEL is denied.
@@ -192,50 +179,6 @@ class DescribeImage(ControlNode):
             )
         )
 
-    # --- Provider / model helpers (mirrors agent.py) ---
-    # TODO: extract into ProviderSelectionComponent shared with Agent
-    # https://github.com/griptape-ai/griptape-nodes-library-standard/issues/442
-
-    def _fetch_providers(self) -> list[ProviderConfig]:
-        _FALLBACK = [_GRIPTAPE_CLOUD_PROVIDER]
-        try:
-            result = GriptapeNodes.handle_request(ListAgentProvidersRequest())
-            if not isinstance(result, ListAgentProvidersResultSuccess):
-                return _FALLBACK
-            return cast(ListAgentProvidersResultSuccess, result).providers or _FALLBACK
-        except Exception:
-            return _FALLBACK
-
-    def _fetch_provider_names(self) -> list[str]:
-        providers = self._fetch_providers()
-        return [p.name for p in providers] or ["griptape_cloud"]
-
-    def _resolve_provider_api_key(self, provider_config: "ProviderConfig") -> str:
-        secret_name = provider_config.api_key_secret_name or ""
-        if secret_name:
-            return (
-                GriptapeNodes.SecretsManager().get_secret(secret_name, should_error_on_not_found=False) or "not-needed"
-            )
-        return "not-needed"
-
-    def _fetch_models_for_provider(self, provider_name: str) -> list[str]:
-        try:
-            providers = self._fetch_providers()
-            provider_config = next((p for p in providers if p.name == provider_name), None)
-            if provider_config is None:
-                return GTC_VISION_MODEL_CHOICES
-            result = GriptapeNodes.handle_request(
-                ListProviderModelsRequest(
-                    provider=provider_config.type,
-                    base_url=provider_config.base_url or "",
-                    api_key=self._resolve_provider_api_key(provider_config),
-                )
-            )
-            if isinstance(result, ListProviderModelsResultSuccess):
-                return cast(ListProviderModelsResultSuccess, result).models or GTC_VISION_MODEL_CHOICES
-        except Exception:
-            pass
-        return GTC_VISION_MODEL_CHOICES
 
     def _update_model_choices_for_provider(self, provider_name: str) -> None:
         if provider_name == "griptape_cloud":
@@ -244,7 +187,7 @@ class DescribeImage(ControlNode):
             vision_names = set(GTC_VISION_MODEL_CHOICES)
             new_data = [entry for entry in MODEL_CHOICES_ARGS if entry["name"] in vision_names]
         else:
-            models = self._fetch_models_for_provider(provider_name)
+            models = self._provider.fetch_models_for_provider(provider_name)
             new_data = [{"name": m, "icon": "", "args": {}} for m in models]
         default = models[0] if models else DEFAULT_MODEL
         self._update_option_choices(param="model", choices=models, default=default)
@@ -252,24 +195,6 @@ class DescribeImage(ControlNode):
         if param:
             param.update_ui_options_key("data", new_data)
 
-    def _refresh_providers_button(
-        self,
-        button: Button,
-        button_details: ButtonDetailsMessagePayload,  # noqa: ARG002
-    ) -> NodeMessageResult | None:
-        provider_names = self._fetch_provider_names()
-        current = self.get_parameter_value("model_provider") or "griptape_cloud"
-        default = current if current in provider_names else (provider_names[0] if provider_names else "griptape_cloud")
-        self._update_option_choices(param="model_provider", choices=provider_names, default=default)
-        return None
-
-    def _uses_griptape_cloud_driver(self) -> bool:
-        if self.get_parameter_value("agent") is not None:
-            return False
-        if isinstance(self.get_parameter_value("model"), BasePromptDriver):
-            return False
-        provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
-        return provider_name == "griptape_cloud"
 
     # --- Connection / UI helpers ---
 
@@ -364,7 +289,7 @@ class DescribeImage(ControlNode):
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
         exceptions = []
-        if not self._uses_griptape_cloud_driver():
+        if not self._provider.uses_griptape_cloud_driver():
             return None
         api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
         if not api_key:
@@ -380,8 +305,7 @@ class DescribeImage(ControlNode):
         target_parameter: Parameter,
     ) -> None:
         if target_parameter.name == "agent":
-            self.hide_parameter_by_name("model")
-            self.hide_parameter_by_name("model_provider")
+            self._provider.hide()
 
         if target_parameter.name == "output_schema":
             self._update_output_type_and_validate_connections("json")
@@ -406,8 +330,7 @@ class DescribeImage(ControlNode):
         target_parameter: Parameter,
     ) -> None:
         if target_parameter.name == "agent":
-            self.show_parameter_by_name("model")
-            self.show_parameter_by_name("model_provider")
+            self._provider.show()
         if target_parameter.name == "output_schema":
             self.set_parameter_value("output_schema", None)
             self._update_output_type_and_validate_connections("str")
@@ -435,7 +358,7 @@ class DescribeImage(ControlNode):
         if parameter.name == "model":
             self._model_access.on_value_changed(value)
         elif parameter.name == "model_provider":
-            self._update_model_choices_for_provider(str(value))
+            self._provider.update_model_choices_for_provider(value)  # pylint: disable=protected-access
 
     def process(self) -> AsyncResult[Structure]:  # noqa: C901, PLR0915, PLR0912
         # Get the parameters from the node
