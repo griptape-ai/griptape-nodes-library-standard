@@ -19,13 +19,6 @@ from griptape_nodes.exe_types.param_components.model_access_component import Mod
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.events.agent_events import (
-    ListAgentProvidersRequest,
-    ListAgentProvidersResultSuccess,
-    ListProviderModelsRequest,
-    ListProviderModelsResultSuccess,
-    ProviderConfig,
-)
 from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest, DeleteConnectionRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
@@ -46,8 +39,6 @@ from griptape_nodes_library.utils.image_utils import load_image_from_url_artifac
 from griptape_nodes_library.utils.model_invocation import declare_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
-
-_GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
 
 SERVICE = "Griptape"
 API_KEY_URL = "https://cloud.griptape.ai/configuration/api-keys"
@@ -83,7 +74,7 @@ class DescribeImage(ControlNode):
                 name="agent",
                 type="Agent",
                 output_type="Agent",
-                tooltip="An agent that will be used to describe the image(s).",
+                tooltip="Test :) An agent that will be used to describe the image(s).",
                 default_value=None,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
             )
@@ -178,22 +169,6 @@ class DescribeImage(ControlNode):
                 hide=True,
             )
         )
-
-
-    def _update_model_choices_for_provider(self, provider_name: str) -> None:
-        if provider_name == "griptape_cloud":
-            # Use a curated vision-only subset rather than the full GTC model list.
-            models = GTC_VISION_MODEL_CHOICES
-            vision_names = set(GTC_VISION_MODEL_CHOICES)
-            new_data = [entry for entry in MODEL_CHOICES_ARGS if entry["name"] in vision_names]
-        else:
-            models = self._provider.fetch_models_for_provider(provider_name)
-            new_data = [{"name": m, "icon": "", "args": {}} for m in models]
-        default = models[0] if models else DEFAULT_MODEL
-        self._update_option_choices(param="model", choices=models, default=default)
-        param = self.get_parameter_by_name("model")
-        if param:
-            param.update_ui_options_key("data", new_data)
 
 
     # --- Connection / UI helpers ---
@@ -440,7 +415,7 @@ class DescribeImage(ControlNode):
         elif isinstance(model_input, BasePromptDriver):
             agent = GtAgent(prompt_driver=model_input, output_schema=pydantic_schema)
         elif provider_name != "griptape_cloud":
-            providers = self._fetch_providers()
+            providers = self._provider._fetch_providers()
             non_gtc_provider_config = next((p for p in providers if p.name == provider_name), None)
             if non_gtc_provider_config is None:
                 msg = f"DescribeImage '{self.name}': provider '{provider_name}' not found in configured providers."

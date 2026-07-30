@@ -1,4 +1,17 @@
-from griptape_nodes.exe_types.core_types import NodeMessageResult
+from typing import cast
+
+from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
+from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
+from griptape_nodes.retained_mode.events.agent_events import (
+    ListAgentProvidersRequest,
+    ListAgentProvidersResultSuccess,
+    ListProviderModelsRequest,
+    ListProviderModelsResultSuccess,
+    ProviderConfig,
+)
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
+from griptape_nodes.traits.options import Options
 
 
 _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
@@ -37,10 +50,8 @@ class ProviderSelectionComponent:
         )
         self._node.add_parameter(model_param)
 
-        self._update_model_choices_for_provider(self._node.get_parameter_value("model_provider") or "griptape_cloud")
-
     def on_provider_changed(self, provider_name: str) -> None:
-        self._update_model_choices_for_provider(provider_name)
+        self.update_model_choices_for_provider(provider_name)
 
     def hide(self) -> None:
         self._node.hide_parameter_by_name("model")
@@ -51,11 +62,11 @@ class ProviderSelectionComponent:
         self._node.show_parameter_by_name("model_provider")
 
     def uses_griptape_cloud_driver(self) -> bool:
-        if self.get_parameter_value("agent") is not None:
+        if self._node.get_parameter_value("agent") is not None:
             return False
-        if isinstance(self.get_parameter_value("model"), BasePromptDriver):
+        if isinstance(self._node.get_parameter_value("model"), BasePromptDriver):
             return False
-        provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
+        provider_name = self._node.get_parameter_value("model_provider") or "griptape_cloud"
         return provider_name == "griptape_cloud"
 
 
@@ -108,9 +119,9 @@ class ProviderSelectionComponent:
             vision_names = set(self._gtc_model_choices)
             new_data = [entry for entry in self._gtc_model_data if entry["name"] in vision_names]
         else:
-            models = self._fetch_models_for_provider(provider_name)
+            models = self.fetch_models_for_provider(provider_name)
             new_data = [{"name": m, "icon": "", "args": {}} for m in models]
-        default = models[0] if models else DEFAULT_MODEL
+        default = models[0] if models else (self._gtc_model_choices[0] if self._gtc_model_choices else "griptape_cloud")
         self._node._update_option_choices(param="model", choices=models, default=default)
         param = self._node.get_parameter_by_name("model")
         if param:
