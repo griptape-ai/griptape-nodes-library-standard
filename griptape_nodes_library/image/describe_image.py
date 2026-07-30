@@ -74,7 +74,7 @@ class DescribeImage(ControlNode):
                 name="agent",
                 type="Agent",
                 output_type="Agent",
-                tooltip="Test :) An agent that will be used to describe the image(s).",
+                tooltip="An agent that will be used to describe the image(s).",
                 default_value=None,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
             )
