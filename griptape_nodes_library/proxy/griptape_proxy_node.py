@@ -590,6 +590,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """Handle API key validation errors."""
         self._set_safe_defaults()
         self._set_status_results(was_successful=False, result_details=str(e))
+        logger.error("%s API key validation failed: %s", self.name, e)
         self._handle_failure_exception(e)
 
     def _handle_payload_build_error(self, e: Exception) -> None:
