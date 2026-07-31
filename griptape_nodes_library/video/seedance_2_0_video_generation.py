@@ -51,41 +51,59 @@ INPUT_MODE_MULTIMODAL_REFERENCES = "Multimodal References"
 MODEL_NAME_SEEDANCE_2_0 = "Seedance 2.0"
 MODEL_NAME_SEEDANCE_2_0_FAST = "Seedance 2.0 Fast"
 MODEL_NAME_SEEDANCE_2_0_MINI = "Seedance 2.0 Mini"
+MODEL_NAME_SEEDANCE_2_5 = "Seedance 2.5"
 SEEDANCE_2_0_MODEL_ID = "dreamina-seedance-2-0-260128"
 SEEDANCE_2_0_FAST_MODEL_ID = "dreamina-seedance-2-0-fast-260128"
 SEEDANCE_2_0_MINI_MODEL_ID = "dreamina-seedance-2-0-mini-260615"
+SEEDANCE_2_5_MODEL_ID = "dreamina-seedance-2-5-260628"
+# Duration bounds shared by every Seedance variant: the floor is fixed, the ceiling is per-model
+# (see SeedanceModelCapabilities.max_duration), and -1 requests the provider's smart selection.
+MIN_DURATION = 4
+DURATION_SMART = -1
 
 
 @dataclass(frozen=True)
 class SeedanceModelCapabilities:
-    """Capabilities supported by a Seedance 2.0 model variant, per the BytePlus model docs.
+    """Capabilities supported by a Seedance model variant, per the BytePlus model docs.
 
-    All three variants share the same feature set; they differ only in the output resolutions
-    they support (Fast and Mini top out at 720p, standard 2.0 adds 1080p and 4k).
+    All four variants (2.0, 2.0 Fast, 2.0 Mini, 2.5) support first+last frame i2v and
+    private-asset references. They differ in output resolution and maximum duration: standard
+    2.0 supports up to 4k; 2.0 Fast and 2.0 Mini top out at 720p; 2.5 supports 480p and 720p only.
+    The three 2.0 variants cap duration at 15 seconds; 2.5 extends that ceiling to 30 seconds.
     """
 
     resolutions: tuple[str, ...]
     supports_last_frame: bool
     supports_private_assets: bool
+    max_duration: int
 
 
 # Single source of truth for per-model capabilities, keyed by provider model id. Adding a new
-# variant is one row here. Values come straight from the BytePlus Seedance 2.0 capability matrix.
+# variant is one row here. Values come straight from the BytePlus Seedance capability matrix.
 SEEDANCE_MODEL_CAPABILITIES: dict[str, SeedanceModelCapabilities] = {
     SEEDANCE_2_0_MODEL_ID: SeedanceModelCapabilities(
         resolutions=("480p", "720p", "1080p", "4k"),
         supports_last_frame=True,
         supports_private_assets=True,
+        max_duration=15,
     ),
     SEEDANCE_2_0_FAST_MODEL_ID: SeedanceModelCapabilities(
         resolutions=("480p", "720p"),
         supports_last_frame=True,
         supports_private_assets=True,
+        max_duration=15,
     ),
     SEEDANCE_2_0_MINI_MODEL_ID: SeedanceModelCapabilities(
         resolutions=("480p", "720p"),
         supports_last_frame=True,
         supports_private_assets=True,
+        max_duration=15,
+    ),
+    SEEDANCE_2_5_MODEL_ID: SeedanceModelCapabilities(
+        resolutions=("480p", "720p"),
+        supports_last_frame=True,
+        supports_private_assets=True,
+        max_duration=30,
     ),
 }
 
@@ -95,6 +113,7 @@ _DEFAULT_MODEL_CAPABILITIES = SeedanceModelCapabilities(
     resolutions=("480p", "720p"),
     supports_last_frame=True,
     supports_private_assets=False,
+    max_duration=15,
 )
 
 
@@ -103,7 +122,12 @@ def _get_model_capabilities(model_id: str) -> SeedanceModelCapabilities:
     return SEEDANCE_MODEL_CAPABILITIES.get(model_id, _DEFAULT_MODEL_CAPABILITIES)
 
 
-# Provider-asset (private asset) registration via the GTC proxy. Supported by all Seedance 2.0
+def _duration_choices(max_duration: int) -> list[int]:
+    """Build the duration Options choices for a model: smart selection plus its integer range."""
+    return [DURATION_SMART, *range(MIN_DURATION, max_duration + 1)]
+
+
+# Provider-asset (private asset) registration via the GTC proxy. Supported by all Seedance
 # variants (see SEEDANCE_MODEL_CAPABILITIES), gated to Griptape auth (not BYOK).
 ASSET_PROVIDER = "byteplus_ark"
 ASSET_POLL_INTERVAL = 3  # seconds
@@ -147,11 +171,12 @@ def _normalize_audio_data_uri_subtype(data_uri: str) -> str:
 
 
 class Seedance20VideoGeneration(GriptapeProxyNode):
-    """Generate a video using Seedance 2.0 models via Griptape Cloud model proxy.
+    """Generate a video using Seedance 2.0 and Seedance 2.5 models via Griptape Cloud model proxy.
 
-    Supports the Seedance 2.0, Seedance 2.0 Fast, and Seedance 2.0 Mini models. All three share
-    the same feature set; they differ in output resolution: standard 2.0 supports up to 4k, while
-    Fast and Mini top out at 720p.
+    Supports the Seedance 2.0, Seedance 2.0 Fast, Seedance 2.0 Mini, and Seedance 2.5 models. All
+    four share the same feature set; they differ in output resolution and max duration: standard
+    2.0 supports up to 4k and 15s, Fast and Mini top out at 720p and 15s, and 2.5 tops out at 720p
+    but extends to 30s.
 
     Supports three input modes:
     - Text Only: Pure text-to-video generation (default)
@@ -162,9 +187,9 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         - prompt (str): Text prompt for the video
         - model_id (str): Model to use (default: Seedance 2.0)
         - input_mode (str): "Text Only", "First/Last Frame", or "Multimodal References" (default: Text Only)
-        - resolution (str): Output resolution (default: 720p, options: 480p, 720p, 1080p, 4k [1080p and 4k are Seedance 2.0 only])
+        - resolution (str): Output resolution (default: 720p, options: 480p, 720p, 1080p, 4k [1080p and 4k are Seedance 2.0 only, not Fast, Mini, or 2.5])
         - ratio (str): Output aspect ratio (default: adaptive)
-        - duration (int): Video duration in seconds (default: 5, range: 4-15 or -1 for smart)
+        - duration (int): Video duration in seconds (default: 5, range is model-dependent: 4-15 for 2.0/Fast/Mini, 4-30 for 2.5, or -1 for smart selection)
         - generate_audio (bool): Generate audio with video (default: False)
         - first_frame/last_frame: Optional frame images (First/Last Frame mode only)
         - reference_images/reference_video_1..3/reference_audio: Optional reference media (Multimodal mode only)
@@ -181,12 +206,13 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         MODEL_NAME_SEEDANCE_2_0_FAST: SEEDANCE_2_0_FAST_MODEL_ID,
         MODEL_NAME_SEEDANCE_2_0_MINI: SEEDANCE_2_0_MINI_MODEL_ID,
         MODEL_NAME_SEEDANCE_2_0: SEEDANCE_2_0_MODEL_ID,
+        MODEL_NAME_SEEDANCE_2_5: SEEDANCE_2_5_MODEL_ID,
     }
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.category = "API Nodes"
-        self.description = "Generate video via Seedance 2.0 through Griptape Cloud model proxy"
+        self.description = "Generate video via Seedance 2.0 or Seedance 2.5 through Griptape Cloud model proxy"
 
         # Transient (helper, scratch parameter name) pairs created while registering private
         # assets; the upload and the scratch parameter are both cleaned up in
@@ -207,6 +233,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                             MODEL_NAME_SEEDANCE_2_0,
                             MODEL_NAME_SEEDANCE_2_0_FAST,
                             MODEL_NAME_SEEDANCE_2_0_MINI,
+                            MODEL_NAME_SEEDANCE_2_5,
                         ]
                     )
                 },
@@ -371,9 +398,14 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             ParameterInt(
                 name="duration",
                 default_value=5,
-                tooltip="Video duration in seconds (4-15 or -1 for smart selection)",
+                tooltip=(
+                    "Video duration in seconds (4-15 for Seedance 2.0/Fast/Mini, 4-30 for Seedance 2.5, "
+                    "or -1 for smart selection)"
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=[-1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])},
+                traits={
+                    Options(choices=_duration_choices(_get_model_capabilities(SEEDANCE_2_0_MODEL_ID).max_duration))
+                },
             )
 
             ParameterBool(
@@ -466,6 +498,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         model_id = self._get_api_model_id()
 
         self._update_resolution_options(model_id)
+        self._update_duration_options(model_id)
 
         if input_mode == INPUT_MODE_MULTIMODAL_REFERENCES:
             # Show multimodal inputs, hide first/last frame
@@ -540,6 +573,23 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         current_resolution = self.get_parameter_value("resolution")
         if current_resolution not in available_resolutions:
             self.set_parameter_value("resolution", "720p")
+
+    def _update_duration_options(self, model_id: str) -> None:
+        """Update duration choices based on selected model (Seedance 2.5 extends the 15s cap to 30s)."""
+        duration_param = self.get_parameter_by_name("duration")
+        if duration_param is None:
+            return
+
+        available_durations = _duration_choices(_get_model_capabilities(model_id).max_duration)
+
+        existing_traits = duration_param.find_elements_by_type(Options)
+        if existing_traits:
+            duration_param.remove_trait(trait_type=existing_traits[0])
+        duration_param.add_trait(Options(choices=available_durations))
+
+        current_duration = self.get_parameter_value("duration")
+        if current_duration not in available_durations:
+            self.set_parameter_value("duration", 5)
 
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation."""
@@ -703,11 +753,16 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 msg = f"{self.name}: Seedance 2.0 supports up to 3 reference audio files, got {len(params['reference_audio'])}."
                 raise ValueError(msg)
 
-        # Validate duration range (4-15 or -1)
+        # Validate duration range (model-dependent max; -1 requests smart selection)
         duration = params.get("duration")
-        if duration is not None and duration != -1 and not (4 <= duration <= 15):
-            msg = f"{self.name}: Seedance 2.0 supports duration between 4-15 seconds or -1 for smart selection, got {duration}."
-            raise ValueError(msg)
+        if duration is not None and duration != DURATION_SMART:
+            max_duration = _get_model_capabilities(params["model_id"]).max_duration
+            if not (MIN_DURATION <= duration <= max_duration):
+                msg = (
+                    f"{self.name}: the selected model supports duration between {MIN_DURATION}-{max_duration} "
+                    f"seconds or {DURATION_SMART} for smart selection, got {duration}."
+                )
+                raise ValueError(msg)
 
         # 1080p is only supported on Seedance 2.0 (not Fast or Mini)
         if params.get("resolution") == "1080p" and not self._supports_1080p(params["model_id"]):
@@ -921,7 +976,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             # Text Only mode: no media inputs
             self._log(f"{self.name} text-only mode, no media inputs")
 
-    # --- Provider private-asset registration (Seedance 2.0 variants, Griptape auth only) -----
+    # --- Provider private-asset registration (Seedance variants, Griptape auth only) --------
 
     def _proxy_headers(self) -> dict[str, str]:
         """Bearer headers for the GTC proxy (same auth as the generation requests)."""

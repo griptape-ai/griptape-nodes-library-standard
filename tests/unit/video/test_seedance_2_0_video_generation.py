@@ -23,6 +23,7 @@ from griptape_nodes_library.video.seedance_2_0_video_generation import (
     SEEDANCE_2_0_FAST_MODEL_ID,
     SEEDANCE_2_0_MINI_MODEL_ID,
     SEEDANCE_2_0_MODEL_ID,
+    SEEDANCE_2_5_MODEL_ID,
     SEEDANCE_MODEL_CAPABILITIES,
     Seedance20VideoGeneration,
     _normalize_audio_data_uri_subtype,
@@ -85,9 +86,11 @@ async def test_build_payload_normalizes_local_frame_paths(monkeypatch: pytest.Mo
     assert all(str(last_frame) not in item["image_url"]["url"] for item in frame_entries)
 
 
-@pytest.mark.parametrize("model_id", [SEEDANCE_2_0_MODEL_ID, SEEDANCE_2_0_FAST_MODEL_ID, SEEDANCE_2_0_MINI_MODEL_ID])
+@pytest.mark.parametrize(
+    "model_id", [SEEDANCE_2_0_MODEL_ID, SEEDANCE_2_0_FAST_MODEL_ID, SEEDANCE_2_0_MINI_MODEL_ID, SEEDANCE_2_5_MODEL_ID]
+)
 def test_all_models_support_last_frame(model_id: str) -> None:
-    # Per the BytePlus capability matrix, first+last frame i2v is supported by all three variants.
+    # Per the BytePlus capability matrix, first+last frame i2v is supported by all four variants.
     assert Seedance20VideoGeneration._supports_last_frame(model_id) is True
 
 
@@ -333,10 +336,12 @@ async def test_build_payload_uses_public_artifact_url_parameter_for_reference_vi
 # --- Private-asset reference gating (Seedance 2.0 only) -------------------------------------
 
 
-@pytest.mark.parametrize("model_id", [SEEDANCE_2_0_MODEL_ID, SEEDANCE_2_0_FAST_MODEL_ID, SEEDANCE_2_0_MINI_MODEL_ID])
+@pytest.mark.parametrize(
+    "model_id", [SEEDANCE_2_0_MODEL_ID, SEEDANCE_2_0_FAST_MODEL_ID, SEEDANCE_2_0_MINI_MODEL_ID, SEEDANCE_2_5_MODEL_ID]
+)
 def test_all_models_support_private_assets(model_id: str) -> None:
-    # The GTC backend links provider assets for all Seedance 2.0 variant ids, so the node allows
-    # private-asset references on all three.
+    # The GTC backend links provider assets for all Seedance variant ids, so the node allows
+    # private-asset references on all four.
     assert Seedance20VideoGeneration._supports_private_assets(model_id) is True
 
 
@@ -347,22 +352,30 @@ def test_supports_4k_only_for_seedance_2_0() -> None:
     assert Seedance20VideoGeneration._supports_4k(SEEDANCE_2_0_MODEL_ID) is True
     assert Seedance20VideoGeneration._supports_4k(SEEDANCE_2_0_FAST_MODEL_ID) is False
     assert Seedance20VideoGeneration._supports_4k(SEEDANCE_2_0_MINI_MODEL_ID) is False
+    assert Seedance20VideoGeneration._supports_4k(SEEDANCE_2_5_MODEL_ID) is False
 
 
 def test_capability_table_matches_documented_matrix() -> None:
     # Regression guard on the single source of truth: values mirror the BytePlus capability matrix.
-    # All three variants support last_frame and private assets; only resolution ceiling differs.
+    # All four variants support last_frame and private assets; resolution ceiling and max_duration
+    # differ (the three 2.0 variants cap duration at 15s, 2.5 extends that to 30s).
     standard = SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_0_MODEL_ID]
     fast = SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_0_FAST_MODEL_ID]
     mini = SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_0_MINI_MODEL_ID]
+    seedance_2_5 = SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_5_MODEL_ID]
 
     assert standard.resolutions == ("480p", "720p", "1080p", "4k")
     assert fast.resolutions == ("480p", "720p")
     assert mini.resolutions == ("480p", "720p")
+    assert seedance_2_5.resolutions == ("480p", "720p")
 
-    for caps in (standard, fast, mini):
+    for caps in (standard, fast, mini, seedance_2_5):
         assert caps.supports_last_frame is True
         assert caps.supports_private_assets is True
+
+    for caps in (standard, fast, mini):
+        assert caps.max_duration == 15
+    assert seedance_2_5.max_duration == 30
 
 
 def test_seedance_2_0_offers_4k_resolution_choice() -> None:
@@ -400,6 +413,18 @@ def test_seedance_2_mini_omits_4k_resolution_choice() -> None:
     assert choices == ["480p", "720p"]
 
 
+def test_seedance_2_5_omits_4k_resolution_choice() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.5")
+    node._update_resolution_options(SEEDANCE_2_5_MODEL_ID)
+
+    resolution_param = _parameter_by_name(node, "resolution")
+    choices = resolution_param.find_elements_by_type(Options)[0].choices
+    assert "4k" not in choices
+    assert "1080p" not in choices
+    assert choices == ["480p", "720p"]
+
+
 @pytest.mark.parametrize("model_id", [SEEDANCE_2_0_FAST_MODEL_ID, SEEDANCE_2_0_MINI_MODEL_ID])
 def test_seedance_2_fast_and_mini_reject_4k_resolution(model_id: str) -> None:
     # The Options trait normally prevents selecting 4k on Fast/Mini via the UI, but resolution can
@@ -414,7 +439,86 @@ def test_seedance_2_fast_and_mini_reject_4k_resolution(model_id: str) -> None:
         node._validate_parameters(params)
 
 
-@pytest.mark.parametrize("model_name", ["Seedance 2.0", "Seedance 2.0 Fast", "Seedance 2.0 Mini"])
+@pytest.mark.parametrize("resolution", ["1080p", "4k"])
+def test_seedance_2_5_rejects_high_resolutions(resolution: str) -> None:
+    # Seedance 2.5 tops out at 720p (no 1080p, no 4k), same backstop as Fast/Mini.
+    node = Seedance20VideoGeneration(name="Seedance20")
+    params = node._get_parameters()
+    params["model_id"] = SEEDANCE_2_5_MODEL_ID
+    params["resolution"] = resolution
+
+    with pytest.raises(ValueError, match=f"does not support {resolution} resolution"):
+        node._validate_parameters(params)
+
+
+# --- Duration gating (model-dependent max) --------------------------------------------------
+
+
+def test_update_duration_options_reflects_selected_model_max() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+
+    node._update_duration_options(SEEDANCE_2_5_MODEL_ID)
+    seedance_2_5_choices = _parameter_by_name(node, "duration").find_elements_by_type(Options)[0].choices
+    assert 30 in seedance_2_5_choices
+    assert 31 not in seedance_2_5_choices
+
+    node._update_duration_options(SEEDANCE_2_0_MODEL_ID)
+    seedance_2_0_choices = _parameter_by_name(node, "duration").find_elements_by_type(Options)[0].choices
+    assert 15 in seedance_2_0_choices
+    assert 16 not in seedance_2_0_choices
+
+
+def test_seedance_2_5_accepts_duration_up_to_30_but_2_0_does_not() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    params = node._get_parameters()
+    params["model_id"] = SEEDANCE_2_5_MODEL_ID
+    params["duration"] = 30
+
+    # 30s validates on Seedance 2.5 (its documented ceiling)...
+    node._validate_parameters(params)
+
+    # ...but exceeds the 15s ceiling on Seedance 2.0.
+    params["model_id"] = SEEDANCE_2_0_MODEL_ID
+    with pytest.raises(ValueError, match="supports duration between"):
+        node._validate_parameters(params)
+
+
+@pytest.mark.parametrize("model_id", [SEEDANCE_2_0_MODEL_ID, SEEDANCE_2_5_MODEL_ID])
+def test_duration_smart_selection_validates_on_all_models(model_id: str) -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    params = node._get_parameters()
+    params["model_id"] = model_id
+    params["duration"] = -1
+
+    node._validate_parameters(params)
+
+
+@pytest.mark.parametrize("model_id", [SEEDANCE_2_0_MODEL_ID, SEEDANCE_2_5_MODEL_ID])
+def test_duration_below_minimum_rejected_on_all_models(model_id: str) -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    params = node._get_parameters()
+    params["model_id"] = model_id
+    params["duration"] = 3
+
+    with pytest.raises(ValueError, match="supports duration between"):
+        node._validate_parameters(params)
+
+
+def test_switching_from_seedance_2_5_clamps_out_of_range_duration() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.5")
+    node.set_parameter_value("duration", 30)
+    assert node.get_parameter_value("duration") == 30
+
+    # Switching to Seedance 2.0 (15s max) must clamp the now out-of-range duration rather than
+    # leaving an invalid value selected.
+    node.set_parameter_value("model_id", "Seedance 2.0")
+
+    assert node.get_parameter_value("duration") != 30
+    assert node.get_parameter_value("duration") == 5
+
+
+@pytest.mark.parametrize("model_name", ["Seedance 2.0", "Seedance 2.0 Fast", "Seedance 2.0 Mini", "Seedance 2.5"])
 def test_all_models_accept_private_asset_reference(model_name: str) -> None:
     node = Seedance20VideoGeneration(name="Seedance20")
     node.set_parameter_value("model_id", model_name)

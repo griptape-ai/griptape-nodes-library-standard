@@ -406,6 +406,12 @@
                 "provider_model_id": "dreamina-seedance-2-0-mini-260615",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
+              "gtc_seedance_2_5": {
+                "display_name": "Seedance 2.5",
+                "family": "Seedance",
+                "provider_model_id": "dreamina-seedance-2-5-260628",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
               "gtc_omnihuman_1_0": {
                 "display_name": "OmniHuman 1.0",
                 "family": "OmniHuman",
@@ -2413,7 +2419,7 @@
       "file_path": "griptape_nodes_library/video/seedance_2_0_video_generation.py",
       "metadata": {
         "category": "video",
-        "description": "Generate a video using Seedance 2.0 models with multimodal support via Griptape Cloud model proxy.",
+        "description": "Generate a video using Seedance 2.0 or Seedance 2.5 models with multimodal support via Griptape Cloud model proxy.",
         "display_name": "Seedance 2.0 Video Generation",
         "icon": "Sparkles",
         "group": "create",
@@ -2430,7 +2436,8 @@
             "model_ids": [
               "gtc_seedance_2_0",
               "gtc_seedance_2_0_fast",
-              "gtc_seedance_2_0_mini"
+              "gtc_seedance_2_0_mini",
+              "gtc_seedance_2_5"
             ]
           }
         ]
