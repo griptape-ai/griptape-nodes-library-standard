@@ -17,12 +17,13 @@ _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_
 
 
 class ProviderSelectionComponent:
-    def __init__(self, node, model_param, *, gtc_model_choices, gtc_model_data):
+    def __init__(self, node, model_param, *, gtc_model_choices, gtc_model_data, default_model: str | None = None):
         # adds model_provider parameter to the node (buttons wired to self)
         self._node = node
         self._model_param = model_param
         self._gtc_model_choices = gtc_model_choices
         self._gtc_model_data = gtc_model_data
+        self._default_model = default_model or (gtc_model_choices[0] if gtc_model_choices else "")
 
         provider_names = self._fetch_provider_names()
 
@@ -109,14 +110,14 @@ class ProviderSelectionComponent:
 
     def update_model_choices_for_provider(self, provider_name: str) -> None:
         if provider_name == "griptape_cloud":
-            # Use a curated vision-only subset rather than the full GTC model list.
             models = self._gtc_model_choices
-            vision_names = set(self._gtc_model_choices)
-            new_data = [entry for entry in self._gtc_model_data if entry["name"] in vision_names]
+            gtc_names = set(self._gtc_model_choices)
+            new_data = [entry for entry in self._gtc_model_data if entry["name"] in gtc_names]
+            default = self._default_model if self._default_model in models else (models[0] if models else self._default_model)
         else:
             models = self.fetch_models_for_provider(provider_name)
             new_data = [{"name": m, "icon": "", "args": {}} for m in models]
-        default = models[0] if models else (self._gtc_model_choices[0] if self._gtc_model_choices else "griptape_cloud")
+            default = models[0] if models else self._default_model
         self._node._update_option_choices(param="model", choices=models, default=default)
         param = self._node.get_parameter_by_name("model")
         if param:

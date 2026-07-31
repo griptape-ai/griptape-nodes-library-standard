@@ -93,6 +93,7 @@ class DescribeImage(ControlNode):
             model_param=model_param,
             gtc_model_choices=GTC_VISION_MODEL_CHOICES,
             gtc_model_data=MODEL_CHOICES_ARGS,
+            default_model=DEFAULT_MODEL,
         )
 
         # License-policy helper: adds Options + refresh Button traits, applies per-row
