@@ -80,7 +80,7 @@ def test_denied_model_falls_back_to_naming_the_model(node: _StubNode, monkeypatc
         require_model_invocation_sync(node, "gpt-4o")
 
 
-@pytest.mark.parametrize("api_model_id", [None, ""])
+@pytest.mark.parametrize("api_model_id", [None, "", "   "])
 def test_unidentified_model_is_refused_without_declaring(
     node: _StubNode,
     declared: list[DeclareModelInvocationRequest],
@@ -91,10 +91,35 @@ def test_unidentified_model_is_refused_without_declaring(
     in that case, so the helper refuses rather than asking the permission layer
     to rule on a model nobody has named.
     """
-    with pytest.raises(RuntimeError, match="no model is set on the driver"):
+    with pytest.raises(RuntimeError, match="no model was identified"):
         require_model_invocation_sync(node, api_model_id)
 
     assert declared == []
+
+
+def test_purpose_distinguishes_two_gates_in_one_node(node: _StubNode, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A node that gates more than one invocation (e.g. GenerateImage gates prompt
+    enhancement separately from image generation) needs the denial to say which.
+    """
+    monkeypatch.setattr(
+        GriptapeNodes,
+        "handle_request",
+        lambda _request: DeclareModelInvocationResultFailure(result_details="seat limit reached"),
+    )
+
+    with pytest.raises(RuntimeError, match=r"_StubNode 'StubNode' \(prompt enhancement\): seat limit reached"):
+        require_model_invocation_sync(node, "gpt-4o", purpose="prompt enhancement")
+
+
+def test_purpose_is_omitted_when_not_given(node: _StubNode, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        GriptapeNodes,
+        "handle_request",
+        lambda _request: DeclareModelInvocationResultFailure(result_details="seat limit reached"),
+    )
+
+    with pytest.raises(RuntimeError, match=r"Cannot run _StubNode 'StubNode': seat limit reached"):
+        require_model_invocation_sync(node, "gpt-4o")
 
 
 def test_unresolvable_model_id_still_declares(

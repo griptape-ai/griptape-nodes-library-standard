@@ -72,7 +72,7 @@ def declare_model_invocation_sync(node: BaseNode, api_model_id: str) -> ResultPa
     return GriptapeNodes.handle_request(_build_declaration(node, api_model_id))
 
 
-def require_model_invocation_sync(node: BaseNode, api_model_id: str | None) -> None:
+def require_model_invocation_sync(node: BaseNode, api_model_id: str | None, *, purpose: str | None = None) -> None:
     """Declare the invocation and raise if the permission layer denies it.
 
     The fail-closed half of `declare_model_invocation_sync`, for the common case
@@ -86,29 +86,37 @@ def require_model_invocation_sync(node: BaseNode, api_model_id: str | None) -> N
     declaring a null model id would ask the permission layer to rule on a model
     nobody has named, which is the one outcome a fail-closed gate must not allow.
 
+    `purpose` names which invocation is being gated, for nodes that gate more than
+    one. It is appended to the node's identity in the raised message so a denial
+    points at the specific call rather than just the node.
+
     Raises:
         RuntimeError: if the model is unidentified, or if the declaration was
             denied. Carries the engine's `result_details` when it says something,
             since that explains *why* the policy denied the call; otherwise a
             generic message naming the model.
     """
-    if not api_model_id:
+    subject = f"{type(node).__name__} '{node.name}'"
+    if purpose:
+        subject = f"{subject} ({purpose})"
+    if not api_model_id or not api_model_id.strip():
         msg = (
-            f"Cannot run {type(node).__name__} '{node.name}': no model is set on the driver, "
-            "so the invocation cannot be checked against the model policy. "
-            "Select a model on the upstream driver node."
+            f"Cannot run {subject}: no model was identified, so the invocation cannot be "
+            "checked against the model policy. Set a model on this node or on the "
+            "driver connected to it."
         )
         raise RuntimeError(msg)
     declaration = declare_model_invocation_sync(node, api_model_id)
     if not declaration.failed():
         return
-    # `result_details` is a required field, but coerce defensively: it carries the
-    # policy's own explanation, and an empty one would otherwise produce a
+    # `result_details` carries the policy's own explanation and is a required field,
+    # so `or ""` is only reached by a payload that crossed a boundary without
+    # validation. Coerce either way: a blank explanation would otherwise raise a
     # RuntimeError that names no model and gives the user nothing to act on.
     details = str(declaration.result_details or "").strip()
     if not details:
         details = f"invocation of model '{api_model_id}' was not permitted."
-    msg = f"Cannot run {type(node).__name__} '{node.name}': {details}"
+    msg = f"Cannot run {subject}: {details}"
     raise RuntimeError(msg)
 
 

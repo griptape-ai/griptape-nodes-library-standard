@@ -258,7 +258,7 @@ class GenerateImage(ControlNode):
             # driver below, and one no dropdown selects, so its model comes from the task
             # driver. Declare it so a denied invocation fails closed before the call.
             enhance_model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
-            require_model_invocation_sync(self, enhance_model)
+            require_model_invocation_sync(self, enhance_model, purpose="prompt enhancement")
             # agent.run is a blocking operation that will hold up the rest of the engine.
             # By using `yield lambda`, the engine can run this in the background and resume when it's done.
             result = yield lambda: agent.run(
