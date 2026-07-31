@@ -24,7 +24,7 @@ from griptape_nodes_library.utils.mcp_utils import (
     get_server_config,
     validate_mcp_server,
 )
-from griptape_nodes_library.utils.model_invocation import declare_model_invocation_sync
+from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 DEFAULT_MODEL = "gpt-4.1"
 
@@ -351,11 +351,7 @@ class MCPTaskNode(SuccessFailureNode):
         # (no upstream agent connected) or comes from a connected agent's own driver, whose
         # model identity that agent's own node is responsible for gating. Either way, the
         # declaration below is this node's own gate on the actual invocation.
-        declaration = declare_model_invocation_sync(self, prompt_driver.model)
-        if declaration.failed():
-            details = str(declaration.result_details or f"{self.name}: model invocation was not permitted.")
-            msg = f"Cannot run {type(self).__name__}: {details}"
-            raise RuntimeError(msg)
+        require_model_invocation_sync(self, prompt_driver.model)
 
         if prompt_driver.stream:
             for event in agent.run_stream(

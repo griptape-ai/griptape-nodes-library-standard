@@ -58,7 +58,7 @@ from griptape_nodes_library.utils.agent_utils import (
     wrap_agent,
 )
 from griptape_nodes_library.utils.error_utils import try_throw_error
-from griptape_nodes_library.utils.model_invocation import declare_model_invocation_sync
+from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
 _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
@@ -943,13 +943,7 @@ class Agent(ControlNode):
             # before declaring. Declare before the network call below so a denied
             # invocation fails closed rather than reaching the provider.
             model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
-            declaration = declare_model_invocation_sync(self, model)
-            if declaration.failed():
-                details = str(
-                    declaration.result_details
-                    or f"Agent '{self.name}': invocation of model '{model}' was not permitted."
-                )
-                raise RuntimeError(details)
+            require_model_invocation_sync(self, model)
 
             # Run the agent asynchronously
             self.append_value_to_parameter("logs", "[Started processing agent..]\n")

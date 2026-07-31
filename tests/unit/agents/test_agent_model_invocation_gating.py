@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 import griptape_nodes_library.agents.agent as agent_module
+import griptape_nodes_library.utils.model_invocation as model_invocation_module
 from griptape_nodes_library.agents.agent import Agent
 
 
@@ -55,7 +56,7 @@ def test_declares_invocation_with_selected_model_before_running(
         captured["api_model_id"] = api_model_id
         return _FakeDeclaration(ok=True)
 
-    monkeypatch.setattr(agent_module, "declare_model_invocation_sync", _fake_declare)
+    monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", _fake_declare)
 
     gen = agent_node.process()
     runner = next(gen)
@@ -74,7 +75,7 @@ def test_raises_before_running_when_declaration_is_denied(agent_node: Agent, mon
     def _fake_process(self: Agent, agent: Any, prompt: Any) -> None:  # pragma: no cover - must not run
         ran["called"] = True
 
-    monkeypatch.setattr(agent_module, "declare_model_invocation_sync", _fake_declare)
+    monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", _fake_declare)
     monkeypatch.setattr(Agent, "_process", _fake_process)
 
     gen = agent_node.process()
@@ -90,7 +91,7 @@ def test_falls_back_to_default_message_when_result_details_missing(
     def _fake_declare(_node: Agent, _api_model_id: str) -> _FakeDeclaration:
         return _FakeDeclaration(ok=False, details="")
 
-    monkeypatch.setattr(agent_module, "declare_model_invocation_sync", _fake_declare)
+    monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", _fake_declare)
 
     gen = agent_node.process()
     with pytest.raises(RuntimeError, match="was not permitted"):
@@ -126,7 +127,7 @@ def test_declares_connected_agents_model_over_stale_dropdown_value(
         captured["api_model_id"] = api_model_id
         return _FakeDeclaration(ok=True)
 
-    monkeypatch.setattr(agent_module, "declare_model_invocation_sync", _fake_declare)
+    monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", _fake_declare)
 
     gen = agent_node.process()
     next(gen)
