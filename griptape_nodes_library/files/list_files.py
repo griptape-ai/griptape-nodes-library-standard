@@ -280,14 +280,11 @@ class ListFiles(SuccessFailureNode):
         use_pattern = bool(pattern)
         is_path_pattern = use_pattern and self._is_path_pattern(pattern)
         root_resolved = ""  # derived below from the engine's returned paths, not process CWD
-        try:
-            compiled_path_pattern: re.Pattern | None = (
-                self._compile_path_pattern(pattern, case_sensitive=match_pattern_case_sensitive)
-                if is_path_pattern
-                else None
-            )
-        except re.error as e:
-            return [], f"invalid match_pattern {pattern!r}: {e}"
+        compiled_path_pattern: re.Pattern | None = (
+            self._compile_path_pattern(pattern, case_sensitive=match_pattern_case_sensitive)
+            if is_path_pattern
+            else None
+        )
 
         while stack:
             current = stack.pop()
@@ -347,6 +344,12 @@ class ListFiles(SuccessFailureNode):
         if self._is_path_pattern(match_pattern.strip()):
             if not (directory_path or "").strip():
                 msg = f"{self.name}: directory_path is required when match_pattern contains / or **"
+                self._set_status_results(was_successful=False, result_details=f"Failure: {msg}")
+                return
+            try:
+                self._compile_path_pattern(match_pattern.strip(), case_sensitive=match_pattern_case_sensitive)
+            except re.error as e:
+                msg = f"{self.name}: match_pattern {match_pattern.strip()!r} is not valid — {e}"
                 self._set_status_results(was_successful=False, result_details=f"Failure: {msg}")
                 return
             # Path patterns need recursion; _collect_entries_recursive does path-relative
