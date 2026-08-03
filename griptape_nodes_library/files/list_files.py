@@ -306,11 +306,12 @@ class ListFiles(SuccessFailureNode):
             if not isinstance(result, ListDirectoryResultSuccess):
                 return [], "unexpected result type from directory listing"
 
-            # Derive root from the engine's own resolution of directory_path — can't use
-            # Path.resolve() independently because the engine anchors relative paths to the
-            # workspace root, not the process CWD.
-            if is_path_pattern and not root_resolved and result.entries:
-                root_resolved = str(Path(result.entries[0].absolute_path).parent)
+            # Use the engine's authoritative resolved path for the root directory.
+            # ListDirectoryResultSuccess.current_path is set by the engine after resolving
+            # macros, workspace-relative paths, and platform differences — more reliable than
+            # inferring from entry.absolute_path, and works even when the directory is empty.
+            if is_path_pattern and not root_resolved:
+                root_resolved = result.current_path
 
             collected.extend(
                 self._filter_entries(
