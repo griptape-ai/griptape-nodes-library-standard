@@ -259,7 +259,7 @@ class ListFiles(SuccessFailureNode):
         pattern = match_pattern.strip()
         use_pattern = bool(pattern)
         is_path_pattern = use_pattern and self._is_path_pattern(pattern)
-        root_resolved = str(Path(root_directory_path).resolve()) if root_directory_path and is_path_pattern else ""
+        root_resolved = ""  # derived below from the engine's returned paths, not process CWD
         compiled_path_pattern: re.Pattern | None = (
             self._compile_path_pattern(pattern, case_sensitive=match_pattern_case_sensitive)
             if is_path_pattern
@@ -285,6 +285,12 @@ class ListFiles(SuccessFailureNode):
                 return [], str(error_msg)
             if not isinstance(result, ListDirectoryResultSuccess):
                 return [], "unexpected result type from directory listing"
+
+            # Derive root from the engine's own resolution of directory_path — can't use
+            # Path.resolve() independently because the engine anchors relative paths to the
+            # workspace root, not the process CWD.
+            if is_path_pattern and not root_resolved and result.entries:
+                root_resolved = str(Path(result.entries[0].absolute_path).resolve().parent)
 
             # Descend into subdirs in a stable order (reverse so first listed dir is processed next on pop).
             subdirs: list[str] = []
