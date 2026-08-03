@@ -186,12 +186,12 @@ class ListFiles(SuccessFailureNode):
     @staticmethod
     def _match_path_entry(entry, root_resolved: str, compiled: re.Pattern) -> bool:
         try:
-            # Both sides are resolved so symlinked roots (/tmp → /private/tmp on macOS) don't break relative_to.
-            candidate = Path(entry.absolute_path).resolve().relative_to(root_resolved).as_posix()
+            # The engine sets absolute_path via .absolute() (not .resolve()), preserving symlinks
+            # (os_manager.py:1644). Calling .resolve() here would remap symlinked subdirs to their
+            # real targets, placing them outside root and causing every entry under them to be dropped.
+            candidate = Path(entry.absolute_path).relative_to(root_resolved).as_posix()
         except ValueError:
-            # Entry resolves outside root (e.g. symlink target elsewhere); fall back to basename.
-            # A multi-segment pattern like **/outputs/*.png won't match a bare name, so the entry is excluded.
-            candidate = entry.name
+            return False
         return bool(compiled.fullmatch(candidate))
 
     @staticmethod
@@ -290,7 +290,7 @@ class ListFiles(SuccessFailureNode):
             # Path.resolve() independently because the engine anchors relative paths to the
             # workspace root, not the process CWD.
             if is_path_pattern and not root_resolved and result.entries:
-                root_resolved = str(Path(result.entries[0].absolute_path).resolve().parent)
+                root_resolved = str(Path(result.entries[0].absolute_path).parent)
 
             # Descend into subdirs in a stable order (reverse so first listed dir is processed next on pop).
             subdirs: list[str] = []
