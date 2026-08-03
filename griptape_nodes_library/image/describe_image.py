@@ -431,7 +431,7 @@ class DescribeImage(ControlNode):
             if non_gtc_provider_config is None:
                 msg = f"DescribeImage '{self.name}': provider '{provider_name}' not found in configured providers."
                 raise ValueError(msg)
-            api_key = self._resolve_provider_api_key(non_gtc_provider_config)
+            api_key = self._provider.resolve_provider_api_key(non_gtc_provider_config)
             base_url = non_gtc_provider_config.base_url or ""
             prompt_driver = GtOpenAiChatPromptDriver(
                 model=model_input if isinstance(model_input, str) else DEFAULT_MODEL,
