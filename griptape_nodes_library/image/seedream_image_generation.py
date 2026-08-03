@@ -417,6 +417,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
 
         # Process all images from the response
         image_artifacts = []
+        failed_urls = []
         for idx, image_data in enumerate(data):
             image_url = image_data.get("url")
             if not image_url:
@@ -426,14 +427,20 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             artifact = await self._save_single_image_from_url(image_url, generation_id, idx)
             if artifact:
                 image_artifacts.append(artifact)
+            else:
+                failed_urls.append(image_url)
 
         if not image_artifacts:
             self._log("No images could be saved")
             self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no image URLs were found in the response.",
-            )
+            if failed_urls:
+                details = (
+                    f"{self.name} generation completed upstream but the image(s) could not be retrieved. "
+                    f"Provider URL(s) (may be temporary): {', '.join(failed_urls)}"
+                )
+            else:
+                details = f"{self.name} generation completed but no image URLs were found in the response."
+            self._set_status_results(was_successful=False, result_details=details)
             return
 
         # Show the appropriate number of image output parameters based on actual image count
@@ -665,9 +672,6 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         try:
             self._log(f"Downloading image {index} from URL")
             image_bytes = await self._download_bytes_from_url(image_url)
-            if not image_bytes:
-                self._log(f"Could not download image {index}, using provider URL")
-                return ImageUrlArtifact(value=image_url)
 
             # Convert to PNG format to enable automatic workflow metadata embedding
             pil_image = Image.open(BytesIO(image_bytes))
@@ -681,8 +685,11 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             return ImageUrlArtifact(value=saved.location, name=saved.name)
 
         except Exception as e:
-            self._log(f"Failed to save image {index} from URL: {e}")
-            return ImageUrlArtifact(value=image_url)
+            # A billed generation whose image cannot be retrieved is a failure, not a
+            # silent success. Return None so this image is not counted as saved; the
+            # caller reports failure and surfaces the provider URL for manual retrieval.
+            self._log(f"Failed to retrieve image {index} from {image_url}: {e}")
+            return None
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:
         """Extract error message from failed/errored generation response.

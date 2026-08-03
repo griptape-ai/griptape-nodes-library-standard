@@ -7,7 +7,8 @@ from enum import StrEnum
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -31,6 +32,7 @@ class Task(StrEnum):
 
     TEXT_TO_VIDEO = "text_to_video"
     IMAGE_TO_VIDEO = "image_to_video"
+    REFERENCE_TO_VIDEO = "reference_to_video"
 
 
 class GeminiOmniFlashGeneration(GriptapeProxyNode):
@@ -42,8 +44,11 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
 
     Inputs:
         - prompt (str): Text prompt for the video
-        - image (ImageArtifact|ImageUrlArtifact|str): Optional reference/start image
-          (when provided, the task is image_to_video)
+        - reference_images (list): Optional reference images (when any are provided, the task is
+          reference_to_video). Reference roles are assigned by prompt tags such as <IMAGE_REF_0>.
+          Audio references are not supported by this model.
+        - image (ImageArtifact|ImageUrlArtifact|str): Deprecated, superseded by reference_images.
+          Hidden unless a workflow still sets or connects it; when set, the task is image_to_video.
         - aspect_ratio (str): Output aspect ratio (default: 16:9, options: 16:9, 9:16)
 
     Outputs:
@@ -60,6 +65,10 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
+        # Tracked from the connection hooks; there is no public API to query a parameter's
+        # incoming connections, and the deprecated `image` stays visible while one exists.
+        self._legacy_image_connected = False
+
         # INPUTS / PROPERTIES
         self.add_parameter(
             ParameterString(
@@ -72,16 +81,37 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
             )
         )
 
+        # Superseded by reference_images. Kept so workflows saved against it still load (renaming
+        # a parameter breaks both its saved value and its saved connection on load), but hidden
+        # unless a workflow actually uses it. See _update_legacy_image_visibility.
         self.add_parameter(
             ParameterImage(
                 name="image",
                 default_value=None,
-                tooltip="Optional reference image; when provided the task is image_to_video",
+                tooltip="Deprecated: use 'reference images' instead. When set, the task is image_to_video.",
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
-                ui_options={"display_name": "image"},
+                ui_options={"display_name": "image (deprecated)"},
             )
         )
+
+        self.add_parameter(
+            ParameterList(
+                name="reference_images",
+                input_types=["ImageUrlArtifact", "ImageArtifact", "str"],
+                default_value=[],
+                tooltip=(
+                    "Optional reference images. Refer to them in the prompt as <IMAGE_REF_0>, "
+                    "<IMAGE_REF_1>, and so on (zero-indexed) to control how each one is used, "
+                    "for example 'in the style of <IMAGE_REF_0> a woman <IMAGE_REF_1> is walking'. "
+                    "Audio references are not supported by this model."
+                ),
+                allowed_modes={ParameterMode.INPUT},
+                ui_options={"display_name": "reference images", "expander": True, "hide_property": True},
+            )
+        )
+
+        self._update_legacy_image_visibility()
 
         with ParameterGroup(name="Generation Settings") as generation_settings_group:
             # The model chooses clip length itself (3-10s); duration is not a
@@ -131,11 +161,50 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
 
+    def after_incoming_connection(
+        self,
+        source_node: BaseNode,
+        source_parameter: Parameter,
+        target_parameter: Parameter,
+    ) -> None:
+        if target_parameter.name == "image":
+            self._legacy_image_connected = True
+            self._update_legacy_image_visibility()
+        return super().after_incoming_connection(source_node, source_parameter, target_parameter)
+
+    def after_incoming_connection_removed(
+        self,
+        source_node: BaseNode,
+        source_parameter: Parameter,
+        target_parameter: Parameter,
+    ) -> None:
+        if target_parameter.name == "image":
+            self._legacy_image_connected = False
+            self._update_legacy_image_visibility()
+        return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter.name == "image":
+            self._update_legacy_image_visibility()
+        return super().after_value_set(parameter, value)
+
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []
         if not self.get_parameter_value("prompt"):
             exceptions.append(ValueError(f"{self.name} prompt must be provided"))
         return exceptions or None
+
+    def _update_legacy_image_visibility(self) -> None:
+        """Show the deprecated `image` parameter only while a workflow still uses it.
+
+        New graphs never see it; graphs saved before `reference_images` existed keep working and
+        can still see what they are wired to.
+        """
+        in_use = bool(self.get_parameter_value("image")) or self._legacy_image_connected
+        if in_use:
+            self.show_parameter_by_name("image")
+        else:
+            self.hide_parameter_by_name("image")
 
     def _get_api_model_id(self) -> str:
         # Bare provider id; the base class builds POST /api/proxy/v2/models/{id}.
@@ -173,17 +242,37 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
         prompt = self.get_parameter_value("prompt") or ""
         aspect_ratio = self.get_parameter_value("aspect_ratio") or "16:9"
         image_input = self.get_parameter_value("image")
+        reference_images = self.get_parameter_list_value("reference_images")
+
+        # Interactions `input` items are flat and type-discriminated:
+        # {"type": "image", "data": ..., "mime_type": ...} / {"type": "text", "text": ...}
+        reference_items = []
+        for reference in reference_images:
+            reference_b64 = await self._image_to_base64(reference)
+            if reference_b64 is None:
+                continue
+            mime_type, base64_data = reference_b64
+            reference_items.append({"type": "image", "data": base64_data, "mime_type": mime_type})
 
         image_b64 = await self._image_to_base64(image_input)
 
-        # The interactions `input` is either a plain prompt string (text_to_video)
-        # or a list of content objects mixing text and image (image_to_video).
+        # The interactions `input` is either a plain prompt string (text_to_video) or a list of
+        # content objects mixing text and images. Reference images and a starting frame mean
+        # different things to the model, so they select different tasks rather than combining.
         model_input: Any
-        if image_b64:
+        if reference_items:
+            if image_b64 is not None:
+                logger.warning(
+                    "%s received both 'image' and 'reference_images'. Using reference_images "
+                    "(task %s) and ignoring 'image'.",
+                    self.name,
+                    Task.REFERENCE_TO_VIDEO.value,
+                )
+            task = Task.REFERENCE_TO_VIDEO
+            model_input = [*reference_items, {"type": "text", "text": prompt}]
+        elif image_b64:
             task = Task.IMAGE_TO_VIDEO
             mime_type, base64_data = image_b64
-            # Interactions `input` items are flat and type-discriminated:
-            # {"type": "image", "data": ..., "mime_type": ...} / {"type": "text", "text": ...}
             model_input = [
                 {"type": "image", "data": base64_data, "mime_type": mime_type},
                 {"type": "text", "text": prompt},

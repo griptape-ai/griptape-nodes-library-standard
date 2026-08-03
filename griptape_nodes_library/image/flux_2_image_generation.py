@@ -412,30 +412,31 @@ class Flux2ImageGeneration(GriptapeProxyNode):
             )
             return
 
-        # Download and save the image using generation_id in filename
+        # Download and save the image using generation_id in filename. A billed
+        # generation whose image cannot be retrieved is a failure, not a silent
+        # success; the provider URL is surfaced so the user can retrieve it manually.
         try:
             self._log("Downloading image from URL")
             image_bytes = await File(sample_url).aread_bytes()
-            if image_bytes:
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(image_bytes)
-                self.parameter_output_values["image_url"] = ImageUrlArtifact(saved.location)
-                self._log(f"Saved image as {saved.name}")
-                self._set_status_results(
-                    was_successful=True, result_details=f"Image generated successfully and saved as {saved.name}."
-                )
-            else:
-                self.parameter_output_values["image_url"] = ImageUrlArtifact(value=sample_url)
-                self._set_status_results(
-                    was_successful=True,
-                    result_details="Image generated successfully. Using provider URL (could not download image bytes).",
-                )
-        except Exception as e:
-            self._log(f"Failed to save image from URL: {e}")
-            self.parameter_output_values["image_url"] = ImageUrlArtifact(value=sample_url)
+            if not image_bytes:
+                msg = "downloaded image was empty"
+                raise ValueError(msg)  # noqa: TRY301
+            dest = self._output_file.build_file()
+            saved = await dest.awrite_bytes(image_bytes)
+            self.parameter_output_values["image_url"] = ImageUrlArtifact(saved.location)
+            self._log(f"Saved image as {saved.name}")
             self._set_status_results(
-                was_successful=True,
-                result_details=f"Image generated successfully. Using provider URL (could not save to static storage: {e}).",
+                was_successful=True, result_details=f"Image generated successfully and saved as {saved.name}."
+            )
+        except Exception as e:
+            self._log(f"Failed to retrieve image from {sample_url}: {e}")
+            self.parameter_output_values["image_url"] = None
+            self._set_status_results(
+                was_successful=False,
+                result_details=(
+                    f"{self.name} generation completed upstream but the image could not be retrieved: {e}. "
+                    f"Provider URL (may be temporary): {sample_url}"
+                ),
             )
 
     async def _process_input_image(self, image_input: Any) -> str | None:

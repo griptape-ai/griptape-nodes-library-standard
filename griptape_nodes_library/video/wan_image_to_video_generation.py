@@ -579,38 +579,13 @@ class WanImageToVideoGeneration(GriptapeProxyNode):
 
         video_url = result_json.get("video_url")
         if video_url:
-            await self._save_video_from_url(video_url)
+            await self._download_and_save(video_url, "video", lambda v, n: VideoUrlArtifact(value=v, name=n))
         else:
             logger.warning("No video_url found in response")
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
                 result_details="Generation completed but no video URL was found in the response.",
-            )
-
-    async def _save_video_from_url(self, video_url: str) -> None:
-        """Download and save the video from the provided URL."""
-        try:
-            logger.info("Downloading video from URL")
-            video_bytes = await self._download_bytes_from_url(video_url)
-            if video_bytes:
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(video_bytes)
-                self.parameter_output_values["video"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-                logger.info("Saved video as %s", saved.name)
-                self._set_status_results(
-                    was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
-                )
-            else:
-                self._set_status_results(
-                    was_successful=False,
-                    result_details="Video generation completed but could not download video bytes from URL.",
-                )
-        except Exception as e:
-            logger.error("Failed to save video from URL: %s", e)
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"Video generation completed but could not save to static storage: {e}",
             )
 
     async def _prepare_audio_data_url_async(self, audio_input: Any) -> str | None:

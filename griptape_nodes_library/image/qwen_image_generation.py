@@ -280,30 +280,34 @@ class QwenImageGeneration(GriptapeProxyNode):
             )
 
     async def _save_image_from_url(self, image_url: str) -> None:
-        """Download and save the image from the provided URL."""
+        """Download and save the image from the provided URL.
+
+        A billed generation whose image cannot be retrieved is a failure, not a
+        silent success; the provider URL is surfaced so the user can retrieve it
+        manually.
+        """
         try:
             logger.info("Downloading image from URL")
             image_bytes = await File(image_url).aread_bytes()
-            if image_bytes:
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(image_bytes)
-                self.parameter_output_values["image_url"] = ImageUrlArtifact(saved.location)
-                logger.info("Saved image as %s", saved.name)
-                self._set_status_results(
-                    was_successful=True, result_details=f"Image generated successfully and saved as {saved.name}."
-                )
-            else:
-                self.parameter_output_values["image_url"] = ImageUrlArtifact(value=image_url)
-                self._set_status_results(
-                    was_successful=True,
-                    result_details="Image generated successfully. Using provider URL (could not download image bytes).",
-                )
-        except Exception as e:
-            logger.error("Failed to save image from URL: %s", e)
-            self.parameter_output_values["image_url"] = ImageUrlArtifact(value=image_url)
+            if not image_bytes:
+                msg = "downloaded image was empty"
+                raise ValueError(msg)  # noqa: TRY301
+            dest = self._output_file.build_file()
+            saved = await dest.awrite_bytes(image_bytes)
+            self.parameter_output_values["image_url"] = ImageUrlArtifact(saved.location)
+            logger.info("Saved image as %s", saved.name)
             self._set_status_results(
-                was_successful=True,
-                result_details=f"Image generated successfully. Using provider URL (could not save to static storage: {e}).",
+                was_successful=True, result_details=f"Image generated successfully and saved as {saved.name}."
+            )
+        except Exception as e:
+            logger.error("Failed to retrieve image from %s: %s", image_url, e)
+            self.parameter_output_values["image_url"] = None
+            self._set_status_results(
+                was_successful=False,
+                result_details=(
+                    f"{self.name} generation completed upstream but the image could not be retrieved: {e}. "
+                    f"Provider URL (may be temporary): {image_url}"
+                ),
             )
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:

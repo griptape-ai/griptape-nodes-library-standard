@@ -145,6 +145,15 @@ def test_default_model_exposes_gpt_image_2_aspect_ratios(node: OpenAiImageGenera
     assert _size_choices(node) == OpenAiImageGeneration.GPT_IMAGE_2_SIZE_OPTIONS
 
 
+def test_gpt_image_2_dropdown_surfaces_4k_presets(node: OpenAiImageGeneration) -> None:
+    # Issue #475: 4K output was only reachable via the non-obvious 'custom' option.
+    # The dropdown must surface 4K presets so the ceiling is discoverable.
+    choices = _size_choices(node)
+    assert "3840x2160" in choices
+    assert "2160x3840" in choices
+    assert "2880x2880" in choices
+
+
 @pytest.mark.parametrize(
     ("model_name", "expected_choices"),
     [

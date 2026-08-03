@@ -436,6 +436,8 @@ def build_video_segment_cmd(
     start_sec: float,
     end_sec: float,
     output_path: str,
+    *,
+    frame_accurate: bool = False,
 ) -> list[str]:
     """Build an ffmpeg command to extract a video segment.
 
@@ -445,6 +447,12 @@ def build_video_segment_cmd(
     Stream copy requires fast seek — post-input accurate seek with -c copy silently
     drops video frames for many codecs/containers (e.g. H.264 in MOV/MP4).
     Data streams like timecode tracks (tmcd) are excluded since MP4 doesn't support them.
+
+    Stream copy also cuts on decode-order (DTS) packet boundaries, not presentation-order
+    (PTS): on B-frame-encoded sources this pulls in extra trailing frames past the
+    requested cutoff, one per frame of B-frame reorder depth. Pass frame_accurate=True
+    (e.g. for frame-range trims where an exact frame count is required) to always use the
+    re-encode path, which is immune to this.
     """
     ss = seconds_to_ts(start_sec)
     to = seconds_to_ts(end_sec)
@@ -454,7 +462,7 @@ def build_video_segment_cmd(
     maps = ["-map", "0:v", "-map", "0:a?"]
     tail = ["-movflags", "+faststart", output_path]
 
-    if duration >= MIN_SEGMENT_DURATION_FOR_STREAM_COPY and start_sec < 1e-5:
+    if not frame_accurate and duration >= MIN_SEGMENT_DURATION_FOR_STREAM_COPY and start_sec < 1e-5:
         return base + ["-ss", ss, "-to", to, "-i", input_path] + maps + ["-c", "copy"] + tail
 
     return (

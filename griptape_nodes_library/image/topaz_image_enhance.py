@@ -952,7 +952,13 @@ class TopazImageEnhance(GriptapeProxyNode):
 
         sample_url = result_json.get("result", {}).get("sample")
         if sample_url:
-            await self._save_image_from_url(sample_url)
+            await self._download_and_save(
+                sample_url,
+                "image_output",
+                lambda v, n: ImageUrlArtifact(value=v, name=n),
+                media_kind="image",
+                action="processed",
+            )
             return
 
         self._log("No sample URL found in result")
@@ -978,33 +984,6 @@ class TopazImageEnhance(GriptapeProxyNode):
             self._set_status_results(
                 was_successful=False,
                 result_details=f"Image processing succeeded but failed to save: {e}",
-            )
-
-    async def _save_image_from_url(self, image_url: str) -> None:
-        """Download and save the image from the provided URL."""
-        try:
-            self._log("Downloading image from URL")
-            image_bytes = await self._download_bytes_from_url(image_url)
-            if image_bytes:
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(image_bytes)
-                self.parameter_output_values["image_output"] = ImageUrlArtifact(value=saved.location, name=saved.name)
-                self._log(f"Saved image as {saved.name}")
-                self._set_status_results(
-                    was_successful=True, result_details=f"Image processed successfully and saved as {saved.name}."
-                )
-            else:
-                self.parameter_output_values["image_output"] = ImageUrlArtifact(value=image_url)
-                self._set_status_results(
-                    was_successful=True,
-                    result_details="Image processed successfully. Using provider URL (could not download image bytes).",
-                )
-        except Exception as e:
-            self._log(f"Failed to save image from URL: {e}")
-            self.parameter_output_values["image_output"] = ImageUrlArtifact(value=image_url)
-            self._set_status_results(
-                was_successful=True,
-                result_details=f"Image processed successfully. Using provider URL (could not save to static storage: {e}).",
             )
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:

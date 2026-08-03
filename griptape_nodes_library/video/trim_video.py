@@ -180,13 +180,15 @@ class TrimVideo(SuccessFailureNode):
 
         return exceptions if exceptions else None
 
-    def _process(self, input_url: str, start_sec: float, end_sec: float) -> None:
+    def _process(self, input_url: str, start_sec: float, end_sec: float, *, frame_accurate: bool) -> None:
         """Run ffmpeg and save the trimmed video to the output parameter."""
         ffmpeg_path, _ = get_ffmpeg_paths()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             out_path = Path(temp_dir) / "trimmed.mp4"
-            cmd = build_video_segment_cmd(ffmpeg_path, input_url, start_sec, end_sec, str(out_path))
+            cmd = build_video_segment_cmd(
+                ffmpeg_path, input_url, start_sec, end_sec, str(out_path), frame_accurate=frame_accurate
+            )
             run_ffmpeg_cmd(cmd, log=lambda msg: self.append_value_to_parameter("logs", msg))
 
             if not out_path.exists():
@@ -262,7 +264,9 @@ class TrimVideo(SuccessFailureNode):
                     raise ValueError("After clamping to video duration, end is not after start")  # noqa: TRY301
 
             self.append_value_to_parameter("logs", f"Trimming {start_sec:.3f}s → {end_sec:.3f}s\n")
-            await asyncio.to_thread(self._process, input_url, start_sec, end_sec)
+            await asyncio.to_thread(
+                self._process, input_url, start_sec, end_sec, frame_accurate=trim_by == "frame range"
+            )
             self.append_value_to_parameter("logs", "[Finished video trim.]\n")
 
         except Exception as e:

@@ -51,6 +51,9 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         "1024x1536",
         "1792x1024",
         "1024x1792",
+        "2880x2880",
+        "3840x2160",
+        "2160x3840",
         GPT_IMAGE_2_CUSTOM_SIZE,
     ]
     GPT_IMAGE_2_SIZE_PATTERN: ClassVar[re.Pattern[str]] = re.compile(r"^(?P<width>\d+)x(?P<height>\d+)$")
@@ -122,7 +125,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             ParameterString(
                 name="size",
                 default_value=initial_size_choices[0],
-                tooltip=("Output image size. Choose 'custom' on GPT Image 2 to enter a specific width and height."),
+                tooltip=("Output image size. Choose 'custom' to enter any width and height within the model's limits."),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=initial_size_choices)},
             )

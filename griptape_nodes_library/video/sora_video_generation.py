@@ -417,20 +417,7 @@ class SoraVideoGeneration(GriptapeProxyNode):
 
     async def _handle_video_url_completion(self, video_url: str) -> None:
         """Handle completion when a video URL is received."""
-        try:
-            video_bytes = await self._download_bytes_from_url(video_url)
-        except Exception as e:
-            self._log(f"Failed to download video: {e}")
-            video_bytes = None
-
-        if video_bytes:
-            await self._handle_video_completion(video_bytes)
-        else:
-            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=video_url)
-            self._set_status_results(
-                was_successful=True,
-                result_details="Video generated successfully. Using provider URL (could not download video bytes).",
-            )
+        await self._download_and_save(video_url, "video_url", lambda v, n: VideoUrlArtifact(value=v, name=n))
 
     def _load_pil_from_input(self, image_value: Any) -> Image.Image | None:
         if isinstance(image_value, dict):

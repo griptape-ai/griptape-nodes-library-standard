@@ -6,6 +6,7 @@ import logging
 import re
 import threading
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from contextlib import suppress
 from typing import Any
 from urllib.parse import urljoin
@@ -13,6 +14,7 @@ from urllib.parse import urljoin
 import httpx
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -33,6 +35,12 @@ STATUS_ERRORED = "ERRORED"
 STATUS_FAILED = "FAILED"
 STATUS_COMPLETED = "COMPLETED"
 STATUS_TIMED_OUT = "TIMED_OUT"
+
+# Number of HTTP client errors (4xx) that indicate a permanent failure not worth retrying.
+HTTP_CLIENT_ERROR_MIN = 400
+HTTP_CLIENT_ERROR_MAX = 500
+# Short delay before the single retry on a transient download failure.
+DOWNLOAD_RETRY_DELAY_SECONDS = 1.0
 
 
 class GriptapeProxyNode(SuccessFailureNode, ABC):
@@ -58,6 +66,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     # Polling configuration
     DEFAULT_POLL_INTERVAL = 5
     DEFAULT_MAX_ATTEMPTS = 120  # 10 minutes with 5s intervals
+
+    # Subclasses that download media set this to the destination for saved output.
+    _output_file: ProjectFileParameter
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -851,19 +862,90 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         await self._process_generation()
 
     @staticmethod
-    async def _download_bytes_from_url(url: str) -> bytes | None:
-        """Download bytes from a URL.
+    async def _download_bytes_from_url(url: str) -> bytes:
+        """Download bytes from a URL, retrying once on transient failures.
+
+        Transient failures (timeouts, connection errors, and 5xx responses) are
+        retried a single time after a short delay. Permanent failures (4xx, e.g.
+        an expired or missing provider URL) are raised immediately, since
+        retrying cannot help. The underlying exception is propagated so callers
+        can surface an actionable reason rather than a bare ``None``.
 
         Args:
             url: The URL to download from
 
         Returns:
-            bytes | None: The downloaded bytes, or None if download failed
+            bytes: The downloaded bytes.
+
+        Raises:
+            httpx.HTTPError: If the download fails (after a retry for transient errors).
+        """
+        attempts = 2
+        for attempt in range(1, attempts + 1):
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(url, timeout=120)
+                    resp.raise_for_status()
+                    return resp.content
+            except httpx.HTTPStatusError as e:
+                # 4xx are permanent (expired/missing URL); do not retry.
+                if HTTP_CLIENT_ERROR_MIN <= e.response.status_code < HTTP_CLIENT_ERROR_MAX:
+                    raise
+                if attempt >= attempts:
+                    raise
+            except (httpx.TimeoutException, httpx.TransportError):
+                if attempt >= attempts:
+                    raise
+            await asyncio.sleep(DOWNLOAD_RETRY_DELAY_SECONDS)
+
+        # Unreachable: the loop either returns or raises on the final attempt.
+        msg = f"Failed to download from {url}"
+        raise httpx.HTTPError(msg)
+
+    async def _download_and_save(
+        self,
+        url: str,
+        output_param: str,
+        artifact_factory: Callable[[str, str], Any],
+        *,
+        media_kind: str = "video",
+        action: str = "generated",
+    ) -> None:
+        """Download media from a provider URL, save it to project storage, and set status.
+
+        On success, saves the bytes via ``self._output_file`` and sets the given
+        output parameter to the artifact produced by ``artifact_factory``. On any
+        download or save failure, clears the output parameter and reports failure
+        with an actionable message that names the provider URL, so the user can
+        retrieve the asset manually. A generation that completed (and was billed)
+        upstream but whose output cannot be retrieved is a failure, not a success.
+
+        Args:
+            url: The provider URL to download from.
+            output_param: Name of the output parameter to set with the saved artifact.
+            artifact_factory: Callable taking (value, name) and returning a ``*UrlArtifact``.
+            media_kind: Human-readable media type for log and status messages.
+            action: Past-tense verb describing what the node produced (e.g. "generated",
+                "edited", "extended"), used in the success message.
         """
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(url, timeout=120)
-                resp.raise_for_status()
-                return resp.content
-        except Exception:
-            return None
+            logger.info("%s downloading %s from provider URL", self.name, media_kind)
+            media_bytes = await self._download_bytes_from_url(url)
+            dest = self._output_file.build_file()
+            saved = await dest.awrite_bytes(media_bytes)
+            self.parameter_output_values[output_param] = artifact_factory(saved.location, saved.name)
+            logger.info("%s saved %s as %s", self.name, media_kind, saved.name)
+            self._set_status_results(
+                was_successful=True,
+                result_details=f"{media_kind.capitalize()} {action} successfully and saved as {saved.name}.",
+            )
+        except Exception as e:
+            logger.error("%s failed to retrieve %s: %s", self.name, media_kind, e)
+            self.parameter_output_values[output_param] = None
+            self._set_status_results(
+                was_successful=False,
+                result_details=(
+                    f"{self.name} generation completed upstream but the {media_kind} could not be retrieved: {e}. "
+                    f"Provider URL (may be temporary): {url}"
+                ),
+            )
