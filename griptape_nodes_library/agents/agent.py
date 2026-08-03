@@ -136,6 +136,18 @@ class Agent(ControlNode):
             )
         )
 
+        # Provider selector shown above the model dropdown. The ProviderSelectionComponent
+        # installs the Options + refresh Button traits after construction.
+        model_provider_param = Parameter(
+            name="model_provider",
+            type="str",
+            default_value="griptape_cloud",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            tooltip="Choose a provider. Refresh to see all configured providers.",
+            ui_options={"display_name": "provider"},
+        )
+        self.add_parameter(model_provider_param)
+
         # Model selector. The ModelAccessComponent installs the Options + refresh
         # Button traits, decorates each row with the caller's license entitlement
         # (denied Griptape Cloud models are flagged in the dropdown), and gates the
@@ -159,8 +171,8 @@ class Agent(ControlNode):
         self._provider = ProviderSelectionComponent(
             node=self,
             model_param=model_param,
+            model_provider_param=model_provider_param,
             gtc_model_choices=MODEL_CHOICES,
-            gtc_model_data=MODEL_CHOICES_ARGS,
             model_access=self._model_access,
             default_model=DEFAULT_MODEL,
         )

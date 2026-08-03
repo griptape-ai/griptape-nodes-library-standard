@@ -1,7 +1,7 @@
 from typing import cast
 
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
-from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.retained_mode.events.agent_events import (
     ListAgentProvidersRequest,
@@ -23,38 +23,43 @@ class ProviderSelectionComponent:
         node,
         model_param,
         *,
+        model_provider_param: Parameter,
         gtc_model_choices,
-        gtc_model_data,
         model_access: ModelAccessComponent,
         default_model: str | None = None,
     ):
-        # adds model_provider parameter to the node (buttons wired to self)
+        """Attach provider-selection UI to an already-added ``model_provider_param``.
+
+        ``model_provider_param`` must already be attached to ``node`` (via
+        ``node.add_parameter``) **before** this component is constructed, and it
+        must not already carry ``Options`` or ``Button`` traits — this component
+        installs them, mirroring the contract of ``ModelAccessComponent``.
+        """
         self._node = node
         self._model_param = model_param
         self._gtc_model_choices = gtc_model_choices
-        self._gtc_model_data = gtc_model_data
         self._model_access = model_access
         self._default_model = default_model or (gtc_model_choices[0] if gtc_model_choices else "")
 
+        if self._node.get_parameter_by_name(model_provider_param.name) is not model_provider_param:
+            msg = (
+                f"ProviderSelectionComponent: parameter '{model_provider_param.name}' is not attached to "
+                f"node '{self._node.name}'. Call node.add_parameter(model_provider_param) BEFORE "
+                "constructing the component."
+            )
+            raise ValueError(msg)
+
         provider_names = self._fetch_provider_names()
 
-        self._node.add_parameter(
-            Parameter(
-                name="model_provider",
-                type="str",
-                default_value=provider_names[0] if provider_names else "griptape_cloud",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                tooltip="Choose a provider. Refresh to see all configured providers.",
-                traits={
-                    Options(choices=provider_names),
-                    Button(
-                        icon="list-restart",
-                        size="icon",
-                        variant="secondary",
-                        on_click=self._refresh_providers_button,
-                    ),
-                },
-                ui_options={"display_name": "provider"},
+        default = provider_names[0] if provider_names else "griptape_cloud"
+        model_provider_param.set_default_value(default)
+        model_provider_param.add_trait(Options(choices=provider_names))
+        model_provider_param.add_trait(
+            Button(
+                icon="list-restart",
+                size="icon",
+                variant="secondary",
+                on_click=self._refresh_providers_button,
             )
         )
 

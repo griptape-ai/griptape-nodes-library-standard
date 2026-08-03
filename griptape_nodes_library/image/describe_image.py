@@ -24,7 +24,6 @@ from griptape_nodes.traits.options import Options
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
-from griptape_nodes_library.config.prompt.cloud_models import MODEL_CHOICES_ARGS
 from griptape_nodes_library.utils.agent_utils import (
     build_rulesets_from_configs,
     build_tools,
@@ -77,6 +76,18 @@ class DescribeImage(ControlNode):
             )
         )
 
+        # Provider selector shown above the model dropdown. The ProviderSelectionComponent
+        # installs the Options + refresh Button traits after construction.
+        model_provider_param = Parameter(
+            name="model_provider",
+            type="str",
+            default_value="griptape_cloud",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            tooltip="Choose a provider. Refresh to see all configured providers.",
+            ui_options={"display_name": "provider"},
+        )
+        self.add_parameter(model_provider_param)
+
         model_param = Parameter(
             name="model",
             input_types=["str", "Prompt Model Config"],
@@ -102,8 +113,8 @@ class DescribeImage(ControlNode):
         self._provider = ProviderSelectionComponent(
             node=self,
             model_param=model_param,
+            model_provider_param=model_provider_param,
             gtc_model_choices=GTC_VISION_MODEL_CHOICES,
-            gtc_model_data=MODEL_CHOICES_ARGS,
             model_access=self._model_access,
             default_model=DEFAULT_MODEL,
         )
