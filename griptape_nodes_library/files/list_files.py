@@ -280,11 +280,14 @@ class ListFiles(SuccessFailureNode):
         use_pattern = bool(pattern)
         is_path_pattern = use_pattern and self._is_path_pattern(pattern)
         root_resolved = ""  # derived below from the engine's returned paths, not process CWD
-        compiled_path_pattern: re.Pattern | None = (
-            self._compile_path_pattern(pattern, case_sensitive=match_pattern_case_sensitive)
-            if is_path_pattern
-            else None
-        )
+        try:
+            compiled_path_pattern: re.Pattern | None = (
+                self._compile_path_pattern(pattern, case_sensitive=match_pattern_case_sensitive)
+                if is_path_pattern
+                else None
+            )
+        except re.error as e:
+            return [], f"invalid match_pattern {pattern!r}: {e}"
 
         while stack:
             current = stack.pop()
