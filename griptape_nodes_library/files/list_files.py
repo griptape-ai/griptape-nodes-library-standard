@@ -178,6 +178,26 @@ class ListFiles(SuccessFailureNode):
             elif pattern[i] == "?":
                 result.append("[^/]")
                 i += 1
+            elif pattern[i] == "[":
+                # Scan to the closing ] and pass the character class through to the regex.
+                # A ] immediately after [ or [! is treated as a literal ] (POSIX glob rule).
+                j = i + 1
+                if j < len(pattern) and pattern[j] == "!":
+                    j += 1
+                if j < len(pattern) and pattern[j] == "]":
+                    j += 1
+                while j < len(pattern) and pattern[j] != "]":
+                    j += 1
+                if j < len(pattern):
+                    char_class = pattern[i : j + 1]
+                    # Glob [!...] means "not"; regex spells that [^...].
+                    if char_class.startswith("[!"):
+                        char_class = "[^" + char_class[2:]
+                    result.append(char_class)
+                    i = j + 1
+                else:
+                    result.append(re.escape("["))
+                    i += 1
             else:
                 result.append(re.escape(pattern[i]))
                 i += 1
