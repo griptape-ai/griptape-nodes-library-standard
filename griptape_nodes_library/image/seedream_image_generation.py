@@ -38,6 +38,7 @@ PROMPT_TRUNCATE_LENGTH = 100
 
 # Model mapping from user-facing names to API model IDs
 MODEL_NAME_MAP = {
+    "Seedream 5.0 Pro": "dola-seedream-5-0-pro-260628",
     "Seedream 5.0 Lite": "seedream-5-0-260128",
     "Seedream 4.5": "seedream-4-5-251128",
     "Seedream 4.0": "seedream-4-0-250828",
@@ -45,6 +46,17 @@ MODEL_NAME_MAP = {
 
 # Size options for different models (using friendly names)
 SIZE_OPTIONS = {
+    # Provisional: Seedream 5.0 Pro's accepted sizes are unconfirmed because the account is
+    # not yet activated for the model. The proxy prices "1.5K" and "2K" by name and splits
+    # its cost tiers at 2,360,000px, which implies Pro accepts sub-2.36MP output (unlike
+    # Seedream 5.0 Lite, which enforces a 3,686,400px floor). Explicit WxH values are priced
+    # by their pixel product. Keep this list short until the values can be probed.
+    "Seedream 5.0 Pro": [
+        "1.5K",
+        "2048x1152",
+        "1152x2048",
+        "2K",
+    ],
     "Seedream 5.0 Lite": [
         "2K",
         "3K",
@@ -91,8 +103,20 @@ SIZE_OPTIONS = {
     ],
 }
 
+DEFAULT_MODEL = "Seedream 4.5"
+
+# Size selected when the current size isn't offered by the newly selected model.
+# Seedream 5.0 Pro defaults to the provider's own default, which is also its cheaper tier.
+DEFAULT_SIZE_PER_MODEL = {
+    "Seedream 5.0 Pro": "1.5K",
+    "Seedream 5.0 Lite": "2K",
+    "Seedream 4.5": "2K",
+    "Seedream 4.0": "1K",
+}
+
 # Maximum number of input images for models that support multiple images (using friendly names)
 MAX_IMAGES_PER_MODEL = {
+    "Seedream 5.0 Pro": 10,
     "Seedream 5.0 Lite": 14,
     "Seedream 4.5": 14,
     "Seedream 4.0": 10,
@@ -111,7 +135,12 @@ DEPRECATED_MODELS = {
 class SeedreamImageGeneration(GriptapeProxyNode):
     """Generate images using Seedream models via Griptape model proxy.
 
-    Supports three models:
+    Supports four models:
+    - Seedream 5.0 Pro: Single-image model with optional multiple image inputs (up to 10).
+      Does not support batch generation, so max_images does not apply.
+      Reference images after the first are billed, unlike the other Seedream models.
+      Size options are provisional pending confirmation against the provider; images above
+      2,360,000 pixels cost twice as much as smaller ones.
     - Seedream 5.0 Lite: Text-to-image model with optional multiple image inputs (up to 14)
       Size options: 2K, 3K (auto aspect ratio) or explicit dimensions (2048x2048 to 4096x2304)
       Total pixels range: [3,686,400, 10,404,496], Aspect ratio: [1/16, 16]
@@ -123,11 +152,11 @@ class SeedreamImageGeneration(GriptapeProxyNode):
       Total pixels range: [921,600, 16,777,216], Aspect ratio: [1/16, 16]
 
     Inputs:
-        - model (str): Model selection (Seedream 5.0 Lite, Seedream 4.5, Seedream 4.0)
+        - model (str): Model selection (Seedream 5.0 Pro, Seedream 5.0 Lite, Seedream 4.5, Seedream 4.0)
         - prompt (str): Text prompt for image generation
-        - images (list): Multiple input images (Seedream 5.0 Lite/4.5 support up to 14, Seedream 4.0 up to 10)
+        - images (list): Multiple input images (Seedream 5.0 Lite/4.5 support up to 14, Seedream 5.0 Pro and 4.0 up to 10)
         - size (str): Image size specification (dynamic options based on selected model)
-        - max_images (int): Maximum number of images to generate (1-15)
+        - max_images (int): Maximum number of images to generate (1-15, not supported by Seedream 5.0 Pro)
         - output_format (str): Output image format - jpeg or png (Seedream 5.0 Lite only, default: jpeg)
         - optimize_prompt_mode (str): Prompt optimization mode - standard or fast (Seedream 5.0 Lite and 4.0 only, default: standard)
 
@@ -149,12 +178,13 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterString(
                 name="model",
-                default_value="Seedream 4.5",
+                default_value=DEFAULT_MODEL,
                 tooltip="Select the Seedream model to use",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={
                     Options(
                         choices=[
+                            "Seedream 5.0 Pro",
                             "Seedream 5.0 Lite",
                             "Seedream 4.5",
                             "Seedream 4.0",
@@ -209,7 +239,11 @@ class SeedreamImageGeneration(GriptapeProxyNode):
                     "list[ImageUrlArtifact]",
                 ],
                 default_value=[],
-                tooltip="Input images for Seedream (up to 14 for Seedream 5.0 Lite/4.5, 10 for Seedream 4.0)",
+                tooltip=(
+                    "Input images for Seedream (up to 14 for Seedream 5.0 Lite/4.5, "
+                    "10 for Seedream 5.0 Pro and Seedream 4.0). "
+                    "Seedream 5.0 Pro bills every reference image after the first; the other models do not."
+                ),
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"expander": True, "display_name": "Input Images", "hide_property": True},
             )
@@ -222,7 +256,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
                 default_value="2K",
                 tooltip="Image size specification",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=SIZE_OPTIONS["Seedream 4.5"])},
+                traits={Options(choices=SIZE_OPTIONS[DEFAULT_MODEL])},
             )
         )
 
@@ -319,17 +353,30 @@ class SeedreamImageGeneration(GriptapeProxyNode):
 
     def _initialize_parameter_visibility(self) -> None:
         """Initialize parameter visibility based on default model selection."""
-        default_model = self.get_parameter_value("model") or "Seedream 4.5"
-        # Show output_format only for Seedream 5.0 Lite
-        if default_model == "Seedream 5.0 Lite":
-            self.show_parameter_by_name("output_format")
-            self.show_parameter_by_name("optimize_prompt_mode")
-        elif default_model == "Seedream 4.0":
-            self.hide_parameter_by_name("output_format")
-            self.show_parameter_by_name("optimize_prompt_mode")
-        else:  # Seedream 4.5
-            self.hide_parameter_by_name("output_format")
-            self.hide_parameter_by_name("optimize_prompt_mode")
+        default_model = self.get_parameter_value("model") or DEFAULT_MODEL
+        self._apply_model_parameter_visibility(default_model)
+
+    def _apply_model_parameter_visibility(self, model: str) -> None:
+        """Show or hide the model-dependent generation settings for the selected model."""
+        match model:
+            case "Seedream 5.0 Pro":
+                # Pro takes neither the batch fields nor the Lite/4.0 prompt and format options.
+                visible = set()
+            case "Seedream 5.0 Lite":
+                visible = {"max_images", "output_format", "optimize_prompt_mode"}
+            case "Seedream 4.0":
+                visible = {"max_images", "optimize_prompt_mode"}
+            case "Seedream 4.5":
+                visible = {"max_images"}
+            case _:
+                msg = f"Unknown Seedream model: {model!r}"
+                raise ValueError(msg)
+
+        for param_name in ("max_images", "output_format", "optimize_prompt_mode"):
+            if param_name in visible:
+                self.show_parameter_by_name(param_name)
+            else:
+                self.hide_parameter_by_name(param_name)
 
     def before_value_set(self, parameter: Parameter, value: Any) -> Any:
         """Migrate deprecated model selections to their replacement."""
@@ -367,7 +414,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
 
         Converts friendly model name to API model ID.
         """
-        model = self.get_parameter_value("model") or "Seedream 4.5"
+        model = self.get_parameter_value("model") or DEFAULT_MODEL
         return MODEL_NAME_MAP.get(model, model)
 
     def _update_model_parameters(self, model: str) -> None:
@@ -375,23 +422,38 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         new_choices = SIZE_OPTIONS[model]
         current_size = self.get_parameter_value("size")
 
-        # Show output_format only for Seedream 5.0 Lite
-        if model == "Seedream 5.0 Lite":
-            self.show_parameter_by_name("output_format")
-            self.show_parameter_by_name("optimize_prompt_mode")
-        elif model == "Seedream 4.0":
-            self.hide_parameter_by_name("output_format")
-            self.show_parameter_by_name("optimize_prompt_mode")
-        else:  # Seedream 4.5
-            self.hide_parameter_by_name("output_format")
-            self.hide_parameter_by_name("optimize_prompt_mode")
+        self._apply_model_parameter_visibility(model)
+        self._update_size_badge(model)
 
-        if current_size in new_choices:
+        # Seedream 5.0 Pro charges twice as much above its pixel threshold, and "2K" is over it.
+        # Carrying that size over from a model where it was free of consequence would silently
+        # double the cost, so Pro always starts from its cheaper default.
+        if current_size in new_choices and model != "Seedream 5.0 Pro":
             self._update_option_choices("size", new_choices, current_size)
         else:
-            default_size = "1K" if model == "Seedream 4.0" else "2K"
+            default_size = DEFAULT_SIZE_PER_MODEL[model]
             default_size = default_size if default_size in new_choices else new_choices[0]
             self._update_option_choices("size", new_choices, default_size)
+
+    def _update_size_badge(self, model: str) -> None:
+        """Warn about Seedream 5.0 Pro's unconfirmed sizes and its two cost tiers."""
+        size_parameter = self.get_parameter_by_name("size")
+        if size_parameter is None:
+            return
+
+        if model == "Seedream 5.0 Pro":
+            size_parameter.set_badge(
+                variant="warning",
+                title="Sizes are provisional",
+                message=(
+                    "Seedream 5.0 Pro's accepted sizes have not been confirmed against the provider yet, "
+                    "so a size may be rejected.\n\n"
+                    "Cost scales with resolution: anything above 2,360,000 pixels (such as `2K`) "
+                    "costs twice as much as `1.5K`."
+                ),
+            )
+        else:
+            size_parameter.clear_badge()
 
     def _log(self, message: str) -> None:
         with suppress(Exception):
@@ -483,11 +545,15 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         # (handles cases where values come from connections and bypass after_value_set)
         images = normalize_artifact_list(images, ImageUrlArtifact, accepted_types=(ImageArtifact,))
 
+        model = self.get_parameter_value("model") or DEFAULT_MODEL
+
         return {
-            "model": self.get_parameter_value("model") or "Seedream 4.5",
+            "model": model,
             "prompt": self.get_parameter_value("prompt") or "",
             "images": images,
-            "size": self.get_parameter_value("size") or "2K",
+            # Always send an explicit size. The proxy derives Seedream 5.0 Pro's cost tier from
+            # the requested size, so falling back to a size the user didn't pick can double the bill.
+            "size": self.get_parameter_value("size") or DEFAULT_SIZE_PER_MODEL[model],
             "output_format": self.get_parameter_value("output_format") or "jpeg",
             "optimize_prompt_mode": self.get_parameter_value("optimize_prompt_mode") or "standard",
             "watermark": False,
@@ -529,15 +595,27 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         """Add model-dependent fields to Seedream payload."""
         await self._add_multi_image_payload_fields(payload, params)
 
+        match model:
+            case "Seedream 5.0 Pro":
+                # Pro generates a single image and does not accept the batch fields.
+                pass
+            case "Seedream 5.0 Lite":
+                self._add_batch_payload_fields(payload, params)
+                payload["output_format"] = params.get("output_format", "jpeg")
+                payload["optimize_prompt_options"] = {"mode": params.get("optimize_prompt_mode", "standard")}
+            case "Seedream 4.0":
+                self._add_batch_payload_fields(payload, params)
+                payload["optimize_prompt_options"] = {"mode": params.get("optimize_prompt_mode", "standard")}
+            case "Seedream 4.5":
+                self._add_batch_payload_fields(payload, params)
+            case _:
+                msg = f"Unknown Seedream model: {model!r}"
+                raise ValueError(msg)
+
+    def _add_batch_payload_fields(self, payload: dict[str, Any], params: dict[str, Any]) -> None:
+        """Add the multi-image batch generation fields for models that support batching."""
         payload["sequential_image_generation"] = params["sequential_image_generation"]
         payload["sequential_image_generation_options"] = params["sequential_image_generation_options"]
-
-        # Add output_format for Seedream 5.0 Lite
-        if model == "Seedream 5.0 Lite":
-            payload["output_format"] = params.get("output_format", "jpeg")
-            payload["optimize_prompt_options"] = {"mode": params.get("optimize_prompt_mode", "standard")}
-        elif model == "Seedream 4.0":
-            payload["optimize_prompt_options"] = {"mode": params.get("optimize_prompt_mode", "standard")}
 
     async def _add_multi_image_payload_fields(self, payload: dict[str, Any], params: dict[str, Any]) -> None:
         """Add multi-image input field to payload when images are supplied."""

@@ -352,6 +352,12 @@
           "bytedance_seed": {
             "display_name": "ByteDance Seed",
             "models": {
+              "gtc_seedream_5_0_pro": {
+                "display_name": "Seedream 5.0 Pro",
+                "family": "Seedream",
+                "provider_model_id": "dola-seedream-5-0-pro-260628",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
               "gtc_seedream_5_0_lite": {
                 "display_name": "Seedream 5.0 Lite",
                 "family": "Seedream",
@@ -4580,6 +4586,7 @@
           {
             "type": "model_usage",
             "model_ids": [
+              "gtc_seedream_5_0_pro",
               "gtc_seedream_5_0_lite",
               "gtc_seedream_4_5",
               "gtc_seedream_4_0"
