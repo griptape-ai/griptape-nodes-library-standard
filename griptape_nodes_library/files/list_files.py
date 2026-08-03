@@ -237,24 +237,24 @@ class ListFiles(SuccessFailureNode):
         include_folders: bool,
         match_pattern: str,
         match_pattern_case_sensitive: bool,
+        root_resolved: str = "",
+        compiled_path_pattern: re.Pattern | None = None,
     ) -> list:
-        """Filter entries based on include_files, include_folders, and optional fnmatch pattern on entry.name."""
+        """Filter entries by type and optional pattern (basename fnmatch or compiled path regex)."""
         pattern = match_pattern.strip()
         use_pattern = bool(pattern)
-        filtered_entries = []
+        result = []
         for entry in entries:
-            if entry.is_dir:
-                if include_folders and (
-                    not use_pattern
-                    or self._name_matches_pattern(entry.name, pattern, case_sensitive=match_pattern_case_sensitive)
-                ):
-                    filtered_entries.append(entry)
-            elif include_files and (
-                not use_pattern
-                or self._name_matches_pattern(entry.name, pattern, case_sensitive=match_pattern_case_sensitive)
-            ):
-                filtered_entries.append(entry)
-        return filtered_entries
+            if not ((entry.is_dir and include_folders) or (not entry.is_dir and include_files)):
+                continue
+            if use_pattern:
+                if compiled_path_pattern is not None:
+                    if not self._match_path_entry(entry, root_resolved, compiled_path_pattern):
+                        continue
+                elif not self._name_matches_pattern(entry.name, pattern, case_sensitive=match_pattern_case_sensitive):
+                    continue
+            result.append(entry)
+        return result
 
     def _convert_paths(self, entries: list, *, use_absolute_paths: bool) -> list[str]:
         """Extract paths from entries, optionally converting to absolute paths."""
@@ -312,25 +312,19 @@ class ListFiles(SuccessFailureNode):
             if is_path_pattern and not root_resolved and result.entries:
                 root_resolved = str(Path(result.entries[0].absolute_path).parent)
 
+            collected.extend(
+                self._filter_entries(
+                    result.entries,
+                    include_files=include_files,
+                    include_folders=include_folders,
+                    match_pattern=match_pattern,
+                    match_pattern_case_sensitive=match_pattern_case_sensitive,
+                    root_resolved=root_resolved,
+                    compiled_path_pattern=compiled_path_pattern,
+                )
+            )
             # Descend into subdirs in a stable order (reverse so first listed dir is processed next on pop).
-            subdirs: list[str] = []
-            for entry in result.entries:
-                include = (entry.is_dir and include_folders) or (not entry.is_dir and include_files)
-                if include:
-                    if use_pattern:
-                        if is_path_pattern:
-                            assert compiled_path_pattern is not None  # guaranteed by is_path_pattern guard above
-                            matched = self._match_path_entry(entry, root_resolved, compiled_path_pattern)
-                        else:
-                            matched = self._name_matches_pattern(
-                                entry.name, pattern, case_sensitive=match_pattern_case_sensitive
-                            )
-                        if matched:
-                            collected.append(entry)
-                    else:
-                        collected.append(entry)
-                if entry.is_dir:
-                    subdirs.append(entry.path)
+            subdirs = [entry.path for entry in result.entries if entry.is_dir]
             for d in reversed(subdirs):
                 stack.append(d)
 
