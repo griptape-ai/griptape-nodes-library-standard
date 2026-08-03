@@ -2,6 +2,7 @@ from typing import cast
 
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.retained_mode.events.agent_events import (
     ListAgentProvidersRequest,
     ListAgentProvidersResultSuccess,
@@ -17,12 +18,22 @@ _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_
 
 
 class ProviderSelectionComponent:
-    def __init__(self, node, model_param, *, gtc_model_choices, gtc_model_data, default_model: str | None = None):
+    def __init__(
+        self,
+        node,
+        model_param,
+        *,
+        gtc_model_choices,
+        gtc_model_data,
+        model_access: ModelAccessComponent,
+        default_model: str | None = None,
+    ):
         # adds model_provider parameter to the node (buttons wired to self)
         self._node = node
         self._model_param = model_param
         self._gtc_model_choices = gtc_model_choices
         self._gtc_model_data = gtc_model_data
+        self._model_access = model_access
         self._default_model = default_model or (gtc_model_choices[0] if gtc_model_choices else "")
 
         provider_names = self._fetch_provider_names()
@@ -46,7 +57,6 @@ class ProviderSelectionComponent:
                 ui_options={"display_name": "provider"},
             )
         )
-        self._node.add_parameter(model_param)
 
     def on_provider_changed(self, provider_name: str) -> None:
         self.update_model_choices_for_provider(provider_name)
@@ -110,18 +120,18 @@ class ProviderSelectionComponent:
 
     def update_model_choices_for_provider(self, provider_name: str) -> None:
         if provider_name == "griptape_cloud":
-            models = self._gtc_model_choices
-            gtc_names = set(self._gtc_model_choices)
-            new_data = [entry for entry in self._gtc_model_data if entry["name"] in gtc_names]
-            default = self._default_model if self._default_model in models else (models[0] if models else self._default_model)
-        else:
-            models = self.fetch_models_for_provider(provider_name)
-            new_data = [{"name": m, "icon": "", "args": {}} for m in models]
-            default = models[0] if models else self._default_model
+            default = self._model_access.pick_permitted_default() or self._default_model
+            self._node._update_option_choices(param="model", choices=self._model_access.model_choices, default=default)
+            # Restore the component's per-row license decoration and badge; the
+            # _update_option_choices call above only refreshed choices and value.
+            self._model_access.reinstall_options()
+            return
+        models = self.fetch_models_for_provider(provider_name)
+        default = models[0] if models else self._default_model
         self._node._update_option_choices(param="model", choices=models, default=default)
         param = self._node.get_parameter_by_name("model")
         if param:
-            param.update_ui_options_key("data", new_data)
+            param.update_ui_options_key("data", [{"name": m, "icon": "", "args": {}} for m in models])
 
     def fetch_models_for_provider(self, provider_name: str) -> list[str]:
         try:

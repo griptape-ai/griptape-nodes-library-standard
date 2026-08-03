@@ -87,14 +87,7 @@ class DescribeImage(ControlNode):
             tooltip="Choose a model, or connect a Prompt Model Configuration or an Agent",
             ui_options={"display_name": "prompt model"},
         )
-
-        self._provider = ProviderSelectionComponent(
-            node=self,
-            model_param=model_param,
-            gtc_model_choices=GTC_VISION_MODEL_CHOICES,
-            gtc_model_data=MODEL_CHOICES_ARGS,
-            default_model=DEFAULT_MODEL,
-        )
+        self.add_parameter(model_param)
 
         # License-policy helper: adds Options + refresh Button traits, applies per-row
         # decoration + badge, exposes query_for_denial / raise_if_denied, and
@@ -105,6 +98,16 @@ class DescribeImage(ControlNode):
             model_choices=GTC_VISION_MODEL_CHOICES,
             default_model=DEFAULT_MODEL,
         )
+
+        self._provider = ProviderSelectionComponent(
+            node=self,
+            model_param=model_param,
+            gtc_model_choices=GTC_VISION_MODEL_CHOICES,
+            gtc_model_data=MODEL_CHOICES_ARGS,
+            model_access=self._model_access,
+            default_model=DEFAULT_MODEL,
+        )
+
         self.add_parameter(
             ParameterList(
                 name="images",

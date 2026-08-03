@@ -161,6 +161,7 @@ class Agent(ControlNode):
             model_param=model_param,
             gtc_model_choices=MODEL_CHOICES,
             gtc_model_data=MODEL_CHOICES_ARGS,
+            model_access=self._model_access,
             default_model=DEFAULT_MODEL,
         )
 
