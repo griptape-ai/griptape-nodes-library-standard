@@ -16,7 +16,7 @@ from griptape_nodes.traits.slider import Slider
 
 from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.video.public_video_url_mixin import MAX_VIDEO_FILE_SIZE_BYTES, PublicVideoUrlMixin
+from griptape_nodes_library.video.public_video_url_mixin import PublicVideoUrlMixin
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -210,6 +210,14 @@ class LTXVideoExtend(PublicVideoUrlMixin, GriptapeProxyNode):
         """Convert video input to a base64 data URI."""
         return await prepare_media_data_uri(video_input, kind="video", node_name=self.name)
 
+    async def _process_generation(self) -> None:
+        """Wrap generation with public-URL upload cleanup (delete scratch artifacts after run)."""
+        self._reset_video_uploads()
+        try:
+            await super()._process_generation()
+        finally:
+            self._cleanup_video_uploads()
+
     def _validate_duration(self, duration: Any) -> str | None:
         if not isinstance(duration, int) or isinstance(duration, bool):
             return f"{self.name}: Duration must be an integer number of seconds (got {duration!r})."
@@ -240,35 +248,9 @@ class LTXVideoExtend(PublicVideoUrlMixin, GriptapeProxyNode):
             msg = f"{self.name} requires an input video to extend."
             raise ValueError(msg)
 
-        # Tier 1: resolve to a public presigned URL (cloud deployments — avoids 413 entirely)
-        video_uri: str | None = self._resolve_to_public_url(video)
-
-        if not video_uri:
-            # Tier 2: fall back to base64 with a pre-flight size check
-            try:
-                video_data_uri = await self._prepare_video_data_uri_async(video)
-            except Exception as e:
-                logger.error("%s failed to process video: %s", self.name, e)
-                video_data_uri = None
-
-            if not video_data_uri:
-                msg = f"{self.name} failed to process input video."
-                raise ValueError(msg)
-
-            _prefix, _sep, b64_content = video_data_uri.partition(",")
-            if _sep:
-                decoded_size = (len(b64_content) // 4) * 3 - b64_content.count("=")
-                if decoded_size > MAX_VIDEO_FILE_SIZE_BYTES:
-                    size_mb = decoded_size / 1_048_576
-                    limit_mb = MAX_VIDEO_FILE_SIZE_BYTES // 1_048_576
-                    msg = (
-                        f"{self.name}: Source video is too large ({size_mb:.1f} MB). "
-                        f"The maximum supported size is {limit_mb} MB. "
-                        "Trim the video to a shorter segment and try again."
-                    )
-                    raise ValueError(msg)
-
-            video_uri = video_data_uri
+        # Tier 1: upload to Griptape Cloud and send LTX a public URL it fetches server-side
+        # (avoids the 413 from base64-inflating the body). Tier 2: base64 data URI + size guard.
+        video_uri = await self._resolve_video_uri(video)
 
         if len(params["prompt"]) > MAX_PROMPT_LENGTH:
             msg = (
@@ -300,18 +282,6 @@ class LTXVideoExtend(PublicVideoUrlMixin, GriptapeProxyNode):
             payload["context"] = context
 
         return payload
-
-    def _sanitize_video_uri_in_dict(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Redact base64 video data from dictionary for logging."""
-        sanitized = {**data}
-        if "video_uri" in sanitized and isinstance(sanitized["video_uri"], str):
-            video_uri = sanitized["video_uri"]
-            if video_uri.startswith("data:video/"):
-                parts = video_uri.split(",", 1)
-                header = parts[0] if parts else "data:video/"
-                b64_len = len(parts[1]) if len(parts) > 1 else 0
-                sanitized["video_uri"] = f"{header},<base64 data length={b64_len}>"
-        return sanitized
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         video_bytes = result_json.get("raw_bytes")
