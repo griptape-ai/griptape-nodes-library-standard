@@ -337,7 +337,7 @@ class ListFiles(SuccessFailureNode):
         if directory_path:
             directory_path = GriptapeNodes.OSManager().sanitize_path_string(directory_path)
         show_hidden = self.get_parameter_value("show_hidden")
-        match_pattern = self.get_parameter_value("match_pattern") or ""
+        match_pattern = (self.get_parameter_value("match_pattern") or "").replace("\\", "/")
         match_pattern_case_sensitive = self.get_parameter_value("match_pattern_case_sensitive")
         list_options = self.get_parameter_value("list_options")
         recursive = self.get_parameter_value("recursive")
