@@ -118,6 +118,12 @@ def test_declares_enhancement_invocation_before_running_when_enabled(
 def test_raises_before_enhancing_when_enhancement_declaration_is_denied(
     generate_image_node: GenerateImage, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The message must name the enhancement gate specifically.
+
+    This node gates two invocations (prompt enhancement and image generation), so
+    a denial that only names the node leaves the user unable to tell which call
+    the policy refused.
+    """
     generate_image_node.set_parameter_value("enhance_prompt", True)
 
     def _fake_declare(_node: GenerateImage, _api_model_id: str) -> _FakeDeclaration:
@@ -126,5 +132,5 @@ def test_raises_before_enhancing_when_enhancement_declaration_is_denied(
     monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", _fake_declare)
 
     gen = generate_image_node.process()
-    with pytest.raises(RuntimeError, match="enhancement denied by policy"):
+    with pytest.raises(RuntimeError, match=r"\(prompt enhancement\): enhancement denied by policy"):
         next(gen)
