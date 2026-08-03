@@ -1,4 +1,5 @@
 import logging
+import re
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,7 @@ class ListFiles(SuccessFailureNode):
             allow_output=False,
             default_value="",
             tooltip="The directory path to list files from.",
+            placeholder_text="Enter a directory path (e.g. /path/to/folder) or leave empty for workspace root",
         )
         self.directory_path.add_trait(
             FileSystemPicker(
@@ -53,7 +55,8 @@ class ListFiles(SuccessFailureNode):
         self.match_pattern = ParameterString(
             name="match_pattern",
             default_value="",
-            tooltip="Optional shell-style glob for entry names (e.g. *.jpg, report_*.txt). Empty includes all. Applies to both files and folders when listed.",
+            tooltip="Filter by filename using wildcards. Use * to match anything (e.g. *.jpg, render_*.png). Include a folder name or ** to search inside subfolders (e.g. **/outputs/images/*.png finds PNGs in any outputs/images/ folder). Leave empty to include everything.",
+            placeholder_text="Filter files (e.g. *.jpg or **/outputs/images/*.png)",
         )
         self.match_pattern_case_sensitive = ParameterBool(
             name="match_pattern_case_sensitive",
@@ -79,7 +82,7 @@ class ListFiles(SuccessFailureNode):
             name="recursive",
             allow_output=False,
             default_value=False,
-            tooltip="If True, walk subdirectories and include matches at every depth. If False, only the directory_path level is listed.",
+            tooltip="If True, walk subdirectories and include matches at every depth. If False, only the directory_path level is listed. Automatically enabled when match_pattern contains / or **.",
         )
 
         self.use_absolute_paths = ParameterBool(
@@ -153,6 +156,65 @@ class ListFiles(SuccessFailureNode):
         )
 
     @staticmethod
+    def _is_path_pattern(pattern: str) -> bool:
+        return "/" in pattern or "**" in pattern
+
+    @staticmethod
+    def _compile_path_pattern(pattern: str, *, case_sensitive: bool) -> re.Pattern:
+        """Compile a path glob to a regex. ** matches zero or more path components; * stays within one segment."""
+        flags = 0 if case_sensitive else re.IGNORECASE
+        result = []
+        i = 0
+        while i < len(pattern):
+            if pattern[i : i + 3] == "**/":
+                result.append("(?:.*/)?")
+                i += 3
+            elif pattern[i : i + 2] == "**":
+                result.append(".*")
+                i += 2
+            elif pattern[i] == "*":
+                result.append("[^/]*")
+                i += 1
+            elif pattern[i] == "?":
+                result.append("[^/]")
+                i += 1
+            elif pattern[i] == "[":
+                # Scan to the closing ] and pass the character class through to the regex.
+                # A ] immediately after [ or [! is treated as a literal ] (POSIX glob rule).
+                j = i + 1
+                if j < len(pattern) and pattern[j] == "!":
+                    j += 1
+                if j < len(pattern) and pattern[j] == "]":
+                    j += 1
+                while j < len(pattern) and pattern[j] != "]":
+                    j += 1
+                if j < len(pattern):
+                    char_class = pattern[i : j + 1]
+                    # Glob [!...] means "not"; regex spells that [^...].
+                    if char_class.startswith("[!"):
+                        char_class = "[^" + char_class[2:]
+                    result.append(char_class)
+                    i = j + 1
+                else:
+                    result.append(re.escape("["))
+                    i += 1
+            else:
+                result.append(re.escape(pattern[i]))
+                i += 1
+        return re.compile("".join(result), flags)
+
+    @staticmethod
+    def _match_path_entry(entry, root_resolved: str, compiled: re.Pattern) -> bool:
+        try:
+            # The engine sets absolute_path via .absolute() (not .resolve()), preserving symlinks
+            # (os_manager.py:1644). Calling .resolve() here would remap symlinked subdirs to their
+            # real targets, placing them outside root and causing every entry under them to be dropped.
+            candidate = Path(entry.absolute_path).relative_to(root_resolved).as_posix()
+        except ValueError:
+            return False
+        return bool(compiled.fullmatch(candidate))
+
+    @staticmethod
     def _directory_visit_key(directory_path: str | None) -> str:
         """Stable key for visited dirs (avoids repeated work on symlink cycles)."""
         if not directory_path:
@@ -175,24 +237,24 @@ class ListFiles(SuccessFailureNode):
         include_folders: bool,
         match_pattern: str,
         match_pattern_case_sensitive: bool,
+        root_resolved: str = "",
+        compiled_path_pattern: re.Pattern | None = None,
     ) -> list:
-        """Filter entries based on include_files, include_folders, and optional fnmatch pattern on entry.name."""
+        """Filter entries by type and optional pattern (basename fnmatch or compiled path regex)."""
         pattern = match_pattern.strip()
         use_pattern = bool(pattern)
-        filtered_entries = []
+        result = []
         for entry in entries:
-            if entry.is_dir:
-                if include_folders and (
-                    not use_pattern
-                    or self._name_matches_pattern(entry.name, pattern, case_sensitive=match_pattern_case_sensitive)
-                ):
-                    filtered_entries.append(entry)
-            elif include_files and (
-                not use_pattern
-                or self._name_matches_pattern(entry.name, pattern, case_sensitive=match_pattern_case_sensitive)
-            ):
-                filtered_entries.append(entry)
-        return filtered_entries
+            if not ((entry.is_dir and include_folders) or (not entry.is_dir and include_files)):
+                continue
+            if use_pattern:
+                if compiled_path_pattern is not None:
+                    if not self._match_path_entry(entry, root_resolved, compiled_path_pattern):
+                        continue
+                elif not self._name_matches_pattern(entry.name, pattern, case_sensitive=match_pattern_case_sensitive):
+                    continue
+            result.append(entry)
+        return result
 
     def _convert_paths(self, entries: list, *, use_absolute_paths: bool) -> list[str]:
         """Extract paths from entries, optionally converting to absolute paths."""
@@ -214,6 +276,15 @@ class ListFiles(SuccessFailureNode):
         collected: list = []
         stack: list[str | None] = [root_directory_path]
         visited: set[str] = set()
+        pattern = match_pattern.strip()
+        use_pattern = bool(pattern)
+        is_path_pattern = use_pattern and self._is_path_pattern(pattern)
+        root_resolved = ""  # derived below from the engine's returned paths, not process CWD
+        compiled_path_pattern: re.Pattern | None = (
+            self._compile_path_pattern(pattern, case_sensitive=match_pattern_case_sensitive)
+            if is_path_pattern
+            else None
+        )
 
         while stack:
             current = stack.pop()
@@ -235,20 +306,26 @@ class ListFiles(SuccessFailureNode):
             if not isinstance(result, ListDirectoryResultSuccess):
                 return [], "unexpected result type from directory listing"
 
-            # Descend into subdirs in a stable order (reverse so first listed dir is processed next on pop).
-            subdirs: list[str] = []
-            for entry in result.entries:
-                collected.extend(
-                    self._filter_entries(
-                        [entry],
-                        include_files=include_files,
-                        include_folders=include_folders,
-                        match_pattern=match_pattern,
-                        match_pattern_case_sensitive=match_pattern_case_sensitive,
-                    )
+            # Use the engine's authoritative resolved path for the root directory.
+            # ListDirectoryResultSuccess.current_path is set by the engine after resolving
+            # macros, workspace-relative paths, and platform differences — more reliable than
+            # inferring from entry.absolute_path, and works even when the directory is empty.
+            if is_path_pattern and not root_resolved:
+                root_resolved = result.current_path
+
+            collected.extend(
+                self._filter_entries(
+                    result.entries,
+                    include_files=include_files,
+                    include_folders=include_folders,
+                    match_pattern=match_pattern,
+                    match_pattern_case_sensitive=match_pattern_case_sensitive,
+                    root_resolved=root_resolved,
+                    compiled_path_pattern=compiled_path_pattern,
                 )
-                if entry.is_dir:
-                    subdirs.append(entry.path)
+            )
+            # Descend into subdirs in a stable order (reverse so first listed dir is processed next on pop).
+            subdirs = [entry.path for entry in result.entries if entry.is_dir]
             for d in reversed(subdirs):
                 stack.append(d)
 
@@ -261,10 +338,24 @@ class ListFiles(SuccessFailureNode):
         if directory_path:
             directory_path = GriptapeNodes.OSManager().sanitize_path_string(directory_path)
         show_hidden = self.get_parameter_value("show_hidden")
-        match_pattern = self.get_parameter_value("match_pattern") or ""
+        match_pattern = (self.get_parameter_value("match_pattern") or "").replace("\\", "/")
         match_pattern_case_sensitive = self.get_parameter_value("match_pattern_case_sensitive")
         list_options = self.get_parameter_value("list_options")
         recursive = self.get_parameter_value("recursive")
+        if self._is_path_pattern(match_pattern.strip()):
+            if not (directory_path or "").strip():
+                msg = f"{self.name}: directory_path is required when match_pattern contains / or **"
+                self._set_status_results(was_successful=False, result_details=f"Failure: {msg}")
+                return
+            try:
+                self._compile_path_pattern(match_pattern.strip(), case_sensitive=match_pattern_case_sensitive)
+            except re.error as e:
+                msg = f"{self.name}: match_pattern {match_pattern.strip()!r} is not valid — {e}"
+                self._set_status_results(was_successful=False, result_details=f"Failure: {msg}")
+                return
+            # Path patterns need recursion; _collect_entries_recursive does path-relative
+            # matching while _filter_entries (flat branch) only matches basenames.
+            recursive = True
         use_absolute_paths = self.get_parameter_value("use_absolute_paths")
 
         # Determine include_files and include_folders based on list_options
