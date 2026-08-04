@@ -99,14 +99,20 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         # PublicArtifactUrlParameter tracked here so it can be cleaned up after the run.
         self._pending_reference_uploads: list[tuple[PublicArtifactUrlParameter, str]] = []
 
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value=self.DEFAULT_MODEL,
-                tooltip="Select the OpenAI image model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=list(self.MODEL_NAME_MAP.keys()))},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value=self.DEFAULT_MODEL,
+            tooltip="Select the OpenAI image model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=list(self.MODEL_NAME_MAP.keys()),
+            default_model=self.DEFAULT_MODEL,
+            provider_model_id_by_choice=self.MODEL_NAME_MAP,
         )
 
         self.add_parameter(

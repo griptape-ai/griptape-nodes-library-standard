@@ -90,15 +90,21 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         self.description = "Generate 3D worlds using World Labs Marble via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value=DEFAULT_MODEL,
-                tooltip="Marble model: 1.1 Plus (variable pricing, larger worlds), 1.1 (standard), 1.0 (previous), 1.0 Draft (fast/cheaper)",
-                allow_output=False,
-                traits={Options(choices=MODEL_OPTIONS)},
-                ui_options={"display_name": "Model"},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value=DEFAULT_MODEL,
+            tooltip="Marble model: 1.1 Plus (variable pricing, larger worlds), 1.1 (standard), 1.0 (previous), 1.0 Draft (fast/cheaper)",
+            allow_output=False,
+            ui_options={"display_name": "Model"},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model=DEFAULT_MODEL,
+            provider_model_id_by_choice=MODEL_ID_MAP,
         )
 
         # Input type selector

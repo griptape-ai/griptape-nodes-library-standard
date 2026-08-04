@@ -89,14 +89,20 @@ class Flux2ImageGeneration(GriptapeProxyNode):
         self.description = "Generate images using Flux models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value=DEFAULT_MODEL,
-                tooltip="Select the Flux model to use",
-                allow_output=False,
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value=DEFAULT_MODEL,
+            tooltip="Select the Flux model to use",
+            allow_output=False,
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model=DEFAULT_MODEL,
+            provider_model_id_by_choice=MODEL_MAPPING,
         )
 
         # Core parameters

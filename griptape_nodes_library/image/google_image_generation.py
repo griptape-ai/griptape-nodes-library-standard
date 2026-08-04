@@ -86,21 +86,23 @@ class GoogleImageGeneration(GriptapeProxyNode):
         self.description = "Generate images using Google Gemini models via Griptape Cloud model proxy"
 
         # Model ID
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value=self.DEFAULT_MODEL,
-                tooltip="Model id to call via proxy",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={
-                    "display_name": "Model",
-                },
-                traits={
-                    Options(
-                        choices=list(self.SUPPORTED_MODELS_TO_API_MODELS.keys()),
-                    )
-                },
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value=self.DEFAULT_MODEL,
+            tooltip="Model id to call via proxy",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={
+                "display_name": "Model",
+            },
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=list(self.SUPPORTED_MODELS_TO_API_MODELS.keys()),
+            default_model=self.DEFAULT_MODEL,
+            provider_model_id_by_choice=self.SUPPORTED_MODELS_TO_API_MODELS,
         )
 
         # Prompt

@@ -146,22 +146,24 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         self.description = "Generate images using Seedream models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="Seedream 4.5",
-                tooltip="Select the Seedream model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={
-                    Options(
-                        choices=[
-                            "Seedream 5.0 Lite",
-                            "Seedream 4.5",
-                            "Seedream 4.0",
-                        ]
-                    )
-                },
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="Seedream 4.5",
+            tooltip="Select the Seedream model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=[
+                "Seedream 5.0 Lite",
+                "Seedream 4.5",
+                "Seedream 4.0",
+            ],
+            default_model="Seedream 4.5",
+            provider_model_id_by_choice=MODEL_NAME_MAP,
         )
 
         self.add_node_element(

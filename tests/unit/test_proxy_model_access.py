@@ -28,6 +28,7 @@ from griptape_nodes.retained_mode.managers.authorization_checkpoint import (
 from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.image.seedream_image_generation import SeedreamImageGeneration
 from griptape_nodes_library.proxy.griptape_proxy_node import GriptapeProxyNode
 from griptape_nodes_library.video.sora_video_generation import SoraVideoGeneration
 
@@ -45,8 +46,11 @@ type AuthorizationHook = Callable[[AuthorizationCheckpoint], CheckpointDenial | 
 # it can be, so the ModelAccessComponent constructor's default-relocation logic
 # (which moves the stored value off a denied default) never fires and can't
 # confuse these assertions. OmnihumanSubjectRecognition, OmnihumanSubjectDetection,
-# WanReferenceToVideoGeneration, FluxImageGeneration, and TranscribeAudio each
-# declare exactly one model, so their only choice is necessarily also their default.
+# WanReferenceToVideoGeneration, FluxImageGeneration, TranscribeAudio, GrokImageGeneration,
+# and GrokImageEdit each declare exactly one model, so their only choice is necessarily
+# also their default. SeedreamImageGeneration, GoogleImageGeneration, OpenAiImageGeneration,
+# WorldLabsWorldGeneration, and TopazImageEnhance offer artist-facing labels rather than
+# provider ids, so the dropdown value here is the label the node maps to the denied id.
 NODE_MODEL_CASES: list[tuple[str, str, str, str]] = [
     ("TranscribeAudio", "gtc_whisper_1", "whisper-1", "model"),  # only declared model
     ("ElevenLabsTextToSpeechGeneration", "gtc_eleven_multilingual_v2", "eleven_multilingual_v2", "model"),
@@ -71,6 +75,15 @@ NODE_MODEL_CASES: list[tuple[str, str, str, str]] = [
     ("FluxImageGeneration", "gtc_flux_kontext_pro", "flux-kontext-pro", "model"),  # only declared model
     ("QwenImageGeneration", "gtc_qwen_image_plus", "qwen-image-plus", "model"),
     ("QwenImageEdit", "gtc_qwen_image_edit", "qwen-image-edit", "model"),
+    ("SeedreamImageGeneration", "gtc_seedream_4_0", "Seedream 4.0", "model"),
+    ("GrokImageGeneration", "gtc_grok_imagine_image", "Grok Imagine Image", "model"),  # only declared model
+    ("GrokImageEdit", "gtc_grok_imagine_image", "Grok Imagine Image", "model"),  # only declared model
+    ("Flux2ImageGeneration", "gtc_flux_2_flex", "Flux.2 [flex]", "model"),
+    ("WanImageGeneration", "gtc_wan_2_7_image", "Wan 2.7 Image", "model"),
+    ("GoogleImageGeneration", "gtc_gemini_3_1_flash_image", "Nano Banana 2", "model"),
+    ("OpenAiImageGeneration", "gtc_gpt_image_1", "GPT Image 1", "model"),
+    ("WorldLabsWorldGeneration", "gtc_marble_1_0_draft", "Marble 1.0 Draft", "model"),
+    ("TopazImageEnhance", "gtc_topaz_sharpen", "sharpen", "operation"),
 ]
 
 
@@ -208,3 +221,26 @@ async def test_submit_and_poll_gates_on_denial(monkeypatch: pytest.MonkeyPatch) 
 
     assert len(submit_calls) == 1
     assert submit_calls[0]["api_model_id"] == "sora-2-pro"
+
+
+def test_mapped_dropdown_label_resolves_denial_at_runtime(
+    authorization_hook: Callable[[AuthorizationHook], None],
+) -> None:
+    """A labeled dropdown's stored value is the artist-facing label, not the provider id.
+
+    `MappedModelAccessComponent` re-keys the snapshot's lookup tables under the label
+    as well as the provider id, so a runtime query against the label still resolves
+    through to the catalog id the policy denies. The hook is registered AFTER
+    construction so this exercises `selection_denial()`'s live re-check, not the
+    constructor-time snapshot or its default-relocation logic.
+    """
+    node = cast("SeedreamImageGeneration", _create_node("SeedreamImageGeneration"))
+    assert node._model_access is not None
+
+    authorization_hook(_deny_hook(CheckpointAction.OFFER_MODEL, "gtc_seedream_5_0_lite"))
+
+    node.set_parameter_value("model", "Seedream 5.0 Lite")
+    assert node._model_access.selection_denial() is not None
+
+    node.set_parameter_value("model", "Seedream 4.5")
+    assert node._model_access.selection_denial() is None
