@@ -62,15 +62,12 @@ class GriptapeCloudPrompt(BasePrompt):
 
         # --- Customize Inherited Parameters ---
 
-        # Update the 'model' parameter for Griptape Cloud specifics.
+        # Offer Griptape Cloud's models as a license-filtered dropdown.
         models, default_model = self._list_models()
         logger.debug(f"All models on Griptape Cloud: {models}")
         logger.debug(f"Default model on Griptape Cloud: {default_model}")
 
-        self._update_option_choices(param="model", choices=MODEL_CHOICES, default=DEFAULT_MODEL)
-        model_param = self.get_parameter_by_name("model")
-        if model_param is not None:
-            model_param.ui_options = {"data": MODEL_CHOICES_ARGS}
+        self._install_model_access(model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL)
 
         # Remove the 'seed' parameter as it's not directly used by GriptapeCloudPromptDriver.
         self.remove_parameter_element_by_name("seed")
@@ -151,6 +148,9 @@ class GriptapeCloudPrompt(BasePrompt):
         """
         # Retrieve all parameter values set on the node UI or via input connections.
         params = self.parameter_values
+
+        # A model the license denies must not reach a downstream node as a driver.
+        self._raise_if_model_denied()
 
         # --- Get Common Driver Arguments ---
         # Use the helper method from BasePrompt to get args like temperature, stream, max_attempts, etc.

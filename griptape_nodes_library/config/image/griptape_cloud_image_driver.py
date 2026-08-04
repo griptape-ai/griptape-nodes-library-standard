@@ -37,8 +37,8 @@ class GriptapeCloudImage(BaseImageDriver):
 
         # --- Customize Inherited Parameters ---
 
-        # Update the 'model' parameter for Griptape Cloud specifics.
-        self._update_option_choices(param="model", choices=MODEL_CHOICES, default=DEFAULT_MODEL)
+        # Offer Griptape Cloud's models as a license-filtered dropdown.
+        self._install_model_access(model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL)
 
         # Update the 'size' parameter for Griptape Cloud specifics.
         self._update_option_choices(param="image_size", choices=AVAILABLE_SIZES, default=str(DEFAULT_SIZE))
@@ -92,6 +92,9 @@ class GriptapeCloudImage(BaseImageDriver):
     def process(self) -> None:
         # Get the parameters from the node
         params = self.parameter_values
+
+        # A model the license denies must not reach a downstream node as a driver.
+        self._raise_if_model_denied()
 
         # --- Get Common Driver Arguments ---
         # Use the helper method from BaseImageDriver to get common driver arguments

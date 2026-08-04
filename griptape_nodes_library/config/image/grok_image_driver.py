@@ -25,8 +25,8 @@ class GrokImage(BaseImageDriver):
 
         # --- Customize Inherited Parameters ---
 
-        # Update the 'model' parameter
-        self._update_option_choices(param="model", choices=MODEL_CHOICES, default=DEFAULT_MODEL)
+        # Offer Grok's models as a license-filtered dropdown.
+        self._install_model_access(model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL)
 
         # remove the 'size' parameter
         self.remove_parameter_element_by_name("image_size")
@@ -34,6 +34,9 @@ class GrokImage(BaseImageDriver):
     def process(self) -> None:
         # Get the parameters from the node
         params = self.parameter_values
+
+        # A model the license denies must not reach a downstream node as a driver.
+        self._raise_if_model_denied()
 
         # --- Get Common Driver Arguments ---
         # Use the helper method from BaseImageDriver to get common driver arguments

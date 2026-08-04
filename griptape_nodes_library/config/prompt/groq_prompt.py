@@ -61,8 +61,8 @@ class GroqPrompt(BasePrompt):
 
         # --- Customize Inherited Parameters ---
 
-        # Update the 'model' parameter for Groq specifics.
-        self._update_option_choices(param="model", choices=MODEL_CHOICES, default=DEFAULT_MODEL)
+        # Offer Groq's models as a license-filtered dropdown.
+        self._install_model_access(model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL)
 
         # Remove the 'seed' parameter as it's not directly used by GroqPromptDriver.
         self.remove_parameter_element_by_name("seed")
@@ -88,6 +88,9 @@ class GroqPrompt(BasePrompt):
         """
         # Retrieve all parameter values set on the node UI or via input connections.
         params = self.parameter_values
+
+        # A model the license denies must not reach a downstream node as a driver.
+        self._raise_if_model_denied()
 
         # --- Get Common Driver Arguments ---
         # Use the helper method from BasePrompt to get args like temperature, stream, max_attempts, etc.

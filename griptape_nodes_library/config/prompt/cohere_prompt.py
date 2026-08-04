@@ -44,8 +44,8 @@ class CoherePrompt(BasePrompt):
 
         # --- Customize Inherited Parameters ---
 
-        # Update the 'model' parameter for Anthropic specifics.
-        self._update_option_choices(param="model", choices=MODEL_CHOICES, default=DEFAULT_MODEL)
+        # Offer Cohere's models as a license-filtered dropdown.
+        self._install_model_access(model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL)
 
         # Replace `min_p` with `top_p` for Cohere.
         self._replace_param_by_name(
@@ -72,6 +72,9 @@ class CoherePrompt(BasePrompt):
         """
         # Retrieve all parameter values set on the node.
         params = self.parameter_values
+
+        # A model the license denies must not reach a downstream node as a driver.
+        self._raise_if_model_denied()
 
         # --- Get Common Driver Arguments ---
         # Use the helper method from BasePrompt. This gets temperature, stream,
