@@ -64,15 +64,20 @@ class ElevenLabsTextToSpeechGeneration(GriptapeProxyNode):
 
         # INPUTS / PROPERTIES
         # Model Selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="eleven_v3",
-                tooltip="Select the Eleven Labs text-to-speech model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["eleven_multilingual_v2", "eleven_v3"])},
-                ui_options={"display_name": "Model"},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="eleven_v3",
+            tooltip="Select the Eleven Labs text-to-speech model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={"display_name": "Model"},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=["eleven_multilingual_v2", "eleven_v3"],
+            default_model="eleven_v3",
         )
 
         # Text input

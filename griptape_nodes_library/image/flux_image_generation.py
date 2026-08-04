@@ -83,14 +83,19 @@ class FluxImageGeneration(GriptapeProxyNode):
         super().__init__(**kwargs)
         self.category = "API Nodes"
         self.description = "Generate images using Flux models via API (supports user-provided API keys via proxy)"
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="flux-kontext-pro",
-                tooltip="Select the Flux model to use",
-                allow_output=False,
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="flux-kontext-pro",
+            tooltip="Select the Flux model to use",
+            allow_output=False,
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model="flux-kontext-pro",
         )
 
         # Core parameters

@@ -12,7 +12,6 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key
@@ -52,14 +51,19 @@ class OmnihumanSubjectRecognition(GriptapeProxyNode):
         self.description = "Identify subjects in images using OmniHuman Subject Recognition via Griptape Cloud"
 
         # INPUTS
-        self.add_parameter(
-            ParameterString(
-                name="model_id",
-                default_value=self.MODEL_IDS[0],
-                tooltip="Model identifier to use for recognition",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=self.MODEL_IDS)},
-            )
+        model_id_param = ParameterString(
+            name="model_id",
+            default_value=self.MODEL_IDS[0],
+            tooltip="Model identifier to use for recognition",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_id_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_id_param,
+            model_choices=self.MODEL_IDS,
+            default_model=self.MODEL_IDS[0],
         )
 
         self._public_image_url_parameter = PublicArtifactUrlParameter(

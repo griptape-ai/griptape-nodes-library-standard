@@ -93,14 +93,19 @@ class WanAnimateGeneration(GriptapeProxyNode):
         self.description = "Generate animated videos from images using WAN Animate models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value=MODEL_OPTIONS[0],
-                tooltip="Select the WAN Animate model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value=MODEL_OPTIONS[0],
+            tooltip="Select the WAN Animate model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model=MODEL_OPTIONS[0],
         )
         # Mode selection
         self.add_parameter(

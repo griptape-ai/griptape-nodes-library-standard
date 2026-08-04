@@ -120,14 +120,19 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
         self.description = "Generate videos from reference videos using WAN models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="wan2.6-r2v",
-                tooltip="Select the WAN reference-to-video model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="wan2.6-r2v",
+            tooltip="Select the WAN reference-to-video model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model="wan2.6-r2v",
         )
 
         # Prompt parameter

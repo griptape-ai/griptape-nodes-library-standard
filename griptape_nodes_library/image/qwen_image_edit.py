@@ -16,7 +16,6 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
@@ -87,14 +86,19 @@ class QwenImageEdit(GriptapeProxyNode):
         self.description = "Edit images using Qwen image editing models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="qwen-image-edit-plus",
-                tooltip="Select the Qwen image editing model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="qwen-image-edit-plus",
+            tooltip="Select the Qwen image editing model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model="qwen-image-edit-plus",
         )
 
         # Editing instruction parameter

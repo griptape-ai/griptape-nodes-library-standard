@@ -66,17 +66,22 @@ class SoraVideoGeneration(GriptapeProxyNode):
         self.description = "Generate video via Sora 2 through Griptape Cloud model proxy"
 
         # INPUTS / PROPERTIES
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="sora-2",
-                tooltip="Sora model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={
-                    "display_name": "Model",
-                },
-                traits={Options(choices=["sora-2", "sora-2-pro"])},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="sora-2",
+            tooltip="Sora model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={
+                "display_name": "Model",
+            },
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=["sora-2", "sora-2-pro"],
+            default_model="sora-2",
         )
         self.add_parameter(
             ParameterString(

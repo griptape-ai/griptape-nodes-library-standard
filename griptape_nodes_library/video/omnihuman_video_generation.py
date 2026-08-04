@@ -22,7 +22,6 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.traits.options import Options
 from PIL import Image
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
@@ -79,14 +78,19 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
 
         # INPUTS
         # add model_id parameter with fixed value
-        self.add_parameter(
-            ParameterString(
-                name="model_id",
-                default_value="omnihuman-1-5",
-                tooltip="Model identifier to use for generation",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=self.MODEL_IDS)},
-            )
+        model_id_param = ParameterString(
+            name="model_id",
+            default_value="omnihuman-1-5",
+            tooltip="Model identifier to use for generation",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_id_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_id_param,
+            model_choices=self.MODEL_IDS,
+            default_model="omnihuman-1-5",
         )
         self.add_parameter(
             ParameterString(
@@ -199,6 +203,7 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         parameter: Parameter,
         value: Any,
     ) -> None:
+        super().after_value_set(parameter, value)
         # if the model_id parameter is omnihuman-1-0, remove seed, fast_mode, and prompt parameters
         if parameter.name == "model_id" and value == "omnihuman-1-0":
             self.hide_parameter_by_name("seed")
