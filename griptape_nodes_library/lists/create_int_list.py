@@ -11,7 +11,7 @@ class CreateIntList(BaseCreateListNode):
             name,
             metadata,
             input_types=["int"],
-            output_type="list",
+            output_type="list[int]",
             default_value=None,
             items_tooltip="List of integer items to add to",
             ui_options={"hide_property": False},

@@ -11,7 +11,7 @@ class CreateBoolList(BaseCreateListNode):
             name,
             metadata,
             input_types=["bool"],
-            output_type="list",
+            output_type="list[bool]",
             default_value=None,
             items_tooltip="List of boolean items to add to",
             ui_options={"hide_property": False},
