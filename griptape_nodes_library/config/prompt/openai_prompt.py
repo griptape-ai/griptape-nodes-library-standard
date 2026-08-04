@@ -9,6 +9,7 @@ node configuration, and instantiates the `OpenAiPromptDriver`.
 
 from griptape.drivers.prompt.openai import OpenAiChatPromptDriver as GtOpenAiChatPromptDriver
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
 
@@ -68,6 +69,12 @@ class OpenAiPrompt(BasePrompt):
         import openai
 
         available_models = [model.id for model in openai.Client().models.list().data]
+        # This node offers whatever models the account can see rather than a
+        # declared list, so it owns the dropdown trait instead of routing through
+        # `_install_model_access`.
+        model_param = self.get_parameter_by_name("model")
+        if model_param is not None:
+            model_param.add_trait(Options(choices=available_models))
         self._update_option_choices(
             param="model", choices=available_models, default=available_models[0] if available_models else ""
         )

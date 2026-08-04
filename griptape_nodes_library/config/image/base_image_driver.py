@@ -62,7 +62,8 @@ class BaseImageDriver(BaseDriver):
                 ui_options={"is_full_width": True, "multiline": True, "hide": True},
             )
         )
-        # Parameter for model selection. Subclasses should populate the 'choices'.
+        # Parameter for model selection. Subclasses call `_install_model_access`
+        # to offer a license-filtered dropdown of their models.
         self.add_parameter(
             Parameter(
                 name="model",
@@ -71,7 +72,6 @@ class BaseImageDriver(BaseDriver):
                 output_type="str",
                 default_value="",
                 tooltip="Select the model you want to use from the available options.",
-                traits={Options(choices=[])},
             )
         )
         self.add_parameter(

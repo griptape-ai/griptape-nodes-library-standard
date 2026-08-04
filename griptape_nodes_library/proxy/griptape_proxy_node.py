@@ -8,7 +8,7 @@ import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from contextlib import suppress
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin
 
 import httpx
@@ -22,7 +22,11 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key, resolve_proxy_base
 from griptape_nodes_library.proxy.proxy_api_key_providers import get_proxy_api_key_provider_config
 from griptape_nodes_library.proxy.proxy_auth_provider_parameter import ProxyAuthProviderParameter
+from griptape_nodes_library.utils.model_access import ModelDropdownAccess
 from griptape_nodes_library.utils.model_invocation import declare_model_invocation
+
+if TYPE_CHECKING:
+    from griptape_nodes.retained_mode.managers.authorization_checkpoint import CheckpointDenial
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -79,6 +83,10 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._user_auth_info: str | None = None
         self._api_key_provider: ProxyAuthProviderParameter | None = None
         self._initialize_api_key_provider()
+
+        # Set by `_install_model_access` on subclasses whose model selection is a
+        # license-filtered dropdown; stays None on the ones bound to a single model.
+        self._model_access: ModelDropdownAccess | None = None
 
         default_timeout = self.DEFAULT_MAX_ATTEMPTS * self.DEFAULT_POLL_INTERVAL
         self.add_parameter(
@@ -156,6 +164,39 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         super().after_value_set(parameter, value)
         if self._api_key_provider:
             self._api_key_provider.after_value_set(parameter, value)
+        if self._model_access is not None:
+            self._model_access.on_value_set(parameter, value)
+
+    def _install_model_access(
+        self,
+        *,
+        parameter: Parameter,
+        model_choices: list[str],
+        default_model: str,
+        provider_model_id_by_choice: dict[str, str] | None = None,
+    ) -> None:
+        """Turn an already-added model parameter into a license-filtered dropdown.
+
+        The component owns the parameter's `Options` trait, so pass a parameter
+        built without one; it also adds an inline refresh button, marks the models
+        the caller's license denies, and moves the stored value off a denied
+        default. `_submit_and_poll` then refuses to submit a denied selection.
+
+        Args:
+            parameter: The model parameter, already added to this node.
+            model_choices: The models the node offers, in dropdown order.
+            default_model: The choice selected by default.
+            provider_model_id_by_choice: Choice -> catalog `provider_model_id` map,
+                needed only when the choices are display labels rather than
+                provider ids.
+        """
+        self._model_access = ModelDropdownAccess(
+            node=self,
+            parameter=parameter,
+            model_choices=model_choices,
+            default_model=default_model,
+            provider_model_id_by_choice=provider_model_id_by_choice,
+        )
 
     def _prepare_user_auth_info(self) -> None:
         self.register_user_auth_info(None)
@@ -605,6 +646,12 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         error_msg = f"{self.name}: No model ID provided"
         self._set_status_results(was_successful=False, result_details=error_msg)
 
+    def _handle_denied_model(self, denial: CheckpointDenial) -> None:
+        """Handle a dropdown selection the license policy does not permit."""
+        self._set_safe_defaults()
+        error_msg = f"{self.name}: {denial.reason()}"
+        self._set_status_results(was_successful=False, result_details=error_msg)
+
     def _handle_submission_error(self, e: RuntimeError) -> None:
         """Handle generation submission errors."""
         self._set_safe_defaults()
@@ -640,6 +687,15 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         if not api_model_id:
             self._handle_missing_model_id()
             return None
+
+        # Re-check the dropdown selection against the license policy: it may have
+        # been permitted when the node was built and denied since. Runs before the
+        # invocation declaration so the failure carries the dropdown's own reason.
+        if self._model_access is not None:
+            selection_denial = self._model_access.selection_denial()
+            if selection_denial is not None:
+                self._handle_denied_model(selection_denial)
+                return None
 
         # Declare the invocation so the engine's permission layer can gate it
         # before any network call. The proxy still enforces server-side; this is
