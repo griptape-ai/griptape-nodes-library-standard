@@ -429,6 +429,12 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         model_name = self.get_parameter_value("model_name") or "Kling v3.0 Omni"
         return MODEL_NAME_MAP.get(model_name, MODEL_NAME_MAP["Kling v3.0 Omni"])["api_model_id"]
 
+    def _get_catalog_model_id(self) -> str:
+        # The catalog declares the bare provider id (no `:omnivideo` suffix), so
+        # resolve the declaration against the un-suffixed id.
+        model_name = self.get_parameter_value("model_name") or "Kling v3.0 Omni"
+        return PROVIDER_MODEL_ID_BY_MODEL_NAME.get(model_name, PROVIDER_MODEL_ID_BY_MODEL_NAME["Kling v3.0 Omni"])
+
     def _build_customize_multi_prompt_payload(self, shot_count: Any) -> list[dict[str, Any]]:
         """Build multi_prompt payload from shot input parameters."""
         try:
