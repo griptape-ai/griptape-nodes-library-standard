@@ -7,6 +7,7 @@ from griptape.drivers.prompt.griptape_cloud_prompt_driver import GriptapeCloudPr
 from griptape.drivers.prompt.openai import OpenAiChatPromptDriver as GtOpenAiChatPromptDriver
 from griptape.structures import Structure
 from griptape.tasks import PromptTask
+from griptape_nodes.drivers.cloud_models import VISION_MODEL_CHOICES
 from griptape_nodes.exe_types.core_types import (
     Parameter,
     ParameterList,
@@ -40,24 +41,9 @@ SERVICE = "Griptape"
 API_KEY_URL = "https://cloud.griptape.ai/configuration/api-keys"
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 
-# Vision-capable models available on Griptape Cloud.
-GTC_VISION_MODEL_CHOICES = [
-    "gpt-5.2",
-    "gpt-5.1",
-    "gpt-5",
-    "gpt-5-mini",
-    "gpt-4.1",
-    "gpt-4.1-mini",
-    "gpt-4.1-nano",
-    "gpt-4o",
-    "o4-mini",
-    "o3",
-    "claude-opus-4-7",
-    "claude-sonnet-4-6",
-    "claude-4-5-sonnet",
-    "gemini-3.1-pro",
-    "gemini-2.5-pro",
-]
+# Vision-capable models available on Griptape Cloud, derived from the catalog's
+# per-model `vision` flag so this list cannot drift from the models it describes.
+GTC_VISION_MODEL_CHOICES = VISION_MODEL_CHOICES
 DEFAULT_MODEL = GTC_VISION_MODEL_CHOICES[0]
 
 
