@@ -52,6 +52,10 @@ MODEL_NAME_MAP: dict[str, dict[str, str]] = {
         "payload_model_name": "kling-v3-omni",
     },
 }
+# Catalog-facing provider ids (bare, no `:omnivideo` suffix) for the license-policy dropdown.
+PROVIDER_MODEL_ID_BY_MODEL_NAME: dict[str, str] = {
+    label: config["payload_model_name"] for label, config in MODEL_NAME_MAP.items()
+}
 MODEL_CAPABILITIES: dict[str, dict[str, Any]] = {
     "kling-video-o1": {
         "modes": BASE_MODE_CHOICES,
@@ -108,15 +112,21 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         super().__init__(**kwargs)
 
         # INPUTS / PROPERTIES
-        self.add_parameter(
-            ParameterString(
-                name="model_name",
-                default_value="Kling v3.0 Omni",
-                tooltip="Model to use for video generation",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=list(MODEL_NAME_MAP.keys()))},
-                ui_options={"display_name": "Model"},
-            )
+        model_name_param = ParameterString(
+            name="model_name",
+            default_value="Kling v3.0 Omni",
+            tooltip="Model to use for video generation",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={"display_name": "Model"},
+        )
+        self.add_parameter(model_name_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_name_param,
+            model_choices=list(MODEL_NAME_MAP.keys()),
+            default_model="Kling v3.0 Omni",
+            provider_model_id_by_choice=PROVIDER_MODEL_ID_BY_MODEL_NAME,
         )
 
         self.add_parameter(

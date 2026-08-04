@@ -63,14 +63,20 @@ class GrokVideoGeneration(GriptapeProxyNode):
         self.category = "API Nodes"
         self.description = "Generate videos using Grok video models via Griptape model proxy"
 
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="Grok Imagine Video",
-                tooltip="Select the Grok video model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["Grok Imagine Video"])},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="Grok Imagine Video",
+            tooltip="Select the Grok video model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=["Grok Imagine Video"],
+            default_model="Grok Imagine Video",
+            provider_model_id_by_choice=self.MODEL_NAME_MAP,
         )
 
         self.add_parameter(

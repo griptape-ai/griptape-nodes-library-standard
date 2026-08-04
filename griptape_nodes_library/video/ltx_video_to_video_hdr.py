@@ -10,7 +10,6 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.traits.options import Options
 
 # static_ffmpeg is dynamically installed by the library loader at runtime
 from static_ffmpeg import run  # type: ignore[import-untyped]
@@ -60,14 +59,20 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         # INPUTS / PROPERTIES
 
         # Model parameter — HDR upscale is only offered on ltx-2-3-pro per the pricing page.
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="LTX 2.3 Pro",
-                tooltip="Model to use for video-to-video HDR upscale",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=list(MODEL_MAPPING.keys()))},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="LTX 2.3 Pro",
+            tooltip="Model to use for video-to-video HDR upscale",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=list(MODEL_MAPPING.keys()),
+            default_model="LTX 2.3 Pro",
+            provider_model_id_by_choice=MODEL_MAPPING,
         )
 
         self.add_parameter(

@@ -89,26 +89,28 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
         super().__init__(**kwargs)
 
         # INPUTS / PROPERTIES
-        self.add_parameter(
-            ParameterString(
-                name="model_id",
-                default_value="Hailuo 2.3 (TTV & ITV)",
-                tooltip="Model to use for video generation",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={
-                    "display_name": "model",
-                    "hide": False,
-                },
-                traits={
-                    Options(
-                        choices=[
-                            "Hailuo 2.3 (TTV & ITV)",
-                            "Hailuo 02 (TTV & ITV)",
-                            "Hailuo 2.3 Fast (ITV)",
-                        ]
-                    )
-                },
-            )
+        model_id_param = ParameterString(
+            name="model_id",
+            default_value="Hailuo 2.3 (TTV & ITV)",
+            tooltip="Model to use for video generation",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={
+                "display_name": "model",
+                "hide": False,
+            },
+        )
+        self.add_parameter(model_id_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_id_param,
+            model_choices=[
+                "Hailuo 2.3 (TTV & ITV)",
+                "Hailuo 02 (TTV & ITV)",
+                "Hailuo 2.3 Fast (ITV)",
+            ],
+            default_model="Hailuo 2.3 (TTV & ITV)",
+            provider_model_id_by_choice=self.MODEL_NAME_MAP,
         )
 
         self.add_parameter(

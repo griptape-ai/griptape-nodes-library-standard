@@ -67,14 +67,20 @@ class LTXVideoRetake(GriptapeProxyNode):
         # INPUTS / PROPERTIES
 
         # Model parameter (retake supports pro-tier LTX models)
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="LTX 2 Pro",
-                tooltip="Model to use for video retake",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["LTX 2 Pro", "LTX 2.3 Pro"])},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="LTX 2 Pro",
+            tooltip="Model to use for video retake",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=["LTX 2 Pro", "LTX 2.3 Pro"],
+            default_model="LTX 2 Pro",
+            provider_model_id_by_choice=MODEL_MAPPING,
         )
         self.add_parameter(
             ParameterString(

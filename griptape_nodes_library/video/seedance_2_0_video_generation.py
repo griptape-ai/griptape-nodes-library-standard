@@ -194,23 +194,25 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         self._pending_asset_uploads: list[tuple[PublicArtifactUrlParameter, str]] = []
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model_id",
-                default_value=MODEL_NAME_SEEDANCE_2_0,
-                tooltip="Model to use for video generation",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={"display_name": "Model", "hide": False},
-                traits={
-                    Options(
-                        choices=[
-                            MODEL_NAME_SEEDANCE_2_0,
-                            MODEL_NAME_SEEDANCE_2_0_FAST,
-                            MODEL_NAME_SEEDANCE_2_0_MINI,
-                        ]
-                    )
-                },
-            )
+        model_id_param = ParameterString(
+            name="model_id",
+            default_value=MODEL_NAME_SEEDANCE_2_0,
+            tooltip="Model to use for video generation",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={"display_name": "Model", "hide": False},
+        )
+        self.add_parameter(model_id_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_id_param,
+            model_choices=[
+                MODEL_NAME_SEEDANCE_2_0,
+                MODEL_NAME_SEEDANCE_2_0_FAST,
+                MODEL_NAME_SEEDANCE_2_0_MINI,
+            ],
+            default_model=MODEL_NAME_SEEDANCE_2_0,
+            provider_model_id_by_choice=self.MODEL_NAME_MAP,
         )
 
         # Input mode selector

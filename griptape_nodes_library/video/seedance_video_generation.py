@@ -76,26 +76,28 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         self.description = "Generate video via Seedance through Griptape Cloud model proxy"
 
         # INPUTS / PROPERTIES
-        self.add_parameter(
-            ParameterString(
-                name="model_id",
-                default_value="Seedance 1.5 Pro",
-                tooltip="Model to use for video generation",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={
-                    "display_name": "Model",
-                    "hide": False,
-                },
-                traits={
-                    Options(
-                        choices=[
-                            "Seedance 1.5 Pro",
-                            "Seedance 1.0 Pro",
-                            "Seedance 1.0 Pro Fast",
-                        ]
-                    )
-                },
-            )
+        model_id_param = ParameterString(
+            name="model_id",
+            default_value="Seedance 1.5 Pro",
+            tooltip="Model to use for video generation",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={
+                "display_name": "Model",
+                "hide": False,
+            },
+        )
+        self.add_parameter(model_id_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_id_param,
+            model_choices=[
+                "Seedance 1.5 Pro",
+                "Seedance 1.0 Pro",
+                "Seedance 1.0 Pro Fast",
+            ],
+            default_model="Seedance 1.5 Pro",
+            provider_model_id_by_choice=self.MODEL_NAME_MAP,
         )
 
         self.add_node_element(

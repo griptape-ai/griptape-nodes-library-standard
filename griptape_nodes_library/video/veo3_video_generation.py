@@ -52,6 +52,11 @@ MODEL_MAPPING = {
     ModelName.VEO_3_0.value: ModelId.VEO_3_0_GENERATE_001,
     ModelName.VEO_3_0_FAST.value: ModelId.VEO_3_0_FAST_GENERATE_001,
 }
+# Plain-str choice -> provider-id map for the license-policy dropdown (MODEL_MAPPING's keys and
+# values are StrEnum members; the component keys its snapshot off plain strings).
+PROVIDER_MODEL_ID_BY_MODEL_NAME: dict[str, str] = {
+    str(model_name): str(model_id) for model_name, model_id in MODEL_MAPPING.items()
+}
 
 
 class Veo3VideoGeneration(GriptapeProxyNode):
@@ -90,26 +95,28 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         super().__init__(**kwargs)
 
         # INPUTS / PROPERTIES
-        self.add_parameter(
-            ParameterString(
-                name="model_id",
-                default_value=ModelName.VEO_3_1.value,
-                tooltip="Model id to call via proxy",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={
-                    "display_name": "model",
-                },
-                traits={
-                    Options(
-                        choices=[
-                            ModelName.VEO_3_1.value,
-                            ModelName.VEO_3_1_FAST.value,
-                            ModelName.VEO_3_0.value,
-                            ModelName.VEO_3_0_FAST.value,
-                        ]
-                    )
-                },
-            )
+        model_id_param = ParameterString(
+            name="model_id",
+            default_value=ModelName.VEO_3_1.value,
+            tooltip="Model id to call via proxy",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={
+                "display_name": "model",
+            },
+        )
+        self.add_parameter(model_id_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_id_param,
+            model_choices=[
+                ModelName.VEO_3_1.value,
+                ModelName.VEO_3_1_FAST.value,
+                ModelName.VEO_3_0.value,
+                ModelName.VEO_3_0_FAST.value,
+            ],
+            default_model=ModelName.VEO_3_1.value,
+            provider_model_id_by_choice=PROVIDER_MODEL_ID_BY_MODEL_NAME,
         )
 
         self.add_parameter(

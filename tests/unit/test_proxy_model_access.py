@@ -47,10 +47,15 @@ type AuthorizationHook = Callable[[AuthorizationCheckpoint], CheckpointDenial | 
 # (which moves the stored value off a denied default) never fires and can't
 # confuse these assertions. OmnihumanSubjectRecognition, OmnihumanSubjectDetection,
 # WanReferenceToVideoGeneration, FluxImageGeneration, TranscribeAudio, GrokImageGeneration,
-# and GrokImageEdit each declare exactly one model, so their only choice is necessarily
-# also their default. SeedreamImageGeneration, GoogleImageGeneration, OpenAiImageGeneration,
-# WorldLabsWorldGeneration, and TopazImageEnhance offer artist-facing labels rather than
-# provider ids, so the dropdown value here is the label the node maps to the denied id.
+# GrokImageEdit, GrokVideoGeneration, GrokVideoEdit, and LTXVideoToVideoHDR each declare
+# exactly one model, so their only choice is necessarily also their default.
+# SeedreamImageGeneration, GoogleImageGeneration, OpenAiImageGeneration,
+# WorldLabsWorldGeneration, TopazImageEnhance, SeedanceVideoGeneration,
+# Seedance20VideoGeneration, MinimaxHailuoVideoGeneration, KlingTextToVideoGeneration,
+# KlingImageToVideoGeneration, KlingOmniVideoGeneration, Veo3VideoGeneration,
+# LTXTextToVideoGeneration, LTXImageToVideoGeneration, LTXAudioToVideoGeneration,
+# LTXVideoExtend, and LTXVideoRetake offer artist-facing labels rather than provider
+# ids, so the dropdown value here is the label the node maps to the denied id.
 NODE_MODEL_CASES: list[tuple[str, str, str, str]] = [
     ("TranscribeAudio", "gtc_whisper_1", "whisper-1", "model"),  # only declared model
     ("ElevenLabsTextToSpeechGeneration", "gtc_eleven_multilingual_v2", "eleven_multilingual_v2", "model"),
@@ -84,6 +89,21 @@ NODE_MODEL_CASES: list[tuple[str, str, str, str]] = [
     ("OpenAiImageGeneration", "gtc_gpt_image_1", "GPT Image 1", "model"),
     ("WorldLabsWorldGeneration", "gtc_marble_1_0_draft", "Marble 1.0 Draft", "model"),
     ("TopazImageEnhance", "gtc_topaz_sharpen", "sharpen", "operation"),
+    ("SeedanceVideoGeneration", "gtc_seedance_1_0_pro_fast", "Seedance 1.0 Pro Fast", "model_id"),
+    ("Seedance20VideoGeneration", "gtc_seedance_2_0_fast", "Seedance 2.0 Fast", "model_id"),
+    ("GrokVideoGeneration", "gtc_grok_imagine_video", "Grok Imagine Video", "model"),  # only declared model
+    ("GrokVideoEdit", "gtc_grok_imagine_video", "Grok Imagine Video", "model"),  # only declared model
+    ("MinimaxHailuoVideoGeneration", "gtc_minimax_hailuo_2_3_fast", "Hailuo 2.3 Fast (ITV)", "model_id"),
+    ("KlingTextToVideoGeneration", "gtc_kling_v2_6", "Kling v2.6", "model_name"),
+    ("KlingImageToVideoGeneration", "gtc_kling_v1_5", "Kling v1.5", "model_name"),
+    ("KlingOmniVideoGeneration", "gtc_kling_video_o1_omni", "Kling Omni", "model_name"),
+    ("Veo3VideoGeneration", "gtc_veo_3_0_fast", "Veo 3.0 Fast", "model_id"),
+    ("LTXTextToVideoGeneration", "gtc_ltx_2_pro", "LTX 2 Pro", "model"),
+    ("LTXImageToVideoGeneration", "gtc_ltx_2_3_pro", "LTX 2.3 Pro", "model"),
+    ("LTXAudioToVideoGeneration", "gtc_ltx_2_3_pro", "LTX 2.3 Pro", "model"),
+    ("LTXVideoExtend", "gtc_ltx_2_pro", "LTX 2 Pro", "model"),
+    ("LTXVideoRetake", "gtc_ltx_2_3_pro", "LTX 2.3 Pro", "model"),
+    ("LTXVideoToVideoHDR", "gtc_ltx_2_3_pro", "LTX 2.3 Pro", "model"),  # only declared model
 ]
 
 

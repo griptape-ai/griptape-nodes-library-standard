@@ -151,29 +151,31 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         super().__init__(**kwargs)
 
         # INPUTS / PROPERTIES
-        self.add_parameter(
-            ParameterString(
-                name="model_name",
-                default_value="Kling v3.0",
-                tooltip="Model Name for generation",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={
-                    Options(
-                        choices=[
-                            "Kling v3.0",
-                            "Kling v2.6",
-                            "Kling v2.5 Turbo",
-                            "Kling v2.1 Master",
-                            "Kling v2.1",
-                            "Kling v2 Master",
-                            "Kling v1.6",
-                            "Kling v1.5",
-                            "Kling v1",
-                        ]
-                    )
-                },
-                ui_options={"display_name": "Model"},
-            )
+        model_name_param = ParameterString(
+            name="model_name",
+            default_value="Kling v3.0",
+            tooltip="Model Name for generation",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={"display_name": "Model"},
+        )
+        self.add_parameter(model_name_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_name_param,
+            model_choices=[
+                "Kling v3.0",
+                "Kling v2.6",
+                "Kling v2.5 Turbo",
+                "Kling v2.1 Master",
+                "Kling v2.1",
+                "Kling v2 Master",
+                "Kling v1.6",
+                "Kling v1.5",
+                "Kling v1",
+            ],
+            default_model="Kling v3.0",
+            provider_model_id_by_choice=self.MODEL_NAME_MAP,
         )
 
         # Prompts
