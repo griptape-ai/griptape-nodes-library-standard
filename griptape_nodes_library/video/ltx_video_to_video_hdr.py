@@ -115,9 +115,12 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         self.set_initial_node_size(height=400)
 
     def _get_api_model_id(self) -> str:
+        return f"{self._get_catalog_model_id()}:video-to-video-hdr"
+
+    def _get_catalog_model_id(self) -> str:
+        # The catalog declares the bare provider id (no `:video-to-video-hdr` suffix).
         model_name = self.get_parameter_value("model") or "LTX 2.3 Pro"
-        model_id = MODEL_MAPPING.get(model_name, "ltx-2-3-pro")
-        return f"{model_id}:video-to-video-hdr"
+        return MODEL_MAPPING.get(model_name, "ltx-2-3-pro")
 
     @staticmethod
     def _extract_input_video_url(video_input: Any) -> str | None:

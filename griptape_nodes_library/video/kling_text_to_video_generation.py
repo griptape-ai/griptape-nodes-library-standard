@@ -459,9 +459,12 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
 
         Appends :text2video modality to the model name.
         """
+        return f"{self._get_catalog_model_id()}:text2video"
+
+    def _get_catalog_model_id(self) -> str:
+        # The catalog declares the bare provider id (no `:text2video` suffix).
         model_name = self.get_parameter_value("model_name") or "Kling v2.6"
-        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
-        return f"{model_id}:text2video"
+        return self.MODEL_NAME_MAP.get(model_name, model_name)
 
     def _build_customize_multi_prompt_payload(self, shot_count: int) -> list[dict[str, Any]]:
         """Build multi_prompt payload from shot input parameters."""

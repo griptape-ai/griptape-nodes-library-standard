@@ -358,9 +358,12 @@ class LTXVideoRetake(GriptapeProxyNode):
         }
 
     def _get_api_model_id(self) -> str:
+        return f"{self._get_catalog_model_id()}:retake"
+
+    def _get_catalog_model_id(self) -> str:
+        # The catalog declares the bare provider id (no `:retake` suffix).
         model_name = self.get_parameter_value("model") or "LTX 2 Pro"
-        model_id = MODEL_MAPPING.get(model_name, "ltx-2-pro")
-        return f"{model_id}:retake"
+        return MODEL_MAPPING.get(model_name, "ltx-2-pro")
 
     def _validate_video_input(self, video: Any) -> str | None:
         """Validate video is provided and doesn't exceed duration limits."""

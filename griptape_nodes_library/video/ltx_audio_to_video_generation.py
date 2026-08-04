@@ -185,9 +185,12 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
         }
 
     def _get_api_model_id(self) -> str:
+        return f"{self._get_catalog_model_id()}:audio-to-video"
+
+    def _get_catalog_model_id(self) -> str:
+        # The catalog declares the bare provider id (no `:audio-to-video` suffix).
         model_name = self.get_parameter_value("model") or "LTX 2 Pro"
-        model_id = MODEL_MAPPING.get(model_name, "ltx-2-pro")
-        return f"{model_id}:audio-to-video"
+        return MODEL_MAPPING.get(model_name, "ltx-2-pro")
 
     async def _prepare_audio_data_url_async(self, audio_input: Any) -> str | None:
         """Convert audio input to a base64 data URL."""

@@ -283,9 +283,12 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
         }
 
     def _get_api_model_id(self) -> str:
+        return f"{self._get_catalog_model_id()}:image-to-video"
+
+    def _get_catalog_model_id(self) -> str:
+        # The catalog declares the bare provider id (no `:image-to-video` suffix).
         model_name = self.get_parameter_value("model") or "LTX 2 Fast"
-        model_id = MODEL_MAPPING.get(model_name, "ltx-2-fast")
-        return f"{model_id}:image-to-video"
+        return MODEL_MAPPING.get(model_name, "ltx-2-fast")
 
     def _validate_model_params(self, params: dict[str, Any]) -> str | None:
         """Validate that the model-resolution-fps-duration combination is supported."""

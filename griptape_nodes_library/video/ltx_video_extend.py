@@ -201,9 +201,12 @@ class LTXVideoExtend(GriptapeProxyNode):
             self._update_context_badge(value)
 
     def _get_api_model_id(self) -> str:
+        return f"{self._get_catalog_model_id()}:extend"
+
+    def _get_catalog_model_id(self) -> str:
+        # The catalog declares the bare provider id (no `:extend` suffix).
         model_name = self.get_parameter_value("model") or DEFAULT_MODEL
-        model_id = MODEL_MAPPING.get(model_name, MODEL_MAPPING[DEFAULT_MODEL])
-        return f"{model_id}:extend"
+        return MODEL_MAPPING.get(model_name, MODEL_MAPPING[DEFAULT_MODEL])
 
     async def _prepare_video_data_uri_async(self, video_input: Any) -> str | None:
         """Convert video input to a base64 data URI."""

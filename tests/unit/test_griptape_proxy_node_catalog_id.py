@@ -16,6 +16,14 @@ from griptape_nodes_library.image.grok_image_generation import GrokImageGenerati
 from griptape_nodes_library.proxy.griptape_proxy_node import GriptapeProxyNode
 from griptape_nodes_library.video.grok_video_edit import GrokVideoEdit
 from griptape_nodes_library.video.grok_video_generation import GrokVideoGeneration
+from griptape_nodes_library.video.kling_image_to_video_generation import KlingImageToVideoGeneration
+from griptape_nodes_library.video.kling_text_to_video_generation import KlingTextToVideoGeneration
+from griptape_nodes_library.video.ltx_audio_to_video_generation import LTXAudioToVideoGeneration
+from griptape_nodes_library.video.ltx_image_to_video_generation import LTXImageToVideoGeneration
+from griptape_nodes_library.video.ltx_text_to_video_generation import LTXTextToVideoGeneration
+from griptape_nodes_library.video.ltx_video_extend import LTXVideoExtend
+from griptape_nodes_library.video.ltx_video_retake import LTXVideoRetake
+from griptape_nodes_library.video.ltx_video_to_video_hdr import LTXVideoToVideoHDR
 
 # (node class, bare catalog provider id, suffixed url-path id)
 GROK_NODES = [
@@ -28,6 +36,33 @@ GROK_NODES = [
 
 @pytest.mark.parametrize(("node_class", "bare_id", "suffixed_id"), GROK_NODES)
 def test_grok_catalog_id_is_bare_provider_id(
+    node_class: type[GriptapeProxyNode], bare_id: str, suffixed_id: str
+) -> None:
+    node = node_class(name=node_class.__name__)
+
+    # The URL-path id keeps the operation suffix; the catalog id must not, so it
+    # matches the bare `provider_model_id` declared in the catalog.
+    assert node._get_api_model_id() == suffixed_id
+    assert node._get_catalog_model_id() == bare_id
+
+
+# (node class, bare catalog provider id, suffixed url-path id) for each node's default
+# dropdown selection. The bare ids are cross-checked against the `model_usage` ids each
+# node declares in griptape_nodes_library.json's `model_catalog` metadata.
+SUFFIXED_NODES = [
+    (LTXTextToVideoGeneration, "ltx-2-3-fast", "ltx-2-3-fast:text-to-video"),
+    (LTXImageToVideoGeneration, "ltx-2-3-fast", "ltx-2-3-fast:image-to-video"),
+    (LTXAudioToVideoGeneration, "ltx-2-pro", "ltx-2-pro:audio-to-video"),
+    (LTXVideoExtend, "ltx-2-3-pro", "ltx-2-3-pro:extend"),
+    (LTXVideoRetake, "ltx-2-pro", "ltx-2-pro:retake"),
+    (LTXVideoToVideoHDR, "ltx-2-3-pro", "ltx-2-3-pro:video-to-video-hdr"),
+    (KlingTextToVideoGeneration, "kling-v3", "kling-v3:text2video"),
+    (KlingImageToVideoGeneration, "kling-v3", "kling-v3:image2video"),
+]
+
+
+@pytest.mark.parametrize(("node_class", "bare_id", "suffixed_id"), SUFFIXED_NODES)
+def test_suffixed_catalog_id_is_bare_provider_id(
     node_class: type[GriptapeProxyNode], bare_id: str, suffixed_id: str
 ) -> None:
     node = node_class(name=node_class.__name__)

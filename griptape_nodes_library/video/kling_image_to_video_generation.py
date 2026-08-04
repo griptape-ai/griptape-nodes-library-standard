@@ -586,9 +586,12 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
         Appends :image2video modality to the model name.
         """
+        return f"{self._get_catalog_model_id()}:image2video"
+
+    def _get_catalog_model_id(self) -> str:
+        # The catalog declares the bare provider id (no `:image2video` suffix).
         model_name = self.get_parameter_value("model_name") or "Kling v2.6"
-        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
-        return f"{model_id}:image2video"
+        return self.MODEL_NAME_MAP.get(model_name, model_name)
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for Kling API.
