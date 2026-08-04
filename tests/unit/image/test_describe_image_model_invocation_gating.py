@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 import griptape_nodes_library.image.describe_image as describe_image_module
+import griptape_nodes_library.utils.model_invocation as model_invocation_module
 from griptape_nodes_library.image.describe_image import DescribeImage
 
 
@@ -67,7 +68,7 @@ def test_declares_invocation_with_selected_model_before_running(
         captured["api_model_id"] = api_model_id
         return _FakeDeclaration(ok=True)
 
-    monkeypatch.setattr(describe_image_module, "declare_model_invocation_sync", _fake_declare)
+    monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", _fake_declare)
 
     gen = describe_image_node.process()
     runner = next(gen)
@@ -83,7 +84,7 @@ def test_raises_before_running_when_declaration_is_denied(
     def _fake_declare(_node: DescribeImage, _api_model_id: str) -> _FakeDeclaration:
         return _FakeDeclaration(ok=False, details="denied by policy")
 
-    monkeypatch.setattr(describe_image_module, "declare_model_invocation_sync", _fake_declare)
+    monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", _fake_declare)
 
     gen = describe_image_node.process()
     with pytest.raises(RuntimeError, match="denied by policy"):
@@ -119,7 +120,7 @@ def test_declares_connected_agents_model_over_stale_dropdown_value(
         captured["api_model_id"] = api_model_id
         return _FakeDeclaration(ok=True)
 
-    monkeypatch.setattr(describe_image_module, "declare_model_invocation_sync", _fake_declare)
+    monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", _fake_declare)
 
     gen = describe_image_node.process()
     next(gen)

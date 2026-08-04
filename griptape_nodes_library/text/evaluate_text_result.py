@@ -8,7 +8,7 @@ from griptape_nodes.exe_types.param_components.model_access_component import Mod
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.tasks.base_task import BaseTask
-from griptape_nodes_library.utils.model_invocation import declare_model_invocation_sync
+from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 EXAMPLES = [
     {
@@ -196,11 +196,7 @@ class EvaluateTextResult(BaseTask):
             # License-policy gate immediately before the framework driver call. EvalEngine.evaluate
             # invokes the prompt driver directly rather than through BaseTask._process, so it
             # declares here rather than relying on the base implementation's declaration.
-            declaration = declare_model_invocation_sync(self, model)
-            if declaration.failed():
-                details = str(declaration.result_details or f"{self.name}: model invocation was not permitted.")
-                msg = f"Cannot run {type(self).__name__}: {details}"
-                raise RuntimeError(msg)
+            require_model_invocation_sync(self, model)
 
             score, reason = engine.evaluate(
                 input=user_input,

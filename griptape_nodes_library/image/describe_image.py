@@ -34,7 +34,7 @@ from griptape_nodes_library.utils.agent_utils import (
 )
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
-from griptape_nodes_library.utils.model_invocation import declare_model_invocation_sync
+from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
 SERVICE = "Griptape"
@@ -482,13 +482,7 @@ class DescribeImage(ControlNode):
         # before declaring. Declare before the network call below so a denied
         # invocation fails closed rather than reaching the provider.
         model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
-        declaration = declare_model_invocation_sync(self, model)
-        if declaration.failed():
-            details = str(
-                declaration.result_details
-                or f"DescribeImage '{self.name}': invocation of model '{model}' was not permitted."
-            )
-            raise RuntimeError(details)
+        require_model_invocation_sync(self, model)
 
         # Run the agent
         yield lambda: agent.run([prompt, *image_artifacts])

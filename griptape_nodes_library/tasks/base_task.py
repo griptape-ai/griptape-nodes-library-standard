@@ -5,7 +5,7 @@ from griptape.structures import Agent, Structure
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
-from griptape_nodes_library.utils.model_invocation import declare_model_invocation_sync
+from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
@@ -29,11 +29,7 @@ class BaseTask(ControlNode):
         # subclass that runs its agent through this method (a subclass that invokes its own
         # driver call directly -- e.g. bypassing this method -- must declare at its own site
         # instead; see that subclass for its own declaration).
-        declaration = declare_model_invocation_sync(self, model)
-        if declaration.failed():
-            details = str(declaration.result_details or f"{self.name}: model invocation was not permitted.")
-            msg = f"Cannot run {type(self).__name__}: {details}"
-            raise RuntimeError(msg)
+        require_model_invocation_sync(self, model)
 
         args = [prompt] if prompt else []
         for event in agent.run_stream(
