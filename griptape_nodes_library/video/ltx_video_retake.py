@@ -29,8 +29,17 @@ MIN_RETAKE_DURATION = 2.0
 RETAKE_SEGMENT_LENGTH = 2
 
 MODEL_MAPPING = {
-    "LTX 2 Pro": "ltx-2-pro",
-    "LTX 2.3 Pro": "ltx-2-3-pro",
+    "gtc_ltx_2_pro": "ltx-2-pro",
+    "gtc_ltx_2_3_pro": "ltx-2-3-pro",
+}
+
+# Migrates values saved before the dropdown stored catalog keys: old display labels and
+# raw provider ids.
+LEGACY_MODEL_VALUES = {
+    "LTX 2 Pro": "gtc_ltx_2_pro",
+    "LTX 2.3 Pro": "gtc_ltx_2_3_pro",
+    "ltx-2-3-pro": "gtc_ltx_2_3_pro",
+    "ltx-2-pro": "gtc_ltx_2_pro",
 }
 
 SUPPORTED_RESOLUTIONS = ("1920x1080", "2560x1440", "3840x2160")
@@ -69,7 +78,7 @@ class LTXVideoRetake(GriptapeProxyNode):
         # Model parameter (retake supports pro-tier LTX models)
         model_param = ParameterString(
             name="model",
-            default_value="LTX 2 Pro",
+            default_value="gtc_ltx_2_pro",
             tooltip="Model to use for video retake",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -78,9 +87,9 @@ class LTXVideoRetake(GriptapeProxyNode):
         # marks the models the license denies; the proxy base refuses a denied selection.
         self._install_model_access(
             parameter=model_param,
-            model_choices=["LTX 2 Pro", "LTX 2.3 Pro"],
-            default_model="LTX 2 Pro",
-            provider_model_id_by_choice=MODEL_MAPPING,
+            model_choices=["gtc_ltx_2_pro", "gtc_ltx_2_3_pro"],
+            default_model="gtc_ltx_2_pro",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
         self.add_parameter(
             ParameterString(
@@ -357,19 +366,14 @@ class LTXVideoRetake(GriptapeProxyNode):
     def _get_parameters(self) -> dict[str, Any]:
         return {
             "prompt": self.get_parameter_value("prompt") or "",
-            "model": self.get_parameter_value("model") or "LTX 2 Pro",
+            "model": self.get_parameter_value("model") or "gtc_ltx_2_pro",
             "retake_segment": self.get_parameter_value("retake_segment") or [0.0, 2.0],
             "mode": self.get_parameter_value("mode") or "replace_audio_and_video",
             "resolution": self.get_parameter_value("resolution") or DEFAULT_RESOLUTION,
         }
 
     def _get_api_model_id(self) -> str:
-        return f"{self._get_catalog_model_id()}:retake"
-
-    def _get_catalog_model_id(self) -> str:
-        # The catalog declares the bare provider id (no `:retake` suffix).
-        model_name = self.get_parameter_value("model") or "LTX 2 Pro"
-        return MODEL_MAPPING.get(model_name, "ltx-2-pro")
+        return f"{self._provider_model_id_for_selection()}:retake"
 
     def _validate_video_input(self, video: Any) -> str | None:
         """Validate video is provided and doesn't exceed duration limits."""

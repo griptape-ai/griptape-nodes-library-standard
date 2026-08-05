@@ -32,10 +32,10 @@ __all__ = ["Veo3VideoGeneration"]
 
 
 class ModelName(StrEnum):
-    VEO_3_1 = "Veo 3.1"
-    VEO_3_1_FAST = "Veo 3.1 Fast"
-    VEO_3_0 = "Veo 3.0"
-    VEO_3_0_FAST = "Veo 3.0 Fast"
+    VEO_3_1 = "gtc_veo_3_1"
+    VEO_3_1_FAST = "gtc_veo_3_1_fast"
+    VEO_3_0 = "gtc_veo_3_0"
+    VEO_3_0_FAST = "gtc_veo_3_0_fast"
 
 
 class ModelId(StrEnum):
@@ -45,17 +45,25 @@ class ModelId(StrEnum):
     VEO_3_0_FAST_GENERATE_001 = "veo-3.0-fast-generate-001"
 
 
-# Model mapping from human-friendly names to API model IDs
+# Model mapping from catalog model keys to API model IDs
 MODEL_MAPPING = {
     ModelName.VEO_3_1.value: ModelId.VEO_3_1_GENERATE_001,
     ModelName.VEO_3_1_FAST.value: ModelId.VEO_3_1_FAST_GENERATE_001,
     ModelName.VEO_3_0.value: ModelId.VEO_3_0_GENERATE_001,
     ModelName.VEO_3_0_FAST.value: ModelId.VEO_3_0_FAST_GENERATE_001,
 }
-# Plain-str choice -> provider-id map for the license-policy dropdown (MODEL_MAPPING's keys and
-# values are StrEnum members; the component keys its snapshot off plain strings).
-PROVIDER_MODEL_ID_BY_MODEL_NAME: dict[str, str] = {
-    str(model_name): str(model_id) for model_name, model_id in MODEL_MAPPING.items()
+
+# Migrates values saved before the dropdown stored catalog keys: old display labels and
+# raw provider ids.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Veo 3.0": ModelName.VEO_3_0.value,
+    "Veo 3.0 Fast": ModelName.VEO_3_0_FAST.value,
+    "Veo 3.1": ModelName.VEO_3_1.value,
+    "Veo 3.1 Fast": ModelName.VEO_3_1_FAST.value,
+    "veo-3.0-fast-generate-001": ModelName.VEO_3_0_FAST.value,
+    "veo-3.0-generate-001": ModelName.VEO_3_0.value,
+    "veo-3.1-fast-generate-001": ModelName.VEO_3_1_FAST.value,
+    "veo-3.1-generate-001": ModelName.VEO_3_1.value,
 }
 
 
@@ -116,7 +124,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
                 ModelName.VEO_3_0_FAST.value,
             ],
             default_model=ModelName.VEO_3_1.value,
-            provider_model_id_by_choice=PROVIDER_MODEL_ID_BY_MODEL_NAME,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -446,11 +454,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             ModelId.VEO_3_1_GENERATE_001,
             ModelId.VEO_3_1_FAST_GENERATE_001,
         }:
-            msg = (
-                f"{self.name}: lastFrame parameter is only supported by "
-                f"{ModelName.VEO_3_1.value} and {ModelName.VEO_3_1_FAST.value} models. "
-                f"Current model: {model_id}"
-            )
+            msg = f"{self.name}: lastFrame parameter is only supported by Veo 3.1 and Veo 3.1 Fast models."
             raise ValueError(msg)
 
         # referenceImages are only supported by veo-3.1-generate-001
@@ -458,10 +462,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         has_reference_images = reference_images and len(reference_images) > 0
         if has_reference_images:
             if api_model_id != ModelId.VEO_3_1_GENERATE_001:
-                msg = (
-                    f"{self.name}: referenceImages parameter is only supported by "
-                    f"{ModelName.VEO_3_1.value} model. Current model: {model_id}"
-                )
+                msg = f"{self.name}: referenceImages parameter is only supported by Veo 3.1 model."
                 raise ValueError(msg)
 
             # When referenceImages are provided, duration must be 8 seconds

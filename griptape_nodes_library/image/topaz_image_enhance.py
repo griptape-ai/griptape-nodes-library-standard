@@ -42,10 +42,6 @@ OPERATION_OPTIONS = [
     "tool",
 ]
 
-# The catalog declares one model per operation (topaz-<operation>); operation is this
-# node's catalog-model dimension, not the per-operation `model` variant list below.
-OPERATION_MODEL_ID_MAP = {operation: f"topaz-{operation}" for operation in OPERATION_OPTIONS}
-
 ENHANCE_MODELS = {
     "Standard V2": [
         "face_enhancement",
@@ -299,20 +295,14 @@ class TopazImageEnhance(GriptapeProxyNode):
         self.description = "Enhance images using Topaz Labs models via Griptape model proxy"
 
         # Operation selection
-        operation_param = ParameterString(
-            name="operation",
-            default_value="enhance",
-            tooltip="Type of image enhancement operation",
-            allow_output=False,
-        )
-        self.add_parameter(operation_param)
-        # License-policy dropdown: the component adds Options + refresh Button traits and
-        # marks the models the license denies; the proxy base refuses a denied selection.
-        self._install_model_access(
-            parameter=operation_param,
-            model_choices=OPERATION_OPTIONS,
-            default_model="enhance",
-            provider_model_id_by_choice=OPERATION_MODEL_ID_MAP,
+        self.add_parameter(
+            ParameterString(
+                name="operation",
+                default_value="enhance",
+                tooltip="Type of image enhancement operation",
+                allow_output=False,
+                traits={Options(choices=OPERATION_OPTIONS)},
+            )
         )
 
         # Model selection - will be dynamically updated based on operation

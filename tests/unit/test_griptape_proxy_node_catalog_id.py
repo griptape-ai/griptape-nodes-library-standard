@@ -1,14 +1,23 @@
 """Guard the model id the declaration/permission layer resolves against.
 
 `GriptapeProxyNode._submit_and_poll` declares the impending invocation by
-matching `_get_catalog_model_id()` against the catalog's `provider_model_id`.
-Nodes whose `_get_api_model_id()` decorates the id with an operation suffix for
-the URL path (e.g. `grok-imagine-video:generate`) must keep the catalog id bare
-or the declaration fails closed with "not a declared catalog model".
+matching `_get_catalog_model_id()` against the catalog's `model_id` (via
+`resolve_catalog_model_id`, which accepts either a catalog key or a provider
+id). By default `_get_catalog_model_id()` returns the model dropdown's stored
+value verbatim -- that value already IS the catalog key -- while
+`_get_api_model_id()` resolves the same selection to the upstream provider's
+id and, on nodes that decorate the URL path with an operation, appends a
+`:suffix`.
 
-The per-node cases below pin the ids of the nodes that decorate them; the sweep
-at the bottom of the module holds every proxy node in the library to the same
-contract, so a new node cannot reintroduce the mismatch.
+The per-node cases below pin the ids of the nodes that decorate their API id;
+the sweep at the bottom of the module holds every proxy node in the library to
+the same contract, so a new node cannot reintroduce a mismatch.
+
+Nodes are constructed through `LibraryRegistry` so their metadata carries
+`library` / `node_type`: `_provider_model_id_for_selection()` (and so
+`_get_api_model_id()`) resolves through the node's declared models, which
+requires that metadata. A bare `NodeClass(name=...)` construction leaves it
+unset and resolution returns `""`.
 """
 
 from __future__ import annotations
@@ -36,57 +45,69 @@ from griptape_nodes_library.video.ltx_video_extend import LTXVideoExtend
 from griptape_nodes_library.video.ltx_video_retake import LTXVideoRetake
 from griptape_nodes_library.video.ltx_video_to_video_hdr import LTXVideoToVideoHDR
 
-# (node class, bare catalog provider id, suffixed url-path id)
+LIBRARY_NAME = "Griptape Nodes Library"
+
+
+def _create_node(node_type: str) -> GriptapeProxyNode:
+    """Create a node through the library so its metadata carries `library` / `node_type`.
+
+    `_provider_model_id_for_selection()` reads a node's declared models to resolve
+    the dropdown's catalog key to the upstream provider's id; a bare
+    `NodeClass(name=...)` construction does not set the metadata that lookup needs
+    and would silently resolve to `""`.
+    """
+    library = LibraryRegistry.get_library(name=LIBRARY_NAME)
+    return cast("GriptapeProxyNode", library.create_node(node_type=node_type, name=node_type))
+
+
+# (node class, default catalog model key, expected "<provider id>:<suffix>" API id)
 GROK_NODES = [
-    (GrokVideoGeneration, "grok-imagine-video", "grok-imagine-video:generate"),
-    (GrokVideoEdit, "grok-imagine-video", "grok-imagine-video:edit"),
-    (GrokImageGeneration, "grok-imagine-image", "grok-imagine-image:generate"),
-    (GrokImageEdit, "grok-imagine-image", "grok-imagine-image:edit"),
+    (GrokVideoGeneration, "gtc_grok_imagine_video", "grok-imagine-video:generate"),
+    (GrokVideoEdit, "gtc_grok_imagine_video", "grok-imagine-video:edit"),
+    (GrokImageGeneration, "gtc_grok_imagine_image", "grok-imagine-image:generate"),
+    (GrokImageEdit, "gtc_grok_imagine_image", "grok-imagine-image:edit"),
 ]
 
 
-@pytest.mark.parametrize(("node_class", "bare_id", "suffixed_id"), GROK_NODES)
-def test_grok_catalog_id_is_bare_provider_id(
-    node_class: type[GriptapeProxyNode], bare_id: str, suffixed_id: str
-) -> None:
-    node = node_class(name=node_class.__name__)
+@pytest.mark.parametrize(("node_class", "catalog_id", "api_id"), GROK_NODES)
+def test_grok_catalog_id_is_bare_provider_id(node_class: type[GriptapeProxyNode], catalog_id: str, api_id: str) -> None:
+    node = _create_node(node_class.__name__)
 
-    # The URL-path id keeps the operation suffix; the catalog id must not, so it
-    # matches the bare `provider_model_id` declared in the catalog.
-    assert node._get_api_model_id() == suffixed_id
-    assert node._get_catalog_model_id() == bare_id
+    # The catalog id is the dropdown's stored value verbatim; the API id resolves
+    # that same selection to the provider's id and appends the URL-path operation.
+    assert node._get_catalog_model_id() == catalog_id
+    assert node._get_api_model_id() == api_id
 
 
-# (node class, bare catalog provider id, suffixed url-path id) for each node's default
-# dropdown selection. The bare ids are cross-checked against the `model_usage` ids each
-# node declares in griptape_nodes_library.json's `model_catalog` metadata.
+# (node class, default catalog model key, expected "<provider id>:<suffix>" API id) for
+# each node's default dropdown selection. The catalog ids are cross-checked against the
+# `model_usage` ids each node declares in griptape_nodes_library.json's `model_catalog`
+# metadata.
 SUFFIXED_NODES = [
-    (LTXTextToVideoGeneration, "ltx-2-3-fast", "ltx-2-3-fast:text-to-video"),
-    (LTXImageToVideoGeneration, "ltx-2-3-fast", "ltx-2-3-fast:image-to-video"),
-    (LTXAudioToVideoGeneration, "ltx-2-pro", "ltx-2-pro:audio-to-video"),
-    (LTXVideoExtend, "ltx-2-3-pro", "ltx-2-3-pro:extend"),
-    (LTXVideoRetake, "ltx-2-pro", "ltx-2-pro:retake"),
-    (LTXVideoToVideoHDR, "ltx-2-3-pro", "ltx-2-3-pro:video-to-video-hdr"),
-    (KlingTextToVideoGeneration, "kling-v3", "kling-v3:text2video"),
-    (KlingImageToVideoGeneration, "kling-v3", "kling-v3:image2video"),
-    (KlingOmniVideoGeneration, "kling-v3-omni", "kling-v3-omni:omnivideo"),
+    (LTXTextToVideoGeneration, "gtc_ltx_2_3_fast", "ltx-2-3-fast:text-to-video"),
+    (LTXImageToVideoGeneration, "gtc_ltx_2_3_fast", "ltx-2-3-fast:image-to-video"),
+    (LTXAudioToVideoGeneration, "gtc_ltx_2_pro", "ltx-2-pro:audio-to-video"),
+    (LTXVideoExtend, "gtc_ltx_2_3_pro", "ltx-2-3-pro:extend"),
+    (LTXVideoRetake, "gtc_ltx_2_pro", "ltx-2-pro:retake"),
+    (LTXVideoToVideoHDR, "gtc_ltx_2_3_pro", "ltx-2-3-pro:video-to-video-hdr"),
+    (KlingTextToVideoGeneration, "gtc_kling_v3", "kling-v3:text2video"),
+    (KlingImageToVideoGeneration, "gtc_kling_v3", "kling-v3:image2video"),
+    (KlingOmniVideoGeneration, "gtc_kling_v3_omni", "kling-v3-omni:omnivideo"),
 ]
 
 
-@pytest.mark.parametrize(("node_class", "bare_id", "suffixed_id"), SUFFIXED_NODES)
+@pytest.mark.parametrize(("node_class", "catalog_id", "api_id"), SUFFIXED_NODES)
 def test_suffixed_catalog_id_is_bare_provider_id(
-    node_class: type[GriptapeProxyNode], bare_id: str, suffixed_id: str
+    node_class: type[GriptapeProxyNode], catalog_id: str, api_id: str
 ) -> None:
-    node = node_class(name=node_class.__name__)
+    node = _create_node(node_class.__name__)
 
-    # The URL-path id keeps the operation suffix; the catalog id must not, so it
-    # matches the bare `provider_model_id` declared in the catalog.
-    assert node._get_api_model_id() == suffixed_id
-    assert node._get_catalog_model_id() == bare_id
+    assert node._get_catalog_model_id() == catalog_id
+    assert node._get_api_model_id() == api_id
 
 
 def test_base_catalog_id_defaults_to_api_model_id() -> None:
-    """Nodes that don't suffix their id resolve the catalog against the same id."""
+    """A node with no model-access component falls back to `_get_api_model_id()`."""
 
     class _PlainProxyNode(GriptapeProxyNode):
         def _get_api_model_id(self) -> str:
@@ -105,9 +126,6 @@ def test_base_catalog_id_defaults_to_api_model_id() -> None:
 
     node = _PlainProxyNode(name="Plain")
     assert node._get_catalog_model_id() == node._get_api_model_id() == "plain-model"
-
-
-LIBRARY_NAME = "Griptape Nodes Library"
 
 
 def _node_types_declaring_models() -> list[str]:

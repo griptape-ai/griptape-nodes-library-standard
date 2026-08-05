@@ -59,14 +59,31 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         - result_details (str): Details about the generation result or error
     """
 
-    # Map user-facing names to provider model IDs
+    # Map catalog model keys to provider model IDs
     MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
-        "Kling v3.0": "kling-v3",
-        "Kling v2.6": "kling-v2-6",
-        "Kling v2.5 Turbo": "kling-v2-5-turbo",
-        "Kling v2.1 Master": "kling-v2-1-master",
-        "Kling v2 Master": "kling-v2-master",
-        "Kling v1.6": "kling-v1-6",
+        "gtc_kling_v3": "kling-v3",
+        "gtc_kling_v2_6": "kling-v2-6",
+        "gtc_kling_v2_5_turbo": "kling-v2-5-turbo",
+        "gtc_kling_v2_1_master": "kling-v2-1-master",
+        "gtc_kling_v2_master": "kling-v2-master",
+        "gtc_kling_v1_6": "kling-v1-6",
+    }
+
+    # Migrates values saved before the dropdown stored catalog keys: old display labels and
+    # raw provider ids.
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
+        "Kling v1.6": "gtc_kling_v1_6",
+        "Kling v2 Master": "gtc_kling_v2_master",
+        "Kling v2.1 Master": "gtc_kling_v2_1_master",
+        "Kling v2.5 Turbo": "gtc_kling_v2_5_turbo",
+        "Kling v2.6": "gtc_kling_v2_6",
+        "Kling v3.0": "gtc_kling_v3",
+        "kling-v1-6": "gtc_kling_v1_6",
+        "kling-v2-1-master": "gtc_kling_v2_1_master",
+        "kling-v2-5-turbo": "gtc_kling_v2_5_turbo",
+        "kling-v2-6": "gtc_kling_v2_6",
+        "kling-v2-master": "gtc_kling_v2_master",
+        "kling-v3": "gtc_kling_v3",
     }
 
     # Model capability definitions
@@ -116,7 +133,7 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
 
         model_name_param = ParameterString(
             name="model_name",
-            default_value="Kling v3.0",
+            default_value="gtc_kling_v3",
             tooltip="Model Name",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -126,15 +143,15 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         self._install_model_access(
             parameter=model_name_param,
             model_choices=[
-                "Kling v3.0",
-                "Kling v2.6",
-                "Kling v2.5 Turbo",
-                "Kling v2.1 Master",
-                "Kling v2 Master",
-                "Kling v1.6",
+                "gtc_kling_v3",
+                "gtc_kling_v2_6",
+                "gtc_kling_v2_5_turbo",
+                "gtc_kling_v2_1_master",
+                "gtc_kling_v2_master",
+                "gtc_kling_v1_6",
             ],
-            default_model="Kling v3.0",
-            provider_model_id_by_choice=self.MODEL_NAME_MAP,
+            default_model="gtc_kling_v3",
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
         # INPUTS / PROPERTIES
@@ -312,7 +329,7 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         )
 
         # Set initial parameter visibility based on default model
-        self._update_parameter_visibility_for_model(self.get_parameter_value("model_name") or "Kling v3.0")
+        self._update_parameter_visibility_for_model(self.get_parameter_value("model_name") or "gtc_kling_v3")
         self._update_multi_shot_parameter_visibility()
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
@@ -401,7 +418,7 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
 
     def _update_multi_shot_parameter_visibility(self) -> None:
         """Toggle prompt and shot inputs for v3 multi-shot configurations."""
-        model_name = self.get_parameter_value("model_name") or "Kling v3.0"
+        model_name = self.get_parameter_value("model_name") or "gtc_kling_v3"
         model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
         if model_id != V3_MODEL_ID:
             return
@@ -461,12 +478,7 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
 
         Appends :text2video modality to the model name.
         """
-        return f"{self._get_catalog_model_id()}:text2video"
-
-    def _get_catalog_model_id(self) -> str:
-        # The catalog declares the bare provider id (no `:text2video` suffix).
-        model_name = self.get_parameter_value("model_name") or "Kling v2.6"
-        return self.MODEL_NAME_MAP.get(model_name, model_name)
+        return f"{self._provider_model_id_for_selection()}:text2video"
 
     def _build_customize_multi_prompt_payload(self, shot_count: int) -> list[dict[str, Any]]:
         """Build multi_prompt payload from shot input parameters."""
@@ -638,7 +650,7 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
             dict: The request payload (model field excluded, handled by base class)
         """
         prompt = self.get_parameter_value("prompt") or ""
-        model_name = self.get_parameter_value("model_name") or "Kling v2.6"
+        model_name = self.get_parameter_value("model_name") or "gtc_kling_v2_6"
         model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
         negative_prompt = self.get_parameter_value("negative_prompt") or ""
         cfg_scale = self.get_parameter_value("cfg_scale")
@@ -737,7 +749,7 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
 
         # Validate prompt is provided
         prompt = self.get_parameter_value("prompt") or ""
-        model_name = self.get_parameter_value("model_name") or "Kling v2.6"
+        model_name = self.get_parameter_value("model_name") or "gtc_kling_v2_6"
         model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
         multi_shot = bool(self.get_parameter_value("multi_shot"))
         shot_type = self.get_parameter_value("shot_type") or "customize"
@@ -772,7 +784,7 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
             )
 
         # Validate model-specific constraints
-        model_name = self.get_parameter_value("model_name") or "Kling v2.6"
+        model_name = self.get_parameter_value("model_name") or "gtc_kling_v2_6"
         model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
         mode = self.get_parameter_value("mode") or DEFAULT_MODE
         aspect_ratio = self.get_parameter_value("aspect_ratio") or "16:9"

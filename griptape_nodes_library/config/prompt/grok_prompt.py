@@ -17,8 +17,28 @@ from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
 SERVICE = "Grok"
 API_KEY_URL = "https://console.x.ai"
 API_KEY_ENV_VAR = "GROK_API_KEY"
-MODEL_CHOICES = ["grok-3-beta", "grok-3-fast-beta", "grok-3-mini-beta", "grok-3-mini-fast-beta", "grok-2-vision-1212"]
+MODEL_CHOICES = [
+    "xai_grok_3_beta",
+    "xai_grok_3_fast_beta",
+    "xai_grok_3_mini_beta",
+    "xai_grok_3_mini_fast_beta",
+    "xai_grok_2_vision_1212",
+]
 DEFAULT_MODEL = MODEL_CHOICES[0]
+
+# Migrates values saved before the dropdown stored catalog keys.
+LEGACY_MODEL_VALUES = {
+    "Grok 2 Vision": "xai_grok_2_vision_1212",
+    "Grok 3 Beta": "xai_grok_3_beta",
+    "Grok 3 Fast Beta": "xai_grok_3_fast_beta",
+    "Grok 3 Mini Beta": "xai_grok_3_mini_beta",
+    "Grok 3 Mini Fast Beta": "xai_grok_3_mini_fast_beta",
+    "grok-2-vision-1212": "xai_grok_2_vision_1212",
+    "grok-3-beta": "xai_grok_3_beta",
+    "grok-3-fast-beta": "xai_grok_3_fast_beta",
+    "grok-3-mini-beta": "xai_grok_3_mini_beta",
+    "grok-3-mini-fast-beta": "xai_grok_3_mini_fast_beta",
+}
 
 
 class GrokPrompt(BasePrompt):
@@ -50,7 +70,9 @@ class GrokPrompt(BasePrompt):
         # --- Customize Inherited Parameters ---
 
         # Offer Grok's models as a license-filtered dropdown.
-        self._install_model_access(model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL)
+        self._install_model_access(
+            model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=LEGACY_MODEL_VALUES
+        )
 
         # Remove `top_k` parameter as it's not used by Grok.
         self.remove_parameter_element_by_name("seed")
@@ -88,8 +110,8 @@ class GrokPrompt(BasePrompt):
         # Retrieve the mandatory API key.
         specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
 
-        # Get the selected model.
-        specific_args["model"] = self.get_parameter_value("model")
+        # Get the upstream provider's id for the selected model.
+        specific_args["model"] = self._provider_model_id_for_selection()
 
         # Handle parameters that go into 'extra_params' for Grok.
         extra_params = {}

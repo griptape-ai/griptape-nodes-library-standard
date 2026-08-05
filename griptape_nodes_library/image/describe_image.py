@@ -18,6 +18,7 @@ from griptape_nodes.exe_types.param_components.model_access_component import Mod
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.node_library.library_registry import resolve_provider_model_id
 from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest, DeleteConnectionRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.options import Options
@@ -40,25 +41,61 @@ SERVICE = "Griptape"
 API_KEY_URL = "https://cloud.griptape.ai/configuration/api-keys"
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 
-# Vision-capable models available on Griptape Cloud.
+# Catalog model keys of Griptape Cloud's vision-capable models, in dropdown order.
+# Defined locally rather than imported from cloud_models.py's own CATALOG_MODEL_CHOICES
+# -- that module is owned by another node's revision, and this list is this node's own
+# license-gated dropdown (a vision-only subset), not a shared driver config's model list.
 GTC_VISION_MODEL_CHOICES = [
-    "gpt-5.2",
-    "gpt-5.1",
-    "gpt-5",
-    "gpt-5-mini",
-    "gpt-4.1",
-    "gpt-4.1-mini",
-    "gpt-4.1-nano",
-    "gpt-4o",
-    "o4-mini",
-    "o3",
-    "claude-opus-4-7",
-    "claude-sonnet-4-6",
-    "claude-4-5-sonnet",
-    "gemini-3.1-pro",
-    "gemini-2.5-pro",
+    "gtc_gpt_5_2",
+    "gtc_gpt_5_1",
+    "gtc_gpt_5",
+    "gtc_gpt_5_mini",
+    "gtc_gpt_4_1",
+    "gtc_gpt_4_1_mini",
+    "gtc_gpt_4_1_nano",
+    "gtc_gpt_4o",
+    "gtc_o4_mini",
+    "gtc_o3",
+    "gtc_claude_opus_4_7",
+    "gtc_claude_sonnet_4_6",
+    "gtc_claude_sonnet_4_5",
+    "gtc_gemini_3_1_pro",
+    "gtc_gemini_2_5_pro",
 ]
 DEFAULT_MODEL = GTC_VISION_MODEL_CHOICES[0]
+
+# Migrates values saved before the dropdown stored catalog keys.
+LEGACY_MODEL_VALUES = {
+    "Claude Opus 4.7": "gtc_claude_opus_4_7",
+    "Claude Sonnet 4.5": "gtc_claude_sonnet_4_5",
+    "Claude Sonnet 4.6": "gtc_claude_sonnet_4_6",
+    "GPT-4.1": "gtc_gpt_4_1",
+    "GPT-4.1 mini": "gtc_gpt_4_1_mini",
+    "GPT-4.1 nano": "gtc_gpt_4_1_nano",
+    "GPT-4o": "gtc_gpt_4o",
+    "GPT-5": "gtc_gpt_5",
+    "GPT-5 mini": "gtc_gpt_5_mini",
+    "GPT-5.1": "gtc_gpt_5_1",
+    "GPT-5.2": "gtc_gpt_5_2",
+    "Gemini 2.5 Pro": "gtc_gemini_2_5_pro",
+    "Gemini 3.1 Pro": "gtc_gemini_3_1_pro",
+    "claude-4-5-sonnet": "gtc_claude_sonnet_4_5",
+    "claude-opus-4-7": "gtc_claude_opus_4_7",
+    "claude-sonnet-4-6": "gtc_claude_sonnet_4_6",
+    "gemini-2.5-pro": "gtc_gemini_2_5_pro",
+    "gemini-3.1-pro": "gtc_gemini_3_1_pro",
+    "gpt-4.1": "gtc_gpt_4_1",
+    "gpt-4.1-mini": "gtc_gpt_4_1_mini",
+    "gpt-4.1-nano": "gtc_gpt_4_1_nano",
+    "gpt-4o": "gtc_gpt_4o",
+    "gpt-5": "gtc_gpt_5",
+    "gpt-5-mini": "gtc_gpt_5_mini",
+    "gpt-5.1": "gtc_gpt_5_1",
+    "gpt-5.2": "gtc_gpt_5_2",
+    "o3": "gtc_o3",
+    "o4 mini": "gtc_o4_mini",
+    "o4-mini": "gtc_o4_mini",
+}
 
 
 class DescribeImage(ControlNode):
@@ -108,6 +145,7 @@ class DescribeImage(ControlNode):
             parameter=model_param,
             model_choices=GTC_VISION_MODEL_CHOICES,
             default_model=DEFAULT_MODEL,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self._provider = ProviderSelectionComponent(
@@ -363,7 +401,7 @@ class DescribeImage(ControlNode):
         agent = None
 
         default_prompt_driver = GriptapeCloudPromptDriver(
-            model=DEFAULT_MODEL,
+            model=resolve_provider_model_id(self, DEFAULT_MODEL) or DEFAULT_MODEL,
             api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
             stream=False,  # TODO: enable once https://github.com/griptape-ai/griptape-cloud/issues/1593 is resolved
         )
@@ -434,7 +472,9 @@ class DescribeImage(ControlNode):
             api_key = self._provider.resolve_provider_api_key(non_gtc_provider_config)
             base_url = non_gtc_provider_config.base_url or ""
             prompt_driver = GtOpenAiChatPromptDriver(
-                model=model_input if isinstance(model_input, str) else DEFAULT_MODEL,
+                model=model_input
+                if isinstance(model_input, str)
+                else (resolve_provider_model_id(self, DEFAULT_MODEL) or DEFAULT_MODEL),
                 base_url=base_url,
                 api_key=api_key,
                 stream=True,
@@ -444,8 +484,11 @@ class DescribeImage(ControlNode):
         elif isinstance(model_input, str):
             if model_input not in self._model_access.model_choices:
                 model_input = DEFAULT_MODEL
+            # `model_input` is the catalog key the dropdown stores; the driver needs the
+            # upstream provider's own id instead.
+            provider_model_id = resolve_provider_model_id(self, model_input) or ""
             prompt_driver = GriptapeCloudPromptDriver(
-                model=model_input,
+                model=provider_model_id,
                 api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
                 stream=False,  # TODO: enable once https://github.com/griptape-ai/griptape-cloud/issues/1593 is resolved
             )

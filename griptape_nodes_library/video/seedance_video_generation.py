@@ -6,7 +6,7 @@ from contextlib import suppress
 from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -15,7 +15,6 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
@@ -54,20 +53,26 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         - result_details (str): Details about the generation result or error
     """
 
-    # Map user-facing names to provider model IDs
+    # Map catalog model keys to provider model IDs
     MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
-        "Seedance 1.5 Pro": "seedance-1-5-pro-251215",
-        "Seedance 1.0 Pro": "seedance-1-0-pro-250528",
-        "Seedance 1.0 Pro Fast": "seedance-1-0-pro-fast-251015",
+        "gtc_seedance_1_5_pro": "seedance-1-5-pro-251215",
+        "gtc_seedance_1_0_pro": "seedance-1-0-pro-250528",
+        "gtc_seedance_1_0_pro_fast": "seedance-1-0-pro-fast-251015",
     }
 
-    # Deprecated models and their replacements (covers both friendly names and raw provider IDs
-    # so saved workflows in either format are migrated)
-    DEPRECATED_MODELS: ClassVar[dict[str, str]] = {
-        "Seedance 1.0 Lite T2V": "Seedance 1.0 Pro Fast",
-        "seedance-1-0-lite-t2v-250428": "Seedance 1.0 Pro Fast",
-        "Seedance 1.0 Lite I2V": "Seedance 1.0 Pro Fast",
-        "seedance-1-0-lite-i2v-250428": "Seedance 1.0 Pro Fast",
+    # Migrates values saved before the dropdown stored catalog keys: old display labels,
+    # raw provider ids, and models retired in favor of a current choice.
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
+        "Seedance 1.0 Pro": "gtc_seedance_1_0_pro",
+        "Seedance 1.0 Pro Fast": "gtc_seedance_1_0_pro_fast",
+        "Seedance 1.5 Pro": "gtc_seedance_1_5_pro",
+        "seedance-1-0-pro-250528": "gtc_seedance_1_0_pro",
+        "seedance-1-0-pro-fast-251015": "gtc_seedance_1_0_pro_fast",
+        "seedance-1-5-pro-251215": "gtc_seedance_1_5_pro",
+        "Seedance 1.0 Lite T2V": "gtc_seedance_1_0_pro_fast",
+        "seedance-1-0-lite-t2v-250428": "gtc_seedance_1_0_pro_fast",
+        "Seedance 1.0 Lite I2V": "gtc_seedance_1_0_pro_fast",
+        "seedance-1-0-lite-i2v-250428": "gtc_seedance_1_0_pro_fast",
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -78,7 +83,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         # INPUTS / PROPERTIES
         model_id_param = ParameterString(
             name="model_id",
-            default_value="Seedance 1.5 Pro",
+            default_value="gtc_seedance_1_5_pro",
             tooltip="Model to use for video generation",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             ui_options={
@@ -92,29 +97,12 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         self._install_model_access(
             parameter=model_id_param,
             model_choices=[
-                "Seedance 1.5 Pro",
-                "Seedance 1.0 Pro",
-                "Seedance 1.0 Pro Fast",
+                "gtc_seedance_1_5_pro",
+                "gtc_seedance_1_0_pro",
+                "gtc_seedance_1_0_pro_fast",
             ],
-            default_model="Seedance 1.5 Pro",
-            provider_model_id_by_choice=self.MODEL_NAME_MAP,
-        )
-
-        self.add_node_element(
-            ParameterMessage(
-                name="model_deprecation_notice",
-                title="Model Deprecation Notice",
-                variant="info",
-                value="",
-                traits={
-                    Button(
-                        full_width=True,
-                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
-                    )
-                },
-                button_text="Dismiss",
-                hide=True,
-            )
+            default_model="gtc_seedance_1_5_pro",
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -235,26 +223,8 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         )
 
         # Set initial parameter visibility based on default model
-        default_provider_model_id = self._get_provider_model_id("Seedance 1.5 Pro")
+        default_provider_model_id = self._get_provider_model_id("gtc_seedance_1_5_pro")
         self._update_parameter_visibility(default_provider_model_id)
-
-    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
-        """Migrate deprecated model selections to their replacement."""
-        if parameter.name == "model_id" and isinstance(value, str) and value in self.DEPRECATED_MODELS:
-            replacement = self.DEPRECATED_MODELS[value]
-            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
-            if message is None:
-                raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
-            message.value = (
-                f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. "
-                "Please save your workflow to apply this change."
-            )
-            self.show_message_by_name("model_deprecation_notice")
-            value = replacement
-        elif parameter.name == "model_id" and isinstance(value, str):
-            self.hide_message_by_name("model_deprecation_notice")
-
-        return super().before_value_set(parameter, value)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to show/hide dependent parameters based on model capabilities.
@@ -291,9 +261,9 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
 
-        Converts user-facing model name to provider model ID.
+        Converts the stored catalog model key to the provider's model ID.
         """
-        raw_model_id = self.get_parameter_value("model_id") or "Seedance 1.5 Pro"
+        raw_model_id = self.get_parameter_value("model_id") or "gtc_seedance_1_5_pro"
         return self._get_provider_model_id(raw_model_id)
 
     def _log(self, message: str) -> None:
@@ -301,8 +271,8 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
             logger.info(message)
 
     def _get_parameters(self) -> dict[str, Any]:
-        raw_model_id = self.get_parameter_value("model_id") or "Seedance 1.5 Pro"
-        # Convert friendly name to provider model ID
+        raw_model_id = self.get_parameter_value("model_id") or "gtc_seedance_1_5_pro"
+        # Convert catalog model key to provider model ID
         model_id = self._get_provider_model_id(raw_model_id)
 
         return {
@@ -318,13 +288,13 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         }
 
     @classmethod
-    def _get_provider_model_id(cls, user_facing_name: str) -> str:
-        """Convert user-facing model name to provider model ID.
+    def _get_provider_model_id(cls, catalog_model_id: str) -> str:
+        """Convert a catalog model key to its provider model ID.
 
         Falls back to the input value if it's not in the mapping (for backwards compatibility
         with saved flows that may have old model IDs).
         """
-        return cls.MODEL_NAME_MAP.get(user_facing_name, user_facing_name)
+        return cls.MODEL_NAME_MAP.get(catalog_model_id, catalog_model_id)
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for Seedance API (without model field)."""

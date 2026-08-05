@@ -123,7 +123,7 @@ class BaseDriver(DataNode):
         model_choices: list[str],
         default_model: str,
         param: str = "model",
-        provider_model_id_by_choice: dict[str, str] | None = None,
+        deprecated_values: dict[str, str] | None = None,
     ) -> None:
         """Turn the named model parameter into a license-filtered dropdown.
 
@@ -134,12 +134,13 @@ class BaseDriver(DataNode):
         applied here, so the parameter reads the same as it did before adoption.
 
         Args:
-            model_choices: The models the node offers, in dropdown order.
+            model_choices: The catalog model keys the node offers, in dropdown order.
             default_model: The choice to select by default; must be in `model_choices`.
             param: Name of the parameter to decorate.
-            provider_model_id_by_choice: Choice -> catalog `provider_model_id` map,
-                needed only when the choices are display labels rather than
-                provider ids.
+            deprecated_values: Legacy value -> canonical `model_choices` entry map,
+                needed only when the parameter used to store something other than
+                the catalog model key (an old display label, a provider's own
+                model id).
         """
         if default_model not in model_choices:
             msg = f"Default model '{default_model}' is not one of the offered choices."
@@ -156,8 +157,19 @@ class BaseDriver(DataNode):
             parameter=parameter,
             model_choices=model_choices,
             default_model=default_model,
-            provider_model_id_by_choice=provider_model_id_by_choice,
+            deprecated_values=deprecated_values,
         )
+
+    def _provider_model_id_for_selection(self) -> str:
+        """The upstream provider's id for the model dropdown's current selection.
+
+        The dropdown stores a catalog model key, so a driver built from this
+        node's parameters resolves the provider's own name for the model here
+        rather than passing the catalog key upstream.
+        """
+        if self._model_access is None:
+            return ""
+        return self._model_access.provider_model_id()
 
     def _raise_if_model_denied(self) -> None:
         """Fail closed rather than hand a downstream node a driver the license denies.

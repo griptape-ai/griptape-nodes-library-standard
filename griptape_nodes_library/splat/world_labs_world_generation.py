@@ -29,16 +29,21 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["WorldLabsWorldGeneration"]
 
-# Model options
-MODEL_OPTIONS = ["Marble 1.1 Plus", "Marble 1.1", "Marble 1.0", "Marble 1.0 Draft"]
-DEFAULT_MODEL = "Marble 1.1"
+# Model options, in catalog order
+MODEL_OPTIONS = ["gtc_marble_1_1_plus", "gtc_marble_1_1", "gtc_marble_1_0", "gtc_marble_1_0_draft"]
+DEFAULT_MODEL = "gtc_marble_1_1"
 
-# Model ID mapping
-MODEL_ID_MAP = {
-    "Marble 1.1 Plus": "marble-1.1-plus",
-    "Marble 1.1": "marble-1.1",
-    "Marble 1.0": "marble-1.0",
-    "Marble 1.0 Draft": "marble-1.0-draft",
+# Migrates values saved before this dropdown stored catalog model keys (friendly labels
+# and raw provider ids alike).
+LEGACY_MODEL_VALUES = {
+    "Marble 1.0": "gtc_marble_1_0",
+    "Marble 1.0 Draft": "gtc_marble_1_0_draft",
+    "Marble 1.1": "gtc_marble_1_1",
+    "Marble 1.1 Plus": "gtc_marble_1_1_plus",
+    "marble-1.0": "gtc_marble_1_0",
+    "marble-1.0-draft": "gtc_marble_1_0_draft",
+    "marble-1.1": "gtc_marble_1_1",
+    "marble-1.1-plus": "gtc_marble_1_1_plus",
 }
 
 # Input type options
@@ -104,7 +109,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
             parameter=model_param,
             model_choices=MODEL_OPTIONS,
             default_model=DEFAULT_MODEL,
-            provider_model_id_by_choice=MODEL_ID_MAP,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Input type selector
@@ -380,12 +385,6 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
             "seed": self._seed_parameter.get_seed(),
         }
 
-    def _get_api_model_id(self) -> str:
-        """Map friendly model name to backend model ID."""
-        params = self._get_parameters()
-        model_name = params.get("model", DEFAULT_MODEL)
-        return MODEL_ID_MAP.get(model_name, "marble-1.1")
-
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter changes and update visibility."""
         super().after_value_set(parameter, value)
@@ -441,7 +440,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         # Build top-level request
         payload: dict[str, Any] = {
             "world_prompt": world_prompt,
-            "model": self._get_api_model_id(),
+            "model": self._provider_model_id_for_selection(),
         }
 
         # Add optional parameters

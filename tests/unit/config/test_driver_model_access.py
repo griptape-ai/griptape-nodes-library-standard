@@ -40,22 +40,23 @@ LIBRARY_NAME = "Griptape Nodes Library"
 
 type AuthorizationHook = Callable[[AuthorizationCheckpoint], CheckpointDenial | None]
 
-# (node type, catalog model id to deny, dropdown value that id resolves to).
-# The denied id is deliberately not the node's default everywhere it can be,
-# so the ModelAccessComponent constructor's default-relocation logic (which
-# moves the stored value off a denied default) never fires and can't confuse
-# these assertions. CoherePrompt and GrokImage each declare exactly one model,
-# so their only choice is necessarily also their default.
-NODE_MODEL_CASES: list[tuple[str, str, str]] = [
-    ("AnthropicPrompt", "gtc_claude_haiku_4_5", "claude-haiku-4-5"),
-    ("CoherePrompt", "cohere_command_r_plus", "command-r-plus"),  # CoherePrompt's only declared model
-    ("GriptapeCloudPrompt", "gtc_claude_sonnet_4_6", "claude-sonnet-4-6"),
-    ("GrokPrompt", "xai_grok_3_mini_beta", "grok-3-mini-beta"),
-    ("GroqPrompt", "groq_llama_3_3_70b_versatile", "llama-3.3-70b-versatile"),
-    ("NimPrompt", "nim_gpt_oss_20b", "openai/gpt-oss-20b"),
-    ("GriptapeCloudImage", "gtc_gpt_image_1_5", "gpt-image-1.5"),
-    ("GrokImage", "xai_grok_2_image_1212", "grok-2-image-1212"),  # GrokImage's only declared model
-    ("OpenAiImage", "openai_dall_e_3", "dall-e-3"),
+# (node type, catalog model id to deny). The dropdown stores this same catalog
+# key, so there is no separate "dropdown value" column to track. The denied id
+# is deliberately not the node's default everywhere it can be, so the
+# ModelAccessComponent constructor's default-relocation logic (which moves the
+# stored value off a denied default) never fires and can't confuse these
+# assertions. CoherePrompt and GrokImage each declare exactly one model, so
+# their only choice is necessarily also their default.
+NODE_MODEL_CASES: list[tuple[str, str]] = [
+    ("AnthropicPrompt", "gtc_claude_haiku_4_5"),
+    ("CoherePrompt", "cohere_command_r_plus"),  # CoherePrompt's only declared model
+    ("GriptapeCloudPrompt", "gtc_claude_sonnet_4_6"),
+    ("GrokPrompt", "xai_grok_3_mini_beta"),
+    ("GroqPrompt", "groq_llama_3_3_70b_versatile"),
+    ("NimPrompt", "nim_gpt_oss_20b"),
+    ("GriptapeCloudImage", "gtc_gpt_image_1_5"),
+    ("GrokImage", "xai_grok_2_image_1212"),  # GrokImage's only declared model
+    ("OpenAiImage", "openai_dall_e_3"),
 ]
 
 
@@ -138,11 +139,10 @@ def test_model_param_wired_to_model_access_component(node_type: str) -> None:
     assert ui_options["data"]
 
 
-@pytest.mark.parametrize(("node_type", "denied_catalog_id", "dropdown_value"), NODE_MODEL_CASES)
+@pytest.mark.parametrize(("node_type", "denied_catalog_id"), NODE_MODEL_CASES)
 def test_denied_model_row_carries_denial_icon(
     node_type: str,
     denied_catalog_id: str,
-    dropdown_value: str,
     authorization_hook: Callable[[AuthorizationHook], None],
 ) -> None:
     # Registered before construction so the component's constructor-time snapshot
@@ -156,17 +156,16 @@ def test_denied_model_row_carries_denial_icon(
     assert data
 
     for row in data:
-        if row["name"] == dropdown_value:
+        if row["name"] == denied_catalog_id:
             assert row.get("icon") == "shield-off"
         else:
             assert row.get("icon") is None
 
 
-@pytest.mark.parametrize(("node_type", "denied_catalog_id", "dropdown_value"), NODE_MODEL_CASES)
+@pytest.mark.parametrize(("node_type", "denied_catalog_id"), NODE_MODEL_CASES)
 def test_process_raises_when_selected_model_is_denied(
     node_type: str,
     denied_catalog_id: str,
-    dropdown_value: str,
     authorization_hook: Callable[[AuthorizationHook], None],
 ) -> None:
     """A denied model must not reach a downstream node as a driver.
@@ -177,7 +176,7 @@ def test_process_raises_when_selected_model_is_denied(
     """
     node = _create_node(node_type)
     authorization_hook(_deny_hook(CheckpointAction.OFFER_MODEL, denied_catalog_id))
-    node.set_parameter_value("model", dropdown_value)
+    node.set_parameter_value("model", denied_catalog_id)
 
     with pytest.raises(RuntimeError, match="is not permitted"):
         node.process()

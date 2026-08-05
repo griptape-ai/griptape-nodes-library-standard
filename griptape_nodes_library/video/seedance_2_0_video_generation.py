@@ -48,9 +48,9 @@ __all__ = ["Seedance20VideoGeneration"]
 INPUT_MODE_TEXT_ONLY = "Text Only"
 INPUT_MODE_FIRST_LAST_FRAME = "First/Last Frame"
 INPUT_MODE_MULTIMODAL_REFERENCES = "Multimodal References"
-MODEL_NAME_SEEDANCE_2_0 = "Seedance 2.0"
-MODEL_NAME_SEEDANCE_2_0_FAST = "Seedance 2.0 Fast"
-MODEL_NAME_SEEDANCE_2_0_MINI = "Seedance 2.0 Mini"
+MODEL_NAME_SEEDANCE_2_0 = "gtc_seedance_2_0"
+MODEL_NAME_SEEDANCE_2_0_FAST = "gtc_seedance_2_0_fast"
+MODEL_NAME_SEEDANCE_2_0_MINI = "gtc_seedance_2_0_mini"
 SEEDANCE_2_0_MODEL_ID = "dreamina-seedance-2-0-260128"
 SEEDANCE_2_0_FAST_MODEL_ID = "dreamina-seedance-2-0-fast-260128"
 SEEDANCE_2_0_MINI_MODEL_ID = "dreamina-seedance-2-0-mini-260615"
@@ -183,6 +183,17 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         MODEL_NAME_SEEDANCE_2_0: SEEDANCE_2_0_MODEL_ID,
     }
 
+    # Migrates values saved before the dropdown stored catalog keys: old display labels and
+    # raw provider ids.
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
+        "Seedance 2.0": MODEL_NAME_SEEDANCE_2_0,
+        "Seedance 2.0 Fast": MODEL_NAME_SEEDANCE_2_0_FAST,
+        "Seedance 2.0 Mini": MODEL_NAME_SEEDANCE_2_0_MINI,
+        "dreamina-seedance-2-0-260128": MODEL_NAME_SEEDANCE_2_0,
+        "dreamina-seedance-2-0-fast-260128": MODEL_NAME_SEEDANCE_2_0_FAST,
+        "dreamina-seedance-2-0-mini-260615": MODEL_NAME_SEEDANCE_2_0_MINI,
+    }
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.category = "API Nodes"
@@ -212,7 +223,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 MODEL_NAME_SEEDANCE_2_0_MINI,
             ],
             default_model=MODEL_NAME_SEEDANCE_2_0,
-            provider_model_id_by_choice=self.MODEL_NAME_MAP,
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
         # Input mode selector

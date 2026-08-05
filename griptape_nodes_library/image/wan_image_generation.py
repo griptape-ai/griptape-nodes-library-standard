@@ -20,13 +20,18 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["WanImageGeneration"]
 
-# Model mapping from user-friendly names to API model IDs
-MODEL_MAPPING = {
-    "Wan 2.7 Image Pro": "wan2.7-image-pro",
-    "Wan 2.7 Image": "wan2.7-image",
-}
-MODEL_OPTIONS = list(MODEL_MAPPING.keys())
+# Model options, in catalog order
+MODEL_OPTIONS = ["gtc_wan_2_7_image_pro", "gtc_wan_2_7_image"]
 DEFAULT_MODEL = MODEL_OPTIONS[0]
+
+# Migrates values saved before this dropdown stored catalog model keys (friendly labels
+# and raw provider ids alike).
+LEGACY_MODEL_VALUES = {
+    "Wan 2.7 Image": "gtc_wan_2_7_image",
+    "Wan 2.7 Image Pro": "gtc_wan_2_7_image_pro",
+    "wan2.7-image": "gtc_wan_2_7_image",
+    "wan2.7-image-pro": "gtc_wan_2_7_image_pro",
+}
 
 # Size options
 SIZE_OPTIONS = ["1K", "2K", "4K"]
@@ -75,7 +80,7 @@ class WanImageGeneration(GriptapeProxyNode):
             parameter=model_param,
             model_choices=MODEL_OPTIONS,
             default_model=DEFAULT_MODEL,
-            provider_model_id_by_choice=MODEL_MAPPING,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Core parameters
@@ -180,11 +185,6 @@ class WanImageGeneration(GriptapeProxyNode):
             result_details_placeholder="Generation status and details will appear here.",
             parameter_group_initially_collapsed=True,
         )
-
-    def _get_api_model_id(self) -> str:
-        """Map friendly model name to API model ID."""
-        model = self.get_parameter_value("model") or DEFAULT_MODEL
-        return MODEL_MAPPING.get(str(model), str(model))
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for Wan image generation.

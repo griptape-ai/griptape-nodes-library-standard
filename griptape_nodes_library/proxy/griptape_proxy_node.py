@@ -173,7 +173,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         parameter: Parameter,
         model_choices: list[str],
         default_model: str,
-        provider_model_id_by_choice: dict[str, str] | None = None,
+        deprecated_values: dict[str, str] | None = None,
     ) -> None:
         """Turn an already-added model parameter into a license-filtered dropdown.
 
@@ -184,19 +184,36 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         Args:
             parameter: The model parameter, already added to this node.
-            model_choices: The models the node offers, in dropdown order.
+            model_choices: The catalog model keys the node offers, in dropdown order.
             default_model: The choice selected by default.
-            provider_model_id_by_choice: Choice -> catalog `provider_model_id` map,
-                needed only when the choices are display labels rather than
-                provider ids.
+            deprecated_values: Legacy value -> canonical `model_choices` entry map,
+                needed only when the parameter used to store something other than
+                the catalog model key (an old display label, a provider's own
+                model id).
         """
         self._model_access = ModelDropdownAccess(
             node=self,
             parameter=parameter,
             model_choices=model_choices,
             default_model=default_model,
-            provider_model_id_by_choice=provider_model_id_by_choice,
+            deprecated_values=deprecated_values,
         )
+
+    def _provider_model_id_for_selection(self) -> str:
+        """Resolve the model dropdown's current catalog key to the upstream provider's id for it.
+
+        The dropdown stores a catalog model key, not the provider's own name for
+        it, so a node building a request URL or payload resolves the provider's
+        id through here rather than keeping its own copy of the mapping.
+
+        Returns:
+            str: The provider model id, or `""` when there is no model-access
+                component installed, no current selection, or the selection
+                does not resolve to a declared catalog model.
+        """
+        if self._model_access is None:
+            return ""
+        return self._model_access.provider_model_id()
 
     def _prepare_user_auth_info(self) -> None:
         self.register_user_auth_info(None)
@@ -286,20 +303,27 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
 
-        Subclasses can override this if they need to map friendly names to API IDs.
-        By default, returns the value of the 'model' parameter if it exists.
+        Subclasses can override this if they need to map the dropdown value to a
+        differently-shaped API ID (e.g. an operation suffix in the URL path). By
+        default, resolves the 'model' parameter's stored catalog key to the
+        upstream provider's id via `_provider_model_id_for_selection()` when a
+        model-access component is installed; falls back to the raw 'model'
+        parameter value otherwise.
 
         Returns:
             str: The model ID to use in the API request
         """
+        if self._model_access is not None:
+            return self._provider_model_id_for_selection()
         return self.get_parameter_value("model") or ""
 
     def _get_catalog_model_id(self) -> str:
         """Get the model ID used to resolve this node's declared catalog model.
 
-        The permission/declaration layer matches on the catalog's
-        `provider_model_id`, which is the bare upstream model id. By default this
-        is the same value used in the API request URL (`_get_api_model_id()`).
+        The permission/declaration layer matches on the catalog model key. By
+        default, returns the model-access dropdown's stored value when a
+        model-access component is installed -- that value IS the catalog id --
+        and falls back to `_get_api_model_id()` otherwise.
 
         Subclasses whose `_get_api_model_id()` decorates the id with an operation
         suffix for the URL path (e.g. `grok-imagine-video:generate`) must override
@@ -309,6 +333,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Returns:
             str: The model ID to match against declared catalog models
         """
+        if self._model_access is not None:
+            return self.get_parameter_value(self._model_access.parameter_name) or ""
         return self._get_api_model_id()
 
     def _validate_api_key(self) -> str:

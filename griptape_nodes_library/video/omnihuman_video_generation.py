@@ -67,9 +67,16 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
     SERVICE_NAME = "Griptape"
     API_KEY_NAME = "GT_CLOUD_API_KEY"
     MODEL_IDS: ClassVar[list[str]] = [
-        "omnihuman-1-0",
-        "omnihuman-1-5",
+        "gtc_omnihuman_1_0",
+        "gtc_omnihuman_1_5",
     ]
+    # Migrates values saved before the dropdown stored catalog keys.
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
+        "OmniHuman 1.0": "gtc_omnihuman_1_0",
+        "OmniHuman 1.5": "gtc_omnihuman_1_5",
+        "omnihuman-1-0": "gtc_omnihuman_1_0",
+        "omnihuman-1-5": "gtc_omnihuman_1_5",
+    }
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -80,7 +87,7 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         # add model_id parameter with fixed value
         model_id_param = ParameterString(
             name="model_id",
-            default_value="omnihuman-1-5",
+            default_value="gtc_omnihuman_1_5",
             tooltip="Model identifier to use for generation",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -90,7 +97,8 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         self._install_model_access(
             parameter=model_id_param,
             model_choices=self.MODEL_IDS,
-            default_model="omnihuman-1-5",
+            default_model="gtc_omnihuman_1_5",
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
         self.add_parameter(
             ParameterString(
@@ -204,8 +212,8 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         value: Any,
     ) -> None:
         super().after_value_set(parameter, value)
-        # if the model_id parameter is omnihuman-1-0, remove seed, fast_mode, and prompt parameters
-        if parameter.name == "model_id" and value == "omnihuman-1-0":
+        # if the model_id parameter is OmniHuman 1.0, remove seed, fast_mode, and prompt parameters
+        if parameter.name == "model_id" and value == "gtc_omnihuman_1_0":
             self.hide_parameter_by_name("seed")
             self.hide_parameter_by_name("fast_mode")
             self.hide_parameter_by_name("prompt")
@@ -349,8 +357,6 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         seed = self.get_parameter_value("seed")
         fast_mode = self.get_parameter_value("fast_mode")
 
-        model_id = self.get_parameter_value("model_id")
-
         if not image_input:
             msg = "image_url parameter is required."
             raise ValueError(msg)
@@ -386,7 +392,7 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
                     mask_urls.append(mask_url)
 
         body = {
-            "req_key": self._get_req_key(model_id),
+            "req_key": self._get_req_key(self._provider_model_id_for_selection()),
             "image_url": image_url,
             "audio_url": audio_url,
             "mask_url": "; ".join(mask_urls) if mask_urls else None,
@@ -435,7 +441,7 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
             return []
 
     def _get_req_key(self, model_id: str) -> str:
-        """Get the request key based on model_id."""
+        """Get the request key based on the upstream provider's model id."""
         if model_id == "omnihuman-1-0":
             return "realman_avatar_picture_omni_cv"
         if model_id == "omnihuman-1-5":
@@ -450,9 +456,6 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
             msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
             raise ValueError(msg)
         return api_key
-
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model_id") or ""
 
     async def _build_payload(self) -> dict[str, Any]:
         params = await self._get_parameters()

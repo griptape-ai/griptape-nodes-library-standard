@@ -19,18 +19,42 @@ BASE_URL = "https://api.groq.com/openai/v1"
 API_KEY_URL = "https://console.groq.com/keys"
 API_KEY_ENV_VAR = "GROQ_API_KEY"
 MODEL_CHOICES = [
-    "gemma2-9b-it",
-    "meta-llama/llama-guard-4-12b",
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "llama3-70b-8192",
-    "llama3-8b-8192",
-    "allam-2-7b",
-    "deepseek-r1-distill-llama-70b",
-    "meta-llama/llama-4-scout-17b-16e-instruct",
-    "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "groq_gemma2_9b_it",
+    "groq_llama_guard_4_12b",
+    "groq_llama_3_3_70b_versatile",
+    "groq_llama_3_1_8b_instant",
+    "groq_llama3_70b_8192",
+    "groq_llama3_8b_8192",
+    "groq_allam_2_7b",
+    "groq_deepseek_r1_distill_llama_70b",
+    "groq_llama_4_scout_17b_16e_instruct",
+    "groq_llama_4_maverick_17b_128e_instruct",
 ]
 DEFAULT_MODEL = MODEL_CHOICES[0]
+
+# Migrates values saved before the dropdown stored catalog keys.
+LEGACY_MODEL_VALUES = {
+    "Allam 2 7B": "groq_allam_2_7b",
+    "DeepSeek R1 Distill Llama 70B": "groq_deepseek_r1_distill_llama_70b",
+    "Gemma 2 9B IT": "groq_gemma2_9b_it",
+    "Llama 3 70B 8192": "groq_llama3_70b_8192",
+    "Llama 3 8B 8192": "groq_llama3_8b_8192",
+    "Llama 3.1 8B Instant": "groq_llama_3_1_8b_instant",
+    "Llama 3.3 70B Versatile": "groq_llama_3_3_70b_versatile",
+    "Llama 4 Maverick 17B 128E Instruct": "groq_llama_4_maverick_17b_128e_instruct",
+    "Llama 4 Scout 17B 16E Instruct": "groq_llama_4_scout_17b_16e_instruct",
+    "Llama Guard 4 12B": "groq_llama_guard_4_12b",
+    "allam-2-7b": "groq_allam_2_7b",
+    "deepseek-r1-distill-llama-70b": "groq_deepseek_r1_distill_llama_70b",
+    "gemma2-9b-it": "groq_gemma2_9b_it",
+    "llama-3.1-8b-instant": "groq_llama_3_1_8b_instant",
+    "llama-3.3-70b-versatile": "groq_llama_3_3_70b_versatile",
+    "llama3-70b-8192": "groq_llama3_70b_8192",
+    "llama3-8b-8192": "groq_llama3_8b_8192",
+    "meta-llama/llama-4-maverick-17b-128e-instruct": "groq_llama_4_maverick_17b_128e_instruct",
+    "meta-llama/llama-4-scout-17b-16e-instruct": "groq_llama_4_scout_17b_16e_instruct",
+    "meta-llama/llama-guard-4-12b": "groq_llama_guard_4_12b",
+}
 
 
 class GroqPrompt(BasePrompt):
@@ -62,7 +86,9 @@ class GroqPrompt(BasePrompt):
         # --- Customize Inherited Parameters ---
 
         # Offer Groq's models as a license-filtered dropdown.
-        self._install_model_access(model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL)
+        self._install_model_access(
+            model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=LEGACY_MODEL_VALUES
+        )
 
         # Remove the 'seed' parameter as it's not directly used by GroqPromptDriver.
         self.remove_parameter_element_by_name("seed")
@@ -105,8 +131,8 @@ class GroqPrompt(BasePrompt):
         # Set the base URL for the Groq API.
         specific_args["base_url"] = BASE_URL
 
-        # Get the selected model.
-        specific_args["model"] = self.get_parameter_value("model")
+        # Get the upstream provider's id for the selected model.
+        specific_args["model"] = self._provider_model_id_for_selection()
 
         # Handle parameters that go into 'extra_params' for Groq.
         extra_params = {}

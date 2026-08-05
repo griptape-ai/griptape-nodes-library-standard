@@ -28,9 +28,17 @@ __all__ = ["WanAnimateGeneration"]
 
 # Model options
 MODEL_OPTIONS = [
-    "wan2.2-animate-mix",
-    "wan2.2-animate-move",
+    "gtc_wan_2_2_animate_mix",
+    "gtc_wan_2_2_animate_move",
 ]
+
+# Migrates values saved before the dropdown stored catalog keys.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Wan 2.2 Animate Mix": "gtc_wan_2_2_animate_mix",
+    "Wan 2.2 Animate Move": "gtc_wan_2_2_animate_move",
+    "wan2.2-animate-mix": "gtc_wan_2_2_animate_mix",
+    "wan2.2-animate-move": "gtc_wan_2_2_animate_move",
+}
 
 # Mode options
 MODE_OPTIONS = [
@@ -106,6 +114,7 @@ class WanAnimateGeneration(GriptapeProxyNode):
             parameter=model_param,
             model_choices=MODEL_OPTIONS,
             default_model=MODEL_OPTIONS[0],
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
         # Mode selection
         self.add_parameter(
@@ -270,9 +279,6 @@ class WanAnimateGeneration(GriptapeProxyNode):
             msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
             raise ValueError(msg)
         return api_key
-
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or ""
 
     async def _build_payload(self) -> dict[str, Any]:
         params = await self._get_parameters()

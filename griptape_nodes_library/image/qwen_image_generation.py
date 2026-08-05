@@ -32,7 +32,15 @@ PROMPT_TRUNCATE_LENGTH = 100
 SIZE_OPTIONS = ["1328*1328", "1664*928", "1472*1140", "1140*1472", "928*1664"]
 
 # Model options
-MODEL_OPTIONS = ["qwen-image", "qwen-image-plus"]
+MODEL_OPTIONS = ["gtc_qwen_image", "gtc_qwen_image_plus"]
+
+# Migrates values saved before the dropdown stored catalog keys.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Qwen Image": "gtc_qwen_image",
+    "Qwen Image Plus": "gtc_qwen_image_plus",
+    "qwen-image": "gtc_qwen_image",
+    "qwen-image-plus": "gtc_qwen_image_plus",
+}
 
 # Response status constants
 STATUS_FAILED = "Failed"
@@ -77,7 +85,7 @@ class QwenImageGeneration(GriptapeProxyNode):
             name="model",
             input_types=["str"],
             type="str",
-            default_value="qwen-image",
+            default_value="gtc_qwen_image",
             tooltip="Select the Qwen model to use",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -87,7 +95,8 @@ class QwenImageGeneration(GriptapeProxyNode):
         self._install_model_access(
             parameter=model_param,
             model_choices=MODEL_OPTIONS,
-            default_model="qwen-image",
+            default_model="gtc_qwen_image",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Core parameters
@@ -192,9 +201,6 @@ class QwenImageGeneration(GriptapeProxyNode):
             raise ValueError(msg)
         return api_key
 
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or ""
-
     async def _build_payload(self) -> dict[str, Any]:
         params = self._get_parameters()
 
@@ -203,7 +209,7 @@ class QwenImageGeneration(GriptapeProxyNode):
 
         # Flatten structure - parameters should be at top level for MultiModalConversation.call()
         payload = {
-            "model": params["model"],
+            "model": self._provider_model_id_for_selection(),
             "messages": [{"role": "user", "content": content}],
             "size": params["size"],
             "prompt_extend": params["prompt_upsampling"],

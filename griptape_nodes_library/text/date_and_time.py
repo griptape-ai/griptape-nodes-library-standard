@@ -5,6 +5,7 @@ from griptape.tools import DateTimeTool as GtDateTimeTool
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
+from griptape_nodes.node_library.library_registry import resolve_provider_model_id
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.tasks.base_task import BaseTask
@@ -18,8 +19,25 @@ FORMAT_CHOICES = [
     "This Saturday at 7 PM",
     "Custom format",
 ]
-MODEL_CHOICES = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-5"]
-DEFAULT_MODEL = "gpt-4.1-mini"
+MODEL_CHOICES = [
+    "gtc_gpt_4_1",
+    "gtc_gpt_4_1_mini",
+    "gtc_gpt_4_1_nano",
+    "gtc_gpt_5",
+]
+DEFAULT_MODEL = "gtc_gpt_4_1_mini"
+
+# Migrates values saved before the dropdown stored catalog keys.
+LEGACY_MODEL_VALUES = {
+    "GPT-4.1": "gtc_gpt_4_1",
+    "GPT-4.1 mini": "gtc_gpt_4_1_mini",
+    "GPT-4.1 nano": "gtc_gpt_4_1_nano",
+    "GPT-5": "gtc_gpt_5",
+    "gpt-4.1": "gtc_gpt_4_1",
+    "gpt-4.1-mini": "gtc_gpt_4_1_mini",
+    "gpt-4.1-nano": "gtc_gpt_4_1_nano",
+    "gpt-5": "gtc_gpt_5",
+}
 
 
 class DateAndTime(BaseTask):
@@ -66,6 +84,7 @@ class DateAndTime(BaseTask):
             parameter=model_param,
             model_choices=MODEL_CHOICES,
             default_model=DEFAULT_MODEL,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -108,8 +127,12 @@ class DateAndTime(BaseTask):
         # Create the tool
         tool = GtDateTimeTool()
 
+        # `model` is the catalog key the dropdown stores; the driver needs the upstream
+        # provider's own id instead.
+        provider_model_id = resolve_provider_model_id(self, model) or ""
+
         # Run the task
-        agent = Agent(tools=[tool], prompt_driver=self.create_driver(model=model))
+        agent = Agent(tools=[tool], prompt_driver=self.create_driver(model=provider_model_id))
         user_input = f"Get date and time information for: {prompt}\n in the following format: {date_format}\nOnly return the answer, no other text."
 
         if prompt and not prompt.isspace():

@@ -6,13 +6,12 @@ from typing import Any
 from griptape.artifacts import TextArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.memory.structure import Run
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
@@ -24,17 +23,15 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["TranscribeAudio"]
 
-MODEL_CHOICES = ["whisper-1"]
+MODEL_CHOICES = ["gtc_whisper_1"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 
-# Deprecated models and their replacements (kept for backward-compat with saved graphs)
-DEPRECATED_MODELS = {
-    "gpt-4o-mini-transcribe": "whisper-1",
-    "gpt-4o-transcribe": "whisper-1",
-}
-
-MODEL_MAPPING = {
-    "whisper-1": "whisper-1",
+# Migrates values saved before the dropdown stored catalog keys.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Whisper 1": "gtc_whisper_1",
+    "whisper-1": "gtc_whisper_1",
+    "gpt-4o-mini-transcribe": "gtc_whisper_1",
+    "gpt-4o-transcribe": "gtc_whisper_1",
 }
 
 RESPONSE_FORMAT_CHOICES = ["json", "verbose_json"]
@@ -109,23 +106,7 @@ class TranscribeAudio(GriptapeProxyNode):
             parameter=model_param,
             model_choices=MODEL_CHOICES,
             default_model=DEFAULT_MODEL,
-        )
-
-        self.add_node_element(
-            ParameterMessage(
-                name="model_deprecation_notice",
-                title="Model Deprecated",
-                variant="info",
-                value="",
-                traits={
-                    Button(
-                        full_width=True,
-                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
-                    )
-                },
-                button_text="Dismiss",
-                hide=True,
-            )
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -259,26 +240,6 @@ class TranscribeAudio(GriptapeProxyNode):
                 self.hide_parameter_by_name("detected_language")
                 self.hide_parameter_by_name("duration")
         return super().after_value_set(parameter, value)
-
-    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
-        if parameter.name == "model" and isinstance(value, str) and value in DEPRECATED_MODELS:
-            replacement = DEPRECATED_MODELS[value]
-            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
-            if message is not None:
-                message.value = (
-                    f"The '{value}' model has been deprecated and replaced with '{replacement}'. "
-                    "Please save your workflow to apply this change."
-                )
-                self.show_message_by_name("model_deprecation_notice")
-            value = replacement
-        elif parameter.name == "model" and isinstance(value, str):
-            self.hide_message_by_name("model_deprecation_notice")
-        return super().before_value_set(parameter, value)
-
-    def _get_api_model_id(self) -> str:
-        """Get the API model ID for this generation."""
-        model = self.get_parameter_value("model") or DEFAULT_MODEL
-        return MODEL_MAPPING.get(str(model), str(model))
 
     async def _resolve_audio_data_uri(self, audio_value: Any) -> str | None:
         """Resolve an audio parameter value to a base64 data URI.

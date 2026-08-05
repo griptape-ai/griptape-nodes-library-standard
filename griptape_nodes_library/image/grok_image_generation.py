@@ -5,14 +5,13 @@ from contextlib import suppress
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
+from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
-from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
@@ -20,13 +19,6 @@ from griptape_nodes_library.proxy import GriptapeProxyNode
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["GrokImageGeneration"]
-
-# Deprecated models and their replacements (covers both friendly names and raw provider IDs
-# so saved workflows in either format are migrated)
-DEPRECATED_MODELS = {
-    "Grok 2 Image": "Grok Imagine Image",
-    "grok-2-image-1212": "Grok Imagine Image",
-}
 
 
 class GrokImageGeneration(GriptapeProxyNode):
@@ -48,10 +40,6 @@ class GrokImageGeneration(GriptapeProxyNode):
         - was_successful (bool): Whether the generation succeeded
         - result_details (str): Details about the generation result or error
     """
-
-    MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
-        "Grok Imagine Image": "grok-imagine-image",
-    }
 
     MIN_IMAGES: ClassVar[int] = 1
     MAX_IMAGES: ClassVar[int] = 10
@@ -76,6 +64,15 @@ class GrokImageGeneration(GriptapeProxyNode):
 
     RESOLUTION_OPTIONS: ClassVar[list[str]] = ["1k", "2k"]
 
+    # Migrates values saved before this dropdown stored catalog model keys.
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
+        "Grok Imagine Image": "gtc_grok_imagine_image",
+        "grok-imagine-image": "gtc_grok_imagine_image",
+        # Folded in from this node's own retired DEPRECATED_MODELS dict.
+        "Grok 2 Image": "gtc_grok_imagine_image",
+        "grok-2-image-1212": "gtc_grok_imagine_image",
+    }
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.category = "API Nodes"
@@ -83,7 +80,7 @@ class GrokImageGeneration(GriptapeProxyNode):
 
         model_param = ParameterString(
             name="model",
-            default_value="Grok Imagine Image",
+            default_value="gtc_grok_imagine_image",
             tooltip="Select the Grok image model to use",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -92,26 +89,9 @@ class GrokImageGeneration(GriptapeProxyNode):
         # marks the models the license denies; the proxy base refuses a denied selection.
         self._install_model_access(
             parameter=model_param,
-            model_choices=["Grok Imagine Image"],
-            default_model="Grok Imagine Image",
-            provider_model_id_by_choice=self.MODEL_NAME_MAP,
-        )
-
-        self.add_node_element(
-            ParameterMessage(
-                name="model_deprecation_notice",
-                title="Model Deprecation Notice",
-                variant="info",
-                value="",
-                traits={
-                    Button(
-                        full_width=True,
-                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
-                    )
-                },
-                button_text="Dismiss",
-                hide=True,
-            )
+            model_choices=["gtc_grok_imagine_image"],
+            default_model="gtc_grok_imagine_image",
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -200,24 +180,6 @@ class GrokImageGeneration(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
 
-    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
-        """Migrate deprecated model selections to their replacement."""
-        if parameter.name == "model" and isinstance(value, str) and value in DEPRECATED_MODELS:
-            replacement = DEPRECATED_MODELS[value]
-            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
-            if message is None:
-                raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
-            message.value = (
-                f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. "
-                "Please save your workflow to apply this change."
-            )
-            self.show_message_by_name("model_deprecation_notice")
-            value = replacement
-        elif parameter.name == "model" and isinstance(value, str):
-            self.hide_message_by_name("model_deprecation_notice")
-
-        return super().before_value_set(parameter, value)
-
     def _show_image_output_parameters(self, count: int) -> None:
         for i in range(1, 11):
             param_name = "image_url" if i == 1 else f"image_url_{i}"
@@ -227,18 +189,9 @@ class GrokImageGeneration(GriptapeProxyNode):
                 self.hide_parameter_by_name(param_name)
 
     def _get_api_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "Grok Imagine Image"
-        base_model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
-        return f"{base_model_id}:generate"
-
-    def _get_payload_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "Grok Imagine Image"
-        return self.MODEL_NAME_MAP.get(model_name, model_name)
-
-    def _get_catalog_model_id(self) -> str:
-        # The catalog declares the bare provider id (no `:generate` suffix), so
-        # resolve the declaration against the un-suffixed id.
-        return self._get_payload_model_id()
+        # Decorate the resolved provider id with the URL-path operation suffix the
+        # proxy expects; the catalog declares the bare id (see _get_catalog_model_id).
+        return f"{self._provider_model_id_for_selection()}:generate"
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []
@@ -258,7 +211,7 @@ class GrokImageGeneration(GriptapeProxyNode):
         aspect_ratio = self.get_parameter_value("aspect_ratio") or "1:1"
         n_value = int(self.get_parameter_value("n") or 1)
         resolution = self.get_parameter_value("resolution") or "1k"
-        api_model_id = self._get_payload_model_id()
+        api_model_id = self._provider_model_id_for_selection()
 
         payload: dict[str, Any] = {
             "model": api_model_id,

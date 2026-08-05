@@ -26,22 +26,24 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["OpenAiImageGeneration"]
 
-GPT_IMAGE_1_MODEL_ID = "gpt-image-1"
-GPT_IMAGE_1_5_MODEL_ID = "gpt-image-1.5"
-GPT_IMAGE_2_MODEL_ID = "gpt-image-2"
-
-GPT_IMAGE_1_MODEL_NAME = "GPT Image 1"
-GPT_IMAGE_1_5_MODEL_NAME = "GPT Image 1.5"
-GPT_IMAGE_2_MODEL_NAME = "GPT Image 2"
+GPT_IMAGE_1_MODEL_KEY = "gtc_gpt_image_1"
+GPT_IMAGE_1_5_MODEL_KEY = "gtc_gpt_image_1_5"
+GPT_IMAGE_2_MODEL_KEY = "gtc_gpt_image_2"
+MODEL_CHOICES = [GPT_IMAGE_1_MODEL_KEY, GPT_IMAGE_1_5_MODEL_KEY, GPT_IMAGE_2_MODEL_KEY]
 
 
 class OpenAiImageGeneration(GriptapeProxyNode):
     """Generate images using OpenAI GPT Image models via Griptape model proxy."""
 
-    MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
-        GPT_IMAGE_1_MODEL_NAME: GPT_IMAGE_1_MODEL_ID,
-        GPT_IMAGE_1_5_MODEL_NAME: GPT_IMAGE_1_5_MODEL_ID,
-        GPT_IMAGE_2_MODEL_NAME: GPT_IMAGE_2_MODEL_ID,
+    # Migrates values saved before this dropdown stored catalog model keys (friendly
+    # labels and raw provider ids alike).
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
+        "GPT Image 1": GPT_IMAGE_1_MODEL_KEY,
+        "GPT Image 1.5": GPT_IMAGE_1_5_MODEL_KEY,
+        "GPT Image 2": GPT_IMAGE_2_MODEL_KEY,
+        "gpt-image-1": GPT_IMAGE_1_MODEL_KEY,
+        "gpt-image-1.5": GPT_IMAGE_1_5_MODEL_KEY,
+        "gpt-image-2": GPT_IMAGE_2_MODEL_KEY,
     }
     GPT_IMAGE_SIZE_OPTIONS: ClassVar[list[str]] = ["1024x1024", "1024x1536", "1536x1024"]
     GPT_IMAGE_2_CUSTOM_SIZE: ClassVar[str] = "custom"
@@ -64,22 +66,22 @@ class OpenAiImageGeneration(GriptapeProxyNode):
     # Only gpt-image-1 supports transparent backgrounds; gpt-image-1.5 and gpt-image-2 reject
     # background="transparent" at the API level.
     BACKGROUND_OPTIONS_BY_MODEL: ClassVar[dict[str, list[str]]] = {
-        GPT_IMAGE_1_MODEL_NAME: ["auto", "opaque", "transparent"],
-        GPT_IMAGE_1_5_MODEL_NAME: ["auto", "opaque"],
-        GPT_IMAGE_2_MODEL_NAME: ["auto", "opaque"],
+        GPT_IMAGE_1_MODEL_KEY: ["auto", "opaque", "transparent"],
+        GPT_IMAGE_1_5_MODEL_KEY: ["auto", "opaque"],
+        GPT_IMAGE_2_MODEL_KEY: ["auto", "opaque"],
     }
     MODERATION_OPTIONS: ClassVar[list[str]] = ["auto", "low"]
     OUTPUT_FORMAT_OPTIONS: ClassVar[list[str]] = ["png", "jpeg", "webp"]
     MAX_REFERENCE_IMAGES: ClassVar[int] = 16
     MAX_REFERENCE_IMAGES_BY_MODEL: ClassVar[dict[str, int]] = {
-        GPT_IMAGE_1_MODEL_NAME: MAX_REFERENCE_IMAGES,
-        GPT_IMAGE_1_5_MODEL_NAME: MAX_REFERENCE_IMAGES,
-        GPT_IMAGE_2_MODEL_NAME: MAX_REFERENCE_IMAGES,
+        GPT_IMAGE_1_MODEL_KEY: MAX_REFERENCE_IMAGES,
+        GPT_IMAGE_1_5_MODEL_KEY: MAX_REFERENCE_IMAGES,
+        GPT_IMAGE_2_MODEL_KEY: MAX_REFERENCE_IMAGES,
     }
     MIN_IMAGES: ClassVar[int] = 1
     MAX_IMAGES: ClassVar[int] = 10
     MAX_PROMPT_LENGTH: ClassVar[int] = 32_000
-    DEFAULT_MODEL: ClassVar[str] = GPT_IMAGE_2_MODEL_NAME
+    DEFAULT_MODEL: ClassVar[str] = GPT_IMAGE_2_MODEL_KEY
     DEFAULT_OUTPUT_FORMAT: ClassVar[str] = "png"
     DEFAULT_OUTPUT_FILENAME_BASE: ClassVar[str] = "openai_image"
     DEFAULT_INPUT_IMAGE_MIME_TYPE: ClassVar[str] = "image/png"
@@ -110,9 +112,9 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         # marks the models the license denies; the proxy base refuses a denied selection.
         self._install_model_access(
             parameter=model_param,
-            model_choices=list(self.MODEL_NAME_MAP.keys()),
+            model_choices=MODEL_CHOICES,
             default_model=self.DEFAULT_MODEL,
-            provider_model_id_by_choice=self.MODEL_NAME_MAP,
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -284,20 +286,13 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
     @classmethod
     def _size_choices_for_model(cls, model_name: str) -> list[str]:
-        if model_name == GPT_IMAGE_2_MODEL_NAME:
+        if model_name == GPT_IMAGE_2_MODEL_KEY:
             return list(cls.GPT_IMAGE_2_SIZE_OPTIONS)
         return list(cls.GPT_IMAGE_SIZE_OPTIONS)
 
     @classmethod
     def _background_choices_for_model(cls, model_name: str) -> list[str]:
         return list(cls.BACKGROUND_OPTIONS_BY_MODEL.get(model_name, cls.BACKGROUND_OPTIONS))
-
-    def _get_payload_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or self.DEFAULT_MODEL
-        return self.MODEL_NAME_MAP[model_name]
-
-    def _get_api_model_id(self) -> str:
-        return self._get_payload_model_id()
 
     def _show_image_output_parameters(self, count: int) -> None:
         for i in range(1, self.MAX_IMAGES + 1):
@@ -325,7 +320,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             return
 
         # GPT Image 2 accepts any in-range WIDTHxHEIGHT, so don't clobber a custom size.
-        if model_name == GPT_IMAGE_2_MODEL_NAME and isinstance(current_size, str):
+        if model_name == GPT_IMAGE_2_MODEL_KEY and isinstance(current_size, str):
             match = self.GPT_IMAGE_2_SIZE_PATTERN.fullmatch(current_size.strip())
             if match is not None and not self._validate_gpt_image_2_size(current_size.strip()):
                 self._sync_custom_size_visibility(model_name, current_size)
@@ -355,7 +350,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         self.publish_update_to_parameter("background", choices[0])
 
     def _sync_custom_size_visibility(self, model_name: str, size_value: Any) -> None:
-        show_custom = model_name == GPT_IMAGE_2_MODEL_NAME and size_value == self.GPT_IMAGE_2_CUSTOM_SIZE
+        show_custom = model_name == GPT_IMAGE_2_MODEL_KEY and size_value == self.GPT_IMAGE_2_CUSTOM_SIZE
         for param_name in ("custom_width", "custom_height"):
             if show_custom:
                 self.show_parameter_by_name(param_name)
@@ -474,12 +469,11 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         size = self._resolve_effective_size()
         if not size:
             exceptions.append(ValueError(f"{self.name}: Size is required for image generation."))
-        elif (
-            model_name in {GPT_IMAGE_1_MODEL_NAME, GPT_IMAGE_1_5_MODEL_NAME} and size not in self.GPT_IMAGE_SIZE_OPTIONS
-        ):
+        elif model_name in {GPT_IMAGE_1_MODEL_KEY, GPT_IMAGE_1_5_MODEL_KEY} and size not in self.GPT_IMAGE_SIZE_OPTIONS:
             valid_sizes = ", ".join(self.GPT_IMAGE_SIZE_OPTIONS)
-            exceptions.append(ValueError(f"{self.name}: {model_name} size must be one of: {valid_sizes}."))
-        elif model_name == GPT_IMAGE_2_MODEL_NAME:
+            display_name = "GPT Image 1" if model_name == GPT_IMAGE_1_MODEL_KEY else "GPT Image 1.5"
+            exceptions.append(ValueError(f"{self.name}: {display_name} size must be one of: {valid_sizes}."))
+        elif model_name == GPT_IMAGE_2_MODEL_KEY:
             exceptions.extend(self._validate_gpt_image_2_size(size))
 
         input_images = self._get_input_images_value()
@@ -487,7 +481,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         if len(input_images) > max_reference_images:
             exceptions.append(
                 ValueError(
-                    f"{self.name}: {model_name} supports up to {max_reference_images} reference images; "
+                    f"{self.name}: this model supports up to {max_reference_images} reference images; "
                     f"received {len(input_images)}."
                 )
             )
@@ -526,7 +520,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
     async def _build_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
-            "model": self._get_payload_model_id(),
+            "model": self._provider_model_id_for_selection(),
             "prompt": (self.get_parameter_value("prompt") or "").strip(),
             "size": self._resolve_effective_size(),
             "n": int(self.get_parameter_value("n") or 1),

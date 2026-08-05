@@ -37,7 +37,13 @@ ASPECT_RATIO_OPTIONS = ["1:1", "16:9", "9:16", "4:3", "3:4", "21:9", "9:21", "3:
 OUTPUT_FORMAT_OPTIONS = ["jpeg", "png"]
 
 # Model options
-MODEL_OPTIONS = ["flux-kontext-pro"]
+MODEL_OPTIONS = ["gtc_flux_kontext_pro"]
+
+# Migrates values saved before the dropdown stored catalog keys.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "FLUX Kontext Pro": "gtc_flux_kontext_pro",
+    "flux-kontext-pro": "gtc_flux_kontext_pro",
+}
 
 # Safety tolerance options
 SAFETY_TOLERANCE_OPTIONS = ["least restrictive", "moderate", "most restrictive"]
@@ -85,7 +91,7 @@ class FluxImageGeneration(GriptapeProxyNode):
         self.description = "Generate images using Flux models via API (supports user-provided API keys via proxy)"
         model_param = ParameterString(
             name="model",
-            default_value="flux-kontext-pro",
+            default_value="gtc_flux_kontext_pro",
             tooltip="Select the Flux model to use",
             allow_output=False,
         )
@@ -95,7 +101,8 @@ class FluxImageGeneration(GriptapeProxyNode):
         self._install_model_access(
             parameter=model_param,
             model_choices=MODEL_OPTIONS,
-            default_model="flux-kontext-pro",
+            default_model="gtc_flux_kontext_pro",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Core parameters
@@ -215,7 +222,7 @@ class FluxImageGeneration(GriptapeProxyNode):
         input_image = normalize_artifact_input(input_image, ImageUrlArtifact, accepted_types=(ImageArtifact,))
 
         return {
-            "model": self.get_parameter_value("model") or "flux-kontext-pro",
+            "model": self.get_parameter_value("model") or "gtc_flux_kontext_pro",
             "prompt": self.get_parameter_value("prompt") or "",
             "input_image": input_image,
             "aspect_ratio": self.get_parameter_value("aspect_ratio") or "1:1",
@@ -263,9 +270,6 @@ class FluxImageGeneration(GriptapeProxyNode):
 
     def preprocess(self) -> None:
         self._seed_parameter.preprocess()
-
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or "flux-kontext-pro"
 
     async def _build_payload(self) -> dict[str, Any]:
         params = self._get_parameters()

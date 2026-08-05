@@ -32,40 +32,54 @@ PROMPT_TRUNCATE_LENGTH = 100
 
 # Model options with their constraints
 MODEL_OPTIONS = [
-    "wan2.6-t2v",
-    "wan2.5-t2v-preview",
-    "wan2.2-t2v-plus",
-    "wanx2.1-t2v-turbo",
-    "wanx2.1-t2v-plus",
+    "gtc_wan_2_6_t2v",
+    "gtc_wan_2_5_t2v_preview",
+    "gtc_wan_2_2_t2v_plus",
+    "gtc_wanx_2_1_t2v_turbo",
+    "gtc_wanx_2_1_t2v_plus",
 ]
+
+# Migrates values saved before the dropdown stored catalog keys.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Wan 2.1 T2V Plus": "gtc_wanx_2_1_t2v_plus",
+    "Wan 2.1 T2V Turbo": "gtc_wanx_2_1_t2v_turbo",
+    "Wan 2.2 T2V Plus": "gtc_wan_2_2_t2v_plus",
+    "Wan 2.5 T2V Preview": "gtc_wan_2_5_t2v_preview",
+    "Wan 2.6 T2V": "gtc_wan_2_6_t2v",
+    "wan2.2-t2v-plus": "gtc_wan_2_2_t2v_plus",
+    "wan2.5-t2v-preview": "gtc_wan_2_5_t2v_preview",
+    "wan2.6-t2v": "gtc_wan_2_6_t2v",
+    "wanx2.1-t2v-plus": "gtc_wanx_2_1_t2v_plus",
+    "wanx2.1-t2v-turbo": "gtc_wanx_2_1_t2v_turbo",
+}
 
 # Model-specific configurations
 MODEL_CONFIGS = {
-    "wan2.6-t2v": {
+    "gtc_wan_2_6_t2v": {
         "sizes": ["720P", "1080P"],
         "durations": [5, 10, 15],
         "supports_audio": True,
         "supports_shot_type": True,
     },
-    "wan2.5-t2v-preview": {
+    "gtc_wan_2_5_t2v_preview": {
         "sizes": ["480P", "720P", "1080P"],
         "durations": [5, 10],
         "supports_audio": True,
         "supports_shot_type": False,
     },
-    "wan2.2-t2v-plus": {
+    "gtc_wan_2_2_t2v_plus": {
         "sizes": ["480P", "720P"],
         "durations": [5],
         "supports_audio": False,
         "supports_shot_type": False,
     },
-    "wanx2.1-t2v-turbo": {
+    "gtc_wanx_2_1_t2v_turbo": {
         "sizes": ["480P", "720P"],
         "durations": [5],
         "supports_audio": False,
         "supports_shot_type": False,
     },
-    "wanx2.1-t2v-plus": {
+    "gtc_wanx_2_1_t2v_plus": {
         "sizes": ["480P", "720P"],
         "durations": [5],
         "supports_audio": False,
@@ -125,7 +139,7 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
         # Model selection
         model_param = ParameterString(
             name="model",
-            default_value="wan2.6-t2v",
+            default_value="gtc_wan_2_6_t2v",
             tooltip="Select the WAN model to use",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -135,7 +149,8 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
         self._install_model_access(
             parameter=model_param,
             model_choices=MODEL_OPTIONS,
-            default_model="wan2.6-t2v",
+            default_model="gtc_wan_2_6_t2v",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Prompt parameter
@@ -172,7 +187,7 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
                 default_value="1080P",
                 tooltip="Output video resolution (available options depend on selected model)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=MODEL_CONFIGS["wan2.6-t2v"]["sizes"])},
+                traits={Options(choices=MODEL_CONFIGS["gtc_wan_2_6_t2v"]["sizes"])},
             )
 
             # Duration parameter
@@ -181,7 +196,7 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
                 default_value=5,
                 tooltip="Video duration in seconds (model-dependent)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=MODEL_CONFIGS["wan2.6-t2v"]["durations"])},
+                traits={Options(choices=MODEL_CONFIGS["gtc_wan_2_6_t2v"]["durations"])},
             )
 
             # Shot type parameter (for models that support it)
@@ -373,7 +388,7 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
         duration = self.get_parameter_value("duration")
 
         # Validate model-specific constraints
-        model_config = MODEL_CONFIGS.get(model, MODEL_CONFIGS["wan2.6-t2v"])
+        model_config = MODEL_CONFIGS.get(model, MODEL_CONFIGS["gtc_wan_2_6_t2v"])
 
         # Validate size
         if size not in model_config["sizes"]:
@@ -414,9 +429,6 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
             raise ValueError(msg)
         return api_key
 
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or ""
-
     async def _build_payload(self) -> dict[str, Any]:
         params = self._get_parameters()
 
@@ -426,7 +438,7 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
 
         # Build flattened payload (all params at top level)
         payload = {
-            "model": params["model"],
+            "model": self._provider_model_id_for_selection(),
             "prompt": params["prompt"],
             "resolution": params["size"],
             "duration": params["duration"],

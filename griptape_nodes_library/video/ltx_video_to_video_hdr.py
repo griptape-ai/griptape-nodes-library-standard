@@ -22,7 +22,14 @@ logger = logging.getLogger("griptape_nodes")
 __all__ = ["LTXVideoToVideoHDR"]
 
 MODEL_MAPPING = {
-    "LTX 2.3 Pro": "ltx-2-3-pro",
+    "gtc_ltx_2_3_pro": "ltx-2-3-pro",
+}
+
+# Migrates values saved before the dropdown stored catalog keys: old display labels and
+# raw provider ids.
+LEGACY_MODEL_VALUES = {
+    "LTX 2.3 Pro": "gtc_ltx_2_3_pro",
+    "ltx-2-3-pro": "gtc_ltx_2_3_pro",
 }
 
 # Input frame-count limits per LTX HDR upscale docs, keyed by billing tier.
@@ -61,7 +68,7 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         # Model parameter — HDR upscale is only offered on ltx-2-3-pro per the pricing page.
         model_param = ParameterString(
             name="model",
-            default_value="LTX 2.3 Pro",
+            default_value="gtc_ltx_2_3_pro",
             tooltip="Model to use for video-to-video HDR upscale",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -71,8 +78,8 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         self._install_model_access(
             parameter=model_param,
             model_choices=list(MODEL_MAPPING.keys()),
-            default_model="LTX 2.3 Pro",
-            provider_model_id_by_choice=MODEL_MAPPING,
+            default_model="gtc_ltx_2_3_pro",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -120,12 +127,7 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         self.set_initial_node_size(height=400)
 
     def _get_api_model_id(self) -> str:
-        return f"{self._get_catalog_model_id()}:video-to-video-hdr"
-
-    def _get_catalog_model_id(self) -> str:
-        # The catalog declares the bare provider id (no `:video-to-video-hdr` suffix).
-        model_name = self.get_parameter_value("model") or "LTX 2.3 Pro"
-        return MODEL_MAPPING.get(model_name, "ltx-2-3-pro")
+        return f"{self._provider_model_id_for_selection()}:video-to-video-hdr"
 
     @staticmethod
     def _extract_input_video_url(video_input: Any) -> str | None:

@@ -41,69 +41,56 @@ LIBRARY_NAME = "Griptape Nodes Library"
 
 type AuthorizationHook = Callable[[AuthorizationCheckpoint], CheckpointDenial | None]
 
-# (node type, catalog model id to deny, dropdown value that id resolves to, model
-# parameter name). The denied id is deliberately not the node's default everywhere
-# it can be, so the ModelAccessComponent constructor's default-relocation logic
-# (which moves the stored value off a denied default) never fires and can't
-# confuse these assertions. OmnihumanSubjectRecognition, OmnihumanSubjectDetection,
+# (node type, catalog model id to deny, model parameter name). The dropdown
+# stores this same catalog key, so there is no separate "dropdown value"
+# column to track. The denied id is deliberately not the node's default
+# everywhere it can be, so the ModelAccessComponent constructor's
+# default-relocation logic (which moves the stored value off a denied
+# default) never fires and can't confuse these assertions.
+# OmnihumanSubjectRecognition, OmnihumanSubjectDetection,
 # WanReferenceToVideoGeneration, FluxImageGeneration, TranscribeAudio, GrokImageGeneration,
 # GrokImageEdit, GrokVideoGeneration, GrokVideoEdit, and LTXVideoToVideoHDR each declare
 # exactly one model, so their only choice is necessarily also their default.
-# SeedreamImageGeneration, GoogleImageGeneration, OpenAiImageGeneration,
-# WorldLabsWorldGeneration, TopazImageEnhance, SeedanceVideoGeneration,
-# Seedance20VideoGeneration, MinimaxHailuoVideoGeneration, KlingTextToVideoGeneration,
-# KlingImageToVideoGeneration, KlingOmniVideoGeneration, Veo3VideoGeneration,
-# LTXTextToVideoGeneration, LTXImageToVideoGeneration, LTXAudioToVideoGeneration,
-# LTXVideoExtend, and LTXVideoRetake offer artist-facing labels rather than provider
-# ids, so the dropdown value here is the label the node maps to the denied id.
-NODE_MODEL_CASES: list[tuple[str, str, str, str]] = [
-    ("TranscribeAudio", "gtc_whisper_1", "whisper-1", "model"),  # only declared model
-    ("ElevenLabsTextToSpeechGeneration", "gtc_eleven_multilingual_v2", "eleven_multilingual_v2", "model"),
-    (
-        "OmnihumanSubjectRecognition",
-        "gtc_omnihuman_1_5_subject_recognition",
-        "omnihuman-1-5-subject-recognition",
-        "model_id",
-    ),  # only declared model
-    (
-        "OmnihumanSubjectDetection",
-        "gtc_omnihuman_1_5_subject_detection",
-        "omnihuman-1-5-subject-detection",
-        "model_id",
-    ),  # only declared model
-    ("OmnihumanVideoGeneration", "gtc_omnihuman_1_0", "omnihuman-1-0", "model_id"),
-    ("SoraVideoGeneration", "gtc_sora_2_pro", "sora-2-pro", "model"),
-    ("WanTextToVideoGeneration", "gtc_wan_2_5_t2v_preview", "wan2.5-t2v-preview", "model"),
-    ("WanImageToVideoGeneration", "gtc_wan_2_5_i2v_preview", "wan2.5-i2v-preview", "model"),
-    ("WanAnimateGeneration", "gtc_wan_2_2_animate_move", "wan2.2-animate-move", "model"),
-    ("WanReferenceToVideoGeneration", "gtc_wan_2_6_r2v", "wan2.6-r2v", "model"),  # only declared model
-    ("FluxImageGeneration", "gtc_flux_kontext_pro", "flux-kontext-pro", "model"),  # only declared model
-    ("QwenImageGeneration", "gtc_qwen_image_plus", "qwen-image-plus", "model"),
-    ("QwenImageEdit", "gtc_qwen_image_edit", "qwen-image-edit", "model"),
-    ("SeedreamImageGeneration", "gtc_seedream_4_0", "Seedream 4.0", "model"),
-    ("GrokImageGeneration", "gtc_grok_imagine_image", "Grok Imagine Image", "model"),  # only declared model
-    ("GrokImageEdit", "gtc_grok_imagine_image", "Grok Imagine Image", "model"),  # only declared model
-    ("Flux2ImageGeneration", "gtc_flux_2_flex", "Flux.2 [flex]", "model"),
-    ("WanImageGeneration", "gtc_wan_2_7_image", "Wan 2.7 Image", "model"),
-    ("GoogleImageGeneration", "gtc_gemini_3_1_flash_image", "Nano Banana 2", "model"),
-    ("OpenAiImageGeneration", "gtc_gpt_image_1", "GPT Image 1", "model"),
-    ("WorldLabsWorldGeneration", "gtc_marble_1_0_draft", "Marble 1.0 Draft", "model"),
-    ("TopazImageEnhance", "gtc_topaz_sharpen", "sharpen", "operation"),
-    ("SeedanceVideoGeneration", "gtc_seedance_1_0_pro_fast", "Seedance 1.0 Pro Fast", "model_id"),
-    ("Seedance20VideoGeneration", "gtc_seedance_2_0_fast", "Seedance 2.0 Fast", "model_id"),
-    ("GrokVideoGeneration", "gtc_grok_imagine_video", "Grok Imagine Video", "model"),  # only declared model
-    ("GrokVideoEdit", "gtc_grok_imagine_video", "Grok Imagine Video", "model"),  # only declared model
-    ("MinimaxHailuoVideoGeneration", "gtc_minimax_hailuo_2_3_fast", "Hailuo 2.3 Fast (ITV)", "model_id"),
-    ("KlingTextToVideoGeneration", "gtc_kling_v2_6", "Kling v2.6", "model_name"),
-    ("KlingImageToVideoGeneration", "gtc_kling_v1_5", "Kling v1.5", "model_name"),
-    ("KlingOmniVideoGeneration", "gtc_kling_video_o1_omni", "Kling Omni", "model_name"),
-    ("Veo3VideoGeneration", "gtc_veo_3_0_fast", "Veo 3.0 Fast", "model_id"),
-    ("LTXTextToVideoGeneration", "gtc_ltx_2_pro", "LTX 2 Pro", "model"),
-    ("LTXImageToVideoGeneration", "gtc_ltx_2_3_pro", "LTX 2.3 Pro", "model"),
-    ("LTXAudioToVideoGeneration", "gtc_ltx_2_3_pro", "LTX 2.3 Pro", "model"),
-    ("LTXVideoExtend", "gtc_ltx_2_pro", "LTX 2 Pro", "model"),
-    ("LTXVideoRetake", "gtc_ltx_2_3_pro", "LTX 2.3 Pro", "model"),
-    ("LTXVideoToVideoHDR", "gtc_ltx_2_3_pro", "LTX 2.3 Pro", "model"),  # only declared model
+# TopazImageEnhance's "operation" dropdown does not install model access (its models
+# are chosen implicitly by the operation, not offered as a license-gated choice), so
+# it has no case here.
+NODE_MODEL_CASES: list[tuple[str, str, str]] = [
+    ("TranscribeAudio", "gtc_whisper_1", "model"),  # only declared model
+    ("ElevenLabsTextToSpeechGeneration", "gtc_eleven_multilingual_v2", "model"),
+    ("OmnihumanSubjectRecognition", "gtc_omnihuman_1_5_subject_recognition", "model_id"),  # only declared model
+    ("OmnihumanSubjectDetection", "gtc_omnihuman_1_5_subject_detection", "model_id"),  # only declared model
+    ("OmnihumanVideoGeneration", "gtc_omnihuman_1_0", "model_id"),
+    ("SoraVideoGeneration", "gtc_sora_2_pro", "model"),
+    ("WanTextToVideoGeneration", "gtc_wan_2_5_t2v_preview", "model"),
+    ("WanImageToVideoGeneration", "gtc_wan_2_5_i2v_preview", "model"),
+    ("WanAnimateGeneration", "gtc_wan_2_2_animate_move", "model"),
+    ("WanReferenceToVideoGeneration", "gtc_wan_2_6_r2v", "model"),  # only declared model
+    ("FluxImageGeneration", "gtc_flux_kontext_pro", "model"),  # only declared model
+    ("QwenImageGeneration", "gtc_qwen_image_plus", "model"),
+    ("QwenImageEdit", "gtc_qwen_image_edit", "model"),
+    ("SeedreamImageGeneration", "gtc_seedream_4_0", "model"),
+    ("GrokImageGeneration", "gtc_grok_imagine_image", "model"),  # only declared model
+    ("GrokImageEdit", "gtc_grok_imagine_image", "model"),  # only declared model
+    ("Flux2ImageGeneration", "gtc_flux_2_flex", "model"),
+    ("WanImageGeneration", "gtc_wan_2_7_image", "model"),
+    ("GoogleImageGeneration", "gtc_gemini_3_1_flash_image", "model"),
+    ("OpenAiImageGeneration", "gtc_gpt_image_1", "model"),
+    ("WorldLabsWorldGeneration", "gtc_marble_1_0_draft", "model"),
+    ("SeedanceVideoGeneration", "gtc_seedance_1_0_pro_fast", "model_id"),
+    ("Seedance20VideoGeneration", "gtc_seedance_2_0_fast", "model_id"),
+    ("GrokVideoGeneration", "gtc_grok_imagine_video", "model"),  # only declared model
+    ("GrokVideoEdit", "gtc_grok_imagine_video", "model"),  # only declared model
+    ("MinimaxHailuoVideoGeneration", "gtc_minimax_hailuo_2_3_fast", "model_id"),
+    ("KlingTextToVideoGeneration", "gtc_kling_v2_6", "model_name"),
+    ("KlingImageToVideoGeneration", "gtc_kling_v1_5", "model_name"),
+    ("KlingOmniVideoGeneration", "gtc_kling_video_o1_omni", "model_name"),
+    ("Veo3VideoGeneration", "gtc_veo_3_0_fast", "model_id"),
+    ("LTXTextToVideoGeneration", "gtc_ltx_2_pro", "model"),
+    ("LTXImageToVideoGeneration", "gtc_ltx_2_3_pro", "model"),
+    ("LTXAudioToVideoGeneration", "gtc_ltx_2_3_pro", "model"),
+    ("LTXVideoExtend", "gtc_ltx_2_pro", "model"),
+    ("LTXVideoRetake", "gtc_ltx_2_3_pro", "model"),
+    ("LTXVideoToVideoHDR", "gtc_ltx_2_3_pro", "model"),  # only declared model
 ]
 
 
@@ -147,7 +134,7 @@ def authorization_hook() -> Iterator[Callable[[AuthorizationHook], None]]:
 
 @pytest.mark.parametrize(
     ("node_type", "param_name"),
-    [(case[0], case[3]) for case in NODE_MODEL_CASES],
+    [(case[0], case[2]) for case in NODE_MODEL_CASES],
     ids=[case[0] for case in NODE_MODEL_CASES],
 )
 def test_model_param_wired_to_model_access_component(node_type: str, param_name: str) -> None:
@@ -170,11 +157,10 @@ def test_model_param_wired_to_model_access_component(node_type: str, param_name:
     assert ui_options["data"]
 
 
-@pytest.mark.parametrize(("node_type", "denied_catalog_id", "dropdown_value", "param_name"), NODE_MODEL_CASES)
+@pytest.mark.parametrize(("node_type", "denied_catalog_id", "param_name"), NODE_MODEL_CASES)
 def test_denied_model_row_carries_denial_icon(
     node_type: str,
     denied_catalog_id: str,
-    dropdown_value: str,
     param_name: str,
     authorization_hook: Callable[[AuthorizationHook], None],
 ) -> None:
@@ -189,7 +175,7 @@ def test_denied_model_row_carries_denial_icon(
     assert data
 
     for row in data:
-        if row["name"] == dropdown_value:
+        if row["name"] == denied_catalog_id:
             assert row.get("icon") == "shield-off"
         else:
             assert row.get("icon") is None
@@ -243,16 +229,20 @@ async def test_submit_and_poll_gates_on_denial(monkeypatch: pytest.MonkeyPatch) 
     assert submit_calls[0]["api_model_id"] == "sora-2-pro"
 
 
-def test_mapped_dropdown_label_resolves_denial_at_runtime(
+def test_legacy_dropdown_value_migrates_and_resolves_denial_at_runtime(
     authorization_hook: Callable[[AuthorizationHook], None],
 ) -> None:
-    """A labeled dropdown's stored value is the artist-facing label, not the provider id.
+    """A legacy value assigned to a migrated node's dropdown is rewritten to its catalog key.
 
-    `MappedModelAccessComponent` re-keys the snapshot's lookup tables under the label
-    as well as the provider id, so a runtime query against the label still resolves
-    through to the catalog id the policy denies. The hook is registered AFTER
-    construction so this exercises `selection_denial()`'s live re-check, not the
-    constructor-time snapshot or its default-relocation logic.
+    `ModelAccessComponent` registers a converter on the parameter, so assigning
+    one of its `deprecated_values` keys (an artist-facing label the dropdown
+    used to store, before it adopted the catalog-key convention) rewrites the
+    stored value to the canonical catalog key on the way in. A runtime query
+    against the current selection then resolves through to the catalog id the
+    policy denies, same as if the catalog key had been assigned directly. The
+    hook is registered AFTER construction so this exercises `selection_denial()`'s
+    live re-check, not the constructor-time snapshot or its default-relocation
+    logic.
     """
     node = cast("SeedreamImageGeneration", _create_node("SeedreamImageGeneration"))
     assert node._model_access is not None
@@ -264,3 +254,14 @@ def test_mapped_dropdown_label_resolves_denial_at_runtime(
 
     node.set_parameter_value("model", "Seedream 4.5")
     assert node._model_access.selection_denial() is None
+
+
+def test_topaz_image_enhance_operation_has_no_model_access() -> None:
+    """TopazImageEnhance's `operation` dropdown does not install `ModelAccessComponent`.
+
+    The dropdown was deliberately reverted to a plain operation switch (denoise /
+    enhance / sharpen), not a license-gated model choice, so it has no case in
+    `NODE_MODEL_CASES`. Guard that reverting stays reverted.
+    """
+    node = cast("GriptapeProxyNode", _create_node("TopazImageEnhance"))
+    assert node._model_access is None

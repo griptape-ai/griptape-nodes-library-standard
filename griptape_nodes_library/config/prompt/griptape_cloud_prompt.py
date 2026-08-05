@@ -11,14 +11,13 @@ from typing import Any
 
 import requests
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver as GtGriptapeCloudPromptDriver
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage
+from griptape_nodes.exe_types.core_types import Parameter
+from griptape_nodes.node_library.library_registry import resolve_provider_model_id
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
-from griptape_nodes.traits.button import Button
 
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
 from griptape_nodes_library.config.prompt.cloud_models import (
-    DEPRECATED_MODELS,
-    MODEL_CHOICES,
+    CATALOG_MODEL_CHOICES,
     MODEL_CHOICES_ARGS,
     O_SERIES_MODELS,
 )
@@ -29,9 +28,85 @@ SERVICE = "Griptape"
 BASE_URL = "https://cloud.griptape.ai"
 API_KEY_URL = f"{BASE_URL}/configuration/api-keys"
 CHAT_MODELS_URL = f"{BASE_URL}/api/models?model_type=chat"
-DEFAULT_MODEL = "gpt-4.1-mini"
+DEFAULT_MODEL = "gtc_gpt_4_1_mini"
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
+
+# Migrates values saved before the dropdown stored catalog keys.
+LEGACY_MODEL_VALUES = {
+    "Claude Haiku 4.5": "gtc_claude_haiku_4_5",
+    "Claude Opus 4.7": "gtc_claude_opus_4_7",
+    "Claude Sonnet 4.5": "gtc_claude_sonnet_4_5",
+    "Claude Sonnet 4.6": "gtc_claude_sonnet_4_6",
+    "DeepSeek R1": "gtc_deepseek_r1",
+    "DeepSeek V3": "gtc_deepseek_v3",
+    "GPT-4.1": "gtc_gpt_4_1",
+    "GPT-4.1 mini": "gtc_gpt_4_1_mini",
+    "GPT-4.1 nano": "gtc_gpt_4_1_nano",
+    "GPT-4o": "gtc_gpt_4o",
+    "GPT-5": "gtc_gpt_5",
+    "GPT-5 mini": "gtc_gpt_5_mini",
+    "GPT-5 nano": "gtc_gpt_5_nano",
+    "GPT-5.1": "gtc_gpt_5_1",
+    "GPT-5.2": "gtc_gpt_5_2",
+    "GPT-5.2 Chat": "gtc_gpt_5_2_chat",
+    "Gemini 2.5 Flash": "gtc_gemini_2_5_flash",
+    "Gemini 2.5 Flash-Lite": "gtc_gemini_2_5_flash_lite",
+    "Gemini 2.5 Pro": "gtc_gemini_2_5_pro",
+    "Gemini 3 Flash": "gtc_gemini_3_flash",
+    "Gemini 3.1 Flash-Lite": "gtc_gemini_3_1_flash_lite",
+    "Gemini 3.1 Pro": "gtc_gemini_3_1_pro",
+    "Llama 3.1 70B Instruct": "gtc_llama_3_1_70b",
+    "Llama 3.3 70B Instruct": "gtc_llama_3_3_70b",
+    "claude-4-5-sonnet": "gtc_claude_sonnet_4_5",
+    "claude-haiku-4-5": "gtc_claude_haiku_4_5",
+    "claude-opus-4-7": "gtc_claude_opus_4_7",
+    "claude-sonnet-4-6": "gtc_claude_sonnet_4_6",
+    "deepseek-v3": "gtc_deepseek_v3",
+    "deepseek.r1-v1": "gtc_deepseek_r1",
+    "gemini-2.5-flash": "gtc_gemini_2_5_flash",
+    "gemini-2.5-flash-lite": "gtc_gemini_2_5_flash_lite",
+    "gemini-2.5-pro": "gtc_gemini_2_5_pro",
+    "gemini-3-flash": "gtc_gemini_3_flash",
+    "gemini-3.1-flash-lite": "gtc_gemini_3_1_flash_lite",
+    "gemini-3.1-pro": "gtc_gemini_3_1_pro",
+    "gpt-4.1": "gtc_gpt_4_1",
+    "gpt-4.1-mini": "gtc_gpt_4_1_mini",
+    "gpt-4.1-nano": "gtc_gpt_4_1_nano",
+    "gpt-4o": "gtc_gpt_4o",
+    "gpt-5": "gtc_gpt_5",
+    "gpt-5-mini": "gtc_gpt_5_mini",
+    "gpt-5-nano": "gtc_gpt_5_nano",
+    "gpt-5.1": "gtc_gpt_5_1",
+    "gpt-5.2": "gtc_gpt_5_2",
+    "gpt-5.2-chat": "gtc_gpt_5_2_chat",
+    "llama3-1-70b-instruct-v1": "gtc_llama_3_1_70b",
+    "llama3-3-70b-instruct-v1": "gtc_llama_3_3_70b",
+    "o1": "gtc_o1",
+    "o3": "gtc_o3",
+    "o3 mini": "gtc_o3_mini",
+    "o3-mini": "gtc_o3_mini",
+    "o4 mini": "gtc_o4_mini",
+    "o4-mini": "gtc_o4_mini",
+    # Folded in from the retired cloud_models.DEPRECATED_MODELS dict -- provider ids
+    # for models Griptape Cloud has fully decommissioned, so the generated catalog
+    # table (built from currently active rows) never listed them.
+    # Anthropic
+    "claude-3-7-sonnet": "gtc_claude_sonnet_4_6",
+    "claude-3-5-haiku": "gtc_claude_haiku_4_5",
+    "claude-sonnet-4-20250514": "gtc_claude_sonnet_4_6",
+    # Bedrock
+    "amazon.titan-text-premier-v1": "gtc_claude_sonnet_4_6",
+    # Azure OpenAI
+    "gpt-4.5-preview": "gtc_gpt_4_1",
+    "o1-mini": "gtc_o3_mini",
+    # Google
+    "gemini-2.0-flash": "gtc_gemini_2_5_flash",
+    "gemini-2.5-flash-preview-05-20": "gtc_gemini_2_5_flash",
+    "gemini-2.5-pro-preview-06-05": "gtc_gemini_2_5_pro",
+    "gemini-3-pro": "gtc_gemini_3_1_pro",
+    "gemini-3-pro-preview": "gtc_gemini_3_1_pro",
+}
 
 
 class GriptapeCloudPrompt(BasePrompt):
@@ -67,7 +142,9 @@ class GriptapeCloudPrompt(BasePrompt):
         logger.debug(f"All models on Griptape Cloud: {models}")
         logger.debug(f"Default model on Griptape Cloud: {default_model}")
 
-        self._install_model_access(model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL)
+        self._install_model_access(
+            model_choices=CATALOG_MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=LEGACY_MODEL_VALUES
+        )
 
         # Remove the 'seed' parameter as it's not directly used by GriptapeCloudPromptDriver.
         self.remove_parameter_element_by_name("seed")
@@ -78,46 +155,15 @@ class GriptapeCloudPrompt(BasePrompt):
         # Replace `min_p` with `top_p` for Griptape Cloud.
         self._replace_param_by_name(param_name="min_p", new_param_name="top_p", default_value=0.9)
 
-        # Add deprecation notice message element
-        self.add_node_element(
-            ParameterMessage(
-                name="model_deprecation_notice",
-                title="Model Deprecation Notice",
-                variant="info",
-                value="",
-                traits={
-                    Button(
-                        full_width=True,
-                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
-                    )
-                },
-                button_text="Dismiss",
-                hide=True,
-            )
-        )
-
-    def before_value_set(
-        self,
-        parameter: Parameter,
-        value: Any,
-    ) -> Any:
-        if parameter.name == "model":
-            if value in DEPRECATED_MODELS:
-                replacement = DEPRECATED_MODELS[value]
-                message = self.get_message_by_name_or_element_id("model_deprecation_notice")
-                if message is None:
-                    raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
-                message.value = f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. Please save your workflow to apply this change."
-                self.show_message_by_name("model_deprecation_notice")
-                value = replacement
-            else:
-                self.hide_message_by_name("model_deprecation_notice")
-
-        return super().before_value_set(parameter, value)
-
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "model":
-            if "deepseek" in value:
+            # The dropdown stores the catalog key; resolve the provider's own model
+            # id to branch on family-specific behavior (payload shape, arg presets).
+            # Resolved directly from `value` rather than `_provider_model_id_for_selection`
+            # because this fires from `_install_model_access` itself, before
+            # `self._model_access` exists.
+            provider_model_id = resolve_provider_model_id(self, value) or ""
+            if "deepseek" in provider_model_id:
                 self.hide_parameter_by_name("stream")
                 self.hide_parameter_by_name("top_p")
             else:
@@ -125,7 +171,7 @@ class GriptapeCloudPrompt(BasePrompt):
                 self.show_parameter_by_name("top_p")
 
             # Check and see if max_tokens is defined in the model args
-            model_args = next((model["args"] for model in MODEL_CHOICES_ARGS if model["name"] == value), {})
+            model_args = next((model["args"] for model in MODEL_CHOICES_ARGS if model["name"] == provider_model_id), {})
             if "max_tokens" in model_args:
                 self.parameter_output_values["max_tokens"] = model_args["max_tokens"]
             else:
@@ -162,13 +208,13 @@ class GriptapeCloudPrompt(BasePrompt):
         # Retrieve the mandatory API key.
         specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
 
-        # Get the selected model.
-        model = self.get_parameter_value("model")
-        specific_args["model"] = model
+        # Get the upstream provider's id for the selected model.
+        provider_model_id = self._provider_model_id_for_selection()
+        specific_args["model"] = provider_model_id
 
         # Handle parameters that go into 'extra_params' for Griptape Cloud.
         extra_params = {}
-        if model not in O_SERIES_MODELS:
+        if provider_model_id not in O_SERIES_MODELS:
             top_p = self.get_parameter_value("top_p")
             if top_p is not None:
                 extra_params["top_p"] = top_p
@@ -182,8 +228,7 @@ class GriptapeCloudPrompt(BasePrompt):
         all_kwargs = {**common_args, **specific_args}
 
         # Override with model specific args
-        selected_model = self.get_parameter_value("model")
-        model_args = next((model["args"] for model in MODEL_CHOICES_ARGS if model["name"] == selected_model), {})
+        model_args = next((model["args"] for model in MODEL_CHOICES_ARGS if model["name"] == provider_model_id), {})
 
         # Update with model args and remove any that are None
         for arg, value in model_args.items():

@@ -23,6 +23,14 @@ __all__ = ["ElevenLabsTextToSpeechGeneration"]
 
 PROMPT_TRUNCATE_LENGTH = 100
 
+# Migrates values saved before the dropdown stored catalog keys.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Eleven Multilingual v2": "gtc_eleven_multilingual_v2",
+    "Eleven v3": "gtc_eleven_v3",
+    "eleven_multilingual_v2": "gtc_eleven_multilingual_v2",
+    "eleven_v3": "gtc_eleven_v3",
+}
+
 # Voice preset mapping - friendly names to Eleven Labs voice IDs (sorted alphabetically)
 VOICE_PRESET_MAP = {  # spellchecker:disable-line
     "Alexandra": "kdmDKE6EkgrWrrykO9Qt",  # spellchecker:disable-line
@@ -66,7 +74,7 @@ class ElevenLabsTextToSpeechGeneration(GriptapeProxyNode):
         # Model Selection
         model_param = ParameterString(
             name="model",
-            default_value="eleven_v3",
+            default_value="gtc_eleven_v3",
             tooltip="Select the Eleven Labs text-to-speech model to use",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             ui_options={"display_name": "Model"},
@@ -76,8 +84,9 @@ class ElevenLabsTextToSpeechGeneration(GriptapeProxyNode):
         # marks the models the license denies; the proxy base refuses a denied selection.
         self._install_model_access(
             parameter=model_param,
-            model_choices=["eleven_multilingual_v2", "eleven_v3"],
-            default_model="eleven_v3",
+            model_choices=["gtc_eleven_multilingual_v2", "gtc_eleven_v3"],
+            default_model="gtc_eleven_v3",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Text input
@@ -273,10 +282,6 @@ class ElevenLabsTextToSpeechGeneration(GriptapeProxyNode):
 
         return super().after_value_set(parameter, value)
 
-    def _get_api_model_id(self) -> str:
-        """Get the API model ID for this generation."""
-        return self.get_parameter_value("model") or "eleven_v3"
-
     def _log(self, message: str) -> None:
         with suppress(Exception):
             logger.info(message)
@@ -299,7 +304,7 @@ class ElevenLabsTextToSpeechGeneration(GriptapeProxyNode):
         elif voice_preset:
             voice_id = VOICE_PRESET_MAP.get(voice_preset)
 
-        model = self.get_parameter_value("model") or "eleven_v3"
+        model = self._provider_model_id_for_selection() or "eleven_v3"
         params = {"text": text, "model_id": model}
 
         # Add optional parameters if they have values

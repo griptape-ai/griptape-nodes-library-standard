@@ -29,10 +29,19 @@ DEFAULT_CONTEXT_DURATION = 1
 MAX_CONTEXT_DURATION = 20
 
 MODEL_MAPPING = {
-    "LTX 2 Pro": "ltx-2-pro",
-    "LTX 2.3 Pro": "ltx-2-3-pro",
+    "gtc_ltx_2_pro": "ltx-2-pro",
+    "gtc_ltx_2_3_pro": "ltx-2-3-pro",
 }
-DEFAULT_MODEL = "LTX 2.3 Pro"
+DEFAULT_MODEL = "gtc_ltx_2_3_pro"
+
+# Migrates values saved before the dropdown stored catalog keys: old display labels and
+# raw provider ids.
+LEGACY_MODEL_VALUES = {
+    "LTX 2 Pro": "gtc_ltx_2_pro",
+    "LTX 2.3 Pro": "gtc_ltx_2_3_pro",
+    "ltx-2-3-pro": "gtc_ltx_2_3_pro",
+    "ltx-2-pro": "gtc_ltx_2_pro",
+}
 
 
 class LTXVideoExtend(GriptapeProxyNode):
@@ -78,7 +87,7 @@ class LTXVideoExtend(GriptapeProxyNode):
             parameter=model_param,
             model_choices=list(MODEL_MAPPING.keys()),
             default_model=DEFAULT_MODEL,
-            provider_model_id_by_choice=MODEL_MAPPING,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -207,12 +216,7 @@ class LTXVideoExtend(GriptapeProxyNode):
             self._update_context_badge(value)
 
     def _get_api_model_id(self) -> str:
-        return f"{self._get_catalog_model_id()}:extend"
-
-    def _get_catalog_model_id(self) -> str:
-        # The catalog declares the bare provider id (no `:extend` suffix).
-        model_name = self.get_parameter_value("model") or DEFAULT_MODEL
-        return MODEL_MAPPING.get(model_name, MODEL_MAPPING[DEFAULT_MODEL])
+        return f"{self._provider_model_id_for_selection()}:extend"
 
     async def _prepare_video_data_uri_async(self, video_input: Any) -> str | None:
         """Convert video input to a base64 data URI."""

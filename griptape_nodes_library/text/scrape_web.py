@@ -7,12 +7,30 @@ from griptape.tools import WebScraperTool as GtWebScraperTool
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
+from griptape_nodes.node_library.library_registry import resolve_provider_model_id
 
 from griptape_nodes_library.tasks.base_task import BaseTask
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
-MODEL_CHOICES = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-5"]
-DEFAULT_MODEL = "gpt-4.1-mini"
+MODEL_CHOICES = [
+    "gtc_gpt_4_1",
+    "gtc_gpt_4_1_mini",
+    "gtc_gpt_4_1_nano",
+    "gtc_gpt_5",
+]
+DEFAULT_MODEL = "gtc_gpt_4_1_mini"
+
+# Migrates values saved before the dropdown stored catalog keys.
+LEGACY_MODEL_VALUES = {
+    "GPT-4.1": "gtc_gpt_4_1",
+    "GPT-4.1 mini": "gtc_gpt_4_1_mini",
+    "GPT-4.1 nano": "gtc_gpt_4_1_nano",
+    "GPT-5": "gtc_gpt_5",
+    "gpt-4.1": "gtc_gpt_4_1",
+    "gpt-4.1-mini": "gtc_gpt_4_1_mini",
+    "gpt-4.1-nano": "gtc_gpt_4_1_nano",
+    "gpt-5": "gtc_gpt_5",
+}
 
 
 class ScrapeWeb(BaseTask):
@@ -40,6 +58,7 @@ class ScrapeWeb(BaseTask):
             parameter=model_param,
             model_choices=MODEL_CHOICES,
             default_model=DEFAULT_MODEL,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -73,10 +92,13 @@ class ScrapeWeb(BaseTask):
 
         # Create the tool
         tool = GtWebScraperTool()
+        # `model` is the catalog key the dropdown stores; the driver needs the upstream
+        # provider's own id instead.
+        provider_model_id = resolve_provider_model_id(self, model) or ""
         scrape_task = PromptTask(
             tools=[tool],
             reflect_on_tool_use=False,
-            prompt_driver=self.create_driver(model=model),
+            prompt_driver=self.create_driver(model=provider_model_id),
         )
 
         def _process() -> Structure:

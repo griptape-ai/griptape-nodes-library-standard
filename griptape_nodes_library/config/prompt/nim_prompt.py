@@ -19,23 +19,57 @@ BASE_URL = "https://integrate.api.nvidia.com/v1"
 API_KEY_URL = "https://build.nvidia.com/settings/api-keys"
 API_KEY_ENV_VAR = "NVIDIA_API_KEY"
 MODEL_CHOICES = [
-    "deepseek-ai/deepseek-v3.1",
-    "google/gemma-3-1b-it",
-    "meta/llama-4-maverick-17b-128e-instruct",
-    "meta/llama-4-scout-17b-16e-instruct",
-    "meta/llama-3.2-11b-vision-instruct",
-    "meta/llama-3.2-90b-vision-instruct",
-    "meta/llama3-8b-instruct",
-    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-    "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
-    "nvidia/nvidia-nemotron-nano-9b-v2",
-    "openai/gpt-oss-20b",
-    "openai/gpt-oss-120b",
-    "opengpt-x/teuken-7b-instruct-commercial-v0.4",
-    "moonshotai/kimi-k2-instruct",
-    "mistralai/magistral-small-2506",
+    "nim_deepseek_v3_1",
+    "nim_gemma_3_1b_it",
+    "nim_llama_4_maverick_17b_128e_instruct",
+    "nim_llama_4_scout_17b_16e_instruct",
+    "nim_llama_3_2_11b_vision_instruct",
+    "nim_llama_3_2_90b_vision_instruct",
+    "nim_llama3_8b_instruct",
+    "nim_llama_3_3_nemotron_super_49b_v1_5",
+    "nim_llama_3_1_nemotron_nano_vl_8b_v1",
+    "nim_nemotron_nano_9b_v2",
+    "nim_gpt_oss_20b",
+    "nim_gpt_oss_120b",
+    "nim_teuken_7b_instruct_commercial_v0_4",
+    "nim_kimi_k2_instruct",
+    "nim_magistral_small_2506",
 ]
 DEFAULT_MODEL = MODEL_CHOICES[0]
+
+# Migrates values saved before the dropdown stored catalog keys.
+LEGACY_MODEL_VALUES = {
+    "DeepSeek V3.1": "nim_deepseek_v3_1",
+    "GPT-OSS 120B": "nim_gpt_oss_120b",
+    "GPT-OSS 20B": "nim_gpt_oss_20b",
+    "Gemma 3 1B IT": "nim_gemma_3_1b_it",
+    "Kimi K2 Instruct": "nim_kimi_k2_instruct",
+    "Llama 3 8B Instruct": "nim_llama3_8b_instruct",
+    "Llama 3.1 Nemotron Nano VL 8B v1": "nim_llama_3_1_nemotron_nano_vl_8b_v1",
+    "Llama 3.2 11B Vision Instruct": "nim_llama_3_2_11b_vision_instruct",
+    "Llama 3.2 90B Vision Instruct": "nim_llama_3_2_90b_vision_instruct",
+    "Llama 3.3 Nemotron Super 49B v1.5": "nim_llama_3_3_nemotron_super_49b_v1_5",
+    "Llama 4 Maverick 17B 128E Instruct": "nim_llama_4_maverick_17b_128e_instruct",
+    "Llama 4 Scout 17B 16E Instruct": "nim_llama_4_scout_17b_16e_instruct",
+    "Magistral Small 2506": "nim_magistral_small_2506",
+    "Nemotron Nano 9B v2": "nim_nemotron_nano_9b_v2",
+    "Teuken 7B Instruct Commercial v0.4": "nim_teuken_7b_instruct_commercial_v0_4",
+    "deepseek-ai/deepseek-v3.1": "nim_deepseek_v3_1",
+    "google/gemma-3-1b-it": "nim_gemma_3_1b_it",
+    "meta/llama-3.2-11b-vision-instruct": "nim_llama_3_2_11b_vision_instruct",
+    "meta/llama-3.2-90b-vision-instruct": "nim_llama_3_2_90b_vision_instruct",
+    "meta/llama-4-maverick-17b-128e-instruct": "nim_llama_4_maverick_17b_128e_instruct",
+    "meta/llama-4-scout-17b-16e-instruct": "nim_llama_4_scout_17b_16e_instruct",
+    "meta/llama3-8b-instruct": "nim_llama3_8b_instruct",
+    "mistralai/magistral-small-2506": "nim_magistral_small_2506",
+    "moonshotai/kimi-k2-instruct": "nim_kimi_k2_instruct",
+    "nvidia/llama-3.1-nemotron-nano-vl-8b-v1": "nim_llama_3_1_nemotron_nano_vl_8b_v1",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5": "nim_llama_3_3_nemotron_super_49b_v1_5",
+    "nvidia/nvidia-nemotron-nano-9b-v2": "nim_nemotron_nano_9b_v2",
+    "openai/gpt-oss-120b": "nim_gpt_oss_120b",
+    "openai/gpt-oss-20b": "nim_gpt_oss_20b",
+    "opengpt-x/teuken-7b-instruct-commercial-v0.4": "nim_teuken_7b_instruct_commercial_v0_4",
+}
 
 
 class NimPrompt(BasePrompt):
@@ -67,7 +101,9 @@ class NimPrompt(BasePrompt):
         # --- Customize Inherited Parameters ---
 
         # Offer NVIDIA's models as a license-filtered dropdown.
-        self._install_model_access(model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL)
+        self._install_model_access(
+            model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=LEGACY_MODEL_VALUES
+        )
 
         # Remove the 'seed' parameter
         self.remove_parameter_element_by_name("seed")
@@ -110,8 +146,8 @@ class NimPrompt(BasePrompt):
         # Set the base URL for the NVIDIA API.
         specific_args["base_url"] = BASE_URL
 
-        # Get the selected model.
-        specific_args["model"] = self.get_parameter_value("model")
+        # Get the upstream provider's id for the selected model.
+        specific_args["model"] = self._provider_model_id_for_selection()
 
         # Handle parameters that go into 'extra_params' for NVIDIA.
         extra_params = {}

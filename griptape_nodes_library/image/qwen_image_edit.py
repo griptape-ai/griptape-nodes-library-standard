@@ -30,10 +30,20 @@ PROMPT_TRUNCATE_LENGTH = 100
 
 # Model options
 MODEL_OPTIONS = [
-    "qwen-image-edit",
-    "qwen-image-edit-plus",
-    "qwen-image-edit-plus-2025-10-30",
+    "gtc_qwen_image_edit",
+    "gtc_qwen_image_edit_plus",
+    "gtc_qwen_image_edit_plus_2025_10_30",
 ]
+
+# Migrates values saved before the dropdown stored catalog keys.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Qwen Image Edit": "gtc_qwen_image_edit",
+    "Qwen Image Edit Plus": "gtc_qwen_image_edit_plus",
+    "Qwen Image Edit Plus (2025-10-30)": "gtc_qwen_image_edit_plus_2025_10_30",
+    "qwen-image-edit": "gtc_qwen_image_edit",
+    "qwen-image-edit-plus": "gtc_qwen_image_edit_plus",
+    "qwen-image-edit-plus-2025-10-30": "gtc_qwen_image_edit_plus_2025_10_30",
+}
 
 # Response status constants
 STATUS_FAILED = "Failed"
@@ -88,7 +98,7 @@ class QwenImageEdit(GriptapeProxyNode):
         # Model selection
         model_param = ParameterString(
             name="model",
-            default_value="qwen-image-edit-plus",
+            default_value="gtc_qwen_image_edit_plus",
             tooltip="Select the Qwen image editing model to use",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -98,7 +108,8 @@ class QwenImageEdit(GriptapeProxyNode):
         self._install_model_access(
             parameter=model_param,
             model_choices=MODEL_OPTIONS,
-            default_model="qwen-image-edit-plus",
+            default_model="gtc_qwen_image_edit_plus",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Editing instruction parameter
@@ -218,7 +229,7 @@ class QwenImageEdit(GriptapeProxyNode):
         if not images or len(images) == 0:
             msg = "At least 1 image is required for editing"
             raise ValueError(msg)
-        if model == "qwen-image-edit" and len(images) != 1:
+        if model == "gtc_qwen_image_edit" and len(images) != 1:
             msg = f"qwen-image-edit only supports 1 image for editing (got {len(images)} images)"
             raise ValueError(msg)
         if len(images) > MAX_IMAGES:
@@ -229,7 +240,7 @@ class QwenImageEdit(GriptapeProxyNode):
         num_images = len(images)
 
         # Validate num_images based on model
-        if model == "qwen-image-edit" and num_images != 1:
+        if model == "gtc_qwen_image_edit" and num_images != 1:
             msg = f"qwen-image-edit only supports 1 image for editing (got {num_images} images)"
             raise ValueError(msg)
 
@@ -251,9 +262,6 @@ class QwenImageEdit(GriptapeProxyNode):
             raise ValueError(msg)
         return api_key
 
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or ""
-
     async def _build_payload(self) -> dict[str, Any]:
         params = self._get_parameters()
 
@@ -272,7 +280,7 @@ class QwenImageEdit(GriptapeProxyNode):
 
         # Flatten structure - parameters should be at top level for MultiModalConversation.call()
         payload = {
-            "model": params["model"],
+            "model": self._provider_model_id_for_selection(),
             "messages": [{"role": "user", "content": content}],
             "n": params["num_images"],
             "watermark": params["watermark"],

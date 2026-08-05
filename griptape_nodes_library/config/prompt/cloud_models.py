@@ -54,29 +54,45 @@ MODEL_CHOICES_ARGS = [
     {"name": "o1", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
 ]
 
-MODEL_CHOICES = [model["name"] for model in MODEL_CHOICES_ARGS]
-
-
-# Maps deprecated model IDs that may appear in saved workflows to their live
-# replacement. Consumers use this to rewrite the model on load and surface a
-# deprecation notice to the user.
-DEPRECATED_MODELS = {
-    # Anthropic
-    "claude-3-7-sonnet": "claude-sonnet-4-6",
-    "claude-3-5-haiku": "claude-haiku-4-5",
-    "claude-sonnet-4-20250514": "claude-sonnet-4-6",
-    # Bedrock
-    "amazon.titan-text-premier-v1": "claude-sonnet-4-6",
-    # Azure OpenAI
-    "gpt-4.5-preview": "gpt-4.1",
-    "o1-mini": "o3-mini",
+# Catalog model keys for the same models, in the same order as MODEL_CHOICES_ARGS.
+# GriptapeCloudPrompt's dropdown stores these -- the catalog id the license
+# layer gates on -- rather than the provider's own model id; consumers that
+# still key off the provider id (MODEL_CHOICES_ARGS, O_SERIES_MODELS) resolve
+# one from the other via `_provider_model_id_for_selection`.
+CATALOG_MODEL_CHOICES = [
+    # Anthropic / Bedrock-Claude
+    "gtc_claude_opus_4_7",
+    "gtc_claude_sonnet_4_6",
+    "gtc_claude_sonnet_4_5",
+    "gtc_claude_haiku_4_5",
+    # Bedrock non-Claude
+    "gtc_deepseek_v3",
+    "gtc_deepseek_r1",
+    "gtc_llama_3_3_70b",
+    "gtc_llama_3_1_70b",
     # Google
-    "gemini-2.0-flash": "gemini-2.5-flash",
-    "gemini-2.5-flash-preview-05-20": "gemini-2.5-flash",
-    "gemini-2.5-pro-preview-06-05": "gemini-2.5-pro",
-    "gemini-3-pro": "gemini-3.1-pro",
-    "gemini-3-pro-preview": "gemini-3.1-pro",
-}
+    "gtc_gemini_3_1_pro",
+    "gtc_gemini_3_1_flash_lite",
+    "gtc_gemini_3_flash",
+    "gtc_gemini_2_5_pro",
+    "gtc_gemini_2_5_flash",
+    "gtc_gemini_2_5_flash_lite",
+    # Azure OpenAI
+    "gtc_gpt_5_2",
+    "gtc_gpt_5_2_chat",
+    "gtc_gpt_5_1",
+    "gtc_gpt_5",
+    "gtc_gpt_5_mini",
+    "gtc_gpt_5_nano",
+    "gtc_gpt_4_1",
+    "gtc_gpt_4_1_mini",
+    "gtc_gpt_4_1_nano",
+    "gtc_gpt_4o",
+    "gtc_o4_mini",
+    "gtc_o3",
+    "gtc_o3_mini",
+    "gtc_o1",
+]
 
 
 # Model IDs whose backend does not accept top_p (the OpenAI o-series).

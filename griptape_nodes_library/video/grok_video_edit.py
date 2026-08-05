@@ -31,8 +31,15 @@ class GrokVideoEdit(GriptapeProxyNode):
         - result_details (str): Details about the edit result or error
     """
 
+    # Catalog model key to provider model id.
     MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
-        "Grok Imagine Video": "grok-imagine-video",
+        "gtc_grok_imagine_video": "grok-imagine-video",
+    }
+
+    # Migrates values saved before the dropdown stored catalog keys.
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
+        "Grok Imagine Video": "gtc_grok_imagine_video",
+        "grok-imagine-video": "gtc_grok_imagine_video",
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -42,7 +49,7 @@ class GrokVideoEdit(GriptapeProxyNode):
 
         model_param = ParameterString(
             name="model",
-            default_value="Grok Imagine Video",
+            default_value="gtc_grok_imagine_video",
             tooltip="Select the Grok video model to use",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -51,9 +58,9 @@ class GrokVideoEdit(GriptapeProxyNode):
         # marks the models the license denies; the proxy base refuses a denied selection.
         self._install_model_access(
             parameter=model_param,
-            model_choices=["Grok Imagine Video"],
-            default_model="Grok Imagine Video",
-            provider_model_id_by_choice=self.MODEL_NAME_MAP,
+            model_choices=["gtc_grok_imagine_video"],
+            default_model="gtc_grok_imagine_video",
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -157,18 +164,11 @@ class GrokVideoEdit(GriptapeProxyNode):
             return None
 
     def _get_api_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "Grok Imagine Video"
-        base_model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
-        return f"{base_model_id}:edit"
+        return f"{self._provider_model_id_for_selection()}:edit"
 
     def _get_payload_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "Grok Imagine Video"
+        model_name = self.get_parameter_value("model") or "gtc_grok_imagine_video"
         return self.MODEL_NAME_MAP.get(model_name, model_name)
-
-    def _get_catalog_model_id(self) -> str:
-        # The catalog declares the bare provider id (no `:edit` suffix), so
-        # resolve the declaration against the un-suffixed id.
-        return self._get_payload_model_id()
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []
