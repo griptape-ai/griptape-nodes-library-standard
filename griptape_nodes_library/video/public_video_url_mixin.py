@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
@@ -20,14 +21,28 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["MAX_VIDEO_DATA_URI_SIZE_BYTES", "PublicVideoUrlMixin", "decoded_data_uri_size"]
 
-# Hostnames whose URLs LTX can't fetch (docs.ltx.io/input-formats requires a publicly
-# reachable domain name). These are uploaded to Griptape Cloud instead of passed through.
-_LOCAL_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "::1"})
-
-# LTX rejects inline base64 (data URI) videos above 15 MB (docs.ltx.io/input-formats).
+# LTX's data-URI limit is 15 MB on the *encoded* base64 string (docs.ltx.io/input-formats).
+# decoded = encoded × (3/4), so the decoded cap is 15 MB × 3/4 ≈ 11.25 MB.
 # The URL tier avoids this entirely by handing LTX a public URL it fetches server-side,
 # where the limit is a larger 32 MB; this guard only applies to the base64 fallback.
-MAX_VIDEO_DATA_URI_SIZE_BYTES = 15 * 1024 * 1024
+MAX_VIDEO_DATA_URI_SIZE_BYTES = 15 * 1024 * 1024 * 3 // 4  # ≈ 11.25 MB decoded
+
+
+def _is_public_https_domain_url(url: str) -> bool:
+    """Return True only for URLs LTX will accept directly: https:// with a proper domain name.
+
+    Rejects http://, bare IPs (0.0.0.0, 192.168.x.x, 127.0.0.1, ::1), and single-label
+    hostnames (localhost, container names) — all of which must upload to Griptape Cloud instead.
+    """
+    if not url.startswith("https://"):
+        return False
+    hostname = urlparse(url).hostname or ""
+    try:
+        ipaddress.ip_address(hostname)
+        return False
+    except ValueError:
+        pass
+    return "." in hostname
 
 
 def decoded_data_uri_size(data_uri: str) -> int:
@@ -95,8 +110,9 @@ class PublicVideoUrlMixin:
             size_mb = decoded_size / 1_048_576
             limit_mb = MAX_VIDEO_DATA_URI_SIZE_BYTES // 1_048_576
             msg = (
-                f"{self.name}: Source video is too large ({size_mb:.1f} MB). "  # type: ignore[attr-defined]
-                f"The maximum supported size is {limit_mb} MB. "
+                f"{self.name}: Source video is too large ({size_mb:.1f} MB decoded, "  # type: ignore[attr-defined]
+                f"~{size_mb * 4 / 3:.1f} MB encoded). "
+                f"The maximum supported encoded size is 15 MB (~{limit_mb} MB decoded). "
                 "Trim the video to a shorter segment and try again."
             )
             raise ValueError(msg)
@@ -113,7 +129,7 @@ class PublicVideoUrlMixin:
         video_value = coerce_media_url_or_data_uri(video_input, kind="video")
         if not video_value:
             return None
-        if video_value.startswith(("http://", "https://")) and urlparse(video_value).hostname not in _LOCAL_HOSTNAMES:
+        if _is_public_https_domain_url(video_value):
             return video_value
 
         # The scratch parameter is a transient, worker-local helper that only exists to feed the

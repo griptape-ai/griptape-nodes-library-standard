@@ -224,6 +224,70 @@ def test_upload_uploads_localhost_url(monkeypatch: pytest.MonkeyPatch) -> None:
     assert node._pending_video_uploads  # tracked for cleanup
 
 
+def test_upload_uploads_plain_http_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """http:// URLs must upload — LTX requires HTTPS-only with a domain name."""
+    node = LTXVideoRetake(name="Retake")
+    node._reset_video_uploads()
+
+    helper = MagicMock()
+    helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
+    monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
+    monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
+
+    result = node._upload_video_to_public_url(VideoUrlArtifact("http://example.com/video.mp4"))
+
+    assert result == _PUBLIC_URL
+    helper.get_public_url_for_parameter.assert_called_once()
+
+
+def test_upload_uploads_ip_address_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LAN IP URLs must upload — LTX requires a domain name, not a bare IP."""
+    node = LTXVideoRetake(name="Retake")
+    node._reset_video_uploads()
+
+    helper = MagicMock()
+    helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
+    monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
+    monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
+
+    result = node._upload_video_to_public_url(VideoUrlArtifact("https://192.168.1.20:8124/static/v.mp4"))
+
+    assert result == _PUBLIC_URL
+    helper.get_public_url_for_parameter.assert_called_once()
+
+
+def test_upload_uploads_zero_zero_ip_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """0.0.0.0 URLs must upload — not publicly reachable."""
+    node = LTXVideoRetake(name="Retake")
+    node._reset_video_uploads()
+
+    helper = MagicMock()
+    helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
+    monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
+    monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
+
+    result = node._upload_video_to_public_url(VideoUrlArtifact("https://0.0.0.0:8124/static/v.mp4"))
+
+    assert result == _PUBLIC_URL
+    helper.get_public_url_for_parameter.assert_called_once()
+
+
+def test_upload_uploads_bare_hostname_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bare single-label hostnames (container names, etc.) must upload — not publicly reachable."""
+    node = LTXVideoRetake(name="Retake")
+    node._reset_video_uploads()
+
+    helper = MagicMock()
+    helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
+    monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
+    monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
+
+    result = node._upload_video_to_public_url(VideoUrlArtifact("https://my-container:8124/static/v.mp4"))
+
+    assert result == _PUBLIC_URL
+    helper.get_public_url_for_parameter.assert_called_once()
+
+
 def test_upload_falls_back_to_none_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """If the cloud upload raises, resolution degrades to base64 (returns None), not an error."""
     node = LTXVideoRetake(name="Retake")
