@@ -38,6 +38,12 @@ MODEL_OPTIONS = [
     "wan2.6-r2v",
 ]
 
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Wan 2.6 R2V": "wan2.6-r2v",
+    "gtc_wan_2_6_r2v": "wan2.6-r2v",
+}
+
 # Size options organized by resolution tier
 SIZE_OPTIONS_720P = [
     "1280*720",  # 16:9
@@ -120,14 +126,20 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
         self.description = "Generate videos from reference videos using WAN models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="wan2.6-r2v",
-                tooltip="Select the WAN reference-to-video model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="wan2.6-r2v",
+            tooltip="Select the WAN reference-to-video model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model="wan2.6-r2v",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Prompt parameter
@@ -437,9 +449,6 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
             msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
             raise ValueError(msg)
         return api_key
-
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or ""
 
     async def _build_payload(self) -> dict[str, Any]:
         params = self._get_parameters()
