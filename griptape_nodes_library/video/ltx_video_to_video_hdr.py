@@ -10,7 +10,6 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.traits.options import Options
 
 # static_ffmpeg is dynamically installed by the library loader at runtime
 from static_ffmpeg import run  # type: ignore[import-untyped]
@@ -23,8 +22,11 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["LTXVideoToVideoHDR"]
 
-MODEL_MAPPING = {
+# Migrates values saved before the dropdown stored the provider's own model id: old
+# display labels and catalog keys.
+LEGACY_MODEL_VALUES = {
     "LTX 2.3 Pro": "ltx-2-3-pro",
+    "gtc_ltx_2_3_pro": "ltx-2-3-pro",
 }
 
 # Input frame-count limits per LTX HDR upscale docs, keyed by billing tier.
@@ -61,14 +63,20 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         # INPUTS / PROPERTIES
 
         # Model parameter — HDR upscale is only offered on ltx-2-3-pro per the pricing page.
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="LTX 2.3 Pro",
-                tooltip="Model to use for video-to-video HDR upscale",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=list(MODEL_MAPPING.keys()))},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="ltx-2-3-pro",
+            tooltip="Model to use for video-to-video HDR upscale",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=["ltx-2-3-pro"],
+            default_model="ltx-2-3-pro",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -116,9 +124,7 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         self.set_initial_node_size(height=400)
 
     def _get_api_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "LTX 2.3 Pro"
-        model_id = MODEL_MAPPING.get(model_name, "ltx-2-3-pro")
-        return f"{model_id}:video-to-video-hdr"
+        return f"{self._get_selected_model_id()}:video-to-video-hdr"
 
     @staticmethod
     def _extract_input_video_url(video_input: Any) -> str | None:
