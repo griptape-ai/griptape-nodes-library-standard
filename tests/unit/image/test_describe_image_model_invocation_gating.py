@@ -9,13 +9,28 @@ model is settled, and fails closed (raises) when the declaration is denied.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from griptape_nodes.exe_types.node_types import BaseNode
+from griptape_nodes.node_library.library_registry import LibraryRegistry
 
 import griptape_nodes_library.image.describe_image as describe_image_module
 import griptape_nodes_library.utils.model_invocation as model_invocation_module
 from griptape_nodes_library.image.describe_image import DescribeImage
+
+LIBRARY_NAME = "Griptape Nodes Library"
+
+
+def _create_node(node_type: str) -> BaseNode:
+    """Create a node through the library so its metadata carries `library` / `node_type`.
+
+    `_get_selected_model_id` / `resolve_catalog_model_id` read those two metadata
+    keys to resolve a node's declared models; a bare `NodeClass(name=...)`
+    construction leaves every model-id resolution in `process()` returning `None`.
+    """
+    library = LibraryRegistry.get_library(name=LIBRARY_NAME)
+    return library.create_node(node_type=node_type, name=node_type)
 
 
 class _FakeDeclaration:
@@ -54,7 +69,7 @@ def _stub_images(node: DescribeImage, monkeypatch: pytest.MonkeyPatch, images: l
 @pytest.fixture
 def describe_image_node(monkeypatch: pytest.MonkeyPatch) -> DescribeImage:
     _stub_secret(monkeypatch, "gt-cloud-key")
-    node = DescribeImage(name="DescribeImage")
+    node = cast(DescribeImage, _create_node("DescribeImage"))
     node.set_parameter_value("model", "gpt-5.2")
     _stub_images(node, monkeypatch, [object()])
     return node
