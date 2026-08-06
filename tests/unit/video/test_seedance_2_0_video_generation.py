@@ -566,6 +566,27 @@ def test_adopted_legacy_slots_sort_by_slot_number() -> None:
     ]
 
 
+def test_reorder_announces_the_list_and_only_when_it_moves_children(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A per-child event carries no position, so the container's event is what tells a listener the
+    # order. It should fire for a reorder that moves children and stay quiet otherwise.
+    node = Seedance20VideoGeneration(name="Seedance20")
+    announced: list[list[str]] = []
+    original_emit = Seedance20VideoGeneration._emit_parameter_lifecycle_event
+
+    def spy(self: Seedance20VideoGeneration, parameter: object, *, remove: bool = False) -> None:
+        if getattr(parameter, "name", None) == REFERENCE_VIDEOS_PARAMETER:
+            announced.append([child.name for child in parameter.children])
+        return original_emit(self, parameter, remove=remove)
+
+    monkeypatch.setattr(Seedance20VideoGeneration, "_emit_parameter_lifecycle_event", spy)
+
+    node.before_incoming_connection(node, "video", "reference_video_3")
+    assert announced == []
+
+    node.before_incoming_connection(node, "video", "reference_video_1")
+    assert announced == [["reference_video_1", "reference_video_3"]]
+
+
 def test_adopted_child_matches_an_editor_added_child() -> None:
     # The adopted child is built field by field instead of through add_child_parameter, which takes
     # no name. Everything except the name and the two dropped ui_options must still match, so a
