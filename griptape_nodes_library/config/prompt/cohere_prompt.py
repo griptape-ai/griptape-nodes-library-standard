@@ -20,6 +20,12 @@ API_KEY_ENV_VAR = "COHERE_API_KEY"
 MODEL_CHOICES = ["command-r-plus"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES = {
+    "Command R+": "command-r-plus",
+    "cohere_command_r_plus": "command-r-plus",
+}
+
 
 class CoherePrompt(BasePrompt):
     """Node for configuring and providing a Cohere Prompt Driver.
@@ -44,8 +50,10 @@ class CoherePrompt(BasePrompt):
 
         # --- Customize Inherited Parameters ---
 
-        # Update the 'model' parameter for Anthropic specifics.
-        self._update_option_choices(param="model", choices=MODEL_CHOICES, default=DEFAULT_MODEL)
+        # Offer Cohere's models as a license-filtered dropdown.
+        self._install_model_access(
+            model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=LEGACY_MODEL_VALUES
+        )
 
         # Replace `min_p` with `top_p` for Cohere.
         self._replace_param_by_name(
@@ -73,6 +81,9 @@ class CoherePrompt(BasePrompt):
         # Retrieve all parameter values set on the node.
         params = self.parameter_values
 
+        # A model the license denies must not reach a downstream node as a driver.
+        self._raise_if_model_denied()
+
         # --- Get Common Driver Arguments ---
         # Use the helper method from BasePrompt. This gets temperature, stream,
         # max_attempts, max_tokens, use_native_tools, min_p, top_k if they are set.
@@ -84,8 +95,8 @@ class CoherePrompt(BasePrompt):
         # Retrieve the mandatory API key.
         specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
 
-        # Get the selected model.
-        specific_args["model"] = self.get_parameter_value("model")
+        # Get the upstream provider's id for the selected model.
+        specific_args["model"] = self._get_selected_model_id()
 
         # Handle parameters that go into 'extra_params' for Griptape Cloud.
         extra_params = {}
