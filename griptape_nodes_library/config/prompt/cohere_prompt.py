@@ -17,13 +17,13 @@ from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
 SERVICE = "Cohere"
 API_KEY_URL = "https://dashboard.cohere.com/api-keys"
 API_KEY_ENV_VAR = "COHERE_API_KEY"
-MODEL_CHOICES = ["cohere_command_r_plus"]
+MODEL_CHOICES = ["command-r-plus"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 
-# Migrates values saved before the dropdown stored catalog keys.
+# Migrates values saved before the dropdown stored the provider's own model id.
 LEGACY_MODEL_VALUES = {
-    "Command R+": "cohere_command_r_plus",
-    "command-r-plus": "cohere_command_r_plus",
+    "Command R+": "command-r-plus",
+    "cohere_command_r_plus": "command-r-plus",
 }
 
 
@@ -96,7 +96,7 @@ class CoherePrompt(BasePrompt):
         specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
 
         # Get the upstream provider's id for the selected model.
-        specific_args["model"] = self._provider_model_id_for_selection()
+        specific_args["model"] = self._get_selected_model_id()
 
         # Handle parameters that go into 'extra_params' for Griptape Cloud.
         extra_params = {}

@@ -34,9 +34,9 @@ __all__ = ["SeedreamImageGeneration"]
 # Define constant for prompt truncation length
 PROMPT_TRUNCATE_LENGTH = 100
 
-# Size options for different models, keyed by catalog model id
+# Size options for different models, keyed by the provider's own model id
 SIZE_OPTIONS = {
-    "gtc_seedream_5_0_lite": [
+    "seedream-5-0-260128": [
         "2K",
         "3K",
         "2048x2048",
@@ -56,7 +56,7 @@ SIZE_OPTIONS = {
         "3744x2496",
         "4704x2016",
     ],
-    "gtc_seedream_4_5": [
+    "seedream-4-5-251128": [
         "2K",
         "4K",
         "2560x1440",
@@ -67,7 +67,7 @@ SIZE_OPTIONS = {
         "2160x4096",
         "4096x4096",
     ],
-    "gtc_seedream_4_0": [
+    "seedream-4-0-250828": [
         "1K",
         "2K",
         "4K",
@@ -82,29 +82,29 @@ SIZE_OPTIONS = {
     ],
 }
 
-# Maximum number of input images for models that support multiple images, keyed by catalog model id
+# Maximum number of input images for models that support multiple images, keyed by the provider's own model id
 MAX_IMAGES_PER_MODEL = {
-    "gtc_seedream_5_0_lite": 14,
-    "gtc_seedream_4_5": 14,
-    "gtc_seedream_4_0": 10,
+    "seedream-5-0-260128": 14,
+    "seedream-4-5-251128": 14,
+    "seedream-4-0-250828": 10,
 }
 
-# Migrates values saved before this dropdown stored catalog model keys (friendly labels
-# and raw provider ids alike).
+# Migrates values saved before this dropdown stored the provider's own model id (friendly
+# labels and catalog keys alike).
 LEGACY_MODEL_VALUES = {
-    "Seedream 4.0": "gtc_seedream_4_0",
-    "Seedream 4.5": "gtc_seedream_4_5",
-    "Seedream 5.0 Lite": "gtc_seedream_5_0_lite",
-    "seedream-4-0-250828": "gtc_seedream_4_0",
-    "seedream-4-5-251128": "gtc_seedream_4_5",
-    "seedream-5-0-260128": "gtc_seedream_5_0_lite",
+    "Seedream 4.0": "seedream-4-0-250828",
+    "Seedream 4.5": "seedream-4-5-251128",
+    "Seedream 5.0 Lite": "seedream-5-0-260128",
+    "gtc_seedream_4_0": "seedream-4-0-250828",
+    "gtc_seedream_4_5": "seedream-4-5-251128",
+    "gtc_seedream_5_0_lite": "seedream-5-0-260128",
     # Folded in from this node's own retired DEPRECATED_MODELS dict.
-    "Seedream 3.0 T2I": "gtc_seedream_5_0_lite",
-    "seedream-3-0-t2i-250415": "gtc_seedream_5_0_lite",
-    "Seedream 3.0 I2I": "gtc_seedream_4_0",
-    "seededit-3-0-i2i-250628": "gtc_seedream_4_0",
+    "Seedream 3.0 T2I": "seedream-5-0-260128",
+    "seedream-3-0-t2i-250415": "seedream-5-0-260128",
+    "Seedream 3.0 I2I": "seedream-4-0-250828",
+    "seededit-3-0-i2i-250628": "seedream-4-0-250828",
     # Found stored in a shipped workflow template; never appeared in DEPRECATED_MODELS.
-    "seedream-4.5": "gtc_seedream_4_5",
+    "seedream-4.5": "seedream-4-5-251128",
 }
 
 
@@ -148,7 +148,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         # Model selection
         model_param = ParameterString(
             name="model",
-            default_value="gtc_seedream_4_5",
+            default_value="seedream-4-5-251128",
             tooltip="Select the Seedream model to use",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -158,11 +158,11 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         self._install_model_access(
             parameter=model_param,
             model_choices=[
-                "gtc_seedream_5_0_lite",
-                "gtc_seedream_4_5",
-                "gtc_seedream_4_0",
+                "seedream-5-0-260128",
+                "seedream-4-5-251128",
+                "seedream-4-0-250828",
             ],
-            default_model="gtc_seedream_4_5",
+            default_model="seedream-4-5-251128",
             deprecated_values=LEGACY_MODEL_VALUES,
         )
 
@@ -207,7 +207,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
                 default_value="2K",
                 tooltip="Image size specification",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=SIZE_OPTIONS["gtc_seedream_4_5"])},
+                traits={Options(choices=SIZE_OPTIONS["seedream-4-5-251128"])},
             )
         )
 
@@ -304,15 +304,15 @@ class SeedreamImageGeneration(GriptapeProxyNode):
 
     def _initialize_parameter_visibility(self) -> None:
         """Initialize parameter visibility based on default model selection."""
-        default_model = self.get_parameter_value("model") or "gtc_seedream_4_5"
+        default_model = self.get_parameter_value("model") or "seedream-4-5-251128"
         # Show output_format only for Seedream 5.0 Lite
-        if default_model == "gtc_seedream_5_0_lite":
+        if default_model == "seedream-5-0-260128":
             self.show_parameter_by_name("output_format")
             self.show_parameter_by_name("optimize_prompt_mode")
-        elif default_model == "gtc_seedream_4_0":
+        elif default_model == "seedream-4-0-250828":
             self.hide_parameter_by_name("output_format")
             self.show_parameter_by_name("optimize_prompt_mode")
-        else:  # gtc_seedream_4_5
+        else:  # seedream-4-5-251128
             self.hide_parameter_by_name("output_format")
             self.hide_parameter_by_name("optimize_prompt_mode")
 
@@ -335,20 +335,20 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         current_size = self.get_parameter_value("size")
 
         # Show output_format only for Seedream 5.0 Lite
-        if model == "gtc_seedream_5_0_lite":
+        if model == "seedream-5-0-260128":
             self.show_parameter_by_name("output_format")
             self.show_parameter_by_name("optimize_prompt_mode")
-        elif model == "gtc_seedream_4_0":
+        elif model == "seedream-4-0-250828":
             self.hide_parameter_by_name("output_format")
             self.show_parameter_by_name("optimize_prompt_mode")
-        else:  # gtc_seedream_4_5
+        else:  # seedream-4-5-251128
             self.hide_parameter_by_name("output_format")
             self.hide_parameter_by_name("optimize_prompt_mode")
 
         if current_size in new_choices:
             self._update_option_choices("size", new_choices, current_size)
         else:
-            default_size = "1K" if model == "gtc_seedream_4_0" else "2K"
+            default_size = "1K" if model == "seedream-4-0-250828" else "2K"
             default_size = default_size if default_size in new_choices else new_choices[0]
             self._update_option_choices("size", new_choices, default_size)
 
@@ -443,7 +443,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         images = normalize_artifact_list(images, ImageUrlArtifact, accepted_types=(ImageArtifact,))
 
         return {
-            "model": self.get_parameter_value("model") or "gtc_seedream_4_5",
+            "model": self.get_parameter_value("model") or "seedream-4-5-251128",
             "prompt": self.get_parameter_value("prompt") or "",
             "images": images,
             "size": self.get_parameter_value("size") or "2K",
@@ -492,10 +492,10 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         payload["sequential_image_generation_options"] = params["sequential_image_generation_options"]
 
         # Add output_format for Seedream 5.0 Lite
-        if model == "gtc_seedream_5_0_lite":
+        if model == "seedream-5-0-260128":
             payload["output_format"] = params.get("output_format", "jpeg")
             payload["optimize_prompt_options"] = {"mode": params.get("optimize_prompt_mode", "standard")}
-        elif model == "gtc_seedream_4_0":
+        elif model == "seedream-4-0-250828":
             payload["optimize_prompt_options"] = {"mode": params.get("optimize_prompt_mode", "standard")}
 
     async def _add_multi_image_payload_fields(self, payload: dict[str, Any], params: dict[str, Any]) -> None:

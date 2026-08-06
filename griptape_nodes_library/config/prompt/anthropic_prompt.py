@@ -18,38 +18,38 @@ SERVICE = "Anthropic"
 API_KEY_URL = "https://console.anthropic.com/settings/keys"
 API_KEY_ENV_VAR = "ANTHROPIC_API_KEY"
 MODEL_CHOICES = [
-    "gtc_claude_opus_4_7",
-    "gtc_claude_sonnet_4_6",
-    "gtc_claude_haiku_4_5",
+    "claude-opus-4-7",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5",
 ]
-DEFAULT_MODEL = MODEL_CHOICES[1]  # gtc_claude_sonnet_4_6
+DEFAULT_MODEL = MODEL_CHOICES[1]  # claude-sonnet-4-6
 
-# Migrates values saved before the dropdown stored catalog keys.
+# Migrates values saved before the dropdown stored the provider's own model id.
 LEGACY_MODEL_VALUES = {
-    "Claude Haiku 4.5": "gtc_claude_haiku_4_5",
-    "Claude Opus 4.7": "gtc_claude_opus_4_7",
-    "Claude Sonnet 4.6": "gtc_claude_sonnet_4_6",
-    "claude-haiku-4-5": "gtc_claude_haiku_4_5",
-    "claude-opus-4-7": "gtc_claude_opus_4_7",
-    "claude-sonnet-4-6": "gtc_claude_sonnet_4_6",
+    "Claude Haiku 4.5": "claude-haiku-4-5",
+    "Claude Opus 4.7": "claude-opus-4-7",
+    "Claude Sonnet 4.6": "claude-sonnet-4-6",
+    "gtc_claude_haiku_4_5": "claude-haiku-4-5",
+    "gtc_claude_opus_4_7": "claude-opus-4-7",
+    "gtc_claude_sonnet_4_6": "claude-sonnet-4-6",
     # Dated model versions
-    "claude-3-5-sonnet-20241022": "gtc_claude_sonnet_4_6",
-    "claude-3-5-sonnet-20240620": "gtc_claude_sonnet_4_6",
-    "claude-3-5-haiku-20241022": "gtc_claude_haiku_4_5",
-    "claude-3-opus-20240229": "gtc_claude_opus_4_7",
-    "claude-3-sonnet-20240229": "gtc_claude_sonnet_4_6",
-    "claude-3-haiku-20240307": "gtc_claude_haiku_4_5",
-    "claude-3-7-sonnet-20250219": "gtc_claude_sonnet_4_6",
-    "claude-sonnet-4-20250514": "gtc_claude_sonnet_4_6",
-    "claude-opus-4-20250514": "gtc_claude_opus_4_7",
+    "claude-3-5-sonnet-20241022": "claude-sonnet-4-6",
+    "claude-3-5-sonnet-20240620": "claude-sonnet-4-6",
+    "claude-3-5-haiku-20241022": "claude-haiku-4-5",
+    "claude-3-opus-20240229": "claude-opus-4-7",
+    "claude-3-sonnet-20240229": "claude-sonnet-4-6",
+    "claude-3-haiku-20240307": "claude-haiku-4-5",
+    "claude-3-7-sonnet-20250219": "claude-sonnet-4-6",
+    "claude-sonnet-4-20250514": "claude-sonnet-4-6",
+    "claude-opus-4-20250514": "claude-opus-4-7",
     # -latest variants
-    "claude-3-7-sonnet-latest": "gtc_claude_sonnet_4_6",
-    "claude-3-5-sonnet-latest": "gtc_claude_sonnet_4_6",
-    "claude-3-5-opus-latest": "gtc_claude_opus_4_7",
-    "claude-3-5-haiku-latest": "gtc_claude_haiku_4_5",
+    "claude-3-7-sonnet-latest": "claude-sonnet-4-6",
+    "claude-3-5-sonnet-latest": "claude-sonnet-4-6",
+    "claude-3-5-opus-latest": "claude-opus-4-7",
+    "claude-3-5-haiku-latest": "claude-haiku-4-5",
     # Superseded current-generation models
-    "claude-haiku-4-5-20251001": "gtc_claude_haiku_4_5",
-    "claude-opus-4-6": "gtc_claude_opus_4_7",
+    "claude-haiku-4-5-20251001": "claude-haiku-4-5",
+    "claude-opus-4-6": "claude-opus-4-7",
 }
 
 
@@ -120,7 +120,7 @@ class AnthropicPrompt(BasePrompt):
         specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
 
         # Get the upstream provider's id for the selected model.
-        specific_args["model"] = self._provider_model_id_for_selection()
+        specific_args["model"] = self._get_selected_model_id()
 
         # Handle specific parameter conversions/logic for Anthropic driver
         # Anthropic uses 'top_p' and 'top_k' directly as kwargs.

@@ -72,40 +72,27 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         - result_details (str): Details about the generation result or error
     """
 
-    # Map catalog model keys to provider model IDs
-    MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
-        "gtc_kling_v3": "kling-v3",
-        "gtc_kling_v2_6": "kling-v2-6",
-        "gtc_kling_v2_5_turbo": "kling-v2-5-turbo",
-        "gtc_kling_v2_1_master": "kling-v2-1-master",
-        "gtc_kling_v2_1": "kling-v2-1",
-        "gtc_kling_v2_master": "kling-v2-master",
-        "gtc_kling_v1_6": "kling-v1-6",
-        "gtc_kling_v1_5": "kling-v1-5",
-        "gtc_kling_v1": "kling-v1",
-    }
-
-    # Migrates values saved before the dropdown stored catalog keys: old display labels and
-    # raw provider ids.
+    # Migrates values saved before the dropdown stored the provider's own model id: old
+    # display labels and catalog keys.
     LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
-        "Kling v1": "gtc_kling_v1",
-        "Kling v1.5": "gtc_kling_v1_5",
-        "Kling v1.6": "gtc_kling_v1_6",
-        "Kling v2 Master": "gtc_kling_v2_master",
-        "Kling v2.1": "gtc_kling_v2_1",
-        "Kling v2.1 Master": "gtc_kling_v2_1_master",
-        "Kling v2.5 Turbo": "gtc_kling_v2_5_turbo",
-        "Kling v2.6": "gtc_kling_v2_6",
-        "Kling v3.0": "gtc_kling_v3",
-        "kling-v1": "gtc_kling_v1",
-        "kling-v1-5": "gtc_kling_v1_5",
-        "kling-v1-6": "gtc_kling_v1_6",
-        "kling-v2-1": "gtc_kling_v2_1",
-        "kling-v2-1-master": "gtc_kling_v2_1_master",
-        "kling-v2-5-turbo": "gtc_kling_v2_5_turbo",
-        "kling-v2-6": "gtc_kling_v2_6",
-        "kling-v2-master": "gtc_kling_v2_master",
-        "kling-v3": "gtc_kling_v3",
+        "Kling v1": "kling-v1",
+        "Kling v1.5": "kling-v1-5",
+        "Kling v1.6": "kling-v1-6",
+        "Kling v2 Master": "kling-v2-master",
+        "Kling v2.1": "kling-v2-1",
+        "Kling v2.1 Master": "kling-v2-1-master",
+        "Kling v2.5 Turbo": "kling-v2-5-turbo",
+        "Kling v2.6": "kling-v2-6",
+        "Kling v3.0": "kling-v3",
+        "gtc_kling_v1": "kling-v1",
+        "gtc_kling_v1_5": "kling-v1-5",
+        "gtc_kling_v1_6": "kling-v1-6",
+        "gtc_kling_v2_1": "kling-v2-1",
+        "gtc_kling_v2_1_master": "kling-v2-1-master",
+        "gtc_kling_v2_5_turbo": "kling-v2-5-turbo",
+        "gtc_kling_v2_6": "kling-v2-6",
+        "gtc_kling_v2_master": "kling-v2-master",
+        "gtc_kling_v3": "kling-v3",
     }
 
     # Model capability definitions
@@ -176,7 +163,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         # INPUTS / PROPERTIES
         model_name_param = ParameterString(
             name="model_name",
-            default_value="gtc_kling_v3",
+            default_value="kling-v3",
             tooltip="Model Name for generation",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             ui_options={"display_name": "Model"},
@@ -187,17 +174,17 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         self._install_model_access(
             parameter=model_name_param,
             model_choices=[
-                "gtc_kling_v3",
-                "gtc_kling_v2_6",
-                "gtc_kling_v2_5_turbo",
-                "gtc_kling_v2_1_master",
-                "gtc_kling_v2_1",
-                "gtc_kling_v2_master",
-                "gtc_kling_v1_6",
-                "gtc_kling_v1_5",
-                "gtc_kling_v1",
+                "kling-v3",
+                "kling-v2-6",
+                "kling-v2-5-turbo",
+                "kling-v2-1-master",
+                "kling-v2-1",
+                "kling-v2-master",
+                "kling-v1-6",
+                "kling-v1-5",
+                "kling-v1",
             ],
-            default_model="gtc_kling_v3",
+            default_model="kling-v3",
             deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
@@ -401,7 +388,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         )
 
         # Set initial parameter visibility based on default model
-        self._update_parameter_visibility_for_model(self.get_parameter_value("model_name") or "gtc_kling_v3")
+        self._update_parameter_visibility_for_model(self.get_parameter_value("model_name") or "kling-v3")
         self._update_multi_shot_parameter_visibility()
 
         self.set_initial_node_size(height=1145)
@@ -423,8 +410,8 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
     def _update_duration_choices(self) -> None:
         """Update duration dropdown based on current model and image_tail state."""
-        model_name = self.get_parameter_value("model_name") or "gtc_kling_v3"
-        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        model_name = self.get_parameter_value("model_name") or "kling-v3"
+        model_id = model_name
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
         new_durations = list(capabilities.get("durations", [5, 10]))
         # kling-v1: end frame restricts to 5s only
@@ -438,7 +425,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
     def _update_parameter_visibility_for_model(self, model_name: str) -> None:
         """Update parameter visibility based on selected model."""
-        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        model_id = model_name
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
 
         # Show mask features for all models
@@ -491,7 +478,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
     def _update_mode_dependent_features(self) -> None:
         """Show/hide features that depend on the current mode (e.g. sound for kling-v2-6)."""
         model_name = self.get_parameter_value("model_name") or ""
-        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        model_id = model_name
         if model_id == "kling-v2-6":
             mode = self.get_parameter_value("mode") or MODE_PRO
             if mode == MODE_PRO:
@@ -512,8 +499,8 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
     def _update_multi_shot_parameter_visibility(self) -> None:
         """Toggle prompt and shot inputs for v3 multi-shot configurations."""
-        model_name = self.get_parameter_value("model_name") or "gtc_kling_v3"
-        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        model_name = self.get_parameter_value("model_name") or "kling-v3"
+        model_id = model_name
         if model_id != V3_MODEL_ID:
             return
 
@@ -611,7 +598,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
         Appends :image2video modality to the model name.
         """
-        return f"{self._provider_model_id_for_selection()}:image2video"
+        return f"{self._get_selected_model_id()}:image2video"
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for Kling API.
@@ -619,8 +606,8 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         Returns:
             dict: The request payload (model field excluded, handled by base class)
         """
-        model_name = self.get_parameter_value("model_name") or "gtc_kling_v2_6"
-        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        model_name = self.get_parameter_value("model_name") or "kling-v2-6"
+        model_id = model_name
 
         # Normalize image parameters before processing
         image_input = normalize_artifact_input(
@@ -953,8 +940,8 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         exceptions = super().validate_before_node_run() or []
 
         # Get parameter values
-        model_name = self.get_parameter_value("model_name") or "gtc_kling_v2_6"
-        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        model_name = self.get_parameter_value("model_name") or "kling-v2-6"
+        model_id = model_name
         image = self.get_parameter_value("image")
         image_tail = self.get_parameter_value("image_tail")
         prompt = self.get_parameter_value("prompt") or ""

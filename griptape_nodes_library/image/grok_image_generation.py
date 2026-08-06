@@ -64,13 +64,13 @@ class GrokImageGeneration(GriptapeProxyNode):
 
     RESOLUTION_OPTIONS: ClassVar[list[str]] = ["1k", "2k"]
 
-    # Migrates values saved before this dropdown stored catalog model keys.
+    # Migrates values saved before this dropdown stored the provider's own model id.
     LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
-        "Grok Imagine Image": "gtc_grok_imagine_image",
-        "grok-imagine-image": "gtc_grok_imagine_image",
+        "Grok Imagine Image": "grok-imagine-image",
+        "gtc_grok_imagine_image": "grok-imagine-image",
         # Folded in from this node's own retired DEPRECATED_MODELS dict.
-        "Grok 2 Image": "gtc_grok_imagine_image",
-        "grok-2-image-1212": "gtc_grok_imagine_image",
+        "Grok 2 Image": "grok-imagine-image",
+        "grok-2-image-1212": "grok-imagine-image",
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -80,7 +80,7 @@ class GrokImageGeneration(GriptapeProxyNode):
 
         model_param = ParameterString(
             name="model",
-            default_value="gtc_grok_imagine_image",
+            default_value="grok-imagine-image",
             tooltip="Select the Grok image model to use",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -89,8 +89,8 @@ class GrokImageGeneration(GriptapeProxyNode):
         # marks the models the license denies; the proxy base refuses a denied selection.
         self._install_model_access(
             parameter=model_param,
-            model_choices=["gtc_grok_imagine_image"],
-            default_model="gtc_grok_imagine_image",
+            model_choices=["grok-imagine-image"],
+            default_model="grok-imagine-image",
             deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
@@ -191,7 +191,7 @@ class GrokImageGeneration(GriptapeProxyNode):
     def _get_api_model_id(self) -> str:
         # Decorate the resolved provider id with the URL-path operation suffix the
         # proxy expects; the catalog declares the bare id (see _get_catalog_model_id).
-        return f"{self._provider_model_id_for_selection()}:generate"
+        return f"{self._get_selected_model_id()}:generate"
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []
@@ -211,7 +211,7 @@ class GrokImageGeneration(GriptapeProxyNode):
         aspect_ratio = self.get_parameter_value("aspect_ratio") or "1:1"
         n_value = int(self.get_parameter_value("n") or 1)
         resolution = self.get_parameter_value("resolution") or "1k"
-        api_model_id = self._provider_model_id_for_selection()
+        api_model_id = self._get_selected_model_id()
 
         payload: dict[str, Any] = {
             "model": api_model_id,

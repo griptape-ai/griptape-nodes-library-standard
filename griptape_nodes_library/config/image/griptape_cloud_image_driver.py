@@ -12,19 +12,19 @@ from griptape_nodes_library.config.image.base_image_driver import BaseImageDrive
 SERVICE = "Griptape"
 API_KEY_URL = "https://cloud.griptape.ai/configuration/api-keys"
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
-MODEL_CHOICES = ["gtc_gpt_image_1_mini", "gtc_gpt_image_1_5"]
+MODEL_CHOICES = ["gpt-image-1-mini", "gpt-image-1.5"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 AVAILABLE_SIZES = ["1024x1024", "1536x1024", "1024x1536"]
 DEFAULT_SIZE = AVAILABLE_SIZES[0]
 
-# Migrates values saved before the dropdown stored catalog keys.
+# Migrates values saved before the dropdown stored the provider's own model id.
 LEGACY_MODEL_VALUES = {
-    "GPT Image 1 Mini": "gtc_gpt_image_1_mini",
-    "GPT Image 1.5": "gtc_gpt_image_1_5",
-    "gpt-image-1-mini": "gtc_gpt_image_1_mini",
-    "gpt-image-1.5": "gtc_gpt_image_1_5",
+    "GPT Image 1 Mini": "gpt-image-1-mini",
+    "GPT Image 1.5": "gpt-image-1.5",
+    "gtc_gpt_image_1_5": "gpt-image-1.5",
+    "gtc_gpt_image_1_mini": "gpt-image-1-mini",
     # Folded in from this node's own retired DEPRECATED_MODELS dict.
-    "dall-e-3": "gtc_gpt_image_1_mini",
+    "dall-e-3": "gpt-image-1-mini",
 }
 
 
@@ -75,9 +75,8 @@ class GriptapeCloudImage(BaseImageDriver):
         # Retrieve the mandatory API key.
         specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
 
-        # Get the upstream provider's id for the selected model; `common_args["model"]`
-        # (from `BaseImageDriver._get_common_driver_args`) is the catalog key.
-        specific_args["model"] = self._provider_model_id_for_selection()
+        # The provider's own id for the selected model.
+        specific_args["model"] = self._get_selected_model_id()
 
         specific_args["quality"] = self.get_parameter_value("quality")
 

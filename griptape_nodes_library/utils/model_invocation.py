@@ -36,25 +36,19 @@ __all__ = [
 
 
 def resolve_catalog_model_id(node: BaseNode, api_model_id: str) -> str | None:
-    """Resolve the selected model id to its stable catalog key.
+    """Resolve a provider's model id to the stable catalog key the permission layer gates on.
 
-    Accepts either shape a caller might be holding. A dropdown that already
-    stores the catalog key (the convention every node is migrating its model
-    parameter to) passes it straight through unchanged -- it matches one of
-    the node's declared `model_id`s directly, no provider-id detour needed.
-    A caller holding the upstream provider's own id instead (a driver's
-    `model` attribute, read off whatever concrete driver ended up installed)
-    resolves through `provider_model_id` as before.
+    `api_model_id` is the provider's own name for the model: either the value a
+    model dropdown stores, or a driver's `model` attribute read off whatever
+    concrete driver ended up installed. The lookup is scoped to the node's own
+    declared models.
 
-    The lookup is scoped to the node's own declared models, so neither
-    mapping is ambiguous: a node does not declare the same upstream model
-    under two catalog keys, and a catalog key is never also one of its own
-    provider ids. Returns None when `api_model_id` is neither a catalog key
-    nor a provider id this node declares.
+    The catalog permits two entries to share one `provider_model_id`, so an
+    ambiguous match resolves to nothing rather than gating against an arbitrary
+    one of them. Returns None in that case, and when `api_model_id` is not a
+    provider id this node declares.
     """
     declared = get_declared_models(node)
-    if any(resolved.model_id == api_model_id for resolved in declared):
-        return api_model_id
     matches = [resolved.model_id for resolved in declared if resolved.model.provider_model_id == api_model_id]
     return matches[0] if len(matches) == 1 else None
 

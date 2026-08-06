@@ -40,7 +40,7 @@ def _has_size_badge(node: OpenAiImageGeneration) -> bool:
 def node(griptape_nodes: GriptapeNodes) -> OpenAiImageGeneration:  # noqa: ARG002
     """Construct through the library so its metadata carries `library` / `node_type`.
 
-    `_provider_model_id_for_selection()` resolves the dropdown's catalog key
+    `_get_selected_model_id()` resolves the dropdown's catalog key
     through the node's declared models, which requires that metadata; a bare
     `OpenAiImageGeneration(name=...)` construction leaves it unset and
     resolution would return `""`.
@@ -426,7 +426,7 @@ def test_default_model_uses_catalog_key(node: OpenAiImageGeneration) -> None:
 def test_provider_model_id_resolves_from_catalog_key(node: OpenAiImageGeneration) -> None:
     node.set_parameter_value("model", GPT_IMAGE_2_MODEL_KEY)
 
-    assert node._provider_model_id_for_selection() == "gpt-image-2"
+    assert node._get_selected_model_id() == "gpt-image-2"
 
 
 def test_size_choices_include_custom_for_gpt_image_2(node: OpenAiImageGeneration) -> None:

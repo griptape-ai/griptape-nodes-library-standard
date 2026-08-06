@@ -15,7 +15,7 @@ from griptape_nodes_library.config.image.base_image_driver import BaseImageDrive
 SERVICE = "OpenAI"
 API_KEY_URL = "https://platform.openai.com/api-keys"
 API_KEY_ENV_VAR = "OPENAI_API_KEY"
-MODEL_CHOICES = ["gtc_gpt_image_1", "openai_dall_e_3", "openai_dall_e_2"]
+MODEL_CHOICES = ["gpt-image-1", "dall-e-3", "dall-e-2"]
 
 # GPT_IMAGE_SPECIFICS
 GPT_IMAGE_SIZES = ["1024x1024", "1536x1024", "1024x1536"]
@@ -37,14 +37,14 @@ DEFAULT_SIZE = GPT_IMAGE_SIZES[0]
 DEFAULT_BACKGROUND = BACKGROUND_CHOICES[0]
 DEFAULT_MODERATION = MODERATION_CHOICES[0]
 
-# Migrates values saved before the dropdown stored catalog keys.
+# Migrates values saved before the dropdown stored the provider's own model id.
 LEGACY_MODEL_VALUES = {
-    "DALL-E 2": "openai_dall_e_2",
-    "DALL-E 3": "openai_dall_e_3",
-    "GPT Image 1": "gtc_gpt_image_1",
-    "dall-e-2": "openai_dall_e_2",
-    "dall-e-3": "openai_dall_e_3",
-    "gpt-image-1": "gtc_gpt_image_1",
+    "DALL-E 2": "dall-e-2",
+    "DALL-E 3": "dall-e-3",
+    "GPT Image 1": "gpt-image-1",
+    "gtc_gpt_image_1": "gpt-image-1",
+    "openai_dall_e_2": "dall-e-2",
+    "openai_dall_e_3": "dall-e-3",
 }
 
 
@@ -165,7 +165,7 @@ class OpenAiImage(BaseImageDriver):
 
         if parameter.name == "model":
             # If the model is gpt-image-1, update the size options accordingly
-            if value == "gtc_gpt_image_1":
+            if value == "gpt-image-1":
                 self._update_option_choices(param="image_size", choices=GPT_IMAGE_SIZES, default=GPT_IMAGE_SIZES[0])
                 self._update_option_choices(param="quality", choices=GPT_IMAGE_QUALITY, default=GPT_IMAGE_QUALITY[0])
 
@@ -181,13 +181,13 @@ class OpenAiImage(BaseImageDriver):
                 param_list = ["style", "background", "moderation", "output_compression", "output_format"]
                 self.hide_parameter_by_name(param_list)
 
-                if value == "openai_dall_e_3":
+                if value == "dall-e-3":
                     self.show_parameter_by_name("quality")
                     self._update_option_choices(param="image_size", choices=DALL_E_3_SIZES, default=DALL_E_3_SIZES[0])
                     self._update_option_choices(param="quality", choices=DALL_E_3_QUALITY, default=DALL_E_3_QUALITY[0])
 
                 # If the model is DALL-E 2, update the size options accordingly
-                if value == "openai_dall_e_2":
+                if value == "dall-e-2":
                     self._update_option_choices(param="image_size", choices=DALL_E_2_SIZES, default=DALL_E_2_SIZES[0])
                     self.hide_parameter_by_name("quality")
 
@@ -213,12 +213,12 @@ class OpenAiImage(BaseImageDriver):
         specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
 
         model = self.get_parameter_value("model")
-        specific_args["model"] = self._provider_model_id_for_selection()
+        specific_args["model"] = self._get_selected_model_id()
 
-        if model == "openai_dall_e_3":
+        if model == "dall-e-3":
             specific_args["style"] = self.get_parameter_value("style")
             specific_args["quality"] = self.get_parameter_value("quality")
-        elif model == "gtc_gpt_image_1":
+        elif model == "gpt-image-1":
             specific_args["style"] = self.get_parameter_value("style")
             specific_args["quality"] = self.get_parameter_value("quality")
             specific_args["background"] = self.get_parameter_value("background")

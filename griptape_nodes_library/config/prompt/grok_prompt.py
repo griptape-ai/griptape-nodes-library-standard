@@ -18,26 +18,26 @@ SERVICE = "Grok"
 API_KEY_URL = "https://console.x.ai"
 API_KEY_ENV_VAR = "GROK_API_KEY"
 MODEL_CHOICES = [
-    "xai_grok_3_beta",
-    "xai_grok_3_fast_beta",
-    "xai_grok_3_mini_beta",
-    "xai_grok_3_mini_fast_beta",
-    "xai_grok_2_vision_1212",
+    "grok-3-beta",
+    "grok-3-fast-beta",
+    "grok-3-mini-beta",
+    "grok-3-mini-fast-beta",
+    "grok-2-vision-1212",
 ]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 
-# Migrates values saved before the dropdown stored catalog keys.
+# Migrates values saved before the dropdown stored the provider's own model id.
 LEGACY_MODEL_VALUES = {
-    "Grok 2 Vision": "xai_grok_2_vision_1212",
-    "Grok 3 Beta": "xai_grok_3_beta",
-    "Grok 3 Fast Beta": "xai_grok_3_fast_beta",
-    "Grok 3 Mini Beta": "xai_grok_3_mini_beta",
-    "Grok 3 Mini Fast Beta": "xai_grok_3_mini_fast_beta",
-    "grok-2-vision-1212": "xai_grok_2_vision_1212",
-    "grok-3-beta": "xai_grok_3_beta",
-    "grok-3-fast-beta": "xai_grok_3_fast_beta",
-    "grok-3-mini-beta": "xai_grok_3_mini_beta",
-    "grok-3-mini-fast-beta": "xai_grok_3_mini_fast_beta",
+    "Grok 2 Vision": "grok-2-vision-1212",
+    "Grok 3 Beta": "grok-3-beta",
+    "Grok 3 Fast Beta": "grok-3-fast-beta",
+    "Grok 3 Mini Beta": "grok-3-mini-beta",
+    "Grok 3 Mini Fast Beta": "grok-3-mini-fast-beta",
+    "xai_grok_2_vision_1212": "grok-2-vision-1212",
+    "xai_grok_3_beta": "grok-3-beta",
+    "xai_grok_3_fast_beta": "grok-3-fast-beta",
+    "xai_grok_3_mini_beta": "grok-3-mini-beta",
+    "xai_grok_3_mini_fast_beta": "grok-3-mini-fast-beta",
 }
 
 
@@ -111,7 +111,7 @@ class GrokPrompt(BasePrompt):
         specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
 
         # Get the upstream provider's id for the selected model.
-        specific_args["model"] = self._provider_model_id_for_selection()
+        specific_args["model"] = self._get_selected_model_id()
 
         # Handle parameters that go into 'extra_params' for Grok.
         extra_params = {}

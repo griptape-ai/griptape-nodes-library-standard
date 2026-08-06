@@ -2,19 +2,18 @@
 
 `GriptapeProxyNode._submit_and_poll` declares the impending invocation by
 matching `_get_catalog_model_id()` against the catalog's `model_id` (via
-`resolve_catalog_model_id`, which accepts either a catalog key or a provider
-id). By default `_get_catalog_model_id()` returns the model dropdown's stored
-value verbatim -- that value already IS the catalog key -- while
-`_get_api_model_id()` resolves the same selection to the upstream provider's
-id and, on nodes that decorate the URL path with an operation, appends a
-`:suffix`.
+`resolve_catalog_model_id`, which resolves a provider id to its catalog key).
+By default `_get_catalog_model_id()` returns the model dropdown's stored value
+verbatim -- that value already IS the upstream provider's own model id --
+while `_get_api_model_id()` returns the same value and, on nodes that decorate
+the URL path with an operation, appends a `:suffix`.
 
 The per-node cases below pin the ids of the nodes that decorate their API id;
 the sweep at the bottom of the module holds every proxy node in the library to
 the same contract, so a new node cannot reintroduce a mismatch.
 
 Nodes are constructed through `LibraryRegistry` so their metadata carries
-`library` / `node_type`: `_provider_model_id_for_selection()` (and so
+`library` / `node_type`: `_get_selected_model_id()` (and so
 `_get_api_model_id()`) resolves through the node's declared models, which
 requires that metadata. A bare `NodeClass(name=...)` construction leaves it
 unset and resolution returns `""`.
@@ -51,8 +50,8 @@ LIBRARY_NAME = "Griptape Nodes Library"
 def _create_node(node_type: str) -> GriptapeProxyNode:
     """Create a node through the library so its metadata carries `library` / `node_type`.
 
-    `_provider_model_id_for_selection()` reads a node's declared models to resolve
-    the dropdown's catalog key to the upstream provider's id; a bare
+    `_get_selected_model_id()` reads a node's declared models to resolve
+    the dropdown's stored value to the upstream provider's id; a bare
     `NodeClass(name=...)` construction does not set the metadata that lookup needs
     and would silently resolve to `""`.
     """
@@ -60,12 +59,12 @@ def _create_node(node_type: str) -> GriptapeProxyNode:
     return cast("GriptapeProxyNode", library.create_node(node_type=node_type, name=node_type))
 
 
-# (node class, default catalog model key, expected "<provider id>:<suffix>" API id)
+# (node class, default provider model id, expected "<provider id>:<suffix>" API id)
 GROK_NODES = [
-    (GrokVideoGeneration, "gtc_grok_imagine_video", "grok-imagine-video:generate"),
-    (GrokVideoEdit, "gtc_grok_imagine_video", "grok-imagine-video:edit"),
-    (GrokImageGeneration, "gtc_grok_imagine_image", "grok-imagine-image:generate"),
-    (GrokImageEdit, "gtc_grok_imagine_image", "grok-imagine-image:edit"),
+    (GrokVideoGeneration, "grok-imagine-video", "grok-imagine-video:generate"),
+    (GrokVideoEdit, "grok-imagine-video", "grok-imagine-video:edit"),
+    (GrokImageGeneration, "grok-imagine-image", "grok-imagine-image:generate"),
+    (GrokImageEdit, "grok-imagine-image", "grok-imagine-image:edit"),
 ]
 
 
@@ -73,26 +72,26 @@ GROK_NODES = [
 def test_grok_catalog_id_is_bare_provider_id(node_class: type[GriptapeProxyNode], catalog_id: str, api_id: str) -> None:
     node = _create_node(node_class.__name__)
 
-    # The catalog id is the dropdown's stored value verbatim; the API id resolves
-    # that same selection to the provider's id and appends the URL-path operation.
+    # The catalog id is the dropdown's stored value verbatim; the API id is that
+    # same selection with the URL-path operation appended.
     assert node._get_catalog_model_id() == catalog_id
     assert node._get_api_model_id() == api_id
 
 
-# (node class, default catalog model key, expected "<provider id>:<suffix>" API id) for
+# (node class, default provider model id, expected "<provider id>:<suffix>" API id) for
 # each node's default dropdown selection. The catalog ids are cross-checked against the
 # `model_usage` ids each node declares in griptape_nodes_library.json's `model_catalog`
 # metadata.
 SUFFIXED_NODES = [
-    (LTXTextToVideoGeneration, "gtc_ltx_2_3_fast", "ltx-2-3-fast:text-to-video"),
-    (LTXImageToVideoGeneration, "gtc_ltx_2_3_fast", "ltx-2-3-fast:image-to-video"),
-    (LTXAudioToVideoGeneration, "gtc_ltx_2_pro", "ltx-2-pro:audio-to-video"),
-    (LTXVideoExtend, "gtc_ltx_2_3_pro", "ltx-2-3-pro:extend"),
-    (LTXVideoRetake, "gtc_ltx_2_pro", "ltx-2-pro:retake"),
-    (LTXVideoToVideoHDR, "gtc_ltx_2_3_pro", "ltx-2-3-pro:video-to-video-hdr"),
-    (KlingTextToVideoGeneration, "gtc_kling_v3", "kling-v3:text2video"),
-    (KlingImageToVideoGeneration, "gtc_kling_v3", "kling-v3:image2video"),
-    (KlingOmniVideoGeneration, "gtc_kling_v3_omni", "kling-v3-omni:omnivideo"),
+    (LTXTextToVideoGeneration, "ltx-2-3-fast", "ltx-2-3-fast:text-to-video"),
+    (LTXImageToVideoGeneration, "ltx-2-3-fast", "ltx-2-3-fast:image-to-video"),
+    (LTXAudioToVideoGeneration, "ltx-2-pro", "ltx-2-pro:audio-to-video"),
+    (LTXVideoExtend, "ltx-2-3-pro", "ltx-2-3-pro:extend"),
+    (LTXVideoRetake, "ltx-2-pro", "ltx-2-pro:retake"),
+    (LTXVideoToVideoHDR, "ltx-2-3-pro", "ltx-2-3-pro:video-to-video-hdr"),
+    (KlingTextToVideoGeneration, "kling-v3", "kling-v3:text2video"),
+    (KlingImageToVideoGeneration, "kling-v3", "kling-v3:image2video"),
+    (KlingOmniVideoGeneration, "kling-v3-omni", "kling-v3-omni:omnivideo"),
 ]
 
 

@@ -40,15 +40,10 @@ class GrokVideoGeneration(GriptapeProxyNode):
         - result_details (str): Details about the generation result or error
     """
 
-    # Catalog model key to provider model id.
-    MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
-        "gtc_grok_imagine_video": "grok-imagine-video",
-    }
-
-    # Migrates values saved before the dropdown stored catalog keys.
+    # Migrates values saved before the dropdown stored the provider's own model id.
     LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
-        "Grok Imagine Video": "gtc_grok_imagine_video",
-        "grok-imagine-video": "gtc_grok_imagine_video",
+        "Grok Imagine Video": "grok-imagine-video",
+        "gtc_grok_imagine_video": "grok-imagine-video",
     }
 
     MIN_DURATION: ClassVar[int] = 1
@@ -72,7 +67,7 @@ class GrokVideoGeneration(GriptapeProxyNode):
 
         model_param = ParameterString(
             name="model",
-            default_value="gtc_grok_imagine_video",
+            default_value="grok-imagine-video",
             tooltip="Select the Grok video model to use",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -81,8 +76,8 @@ class GrokVideoGeneration(GriptapeProxyNode):
         # marks the models the license denies; the proxy base refuses a denied selection.
         self._install_model_access(
             parameter=model_param,
-            model_choices=["gtc_grok_imagine_video"],
-            default_model="gtc_grok_imagine_video",
+            model_choices=["grok-imagine-video"],
+            default_model="grok-imagine-video",
             deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
@@ -216,11 +211,10 @@ class GrokVideoGeneration(GriptapeProxyNode):
             return None
 
     def _get_api_model_id(self) -> str:
-        return f"{self._provider_model_id_for_selection()}:generate"
+        return f"{self._get_selected_model_id()}:generate"
 
     def _get_payload_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "gtc_grok_imagine_video"
-        return self.MODEL_NAME_MAP.get(model_name, model_name)
+        return self._get_selected_model_id() or "grok-imagine-video"
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []

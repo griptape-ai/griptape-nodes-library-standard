@@ -1,12 +1,13 @@
 """License-policy wiring for the library's model-selection dropdowns.
 
-A dropdown stores the catalog model key itself (e.g. ``"gtc_seedream_4_5"``) --
-the same key the engine's ``ModelAccessComponent`` gates on -- so the component
-never has to resolve a choice against the catalog before deciding whether it's
-permitted. ``deprecated_values`` covers a parameter that stored something else
-before it adopted this convention (an artist-facing label, a provider's own
-model id): the mapping migrates a legacy stored value to its canonical catalog
-key, and is never offered as a fresh selection.
+A dropdown stores the provider's own model id (e.g. ``"seedream-4-5-251128"``) --
+the id a node already needs in order to build its upstream request -- and the
+engine's ``ModelAccessComponent`` resolves it to the catalog model key that
+license policy gates on. That keeps the catalog out of node code entirely.
+``deprecated_values`` covers a parameter that stored something else before it
+adopted this convention (an artist-facing label, a catalog key): the mapping
+migrates a legacy stored value to its canonical provider model id, and is never
+offered as a fresh selection.
 
 ``ModelDropdownAccess`` is what node base classes hold: the component plus the
 parameter it owns, so a base class can forward value changes and query the
@@ -18,7 +19,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
-from griptape_nodes.node_library.library_registry import resolve_provider_model_id
 
 if TYPE_CHECKING:
     from griptape_nodes.exe_types.core_types import Parameter
@@ -74,17 +74,3 @@ class ModelDropdownAccess:
     def raise_if_selection_denied(self) -> None:
         """Raise ``RuntimeError`` when the current selection is not permitted."""
         self.component.raise_if_denied(self._node.get_parameter_value(self._parameter_name))
-
-    def provider_model_id(self) -> str:
-        """The upstream provider's id for the current selection, or ``""`` when it doesn't resolve.
-
-        The dropdown stores a catalog model key, which is what license policy
-        gates on. Anything that talks to the provider -- a request URL, a payload
-        field, a framework driver's ``model=`` argument -- needs the provider's
-        own name for that model instead, and resolves it here rather than keeping
-        a private copy of the mapping.
-        """
-        model_id = self._node.get_parameter_value(self._parameter_name)
-        if not isinstance(model_id, str) or not model_id:
-            return ""
-        return resolve_provider_model_id(self._node, model_id) or ""

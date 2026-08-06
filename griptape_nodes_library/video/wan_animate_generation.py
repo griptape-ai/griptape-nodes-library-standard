@@ -28,16 +28,16 @@ __all__ = ["WanAnimateGeneration"]
 
 # Model options
 MODEL_OPTIONS = [
-    "gtc_wan_2_2_animate_mix",
-    "gtc_wan_2_2_animate_move",
+    "wan2.2-animate-mix",
+    "wan2.2-animate-move",
 ]
 
 # Migrates values saved before the dropdown stored catalog keys.
 LEGACY_MODEL_VALUES: dict[str, str] = {
-    "Wan 2.2 Animate Mix": "gtc_wan_2_2_animate_mix",
-    "Wan 2.2 Animate Move": "gtc_wan_2_2_animate_move",
-    "wan2.2-animate-mix": "gtc_wan_2_2_animate_mix",
-    "wan2.2-animate-move": "gtc_wan_2_2_animate_move",
+    "Wan 2.2 Animate Mix": "wan2.2-animate-mix",
+    "Wan 2.2 Animate Move": "wan2.2-animate-move",
+    "gtc_wan_2_2_animate_mix": "wan2.2-animate-mix",
+    "gtc_wan_2_2_animate_move": "wan2.2-animate-move",
 }
 
 # Mode options

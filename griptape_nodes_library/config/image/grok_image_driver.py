@@ -10,13 +10,13 @@ from griptape_nodes_library.config.image.base_image_driver import BaseImageDrive
 SERVICE = "Grok"
 API_KEY_URL = "https://console.x.ai"
 API_KEY_ENV_VAR = "GROK_API_KEY"
-MODEL_CHOICES = ["xai_grok_2_image_1212"]
+MODEL_CHOICES = ["grok-2-image-1212"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 
-# Migrates values saved before the dropdown stored catalog keys.
+# Migrates values saved before the dropdown stored the provider's own model id.
 LEGACY_MODEL_VALUES = {
-    "Grok 2 Image": "xai_grok_2_image_1212",
-    "grok-2-image-1212": "xai_grok_2_image_1212",
+    "Grok 2 Image": "grok-2-image-1212",
+    "xai_grok_2_image_1212": "grok-2-image-1212",
 }
 
 
@@ -59,9 +59,8 @@ class GrokImage(BaseImageDriver):
         # Retrieve the mandatory API key.
         specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
 
-        # Get the upstream provider's id for the selected model; `common_args["model"]`
-        # (from `BaseImageDriver._get_common_driver_args`) is the catalog key.
-        specific_args["model"] = self._provider_model_id_for_selection()
+        # The provider's own id for the selected model.
+        specific_args["model"] = self._get_selected_model_id()
 
         all_kwargs = {**common_args, **specific_args}
 

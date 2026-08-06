@@ -53,26 +53,19 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         - result_details (str): Details about the generation result or error
     """
 
-    # Map catalog model keys to provider model IDs
-    MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
-        "gtc_seedance_1_5_pro": "seedance-1-5-pro-251215",
+    # Migrates values saved before the dropdown stored the provider's own model id: old
+    # display labels, catalog keys, and models retired in favor of a current choice.
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
+        "Seedance 1.0 Pro": "seedance-1-0-pro-250528",
+        "Seedance 1.0 Pro Fast": "seedance-1-0-pro-fast-251015",
+        "Seedance 1.5 Pro": "seedance-1-5-pro-251215",
         "gtc_seedance_1_0_pro": "seedance-1-0-pro-250528",
         "gtc_seedance_1_0_pro_fast": "seedance-1-0-pro-fast-251015",
-    }
-
-    # Migrates values saved before the dropdown stored catalog keys: old display labels,
-    # raw provider ids, and models retired in favor of a current choice.
-    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
-        "Seedance 1.0 Pro": "gtc_seedance_1_0_pro",
-        "Seedance 1.0 Pro Fast": "gtc_seedance_1_0_pro_fast",
-        "Seedance 1.5 Pro": "gtc_seedance_1_5_pro",
-        "seedance-1-0-pro-250528": "gtc_seedance_1_0_pro",
-        "seedance-1-0-pro-fast-251015": "gtc_seedance_1_0_pro_fast",
-        "seedance-1-5-pro-251215": "gtc_seedance_1_5_pro",
-        "Seedance 1.0 Lite T2V": "gtc_seedance_1_0_pro_fast",
-        "seedance-1-0-lite-t2v-250428": "gtc_seedance_1_0_pro_fast",
-        "Seedance 1.0 Lite I2V": "gtc_seedance_1_0_pro_fast",
-        "seedance-1-0-lite-i2v-250428": "gtc_seedance_1_0_pro_fast",
+        "gtc_seedance_1_5_pro": "seedance-1-5-pro-251215",
+        "Seedance 1.0 Lite T2V": "seedance-1-0-pro-fast-251015",
+        "seedance-1-0-lite-t2v-250428": "seedance-1-0-pro-fast-251015",
+        "Seedance 1.0 Lite I2V": "seedance-1-0-pro-fast-251015",
+        "seedance-1-0-lite-i2v-250428": "seedance-1-0-pro-fast-251015",
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -83,7 +76,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         # INPUTS / PROPERTIES
         model_id_param = ParameterString(
             name="model_id",
-            default_value="gtc_seedance_1_5_pro",
+            default_value="seedance-1-5-pro-251215",
             tooltip="Model to use for video generation",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             ui_options={
@@ -97,11 +90,11 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         self._install_model_access(
             parameter=model_id_param,
             model_choices=[
-                "gtc_seedance_1_5_pro",
-                "gtc_seedance_1_0_pro",
-                "gtc_seedance_1_0_pro_fast",
+                "seedance-1-5-pro-251215",
+                "seedance-1-0-pro-250528",
+                "seedance-1-0-pro-fast-251015",
             ],
-            default_model="gtc_seedance_1_5_pro",
+            default_model="seedance-1-5-pro-251215",
             deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
@@ -223,8 +216,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         )
 
         # Set initial parameter visibility based on default model
-        default_provider_model_id = self._get_provider_model_id("gtc_seedance_1_5_pro")
-        self._update_parameter_visibility(default_provider_model_id)
+        self._update_parameter_visibility("seedance-1-5-pro-251215")
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to show/hide dependent parameters based on model capabilities.
@@ -235,8 +227,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         - seedance-1-0-pro-fast-251015: i2v with first frame only, text-to-video
         """
         if parameter.name == "model_id":
-            provider_model_id = self._get_provider_model_id(value)
-            self._update_parameter_visibility(provider_model_id)
+            self._update_parameter_visibility(value)
 
         return super().after_value_set(parameter, value)
 
@@ -261,19 +252,16 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
 
-        Converts the stored catalog model key to the provider's model ID.
+        The stored dropdown value is already the provider's model id.
         """
-        raw_model_id = self.get_parameter_value("model_id") or "gtc_seedance_1_5_pro"
-        return self._get_provider_model_id(raw_model_id)
+        return self.get_parameter_value("model_id") or "seedance-1-5-pro-251215"
 
     def _log(self, message: str) -> None:
         with suppress(Exception):
             logger.info(message)
 
     def _get_parameters(self) -> dict[str, Any]:
-        raw_model_id = self.get_parameter_value("model_id") or "gtc_seedance_1_5_pro"
-        # Convert catalog model key to provider model ID
-        model_id = self._get_provider_model_id(raw_model_id)
+        model_id = self.get_parameter_value("model_id") or "seedance-1-5-pro-251215"
 
         return {
             "prompt": self.get_parameter_value("prompt") or "",
@@ -286,15 +274,6 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
             "camerafixed": self.get_parameter_value("camerafixed"),
             "generate_audio": self.get_parameter_value("generate_audio"),
         }
-
-    @classmethod
-    def _get_provider_model_id(cls, catalog_model_id: str) -> str:
-        """Convert a catalog model key to its provider model ID.
-
-        Falls back to the input value if it's not in the mapping (for backwards compatibility
-        with saved flows that may have old model IDs).
-        """
-        return cls.MODEL_NAME_MAP.get(catalog_model_id, catalog_model_id)
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for Seedance API (without model field)."""

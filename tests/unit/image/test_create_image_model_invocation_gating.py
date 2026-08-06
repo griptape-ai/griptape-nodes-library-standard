@@ -26,7 +26,7 @@ LIBRARY_NAME = "Griptape Nodes Library"
 def _create_node(node_type: str) -> BaseNode:
     """Create a node through the library so its metadata carries `library` / `node_type`.
 
-    `resolve_provider_model_id` / `resolve_catalog_model_id` read those two metadata
+    `_get_selected_model_id` / `resolve_catalog_model_id` read those two metadata
     keys to resolve a node's declared models; a bare `NodeClass(name=...)`
     construction leaves every model-id resolution in `process()` returning `None`.
     """
@@ -57,7 +57,7 @@ def _stub_secret(monkeypatch: pytest.MonkeyPatch, value: str | None) -> None:
 def generate_image_node(monkeypatch: pytest.MonkeyPatch) -> GenerateImage:
     _stub_secret(monkeypatch, "gt-cloud-key")
     node = cast(GenerateImage, _create_node("GenerateImage"))
-    node.set_parameter_value("model", "gtc_gpt_image_1_mini")
+    node.set_parameter_value("model", "gpt-image-1-mini")
     node.set_parameter_value("prompt", "a cat wearing a hat")
     # Leave enhance_prompt off (default) so process() reaches the image generation
     # driver declaration on the first yield without an extra prompt-model call.

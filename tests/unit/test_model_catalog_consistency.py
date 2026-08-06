@@ -121,8 +121,12 @@ def test_chat_node_model_usage_matches_static_choices(class_name: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("class_name", "expected_catalog_model_ids"),
+    ("class_name", "expected_provider_model_ids"),
     [
+        ("OpenAiPrompt", OPENAI_MODEL_CHOICES),
+        ("AmazonBedrockPrompt", AMAZON_BEDROCK_MODEL_CHOICES),
+        ("RandomText", [RANDOM_TEXT_MODEL]),
+        ("MCPTaskNode", [MCP_TASK_DEFAULT_MODEL]),
         ("GenerateImage", GENERATE_IMAGE_MODEL_CHOICES),
         ("GriptapeCloudImage", GRIPTAPE_CLOUD_IMAGE_MODEL_CHOICES),
         ("OpenAiImage", OPENAI_IMAGE_MODEL_CHOICES),
@@ -141,51 +145,27 @@ def test_chat_node_model_usage_matches_static_choices(class_name: str) -> None:
         ("SummarizeText", SUMMARIZE_TEXT_MODEL_CHOICES),
     ],
 )
-def test_model_selection_node_usage_matches_static_catalog_choices(
-    class_name: str, expected_catalog_model_ids: list[str]
-) -> None:
-    """The catalog-key model list in Python and the models the node declares must agree.
-
-    These nodes' dropdowns store the catalog model key directly (rather than the
-    upstream provider's own id), so their `model_usage` ids need no resolution
-    through the catalog to compare against the node's `MODEL_CHOICES` constant
-    (or equivalent). A mismatch means the manifest and the code drifted and one
-    side needs updating. `INTERNAL_CATALOG_MODEL_IDS` appends any models a node
-    invokes internally without offering them in its dropdown.
-    """
-    library = _load_library()
-
-    declared = _model_usage_ids(library, class_name)
-
-    assert declared == expected_catalog_model_ids + INTERNAL_CATALOG_MODEL_IDS.get(class_name, [])
-
-
-@pytest.mark.parametrize(
-    ("class_name", "expected_provider_model_ids"),
-    [
-        ("OpenAiPrompt", OPENAI_MODEL_CHOICES),
-        ("AmazonBedrockPrompt", AMAZON_BEDROCK_MODEL_CHOICES),
-        ("RandomText", [RANDOM_TEXT_MODEL]),
-        ("MCPTaskNode", [MCP_TASK_DEFAULT_MODEL]),
-    ],
-)
 def test_model_selection_node_usage_matches_static_provider_choices(
     class_name: str, expected_provider_model_ids: list[str]
 ) -> None:
     """The provider-id model list in Python and the models the node declares must agree.
 
-    These nodes' dropdowns still store the upstream provider's own model id, not
-    a catalog key, so their `model_usage` ids resolve (through the catalog) to
-    the same ordered provider model ids the node's `MODEL_CHOICES` constant
-    serves. A mismatch means the manifest and the code drifted and one side
-    needs updating.
+    Every model-selection node's dropdown stores the upstream provider's own
+    model id, so its `model_usage` ids resolve (through the catalog) to the
+    same ordered provider model ids the node's `MODEL_CHOICES` constant (or
+    equivalent) serves. A mismatch means the manifest and the code drifted and
+    one side needs updating. `INTERNAL_CATALOG_MODEL_IDS` appends any models a
+    node invokes internally without offering them in its dropdown.
     """
     library = _load_library()
     provider_model_id_by_catalog_id = _provider_model_id_by_catalog_id(library)
 
     declared = [provider_model_id_by_catalog_id[model_id] for model_id in _model_usage_ids(library, class_name)]
+    internal_provider_ids = [
+        provider_model_id_by_catalog_id[model_id] for model_id in INTERNAL_CATALOG_MODEL_IDS.get(class_name, [])
+    ]
 
-    assert declared == expected_provider_model_ids
+    assert declared == expected_provider_model_ids + internal_provider_ids
 
 
 def test_declared_models_resolve_uniquely_per_node() -> None:

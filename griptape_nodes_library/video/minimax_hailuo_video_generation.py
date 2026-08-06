@@ -78,25 +78,18 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
         },
     }
 
-    # Map catalog model keys to provider model IDs
-    MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
-        "gtc_minimax_hailuo_2_3": "MiniMax-Hailuo-2.3",
-        "gtc_minimax_hailuo_02": "MiniMax-Hailuo-02",
-        "gtc_minimax_hailuo_2_3_fast": "MiniMax-Hailuo-2.3-Fast",
-    }
-
-    # Migrates values saved before the dropdown stored catalog keys: old display labels and
-    # raw provider ids.
+    # Migrates values saved before the dropdown stored the provider's own model id: old
+    # display labels and catalog keys.
     LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
-        "Hailuo 02": "gtc_minimax_hailuo_02",
-        "Hailuo 02 (TTV & ITV)": "gtc_minimax_hailuo_02",
-        "Hailuo 2.3": "gtc_minimax_hailuo_2_3",
-        "Hailuo 2.3 (TTV & ITV)": "gtc_minimax_hailuo_2_3",
-        "Hailuo 2.3 Fast": "gtc_minimax_hailuo_2_3_fast",
-        "Hailuo 2.3 Fast (ITV)": "gtc_minimax_hailuo_2_3_fast",
-        "MiniMax-Hailuo-02": "gtc_minimax_hailuo_02",
-        "MiniMax-Hailuo-2.3": "gtc_minimax_hailuo_2_3",
-        "MiniMax-Hailuo-2.3-Fast": "gtc_minimax_hailuo_2_3_fast",
+        "Hailuo 02": "MiniMax-Hailuo-02",
+        "Hailuo 02 (TTV & ITV)": "MiniMax-Hailuo-02",
+        "Hailuo 2.3": "MiniMax-Hailuo-2.3",
+        "Hailuo 2.3 (TTV & ITV)": "MiniMax-Hailuo-2.3",
+        "Hailuo 2.3 Fast": "MiniMax-Hailuo-2.3-Fast",
+        "Hailuo 2.3 Fast (ITV)": "MiniMax-Hailuo-2.3-Fast",
+        "gtc_minimax_hailuo_02": "MiniMax-Hailuo-02",
+        "gtc_minimax_hailuo_2_3": "MiniMax-Hailuo-2.3",
+        "gtc_minimax_hailuo_2_3_fast": "MiniMax-Hailuo-2.3-Fast",
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -105,7 +98,7 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
         # INPUTS / PROPERTIES
         model_id_param = ParameterString(
             name="model_id",
-            default_value="gtc_minimax_hailuo_2_3",
+            default_value="MiniMax-Hailuo-2.3",
             tooltip="Model to use for video generation",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             ui_options={
@@ -119,11 +112,11 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
         self._install_model_access(
             parameter=model_id_param,
             model_choices=[
-                "gtc_minimax_hailuo_2_3",
-                "gtc_minimax_hailuo_02",
-                "gtc_minimax_hailuo_2_3_fast",
+                "MiniMax-Hailuo-2.3",
+                "MiniMax-Hailuo-02",
+                "MiniMax-Hailuo-2.3-Fast",
             ],
-            default_model="gtc_minimax_hailuo_2_3",
+            default_model="MiniMax-Hailuo-2.3",
             deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
@@ -246,9 +239,8 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
         )
 
         # Set initial parameter visibility based on default model
-        default_model = "gtc_minimax_hailuo_2_3"
-        default_provider_model_id = self._get_provider_model_id(default_model)
-        default_capabilities = self.MODEL_CAPABILITIES.get(default_provider_model_id, {})
+        default_model = "MiniMax-Hailuo-2.3"
+        default_capabilities = self.MODEL_CAPABILITIES.get(default_model, {})
 
         # Show/hide last_frame_image based on default model
         if default_capabilities.get("supports_last_frame", False):
@@ -267,11 +259,8 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
         super().after_value_set(parameter, value)
 
         if parameter.name == "model_id":
-            # Convert catalog model key to provider model ID
-            provider_model_id = self._get_provider_model_id(value)
-
             # Show/hide last_frame_image parameter only for 02 model
-            capabilities = self.MODEL_CAPABILITIES.get(provider_model_id, {})
+            capabilities = self.MODEL_CAPABILITIES.get(value, {})
             show_last_frame = capabilities.get("supports_last_frame", False)
             if show_last_frame:
                 self.show_parameter_by_name("last_frame_image")
@@ -289,9 +278,7 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
         await super()._process_generation()
 
     def _get_parameters(self) -> dict[str, Any]:
-        raw_model_id = self.get_parameter_value("model_id") or "gtc_minimax_hailuo_2_3"
-        # Convert catalog model key to provider model ID
-        model_id = self._get_provider_model_id(raw_model_id)
+        model_id = self.get_parameter_value("model_id") or "MiniMax-Hailuo-2.3"
 
         return {
             "prompt": self.get_parameter_value("prompt") or "",
@@ -304,18 +291,8 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
             "last_frame_image": self.get_parameter_value("last_frame_image"),
         }
 
-    @classmethod
-    def _get_provider_model_id(cls, catalog_model_id: str) -> str:
-        """Convert a catalog model key to its provider model ID.
-
-        Falls back to the input value if it's not in the mapping (for backwards compatibility
-        with saved flows that may have old model IDs).
-        """
-        return cls.MODEL_NAME_MAP.get(catalog_model_id, catalog_model_id)
-
     def _get_api_model_id(self) -> str:
-        raw_model_id = self.get_parameter_value("model_id") or "gtc_minimax_hailuo_2_3"
-        return self._get_provider_model_id(raw_model_id)
+        return self.get_parameter_value("model_id") or "MiniMax-Hailuo-2.3"
 
     async def _build_payload(self) -> dict[str, Any]:  # noqa: C901
         """Build the request payload for MiniMax Hailuo API."""

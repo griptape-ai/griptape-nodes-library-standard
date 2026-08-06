@@ -21,16 +21,16 @@ logger = logging.getLogger("griptape_nodes")
 __all__ = ["WanImageGeneration"]
 
 # Model options, in catalog order
-MODEL_OPTIONS = ["gtc_wan_2_7_image_pro", "gtc_wan_2_7_image"]
+MODEL_OPTIONS = ["wan2.7-image-pro", "wan2.7-image"]
 DEFAULT_MODEL = MODEL_OPTIONS[0]
 
-# Migrates values saved before this dropdown stored catalog model keys (friendly labels
-# and raw provider ids alike).
+# Migrates values saved before this dropdown stored the provider's own model id (friendly
+# labels and catalog keys alike).
 LEGACY_MODEL_VALUES = {
-    "Wan 2.7 Image": "gtc_wan_2_7_image",
-    "Wan 2.7 Image Pro": "gtc_wan_2_7_image_pro",
-    "wan2.7-image": "gtc_wan_2_7_image",
-    "wan2.7-image-pro": "gtc_wan_2_7_image_pro",
+    "Wan 2.7 Image": "wan2.7-image",
+    "Wan 2.7 Image Pro": "wan2.7-image-pro",
+    "gtc_wan_2_7_image": "wan2.7-image",
+    "gtc_wan_2_7_image_pro": "wan2.7-image-pro",
 }
 
 # Size options

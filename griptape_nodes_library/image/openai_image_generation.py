@@ -26,24 +26,24 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["OpenAiImageGeneration"]
 
-GPT_IMAGE_1_MODEL_KEY = "gtc_gpt_image_1"
-GPT_IMAGE_1_5_MODEL_KEY = "gtc_gpt_image_1_5"
-GPT_IMAGE_2_MODEL_KEY = "gtc_gpt_image_2"
+GPT_IMAGE_1_MODEL_KEY = "gpt-image-1"
+GPT_IMAGE_1_5_MODEL_KEY = "gpt-image-1.5"
+GPT_IMAGE_2_MODEL_KEY = "gpt-image-2"
 MODEL_CHOICES = [GPT_IMAGE_1_MODEL_KEY, GPT_IMAGE_1_5_MODEL_KEY, GPT_IMAGE_2_MODEL_KEY]
 
 
 class OpenAiImageGeneration(GriptapeProxyNode):
     """Generate images using OpenAI GPT Image models via Griptape model proxy."""
 
-    # Migrates values saved before this dropdown stored catalog model keys (friendly
-    # labels and raw provider ids alike).
+    # Migrates values saved before this dropdown stored the provider's own model id
+    # (friendly labels and catalog keys alike).
     LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
         "GPT Image 1": GPT_IMAGE_1_MODEL_KEY,
         "GPT Image 1.5": GPT_IMAGE_1_5_MODEL_KEY,
         "GPT Image 2": GPT_IMAGE_2_MODEL_KEY,
-        "gpt-image-1": GPT_IMAGE_1_MODEL_KEY,
-        "gpt-image-1.5": GPT_IMAGE_1_5_MODEL_KEY,
-        "gpt-image-2": GPT_IMAGE_2_MODEL_KEY,
+        "gtc_gpt_image_1": GPT_IMAGE_1_MODEL_KEY,
+        "gtc_gpt_image_1_5": GPT_IMAGE_1_5_MODEL_KEY,
+        "gtc_gpt_image_2": GPT_IMAGE_2_MODEL_KEY,
     }
     GPT_IMAGE_SIZE_OPTIONS: ClassVar[list[str]] = ["1024x1024", "1024x1536", "1536x1024"]
     GPT_IMAGE_2_CUSTOM_SIZE: ClassVar[str] = "custom"
@@ -520,7 +520,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
     async def _build_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
-            "model": self._provider_model_id_for_selection(),
+            "model": self._get_selected_model_id(),
             "prompt": (self.get_parameter_value("prompt") or "").strip(),
             "size": self._resolve_effective_size(),
             "n": int(self.get_parameter_value("n") or 1),

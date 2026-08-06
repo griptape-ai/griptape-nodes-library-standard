@@ -23,15 +23,15 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["TranscribeAudio"]
 
-MODEL_CHOICES = ["gtc_whisper_1"]
+MODEL_CHOICES = ["whisper-1"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 
-# Migrates values saved before the dropdown stored catalog keys.
+# Migrates values saved before the dropdown stored the provider's own model id.
 LEGACY_MODEL_VALUES: dict[str, str] = {
-    "Whisper 1": "gtc_whisper_1",
-    "whisper-1": "gtc_whisper_1",
-    "gpt-4o-mini-transcribe": "gtc_whisper_1",
-    "gpt-4o-transcribe": "gtc_whisper_1",
+    "Whisper 1": "whisper-1",
+    "gtc_whisper_1": "whisper-1",
+    "gpt-4o-mini-transcribe": "whisper-1",
+    "gpt-4o-transcribe": "whisper-1",
 }
 
 RESPONSE_FORMAT_CHOICES = ["json", "verbose_json"]

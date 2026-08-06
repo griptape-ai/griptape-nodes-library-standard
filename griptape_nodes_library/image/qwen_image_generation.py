@@ -32,14 +32,14 @@ PROMPT_TRUNCATE_LENGTH = 100
 SIZE_OPTIONS = ["1328*1328", "1664*928", "1472*1140", "1140*1472", "928*1664"]
 
 # Model options
-MODEL_OPTIONS = ["gtc_qwen_image", "gtc_qwen_image_plus"]
+MODEL_OPTIONS = ["qwen-image", "qwen-image-plus"]
 
-# Migrates values saved before the dropdown stored catalog keys.
+# Migrates values saved before the dropdown stored the provider's own model id.
 LEGACY_MODEL_VALUES: dict[str, str] = {
-    "Qwen Image": "gtc_qwen_image",
-    "Qwen Image Plus": "gtc_qwen_image_plus",
-    "qwen-image": "gtc_qwen_image",
-    "qwen-image-plus": "gtc_qwen_image_plus",
+    "Qwen Image": "qwen-image",
+    "Qwen Image Plus": "qwen-image-plus",
+    "gtc_qwen_image": "qwen-image",
+    "gtc_qwen_image_plus": "qwen-image-plus",
 }
 
 # Response status constants
@@ -85,7 +85,7 @@ class QwenImageGeneration(GriptapeProxyNode):
             name="model",
             input_types=["str"],
             type="str",
-            default_value="gtc_qwen_image",
+            default_value="qwen-image",
             tooltip="Select the Qwen model to use",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -95,7 +95,7 @@ class QwenImageGeneration(GriptapeProxyNode):
         self._install_model_access(
             parameter=model_param,
             model_choices=MODEL_OPTIONS,
-            default_model="gtc_qwen_image",
+            default_model="qwen-image",
             deprecated_values=LEGACY_MODEL_VALUES,
         )
 
@@ -209,7 +209,7 @@ class QwenImageGeneration(GriptapeProxyNode):
 
         # Flatten structure - parameters should be at top level for MultiModalConversation.call()
         payload = {
-            "model": self._provider_model_id_for_selection(),
+            "model": self._get_selected_model_id(),
             "messages": [{"role": "user", "content": content}],
             "size": params["size"],
             "prompt_extend": params["prompt_upsampling"],

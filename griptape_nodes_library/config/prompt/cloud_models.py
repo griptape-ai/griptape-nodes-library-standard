@@ -54,45 +54,11 @@ MODEL_CHOICES_ARGS = [
     {"name": "o1", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
 ]
 
-# Catalog model keys for the same models, in the same order as MODEL_CHOICES_ARGS.
-# GriptapeCloudPrompt's dropdown stores these -- the catalog id the license
-# layer gates on -- rather than the provider's own model id; consumers that
-# still key off the provider id (MODEL_CHOICES_ARGS, O_SERIES_MODELS) resolve
-# one from the other via `_provider_model_id_for_selection`.
-CATALOG_MODEL_CHOICES = [
-    # Anthropic / Bedrock-Claude
-    "gtc_claude_opus_4_7",
-    "gtc_claude_sonnet_4_6",
-    "gtc_claude_sonnet_4_5",
-    "gtc_claude_haiku_4_5",
-    # Bedrock non-Claude
-    "gtc_deepseek_v3",
-    "gtc_deepseek_r1",
-    "gtc_llama_3_3_70b",
-    "gtc_llama_3_1_70b",
-    # Google
-    "gtc_gemini_3_1_pro",
-    "gtc_gemini_3_1_flash_lite",
-    "gtc_gemini_3_flash",
-    "gtc_gemini_2_5_pro",
-    "gtc_gemini_2_5_flash",
-    "gtc_gemini_2_5_flash_lite",
-    # Azure OpenAI
-    "gtc_gpt_5_2",
-    "gtc_gpt_5_2_chat",
-    "gtc_gpt_5_1",
-    "gtc_gpt_5",
-    "gtc_gpt_5_mini",
-    "gtc_gpt_5_nano",
-    "gtc_gpt_4_1",
-    "gtc_gpt_4_1_mini",
-    "gtc_gpt_4_1_nano",
-    "gtc_gpt_4o",
-    "gtc_o4_mini",
-    "gtc_o3",
-    "gtc_o3_mini",
-    "gtc_o1",
-]
+# Provider model ids for the same models, in the same order as MODEL_CHOICES_ARGS.
+# Both Agent's and GriptapeCloudPrompt's dropdowns store these directly -- it is
+# each model's own `name` from MODEL_CHOICES_ARGS, which is also what the
+# license layer resolves the selection to a catalog id through.
+PROVIDER_MODEL_CHOICES = [model["name"] for model in MODEL_CHOICES_ARGS]
 
 
 # Model IDs whose backend does not accept top_p (the OpenAI o-series).

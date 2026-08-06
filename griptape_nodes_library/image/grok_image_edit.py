@@ -47,14 +47,14 @@ class GrokImageEdit(GriptapeProxyNode):
 
     RESOLUTION_OPTIONS: ClassVar[list[str]] = ["1k", "2k"]
 
-    # Migrates values saved before this dropdown stored catalog model keys.
+    # Migrates values saved before this dropdown stored the provider's own model id.
     LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
-        "Grok Imagine Image": "gtc_grok_imagine_image",
-        "grok-imagine-image": "gtc_grok_imagine_image",
+        "Grok Imagine Image": "grok-imagine-image",
+        "gtc_grok_imagine_image": "grok-imagine-image",
         # Folded in from GrokImageGeneration's retired DEPRECATED_MODELS dict; this
         # node's own removed _supports_quality check compared against the same value.
-        "Grok 2 Image": "gtc_grok_imagine_image",
-        "grok-2-image-1212": "gtc_grok_imagine_image",
+        "Grok 2 Image": "grok-imagine-image",
+        "grok-2-image-1212": "grok-imagine-image",
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -64,7 +64,7 @@ class GrokImageEdit(GriptapeProxyNode):
 
         model_param = ParameterString(
             name="model",
-            default_value="gtc_grok_imagine_image",
+            default_value="grok-imagine-image",
             tooltip="Select the Grok image model to use",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -73,8 +73,8 @@ class GrokImageEdit(GriptapeProxyNode):
         # marks the models the license denies; the proxy base refuses a denied selection.
         self._install_model_access(
             parameter=model_param,
-            model_choices=["gtc_grok_imagine_image"],
-            default_model="gtc_grok_imagine_image",
+            model_choices=["grok-imagine-image"],
+            default_model="grok-imagine-image",
             deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
@@ -217,7 +217,7 @@ class GrokImageEdit(GriptapeProxyNode):
     def _get_api_model_id(self) -> str:
         # Decorate the resolved provider id with the URL-path operation suffix the
         # proxy expects; the catalog declares the bare id (see _get_catalog_model_id).
-        return f"{self._provider_model_id_for_selection()}:edit"
+        return f"{self._get_selected_model_id()}:edit"
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []
@@ -240,7 +240,7 @@ class GrokImageEdit(GriptapeProxyNode):
         prompt = (self.get_parameter_value("prompt") or "").strip()
         n_value = int(self.get_parameter_value("n") or 1)
         resolution = self.get_parameter_value("resolution") or "1k"
-        api_model_id = self._provider_model_id_for_selection()
+        api_model_id = self._get_selected_model_id()
         image_data_uri = await self._prepare_image_data_uri(self.get_parameter_value("image"))
 
         payload: dict[str, Any] = {

@@ -30,20 +30,20 @@ logger = logging.getLogger("griptape_nodes")
 __all__ = ["WorldLabsWorldGeneration"]
 
 # Model options, in catalog order
-MODEL_OPTIONS = ["gtc_marble_1_1_plus", "gtc_marble_1_1", "gtc_marble_1_0", "gtc_marble_1_0_draft"]
-DEFAULT_MODEL = "gtc_marble_1_1"
+MODEL_OPTIONS = ["marble-1.1-plus", "marble-1.1", "marble-1.0", "marble-1.0-draft"]
+DEFAULT_MODEL = "marble-1.1"
 
-# Migrates values saved before this dropdown stored catalog model keys (friendly labels
-# and raw provider ids alike).
+# Migrates values saved before this dropdown stored the provider's own model id (friendly
+# labels and catalog keys alike).
 LEGACY_MODEL_VALUES = {
-    "Marble 1.0": "gtc_marble_1_0",
-    "Marble 1.0 Draft": "gtc_marble_1_0_draft",
-    "Marble 1.1": "gtc_marble_1_1",
-    "Marble 1.1 Plus": "gtc_marble_1_1_plus",
-    "marble-1.0": "gtc_marble_1_0",
-    "marble-1.0-draft": "gtc_marble_1_0_draft",
-    "marble-1.1": "gtc_marble_1_1",
-    "marble-1.1-plus": "gtc_marble_1_1_plus",
+    "Marble 1.0": "marble-1.0",
+    "Marble 1.0 Draft": "marble-1.0-draft",
+    "Marble 1.1": "marble-1.1",
+    "Marble 1.1 Plus": "marble-1.1-plus",
+    "gtc_marble_1_0": "marble-1.0",
+    "gtc_marble_1_0_draft": "marble-1.0-draft",
+    "gtc_marble_1_1": "marble-1.1",
+    "gtc_marble_1_1_plus": "marble-1.1-plus",
 }
 
 # Input type options
@@ -440,7 +440,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         # Build top-level request
         payload: dict[str, Any] = {
             "world_prompt": world_prompt,
-            "model": self._provider_model_id_for_selection(),
+            "model": self._get_selected_model_id(),
         }
 
         # Add optional parameters

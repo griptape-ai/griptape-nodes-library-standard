@@ -37,12 +37,12 @@ ASPECT_RATIO_OPTIONS = ["1:1", "16:9", "9:16", "4:3", "3:4", "21:9", "9:21", "3:
 OUTPUT_FORMAT_OPTIONS = ["jpeg", "png"]
 
 # Model options
-MODEL_OPTIONS = ["gtc_flux_kontext_pro"]
+MODEL_OPTIONS = ["flux-kontext-pro"]
 
-# Migrates values saved before the dropdown stored catalog keys.
+# Migrates values saved before the dropdown stored the provider's own model id.
 LEGACY_MODEL_VALUES: dict[str, str] = {
-    "FLUX Kontext Pro": "gtc_flux_kontext_pro",
-    "flux-kontext-pro": "gtc_flux_kontext_pro",
+    "FLUX Kontext Pro": "flux-kontext-pro",
+    "gtc_flux_kontext_pro": "flux-kontext-pro",
 }
 
 # Safety tolerance options
@@ -91,7 +91,7 @@ class FluxImageGeneration(GriptapeProxyNode):
         self.description = "Generate images using Flux models via API (supports user-provided API keys via proxy)"
         model_param = ParameterString(
             name="model",
-            default_value="gtc_flux_kontext_pro",
+            default_value="flux-kontext-pro",
             tooltip="Select the Flux model to use",
             allow_output=False,
         )
@@ -101,7 +101,7 @@ class FluxImageGeneration(GriptapeProxyNode):
         self._install_model_access(
             parameter=model_param,
             model_choices=MODEL_OPTIONS,
-            default_model="gtc_flux_kontext_pro",
+            default_model="flux-kontext-pro",
             deprecated_values=LEGACY_MODEL_VALUES,
         )
 
@@ -222,7 +222,7 @@ class FluxImageGeneration(GriptapeProxyNode):
         input_image = normalize_artifact_input(input_image, ImageUrlArtifact, accepted_types=(ImageArtifact,))
 
         return {
-            "model": self.get_parameter_value("model") or "gtc_flux_kontext_pro",
+            "model": self.get_parameter_value("model") or "flux-kontext-pro",
             "prompt": self.get_parameter_value("prompt") or "",
             "input_image": input_image,
             "aspect_ratio": self.get_parameter_value("aspect_ratio") or "1:1",

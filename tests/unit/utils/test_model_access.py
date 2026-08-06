@@ -30,8 +30,12 @@ from griptape_nodes_library.utils.model_access import ModelDropdownAccess
 if TYPE_CHECKING:
     from griptape_nodes.retained_mode.events.base_events import RequestPayload, ResultPayload
 
-# Catalog model keys this library's dropdowns store directly.
-MODEL_CHOICES = ["gtc_kling_v3", "gtc_kling_v2_6"]
+# The dropdown stores provider model ids; the catalog keys the engine gates on stay
+# `gtc_*`. Kept deliberately distinct so a test cannot pass by conflating them.
+# `kling-v2-6` is first so that a migration landing on `kling-v3` cannot be
+# confused with `Options` snapping an unknown value to `choices[0]`.
+MODEL_CHOICES = ["kling-v2-6", "kling-v3"]
+CATALOG_ID_BY_CHOICE = {"kling-v3": "gtc_kling_v3", "kling-v2-6": "gtc_kling_v2_6"}
 DENIAL = CheckpointDenial(failures=(CheckpointFailure(detail="Kling v3 is not in your plan."),))
 
 
@@ -44,22 +48,25 @@ class _ModelNode(DataNode):
 
 @pytest.fixture
 def stub_access_query(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Answer every access query with `gtc_kling_v3` denied and `gtc_kling_v2_6` allowed."""
+    """Answer every access query with `kling-v3` denied and `kling-v2-6` allowed."""
     original_handle_request = GriptapeNodes.handle_request
 
     def handle_request(request: RequestPayload, **kwargs: Any) -> ResultPayload:
         if not isinstance(request, QueryModelAccessForNodeRequest):
             return original_handle_request(request, **kwargs)
-        model_ids = request.candidate_model_ids if request.candidate_model_ids is not None else MODEL_CHOICES
+        choices = MODEL_CHOICES
+        if request.candidate_model_ids is not None:
+            catalog_ids = set(request.candidate_model_ids)
+            choices = [c for c in MODEL_CHOICES if CATALOG_ID_BY_CHOICE[c] in catalog_ids]
         return QueryModelAccessForNodeResultSuccess(
             result_details="stubbed access query",
             verdicts=[
                 ModelAccessVerdict(
-                    model_id=model_id,
-                    provider_model_id=None,
-                    denial=DENIAL if model_id == "gtc_kling_v3" else None,
+                    model_id=CATALOG_ID_BY_CHOICE[choice],
+                    provider_model_id=choice,
+                    denial=DENIAL if choice == "kling-v3" else None,
                 )
-                for model_id in model_ids
+                for choice in choices
             ],
         )
 
@@ -81,12 +88,12 @@ def _build_node_with_dropdown(*, default_model: str) -> tuple[_ModelNode, Parame
 
 @pytest.mark.usefixtures("stub_access_query")
 def test_dropdown_access_installs_traits_and_reports_parameter_name() -> None:
-    node, parameter = _build_node_with_dropdown(default_model="gtc_kling_v2_6")
+    node, parameter = _build_node_with_dropdown(default_model="kling-v2-6")
     access = ModelDropdownAccess(
         node=node,
         parameter=parameter,
         model_choices=MODEL_CHOICES,
-        default_model="gtc_kling_v2_6",
+        default_model="kling-v2-6",
     )
 
     assert parameter.find_elements_by_type(Options)
@@ -97,36 +104,36 @@ def test_dropdown_access_installs_traits_and_reports_parameter_name() -> None:
 @pytest.mark.usefixtures("stub_access_query")
 def test_on_value_set_ignores_other_parameters() -> None:
     """Badge tracking is scoped to the dropdown the component owns."""
-    node, parameter = _build_node_with_dropdown(default_model="gtc_kling_v2_6")
+    node, parameter = _build_node_with_dropdown(default_model="kling-v2-6")
     other = Parameter(name="prompt", type="str", default_value="", tooltip="Prompt")
     node.add_parameter(other)
     access = ModelDropdownAccess(
         node=node,
         parameter=parameter,
         model_choices=MODEL_CHOICES,
-        default_model="gtc_kling_v2_6",
+        default_model="kling-v2-6",
     )
 
-    access.on_value_set(other, "gtc_kling_v3")
+    access.on_value_set(other, "kling-v3")
     assert parameter.get_badge() is None
 
-    access.on_value_set(parameter, "gtc_kling_v3")
+    access.on_value_set(parameter, "kling-v3")
     assert parameter.get_badge() is not None
 
 
 @pytest.mark.usefixtures("stub_access_query")
 def test_selection_denial_and_raise_read_the_current_selection() -> None:
-    node, parameter = _build_node_with_dropdown(default_model="gtc_kling_v2_6")
+    node, parameter = _build_node_with_dropdown(default_model="kling-v2-6")
     access = ModelDropdownAccess(
         node=node,
         parameter=parameter,
         model_choices=MODEL_CHOICES,
-        default_model="gtc_kling_v2_6",
+        default_model="kling-v2-6",
     )
 
     assert access.selection_denial() is None
 
-    node.set_parameter_value("model_name", "gtc_kling_v3")
+    node.set_parameter_value("model_name", "kling-v3")
     denial = access.selection_denial()
     assert denial is not None
     assert "not in your plan" in denial.reason()
@@ -136,15 +143,20 @@ def test_selection_denial_and_raise_read_the_current_selection() -> None:
 
 @pytest.mark.usefixtures("stub_access_query")
 def test_deprecated_values_migrate_a_legacy_assignment_to_its_canonical_key() -> None:
-    """A value the parameter stored before it adopted catalog keys migrates on assignment."""
-    node, parameter = _build_node_with_dropdown(default_model="gtc_kling_v2_6")
+    """A legacy value the parameter stored before this convention migrates on assignment.
+
+    The migration target is deliberately NOT ``choices[0]``: ``Options`` rewrites
+    any value outside ``choices`` to ``choices[0]``, so a target of ``choices[0]``
+    would pass whether the value migrated or was simply snapped.
+    """
+    node, parameter = _build_node_with_dropdown(default_model="kling-v2-6")
     ModelDropdownAccess(
         node=node,
         parameter=parameter,
         model_choices=MODEL_CHOICES,
-        default_model="gtc_kling_v2_6",
-        deprecated_values={"kling-v3": "gtc_kling_v3"},
+        default_model="kling-v2-6",
+        deprecated_values={"Kling v3": "kling-v3"},
     )
 
-    node.set_parameter_value("model_name", "kling-v3")
-    assert node.get_parameter_value("model_name") == "gtc_kling_v3"
+    node.set_parameter_value("model_name", "Kling v3")
+    assert node.get_parameter_value("model_name") == "kling-v3"

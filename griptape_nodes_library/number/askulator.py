@@ -8,7 +8,6 @@ from griptape.structures import Agent, Structure
 from griptape.tools import CalculatorTool as GtCalculatorTool
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
-from griptape_nodes.node_library.library_registry import resolve_provider_model_id
 from json_repair import repair_json  # json_repair
 from pydantic import BaseModel
 
@@ -16,23 +15,23 @@ from griptape_nodes_library.tasks.base_task import BaseTask
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 MODEL_CHOICES = [
-    "gtc_gpt_4_1",
-    "gtc_gpt_4_1_mini",
-    "gtc_gpt_4_1_nano",
-    "gtc_gpt_5",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "gpt-4.1-nano",
+    "gpt-5",
 ]
-DEFAULT_MODEL = "gtc_gpt_4_1_mini"
+DEFAULT_MODEL = "gpt-4.1-mini"
 
-# Migrates values saved before the dropdown stored catalog keys.
+# Migrates values saved before the dropdown stored the provider's own model id.
 LEGACY_MODEL_VALUES = {
-    "GPT-4.1": "gtc_gpt_4_1",
-    "GPT-4.1 mini": "gtc_gpt_4_1_mini",
-    "GPT-4.1 nano": "gtc_gpt_4_1_nano",
-    "GPT-5": "gtc_gpt_5",
-    "gpt-4.1": "gtc_gpt_4_1",
-    "gpt-4.1-mini": "gtc_gpt_4_1_mini",
-    "gpt-4.1-nano": "gtc_gpt_4_1_nano",
-    "gpt-5": "gtc_gpt_5",
+    "GPT-4.1": "gpt-4.1",
+    "GPT-4.1 mini": "gpt-4.1-mini",
+    "GPT-4.1 nano": "gpt-4.1-nano",
+    "GPT-5": "gpt-5",
+    "gtc_gpt_4_1": "gpt-4.1",
+    "gtc_gpt_4_1_mini": "gpt-4.1-mini",
+    "gtc_gpt_4_1_nano": "gpt-4.1-nano",
+    "gtc_gpt_5": "gpt-5",
 }
 
 
@@ -143,10 +142,6 @@ class Askulator(BaseTask):
         # Create the tool
         tool = GtCalculatorTool()
 
-        # `model` is the catalog key the dropdown stores; the driver needs the upstream
-        # provider's own id instead.
-        provider_model_id = resolve_provider_model_id(self, model) or ""
-
         # Run the task
         agent = Agent(
             tools=[tool],
@@ -163,7 +158,7 @@ class Askulator(BaseTask):
                 Rule("Use the Calculate action with expression in the Calculator tool to do the math."),
                 Rule("Your final answer should be concise. Only a number and unit if applicable."),
             ],
-            prompt_driver=self.create_driver(model=provider_model_id),
+            prompt_driver=self.create_driver(model=model),
             output_schema=Output,
         )
         user_input = f"Give me the answer for: {instruction}\n."

@@ -13,7 +13,6 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.node_library.library_registry import resolve_provider_model_id
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
@@ -25,15 +24,15 @@ from griptape_nodes_library.utils.model_invocation import require_model_invocati
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
 MODEL_CHOICES = [
-    "gtc_gpt_image_1_mini",
-    "gtc_gpt_image_1_5",
+    "gpt-image-1-mini",
+    "gpt-image-1.5",
 ]
 AVAILABLE_SIZES = ["1024x1024", "1536x1024", "1024x1536"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 DEFAULT_SIZE = AVAILABLE_SIZES[0]
 
-# Migrates values saved before the dropdown stored catalog keys. "dall-e-3" and
-# "gpt-image-1" predate this node's own MODEL_CHOICES history and were folded in
+# Migrates values saved before the dropdown stored the provider's own model id. "dall-e-3"
+# and "gpt-image-1" predate this node's own MODEL_CHOICES history and were folded in
 # from the DEPRECATED_MODELS dict this replaces. "GPT-4o" / "gpt-4o" are deliberately
 # excluded even though the generated catalog table lists them: this node's dropdown
 # never offered "gpt-4o" as an image model (it's the hardcoded model of the separate
@@ -41,12 +40,12 @@ DEFAULT_SIZE = AVAILABLE_SIZES[0]
 # node's own MODEL_CHOICES, so mapping to it here would fail ModelAccessComponent's
 # construction-time validation that every deprecated_values target is a current choice.
 LEGACY_MODEL_VALUES = {
-    "GPT Image 1 Mini": "gtc_gpt_image_1_mini",
-    "GPT Image 1.5": "gtc_gpt_image_1_5",
-    "dall-e-3": "gtc_gpt_image_1_mini",
-    "gpt-image-1": "gtc_gpt_image_1_mini",
-    "gpt-image-1-mini": "gtc_gpt_image_1_mini",
-    "gpt-image-1.5": "gtc_gpt_image_1_5",
+    "GPT Image 1 Mini": "gpt-image-1-mini",
+    "GPT Image 1.5": "gpt-image-1.5",
+    "dall-e-3": "gpt-image-1-mini",
+    "gpt-image-1": "gpt-image-1-mini",
+    "gtc_gpt_image_1_5": "gpt-image-1.5",
+    "gtc_gpt_image_1_mini": "gpt-image-1-mini",
 }
 
 
@@ -271,11 +270,8 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
         elif isinstance(model_input, str):
             if model_input not in self._model_access.model_choices:
                 model_input = DEFAULT_MODEL
-            # `model_input` is the catalog key the dropdown stores; the driver needs the
-            # upstream provider's own id instead.
-            provider_model_id = resolve_provider_model_id(self, model_input) or ""
             driver = GriptapeCloudImageGenerationDriver(
-                model=provider_model_id,
+                model=model_input,
                 image_size=self.get_parameter_value("image_size"),
                 api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
                 # Don't retry on HTTP errors, we want to fail fast.
@@ -283,7 +279,7 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
             )
         else:
             driver = GriptapeCloudImageGenerationDriver(
-                model=resolve_provider_model_id(self, DEFAULT_MODEL) or DEFAULT_MODEL,
+                model=DEFAULT_MODEL,
                 image_size=self.get_parameter_value("image_size"),
                 api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
                 ignored_exception_types=(requests.HTTPError,),

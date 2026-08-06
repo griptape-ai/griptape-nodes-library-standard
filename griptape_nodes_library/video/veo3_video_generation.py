@@ -31,13 +31,6 @@ logger = logging.getLogger("griptape_nodes")
 __all__ = ["Veo3VideoGeneration"]
 
 
-class ModelName(StrEnum):
-    VEO_3_1 = "gtc_veo_3_1"
-    VEO_3_1_FAST = "gtc_veo_3_1_fast"
-    VEO_3_0 = "gtc_veo_3_0"
-    VEO_3_0_FAST = "gtc_veo_3_0_fast"
-
-
 class ModelId(StrEnum):
     VEO_3_1_GENERATE_001 = "veo-3.1-generate-001"
     VEO_3_1_FAST_GENERATE_001 = "veo-3.1-fast-generate-001"
@@ -45,25 +38,17 @@ class ModelId(StrEnum):
     VEO_3_0_FAST_GENERATE_001 = "veo-3.0-fast-generate-001"
 
 
-# Model mapping from catalog model keys to API model IDs
-MODEL_MAPPING = {
-    ModelName.VEO_3_1.value: ModelId.VEO_3_1_GENERATE_001,
-    ModelName.VEO_3_1_FAST.value: ModelId.VEO_3_1_FAST_GENERATE_001,
-    ModelName.VEO_3_0.value: ModelId.VEO_3_0_GENERATE_001,
-    ModelName.VEO_3_0_FAST.value: ModelId.VEO_3_0_FAST_GENERATE_001,
-}
-
-# Migrates values saved before the dropdown stored catalog keys: old display labels and
-# raw provider ids.
+# Migrates values saved before the dropdown stored the provider's own model id: old
+# display labels and catalog keys.
 LEGACY_MODEL_VALUES: dict[str, str] = {
-    "Veo 3.0": ModelName.VEO_3_0.value,
-    "Veo 3.0 Fast": ModelName.VEO_3_0_FAST.value,
-    "Veo 3.1": ModelName.VEO_3_1.value,
-    "Veo 3.1 Fast": ModelName.VEO_3_1_FAST.value,
-    "veo-3.0-fast-generate-001": ModelName.VEO_3_0_FAST.value,
-    "veo-3.0-generate-001": ModelName.VEO_3_0.value,
-    "veo-3.1-fast-generate-001": ModelName.VEO_3_1_FAST.value,
-    "veo-3.1-generate-001": ModelName.VEO_3_1.value,
+    "Veo 3.0": ModelId.VEO_3_0_GENERATE_001.value,
+    "Veo 3.0 Fast": ModelId.VEO_3_0_FAST_GENERATE_001.value,
+    "Veo 3.1": ModelId.VEO_3_1_GENERATE_001.value,
+    "Veo 3.1 Fast": ModelId.VEO_3_1_FAST_GENERATE_001.value,
+    "gtc_veo_3_0": ModelId.VEO_3_0_GENERATE_001.value,
+    "gtc_veo_3_0_fast": ModelId.VEO_3_0_FAST_GENERATE_001.value,
+    "gtc_veo_3_1": ModelId.VEO_3_1_GENERATE_001.value,
+    "gtc_veo_3_1_fast": ModelId.VEO_3_1_FAST_GENERATE_001.value,
 }
 
 
@@ -105,7 +90,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         # INPUTS / PROPERTIES
         model_id_param = ParameterString(
             name="model_id",
-            default_value=ModelName.VEO_3_1.value,
+            default_value=ModelId.VEO_3_1_GENERATE_001.value,
             tooltip="Model id to call via proxy",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             ui_options={
@@ -118,12 +103,12 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         self._install_model_access(
             parameter=model_id_param,
             model_choices=[
-                ModelName.VEO_3_1.value,
-                ModelName.VEO_3_1_FAST.value,
-                ModelName.VEO_3_0.value,
-                ModelName.VEO_3_0_FAST.value,
+                ModelId.VEO_3_1_GENERATE_001.value,
+                ModelId.VEO_3_1_FAST_GENERATE_001.value,
+                ModelId.VEO_3_0_GENERATE_001.value,
+                ModelId.VEO_3_0_FAST_GENERATE_001.value,
             ],
-            default_model=ModelName.VEO_3_1.value,
+            default_model=ModelId.VEO_3_1_GENERATE_001.value,
             deprecated_values=LEGACY_MODEL_VALUES,
         )
 
@@ -308,18 +293,20 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         # Set initial parameter visibility based on default model
         self._initialize_parameter_visibility()
 
-    def _map_api_model_id(self, friendly_name: str) -> ModelId | str:
-        """Map friendly model name to API model ID."""
-        mapped_model = MODEL_MAPPING.get(friendly_name, friendly_name)
+    def _map_api_model_id(self, model_id: str) -> ModelId | str:
+        """Coerce the stored model id (already the provider's own id) to a `ModelId`.
 
+        Returns the raw string unchanged when it names no known `ModelId`, so an
+        unrecognized selection still reaches the API rather than being dropped.
+        """
         try:
-            return ModelId(mapped_model)
+            return ModelId(model_id)
         except ValueError:
-            return mapped_model
+            return model_id
 
     def _initialize_parameter_visibility(self) -> None:
         """Initialize parameter visibility based on default model selection."""
-        default_model = self.get_parameter_value("model_id") or ModelName.VEO_3_1.value
+        default_model = self.get_parameter_value("model_id") or ModelId.VEO_3_1_GENERATE_001.value
         self._update_parameter_visibility_for_model(default_model)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
@@ -420,7 +407,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
 
         return {
             "prompt": self.get_parameter_value("prompt") or "",
-            "model_id": self.get_parameter_value("model_id") or ModelName.VEO_3_1.value,
+            "model_id": self.get_parameter_value("model_id") or ModelId.VEO_3_1_GENERATE_001.value,
             "negative_prompt": self.get_parameter_value("negative_prompt") or "",
             "image": self.get_parameter_value("start_frame"),
             "last_frame": self.get_parameter_value("last_frame"),
@@ -436,7 +423,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         }
 
     def _get_api_model_id(self) -> str:
-        model_id = self.get_parameter_value("model_id") or ModelName.VEO_3_1.value
+        model_id = self.get_parameter_value("model_id") or ModelId.VEO_3_1_GENERATE_001.value
         api_model_id = self._map_api_model_id(model_id)
         return api_model_id.value if isinstance(api_model_id, ModelId) else api_model_id
 

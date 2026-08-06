@@ -5,7 +5,6 @@ from griptape.structures import Agent, Structure
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
-from griptape_nodes.node_library.library_registry import resolve_provider_model_id
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.tasks.base_task import BaseTask
@@ -40,23 +39,23 @@ EXAMPLES = [
 
 EXAMPLE_OPTIONS = [example["label"] for example in EXAMPLES]
 MODEL_CHOICES = [
-    "gtc_gpt_4_1",
-    "gtc_gpt_4_1_mini",
-    "gtc_gpt_4_1_nano",
-    "gtc_gpt_5",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "gpt-4.1-nano",
+    "gpt-5",
 ]
-DEFAULT_MODEL = "gtc_gpt_4_1"
+DEFAULT_MODEL = "gpt-4.1"
 
-# Migrates values saved before the dropdown stored catalog keys.
+# Migrates values saved before the dropdown stored the provider's own model id.
 LEGACY_MODEL_VALUES = {
-    "GPT-4.1": "gtc_gpt_4_1",
-    "GPT-4.1 mini": "gtc_gpt_4_1_mini",
-    "GPT-4.1 nano": "gtc_gpt_4_1_nano",
-    "GPT-5": "gtc_gpt_5",
-    "gpt-4.1": "gtc_gpt_4_1",
-    "gpt-4.1-mini": "gtc_gpt_4_1_mini",
-    "gpt-4.1-nano": "gtc_gpt_4_1_nano",
-    "gpt-5": "gtc_gpt_5",
+    "GPT-4.1": "gpt-4.1",
+    "GPT-4.1 mini": "gpt-4.1-mini",
+    "GPT-4.1 nano": "gpt-4.1-nano",
+    "GPT-5": "gpt-5",
+    "gtc_gpt_4_1": "gpt-4.1",
+    "gtc_gpt_4_1_mini": "gpt-4.1-mini",
+    "gtc_gpt_4_1_nano": "gpt-4.1-nano",
+    "gtc_gpt_5": "gpt-5",
 }
 
 
@@ -205,10 +204,7 @@ class EvaluateTextResult(BaseTask):
         # model is denied.
         self._model_access.raise_if_denied(model)
 
-        # `model` is the catalog key the dropdown stores; the engine's driver needs the
-        # upstream provider's own id instead.
-        provider_model_id = resolve_provider_model_id(self, model) or ""
-        engine = EvalEngine(criteria=criteria, prompt_driver=self.create_driver(model=provider_model_id))
+        engine = EvalEngine(criteria=criteria, prompt_driver=self.create_driver(model=model))
 
         user_input = self.get_parameter_value("input")
         expected_output = self.get_parameter_value("expected_output")

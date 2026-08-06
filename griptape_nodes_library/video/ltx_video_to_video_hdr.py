@@ -21,15 +21,11 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["LTXVideoToVideoHDR"]
 
-MODEL_MAPPING = {
-    "gtc_ltx_2_3_pro": "ltx-2-3-pro",
-}
-
-# Migrates values saved before the dropdown stored catalog keys: old display labels and
-# raw provider ids.
+# Migrates values saved before the dropdown stored the provider's own model id: old
+# display labels and catalog keys.
 LEGACY_MODEL_VALUES = {
-    "LTX 2.3 Pro": "gtc_ltx_2_3_pro",
-    "ltx-2-3-pro": "gtc_ltx_2_3_pro",
+    "LTX 2.3 Pro": "ltx-2-3-pro",
+    "gtc_ltx_2_3_pro": "ltx-2-3-pro",
 }
 
 # Input frame-count limits per LTX HDR upscale docs, keyed by billing tier.
@@ -68,7 +64,7 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         # Model parameter — HDR upscale is only offered on ltx-2-3-pro per the pricing page.
         model_param = ParameterString(
             name="model",
-            default_value="gtc_ltx_2_3_pro",
+            default_value="ltx-2-3-pro",
             tooltip="Model to use for video-to-video HDR upscale",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -77,8 +73,8 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         # marks the models the license denies; the proxy base refuses a denied selection.
         self._install_model_access(
             parameter=model_param,
-            model_choices=list(MODEL_MAPPING.keys()),
-            default_model="gtc_ltx_2_3_pro",
+            model_choices=["ltx-2-3-pro"],
+            default_model="ltx-2-3-pro",
             deprecated_values=LEGACY_MODEL_VALUES,
         )
 
@@ -127,7 +123,7 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         self.set_initial_node_size(height=400)
 
     def _get_api_model_id(self) -> str:
-        return f"{self._provider_model_id_for_selection()}:video-to-video-hdr"
+        return f"{self._get_selected_model_id()}:video-to-video-hdr"
 
     @staticmethod
     def _extract_input_video_url(video_input: Any) -> str | None:

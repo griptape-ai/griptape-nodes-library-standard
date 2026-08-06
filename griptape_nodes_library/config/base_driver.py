@@ -134,13 +134,12 @@ class BaseDriver(DataNode):
         applied here, so the parameter reads the same as it did before adoption.
 
         Args:
-            model_choices: The catalog model keys the node offers, in dropdown order.
+            model_choices: The provider model ids the node offers, in dropdown order.
             default_model: The choice to select by default; must be in `model_choices`.
             param: Name of the parameter to decorate.
             deprecated_values: Legacy value -> canonical `model_choices` entry map,
                 needed only when the parameter used to store something other than
-                the catalog model key (an old display label, a provider's own
-                model id).
+                the provider's model id (an old display label, a catalog key).
         """
         if default_model not in model_choices:
             msg = f"Default model '{default_model}' is not one of the offered choices."
@@ -160,16 +159,16 @@ class BaseDriver(DataNode):
             deprecated_values=deprecated_values,
         )
 
-    def _provider_model_id_for_selection(self) -> str:
-        """The upstream provider's id for the model dropdown's current selection.
+    def _get_selected_model_id(self) -> str:
+        """The provider model id the model dropdown currently stores.
 
-        The dropdown stores a catalog model key, so a driver built from this
-        node's parameters resolves the provider's own name for the model here
-        rather than passing the catalog key upstream.
+        The dropdown stores the provider's own id for the model, so a driver
+        built from this node's parameters passes the stored value upstream as-is.
+        Reading it through here keeps the parameter's name in one place.
         """
         if self._model_access is None:
             return ""
-        return self._model_access.provider_model_id()
+        return self.get_parameter_value(self._model_access.parameter_name) or ""
 
     def _raise_if_model_denied(self) -> None:
         """Fail closed rather than hand a downstream node a driver the license denies.

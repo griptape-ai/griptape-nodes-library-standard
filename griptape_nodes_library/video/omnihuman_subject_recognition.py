@@ -42,12 +42,12 @@ class OmnihumanSubjectRecognition(GriptapeProxyNode):
     SERVICE_NAME = "Griptape"
     API_KEY_NAME = "GT_CLOUD_API_KEY"
     MODEL_IDS: ClassVar[list[str]] = [
-        "gtc_omnihuman_1_5_subject_recognition",
+        "omnihuman-1-5-subject-recognition",
     ]
-    # Migrates values saved before the dropdown stored catalog keys.
+    # Migrates values saved before the dropdown stored the provider's own model id.
     LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
-        "OmniHuman 1.5 Subject Recognition": "gtc_omnihuman_1_5_subject_recognition",
-        "omnihuman-1-5-subject-recognition": "gtc_omnihuman_1_5_subject_recognition",
+        "OmniHuman 1.5 Subject Recognition": "omnihuman-1-5-subject-recognition",
+        "gtc_omnihuman_1_5_subject_recognition": "omnihuman-1-5-subject-recognition",
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -126,7 +126,7 @@ class OmnihumanSubjectRecognition(GriptapeProxyNode):
         return api_key
 
     async def _build_payload(self) -> dict[str, Any]:
-        provider_model_id = self._provider_model_id_for_selection()
+        provider_model_id = self._get_selected_model_id()
         image_value = extract_image_url(self.get_parameter_value("image_url"))
         if not image_value:
             msg = "Image URL is required"

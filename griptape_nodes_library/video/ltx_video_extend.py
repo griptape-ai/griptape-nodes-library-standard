@@ -28,19 +28,15 @@ MIN_CONTEXT_DURATION = 0
 DEFAULT_CONTEXT_DURATION = 1
 MAX_CONTEXT_DURATION = 20
 
-MODEL_MAPPING = {
-    "gtc_ltx_2_pro": "ltx-2-pro",
-    "gtc_ltx_2_3_pro": "ltx-2-3-pro",
-}
-DEFAULT_MODEL = "gtc_ltx_2_3_pro"
+DEFAULT_MODEL = "ltx-2-3-pro"
 
-# Migrates values saved before the dropdown stored catalog keys: old display labels and
-# raw provider ids.
+# Migrates values saved before the dropdown stored the provider's own model id: old
+# display labels and catalog keys.
 LEGACY_MODEL_VALUES = {
-    "LTX 2 Pro": "gtc_ltx_2_pro",
-    "LTX 2.3 Pro": "gtc_ltx_2_3_pro",
-    "ltx-2-3-pro": "gtc_ltx_2_3_pro",
-    "ltx-2-pro": "gtc_ltx_2_pro",
+    "LTX 2 Pro": "ltx-2-pro",
+    "LTX 2.3 Pro": "ltx-2-3-pro",
+    "gtc_ltx_2_3_pro": "ltx-2-3-pro",
+    "gtc_ltx_2_pro": "ltx-2-pro",
 }
 
 
@@ -85,7 +81,7 @@ class LTXVideoExtend(GriptapeProxyNode):
         # marks the models the license denies; the proxy base refuses a denied selection.
         self._install_model_access(
             parameter=model_param,
-            model_choices=list(MODEL_MAPPING.keys()),
+            model_choices=["ltx-2-pro", "ltx-2-3-pro"],
             default_model=DEFAULT_MODEL,
             deprecated_values=LEGACY_MODEL_VALUES,
         )
@@ -216,7 +212,7 @@ class LTXVideoExtend(GriptapeProxyNode):
             self._update_context_badge(value)
 
     def _get_api_model_id(self) -> str:
-        return f"{self._provider_model_id_for_selection()}:extend"
+        return f"{self._get_selected_model_id()}:extend"
 
     async def _prepare_video_data_uri_async(self, video_input: Any) -> str | None:
         """Convert video input to a base64 data URI."""
@@ -281,7 +277,7 @@ class LTXVideoExtend(GriptapeProxyNode):
             "video_uri": video_data_uri,
             "duration": duration,
             "mode": params["mode"],
-            "model": MODEL_MAPPING.get(params["model"], MODEL_MAPPING[DEFAULT_MODEL]),
+            "model": params["model"],
         }
 
         prompt = params["prompt"].strip()

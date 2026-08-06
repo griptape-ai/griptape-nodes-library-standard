@@ -28,18 +28,18 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["SoraVideoGeneration"]
 
-# Size options for different models
+# Size options for different models, keyed by the provider's own model id
 SIZE_OPTIONS = {
-    "gtc_sora_2": ["1280x720", "720x1280"],
-    "gtc_sora_2_pro": ["1280x720", "720x1280", "1024x1792", "1792x1024"],
+    "sora-2": ["1280x720", "720x1280"],
+    "sora-2-pro": ["1280x720", "720x1280", "1024x1792", "1792x1024"],
 }
 
-# Migrates values saved before the dropdown stored catalog keys.
+# Migrates values saved before the dropdown stored the provider's own model id.
 LEGACY_MODEL_VALUES: dict[str, str] = {
-    "Sora 2": "gtc_sora_2",
-    "Sora 2 Pro": "gtc_sora_2_pro",
-    "sora-2": "gtc_sora_2",
-    "sora-2-pro": "gtc_sora_2_pro",
+    "Sora 2": "sora-2",
+    "Sora 2 Pro": "sora-2-pro",
+    "gtc_sora_2": "sora-2",
+    "gtc_sora_2_pro": "sora-2-pro",
 }
 
 
@@ -76,7 +76,7 @@ class SoraVideoGeneration(GriptapeProxyNode):
         # INPUTS / PROPERTIES
         model_param = ParameterString(
             name="model",
-            default_value="gtc_sora_2",
+            default_value="sora-2",
             tooltip="Sora model to use",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             ui_options={
@@ -88,8 +88,8 @@ class SoraVideoGeneration(GriptapeProxyNode):
         # marks the models the license denies; the proxy base refuses a denied selection.
         self._install_model_access(
             parameter=model_param,
-            model_choices=["gtc_sora_2", "gtc_sora_2_pro"],
-            default_model="gtc_sora_2",
+            model_choices=["sora-2", "sora-2-pro"],
+            default_model="sora-2",
             deprecated_values=LEGACY_MODEL_VALUES,
         )
         self.add_parameter(
@@ -133,7 +133,7 @@ class SoraVideoGeneration(GriptapeProxyNode):
                 default_value="720x1280",
                 tooltip="Output resolution as widthxheight (options vary by model)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=SIZE_OPTIONS["gtc_sora_2"])},
+                traits={Options(choices=SIZE_OPTIONS["sora-2"])},
                 ui_options={"display_name": "Size"},
             )
 
@@ -207,8 +207,8 @@ class SoraVideoGeneration(GriptapeProxyNode):
             image_size = f"{pil_image.width}x{pil_image.height}"
 
             # Get available size options for current model
-            current_model = self.get_parameter_value("model") or "gtc_sora_2"
-            available_sizes = SIZE_OPTIONS.get(current_model, SIZE_OPTIONS["gtc_sora_2"])
+            current_model = self.get_parameter_value("model") or "sora-2"
+            available_sizes = SIZE_OPTIONS.get(current_model, SIZE_OPTIONS["sora-2"])
 
             # If image size matches one of the supported sizes, update the size parameter
             if image_size in available_sizes:
@@ -231,7 +231,7 @@ class SoraVideoGeneration(GriptapeProxyNode):
 
         return {
             "prompt": self.get_parameter_value("prompt") or "",
-            "model": self._provider_model_id_for_selection() or "sora-2",
+            "model": self._get_selected_model_id() or "sora-2",
             "seconds": seconds_value,
             "size": self.get_parameter_value("size") or "720x1280",
             "start_frame": self.get_parameter_value("start_frame"),

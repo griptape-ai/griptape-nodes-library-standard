@@ -35,13 +35,13 @@ HTTP_ERROR_STATUS = 400
 
 # Model options
 MODEL_OPTIONS = [
-    "gtc_wan_2_6_r2v",
+    "wan2.6-r2v",
 ]
 
-# Migrates values saved before the dropdown stored catalog keys.
+# Migrates values saved before the dropdown stored the provider's own model id.
 LEGACY_MODEL_VALUES: dict[str, str] = {
-    "Wan 2.6 R2V": "gtc_wan_2_6_r2v",
-    "wan2.6-r2v": "gtc_wan_2_6_r2v",
+    "Wan 2.6 R2V": "wan2.6-r2v",
+    "gtc_wan_2_6_r2v": "wan2.6-r2v",
 }
 
 # Size options organized by resolution tier
@@ -128,7 +128,7 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
         # Model selection
         model_param = ParameterString(
             name="model",
-            default_value="gtc_wan_2_6_r2v",
+            default_value="wan2.6-r2v",
             tooltip="Select the WAN reference-to-video model to use",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -138,7 +138,7 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
         self._install_model_access(
             parameter=model_param,
             model_choices=MODEL_OPTIONS,
-            default_model="gtc_wan_2_6_r2v",
+            default_model="wan2.6-r2v",
             deprecated_values=LEGACY_MODEL_VALUES,
         )
 
