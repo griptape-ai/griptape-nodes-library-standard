@@ -54,29 +54,11 @@ MODEL_CHOICES_ARGS = [
     {"name": "o1", "icon": "logos/openai.svg", "args": _OPENAI_ARGS},
 ]
 
-MODEL_CHOICES = [model["name"] for model in MODEL_CHOICES_ARGS]
-
-
-# Maps deprecated model IDs that may appear in saved workflows to their live
-# replacement. Consumers use this to rewrite the model on load and surface a
-# deprecation notice to the user.
-DEPRECATED_MODELS = {
-    # Anthropic
-    "claude-3-7-sonnet": "claude-sonnet-4-6",
-    "claude-3-5-haiku": "claude-haiku-4-5",
-    "claude-sonnet-4-20250514": "claude-sonnet-4-6",
-    # Bedrock
-    "amazon.titan-text-premier-v1": "claude-sonnet-4-6",
-    # Azure OpenAI
-    "gpt-4.5-preview": "gpt-4.1",
-    "o1-mini": "o3-mini",
-    # Google
-    "gemini-2.0-flash": "gemini-2.5-flash",
-    "gemini-2.5-flash-preview-05-20": "gemini-2.5-flash",
-    "gemini-2.5-pro-preview-06-05": "gemini-2.5-pro",
-    "gemini-3-pro": "gemini-3.1-pro",
-    "gemini-3-pro-preview": "gemini-3.1-pro",
-}
+# Provider model ids for the same models, in the same order as MODEL_CHOICES_ARGS.
+# Both Agent's and GriptapeCloudPrompt's dropdowns store these directly -- it is
+# each model's own `name` from MODEL_CHOICES_ARGS, which is also what the
+# license layer resolves the selection to a catalog id through.
+PROVIDER_MODEL_CHOICES = [model["name"] for model in MODEL_CHOICES_ARGS]
 
 
 # Model IDs whose backend does not accept top_p (the OpenAI o-series).

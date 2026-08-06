@@ -40,7 +40,10 @@ SERVICE = "Griptape"
 API_KEY_URL = "https://cloud.griptape.ai/configuration/api-keys"
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 
-# Vision-capable models available on Griptape Cloud.
+# Provider model ids of Griptape Cloud's vision-capable models, in dropdown order.
+# Defined locally rather than imported from cloud_models.py's own PROVIDER_MODEL_CHOICES
+# -- that module is owned by another node's revision, and this list is this node's own
+# license-gated dropdown (a vision-only subset), not a shared driver config's model list.
 GTC_VISION_MODEL_CHOICES = [
     "gpt-5.2",
     "gpt-5.1",
@@ -59,6 +62,39 @@ GTC_VISION_MODEL_CHOICES = [
     "gemini-2.5-pro",
 ]
 DEFAULT_MODEL = GTC_VISION_MODEL_CHOICES[0]
+
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES = {
+    "Claude Opus 4.7": "claude-opus-4-7",
+    "Claude Sonnet 4.5": "claude-4-5-sonnet",
+    "Claude Sonnet 4.6": "claude-sonnet-4-6",
+    "GPT-4.1": "gpt-4.1",
+    "GPT-4.1 mini": "gpt-4.1-mini",
+    "GPT-4.1 nano": "gpt-4.1-nano",
+    "GPT-4o": "gpt-4o",
+    "GPT-5": "gpt-5",
+    "GPT-5 mini": "gpt-5-mini",
+    "GPT-5.1": "gpt-5.1",
+    "GPT-5.2": "gpt-5.2",
+    "Gemini 2.5 Pro": "gemini-2.5-pro",
+    "Gemini 3.1 Pro": "gemini-3.1-pro",
+    "gtc_claude_opus_4_7": "claude-opus-4-7",
+    "gtc_claude_sonnet_4_5": "claude-4-5-sonnet",
+    "gtc_claude_sonnet_4_6": "claude-sonnet-4-6",
+    "gtc_gemini_2_5_pro": "gemini-2.5-pro",
+    "gtc_gemini_3_1_pro": "gemini-3.1-pro",
+    "gtc_gpt_4_1": "gpt-4.1",
+    "gtc_gpt_4_1_mini": "gpt-4.1-mini",
+    "gtc_gpt_4_1_nano": "gpt-4.1-nano",
+    "gtc_gpt_4o": "gpt-4o",
+    "gtc_gpt_5": "gpt-5",
+    "gtc_gpt_5_1": "gpt-5.1",
+    "gtc_gpt_5_2": "gpt-5.2",
+    "gtc_gpt_5_mini": "gpt-5-mini",
+    "gtc_o3": "o3",
+    "gtc_o4_mini": "o4-mini",
+    "o4 mini": "o4-mini",
+}
 
 
 class DescribeImage(ControlNode):
@@ -108,6 +144,7 @@ class DescribeImage(ControlNode):
             parameter=model_param,
             model_choices=GTC_VISION_MODEL_CHOICES,
             default_model=DEFAULT_MODEL,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self._provider = ProviderSelectionComponent(
@@ -341,9 +378,8 @@ class DescribeImage(ControlNode):
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
-        if parameter.name == "model":
-            self._model_access.on_value_changed(value)
-        elif parameter.name == "model_provider":
+        self._model_access.on_value_set(parameter, value)
+        if parameter.name == "model_provider":
             self._provider.update_model_choices_for_provider(str(value))
 
     def process(self) -> AsyncResult[Structure]:  # noqa: C901, PLR0915, PLR0912
@@ -358,7 +394,7 @@ class DescribeImage(ControlNode):
         # driver, so the node's (hidden, not cleared) dropdown value is stale. The
         # INVOKE_MODEL declaration below gates the model that actually runs.
         if agent_value is None and provider_name == "griptape_cloud":
-            self._model_access.raise_if_denied(model_input)
+            self._model_access.raise_if_selection_denied()
 
         agent = None
 
