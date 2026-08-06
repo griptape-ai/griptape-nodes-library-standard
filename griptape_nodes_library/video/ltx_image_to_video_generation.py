@@ -22,12 +22,17 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["LTXImageToVideoGeneration"]
 
-# Model mapping from display names to API model IDs
-MODEL_MAPPING = {
-    "LTX 2 Pro": "ltx-2-pro",
+# Migrates values saved before the dropdown stored the provider's own model id: old
+# display labels and catalog keys.
+LEGACY_MODEL_VALUES = {
     "LTX 2 Fast": "ltx-2-fast",
-    "LTX 2.3 Pro": "ltx-2-3-pro",
+    "LTX 2 Pro": "ltx-2-pro",
     "LTX 2.3 Fast": "ltx-2-3-fast",
+    "LTX 2.3 Pro": "ltx-2-3-pro",
+    "gtc_ltx_2_3_fast": "ltx-2-3-fast",
+    "gtc_ltx_2_3_pro": "ltx-2-3-pro",
+    "gtc_ltx_2_fast": "ltx-2-fast",
+    "gtc_ltx_2_pro": "ltx-2-pro",
 }
 
 # Camera motion options
@@ -107,14 +112,20 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
         super().__init__(**kwargs)
 
         # INPUTS / PROPERTIES
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="LTX 2.3 Fast",
-                tooltip="Model to use for video generation",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["LTX 2 Pro", "LTX 2 Fast", "LTX 2.3 Pro", "LTX 2.3 Fast"])},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="ltx-2-3-fast",
+            tooltip="Model to use for video generation",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=["ltx-2-pro", "ltx-2-fast", "ltx-2-3-pro", "ltx-2-3-fast"],
+            default_model="ltx-2-3-fast",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
         self.add_parameter(
             ParameterString(
@@ -216,7 +227,7 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
         )
 
         # Set initial parameter visibility based on default model
-        self._update_parameter_visibility_for_model("LTX 2 Fast")
+        self._update_parameter_visibility_for_model("ltx-2-fast")
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to show/hide dependent parameters."""
@@ -224,12 +235,12 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
 
         # Update parameter options when model, resolution, or fps changes
         if parameter.name in ("model", "resolution", "fps"):
-            model_name = self.get_parameter_value("model") or "LTX 2 Fast"
+            model_name = self.get_parameter_value("model") or "ltx-2-fast"
             self._update_parameter_visibility_for_model(model_name)
 
     def _update_parameter_visibility_for_model(self, model_name: str) -> None:
         """Update parameter visibility and options based on selected model."""
-        model_id = MODEL_MAPPING.get(model_name, "ltx-2-fast")
+        model_id = model_name
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
 
         # Get available resolutions
@@ -271,7 +282,7 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
         """Get and process all parameters, including image conversion."""
         return {
             "prompt": self.get_parameter_value("prompt") or "",
-            "model": self.get_parameter_value("model") or "LTX 2 Fast",
+            "model": self.get_parameter_value("model") or "ltx-2-fast",
             "image_uri": await self._prepare_image_data_url_async(self.get_parameter_value("image")),
             "resolution": self.get_parameter_value("resolution") or "1920x1080",
             "duration": self.get_parameter_value("duration") or 6,
@@ -283,14 +294,12 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
         }
 
     def _get_api_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "LTX 2 Fast"
-        model_id = MODEL_MAPPING.get(model_name, "ltx-2-fast")
-        return f"{model_id}:image-to-video"
+        return f"{self._get_selected_model_id()}:image-to-video"
 
     def _validate_model_params(self, params: dict[str, Any]) -> str | None:
         """Validate that the model-resolution-fps-duration combination is supported."""
         model_display_name = params["model"]
-        model_id = MODEL_MAPPING.get(model_display_name, "ltx-2-fast")
+        model_id = model_display_name
         resolution = params["resolution"]
         fps = params["fps"]
         duration = params["duration"]
@@ -346,7 +355,7 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
             raise ValueError(validation_error)
 
         # Map display name to model ID (without modality)
-        model_id = MODEL_MAPPING.get(params["model"], "ltx-2-fast")
+        model_id = params["model"]
 
         payload: dict[str, Any] = {
             "image_uri": params["image_uri"],

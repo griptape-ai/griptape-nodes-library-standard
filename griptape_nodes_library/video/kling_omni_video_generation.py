@@ -42,15 +42,13 @@ BASE_MODE_CHOICES = [MODE_STD, MODE_PRO]
 DEFAULT_MODE = MODE_PRO
 
 
-MODEL_NAME_MAP: dict[str, dict[str, str]] = {
-    "Kling Omni": {
-        "api_model_id": "kling-video-o1:omnivideo",
-        "payload_model_name": "kling-video-o1",
-    },
-    "Kling v3.0 Omni": {
-        "api_model_id": "kling-v3-omni:omnivideo",
-        "payload_model_name": "kling-v3-omni",
-    },
+# Migrates values saved before the dropdown stored the provider's own model id: old
+# display labels, catalog display names, and catalog keys.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Kling Omni": "kling-video-o1",
+    "Kling v3.0 Omni": "kling-v3-omni",
+    "gtc_kling_v3_omni": "kling-v3-omni",
+    "gtc_kling_video_o1_omni": "kling-video-o1",
 }
 MODEL_CAPABILITIES: dict[str, dict[str, Any]] = {
     "kling-video-o1": {
@@ -77,7 +75,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
     images, and videos. Use <<<element_1>>>, <<<image_1>>>, <<<video_1>>> in prompts.
 
     Inputs:
-        - model_name (str): Model selection ("Kling Omni" or "Kling v3.0 Omni")
+        - model_name (str): Model selection ("kling-video-o1" or "kling-v3-omni")
         - multi_shot (bool): Enable multi-prompt mode (default: False)
         - prompt (str): Text prompt with optional templates (max 2500 chars, required when multi_shot=False)
         - shot_count (int): Number of shots in multi-shot mode (1-6, required when multi_shot=True)
@@ -108,15 +106,21 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         super().__init__(**kwargs)
 
         # INPUTS / PROPERTIES
-        self.add_parameter(
-            ParameterString(
-                name="model_name",
-                default_value="Kling v3.0 Omni",
-                tooltip="Model to use for video generation",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=list(MODEL_NAME_MAP.keys()))},
-                ui_options={"display_name": "Model"},
-            )
+        model_name_param = ParameterString(
+            name="model_name",
+            default_value="kling-v3-omni",
+            tooltip="Model to use for video generation",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={"display_name": "Model"},
+        )
+        self.add_parameter(model_name_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_name_param,
+            model_choices=["kling-video-o1", "kling-v3-omni"],
+            default_model="kling-v3-omni",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -323,9 +327,8 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         if parameter.name in {"model_name", "reference_video", "end_frame_image"}:
             self._update_mode_choices()
             # Update duration choices inline (WAN pattern)
-            model_name = self.get_parameter_value("model_name") or "Kling v3.0 Omni"
-            model_config = MODEL_NAME_MAP.get(model_name, MODEL_NAME_MAP["Kling v3.0 Omni"])
-            capabilities = MODEL_CAPABILITIES.get(model_config["payload_model_name"], {})
+            model_name = self.get_parameter_value("model_name") or "kling-v3-omni"
+            capabilities = MODEL_CAPABILITIES.get(model_name, {})
             has_reference_video = bool(self.get_parameter_value("reference_video"))
             has_end_frame = bool(self.get_parameter_value("end_frame_image"))
             new_durations = list(capabilities.get("durations", list(range(3, 11))))
@@ -356,9 +359,8 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
 
     def _get_supported_modes(self) -> list[str]:
         """Return the valid mode choices for the selected model and inputs."""
-        model_name = self.get_parameter_value("model_name") or "Kling v3.0 Omni"
-        model_config = MODEL_NAME_MAP.get(model_name, MODEL_NAME_MAP["Kling v3.0 Omni"])
-        capabilities = MODEL_CAPABILITIES.get(model_config["payload_model_name"], {"modes": BASE_MODE_CHOICES})
+        model_name = self.get_parameter_value("model_name") or "kling-v3-omni"
+        capabilities = MODEL_CAPABILITIES.get(model_name, {"modes": BASE_MODE_CHOICES})
         supported_modes = list(capabilities.get("modes", BASE_MODE_CHOICES))
 
         if self.get_parameter_value("reference_video") and not capabilities.get(
@@ -414,10 +416,9 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
 
-        Converts user-facing model name to provider API model ID.
+        Builds the URL-path model id from the current selection's provider id.
         """
-        model_name = self.get_parameter_value("model_name") or "Kling v3.0 Omni"
-        return MODEL_NAME_MAP.get(model_name, MODEL_NAME_MAP["Kling v3.0 Omni"])["api_model_id"]
+        return f"{self._get_selected_model_id()}:omnivideo"
 
     def _build_customize_multi_prompt_payload(self, shot_count: Any) -> list[dict[str, Any]]:
         """Build multi_prompt payload from shot input parameters."""
@@ -517,8 +518,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         Returns:
             dict: The request payload (model field excluded, handled by base class)
         """
-        model_name = self.get_parameter_value("model_name") or "Kling v3.0 Omni"
-        model_config = MODEL_NAME_MAP.get(model_name, MODEL_NAME_MAP["Kling v3.0 Omni"])
+        model_name = self.get_parameter_value("model_name") or "kling-v3-omni"
         prompt = (self.get_parameter_value("prompt") or "").strip()
         multi_shot = bool(self.get_parameter_value("multi_shot"))
         shot_count = self.get_parameter_value("shot_count") or 1
@@ -543,7 +543,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         duration = self.get_parameter_value("duration") or 5
 
         payload: dict[str, Any] = {
-            "model_name": model_config["payload_model_name"],
+            "model_name": model_name,
             "mode": mode,
             "aspect_ratio": aspect_ratio,
             "duration": int(duration),
@@ -760,8 +760,8 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             )
 
         # kling-video-o1: text-to-video and start-frame-only generation restrict to 5s or 10s
-        model_name = self.get_parameter_value("model_name") or "Kling v3.0 Omni"
-        payload_model = MODEL_NAME_MAP.get(model_name, MODEL_NAME_MAP["Kling v3.0 Omni"])["payload_model_name"]
+        model_name = self.get_parameter_value("model_name") or "kling-v3-omni"
+        payload_model = model_name
         capabilities = MODEL_CAPABILITIES.get(payload_model, {})
 
         if payload_model == "kling-video-o1":
