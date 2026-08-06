@@ -70,8 +70,9 @@ class SeedanceModelCapabilities:
     private-asset references. They differ in output resolution, maximum duration, and reference
     media budgets: standard 2.0 supports up to 4k; 2.0 Fast and 2.0 Mini top out at 720p; 2.5
     supports 480p and 720p only. The three 2.0 variants cap duration at 15 seconds and allow up
-    to 9 reference images and 3 reference audio files; 2.5 extends the duration ceiling to 30
-    seconds and raises those budgets to 30 reference images and 10 reference audio files.
+    to 9 reference images, 3 reference videos, and 3 reference audio files; 2.5 extends the
+    duration ceiling to 30 seconds and raises those budgets to 30 images, 10 videos, and 10 audio
+    files.
     """
 
     resolutions: tuple[str, ...]
@@ -79,6 +80,7 @@ class SeedanceModelCapabilities:
     supports_private_assets: bool
     max_duration: int
     max_reference_images: int
+    max_reference_videos: int
     max_reference_audio: int
 
 
@@ -91,6 +93,7 @@ SEEDANCE_MODEL_CAPABILITIES: dict[str, SeedanceModelCapabilities] = {
         supports_private_assets=True,
         max_duration=15,
         max_reference_images=9,
+        max_reference_videos=3,
         max_reference_audio=3,
     ),
     SEEDANCE_2_0_FAST_MODEL_ID: SeedanceModelCapabilities(
@@ -99,6 +102,7 @@ SEEDANCE_MODEL_CAPABILITIES: dict[str, SeedanceModelCapabilities] = {
         supports_private_assets=True,
         max_duration=15,
         max_reference_images=9,
+        max_reference_videos=3,
         max_reference_audio=3,
     ),
     SEEDANCE_2_0_MINI_MODEL_ID: SeedanceModelCapabilities(
@@ -107,6 +111,7 @@ SEEDANCE_MODEL_CAPABILITIES: dict[str, SeedanceModelCapabilities] = {
         supports_private_assets=True,
         max_duration=15,
         max_reference_images=9,
+        max_reference_videos=3,
         max_reference_audio=3,
     ),
     SEEDANCE_2_5_MODEL_ID: SeedanceModelCapabilities(
@@ -115,6 +120,7 @@ SEEDANCE_MODEL_CAPABILITIES: dict[str, SeedanceModelCapabilities] = {
         supports_private_assets=True,
         max_duration=30,
         max_reference_images=30,
+        max_reference_videos=10,
         max_reference_audio=10,
     ),
 }
@@ -127,6 +133,7 @@ _DEFAULT_MODEL_CAPABILITIES = SeedanceModelCapabilities(
     supports_private_assets=False,
     max_duration=15,
     max_reference_images=9,
+    max_reference_videos=3,
     max_reference_audio=3,
 )
 
@@ -145,7 +152,16 @@ def _duration_choices(max_duration: int) -> list[int]:
 # reference lists are sized to the most permissive model and the per-model limit is enforced in
 # _validate_parameters.
 MAX_REFERENCE_IMAGES = max(capabilities.max_reference_images for capabilities in SEEDANCE_MODEL_CAPABILITIES.values())
+MAX_REFERENCE_VIDEOS = max(capabilities.max_reference_videos for capabilities in SEEDANCE_MODEL_CAPABILITIES.values())
 MAX_REFERENCE_AUDIO = max(capabilities.max_reference_audio for capabilities in SEEDANCE_MODEL_CAPABILITIES.values())
+
+# Reference videos arrived as three discrete slot parameters before becoming a list. Workflows
+# saved against those slots replay their connections and values by slot name, so a connection to
+# one adopts the name as a child of the reference_videos list (see before_incoming_connection).
+# Saving such a workflow again writes the children out directly, so the adoption only ever runs
+# against files that predate the list.
+LEGACY_REFERENCE_VIDEO_PARAMETERS = ("reference_video_1", "reference_video_2", "reference_video_3")
+REFERENCE_VIDEOS_PARAMETER = "reference_videos"
 
 
 # Provider-asset (private asset) registration via the GTC proxy. Supported by all Seedance
@@ -198,13 +214,13 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
     four share the same feature set; they differ in output resolution, max duration, and reference
     media budgets: standard 2.0 supports up to 4k and 15s, Fast and Mini top out at 720p and 15s,
     and 2.5 tops out at 720p but extends to 30s. The three 2.0 variants allow up to 9 reference
-    images and 3 reference audio files; 2.5 raises those budgets to 30 reference images and 10
-    reference audio files.
+    images, 3 reference videos, and 3 reference audio files; 2.5 raises those budgets to 30 images,
+    10 videos, and 10 audio files.
 
     Supports three input modes:
     - Text Only: Pure text-to-video generation (default)
     - First/Last Frame: Traditional i2v with first and/or last frame images
-    - Multimodal References: Images + up to 3 videos + audio files as references (image and audio counts are model-dependent)
+    - Multimodal References: Images, videos, and audio files as references (counts are model-dependent)
 
     Inputs:
         - prompt (str): Text prompt for the video
@@ -215,7 +231,8 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         - duration (int): Video duration in seconds (default: 5, range is model-dependent: 4-15 for 2.0/Fast/Mini, 4-30 for 2.5, or -1 for smart selection)
         - generate_audio (bool): Generate audio with video (default: False)
         - first_frame/last_frame: Optional frame images (First/Last Frame mode only)
-        - reference_images/reference_video_1..3/reference_audio: Optional reference media (Multimodal mode only; reference image and audio counts are model-dependent: 0-9 images/0-3 audio for 2.0/Fast/Mini, 0-30 images/0-10 audio for 2.5)
+        - reference_images/reference_videos/reference_audio: Optional reference media (Multimodal mode only;
+          counts are model-dependent: 9 images/3 videos/3 audio for 2.0/Fast/Mini, 30 images/10 videos/10 audio for 2.5)
 
     Outputs:
         - generation_id (str): Griptape Cloud generation id
@@ -327,66 +344,34 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             )
         )
 
-        self._public_reference_video_parameter_1 = PublicArtifactUrlParameter(
-            node=self,
-            artifact_url_parameter=Parameter(
-                name="reference_video_1",
-                input_types=["VideoUrlArtifact", ASSET_REFERENCE_TYPE_NAMES[ASSET_KIND_VIDEO]],
-                type="VideoUrlArtifact",
-                default_value="",
-                tooltip=(
-                    "Optional first reference video. Seedance only accepts public URLs or uploaded asset URLs "
-                    "for videos."
-                ),
-                allowed_modes={ParameterMode.INPUT},
-                ui_options={"display_name": "Reference Video 1"},
-                hide_property=True,
+        reference_videos = ParameterList(
+            name=REFERENCE_VIDEOS_PARAMETER,
+            input_types=["VideoUrlArtifact", ASSET_REFERENCE_TYPE_NAMES[ASSET_KIND_VIDEO]],
+            type="VideoUrlArtifact",
+            default_value=[],
+            tooltip=(
+                "Optional reference videos (0-3 for Seedance 2.0/Fast/Mini, 0-10 for Seedance 2.5). "
+                "Seedance only accepts public URLs or uploaded asset URLs for videos, so anything else is "
+                "uploaded to Griptape Cloud to obtain one. Connect a Seedance Human Reference Asset to "
+                "register a video as a private asset."
             ),
-            disclaimer_message="The Seedance 2.0 service utilizes this URL to access the reference video.",
+            allowed_modes={ParameterMode.INPUT},
+            ui_options={"display_name": "Reference Videos", "expander": True, "hide_property": True},
+            child_prefix="Reference Video",
+            max_items=MAX_REFERENCE_VIDEOS,
         )
-        self._public_reference_video_parameter_1.add_input_parameters()
-
-        self._public_reference_video_parameter_2 = PublicArtifactUrlParameter(
-            node=self,
-            artifact_url_parameter=Parameter(
-                name="reference_video_2",
-                input_types=["VideoUrlArtifact", ASSET_REFERENCE_TYPE_NAMES[ASSET_KIND_VIDEO]],
-                type="VideoUrlArtifact",
-                default_value="",
-                tooltip=(
-                    "Optional second reference video. Seedance only accepts public URLs or uploaded asset URLs "
-                    "for videos."
-                ),
-                allowed_modes={ParameterMode.INPUT},
-                ui_options={"display_name": "Reference Video 2"},
-                hide_property=True,
-                hide=True,
+        self.add_parameter(reference_videos)
+        reference_videos.set_badge(
+            variant="cloud-upload",
+            title="Media Upload",
+            message=(
+                "This node requires a public URL for each reference video.\n\n"
+                "The Seedance service utilizes this URL to access the reference video.\n"
+                "Executing this node will generate a short lived, public URL for any video that does not "
+                "already have one, which will be cleaned up after execution.\n"
             ),
-            disclaimer_message="The Seedance 2.0 service utilizes this URL to access the reference video.",
+            hide_clear_button=False,
         )
-        self._public_reference_video_parameter_2.add_input_parameters()
-        self.hide_message_by_name("artifact_url_parameter_message_reference_video_2")
-
-        self._public_reference_video_parameter_3 = PublicArtifactUrlParameter(
-            node=self,
-            artifact_url_parameter=Parameter(
-                name="reference_video_3",
-                input_types=["VideoUrlArtifact", ASSET_REFERENCE_TYPE_NAMES[ASSET_KIND_VIDEO]],
-                type="VideoUrlArtifact",
-                default_value="",
-                tooltip=(
-                    "Optional third reference video. Seedance only accepts public URLs or uploaded asset URLs "
-                    "for videos."
-                ),
-                allowed_modes={ParameterMode.INPUT},
-                ui_options={"display_name": "Reference Video 3"},
-                hide_property=True,
-                hide=True,
-            ),
-            disclaimer_message="The Seedance 2.0 service utilizes this URL to access the reference video.",
-        )
-        self._public_reference_video_parameter_3.add_input_parameters()
-        self.hide_message_by_name("artifact_url_parameter_message_reference_video_3")
 
         self.add_parameter(
             ParameterList(
@@ -477,24 +462,125 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         # Set initial visibility
         self._update_parameter_visibility()
 
+    def before_incoming_connection(
+        self,
+        source_node: BaseNode,
+        source_parameter_name: str,
+        target_parameter_name: str,
+    ) -> None:
+        """Adopt a legacy reference-video slot name as a child of the reference video list.
+
+        Connection targets are resolved by name after this callback runs, so materializing the
+        child here is what keeps a workflow saved against the old slots wired up. The value the
+        slot carried is replayed after its connection, so it lands on the adopted child too.
+        """
+        if (
+            target_parameter_name in LEGACY_REFERENCE_VIDEO_PARAMETERS
+            and self.get_parameter_by_name(target_parameter_name) is None
+        ):
+            self._adopt_legacy_reference_video(target_parameter_name)
+        return super().before_incoming_connection(source_node, source_parameter_name, target_parameter_name)
+
+    def _adopt_legacy_reference_video(self, parameter_name: str) -> None:
+        """Append a reference video list child carrying a legacy slot's name.
+
+        A child mirrors what ParameterList.add_child_parameter builds, except for the name. It
+        takes the list's element type rather than the list's own `list[...]` input types, since a
+        child accepts a single artifact.
+        """
+        reference_videos = self.get_parameter_by_name(REFERENCE_VIDEOS_PARAMETER)
+        if not isinstance(reference_videos, ParameterList):
+            return
+
+        # add_child raises once the list is full. This runs while a workflow is being replayed, and
+        # an exception escaping here would abort the whole load, so a full list drops the adoption
+        # (costing one connection) instead.
+        if len(reference_videos.get_child_parameters()) >= MAX_REFERENCE_VIDEOS:
+            self._log(
+                f"{self.name} cannot adopt legacy parameter '{parameter_name}': "
+                f"{REFERENCE_VIDEOS_PARAMETER} already holds {MAX_REFERENCE_VIDEOS} videos"
+            )
+            return
+
+        # Mirrors ParameterList.add_child_parameter apart from three deliberate differences: the
+        # name, and two ui_options the container carries that a child must not inherit. `hide`
+        # tracks the list's own visibility, which the input mode drives, and a child born hidden
+        # stays hidden once the list is shown. `display_name` labels the list itself; children are
+        # labelled from the list's child_prefix instead. Keep the rest in sync with that method so a
+        # migrated slot behaves the same as a freshly-wired one.
+        child_ui_options = {
+            key: value for key, value in reference_videos.ui_options.items() if key not in {"hide", "display_name"}
+        }
+        child = Parameter(
+            name=parameter_name,
+            tooltip=reference_videos.tooltip,
+            type=reference_videos._type,  # noqa: SLF001 the element type, not the list's list[...] type
+            input_types=reference_videos._input_types,  # noqa: SLF001
+            output_type=reference_videos._output_type,  # noqa: SLF001
+            default_value=reference_videos.default_value,
+            tooltip_as_input=reference_videos.tooltip_as_input,
+            tooltip_as_output=reference_videos.tooltip_as_output,
+            tooltip_as_property=reference_videos.tooltip_as_property,
+            allowed_modes=reference_videos.allowed_modes,
+            ui_options=child_ui_options,
+            traits=reference_videos._original_traits,  # noqa: SLF001
+            converters=reference_videos.converters,
+            validators=reference_videos.validators,
+            settable=reference_videos.settable,
+            user_defined=True,
+            parent_container_name=reference_videos.name,
+        )
+        reference_videos.add_child(child)
+        self._order_adopted_reference_videos(reference_videos)
+        self._log(f"{self.name} adopted legacy parameter '{parameter_name}' into {REFERENCE_VIDEOS_PARAMETER}")
+
+    def _order_adopted_reference_videos(self, reference_videos: ParameterList) -> None:
+        """Sort adopted legacy children by slot number.
+
+        A saved workflow replays its connections in the order they were created rather than in slot
+        order, so adoption can append reference_video_3 ahead of reference_video_1. List order is
+        what the prompt's `@Video N` references resolve against, so the legacy children are sorted
+        among themselves while every other child keeps its position.
+
+        Reordering emits the container's own lifecycle event: a per-child event carries no
+        position, so a listener tracking those alone would hold the order the children arrived in.
+        The container's event carries its children in their current order.
+        """
+        children = reference_videos._children  # noqa: SLF001 ParameterList exposes no reorder API
+        legacy_indices = [
+            index
+            for index, child in enumerate(children)
+            if isinstance(child, Parameter) and child.name in LEGACY_REFERENCE_VIDEO_PARAMETERS
+        ]
+        ordered = sorted(
+            (children[index] for index in legacy_indices),
+            key=lambda child: LEGACY_REFERENCE_VIDEO_PARAMETERS.index(child.name),
+        )
+        if [children[index] for index in legacy_indices] == ordered:
+            return
+
+        for index, child in zip(legacy_indices, ordered, strict=True):
+            children[index] = child
+        self._emit_parameter_lifecycle_event(reference_videos)
+
     def after_incoming_connection_removed(
         self,
         source_node: BaseNode,
         source_parameter: Parameter,
         target_parameter: Parameter,
     ) -> None:
-        # reference_video_1/2/3 have PROPERTY mode, so the framework does not auto-clear
-        # their value when an incoming connection is removed. Clear it manually so the
-        # previously-connected video does not linger on the node.
-        if target_parameter.name in {"reference_video_1", "reference_video_2", "reference_video_3"}:
-            if target_parameter.name in self.parameter_values:
-                self.remove_parameter_value(target_parameter.name)
-            self._update_parameter_visibility()
+        # A disconnected reference video list child keeps its last value, which would leave the
+        # previously-connected video in the request. Clear it and leave the empty child in place
+        # for the editor's list controls to remove.
+        if target_parameter.parent_container_name == REFERENCE_VIDEOS_PARAMETER and (
+            target_parameter.name in self.parameter_values
+        ):
+            self.remove_parameter_value(target_parameter.name)
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to show/hide inputs based on mode."""
-        if parameter.name in {"input_mode", "model_id", "reference_video_1", "reference_video_2", "reference_video_3"}:
+        if parameter.name in {"input_mode", "model_id"}:
             self._update_parameter_visibility()
 
         if parameter.name in {"first_frame", "last_frame"}:
@@ -529,16 +615,13 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             self.hide_parameter_by_name("last_frame")
             self.show_parameter_by_name("reference_images")
             self.show_parameter_by_name("reference_audio")
-            self._update_reference_video_visibility()
+            self.show_parameter_by_name(REFERENCE_VIDEOS_PARAMETER)
         elif input_mode == INPUT_MODE_FIRST_LAST_FRAME:
             # Show first/last frame, hide multimodal inputs
             self.show_parameter_by_name("first_frame")
             self.hide_parameter_by_name("reference_images")
             self.hide_parameter_by_name("reference_audio")
-            self.hide_parameter_by_name(["reference_video_1", "reference_video_2", "reference_video_3"])
-            self.hide_message_by_name("artifact_url_parameter_message_reference_video_1")
-            self.hide_message_by_name("artifact_url_parameter_message_reference_video_2")
-            self.hide_message_by_name("artifact_url_parameter_message_reference_video_3")
+            self.hide_parameter_by_name(REFERENCE_VIDEOS_PARAMETER)
             if self._supports_last_frame(model_id):
                 self.show_parameter_by_name("last_frame")
             else:
@@ -549,36 +632,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             self.hide_parameter_by_name("last_frame")
             self.hide_parameter_by_name("reference_images")
             self.hide_parameter_by_name("reference_audio")
-            self.hide_parameter_by_name(["reference_video_1", "reference_video_2", "reference_video_3"])
-            self.hide_message_by_name("artifact_url_parameter_message_reference_video_1")
-            self.hide_message_by_name("artifact_url_parameter_message_reference_video_2")
-            self.hide_message_by_name("artifact_url_parameter_message_reference_video_3")
-
-    def _update_reference_video_visibility(self) -> None:
-        """Progressively reveal reference video inputs in multimodal mode."""
-        reference_video_1 = self.get_parameter_value("reference_video_1")
-        reference_video_2 = self.get_parameter_value("reference_video_2")
-        reference_video_3 = self.get_parameter_value("reference_video_3")
-
-        show_video_2 = bool(reference_video_1 or reference_video_2 or reference_video_3)
-        show_video_3 = bool(reference_video_2 or reference_video_3)
-
-        self.show_parameter_by_name("reference_video_1")
-        self.show_message_by_name("artifact_url_parameter_message_reference_video_1")
-
-        if show_video_2:
-            self.show_parameter_by_name("reference_video_2")
-            self.show_message_by_name("artifact_url_parameter_message_reference_video_2")
-        else:
-            self.hide_parameter_by_name("reference_video_2")
-            self.hide_message_by_name("artifact_url_parameter_message_reference_video_2")
-
-        if show_video_3:
-            self.show_parameter_by_name("reference_video_3")
-            self.show_message_by_name("artifact_url_parameter_message_reference_video_3")
-        else:
-            self.hide_parameter_by_name("reference_video_3")
-            self.hide_message_by_name("artifact_url_parameter_message_reference_video_3")
+            self.hide_parameter_by_name(REFERENCE_VIDEOS_PARAMETER)
 
     def _update_resolution_options(self, model_id: str) -> None:
         """Update resolution choices based on selected model (1080p and 4k are Seedance 2.0 only)."""
@@ -624,9 +678,6 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         try:
             await super()._process_generation()
         finally:
-            self._public_reference_video_parameter_1.delete_uploaded_artifact()
-            self._public_reference_video_parameter_2.delete_uploaded_artifact()
-            self._public_reference_video_parameter_3.delete_uploaded_artifact()
             # Provider assets are reclaimed by the backend: a submitted generation deletes its
             # linked assets on terminal state, and assets we register but never submit (e.g. a
             # build failure after registration) are reclaimed by the backend's orphan sweeper.
@@ -693,9 +744,9 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             "first_frame": first_frame,
             "last_frame": last_frame,
             "reference_images": normalized_reference_images,
-            "reference_video_1": self.get_parameter_value("reference_video_1"),
-            "reference_video_2": self.get_parameter_value("reference_video_2"),
-            "reference_video_3": self.get_parameter_value("reference_video_3"),
+            REFERENCE_VIDEOS_PARAMETER: [
+                value for value in self.get_parameter_value(REFERENCE_VIDEOS_PARAMETER) or [] if value
+            ],
             "reference_audio": normalized_reference_audio,
         }
 
@@ -727,7 +778,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         elif input_mode == INPUT_MODE_FIRST_LAST_FRAME:
             if has_reference_images or has_reference_videos or has_reference_audio:
                 msg = (
-                    f"{self.name}: reference_images/reference_video_1/reference_video_2/reference_video_3/reference_audio are only used in "
+                    f"{self.name}: reference_images/reference_videos/reference_audio are only used in "
                     f"{INPUT_MODE_MULTIMODAL_REFERENCES} mode. Switch input_mode to {INPUT_MODE_MULTIMODAL_REFERENCES} "
                     "or clear the multimodal reference inputs."
                 )
@@ -769,12 +820,11 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 )
                 raise ValueError(msg)
 
-            if params.get("reference_video_2") and not params.get("reference_video_1"):
-                msg = f"{self.name}: reference_video_2 requires reference_video_1 to be set first."
-                raise ValueError(msg)
-
-            if params.get("reference_video_3") and not params.get("reference_video_2"):
-                msg = f"{self.name}: reference_video_3 requires reference_video_2 to be set first."
+            if has_reference_videos and len(reference_video_inputs) > model_capabilities.max_reference_videos:
+                msg = (
+                    f"{self.name}: the selected model supports up to {model_capabilities.max_reference_videos} "
+                    f"reference videos, got {len(reference_video_inputs)}."
+                )
                 raise ValueError(msg)
 
             if has_reference_audio and len(params["reference_audio"]) > model_capabilities.max_reference_audio:
@@ -828,10 +878,8 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         checks: list[tuple[Any, str]] = []
         for item in params.get("reference_images") or []:
             checks.append((item, ASSET_KIND_IMAGE))
-        for name in ("reference_video_1", "reference_video_2", "reference_video_3"):
-            value = params.get(name)
-            if value:
-                checks.append((value, ASSET_KIND_VIDEO))
+        for value in self._get_reference_video_inputs(params):
+            checks.append((value, ASSET_KIND_VIDEO))
         for item in params.get("reference_audio") or []:
             checks.append((item, ASSET_KIND_AUDIO))
         return checks
@@ -949,22 +997,22 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                         )
                         order_log.append(f"Image {idx}: reference")
 
-            # Reference videos (Video 1..3 by slot).
-            for idx, ref_video in enumerate(self._get_reference_video_inputs(params), start=1):
-                value = ref_video["value"]
-                if supports_assets and is_provider_asset_reference(value):
-                    asset_url = await self._append_private_asset(
-                        value, expected_kind=ASSET_KIND_VIDEO, label=f"reference video {idx}"
-                    )
+            # Reference videos (Video 1..N within the list, normal or private asset).
+            for idx, ref_video in enumerate(
+                self._get_reference_video_inputs(params)[: model_capabilities.max_reference_videos], start=1
+            ):
+                label = f"reference video {idx}"
+                if supports_assets and is_provider_asset_reference(ref_video):
+                    asset_url = await self._append_private_asset(ref_video, expected_kind=ASSET_KIND_VIDEO, label=label)
                     content_list.append(
                         {"type": "video_url", "video_url": {"url": asset_url}, "role": "reference_video"}
                     )
                     order_log.append(f"Video {idx}: private asset")
                 else:
-                    video_url = self._get_reference_video_url(ref_video["parameter_name"], value)
+                    video_url = self._get_reference_video_url(ref_video, label=label)
                     if not video_url:
                         msg = (
-                            f"{self.name}: {ref_video['parameter_name']} only supports public URLs, uploaded asset URLs, "
+                            f"{self.name}: {label} only supports public URLs, uploaded asset URLs, "
                             "or asset:// IDs. Seedance does not accept video base64."
                         )
                         raise ValueError(msg)
@@ -1041,23 +1089,46 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
     def _resolve_public_url_for_asset(self, ref: Any, *, asset_kind: str) -> str:
         """Return a publicly fetchable URL for the reference's media.
 
-        Already-public http(s) URLs pass through. Otherwise the media is uploaded to GTC static
-        storage via a transient PublicArtifactUrlParameter (tracked for cleanup). CreateProviderAsset
-        requires a fetchable URL — data URIs / unresolvable inputs raise.
+        CreateProviderAsset requires a fetchable URL, so data URIs / unresolvable inputs raise.
         """
         media_value = get_provider_asset_value(ref)
         if not media_value:
             msg = f"{self.name}: private-asset reference has no media value to register."
             raise ValueError(msg)
 
-        if media_value.startswith(("http://", "https://")) and "localhost" not in media_value:
-            return media_value
-
         artifact_type = {
             ASSET_KIND_IMAGE: "ImageUrlArtifact",
             ASSET_KIND_VIDEO: "VideoUrlArtifact",
             ASSET_KIND_AUDIO: "AudioUrlArtifact",
         }[asset_kind]
+
+        public_url = self._resolve_public_url_for_media(media_value, artifact_type=artifact_type)
+        if not (public_url.startswith(("http://", "https://")) and "localhost" not in public_url):
+            msg = (
+                f"{self.name}: could not obtain a public URL for the {asset_kind} private asset. "
+                "Provider asset registration requires a publicly fetchable URL (data URIs are not supported)."
+            )
+            raise RuntimeError(msg)
+        return public_url
+
+    def _resolve_public_url_for_media(self, media_value: Any, *, artifact_type: str) -> str:
+        """Upload media to GTC static storage through a transient parameter and return its URL.
+
+        Already-public http(s) URLs pass through untouched. PublicArtifactUrlParameter binds to a
+        named parameter, so a hidden scratch parameter is created per call and torn down together
+        with the upload in _process_generation's finally block.
+        """
+        # Media reaches this node as a URL string, an artifact, or a serialized artifact dict, and
+        # any of the three can already carry a public URL that needs no upload.
+        if isinstance(media_value, dict):
+            url = media_value.get("value")
+        else:
+            url = getattr(media_value, "value", media_value)
+        if not isinstance(url, str) or not url:
+            msg = f"{self.name}: cannot obtain a public URL for {media_value!r}, which carries no media path or URL."
+            raise ValueError(msg)
+        if url.startswith(("http://", "https://")) and "localhost" not in url:
+            return url
 
         # Adding this scratch parameter during aprocess trips the strict-mode
         # "parameter-mutation-during-aprocess" warning. That is expected and harmless here: the
@@ -1080,16 +1151,9 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         )
         helper.add_input_parameters()
         self._pending_asset_uploads.append((helper, scratch_name))
-        self.set_parameter_value(scratch_name, media_value)
+        self.set_parameter_value(scratch_name, url)
 
-        public_url = helper.get_public_url_for_parameter()
-        if not (public_url.startswith(("http://", "https://")) and "localhost" not in public_url):
-            msg = (
-                f"{self.name}: could not obtain a public URL for the {asset_kind} private asset. "
-                "Provider asset registration requires a publicly fetchable URL (data URIs are not supported)."
-            )
-            raise RuntimeError(msg)
-        return public_url
+        return helper.get_public_url_for_parameter()
 
     async def _create_provider_asset(self, public_url: str, asset_kind: str, headers: dict[str, str]) -> str:
         """POST proxy/v2/assets and poll to ACTIVE; return the provider asset id."""
@@ -1330,31 +1394,20 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
 
         return None
 
-    def _get_reference_video_inputs(self, params: dict[str, Any]) -> list[dict[str, Any]]:
-        return [
-            {"parameter_name": parameter_name, "value": params.get(parameter_name)}
-            for parameter_name in ("reference_video_1", "reference_video_2", "reference_video_3")
-            if params.get(parameter_name)
-        ]
+    def _get_reference_video_inputs(self, params: dict[str, Any]) -> list[Any]:
+        """Return the reference videos in list order, skipping empty list entries."""
+        return [value for value in params.get(REFERENCE_VIDEOS_PARAMETER) or [] if value]
 
-    def _get_reference_video_url(self, parameter_name: str, value: Any) -> str | None:
+    def _get_reference_video_url(self, value: Any, *, label: str) -> str | None:
+        """Resolve a reference video to a URL Seedance can fetch, uploading it if necessary."""
         direct_url = self._coerce_video_url(value)
         if direct_url:
             return direct_url
 
-        helper_map = {
-            "reference_video_1": self._public_reference_video_parameter_1,
-            "reference_video_2": self._public_reference_video_parameter_2,
-            "reference_video_3": self._public_reference_video_parameter_3,
-        }
-        helper = helper_map.get(parameter_name)
-        if helper is None:
-            return None
-
         try:
-            public_url = helper.get_public_url_for_parameter()
+            public_url = self._resolve_public_url_for_media(value, artifact_type="VideoUrlArtifact")
         except Exception as e:
-            self._log(f"{self.name} failed to prepare public URL for {parameter_name}: {e}")
+            self._log(f"{self.name} failed to prepare public URL for {label}: {e}")
             return None
 
         return self._coerce_video_url(public_url)
