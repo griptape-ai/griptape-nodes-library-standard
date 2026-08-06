@@ -43,9 +43,9 @@ __all__ = ["Seedance20VideoGeneration"]
 INPUT_MODE_TEXT_ONLY = "Text Only"
 INPUT_MODE_FIRST_LAST_FRAME = "First/Last Frame"
 INPUT_MODE_MULTIMODAL_REFERENCES = "Multimodal References"
-MODEL_NAME_SEEDANCE_2_0 = "Seedance 2.0"
-MODEL_NAME_SEEDANCE_2_0_FAST = "Seedance 2.0 Fast"
-MODEL_NAME_SEEDANCE_2_0_MINI = "Seedance 2.0 Mini"
+MODEL_NAME_SEEDANCE_2_0 = "dreamina-seedance-2-0-260128"
+MODEL_NAME_SEEDANCE_2_0_FAST = "dreamina-seedance-2-0-fast-260128"
+MODEL_NAME_SEEDANCE_2_0_MINI = "dreamina-seedance-2-0-mini-260615"
 SEEDANCE_2_0_MODEL_ID = "dreamina-seedance-2-0-260128"
 SEEDANCE_2_0_FAST_MODEL_ID = "dreamina-seedance-2-0-fast-260128"
 SEEDANCE_2_0_MINI_MODEL_ID = "dreamina-seedance-2-0-mini-260615"
@@ -129,10 +129,15 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
         - result_details (str): Details about the result or error
     """
 
-    MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
-        MODEL_NAME_SEEDANCE_2_0_FAST: SEEDANCE_2_0_FAST_MODEL_ID,
-        MODEL_NAME_SEEDANCE_2_0_MINI: SEEDANCE_2_0_MINI_MODEL_ID,
-        MODEL_NAME_SEEDANCE_2_0: SEEDANCE_2_0_MODEL_ID,
+    # Migrates values saved before the dropdown stored the provider's own model id: old
+    # display labels and catalog keys.
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
+        "Seedance 2.0": MODEL_NAME_SEEDANCE_2_0,
+        "Seedance 2.0 Fast": MODEL_NAME_SEEDANCE_2_0_FAST,
+        "Seedance 2.0 Mini": MODEL_NAME_SEEDANCE_2_0_MINI,
+        "gtc_seedance_2_0": MODEL_NAME_SEEDANCE_2_0,
+        "gtc_seedance_2_0_fast": MODEL_NAME_SEEDANCE_2_0_FAST,
+        "gtc_seedance_2_0_mini": MODEL_NAME_SEEDANCE_2_0_MINI,
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -141,23 +146,25 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
         self.description = "Generate video via Seedance 2.0 through Griptape Cloud model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model_id",
-                default_value=MODEL_NAME_SEEDANCE_2_0,
-                tooltip="Model to use for video generation",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={"display_name": "Model", "hide": False},
-                traits={
-                    Options(
-                        choices=[
-                            MODEL_NAME_SEEDANCE_2_0,
-                            MODEL_NAME_SEEDANCE_2_0_FAST,
-                            MODEL_NAME_SEEDANCE_2_0_MINI,
-                        ]
-                    )
-                },
-            )
+        model_id_param = ParameterString(
+            name="model_id",
+            default_value=MODEL_NAME_SEEDANCE_2_0,
+            tooltip="Model to use for video generation",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={"display_name": "Model", "hide": False},
+        )
+        self.add_parameter(model_id_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_id_param,
+            model_choices=[
+                MODEL_NAME_SEEDANCE_2_0,
+                MODEL_NAME_SEEDANCE_2_0_FAST,
+                MODEL_NAME_SEEDANCE_2_0_MINI,
+            ],
+            default_model=MODEL_NAME_SEEDANCE_2_0,
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
         # Input mode selector
@@ -490,8 +497,7 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
 
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation."""
-        raw_model_id = self.get_parameter_value("model_id") or MODEL_NAME_SEEDANCE_2_0
-        return self.MODEL_NAME_MAP.get(raw_model_id, raw_model_id)
+        return self.get_parameter_value("model_id") or MODEL_NAME_SEEDANCE_2_0
 
     async def _process_generation(self) -> None:
         self._pending_asset_uploads = []
@@ -518,8 +524,7 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
         return exceptions if exceptions else None
 
     def _get_parameters(self) -> dict[str, Any]:
-        raw_model_id = self.get_parameter_value("model_id") or MODEL_NAME_SEEDANCE_2_0
-        model_id = self.MODEL_NAME_MAP.get(raw_model_id, raw_model_id)
+        model_id = self.get_parameter_value("model_id") or MODEL_NAME_SEEDANCE_2_0
         first_frame = normalize_artifact_input(
             self.get_parameter_value("first_frame"),
             ImageUrlArtifact,
