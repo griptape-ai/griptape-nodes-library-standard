@@ -16,6 +16,7 @@ from griptape_nodes.traits.slider import Slider
 
 from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.video.public_video_url_mixin import PublicVideoUrlMixin
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -35,7 +36,7 @@ MODEL_MAPPING = {
 DEFAULT_MODEL = "LTX 2.3 Pro"
 
 
-class LTXVideoExtend(GriptapeProxyNode):
+class LTXVideoExtend(PublicVideoUrlMixin, GriptapeProxyNode):
     """Extend an existing video by 2-20 seconds using LTX AI via Griptape Cloud model proxy.
 
     Inputs:
@@ -209,6 +210,14 @@ class LTXVideoExtend(GriptapeProxyNode):
         """Convert video input to a base64 data URI."""
         return await prepare_media_data_uri(video_input, kind="video", node_name=self.name)
 
+    async def _process_generation(self) -> None:
+        """Wrap generation with public-URL upload cleanup (delete scratch artifacts after run)."""
+        self._reset_video_uploads()
+        try:
+            await super()._process_generation()
+        finally:
+            self._cleanup_video_uploads()
+
     def _validate_duration(self, duration: Any) -> str | None:
         if not isinstance(duration, int) or isinstance(duration, bool):
             return f"{self.name}: Duration must be an integer number of seconds (got {duration!r})."
@@ -239,15 +248,9 @@ class LTXVideoExtend(GriptapeProxyNode):
             msg = f"{self.name} requires an input video to extend."
             raise ValueError(msg)
 
-        try:
-            video_data_uri = await self._prepare_video_data_uri_async(video)
-        except Exception as e:
-            logger.error("%s failed to process video: %s", self.name, e)
-            video_data_uri = None
-
-        if not video_data_uri:
-            msg = f"{self.name} failed to process input video."
-            raise ValueError(msg)
+        # Tier 1: upload to Griptape Cloud and send LTX a public URL it fetches server-side
+        # (avoids the 413 from base64-inflating the body). Tier 2: base64 data URI + size guard.
+        video_uri = await self._resolve_video_uri(video)
 
         if len(params["prompt"]) > MAX_PROMPT_LENGTH:
             msg = (
@@ -265,7 +268,7 @@ class LTXVideoExtend(GriptapeProxyNode):
         context = int(params["context"]) if params["context"] is not None else 0
 
         payload: dict[str, Any] = {
-            "video_uri": video_data_uri,
+            "video_uri": video_uri,
             "duration": duration,
             "mode": params["mode"],
             "model": MODEL_MAPPING.get(params["model"], MODEL_MAPPING[DEFAULT_MODEL]),
@@ -279,18 +282,6 @@ class LTXVideoExtend(GriptapeProxyNode):
             payload["context"] = context
 
         return payload
-
-    def _sanitize_video_uri_in_dict(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Redact base64 video data from dictionary for logging."""
-        sanitized = {**data}
-        if "video_uri" in sanitized and isinstance(sanitized["video_uri"], str):
-            video_uri = sanitized["video_uri"]
-            if video_uri.startswith("data:video/"):
-                parts = video_uri.split(",", 1)
-                header = parts[0] if parts else "data:video/"
-                b64_len = len(parts[1]) if len(parts) > 1 else 0
-                sanitized["video_uri"] = f"{header},<base64 data length={b64_len}>"
-        return sanitized
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         video_bytes = result_json.get("raw_bytes")
@@ -377,11 +368,6 @@ class LTXVideoExtend(GriptapeProxyNode):
             return
 
         super()._handle_payload_build_error(e)
-
-    def _handle_api_key_validation_error(self, e: ValueError) -> None:
-        self._set_safe_defaults()
-        self._set_status_results(was_successful=False, result_details=str(e))
-        logger.error("%s API key validation failed: %s", self.name, e)
 
     def _set_safe_defaults(self) -> None:
         self.parameter_output_values["generation_id"] = ""

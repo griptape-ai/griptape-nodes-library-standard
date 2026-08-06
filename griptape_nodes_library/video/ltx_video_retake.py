@@ -19,6 +19,7 @@ from static_ffmpeg import run  # type: ignore[import-untyped]
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.video.public_video_url_mixin import PublicVideoUrlMixin
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -37,7 +38,7 @@ SUPPORTED_RESOLUTIONS = ("1920x1080", "2560x1440", "3840x2160")
 DEFAULT_RESOLUTION = "1920x1080"
 
 
-class LTXVideoRetake(GriptapeProxyNode):
+class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
     """Regenerate a segment of an existing video using LTX AI via Griptape Cloud model proxy.
 
     Inputs:
@@ -346,7 +347,11 @@ class LTXVideoRetake(GriptapeProxyNode):
         return min(SUPPORTED_RESOLUTIONS, key=lambda r: abs(_pixels(r) - target_pixels))
 
     async def _process_generation(self) -> None:
-        await super()._process_generation()
+        self._reset_video_uploads()
+        try:
+            await super()._process_generation()
+        finally:
+            self._cleanup_video_uploads()
 
     def _get_parameters(self) -> dict[str, Any]:
         return {
@@ -427,15 +432,9 @@ class LTXVideoRetake(GriptapeProxyNode):
         if video_validation_error:
             raise ValueError(video_validation_error)
 
-        try:
-            video_data_uri = await self._prepare_video_data_uri_async(video)
-        except Exception as e:
-            logger.error("%s failed to process video: %s", self.name, e)
-            video_data_uri = None
-
-        if not video_data_uri:
-            msg = f"{self.name} failed to process input video."
-            raise ValueError(msg)
+        # Tier 1: upload to Griptape Cloud and send LTX a public URL it fetches server-side
+        # (avoids the 413 from base64-inflating the body). Tier 2: base64 data URI + size guard.
+        video_uri = await self._resolve_video_uri(video)
 
         if error := self._validate_retake_segment(params["retake_segment"]):
             raise ValueError(error)
@@ -462,7 +461,7 @@ class LTXVideoRetake(GriptapeProxyNode):
             raise ValueError(msg)
 
         payload: dict[str, Any] = {
-            "video_uri": video_data_uri,
+            "video_uri": video_uri,
             "start_time": start_time,
             "duration": duration,
             "prompt": params["prompt"].strip(),
@@ -472,18 +471,6 @@ class LTXVideoRetake(GriptapeProxyNode):
         }
 
         return payload
-
-    def _sanitize_video_uri_in_dict(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Redact base64 video data from dictionary for logging."""
-        sanitized = {**data}
-        if "video_uri" in sanitized and isinstance(sanitized["video_uri"], str):
-            video_uri = sanitized["video_uri"]
-            if video_uri.startswith("data:video/"):
-                parts = video_uri.split(",", 1)
-                header = parts[0] if parts else "data:video/"
-                b64_len = len(parts[1]) if len(parts) > 1 else 0
-                sanitized["video_uri"] = f"{header},<base64 data length={b64_len}>"
-        return sanitized
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         video_bytes = result_json.get("raw_bytes")
@@ -574,11 +561,6 @@ class LTXVideoRetake(GriptapeProxyNode):
             return
 
         super()._handle_payload_build_error(e)
-
-    def _handle_api_key_validation_error(self, e: ValueError) -> None:
-        self._set_safe_defaults()
-        self._set_status_results(was_successful=False, result_details=str(e))
-        logger.error("%s API key validation failed: %s", self.name, e)
 
     def _set_safe_defaults(self) -> None:
         self.parameter_output_values["generation_id"] = ""
