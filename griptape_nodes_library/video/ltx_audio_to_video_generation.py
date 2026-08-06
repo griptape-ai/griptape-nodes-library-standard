@@ -26,11 +26,15 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["LTXAudioToVideoGeneration"]
 
-MODEL_MAPPING = {
+# Migrates values saved before the dropdown stored the provider's own model id: old
+# display labels and catalog keys.
+LEGACY_MODEL_VALUES = {
     "LTX 2 Pro": "ltx-2-pro",
     "LTX 2.3 Pro": "ltx-2-3-pro",
-    "LTX 2.5 Pro": "ltx-2-5-pro",
     "LTX 2.5 Fast": "ltx-2-5-fast",
+    "LTX 2.5 Pro": "ltx-2-5-pro",
+    "gtc_ltx_2_3_pro": "ltx-2-3-pro",
+    "gtc_ltx_2_pro": "ltx-2-pro",
 }
 
 
@@ -60,14 +64,20 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
         super().__init__(**kwargs)
 
         # INPUTS / PROPERTIES
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="LTX 2.5 Fast",
-                tooltip="Model to use for video generation",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["LTX 2 Pro", "LTX 2.3 Pro", "LTX 2.5 Pro", "LTX 2.5 Fast"])},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="ltx-2-5-fast",
+            tooltip="Model to use for video generation",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=["ltx-2-pro", "ltx-2-3-pro", "ltx-2-5-pro", "ltx-2-5-fast"],
+            default_model="ltx-2-5-fast",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
         self.add_parameter(
             ParameterString(
@@ -179,7 +189,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
         """Get and process all parameters, including audio and image conversion."""
         return {
             "prompt": self.get_parameter_value("prompt") or "",
-            "model": self.get_parameter_value("model") or "LTX 2 Pro",
+            "model": self.get_parameter_value("model") or "ltx-2-pro",
             "audio_uri": await self._prepare_audio_data_url_async(self.get_parameter_value("audio")),
             "image_uri": await self._prepare_image_data_url_async(self.get_parameter_value("image")),
             "resolution": self.get_parameter_value("resolution") or "1920x1080",
@@ -187,9 +197,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
         }
 
     def _get_api_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "LTX 2 Pro"
-        model_id = MODEL_MAPPING.get(model_name, "ltx-2-pro")
-        return f"{model_id}:audio-to-video"
+        return f"{self._get_selected_model_id()}:audio-to-video"
 
     async def _prepare_audio_data_url_async(self, audio_input: Any) -> str | None:
         """Convert audio input to a base64 data URL."""
@@ -401,7 +409,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
             msg = f"{self.name} requires a prompt to generate video."
             raise ValueError(msg)
 
-        model_id = MODEL_MAPPING.get(params["model"], "ltx-2-pro")
+        model_id = params["model"]
         payload: dict[str, Any] = {
             "audio_uri": params["audio_uri"],
             "prompt": params["prompt"].strip(),

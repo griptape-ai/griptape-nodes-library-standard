@@ -29,11 +29,16 @@ MIN_CONTEXT_DURATION = 0
 DEFAULT_CONTEXT_DURATION = 1
 MAX_CONTEXT_DURATION = 20
 
-MODEL_MAPPING = {
+DEFAULT_MODEL = "ltx-2-3-pro"
+
+# Migrates values saved before the dropdown stored the provider's own model id: old
+# display labels and catalog keys.
+LEGACY_MODEL_VALUES = {
     "LTX 2 Pro": "ltx-2-pro",
     "LTX 2.3 Pro": "ltx-2-3-pro",
+    "gtc_ltx_2_3_pro": "ltx-2-3-pro",
+    "gtc_ltx_2_pro": "ltx-2-pro",
 }
-DEFAULT_MODEL = "LTX 2.3 Pro"
 
 
 class LTXVideoExtend(PublicVideoUrlMixin, GriptapeProxyNode):
@@ -66,14 +71,20 @@ class LTXVideoExtend(PublicVideoUrlMixin, GriptapeProxyNode):
         super().__init__(**kwargs)
 
         # INPUTS / PROPERTIES
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value=DEFAULT_MODEL,
-                tooltip="Model to use for video extension",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=list(MODEL_MAPPING.keys()))},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value=DEFAULT_MODEL,
+            tooltip="Model to use for video extension",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=["ltx-2-pro", "ltx-2-3-pro"],
+            default_model=DEFAULT_MODEL,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -202,9 +213,7 @@ class LTXVideoExtend(PublicVideoUrlMixin, GriptapeProxyNode):
             self._update_context_badge(value)
 
     def _get_api_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or DEFAULT_MODEL
-        model_id = MODEL_MAPPING.get(model_name, MODEL_MAPPING[DEFAULT_MODEL])
-        return f"{model_id}:extend"
+        return f"{self._get_selected_model_id()}:extend"
 
     async def _prepare_video_data_uri_async(self, video_input: Any) -> str | None:
         """Convert video input to a base64 data URI."""
@@ -271,7 +280,7 @@ class LTXVideoExtend(PublicVideoUrlMixin, GriptapeProxyNode):
             "video_uri": video_uri,
             "duration": duration,
             "mode": params["mode"],
-            "model": MODEL_MAPPING.get(params["model"], MODEL_MAPPING[DEFAULT_MODEL]),
+            "model": params["model"],
         }
 
         prompt = params["prompt"].strip()

@@ -87,6 +87,21 @@ NODE_MODEL_CASES: list[tuple[str, str, str, str]] = [
     ("GoogleImageGeneration", "gtc_gemini_3_1_flash_image", "gemini-3.1-flash-image", "model"),
     ("OpenAiImageGeneration", "gtc_gpt_image_1", "gpt-image-1", "model"),
     ("WorldLabsWorldGeneration", "gtc_marble_1_0_draft", "marble-1.0-draft", "model"),
+    ("SeedanceVideoGeneration", "gtc_seedance_1_0_pro_fast", "seedance-1-0-pro-fast-251015", "model_id"),
+    ("Seedance20VideoGeneration", "gtc_seedance_2_0_fast", "dreamina-seedance-2-0-fast-260128", "model_id"),
+    ("GrokVideoGeneration", "gtc_grok_imagine_video", "grok-imagine-video", "model"),  # only declared model
+    ("GrokVideoEdit", "gtc_grok_imagine_video", "grok-imagine-video", "model"),  # only declared model
+    ("MinimaxHailuoVideoGeneration", "gtc_minimax_hailuo_2_3_fast", "MiniMax-Hailuo-2.3-Fast", "model_id"),
+    ("KlingTextToVideoGeneration", "gtc_kling_v2_6", "kling-v2-6", "model_name"),
+    ("KlingImageToVideoGeneration", "gtc_kling_v1_5", "kling-v1-5", "model_name"),
+    ("KlingOmniVideoGeneration", "gtc_kling_video_o1_omni", "kling-video-o1", "model_name"),
+    ("Veo3VideoGeneration", "gtc_veo_3_0_fast", "veo-3.0-fast-generate-001", "model_id"),
+    ("LTXTextToVideoGeneration", "gtc_ltx_2_pro", "ltx-2-pro", "model"),
+    ("LTXImageToVideoGeneration", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),
+    ("LTXAudioToVideoGeneration", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),
+    ("LTXVideoExtend", "gtc_ltx_2_pro", "ltx-2-pro", "model"),
+    ("LTXVideoRetake", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),
+    ("LTXVideoToVideoHDR", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),  # only declared model
 ]
 
 

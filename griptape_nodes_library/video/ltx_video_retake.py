@@ -30,9 +30,13 @@ MAX_VIDEO_DURATION = 21
 MIN_RETAKE_DURATION = 2.0
 RETAKE_SEGMENT_LENGTH = 2
 
-MODEL_MAPPING = {
+# Migrates values saved before the dropdown stored the provider's own model id: old
+# display labels and catalog keys.
+LEGACY_MODEL_VALUES = {
     "LTX 2 Pro": "ltx-2-pro",
     "LTX 2.3 Pro": "ltx-2-3-pro",
+    "gtc_ltx_2_3_pro": "ltx-2-3-pro",
+    "gtc_ltx_2_pro": "ltx-2-pro",
 }
 
 SUPPORTED_RESOLUTIONS = ("1920x1080", "2560x1440", "3840x2160")
@@ -69,14 +73,20 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
         # INPUTS / PROPERTIES
 
         # Model parameter (retake supports pro-tier LTX models)
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="LTX 2 Pro",
-                tooltip="Model to use for video retake",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["LTX 2 Pro", "LTX 2.3 Pro"])},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="ltx-2-pro",
+            tooltip="Model to use for video retake",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=["ltx-2-pro", "ltx-2-3-pro"],
+            default_model="ltx-2-pro",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
         self.add_parameter(
             ParameterString(
@@ -359,16 +369,14 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
     def _get_parameters(self) -> dict[str, Any]:
         return {
             "prompt": self.get_parameter_value("prompt") or "",
-            "model": self.get_parameter_value("model") or "LTX 2 Pro",
+            "model": self.get_parameter_value("model") or "ltx-2-pro",
             "retake_segment": self.get_parameter_value("retake_segment") or [0.0, 2.0],
             "mode": self.get_parameter_value("mode") or "replace_audio_and_video",
             "resolution": self.get_parameter_value("resolution") or DEFAULT_RESOLUTION,
         }
 
     def _get_api_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "LTX 2 Pro"
-        model_id = MODEL_MAPPING.get(model_name, "ltx-2-pro")
-        return f"{model_id}:retake"
+        return f"{self._get_selected_model_id()}:retake"
 
     def _validate_video_input(self, video: Any) -> str | None:
         """Validate video is provided and doesn't exceed duration limits."""
@@ -469,7 +477,7 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
             "duration": duration,
             "prompt": params["prompt"].strip(),
             "mode": params["mode"],
-            "model": MODEL_MAPPING.get(params["model"], "ltx-2-pro"),
+            "model": params["model"],
             "resolution": resolution,
         }
 
