@@ -20,13 +20,18 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["WanImageGeneration"]
 
-# Model mapping from user-friendly names to API model IDs
-MODEL_MAPPING = {
-    "Wan 2.7 Image Pro": "wan2.7-image-pro",
-    "Wan 2.7 Image": "wan2.7-image",
-}
-MODEL_OPTIONS = list(MODEL_MAPPING.keys())
+# Model options, in catalog order
+MODEL_OPTIONS = ["wan2.7-image-pro", "wan2.7-image"]
 DEFAULT_MODEL = MODEL_OPTIONS[0]
+
+# Migrates values saved before this dropdown stored the provider's own model id (friendly
+# labels and catalog keys alike).
+LEGACY_MODEL_VALUES = {
+    "Wan 2.7 Image": "wan2.7-image",
+    "Wan 2.7 Image Pro": "wan2.7-image-pro",
+    "gtc_wan_2_7_image": "wan2.7-image",
+    "gtc_wan_2_7_image_pro": "wan2.7-image-pro",
+}
 
 # Size options
 SIZE_OPTIONS = ["1K", "2K", "4K"]
@@ -62,14 +67,20 @@ class WanImageGeneration(GriptapeProxyNode):
         self.description = "Generate images using Wan 2.7 models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value=DEFAULT_MODEL,
-                tooltip="Select the Wan model to use",
-                allow_output=False,
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value=DEFAULT_MODEL,
+            tooltip="Select the Wan model to use",
+            allow_output=False,
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model=DEFAULT_MODEL,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Core parameters
@@ -174,11 +185,6 @@ class WanImageGeneration(GriptapeProxyNode):
             result_details_placeholder="Generation status and details will appear here.",
             parameter_group_initially_collapsed=True,
         )
-
-    def _get_api_model_id(self) -> str:
-        """Map friendly model name to API model ID."""
-        model = self.get_parameter_value("model") or DEFAULT_MODEL
-        return MODEL_MAPPING.get(str(model), str(model))
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for Wan image generation.

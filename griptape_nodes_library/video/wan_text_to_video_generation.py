@@ -39,6 +39,20 @@ MODEL_OPTIONS = [
     "wanx2.1-t2v-plus",
 ]
 
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Wan 2.1 T2V Plus": "wanx2.1-t2v-plus",
+    "Wan 2.1 T2V Turbo": "wanx2.1-t2v-turbo",
+    "Wan 2.2 T2V Plus": "wan2.2-t2v-plus",
+    "Wan 2.5 T2V Preview": "wan2.5-t2v-preview",
+    "Wan 2.6 T2V": "wan2.6-t2v",
+    "gtc_wan_2_2_t2v_plus": "wan2.2-t2v-plus",
+    "gtc_wan_2_5_t2v_preview": "wan2.5-t2v-preview",
+    "gtc_wan_2_6_t2v": "wan2.6-t2v",
+    "gtc_wanx_2_1_t2v_plus": "wanx2.1-t2v-plus",
+    "gtc_wanx_2_1_t2v_turbo": "wanx2.1-t2v-turbo",
+}
+
 # Model-specific configurations
 MODEL_CONFIGS = {
     "wan2.6-t2v": {
@@ -123,14 +137,20 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
         self.description = "Generate videos from text using WAN models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="wan2.6-t2v",
-                tooltip="Select the WAN model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="wan2.6-t2v",
+            tooltip="Select the WAN model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model="wan2.6-t2v",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Prompt parameter
@@ -409,9 +429,6 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
             raise ValueError(msg)
         return api_key
 
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or ""
-
     async def _build_payload(self) -> dict[str, Any]:
         params = self._get_parameters()
 
@@ -421,7 +438,7 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
 
         # Build flattened payload (all params at top level)
         payload = {
-            "model": params["model"],
+            "model": self._get_selected_model_id(),
             "prompt": params["prompt"],
             "resolution": params["size"],
             "duration": params["duration"],
