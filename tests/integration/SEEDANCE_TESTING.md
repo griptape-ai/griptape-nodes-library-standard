@@ -10,6 +10,26 @@ This directory contains integration tests for the Seedance video generation node
    - Model IDs: `dreamina-seedance-2-0-260128`, `dreamina-seedance-2-0-fast-260128`, `dreamina-seedance-2-0-mini-260615`
    - API key configured
 
+## CI workflow tests
+
+The auto-discovered CI workflow tests (run by `tests/workflows/test_integration_workflows.py`)
+live alongside this doc as `test_seedance_2_0*.py`. They run against Griptape Cloud using the
+local workspace credentials (discovered automatically — no local proxy required) or, in CI, the
+`GT_CLOUD_API_KEY` secret.
+
+- `test_seedance_2_0.py` — text-to-video, Seedance 2.0.
+- `test_seedance_2_0_fast.py` — text-to-video, Seedance 2.0 Fast.
+- `test_seedance_2_0_multimodal_list.py` — "Multimodal Reference List" mode: a mixed
+  image + audio list (Create Color Bars + ElevenLabs sound effect combined via a Create List
+  node) wired into the single `reference_media` input. Covers issue #488 (wiring a variable,
+  mixed asset list into one Seedance node).
+
+Run one locally with:
+
+```bash
+uv run pytest -v tests/workflows/test_integration_workflows.py -k seedance_2_0_multimodal_list
+```
+
 ## Test Files
 
 ### `test_seedance_video_generation.py`
@@ -100,12 +120,15 @@ python tests/integration/test_seedance_2_0_features.py --storage-backend gtc --t
 - ✓ Resolution validation (1080p/4k are Seedance 2.0 standard only; Fast/Mini cap at 720p)
 - ✓ First/last frame supported on all three variants
 
+### Multimodal Reference List (mixed-type list input, issue #488)
+- ✓ Whole-list connection from a list node into `reference_media` (image + audio)
+- ✓ Per-item routing by type (image → reference_image, audio → reference_audio)
+- ✓ End-to-end generation via `test_seedance_2_0_multimodal_list.py`
+
 ### Future Tests (TODO)
-- [ ] Reference images (multimodal, 0-9 images)
-- [ ] Reference videos (0-3 videos)
-- [ ] Reference audio (0-3 audio files)
+- [ ] Reference videos in the list (0-3 videos)
 - [ ] Validation: multimodal refs cannot mix with first/last frame
-- [ ] Validation: audio requires image/video
+- [ ] Validation: audio requires image/video (unit-tested; not yet an integration workflow)
 
 ## Debugging
 
