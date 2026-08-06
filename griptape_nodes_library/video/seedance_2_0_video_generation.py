@@ -541,6 +541,10 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         order, so adoption can append reference_video_3 ahead of reference_video_1. List order is
         what the prompt's `@Video N` references resolve against, so the legacy children are sorted
         among themselves while every other child keeps its position.
+
+        Reordering emits the container's own lifecycle event: a per-child event carries no
+        position, so a listener tracking those alone would hold the order the children arrived in.
+        The container's event carries its children in their current order.
         """
         children = reference_videos._children  # noqa: SLF001 ParameterList exposes no reorder API
         legacy_indices = [
@@ -552,8 +556,12 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             (children[index] for index in legacy_indices),
             key=lambda child: LEGACY_REFERENCE_VIDEO_PARAMETERS.index(child.name),
         )
+        if [children[index] for index in legacy_indices] == ordered:
+            return
+
         for index, child in zip(legacy_indices, ordered, strict=True):
             children[index] = child
+        self._emit_parameter_lifecycle_event(reference_videos)
 
     def after_incoming_connection_removed(
         self,
