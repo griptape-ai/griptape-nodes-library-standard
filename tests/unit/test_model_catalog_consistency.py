@@ -52,13 +52,14 @@ from griptape_nodes_library.text.summarize_text_task import MODEL_CHOICES as SUM
 
 LIBRARY_JSON = Path(__file__).parents[2] / "griptape_nodes_library.json"
 
-# Models a node invokes internally without offering them in its dropdown, keyed
-# by class name. Declared after the dropdown models in `model_usage` so the
-# dropdown prefix stays aligned with the node's `MODEL_CHOICES` constant.
-# GenerateImage's prompt-enhancement step runs the default gpt-4o prompt driver,
-# a model invocation distinct from the image-generation driver it selects.
-INTERNAL_PROVIDER_MODEL_IDS: dict[str, list[str]] = {
-    "GenerateImage": ["gpt-4o"],
+# Catalog model ids a node invokes internally without offering them in its
+# dropdown, keyed by class name. Declared after the dropdown models in
+# `model_usage` so the dropdown prefix stays aligned with the node's
+# `MODEL_CHOICES` constant. GenerateImage's prompt-enhancement step runs the
+# default gpt-4o prompt driver, a model invocation distinct from the
+# image-generation driver it selects.
+INTERNAL_CATALOG_MODEL_IDS: dict[str, list[str]] = {
+    "GenerateImage": ["gtc_gpt_4o"],
 }
 
 
@@ -122,45 +123,49 @@ def test_chat_node_model_usage_matches_static_choices(class_name: str) -> None:
 @pytest.mark.parametrize(
     ("class_name", "expected_provider_model_ids"),
     [
+        ("OpenAiPrompt", OPENAI_MODEL_CHOICES),
+        ("AmazonBedrockPrompt", AMAZON_BEDROCK_MODEL_CHOICES),
+        ("RandomText", [RANDOM_TEXT_MODEL]),
+        ("MCPTaskNode", [MCP_TASK_DEFAULT_MODEL]),
         ("GenerateImage", GENERATE_IMAGE_MODEL_CHOICES),
         ("GriptapeCloudImage", GRIPTAPE_CLOUD_IMAGE_MODEL_CHOICES),
         ("OpenAiImage", OPENAI_IMAGE_MODEL_CHOICES),
         ("GrokImage", GROK_IMAGE_MODEL_CHOICES),
         ("DescribeImage", DESCRIBE_IMAGE_MODEL_CHOICES),
-        ("OpenAiPrompt", OPENAI_MODEL_CHOICES),
         ("AnthropicPrompt", ANTHROPIC_MODEL_CHOICES),
         ("GrokPrompt", GROK_PROMPT_MODEL_CHOICES),
         ("CoherePrompt", COHERE_PROMPT_MODEL_CHOICES),
         ("GroqPrompt", GROQ_PROMPT_MODEL_CHOICES),
         ("NimPrompt", NIM_PROMPT_MODEL_CHOICES),
-        ("AmazonBedrockPrompt", AMAZON_BEDROCK_MODEL_CHOICES),
         ("Askulator", ASKULATOR_MODEL_CHOICES),
         ("DateAndTime", DATE_AND_TIME_MODEL_CHOICES),
         ("EvaluateTextResult", EVALUATE_TEXT_RESULT_MODEL_CHOICES),
         ("ScrapeWeb", SCRAPE_WEB_MODEL_CHOICES),
         ("SearchWeb", SEARCH_WEB_MODEL_CHOICES),
         ("SummarizeText", SUMMARIZE_TEXT_MODEL_CHOICES),
-        ("RandomText", [RANDOM_TEXT_MODEL]),
-        ("MCPTaskNode", [MCP_TASK_DEFAULT_MODEL]),
     ],
 )
-def test_model_selection_node_usage_matches_static_choices(
+def test_model_selection_node_usage_matches_static_provider_choices(
     class_name: str, expected_provider_model_ids: list[str]
 ) -> None:
-    """The model list in Python and the models the node declares must agree.
+    """The provider-id model list in Python and the models the node declares must agree.
 
-    Each node's `model_usage` ids resolve (through the catalog) to the same
-    ordered provider model ids the node's `MODEL_CHOICES` constant serves,
-    followed by any models the node invokes internally without offering them
-    (`INTERNAL_PROVIDER_MODEL_IDS`). A mismatch means the manifest and the code
-    drifted and one side needs updating.
+    Every model-selection node's dropdown stores the upstream provider's own
+    model id, so its `model_usage` ids resolve (through the catalog) to the
+    same ordered provider model ids the node's `MODEL_CHOICES` constant (or
+    equivalent) serves. A mismatch means the manifest and the code drifted and
+    one side needs updating. `INTERNAL_CATALOG_MODEL_IDS` appends any models a
+    node invokes internally without offering them in its dropdown.
     """
     library = _load_library()
     provider_model_id_by_catalog_id = _provider_model_id_by_catalog_id(library)
 
     declared = [provider_model_id_by_catalog_id[model_id] for model_id in _model_usage_ids(library, class_name)]
+    internal_provider_ids = [
+        provider_model_id_by_catalog_id[model_id] for model_id in INTERNAL_CATALOG_MODEL_IDS.get(class_name, [])
+    ]
 
-    assert declared == expected_provider_model_ids + INTERNAL_PROVIDER_MODEL_IDS.get(class_name, [])
+    assert declared == expected_provider_model_ids + internal_provider_ids
 
 
 def test_declared_models_resolve_uniquely_per_node() -> None:
