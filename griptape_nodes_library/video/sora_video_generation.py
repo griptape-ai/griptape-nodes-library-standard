@@ -28,10 +28,18 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["SoraVideoGeneration"]
 
-# Size options for different models
+# Size options for different models, keyed by the provider's own model id
 SIZE_OPTIONS = {
     "sora-2": ["1280x720", "720x1280"],
     "sora-2-pro": ["1280x720", "720x1280", "1024x1792", "1792x1024"],
+}
+
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Sora 2": "sora-2",
+    "Sora 2 Pro": "sora-2-pro",
+    "gtc_sora_2": "sora-2",
+    "gtc_sora_2_pro": "sora-2-pro",
 }
 
 
@@ -66,17 +74,23 @@ class SoraVideoGeneration(GriptapeProxyNode):
         self.description = "Generate video via Sora 2 through Griptape Cloud model proxy"
 
         # INPUTS / PROPERTIES
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="sora-2",
-                tooltip="Sora model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={
-                    "display_name": "Model",
-                },
-                traits={Options(choices=["sora-2", "sora-2-pro"])},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="sora-2",
+            tooltip="Sora model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={
+                "display_name": "Model",
+            },
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=["sora-2", "sora-2-pro"],
+            default_model="sora-2",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
         self.add_parameter(
             ParameterString(
@@ -217,14 +231,11 @@ class SoraVideoGeneration(GriptapeProxyNode):
 
         return {
             "prompt": self.get_parameter_value("prompt") or "",
-            "model": self.get_parameter_value("model") or "sora-2",
+            "model": self._get_selected_model_id() or "sora-2",
             "seconds": seconds_value,
             "size": self.get_parameter_value("size") or "720x1280",
             "start_frame": self.get_parameter_value("start_frame"),
         }
-
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or "sora-2"
 
     async def _build_payload(self) -> dict[str, Any]:
         params = self._get_parameters()

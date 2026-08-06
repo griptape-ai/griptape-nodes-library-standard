@@ -42,6 +42,22 @@ MODEL_OPTIONS = [
     "wanx2.1-i2v-turbo",
 ]
 
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Wan 2.1 I2V Plus": "wanx2.1-i2v-plus",
+    "Wan 2.1 I2V Turbo": "wanx2.1-i2v-turbo",
+    "Wan 2.2 I2V Flash": "wan2.2-i2v-flash",
+    "Wan 2.2 I2V Plus": "wan2.2-i2v-plus",
+    "Wan 2.5 I2V Preview": "wan2.5-i2v-preview",
+    "Wan 2.6 I2V": "wan2.6-i2v",
+    "gtc_wan_2_2_i2v_flash": "wan2.2-i2v-flash",
+    "gtc_wan_2_2_i2v_plus": "wan2.2-i2v-plus",
+    "gtc_wan_2_5_i2v_preview": "wan2.5-i2v-preview",
+    "gtc_wan_2_6_i2v": "wan2.6-i2v",
+    "gtc_wanx_2_1_i2v_plus": "wanx2.1-i2v-plus",
+    "gtc_wanx_2_1_i2v_turbo": "wanx2.1-i2v-turbo",
+}
+
 # Model-specific configurations
 MODEL_CONFIGS = {
     "wan2.6-i2v": {
@@ -138,14 +154,20 @@ class WanImageToVideoGeneration(GriptapeProxyNode):
         self.description = "Generate videos from images using WAN models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="wan2.6-i2v",
-                tooltip="Select the WAN image-to-video model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="wan2.6-i2v",
+            tooltip="Select the WAN image-to-video model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model="wan2.6-i2v",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Prompt parameter (optional)
@@ -459,9 +481,6 @@ class WanImageToVideoGeneration(GriptapeProxyNode):
             raise ValueError(msg)
         return api_key
 
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or ""
-
     async def _build_payload(self) -> dict[str, Any]:
         params = self._get_parameters()
 
@@ -477,7 +496,7 @@ class WanImageToVideoGeneration(GriptapeProxyNode):
 
         # Build flattened payload (all params at top level)
         payload = {
-            "model": params["model"],
+            "model": self._get_selected_model_id(),
             "img_url": img_url,
             "resolution": params["resolution"],
             "duration": params["duration"],

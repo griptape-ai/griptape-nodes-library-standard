@@ -16,7 +16,6 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
@@ -35,6 +34,16 @@ MODEL_OPTIONS = [
     "qwen-image-edit-plus",
     "qwen-image-edit-plus-2025-10-30",
 ]
+
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Qwen Image Edit": "qwen-image-edit",
+    "Qwen Image Edit Plus": "qwen-image-edit-plus",
+    "Qwen Image Edit Plus (2025-10-30)": "qwen-image-edit-plus-2025-10-30",
+    "gtc_qwen_image_edit": "qwen-image-edit",
+    "gtc_qwen_image_edit_plus": "qwen-image-edit-plus",
+    "gtc_qwen_image_edit_plus_2025_10_30": "qwen-image-edit-plus-2025-10-30",
+}
 
 # Response status constants
 STATUS_FAILED = "Failed"
@@ -87,14 +96,20 @@ class QwenImageEdit(GriptapeProxyNode):
         self.description = "Edit images using Qwen image editing models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="qwen-image-edit-plus",
-                tooltip="Select the Qwen image editing model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="qwen-image-edit-plus",
+            tooltip="Select the Qwen image editing model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model="qwen-image-edit-plus",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Editing instruction parameter
@@ -247,9 +262,6 @@ class QwenImageEdit(GriptapeProxyNode):
             raise ValueError(msg)
         return api_key
 
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or ""
-
     async def _build_payload(self) -> dict[str, Any]:
         params = self._get_parameters()
 
@@ -268,7 +280,7 @@ class QwenImageEdit(GriptapeProxyNode):
 
         # Flatten structure - parameters should be at top level for MultiModalConversation.call()
         payload = {
-            "model": params["model"],
+            "model": self._get_selected_model_id(),
             "messages": [{"role": "user", "content": content}],
             "n": params["num_images"],
             "watermark": params["watermark"],
