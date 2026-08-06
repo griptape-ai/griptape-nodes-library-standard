@@ -8,12 +8,13 @@ import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from contextlib import suppress
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin
 
 import httpx
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
@@ -23,6 +24,9 @@ from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api
 from griptape_nodes_library.proxy.proxy_api_key_providers import get_proxy_api_key_provider_config
 from griptape_nodes_library.proxy.proxy_auth_provider_parameter import ProxyAuthProviderParameter
 from griptape_nodes_library.utils.model_invocation import declare_model_invocation
+
+if TYPE_CHECKING:
+    from griptape_nodes.retained_mode.managers.authorization_checkpoint import CheckpointDenial
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -79,6 +83,10 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._user_auth_info: str | None = None
         self._api_key_provider: ProxyAuthProviderParameter | None = None
         self._initialize_api_key_provider()
+
+        # Set by `_install_model_access` on subclasses whose model selection is a
+        # license-filtered dropdown; stays None on the ones bound to a single model.
+        self._model_access: ModelAccessComponent | None = None
 
         default_timeout = self.DEFAULT_MAX_ATTEMPTS * self.DEFAULT_POLL_INTERVAL
         self.add_parameter(
@@ -156,6 +164,55 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         super().after_value_set(parameter, value)
         if self._api_key_provider:
             self._api_key_provider.after_value_set(parameter, value)
+        if self._model_access is not None:
+            self._model_access.on_value_set(parameter, value)
+
+    def _install_model_access(
+        self,
+        *,
+        parameter: Parameter,
+        model_choices: list[str],
+        default_model: str,
+        deprecated_values: dict[str, str] | None = None,
+    ) -> None:
+        """Turn an already-added model parameter into a license-filtered dropdown.
+
+        The component owns the parameter's `Options` trait, so pass a parameter
+        built without one; it also adds an inline refresh button, marks the models
+        the caller's license denies, and moves the stored value off a denied
+        default. `_submit_and_poll` then refuses to submit a denied selection.
+
+        Args:
+            parameter: The model parameter, already added to this node.
+            model_choices: The provider model ids the node offers, in dropdown order.
+            default_model: The choice selected by default.
+            deprecated_values: Legacy value -> canonical `model_choices` entry map,
+                needed only when the parameter used to store something other than
+                the provider's model id (an old display label, a catalog key).
+        """
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=parameter,
+            model_choices=model_choices,
+            default_model=default_model,
+            deprecated_values=deprecated_values,
+        )
+
+    def _get_selected_model_id(self) -> str:
+        """The provider model id the model dropdown currently stores.
+
+        The dropdown stores the provider's own id for the model, which is what a
+        node building a request URL or payload needs. Reading it through here
+        rather than by name keeps the parameter's name in one place: it is
+        `model` on most nodes but `model_name` or `model_id` on others.
+
+        Returns:
+            str: The stored provider model id, or `""` when there is no
+                model-access component installed or nothing is selected.
+        """
+        if self._model_access is None:
+            return ""
+        return self._model_access.selected_value or ""
 
     def _prepare_user_auth_info(self) -> None:
         self.register_user_auth_info(None)
@@ -245,29 +302,35 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
 
-        Subclasses can override this if they need to map friendly names to API IDs.
-        By default, returns the value of the 'model' parameter if it exists.
+        Subclasses can override this if they need to map the dropdown value to a
+        differently-shaped API ID (e.g. an operation suffix in the URL path). By
+        default, returns the dropdown's stored provider model id; falls back to
+        the raw 'model' parameter value when no model-access component is
+        installed.
 
         Returns:
             str: The model ID to use in the API request
         """
+        if self._model_access is not None:
+            return self._get_selected_model_id()
         return self.get_parameter_value("model") or ""
 
     def _get_catalog_model_id(self) -> str:
         """Get the model ID used to resolve this node's declared catalog model.
 
-        The permission/declaration layer matches on the catalog's
-        `provider_model_id`, which is the bare upstream model id. By default this
-        is the same value used in the API request URL (`_get_api_model_id()`).
+        The declaration layer resolves this through the catalog's
+        `provider_model_id`, so the bare stored value is what it needs. Falls
+        back to `_get_api_model_id()` when no model-access component is installed.
 
         Subclasses whose `_get_api_model_id()` decorates the id with an operation
-        suffix for the URL path (e.g. `grok-imagine-video:generate`) must override
-        this to return the bare provider id instead, or the catalog lookup will
-        fail to match and the invocation cannot be declared.
+        suffix for the URL path (e.g. `grok-imagine-video:generate`) do not need
+        to override this: the stored value is already the bare provider id.
 
         Returns:
             str: The model ID to match against declared catalog models
         """
+        if self._model_access is not None:
+            return self._get_selected_model_id()
         return self._get_api_model_id()
 
     def _validate_api_key(self) -> str:
@@ -605,6 +668,12 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         error_msg = f"{self.name}: No model ID provided"
         self._set_status_results(was_successful=False, result_details=error_msg)
 
+    def _handle_denied_model(self, denial: CheckpointDenial) -> None:
+        """Handle a dropdown selection the license policy does not permit."""
+        self._set_safe_defaults()
+        error_msg = f"{self.name}: {denial.reason()}"
+        self._set_status_results(was_successful=False, result_details=error_msg)
+
     def _handle_submission_error(self, e: RuntimeError) -> None:
         """Handle generation submission errors."""
         self._set_safe_defaults()
@@ -641,11 +710,20 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._handle_missing_model_id()
             return None
 
+        # Re-check the dropdown selection against the license policy: it may have
+        # been permitted when the node was built and denied since. Runs before the
+        # invocation declaration so the failure carries the dropdown's own reason.
+        if self._model_access is not None:
+            selection_denial = self._model_access.selection_denial()
+            if selection_denial is not None:
+                self._handle_denied_model(selection_denial)
+                return None
+
         # Declare the invocation so the engine's permission layer can gate it
         # before any network call. The proxy still enforces server-side; this is
         # the engine-side gate, so a denied invocation fails fast here. The
-        # declaration matches on the bare catalog id, which may differ from the
-        # URL-path id (e.g. when the latter carries an operation suffix).
+        # declaration resolves the bare provider model id, which may differ from
+        # the URL-path id (e.g. when the latter carries an operation suffix).
         declaration = await declare_model_invocation(self, self._get_catalog_model_id())
         if declaration.failed():
             self._set_safe_defaults()
