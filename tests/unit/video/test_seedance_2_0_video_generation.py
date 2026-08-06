@@ -6,7 +6,7 @@ import pytest
 from griptape.artifacts import ImageUrlArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode, Trait
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
@@ -530,21 +530,6 @@ def test_value_set_on_an_adopted_legacy_slot_lands_on_the_list() -> None:
     assert [getattr(value, "value", value) for value in reference_videos] == ["https://public.example/a.mp4"]
 
 
-def test_adopted_legacy_slots_keep_their_order() -> None:
-    node = Seedance20VideoGeneration(name="Seedance20")
-    node.set_parameter_value("input_mode", "Multimodal References")
-
-    for index, legacy_parameter_name in enumerate(("reference_video_1", "reference_video_2"), start=1):
-        node.before_incoming_connection(node, "video", legacy_parameter_name)
-        node.set_parameter_value(legacy_parameter_name, VideoUrlArtifact(f"https://public.example/{index}.mp4"))
-
-    reference_videos = node._get_parameters()[REFERENCE_VIDEOS_PARAMETER]
-    assert [getattr(value, "value", value) for value in reference_videos] == [
-        "https://public.example/1.mp4",
-        "https://public.example/2.mp4",
-    ]
-
-
 def test_adoption_is_skipped_once_the_list_is_full() -> None:
     # Adoption runs while a workflow is replaying, so a full list must not raise out of
     # before_incoming_connection and abort the load.
@@ -557,6 +542,65 @@ def test_adoption_is_skipped_once_the_list_is_full() -> None:
 
     assert len(reference_videos.get_child_parameters()) == MAX_REFERENCE_VIDEOS
     assert node.get_parameter_by_name("reference_video_1") is None
+
+
+def test_adopted_legacy_slots_sort_by_slot_number() -> None:
+    # A saved workflow replays connections in creation order, so adoption can see the slots out of
+    # order. List order decides which video the prompt's `@Video N` references resolve against.
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("input_mode", "Multimodal References")
+
+    for legacy_parameter_name in ("reference_video_3", "reference_video_1", "reference_video_2"):
+        node.before_incoming_connection(node, "video", legacy_parameter_name)
+        node.set_parameter_value(
+            legacy_parameter_name, VideoUrlArtifact(f"https://public.example/{legacy_parameter_name}.mp4")
+        )
+
+    reference_videos = _parameter_by_name(node, REFERENCE_VIDEOS_PARAMETER)
+    assert [child.name for child in reference_videos.get_child_parameters()] == list(LEGACY_REFERENCE_VIDEO_PARAMETERS)
+    reference_video_values = node._get_parameters()[REFERENCE_VIDEOS_PARAMETER]
+    assert [getattr(value, "value", value) for value in reference_video_values] == [
+        "https://public.example/reference_video_1.mp4",
+        "https://public.example/reference_video_2.mp4",
+        "https://public.example/reference_video_3.mp4",
+    ]
+
+
+def test_adopted_child_matches_an_editor_added_child() -> None:
+    # The adopted child is built field by field instead of through add_child_parameter, which takes
+    # no name. Everything except the name and the two dropped ui_options must still match, so a
+    # field the framework starts copying cannot silently go missing on a migrated slot.
+    node = Seedance20VideoGeneration(name="Seedance20")
+    reference_videos = _parameter_by_name(node, REFERENCE_VIDEOS_PARAMETER)
+
+    editor_child = reference_videos.add_child_parameter()
+    node.before_incoming_connection(node, "video", "reference_video_1")
+    adopted_child = node.get_parameter_by_name("reference_video_1")
+
+    for attribute in (
+        "type",
+        "input_types",
+        "output_type",
+        "default_value",
+        "tooltip",
+        "tooltip_as_input",
+        "tooltip_as_output",
+        "tooltip_as_property",
+        "allowed_modes",
+        "settable",
+        "user_defined",
+        "parent_container_name",
+        "converters",
+        "validators",
+    ):
+        assert getattr(adopted_child, attribute) == getattr(editor_child, attribute), attribute
+
+    assert {type(trait) for trait in adopted_child.find_elements_by_type(Trait)} == {
+        type(trait) for trait in editor_child.find_elements_by_type(Trait)
+    }
+    assert adopted_child.ui_options == {
+        key: value for key, value in editor_child.ui_options.items() if key not in {"hide", "display_name"}
+    }
 
 
 def test_adopted_and_editor_added_children_share_the_list() -> None:

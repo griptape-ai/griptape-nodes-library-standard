@@ -531,7 +531,29 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             parent_container_name=reference_videos.name,
         )
         reference_videos.add_child(child)
+        self._order_adopted_reference_videos(reference_videos)
         self._log(f"{self.name} adopted legacy parameter '{parameter_name}' into {REFERENCE_VIDEOS_PARAMETER}")
+
+    def _order_adopted_reference_videos(self, reference_videos: ParameterList) -> None:
+        """Sort adopted legacy children by slot number.
+
+        A saved workflow replays its connections in the order they were created rather than in slot
+        order, so adoption can append reference_video_3 ahead of reference_video_1. List order is
+        what the prompt's `@Video N` references resolve against, so the legacy children are sorted
+        among themselves while every other child keeps its position.
+        """
+        children = reference_videos._children  # noqa: SLF001 ParameterList exposes no reorder API
+        legacy_indices = [
+            index
+            for index, child in enumerate(children)
+            if isinstance(child, Parameter) and child.name in LEGACY_REFERENCE_VIDEO_PARAMETERS
+        ]
+        ordered = sorted(
+            (children[index] for index in legacy_indices),
+            key=lambda child: LEGACY_REFERENCE_VIDEO_PARAMETERS.index(child.name),
+        )
+        for index, child in zip(legacy_indices, ordered, strict=True):
+            children[index] = child
 
     def after_incoming_connection_removed(
         self,
@@ -1094,7 +1116,10 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             url = media_value.get("value")
         else:
             url = getattr(media_value, "value", media_value)
-        if isinstance(url, str) and url.startswith(("http://", "https://")) and "localhost" not in url:
+        if not isinstance(url, str) or not url:
+            msg = f"{self.name}: cannot obtain a public URL for {media_value!r}, which carries no media path or URL."
+            raise ValueError(msg)
+        if url.startswith(("http://", "https://")) and "localhost" not in url:
             return url
 
         # Adding this scratch parameter during aprocess trips the strict-mode
