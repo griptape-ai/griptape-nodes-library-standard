@@ -12,7 +12,6 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key
@@ -45,6 +44,11 @@ class OmnihumanSubjectDetection(GriptapeProxyNode):
     MODEL_IDS: ClassVar[list[str]] = [
         "omnihuman-1-5-subject-detection",
     ]
+    # Migrates values saved before the dropdown stored the provider's own model id.
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
+        "OmniHuman 1.5 Subject Detection": "omnihuman-1-5-subject-detection",
+        "gtc_omnihuman_1_5_subject_detection": "omnihuman-1-5-subject-detection",
+    }
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -52,14 +56,20 @@ class OmnihumanSubjectDetection(GriptapeProxyNode):
         self.description = "Detect subjects and generate masks using OmniHuman Subject Detection via Griptape Cloud"
 
         # INPUTS
-        self.add_parameter(
-            ParameterString(
-                name="model_id",
-                default_value=self.MODEL_IDS[0],
-                tooltip="Model identifier to use for detection",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=self.MODEL_IDS)},
-            )
+        model_id_param = ParameterString(
+            name="model_id",
+            default_value=self.MODEL_IDS[0],
+            tooltip="Model identifier to use for detection",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_id_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._install_model_access(
+            parameter=model_id_param,
+            model_choices=self.MODEL_IDS,
+            default_model=self.MODEL_IDS[0],
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
         self._public_image_url_parameter = PublicArtifactUrlParameter(
@@ -125,11 +135,8 @@ class OmnihumanSubjectDetection(GriptapeProxyNode):
             raise ValueError(msg)
         return api_key
 
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model_id") or ""
-
     async def _build_payload(self) -> dict[str, Any]:
-        model_id = self.get_parameter_value("model_id")
+        provider_model_id = self._get_selected_model_id()
         image_value = extract_image_url(self.get_parameter_value("image_url"))
         if not image_value:
             msg = "Image URL is required"
@@ -140,7 +147,7 @@ class OmnihumanSubjectDetection(GriptapeProxyNode):
         image_url = self._public_image_url_parameter.get_public_url_for_parameter()
 
         return {
-            "req_key": self._get_req_key(model_id),
+            "req_key": self._get_req_key(provider_model_id),
             "image_url": image_url,
         }
 
