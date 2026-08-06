@@ -37,6 +37,16 @@ DEFAULT_SIZE = GPT_IMAGE_SIZES[0]
 DEFAULT_BACKGROUND = BACKGROUND_CHOICES[0]
 DEFAULT_MODERATION = MODERATION_CHOICES[0]
 
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES = {
+    "DALL-E 2": "dall-e-2",
+    "DALL-E 3": "dall-e-3",
+    "GPT Image 1": "gpt-image-1",
+    "gtc_gpt_image_1": "gpt-image-1",
+    "openai_dall_e_2": "dall-e-2",
+    "openai_dall_e_3": "dall-e-3",
+}
+
 
 class OpenAiImage(BaseImageDriver):
     """Node for OpenAI Image Generation Driver.
@@ -110,8 +120,10 @@ class OpenAiImage(BaseImageDriver):
             )
         )
 
-        # Update the parameters  for OpenAI specifics.
-        self._update_option_choices(param="model", choices=MODEL_CHOICES, default=DEFAULT_MODEL)
+        # Offer OpenAI's models as a license-filtered dropdown.
+        self._install_model_access(
+            model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=LEGACY_MODEL_VALUES
+        )
         self._update_option_choices(param="image_size", choices=GPT_IMAGE_SIZES, default=DEFAULT_SIZE)
 
     def _set_parameter_visibility(self, names: str | list[str], *, visible: bool) -> None:
@@ -187,6 +199,9 @@ class OpenAiImage(BaseImageDriver):
         # Get the parameters from the node
         params = self.parameter_values
 
+        # A model the license denies must not reach a downstream node as a driver.
+        self._raise_if_model_denied()
+
         # --- Get Common Driver Arguments ---
         # Use the helper method from BaseImageDriver to get common driver arguments
         common_args = self._get_common_driver_args(params)
@@ -198,7 +213,7 @@ class OpenAiImage(BaseImageDriver):
         specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
 
         model = self.get_parameter_value("model")
-        specific_args["model"] = model
+        specific_args["model"] = self._get_selected_model_id()
 
         if model == "dall-e-3":
             specific_args["style"] = self.get_parameter_value("style")
