@@ -18,6 +18,17 @@ _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_
 
 
 class ProviderSelectionComponent:
+    """Swaps the model dropdown's choices between Griptape Cloud and a third-party provider.
+
+    The Griptape Cloud branch offers ``model_access``'s catalog model keys --
+    the same license-gated choices ``ModelAccessComponent`` decorates -- since
+    those are Griptape Cloud models. A third-party provider's models are not
+    catalog models: that branch offers whatever the provider itself reports
+    (``fetch_models_for_provider``) and is exempt from license gating. The two
+    id shapes are never interchangeable -- a catalog key must never be offered
+    for, or reach a driver through, the third-party branch, and vice versa.
+    """
+
     def __init__(
         self,
         node,
@@ -125,25 +136,36 @@ class ProviderSelectionComponent:
 
     def update_model_choices_for_provider(self, provider_name: str) -> None:
         if provider_name == "griptape_cloud":
+            # The component's own choices ARE catalog model keys; offer them as-is.
             default = self._model_access.pick_permitted_default() or self._default_model
             self._node._update_option_choices(param="model", choices=self._model_access.model_choices, default=default)
             # Restore the component's per-row license decoration and badge; the
             # _update_option_choices call above only refreshed choices and value.
             self._model_access.reinstall_options()
             return
+        # A third-party provider's models are not catalog models -- offer whatever the
+        # provider itself reports, never `self._gtc_model_choices` (those are catalog keys,
+        # meaningless and ungate-able for this provider's own driver).
         models = self.fetch_models_for_provider(provider_name)
-        default = models[0] if models else self._default_model
+        default = models[0] if models else ""
         self._node._update_option_choices(param="model", choices=models, default=default)
         param = self._node.get_parameter_by_name("model")
         if param:
             param.update_ui_options_key("data", [{"name": m, "icon": "", "args": {}} for m in models])
 
     def fetch_models_for_provider(self, provider_name: str) -> list[str]:
+        """Fetch a third-party provider's own model list.
+
+        Falls back to an empty list on failure or an unconfigured provider --
+        `self._gtc_model_choices` are catalog keys, not this provider's model
+        names, so they are never a valid substitute here: offering one would
+        risk it reaching this provider's driver unresolved.
+        """
         try:
             providers = self._fetch_providers()
             provider_config = next((p for p in providers if p.name == provider_name), None)
             if provider_config is None:
-                return self._gtc_model_choices
+                return []
             result = GriptapeNodes.handle_request(
                 ListProviderModelsRequest(
                     provider=provider_config.type,
@@ -152,7 +174,7 @@ class ProviderSelectionComponent:
                 )
             )
             if isinstance(result, ListProviderModelsResultSuccess):
-                return cast(ListProviderModelsResultSuccess, result).models or self._gtc_model_choices
+                return cast(ListProviderModelsResultSuccess, result).models or []
         except Exception:
             pass
-        return self._gtc_model_choices
+        return []

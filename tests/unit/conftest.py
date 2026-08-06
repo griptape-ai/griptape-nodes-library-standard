@@ -49,6 +49,18 @@ def run_test_in_isolated_env() -> Generator[None, None, None]:
 
 
 @pytest.fixture(autouse=True)
+def stub_griptape_cloud_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give PublicArtifactUrlParameter a Griptape Cloud credential to find.
+
+    Its constructor resolves a credential and raises if none is found, before it
+    ever reaches the bucket lookup that `stub_public_artifact_bucket_lookup`
+    patches. Unit tests never talk to Griptape Cloud, so the value only needs to
+    be present, not valid.
+    """
+    monkeypatch.setenv("GT_CLOUD_API_KEY", "test-key")
+
+
+@pytest.fixture(autouse=True)
 def stub_public_artifact_bucket_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent PublicArtifactUrlParameter from making HTTP calls to list buckets."""
     monkeypatch.setattr(
