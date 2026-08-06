@@ -51,6 +51,7 @@ type AuthorizationHook = Callable[[AuthorizationCheckpoint], CheckpointDenial | 
 NODE_MODEL_CASES: list[tuple[str, str, str]] = [
     ("AnthropicPrompt", "gtc_claude_haiku_4_5", "claude-haiku-4-5"),
     ("CoherePrompt", "cohere_command_r_plus", "command-r-plus"),  # CoherePrompt's only declared model
+    ("GriptapeCloudPrompt", "gtc_claude_sonnet_4_6", "claude-sonnet-4-6"),
     ("GrokPrompt", "xai_grok_3_mini_beta", "grok-3-mini-beta"),
     ("GroqPrompt", "groq_llama_3_3_70b_versatile", "llama-3.3-70b-versatile"),
     ("NimPrompt", "nim_gpt_oss_20b", "openai/gpt-oss-20b"),
