@@ -502,10 +502,12 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
             )
             return
 
-        # Mirrors ParameterList.add_child_parameter, except for the name and for dropping the
-        # container's `hide` state so an adopted child is not born hidden. Keep the copied fields in
-        # sync with that method: a child that diverges from a normally-added one would make a
-        # migrated workflow behave differently from a freshly-wired node.
+        # Mirrors ParameterList.add_child_parameter apart from three deliberate differences: the
+        # name, and two ui_options the container carries that a child must not inherit. `hide`
+        # tracks the list's own visibility, which the input mode drives, and a child born hidden
+        # stays hidden once the list is shown. `display_name` labels the list itself; children are
+        # labelled from the list's child_prefix instead. Keep the rest in sync with that method so a
+        # migrated slot behaves the same as a freshly-wired one.
         child_ui_options = {
             key: value for key, value in reference_videos.ui_options.items() if key not in {"hide", "display_name"}
         }
@@ -540,18 +542,15 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         # A disconnected reference video list child keeps its last value, which would leave the
         # previously-connected video in the request. Clear it and leave the empty child in place
         # for the editor's list controls to remove.
-        if target_parameter.parent_container_name == REFERENCE_VIDEOS_PARAMETER:
-            if target_parameter.name in self.parameter_values:
-                self.remove_parameter_value(target_parameter.name)
-            self._update_parameter_visibility()
+        if target_parameter.parent_container_name == REFERENCE_VIDEOS_PARAMETER and (
+            target_parameter.name in self.parameter_values
+        ):
+            self.remove_parameter_value(target_parameter.name)
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to show/hide inputs based on mode."""
-        if (
-            parameter.name in {"input_mode", "model_id"}
-            or parameter.parent_container_name == REFERENCE_VIDEOS_PARAMETER
-        ):
+        if parameter.name in {"input_mode", "model_id"}:
             self._update_parameter_visibility()
 
         if parameter.name in {"first_frame", "last_frame"}:

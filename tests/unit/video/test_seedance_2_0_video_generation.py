@@ -303,9 +303,9 @@ async def test_build_payload_uploads_reference_video_without_a_public_url(
     _set_parameter_list_values(node, "reference_videos", ["workspace/reference.mp4"])
 
     monkeypatch.setattr(
-        Seedance20VideoGeneration,
-        "_resolve_public_url_for_media",
-        lambda self, media_value, *, artifact_type: "https://public.example/reference.mp4",
+        PublicArtifactUrlParameter,
+        "get_public_url_for_parameter",
+        lambda self: "https://public.example/reference.mp4",
     )
 
     payload = await node._build_payload()
@@ -318,6 +318,10 @@ async def test_build_payload_uploads_reference_video_without_a_public_url(
             "role": "reference_video",
         },
     ]
+    # The upload runs through a transient scratch parameter that the run's cleanup tears down.
+    assert len(node._pending_asset_uploads) == 1
+    scratch_name = node._pending_asset_uploads[0][1]
+    assert node.get_parameter_by_name(scratch_name) is not None
 
 
 # --- Private-asset reference gating (Seedance 2.0 only) -------------------------------------
@@ -538,6 +542,43 @@ def test_adopted_legacy_slots_keep_their_order() -> None:
     assert [getattr(value, "value", value) for value in reference_videos] == [
         "https://public.example/1.mp4",
         "https://public.example/2.mp4",
+    ]
+
+
+def test_adoption_is_skipped_once_the_list_is_full() -> None:
+    # Adoption runs while a workflow is replaying, so a full list must not raise out of
+    # before_incoming_connection and abort the load.
+    node = Seedance20VideoGeneration(name="Seedance20")
+    reference_videos = _parameter_by_name(node, REFERENCE_VIDEOS_PARAMETER)
+    for _ in range(MAX_REFERENCE_VIDEOS):
+        reference_videos.add_child_parameter()
+
+    node.before_incoming_connection(node, "video", "reference_video_1")
+
+    assert len(reference_videos.get_child_parameters()) == MAX_REFERENCE_VIDEOS
+    assert node.get_parameter_by_name("reference_video_1") is None
+
+
+def test_adopted_and_editor_added_children_share_the_list() -> None:
+    # The editor adds children with generated names; adoption adds one with a legacy slot name.
+    # Both land in the same list, in insertion order, and count against the same ceiling.
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    reference_videos = _parameter_by_name(node, REFERENCE_VIDEOS_PARAMETER)
+
+    editor_child = reference_videos.add_child_parameter()
+    node.before_incoming_connection(node, "video", "reference_video_1")
+    node.set_parameter_value(editor_child.name, VideoUrlArtifact("https://public.example/editor.mp4"))
+    node.set_parameter_value("reference_video_1", VideoUrlArtifact("https://public.example/legacy.mp4"))
+
+    assert [child.name for child in reference_videos.get_child_parameters()] == [
+        editor_child.name,
+        "reference_video_1",
+    ]
+    reference_video_values = node._get_parameters()[REFERENCE_VIDEOS_PARAMETER]
+    assert [getattr(value, "value", value) for value in reference_video_values] == [
+        "https://public.example/editor.mp4",
+        "https://public.example/legacy.mp4",
     ]
 
 
