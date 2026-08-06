@@ -67,15 +67,19 @@ class SeedanceModelCapabilities:
     """Capabilities supported by a Seedance model variant, per the BytePlus model docs.
 
     All four variants (2.0, 2.0 Fast, 2.0 Mini, 2.5) support first+last frame i2v and
-    private-asset references. They differ in output resolution and maximum duration: standard
-    2.0 supports up to 4k; 2.0 Fast and 2.0 Mini top out at 720p; 2.5 supports 480p and 720p only.
-    The three 2.0 variants cap duration at 15 seconds; 2.5 extends that ceiling to 30 seconds.
+    private-asset references. They differ in output resolution, maximum duration, and reference
+    media budgets: standard 2.0 supports up to 4k; 2.0 Fast and 2.0 Mini top out at 720p; 2.5
+    supports 480p and 720p only. The three 2.0 variants cap duration at 15 seconds and allow up
+    to 9 reference images and 3 reference audio files; 2.5 extends the duration ceiling to 30
+    seconds and raises those budgets to 30 reference images and 10 reference audio files.
     """
 
     resolutions: tuple[str, ...]
     supports_last_frame: bool
     supports_private_assets: bool
     max_duration: int
+    max_reference_images: int
+    max_reference_audio: int
 
 
 # Single source of truth for per-model capabilities, keyed by provider model id. Adding a new
@@ -86,24 +90,32 @@ SEEDANCE_MODEL_CAPABILITIES: dict[str, SeedanceModelCapabilities] = {
         supports_last_frame=True,
         supports_private_assets=True,
         max_duration=15,
+        max_reference_images=9,
+        max_reference_audio=3,
     ),
     SEEDANCE_2_0_FAST_MODEL_ID: SeedanceModelCapabilities(
         resolutions=("480p", "720p"),
         supports_last_frame=True,
         supports_private_assets=True,
         max_duration=15,
+        max_reference_images=9,
+        max_reference_audio=3,
     ),
     SEEDANCE_2_0_MINI_MODEL_ID: SeedanceModelCapabilities(
         resolutions=("480p", "720p"),
         supports_last_frame=True,
         supports_private_assets=True,
         max_duration=15,
+        max_reference_images=9,
+        max_reference_audio=3,
     ),
     SEEDANCE_2_5_MODEL_ID: SeedanceModelCapabilities(
         resolutions=("480p", "720p"),
         supports_last_frame=True,
         supports_private_assets=True,
         max_duration=30,
+        max_reference_images=30,
+        max_reference_audio=10,
     ),
 }
 
@@ -114,6 +126,8 @@ _DEFAULT_MODEL_CAPABILITIES = SeedanceModelCapabilities(
     supports_last_frame=True,
     supports_private_assets=False,
     max_duration=15,
+    max_reference_images=9,
+    max_reference_audio=3,
 )
 
 
@@ -125,6 +139,13 @@ def _get_model_capabilities(model_id: str) -> SeedanceModelCapabilities:
 def _duration_choices(max_duration: int) -> list[int]:
     """Build the duration Options choices for a model: smart selection plus its integer range."""
     return [DURATION_SMART, *range(MIN_DURATION, max_duration + 1)]
+
+
+# ParameterList.max_items is a static, read-only ceiling with no per-model update hook, so the
+# reference lists are sized to the most permissive model and the per-model limit is enforced in
+# _validate_parameters.
+MAX_REFERENCE_IMAGES = max(capabilities.max_reference_images for capabilities in SEEDANCE_MODEL_CAPABILITIES.values())
+MAX_REFERENCE_AUDIO = max(capabilities.max_reference_audio for capabilities in SEEDANCE_MODEL_CAPABILITIES.values())
 
 
 # Provider-asset (private asset) registration via the GTC proxy. Supported by all Seedance
@@ -174,14 +195,16 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
     """Generate a video using Seedance 2.0 and Seedance 2.5 models via Griptape Cloud model proxy.
 
     Supports the Seedance 2.0, Seedance 2.0 Fast, Seedance 2.0 Mini, and Seedance 2.5 models. All
-    four share the same feature set; they differ in output resolution and max duration: standard
-    2.0 supports up to 4k and 15s, Fast and Mini top out at 720p and 15s, and 2.5 tops out at 720p
-    but extends to 30s.
+    four share the same feature set; they differ in output resolution, max duration, and reference
+    media budgets: standard 2.0 supports up to 4k and 15s, Fast and Mini top out at 720p and 15s,
+    and 2.5 tops out at 720p but extends to 30s. The three 2.0 variants allow up to 9 reference
+    images and 3 reference audio files; 2.5 raises those budgets to 30 reference images and 10
+    reference audio files.
 
     Supports three input modes:
     - Text Only: Pure text-to-video generation (default)
     - First/Last Frame: Traditional i2v with first and/or last frame images
-    - Multimodal References: Up to 9 images + 3 videos + 3 audio files as references
+    - Multimodal References: Images + up to 3 videos + audio files as references (image and audio counts are model-dependent)
 
     Inputs:
         - prompt (str): Text prompt for the video
@@ -192,7 +215,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         - duration (int): Video duration in seconds (default: 5, range is model-dependent: 4-15 for 2.0/Fast/Mini, 4-30 for 2.5, or -1 for smart selection)
         - generate_audio (bool): Generate audio with video (default: False)
         - first_frame/last_frame: Optional frame images (First/Last Frame mode only)
-        - reference_images/reference_video_1..3/reference_audio: Optional reference media (Multimodal mode only)
+        - reference_images/reference_video_1..3/reference_audio: Optional reference media (Multimodal mode only; reference image and audio counts are model-dependent: 0-9 images/0-3 audio for 2.0/Fast/Mini, 0-30 images/0-10 audio for 2.5)
 
     Outputs:
         - generation_id (str): Griptape Cloud generation id
@@ -297,10 +320,10 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 name="reference_images",
                 input_types=["ImageUrlArtifact", "ImageArtifact", "str", ASSET_REFERENCE_TYPE_NAMES[ASSET_KIND_IMAGE]],
                 default_value=[],
-                tooltip="Optional reference images (0-9 images). Connect a Seedance Human Reference Asset to register an image as a private asset.",
+                tooltip="Optional reference images (0-9 for Seedance 2.0/Fast/Mini, 0-30 for Seedance 2.5). Connect a Seedance Human Reference Asset to register an image as a private asset.",
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Reference Images", "expander": True, "hide_property": True},
-                max_items=9,
+                max_items=MAX_REFERENCE_IMAGES,
             )
         )
 
@@ -370,10 +393,10 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 name="reference_audio",
                 input_types=["AudioArtifact", "AudioUrlArtifact", "str", ASSET_REFERENCE_TYPE_NAMES[ASSET_KIND_AUDIO]],
                 default_value=[],
-                tooltip="Optional reference audio (0-3 audio files, 2-15s each, max 15s total). URLs, asset:// IDs, or base64/data URIs are supported. Connect a Seedance Human Reference Asset to register audio as a private asset.",
+                tooltip="Optional reference audio (0-3 for Seedance 2.0/Fast/Mini, 0-10 for Seedance 2.5, 2-15s each, max 15s total). URLs, asset:// IDs, or base64/data URIs are supported. Connect a Seedance Human Reference Asset to register audio as a private asset.",
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Reference Audio", "expander": True, "hide_property": True},
-                max_items=3,
+                max_items=MAX_REFERENCE_AUDIO,
             )
         )
 
@@ -728,17 +751,22 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
 
         # Multimodal mode validation
         if input_mode == INPUT_MODE_MULTIMODAL_REFERENCES:
+            model_capabilities = _get_model_capabilities(params["model_id"])
+
             # Audio requires at least one image or video
             if has_reference_audio and not (has_reference_images or has_reference_videos):
                 msg = (
-                    f"{self.name}: Seedance 2.0 requires at least one reference image or video when using audio. "
-                    "Audio cannot be used alone."
+                    f"{self.name}: the selected model requires at least one reference image or video when using "
+                    "audio. Audio cannot be used alone."
                 )
                 raise ValueError(msg)
 
             # Validate counts
-            if has_reference_images and len(params["reference_images"]) > 9:
-                msg = f"{self.name}: Seedance 2.0 supports up to 9 reference images, got {len(params['reference_images'])}."
+            if has_reference_images and len(params["reference_images"]) > model_capabilities.max_reference_images:
+                msg = (
+                    f"{self.name}: the selected model supports up to {model_capabilities.max_reference_images} "
+                    f"reference images, got {len(params['reference_images'])}."
+                )
                 raise ValueError(msg)
 
             if params.get("reference_video_2") and not params.get("reference_video_1"):
@@ -749,8 +777,11 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                 msg = f"{self.name}: reference_video_3 requires reference_video_2 to be set first."
                 raise ValueError(msg)
 
-            if has_reference_audio and len(params["reference_audio"]) > 3:
-                msg = f"{self.name}: Seedance 2.0 supports up to 3 reference audio files, got {len(params['reference_audio'])}."
+            if has_reference_audio and len(params["reference_audio"]) > model_capabilities.max_reference_audio:
+                msg = (
+                    f"{self.name}: the selected model supports up to {model_capabilities.max_reference_audio} "
+                    f"reference audio files, got {len(params['reference_audio'])}."
+                )
                 raise ValueError(msg)
 
         # Validate duration range (model-dependent max; -1 requests smart selection)
@@ -895,10 +926,13 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
         if input_mode == INPUT_MODE_MULTIMODAL_REFERENCES:
             self._log(f"{self.name} building multimodal content")
             supports_assets = self._private_assets_active(params["model_id"])
+            model_capabilities = _get_model_capabilities(params["model_id"])
             order_log: list[str] = []
 
             # Reference images (Image 1..N within this list, normal or private asset).
-            for idx, ref_image in enumerate(params.get("reference_images", [])[:9], start=1):
+            for idx, ref_image in enumerate(
+                params.get("reference_images", [])[: model_capabilities.max_reference_images], start=1
+            ):
                 if supports_assets and is_provider_asset_reference(ref_image):
                     asset_url = await self._append_private_asset(
                         ref_image, expected_kind=ASSET_KIND_IMAGE, label=f"reference image {idx}"
@@ -931,7 +965,7 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                     if not video_url:
                         msg = (
                             f"{self.name}: {ref_video['parameter_name']} only supports public URLs, uploaded asset URLs, "
-                            "or asset:// IDs. Seedance 2.0 does not accept video base64."
+                            "or asset:// IDs. Seedance does not accept video base64."
                         )
                         raise ValueError(msg)
                     content_list.append(
@@ -940,7 +974,9 @@ class Seedance20VideoGeneration(GriptapeProxyNode):
                     order_log.append(f"Video {idx}: reference")
 
             # Reference audio (Audio 1..N within this list, normal or private asset).
-            for idx, ref_audio in enumerate(params.get("reference_audio", [])[:3], start=1):
+            for idx, ref_audio in enumerate(
+                params.get("reference_audio", [])[: model_capabilities.max_reference_audio], start=1
+            ):
                 if supports_assets and is_provider_asset_reference(ref_audio):
                     asset_url = await self._append_private_asset(
                         ref_audio, expected_kind=ASSET_KIND_AUDIO, label=f"reference audio {idx}"

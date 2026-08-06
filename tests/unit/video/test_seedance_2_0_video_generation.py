@@ -357,8 +357,10 @@ def test_supports_4k_only_for_seedance_2_0() -> None:
 
 def test_capability_table_matches_documented_matrix() -> None:
     # Regression guard on the single source of truth: values mirror the BytePlus capability matrix.
-    # All four variants support last_frame and private assets; resolution ceiling and max_duration
-    # differ (the three 2.0 variants cap duration at 15s, 2.5 extends that to 30s).
+    # All four variants support last_frame and private assets; resolution ceiling, max_duration,
+    # and reference budgets differ (the three 2.0 variants cap duration at 15s and allow up to 9
+    # reference images / 3 reference audio files; 2.5 extends duration to 30s and raises those
+    # budgets to 30 reference images / 10 reference audio files).
     standard = SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_0_MODEL_ID]
     fast = SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_0_FAST_MODEL_ID]
     mini = SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_0_MINI_MODEL_ID]
@@ -375,7 +377,101 @@ def test_capability_table_matches_documented_matrix() -> None:
 
     for caps in (standard, fast, mini):
         assert caps.max_duration == 15
+        assert caps.max_reference_images == 9
+        assert caps.max_reference_audio == 3
     assert seedance_2_5.max_duration == 30
+    assert seedance_2_5.max_reference_images == 30
+    assert seedance_2_5.max_reference_audio == 10
+
+
+# --- Reference image/audio budgets (model-dependent) ----------------------------------------
+
+
+def test_seedance_2_5_accepts_30_reference_images() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.5")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    _set_parameter_list_values(node, "reference_images", [f"https://public.example/img{i}.png" for i in range(30)])
+
+    # 30 reference images validates on Seedance 2.5 (its documented ceiling).
+    node._validate_parameters(node._get_parameters())
+
+
+@pytest.mark.parametrize("model_name", ["Seedance 2.0", "Seedance 2.0 Fast", "Seedance 2.0 Mini"])
+def test_seedance_2_0_variants_reject_10_reference_images(model_name: str) -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", model_name)
+    node.set_parameter_value("input_mode", "Multimodal References")
+    _set_parameter_list_values(node, "reference_images", [f"https://public.example/img{i}.png" for i in range(10)])
+
+    with pytest.raises(ValueError, match="supports up to 9 reference images"):
+        node._validate_parameters(node._get_parameters())
+
+
+def test_seedance_2_5_rejects_31_reference_images() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    params = node._get_parameters()
+    params["model_id"] = SEEDANCE_2_5_MODEL_ID
+    params["input_mode"] = "Multimodal References"
+    params["reference_images"] = [f"https://public.example/img{i}.png" for i in range(31)]
+
+    with pytest.raises(ValueError, match="supports up to 30 reference images"):
+        node._validate_parameters(params)
+
+
+def test_seedance_2_5_accepts_10_reference_audio() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.5")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    # Audio cannot be used alone, so a reference image is included alongside the audio files.
+    _set_parameter_list_values(node, "reference_images", ["https://public.example/portrait.png"])
+    _set_parameter_list_values(node, "reference_audio", [f"https://public.example/clip{i}.wav" for i in range(10)])
+
+    node._validate_parameters(node._get_parameters())
+
+
+@pytest.mark.parametrize("model_name", ["Seedance 2.0", "Seedance 2.0 Fast", "Seedance 2.0 Mini"])
+def test_seedance_2_0_variants_reject_4_reference_audio(model_name: str) -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", model_name)
+    node.set_parameter_value("input_mode", "Multimodal References")
+    _set_parameter_list_values(node, "reference_images", ["https://public.example/portrait.png"])
+    _set_parameter_list_values(node, "reference_audio", [f"https://public.example/clip{i}.wav" for i in range(4)])
+
+    with pytest.raises(ValueError, match="supports up to 3 reference audio files"):
+        node._validate_parameters(node._get_parameters())
+
+
+def test_reference_list_max_items_equal_the_maximum_across_models() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+
+    reference_images_param = _parameter_by_name(node, "reference_images")
+    reference_audio_param = _parameter_by_name(node, "reference_audio")
+
+    assert reference_images_param._max_items == 30
+    assert reference_audio_param._max_items == 10
+
+
+@pytest.mark.asyncio
+async def test_build_payload_truncates_reference_images_to_the_model_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0 Fast")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    node.set_parameter_value("prompt", "Reference many images")
+    _set_parameter_list_values(node, "reference_images", [f"https://public.example/img{i}.png" for i in range(12)])
+
+    async def fake_aread_data_uri(self: File, fallback_mime: str = "application/octet-stream") -> str:
+        return "data:image/png;base64,VALID_IMAGE"
+
+    monkeypatch.setattr(File, "aread_data_uri", fake_aread_data_uri)
+
+    payload = await node._build_payload()
+    reference_image_entries = [item for item in payload["content"] if item.get("role") == "reference_image"]
+
+    # Seedance 2.0 Fast caps reference images at 9, even though 12 were provided.
+    assert len(reference_image_entries) == 9
 
 
 def test_seedance_2_0_offers_4k_resolution_choice() -> None:
