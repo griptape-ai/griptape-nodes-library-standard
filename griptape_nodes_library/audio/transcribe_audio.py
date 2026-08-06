@@ -6,14 +6,12 @@ from typing import Any
 from griptape.artifacts import TextArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.memory.structure import Run
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
-from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
@@ -28,14 +26,12 @@ __all__ = ["TranscribeAudio"]
 MODEL_CHOICES = ["whisper-1"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 
-# Deprecated models and their replacements (kept for backward-compat with saved graphs)
-DEPRECATED_MODELS = {
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Whisper 1": "whisper-1",
+    "gtc_whisper_1": "whisper-1",
     "gpt-4o-mini-transcribe": "whisper-1",
     "gpt-4o-transcribe": "whisper-1",
-}
-
-MODEL_MAPPING = {
-    "whisper-1": "whisper-1",
 }
 
 RESPONSE_FORMAT_CHOICES = ["json", "verbose_json"]
@@ -102,31 +98,15 @@ class TranscribeAudio(GriptapeProxyNode):
             ui_options={"display_name": "audio transcription model"},
         )
         self.add_parameter(model_param)
-        # License-policy helper: adds Options + refresh Button traits, applies per-row
-        # decoration + badge, exposes query_for_denial, and relocates the stored value
-        # to a permitted alternative if DEFAULT_MODEL is denied.
-        self._model_access = ModelAccessComponent(
-            node=self,
+        # License-policy dropdown: the component adds Options + refresh Button traits,
+        # marks the models the license denies, and relocates the stored value to a
+        # permitted alternative if DEFAULT_MODEL is denied. The proxy base class
+        # refuses to submit a denied selection.
+        self._install_model_access(
             parameter=model_param,
             model_choices=MODEL_CHOICES,
             default_model=DEFAULT_MODEL,
-        )
-
-        self.add_node_element(
-            ParameterMessage(
-                name="model_deprecation_notice",
-                title="Model Deprecated",
-                variant="info",
-                value="",
-                traits={
-                    Button(
-                        full_width=True,
-                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
-                    )
-                },
-                button_text="Dismiss",
-                hide=True,
-            )
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -250,8 +230,6 @@ class TranscribeAudio(GriptapeProxyNode):
         )
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        if parameter.name == "model":
-            self._model_access.on_value_changed(value)
         if parameter.name == "response_format":
             if value == "verbose_json":
                 self.show_parameter_by_name("segments")
@@ -262,26 +240,6 @@ class TranscribeAudio(GriptapeProxyNode):
                 self.hide_parameter_by_name("detected_language")
                 self.hide_parameter_by_name("duration")
         return super().after_value_set(parameter, value)
-
-    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
-        if parameter.name == "model" and isinstance(value, str) and value in DEPRECATED_MODELS:
-            replacement = DEPRECATED_MODELS[value]
-            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
-            if message is not None:
-                message.value = (
-                    f"The '{value}' model has been deprecated and replaced with '{replacement}'. "
-                    "Please save your workflow to apply this change."
-                )
-                self.show_message_by_name("model_deprecation_notice")
-            value = replacement
-        elif parameter.name == "model" and isinstance(value, str):
-            self.hide_message_by_name("model_deprecation_notice")
-        return super().before_value_set(parameter, value)
-
-    def _get_api_model_id(self) -> str:
-        """Get the API model ID for this generation."""
-        model = self.get_parameter_value("model") or DEFAULT_MODEL
-        return MODEL_MAPPING.get(str(model), str(model))
 
     async def _resolve_audio_data_uri(self, audio_value: Any) -> str | None:
         """Resolve an audio parameter value to a base64 data URI.
@@ -318,18 +276,6 @@ class TranscribeAudio(GriptapeProxyNode):
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for OpenAI audio transcription."""
-        # License-policy runtime gate. SuccessFailure idiom: route the denial
-        # through _set_status_results and return an empty payload so the outer
-        # proxy pipeline sees was_successful=False rather than an exception.
-        # Runs BEFORE the proxy's own INVOKE_MODEL gate so a denied model fails
-        # immediately instead of after payload construction.
-        model_value = self.get_parameter_value("model")
-        denial = self._model_access.query_for_denial(model_value)
-        if denial is not None:
-            self._set_safe_defaults()
-            self._set_status_results(was_successful=False, result_details=denial.reason())
-            return {}
-
         audio_value = self.get_parameter_value("audio")
         if audio_value is None:
             msg = "No audio provided. Please connect an audio source."
