@@ -25,8 +25,25 @@ SEARCH_ENGINE_MAP = {
     },
 }
 SEARCH_ENGINES = list(SEARCH_ENGINE_MAP.keys())
-MODEL_CHOICES = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-5"]
+MODEL_CHOICES = [
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "gpt-4.1-nano",
+    "gpt-5",
+]
 DEFAULT_MODEL = "gpt-4.1-mini"
+
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES = {
+    "GPT-4.1": "gpt-4.1",
+    "GPT-4.1 mini": "gpt-4.1-mini",
+    "GPT-4.1 nano": "gpt-4.1-nano",
+    "GPT-5": "gpt-5",
+    "gtc_gpt_4_1": "gpt-4.1",
+    "gtc_gpt_4_1_mini": "gpt-4.1-mini",
+    "gtc_gpt_4_1_nano": "gpt-4.1-nano",
+    "gtc_gpt_5": "gpt-5",
+}
 
 
 class SearchWeb(BaseTask):
@@ -63,6 +80,7 @@ class SearchWeb(BaseTask):
             parameter=model_param,
             model_choices=MODEL_CHOICES,
             default_model=DEFAULT_MODEL,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
         self.add_parameter(
             Parameter(
@@ -138,8 +156,7 @@ class SearchWeb(BaseTask):
                     self.show_message_by_name("api_keys_message")
                 else:
                     self.hide_message_by_name("api_keys_message")
-        if parameter.name == "model":
-            self._model_access.on_value_changed(value)
+        self._model_access.on_value_set(parameter, value)
         super().after_value_set(parameter, value)
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
@@ -154,7 +171,7 @@ class SearchWeb(BaseTask):
 
         # License-policy runtime gate. Raises RuntimeError if the currently-selected
         # model is denied.
-        self._model_access.raise_if_denied(model)
+        self._model_access.raise_if_selection_denied()
 
         if search_engine == "DuckDuckGo":
             driver = self._duck_duck_go_driver()

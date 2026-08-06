@@ -27,7 +27,6 @@ from griptape_nodes.exe_types.core_types import (
     Parameter,
     ParameterGroup,
     ParameterList,
-    ParameterMessage,
     ParameterMode,
     ParameterType,
 )
@@ -44,11 +43,7 @@ from jinja2 import Template
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
-from griptape_nodes_library.config.prompt.cloud_models import (
-    DEPRECATED_MODELS,
-    MODEL_CHOICES,
-    MODEL_CHOICES_ARGS,
-)
+from griptape_nodes_library.config.prompt.cloud_models import MODEL_CHOICES_ARGS, PROVIDER_MODEL_CHOICES
 from griptape_nodes_library.utils.agent_utils import (
     build_prompt_driver,
     build_rulesets_from_configs,
@@ -67,6 +62,83 @@ _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
 DEFAULT_MODEL = "claude-sonnet-4-6"
+
+# Provider model ids the Agent's Griptape Cloud dropdown offers, in dropdown order.
+# Shared with GriptapeCloudPrompt's own dropdown via cloud_models.py's
+# PROVIDER_MODEL_CHOICES -- both nodes offer the same Griptape Cloud chat models.
+MODEL_CHOICES = PROVIDER_MODEL_CHOICES
+
+# Migrates values saved before the dropdown stored the provider's own model id. Folds in
+# both display labels once shown in the dropdown, catalog keys saved during the interval
+# the dropdown stored those instead, and this node's own former DEPRECATED_MODELS dict
+# (provider ids for models Griptape Cloud has fully retired, mapped to their replacement).
+LEGACY_MODEL_VALUES = {
+    "Claude Haiku 4.5": "claude-haiku-4-5",
+    "Claude Opus 4.7": "claude-opus-4-7",
+    "Claude Sonnet 4.5": "claude-4-5-sonnet",
+    "Claude Sonnet 4.6": "claude-sonnet-4-6",
+    "DeepSeek R1": "deepseek.r1-v1",
+    "DeepSeek V3": "deepseek-v3",
+    "GPT-4.1": "gpt-4.1",
+    "GPT-4.1 mini": "gpt-4.1-mini",
+    "GPT-4.1 nano": "gpt-4.1-nano",
+    "GPT-4o": "gpt-4o",
+    "GPT-5": "gpt-5",
+    "GPT-5 mini": "gpt-5-mini",
+    "GPT-5 nano": "gpt-5-nano",
+    "GPT-5.1": "gpt-5.1",
+    "GPT-5.2": "gpt-5.2",
+    "GPT-5.2 Chat": "gpt-5.2-chat",
+    "Gemini 2.5 Flash": "gemini-2.5-flash",
+    "Gemini 2.5 Flash-Lite": "gemini-2.5-flash-lite",
+    "Gemini 2.5 Pro": "gemini-2.5-pro",
+    "Gemini 3 Flash": "gemini-3-flash",
+    "Gemini 3.1 Flash-Lite": "gemini-3.1-flash-lite",
+    "Gemini 3.1 Pro": "gemini-3.1-pro",
+    "Llama 3.1 70B Instruct": "llama3-1-70b-instruct-v1",
+    "Llama 3.3 70B Instruct": "llama3-3-70b-instruct-v1",
+    "amazon.titan-text-premier-v1": "claude-sonnet-4-6",
+    "claude-3-5-haiku": "claude-haiku-4-5",
+    "claude-3-7-sonnet": "claude-sonnet-4-6",
+    "claude-sonnet-4-20250514": "claude-sonnet-4-6",
+    "gemini-2.0-flash": "gemini-2.5-flash",
+    "gemini-2.5-flash-preview-05-20": "gemini-2.5-flash",
+    "gemini-2.5-pro-preview-06-05": "gemini-2.5-pro",
+    "gemini-3-pro": "gemini-3.1-pro",
+    "gemini-3-pro-preview": "gemini-3.1-pro",
+    "gpt-4.5-preview": "gpt-4.1",
+    "gtc_claude_haiku_4_5": "claude-haiku-4-5",
+    "gtc_claude_opus_4_7": "claude-opus-4-7",
+    "gtc_claude_sonnet_4_5": "claude-4-5-sonnet",
+    "gtc_claude_sonnet_4_6": "claude-sonnet-4-6",
+    "gtc_deepseek_r1": "deepseek.r1-v1",
+    "gtc_deepseek_v3": "deepseek-v3",
+    "gtc_gemini_2_5_flash": "gemini-2.5-flash",
+    "gtc_gemini_2_5_flash_lite": "gemini-2.5-flash-lite",
+    "gtc_gemini_2_5_pro": "gemini-2.5-pro",
+    "gtc_gemini_3_1_flash_lite": "gemini-3.1-flash-lite",
+    "gtc_gemini_3_1_pro": "gemini-3.1-pro",
+    "gtc_gemini_3_flash": "gemini-3-flash",
+    "gtc_gpt_4_1": "gpt-4.1",
+    "gtc_gpt_4_1_mini": "gpt-4.1-mini",
+    "gtc_gpt_4_1_nano": "gpt-4.1-nano",
+    "gtc_gpt_4o": "gpt-4o",
+    "gtc_gpt_5": "gpt-5",
+    "gtc_gpt_5_1": "gpt-5.1",
+    "gtc_gpt_5_2": "gpt-5.2",
+    "gtc_gpt_5_2_chat": "gpt-5.2-chat",
+    "gtc_gpt_5_mini": "gpt-5-mini",
+    "gtc_gpt_5_nano": "gpt-5-nano",
+    "gtc_llama_3_1_70b": "llama3-1-70b-instruct-v1",
+    "gtc_llama_3_3_70b": "llama3-3-70b-instruct-v1",
+    "gtc_o1": "o1",
+    "gtc_o3": "o3",
+    "gtc_o3_mini": "o3-mini",
+    "gtc_o4_mini": "o4-mini",
+    "o1-mini": "o3-mini",
+    "o3 mini": "o3-mini",
+    "o4 mini": "o4-mini",
+}
 
 
 class Agent(ControlNode):
@@ -119,22 +191,6 @@ class Agent(ControlNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
             )
         )
-        self.add_node_element(
-            ParameterMessage(
-                name="model_deprecation_notice",
-                title="Model Deprecation Notice",
-                variant="info",
-                value="",
-                traits={
-                    Button(
-                        full_width=True,
-                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
-                    )
-                },
-                button_text="Dismiss",
-                hide=True,
-            )
-        )
 
         # Provider selector shown above the model dropdown. The ProviderSelectionComponent
         # installs the Options + refresh Button traits after construction.
@@ -166,6 +222,7 @@ class Agent(ControlNode):
             parameter=model_param,
             model_choices=MODEL_CHOICES,
             default_model=DEFAULT_MODEL,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self._provider = ProviderSelectionComponent(
@@ -277,32 +334,6 @@ class Agent(ControlNode):
         logs_group.ui_options = {"hide": True}  # Hide the logs group by default.
 
         self.add_node_element(logs_group)
-
-    def before_value_set(
-        self,
-        parameter: Parameter,
-        value: Any,
-    ) -> Any:
-        if parameter.name == "model":
-            # Only run deprecation check for string model names. When a prompt driver
-            # is connected, value is a BasePromptDriver; "value in DEPRECATED_MODELS"
-            # would hash it and raise (drivers are unhashable). See #3713.
-            if isinstance(value, str) and value in DEPRECATED_MODELS:
-                replacement = DEPRECATED_MODELS[value]
-                message = self.get_message_by_name_or_element_id("model_deprecation_notice")
-                if message is None:
-                    raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
-                message.value = f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. Please save your workflow to apply this change."
-                self.show_message_by_name("model_deprecation_notice")
-                value = replacement
-            elif isinstance(value, str):
-                self.hide_message_by_name("model_deprecation_notice")
-
-        # Call the parent implementation and return the result
-        return super().before_value_set(
-            parameter,
-            value,
-        )
 
     def _build_tool_exchange(self, subtask_events: list) -> str:
         """Build a verified tool-use record from FinishActionsSubtaskEvents.
@@ -603,9 +634,8 @@ class Agent(ControlNode):
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
-        if parameter.name == "model":
-            self._model_access.on_value_changed(value)
-        elif parameter.name == "model_provider":
+        self._model_access.on_value_set(parameter, value)
+        if parameter.name == "model_provider":
             self._provider.on_provider_changed(str(value))
 
     # --- UI Interaction Hooks ---
@@ -785,7 +815,7 @@ class Agent(ControlNode):
         # driver, so the node's (hidden, not cleared) dropdown value is stale. The
         # INVOKE_MODEL declaration below gates the model that actually runs.
         if agent_input is None and provider_name == "griptape_cloud":
-            self._model_access.raise_if_denied(model_input)
+            self._model_access.raise_if_selection_denied()
         agent = None
         include_details = self.get_parameter_value("include_details")
         default_prompt_driver = GriptapeCloudPromptDriver(
