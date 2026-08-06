@@ -20,6 +20,9 @@ from griptape_nodes_library.assets import (
     create_provider_asset_reference,
 )
 from griptape_nodes_library.video.seedance_2_0_video_generation import (
+    LEGACY_REFERENCE_VIDEO_PARAMETERS,
+    MAX_REFERENCE_VIDEOS,
+    REFERENCE_VIDEOS_PARAMETER,
     SEEDANCE_2_0_FAST_MODEL_ID,
     SEEDANCE_2_0_MINI_MODEL_ID,
     SEEDANCE_2_0_MODEL_ID,
@@ -127,35 +130,19 @@ def test_frame_inputs_remain_input_only() -> None:
 def test_first_last_frame_mode_rejects_multimodal_reference_inputs() -> None:
     node = Seedance20VideoGeneration(name="Seedance20")
     node.set_parameter_value("input_mode", "First/Last Frame")
-    node.set_parameter_value("reference_video_1", "https://example.com/reference.mp4")
+    _set_parameter_list_values(node, "reference_videos", ["https://example.com/reference.mp4"])
 
     with pytest.raises(ValueError, match="only used in Multimodal References mode"):
         node._validate_parameters(node._get_parameters())
 
 
-def test_multimodal_reference_video_inputs_progressively_appear() -> None:
+def test_reference_videos_is_an_input_only_list() -> None:
     node = Seedance20VideoGeneration(name="Seedance20")
-    node.set_parameter_value("input_mode", "Multimodal References")
+    reference_videos = _parameter_by_name(node, "reference_videos")
 
-    assert _parameter_by_name(node, "reference_video_1").hide is False
-    assert _parameter_by_name(node, "reference_video_2").hide is True
-    assert _parameter_by_name(node, "reference_video_3").hide is True
-
-    node.set_parameter_value("reference_video_1", "https://example.com/reference-1.mp4")
-    assert _parameter_by_name(node, "reference_video_2").hide is False
-    assert _parameter_by_name(node, "reference_video_3").hide is True
-
-    node.set_parameter_value("reference_video_2", "https://example.com/reference-2.mp4")
-    assert _parameter_by_name(node, "reference_video_3").hide is False
-
-
-def test_multimodal_reference_video_inputs_require_contiguous_order() -> None:
-    node = Seedance20VideoGeneration(name="Seedance20")
-    node.set_parameter_value("input_mode", "Multimodal References")
-    node.set_parameter_value("reference_video_2", "https://example.com/reference-2.mp4")
-
-    with pytest.raises(ValueError, match="reference_video_2 requires reference_video_1"):
-        node._validate_parameters(node._get_parameters())
+    assert isinstance(reference_videos, ParameterList)
+    assert reference_videos._max_items == MAX_REFERENCE_VIDEOS
+    assert reference_videos.allowed_modes == {ParameterMode.INPUT}
 
 
 @pytest.mark.asyncio
@@ -222,7 +209,7 @@ async def test_build_payload_includes_multimodal_video_url_and_audio_base64() ->
     node.set_parameter_value("model_id", "Seedance 2.0")
     node.set_parameter_value("input_mode", "Multimodal References")
     node.set_parameter_value("prompt", "Use the reference video motion")
-    node.set_parameter_value("reference_video_1", VideoUrlArtifact("https://public.example/reference.mp4"))
+    _set_parameter_list_values(node, "reference_videos", [VideoUrlArtifact("https://public.example/reference.mp4")])
     _set_parameter_list_values(
         node,
         "reference_audio",
@@ -275,7 +262,7 @@ async def test_build_payload_rewrites_mp3_audio_subtype_to_seedance_accepted(
     node.set_parameter_value("model_id", "Seedance 2.0 Mini")
     node.set_parameter_value("input_mode", "Multimodal References")
     node.set_parameter_value("prompt", "Use the backing track")
-    node.set_parameter_value("reference_video_1", VideoUrlArtifact("https://public.example/reference.mp4"))
+    _set_parameter_list_values(node, "reference_videos", [VideoUrlArtifact("https://public.example/reference.mp4")])
 
     music = tmp_path / "music.mp3"
     music.write_bytes(b"ID3fakeaudio")
@@ -297,28 +284,28 @@ async def test_build_payload_rejects_local_reference_video_path(tmp_path) -> Non
     node.set_parameter_value("model_id", "Seedance 2.0")
     node.set_parameter_value("input_mode", "Multimodal References")
     node.set_parameter_value("prompt", "Use the reference video motion")
-    node.set_parameter_value("reference_video_1", {"type": "VideoUrlArtifact", "value": str(reference_video)})
+    _set_parameter_list_values(node, "reference_videos", [{"type": "VideoUrlArtifact", "value": str(reference_video)}])
 
     with pytest.raises(
-        ValueError, match="reference_video_1 only supports public URLs, uploaded asset URLs, or asset:// IDs"
+        ValueError, match="reference video 1 only supports public URLs, uploaded asset URLs, or asset:// IDs"
     ):
         await node._build_payload()
 
 
 @pytest.mark.asyncio
-async def test_build_payload_uses_public_artifact_url_parameter_for_reference_videos(
+async def test_build_payload_uploads_reference_video_without_a_public_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     node = Seedance20VideoGeneration(name="Seedance20")
     node.set_parameter_value("model_id", "Seedance 2.0")
     node.set_parameter_value("input_mode", "Multimodal References")
     node.set_parameter_value("prompt", "Use the reference video motion")
-    node.set_parameter_value("reference_video_1", "workspace/reference.mp4")
+    _set_parameter_list_values(node, "reference_videos", ["workspace/reference.mp4"])
 
     monkeypatch.setattr(
-        node._public_reference_video_parameter_1,
-        "get_public_url_for_parameter",
-        lambda: "https://public.example/reference.mp4",
+        Seedance20VideoGeneration,
+        "_resolve_public_url_for_media",
+        lambda self, media_value, *, artifact_type: "https://public.example/reference.mp4",
     )
 
     payload = await node._build_payload()
@@ -359,8 +346,8 @@ def test_capability_table_matches_documented_matrix() -> None:
     # Regression guard on the single source of truth: values mirror the BytePlus capability matrix.
     # All four variants support last_frame and private assets; resolution ceiling, max_duration,
     # and reference budgets differ (the three 2.0 variants cap duration at 15s and allow up to 9
-    # reference images / 3 reference audio files; 2.5 extends duration to 30s and raises those
-    # budgets to 30 reference images / 10 reference audio files).
+    # reference images / 3 reference videos / 3 reference audio files; 2.5 extends duration to 30s
+    # and raises those budgets to 30 images / 10 videos / 10 audio files).
     standard = SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_0_MODEL_ID]
     fast = SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_0_FAST_MODEL_ID]
     mini = SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_0_MINI_MODEL_ID]
@@ -378,9 +365,11 @@ def test_capability_table_matches_documented_matrix() -> None:
     for caps in (standard, fast, mini):
         assert caps.max_duration == 15
         assert caps.max_reference_images == 9
+        assert caps.max_reference_videos == 3
         assert caps.max_reference_audio == 3
     assert seedance_2_5.max_duration == 30
     assert seedance_2_5.max_reference_images == 30
+    assert seedance_2_5.max_reference_videos == 10
     assert seedance_2_5.max_reference_audio == 10
 
 
@@ -446,10 +435,110 @@ def test_reference_list_max_items_equal_the_maximum_across_models() -> None:
     node = Seedance20VideoGeneration(name="Seedance20")
 
     reference_images_param = _parameter_by_name(node, "reference_images")
+    reference_videos_param = _parameter_by_name(node, "reference_videos")
     reference_audio_param = _parameter_by_name(node, "reference_audio")
 
     assert reference_images_param._max_items == 30
+    assert reference_videos_param._max_items == 10
     assert reference_audio_param._max_items == 10
+
+
+def test_seedance_2_5_accepts_10_reference_videos() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.5")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    _set_parameter_list_values(node, "reference_videos", [f"https://public.example/clip{i}.mp4" for i in range(10)])
+
+    # 10 reference videos validates on Seedance 2.5 (its documented ceiling).
+    node._validate_parameters(node._get_parameters())
+
+
+@pytest.mark.parametrize("model_name", ["Seedance 2.0", "Seedance 2.0 Fast", "Seedance 2.0 Mini"])
+def test_seedance_2_0_variants_reject_4_reference_videos(model_name: str) -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", model_name)
+    node.set_parameter_value("input_mode", "Multimodal References")
+    _set_parameter_list_values(node, "reference_videos", [f"https://public.example/clip{i}.mp4" for i in range(4)])
+
+    with pytest.raises(ValueError, match="supports up to 3 reference videos"):
+        node._validate_parameters(node._get_parameters())
+
+
+@pytest.mark.asyncio
+async def test_build_payload_truncates_reference_videos_to_the_model_cap() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0 Fast")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    node.set_parameter_value("prompt", "Reference many videos")
+    _set_parameter_list_values(node, "reference_videos", [f"https://public.example/clip{i}.mp4" for i in range(5)])
+
+    payload = await node._build_payload()
+    reference_video_entries = [item for item in payload["content"] if item.get("role") == "reference_video"]
+
+    # Seedance 2.0 Fast caps reference videos at 3, even though 5 were provided.
+    assert len(reference_video_entries) == 3
+
+
+# --- Legacy reference video slot adoption ---------------------------------------------------
+
+
+@pytest.mark.parametrize("legacy_parameter_name", LEGACY_REFERENCE_VIDEO_PARAMETERS)
+def test_incoming_connection_adopts_a_legacy_slot_as_a_list_child(legacy_parameter_name: str) -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+
+    node.before_incoming_connection(node, "video", legacy_parameter_name)
+
+    child = node.get_parameter_by_name(legacy_parameter_name)
+    assert child is not None
+    assert child.parent_container_name == REFERENCE_VIDEOS_PARAMETER
+    assert child in _parameter_by_name(node, REFERENCE_VIDEOS_PARAMETER).get_child_parameters()
+    # The child carries the element type, not the list's list[...] form. A list-typed child
+    # rejects every incoming single-artifact connection on a type mismatch.
+    assert child.type == "VideoUrlArtifact"
+    assert child.input_types == ["VideoUrlArtifact", "BytePlusVideoAssetReference"]
+
+
+def test_adopting_a_legacy_slot_twice_adds_one_child() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+
+    node.before_incoming_connection(node, "video", "reference_video_1")
+    node.before_incoming_connection(node, "video", "reference_video_1")
+
+    assert len(_parameter_by_name(node, REFERENCE_VIDEOS_PARAMETER).get_child_parameters()) == 1
+
+
+def test_incoming_connection_to_an_unrelated_parameter_adopts_nothing() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+
+    node.before_incoming_connection(node, "video", "first_frame")
+
+    assert _parameter_by_name(node, REFERENCE_VIDEOS_PARAMETER).get_child_parameters() == []
+
+
+def test_value_set_on_an_adopted_legacy_slot_lands_on_the_list() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("input_mode", "Multimodal References")
+
+    node.before_incoming_connection(node, "video", "reference_video_1")
+    node.set_parameter_value("reference_video_1", VideoUrlArtifact("https://public.example/a.mp4"))
+
+    reference_videos = node._get_parameters()[REFERENCE_VIDEOS_PARAMETER]
+    assert [getattr(value, "value", value) for value in reference_videos] == ["https://public.example/a.mp4"]
+
+
+def test_adopted_legacy_slots_keep_their_order() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("input_mode", "Multimodal References")
+
+    for index, legacy_parameter_name in enumerate(("reference_video_1", "reference_video_2"), start=1):
+        node.before_incoming_connection(node, "video", legacy_parameter_name)
+        node.set_parameter_value(legacy_parameter_name, VideoUrlArtifact(f"https://public.example/{index}.mp4"))
+
+    reference_videos = node._get_parameters()[REFERENCE_VIDEOS_PARAMETER]
+    assert [getattr(value, "value", value) for value in reference_videos] == [
+        "https://public.example/1.mp4",
+        "https://public.example/2.mp4",
+    ]
 
 
 @pytest.mark.asyncio
@@ -634,9 +723,10 @@ def test_seedance_2_0_rejects_private_asset_reference_kind_mismatch() -> None:
     node.set_parameter_value("model_id", "Seedance 2.0")
     node.set_parameter_value("input_mode", "Multimodal References")
     # An Audio-kind reference wired into a video input should be rejected.
-    node.set_parameter_value(
-        "reference_video_1",
-        create_provider_asset_reference(value="https://public.example/clip.wav", asset_kind=ASSET_KIND_AUDIO),
+    _set_parameter_list_values(
+        node,
+        "reference_videos",
+        [create_provider_asset_reference(value="https://public.example/clip.wav", asset_kind=ASSET_KIND_AUDIO)],
     )
 
     with pytest.raises(ValueError, match="private-asset reference is connected to a Video reference input"):
@@ -701,7 +791,7 @@ async def test_build_payload_does_not_register_assets_for_plain_media(
     node.set_parameter_value("model_id", "Seedance 2.0 Fast")
     node.set_parameter_value("input_mode", "Multimodal References")
     node.set_parameter_value("prompt", "Use the reference video motion")
-    node.set_parameter_value("reference_video_1", VideoUrlArtifact("https://public.example/reference.mp4"))
+    _set_parameter_list_values(node, "reference_videos", [VideoUrlArtifact("https://public.example/reference.mp4")])
 
     def fail_if_called(self, *args, **kwargs):
         raise AssertionError("plain (non-private-asset) media must not register a provider asset")
@@ -761,7 +851,7 @@ async def test_build_payload_does_not_register_assets_when_byok_enabled(
     node.set_parameter_value("input_mode", "Multimodal References")
     node.set_parameter_value("api_key_provider", True)
     node.set_parameter_value("prompt", "Use the reference video motion")
-    node.set_parameter_value("reference_video_1", VideoUrlArtifact("https://public.example/reference.mp4"))
+    _set_parameter_list_values(node, "reference_videos", [VideoUrlArtifact("https://public.example/reference.mp4")])
 
     def fail_if_called(self, *args, **kwargs):
         raise AssertionError("BYOK must not register private assets")
