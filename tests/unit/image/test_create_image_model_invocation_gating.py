@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 import griptape_nodes_library.image.create_image as create_image_module
+import griptape_nodes_library.utils.model_invocation as model_invocation_module
 from griptape_nodes_library.image.create_image import GenerateImage
 
 
@@ -58,7 +59,7 @@ def test_declares_invocation_with_selected_model_before_running(
         captured["api_model_id"] = api_model_id
         return _FakeDeclaration(ok=True)
 
-    monkeypatch.setattr(create_image_module, "declare_model_invocation_sync", _fake_declare)
+    monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", _fake_declare)
 
     gen = generate_image_node.process()
     runner = next(gen)
@@ -79,7 +80,7 @@ def test_raises_before_running_when_declaration_is_denied(
     def _fake_declare(_node: GenerateImage, _api_model_id: str) -> _FakeDeclaration:
         return _FakeDeclaration(ok=False, details="denied by policy")
 
-    monkeypatch.setattr(create_image_module, "declare_model_invocation_sync", _fake_declare)
+    monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", _fake_declare)
     monkeypatch.setattr(GenerateImage, "_create_image", _fake_create_image)
 
     gen = generate_image_node.process()
@@ -105,7 +106,7 @@ def test_declares_enhancement_invocation_before_running_when_enabled(
         declared.append(api_model_id)
         return _FakeDeclaration(ok=True)
 
-    monkeypatch.setattr(create_image_module, "declare_model_invocation_sync", _fake_declare)
+    monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", _fake_declare)
 
     gen = generate_image_node.process()
     runner = next(gen)
@@ -117,13 +118,19 @@ def test_declares_enhancement_invocation_before_running_when_enabled(
 def test_raises_before_enhancing_when_enhancement_declaration_is_denied(
     generate_image_node: GenerateImage, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The message must name the enhancement gate specifically.
+
+    This node gates two invocations (prompt enhancement and image generation), so
+    a denial that only names the node leaves the user unable to tell which call
+    the policy refused.
+    """
     generate_image_node.set_parameter_value("enhance_prompt", True)
 
     def _fake_declare(_node: GenerateImage, _api_model_id: str) -> _FakeDeclaration:
         return _FakeDeclaration(ok=False, details="enhancement denied by policy")
 
-    monkeypatch.setattr(create_image_module, "declare_model_invocation_sync", _fake_declare)
+    monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", _fake_declare)
 
     gen = generate_image_node.process()
-    with pytest.raises(RuntimeError, match="enhancement denied by policy"):
+    with pytest.raises(RuntimeError, match=r"\(prompt enhancement\): enhancement denied by policy"):
         next(gen)

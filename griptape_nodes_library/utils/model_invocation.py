@@ -27,7 +27,12 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 logger = logging.getLogger("griptape_nodes")
 
-__all__ = ["declare_model_invocation", "declare_model_invocation_sync", "resolve_catalog_model_id"]
+__all__ = [
+    "declare_model_invocation",
+    "declare_model_invocation_sync",
+    "require_model_invocation_sync",
+    "resolve_catalog_model_id",
+]
 
 
 def resolve_catalog_model_id(node: BaseNode, api_model_id: str) -> str | None:
@@ -65,6 +70,54 @@ def declare_model_invocation_sync(node: BaseNode, api_model_id: str) -> ResultPa
     treat a failed result as do-not-invoke.
     """
     return GriptapeNodes.handle_request(_build_declaration(node, api_model_id))
+
+
+def require_model_invocation_sync(node: BaseNode, api_model_id: str | None, *, purpose: str | None = None) -> None:
+    """Declare the invocation and raise if the permission layer denies it.
+
+    The fail-closed half of `declare_model_invocation_sync`, for the common case
+    where a denial should abort the node. Callers that need to recover instead of
+    raising (e.g. reporting the denial through a status parameter) should call
+    `declare_model_invocation_sync` and inspect the result themselves.
+
+    `api_model_id` is optional because some drivers leave `model` unset and let
+    the provider choose (`GriptapeCloudPromptDriver.model` defaults to None). An
+    unidentified model cannot be gated, so that is refused rather than declared:
+    declaring a null model id would ask the permission layer to rule on a model
+    nobody has named, which is the one outcome a fail-closed gate must not allow.
+
+    `purpose` names which invocation is being gated, for nodes that gate more than
+    one. It is appended to the node's identity in the raised message so a denial
+    points at the specific call rather than just the node.
+
+    Raises:
+        RuntimeError: if the model is unidentified, or if the declaration was
+            denied. Carries the engine's `result_details` when it says something,
+            since that explains *why* the policy denied the call; otherwise a
+            generic message naming the model.
+    """
+    subject = f"{type(node).__name__} '{node.name}'"
+    if purpose:
+        subject = f"{subject} ({purpose})"
+    if not api_model_id or not api_model_id.strip():
+        msg = (
+            f"Cannot run {subject}: no model was identified, so the invocation cannot be "
+            "checked against the model policy. Set a model on this node or on the "
+            "driver connected to it."
+        )
+        raise RuntimeError(msg)
+    declaration = declare_model_invocation_sync(node, api_model_id)
+    if not declaration.failed():
+        return
+    # `result_details` carries the policy's own explanation and is a required field,
+    # so `or ""` is only reached by a payload that crossed a boundary without
+    # validation. Coerce either way: a blank explanation would otherwise raise a
+    # RuntimeError that names no model and gives the user nothing to act on.
+    details = str(declaration.result_details or "").strip()
+    if not details:
+        details = f"invocation of model '{api_model_id}' was not permitted."
+    msg = f"Cannot run {subject}: {details}"
+    raise RuntimeError(msg)
 
 
 def _build_declaration(node: BaseNode, api_model_id: str) -> DeclareModelInvocationRequest:

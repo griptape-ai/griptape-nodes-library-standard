@@ -1,0 +1,158 @@
+from typing import cast
+
+from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
+from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
+from griptape_nodes.retained_mode.events.agent_events import (
+    ListAgentProvidersRequest,
+    ListAgentProvidersResultSuccess,
+    ListProviderModelsRequest,
+    ListProviderModelsResultSuccess,
+    ProviderConfig,
+)
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
+from griptape_nodes.traits.options import Options
+
+_GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
+
+
+class ProviderSelectionComponent:
+    def __init__(
+        self,
+        node,
+        model_param,
+        *,
+        model_provider_param: Parameter,
+        gtc_model_choices,
+        model_access: ModelAccessComponent,
+        default_model: str | None = None,
+    ):
+        """Attach provider-selection UI to an already-added ``model_provider_param``.
+
+        ``model_provider_param`` must already be attached to ``node`` (via
+        ``node.add_parameter``) **before** this component is constructed, and it
+        must not already carry ``Options`` or ``Button`` traits — this component
+        installs them, mirroring the contract of ``ModelAccessComponent``.
+        """
+        self._node = node
+        self._model_param = model_param
+        self._gtc_model_choices = gtc_model_choices
+        self._model_access = model_access
+        self._default_model = default_model or (gtc_model_choices[0] if gtc_model_choices else "")
+
+        if self._node.get_parameter_by_name(model_provider_param.name) is not model_provider_param:
+            msg = (
+                f"ProviderSelectionComponent: parameter '{model_provider_param.name}' is not attached to "
+                f"node '{self._node.name}'. Call node.add_parameter(model_provider_param) BEFORE "
+                "constructing the component."
+            )
+            raise ValueError(msg)
+
+        provider_names = self._fetch_provider_names()
+
+        default = provider_names[0] if provider_names else "griptape_cloud"
+        model_provider_param.set_default_value(default)
+        model_provider_param.add_trait(Options(choices=provider_names))
+        model_provider_param.add_trait(
+            Button(
+                icon="list-restart",
+                size="icon",
+                variant="secondary",
+                on_click=self._refresh_providers_button,
+            )
+        )
+
+    def on_provider_changed(self, provider_name: str) -> None:
+        self.update_model_choices_for_provider(provider_name)
+
+    def hide(self) -> None:
+        self._node.hide_parameter_by_name("model")
+        self._node.hide_parameter_by_name("model_provider")
+
+    def show(self) -> None:
+        self._node.show_parameter_by_name("model")
+        self._node.show_parameter_by_name("model_provider")
+
+    def uses_griptape_cloud_driver(self) -> bool:
+        if self._node.get_parameter_value("agent") is not None:
+            return False
+        if isinstance(self._node.get_parameter_value("model"), BasePromptDriver):
+            return False
+        provider_name = self._node.get_parameter_value("model_provider") or "griptape_cloud"
+        return provider_name == "griptape_cloud"
+
+    def _fetch_providers(self) -> list[ProviderConfig]:
+
+        _FALLBACK = [_GRIPTAPE_CLOUD_PROVIDER]
+        try:
+            result = GriptapeNodes.handle_request(ListAgentProvidersRequest())
+            if not isinstance(result, ListAgentProvidersResultSuccess):
+                return _FALLBACK
+            return cast(ListAgentProvidersResultSuccess, result).providers or _FALLBACK
+        except Exception:
+            return _FALLBACK
+
+    def _fetch_provider_names(self) -> list[str]:
+        providers = self._fetch_providers()
+        return [p.name for p in providers] or ["griptape_cloud"]
+
+    def resolve_provider_api_key(self, provider_config: "ProviderConfig") -> str:
+        secret_name = provider_config.api_key_secret_name or ""
+        if secret_name:
+            return (
+                GriptapeNodes.SecretsManager().get_secret(secret_name, should_error_on_not_found=False) or "not-needed"
+            )
+        return "not-needed"
+
+    def _refresh_providers_button(
+        self, button: Button, button_details: ButtonDetailsMessagePayload
+    ) -> NodeMessageResult | None:  # noqa: ARG002
+        """Refresh the provider dropdown from the engine."""
+        provider_names = self._fetch_provider_names()
+        current = self._node.get_parameter_value("model_provider") or "griptape_cloud"
+        default = current if current in provider_names else (provider_names[0] if provider_names else "griptape_cloud")
+        self._node._update_option_choices(param="model_provider", choices=provider_names, default=default)
+        return None
+
+    def _refresh_models_button(
+        self, button: Button, button_details: ButtonDetailsMessagePayload
+    ) -> NodeMessageResult | None:  # noqa: ARG002
+        """Refresh the model dropdown for the currently selected provider."""
+        provider_name = self._node.get_parameter_value("model_provider") or "griptape_cloud"
+        self.update_model_choices_for_provider(provider_name)
+        return None
+
+    def update_model_choices_for_provider(self, provider_name: str) -> None:
+        if provider_name == "griptape_cloud":
+            default = self._model_access.pick_permitted_default() or self._default_model
+            self._node._update_option_choices(param="model", choices=self._model_access.model_choices, default=default)
+            # Restore the component's per-row license decoration and badge; the
+            # _update_option_choices call above only refreshed choices and value.
+            self._model_access.reinstall_options()
+            return
+        models = self.fetch_models_for_provider(provider_name)
+        default = models[0] if models else self._default_model
+        self._node._update_option_choices(param="model", choices=models, default=default)
+        param = self._node.get_parameter_by_name("model")
+        if param:
+            param.update_ui_options_key("data", [{"name": m, "icon": "", "args": {}} for m in models])
+
+    def fetch_models_for_provider(self, provider_name: str) -> list[str]:
+        try:
+            providers = self._fetch_providers()
+            provider_config = next((p for p in providers if p.name == provider_name), None)
+            if provider_config is None:
+                return self._gtc_model_choices
+            result = GriptapeNodes.handle_request(
+                ListProviderModelsRequest(
+                    provider=provider_config.type,
+                    base_url=provider_config.base_url or "",
+                    api_key=self.resolve_provider_api_key(provider_config),
+                )
+            )
+            if isinstance(result, ListProviderModelsResultSuccess):
+                return cast(ListProviderModelsResultSuccess, result).models or self._gtc_model_choices
+        except Exception:
+            pass
+        return self._gtc_model_choices

@@ -29,7 +29,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.82.0",
+    "library_version": "0.83.0",
     "engine_version": "0.93.0",
     "tags": [
       "Griptape",
@@ -1894,6 +1894,22 @@
         "description": "Takes a list input and splits it either by index or by item value, with options for keeping the split item.",
         "display_name": "Split List",
         "icon": "square-split-vertical",
+        "group": "edit",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
+      }
+    },
+    {
+      "class_name": "SplitListByType",
+      "file_path": "griptape_nodes_library/lists/split_list_by_type.py",
+      "metadata": {
+        "category": "lists",
+        "description": "Routes a mixed list into a separate output list per media type (images, audio, video, text), so a single list can feed a multi-modal node's per-type inputs.",
+        "display_name": "Split List By Type",
+        "icon": "split",
         "group": "edit",
         "tags": [
           "list",

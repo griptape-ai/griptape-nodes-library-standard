@@ -12,7 +12,7 @@ from json_repair import repair_json  # json_repair
 from pydantic import BaseModel
 
 from griptape_nodes_library.tasks.base_task import BaseTask
-from griptape_nodes_library.utils.model_invocation import declare_model_invocation_sync
+from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 MODEL_CHOICES = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-5"]
 DEFAULT_MODEL = "gpt-4.1-mini"
@@ -84,11 +84,7 @@ class Askulator(BaseTask):
         # License-policy gate immediately before the framework driver call. Askulator overrides
         # BaseTask._process wholesale (different streaming/parsing loop), so it declares here
         # rather than relying on the base implementation's declaration.
-        declaration = declare_model_invocation_sync(self, model)
-        if declaration.failed():
-            details = str(declaration.result_details or f"{self.name}: model invocation was not permitted.")
-            msg = f"Cannot run {type(self).__name__}: {details}"
-            raise RuntimeError(msg)
+        require_model_invocation_sync(self, model)
 
         args = [prompt] if prompt else []
         full_result = ""

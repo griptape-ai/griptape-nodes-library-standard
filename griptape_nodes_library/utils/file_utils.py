@@ -5,6 +5,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 # Supported text file extensions (based on LoadText node)
 SUPPORTED_TEXT_EXTENSIONS = {
     ".txt",
+    ".edl",
     ".md",
     ".csv",
     ".json",
