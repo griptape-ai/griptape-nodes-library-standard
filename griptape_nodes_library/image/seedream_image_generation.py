@@ -528,10 +528,11 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         # Show the appropriate number of image output parameters based on actual image count
         self._show_image_output_parameters(len(image_artifacts))
 
-        # Set individual image output parameters
+        # Publish rather than assign: a bare assignment emits the artifact object as-is, which the
+        # editor cannot render, so the image only appears after a manual refresh rehydrates it.
         for idx, artifact in enumerate(image_artifacts, start=1):
             param_name = "image_url" if idx == 1 else f"image_url_{idx}"
-            self.parameter_output_values[param_name] = artifact
+            self.publish_update_to_parameter(param_name, artifact)
 
         # Set success status
         count = len(image_artifacts)
