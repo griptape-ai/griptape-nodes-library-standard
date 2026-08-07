@@ -366,10 +366,9 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         self._output_file = ProjectFileParameter(
             node=self,
             name="output_file",
-            default_filename="seedream_image.jpeg",
+            default_filename="seedream_image.jpg",
         )
         self._output_file.add_parameter()
-        self._sync_output_filename_extension()
 
         # Create status parameters for success/failure tracking (at the end)
         self._create_status_parameters(
@@ -445,9 +444,6 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         """Update size options and parameter visibility based on parameter changes."""
         if parameter.name == "model" and value in SIZE_OPTIONS:
             self._update_model_parameters(value)
-
-        if parameter.name in ("model", "output_format"):
-            self._sync_output_filename_extension()
 
         # Convert string paths to ImageUrlArtifact by uploading to static storage
         if parameter.name == "images" and isinstance(value, list):
@@ -527,19 +523,6 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             return "jpeg"
         return self.get_parameter_value("output_format") or "jpeg"
 
-    def _sync_output_filename_extension(self) -> None:
-        """Point the output filename at the format the image will actually be written in."""
-        extension = self._requested_output_format()
-        current = self.get_parameter_value("output_file")
-        if not isinstance(current, str) or not current:
-            return
-
-        stem = current.rsplit(".", 1)[0]
-        updated = f"{stem}.{extension}"
-        if updated != current:
-            self.set_parameter_value("output_file", updated)
-            self.publish_update_to_parameter("output_file", updated)
-
     def _log(self, message: str) -> None:
         with suppress(Exception):
             logger.info(message)
@@ -593,8 +576,14 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         # Show the appropriate number of image output parameters based on actual image count
         self._show_image_output_parameters(len(image_artifacts))
 
+        # These parameters are PROPERTY|OUTPUT, so the stored value backs what the editor renders
+        # while the output value feeds downstream nodes. Setting only the output leaves the stored
+        # value empty and the image shows as a placeholder until a reload rehydrates it. This is
+        # the same set/publish/output sequence ExecutionStatusComponent uses for its own params.
         for idx, artifact in enumerate(image_artifacts, start=1):
             param_name = "image_url" if idx == 1 else f"image_url_{idx}"
+            self.set_parameter_value(param_name, artifact)
+            self.publish_update_to_parameter(param_name, artifact)
             self.parameter_output_values[param_name] = artifact
 
         # Set success status
