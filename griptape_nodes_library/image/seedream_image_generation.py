@@ -146,8 +146,7 @@ MAX_IMAGES_PER_MODEL = {
     "Seedream 4.5": 14,
 }
 
-# Models that accept the output_format field. Everything else returns JPEG regardless.
-OUTPUT_FORMAT_MODELS = frozenset({"Seedream 5.0 Pro", "Seedream 5.0 Lite"})
+OUTPUT_FORMAT_OPTIONS = ["jpeg", "png"]
 
 # Prompt optimization modes each model accepts. Only Seedream 5.0 Pro takes "fast"; the others
 # reject the request with "optimize_prompt_options.mode must be 'standard'". The first entry is
@@ -319,7 +318,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
                 default_value="jpeg",
                 tooltip="Output image format (Seedream 5.0 Pro and 5.0 Lite only)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["jpeg", "png"])},
+                traits={Options(choices=OUTPUT_FORMAT_OPTIONS)},
                 ui_options={"hide": True},
             )
 
@@ -511,17 +510,6 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             )
         else:
             size_parameter.clear_badge()
-
-    def _requested_output_format(self) -> str:
-        """Return the output format actually sent to the provider for the selected model.
-
-        Only Seedream 5.0 Pro and 5.0 Lite accept output_format; for anything else the provider
-        decides and returns JPEG, so the parameter's value must not be trusted.
-        """
-        model = self.get_parameter_value("model") or DEFAULT_MODEL
-        if model not in OUTPUT_FORMAT_MODELS:
-            return "jpeg"
-        return self.get_parameter_value("output_format") or "jpeg"
 
     def _log(self, message: str) -> None:
         with suppress(Exception):
@@ -821,15 +809,6 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         try:
             self._log(f"Downloading image {index} from URL")
             image_bytes = await self._download_bytes_from_url(image_url)
-
-            # PNG is re-encoded so workflow metadata can be embedded automatically. JPEG is
-            # written through untouched: re-encoding it would both lose quality and contradict
-            # the output_format the provider was asked for.
-            if self._requested_output_format() == "png":
-                pil_image = Image.open(BytesIO(image_bytes))
-                png_buffer = BytesIO()
-                pil_image.save(png_buffer, format="PNG")
-                image_bytes = png_buffer.getvalue()
 
             dest = self._output_file.build_file(_index=index)
             saved = await dest.awrite_bytes(image_bytes)
