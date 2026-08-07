@@ -247,7 +247,7 @@ top_level_unique_values_dict = {
         b"\x80\x04\x95'\x06\x00\x00\x00\x00\x00\x00]\x94(\x8c\x16griptape.rules.ruleset\x94\x8c\x07Ruleset\x94\x93\x94)\x81\x94}\x94(\x8c\x04type\x94\x8c\x07Ruleset\x94\x8c\x0bmodule_name\x94\x8c\x16griptape.rules.ruleset\x94\x8c\x02id\x94\x8c d5b61a6f74d14775a2427d40e1588f08\x94\x8c\x04name\x94\x8c\x0eMadlibs_expert\x94\x8c\x0eruleset_driver\x94\x8c-griptape.drivers.ruleset.local_ruleset_driver\x94\x8c\x12LocalRulesetDriver\x94\x93\x94)\x81\x94}\x94(h\x06\x8c\x12LocalRulesetDriver\x94h\x08\x8c-griptape.drivers.ruleset.local_ruleset_driver\x94\x8c\x0fraise_not_found\x94\x88\x8c\x0bpersist_dir\x94Nub\x8c\x04meta\x94}\x94\x8c\x05rules\x94]\x94(\x8c\x13griptape.rules.rule\x94\x8c\x04Rule\x94\x93\x94)\x81\x94}\x94(h\x06\x8c\x04Rule\x94h\x08\x8c\x13griptape.rules.rule\x94h\x18}\x94\x8c\x05value\x94X1\x01\x00\x00You create hilarious fill-in-the-blank stories called StoryFills.\nWhenever you want the player to supply a word, use <ALL CAPS> placeholders like <NOUN>, <VERB>, or <ADJECTIVE>.\nFor repeats, add _2, _3, etc. (e.g. <NAME> met <NAME_2>).\nKeep your stories funny, creative, and short enough to fill in easily\x94ubh\x1e)\x81\x94}\x94(h\x06h!h\x08h\"h\x18}\x94h$\x8c\x1eThis story will be read aloud.\x94ubeubh\x03)\x81\x94}\x94(h\x06\x8c\x07Ruleset\x94h\x08\x8c\x16griptape.rules.ruleset\x94h\n\x8c 5289224473354cd288b482ce5dc07653\x94h\x0c\x8c\x11elevenlabs_expert\x94h\x0eh\x11)\x81\x94}\x94(h\x06\x8c\x12LocalRulesetDriver\x94h\x08\x8c-griptape.drivers.ruleset.local_ruleset_driver\x94h\x16\x88h\x17Nubh\x18}\x94h\x1a]\x94(h\x1e)\x81\x94}\x94(h\x06\x8c\x04Rule\x94h\x08\x8c\x13griptape.rules.rule\x94h\x18}\x94h$X\x03\x01\x00\x00You liberally use tags to create more interesting stories, including voice-related, sound effects, and even experimental tags. Examples:\n[whispers] this is incredible\n[excited] oh my goodness!\n[gunshot], [clapping]\n[fart]\n[strong French accent] Zat's amazing.\x94ubh\x1e)\x81\x94}\x94(h\x06h8h\x08h9h\x18}\x94h$\x8cHEllipses (...) add pauses and weight.\nCapitalization increases emphasis.\x94ubh\x1e)\x81\x94}\x94(h\x06h8h\x08h9h\x18}\x94h$\x8cPWe'll be reading your story, so use lots of tags to create dynamic storytelling.\x94ubeube."
     ),
     "5ef14c81-23ea-4f4d-83c2-255cab104f86": pickle.loads(
-        b"\x80\x04\x95\x10\x00\x00\x00\x00\x00\x00\x00\x8c\x0cseedream-4.5\x94."
+        b"\x80\x04\x95\x10\x00\x00\x00\x00\x00\x00\x00\x8c\x0cSeedream 4.5\x94."
     ),
     "9af35fd0-02e1-49f1-87db-4e32c6dfa301": pickle.loads(b"\x80\x04]\x94."),
     "f71fb19f-da99-4b8c-a850-430516b6e347": pickle.loads(
@@ -1253,7 +1253,7 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
                 "tempId": "placing-1761416367933-i7o8ik",
                 "library_node_metadata": {
                     "category": "image",
-                    "description": "Generate images using Seedream models (seedream-4.0, seedream-3.0-t2i) via Griptape model proxy",
+                    "description": "Generate images using Seedream models via Griptape model proxy",
                 },
                 "library": "Griptape Nodes Library",
                 "node_type": "SeedreamImageGeneration",

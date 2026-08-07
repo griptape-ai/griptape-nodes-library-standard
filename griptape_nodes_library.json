@@ -370,12 +370,6 @@
                 "provider_model_id": "seedream-4-5-251128",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
-              "gtc_seedream_4_0": {
-                "display_name": "Seedream 4.0",
-                "family": "Seedream",
-                "provider_model_id": "seedream-4-0-250828",
-                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
-              },
               "gtc_seedance_1_5_pro": {
                 "display_name": "Seedance 1.5 Pro",
                 "family": "Seedance",
@@ -4604,8 +4598,7 @@
             "model_ids": [
               "gtc_seedream_5_0_pro",
               "gtc_seedream_5_0_lite",
-              "gtc_seedream_4_5",
-              "gtc_seedream_4_0"
+              "gtc_seedream_4_5"
             ]
           }
         ]
