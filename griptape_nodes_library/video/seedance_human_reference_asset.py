@@ -47,18 +47,18 @@ _ACCESS_BADGE_TITLE = "Provider-asset access required"
 
 
 class SeedanceHumanReferenceAsset(DataNode):
-    """Package media as a private-asset reference for Seedance 2.0 human-reference inputs.
+    """Package media as a private-asset reference for Seedance human-reference inputs.
 
     Use this node for human-reference inputs (e.g. AIGC virtual-portrait images) that should be
-    registered as provider private assets, rather than plugging media directly into the
-    Seedance 2.0 reference inputs.
+    registered as provider private assets, rather than plugging media directly into a Seedance
+    node's reference inputs.
 
     Choose the asset kind (Image/Video/Audio) and supply the matching media. The node outputs a
     provider-asset reference carrying that media and kind; connect it into the matching reference
-    input on the Seedance 2.0 node (Reference Images, Reference Video, or Reference Audio). The
-    Seedance node registers the asset with the provider at generation time and references it via
-    `asset://{asset_id}`. Private-asset references are only supported by the Seedance 2.0 model
-    (not Seedance 2.0 Fast).
+    input on a Seedance video generation node (Reference Images, Reference Videos, or Reference
+    Audio). That node registers the asset with the provider at generation time and references it
+    via `asset://{asset_id}`. Private-asset references require Griptape authentication; they are
+    not available when the node uses your own provider key.
 
     Access to the provider-asset feature is org-gated. If the configured API key cannot use the
     provider-asset APIs, this node shows an error and asks an admin to request access from Foundry.
@@ -74,7 +74,7 @@ class SeedanceHumanReferenceAsset(DataNode):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.category = "video/seedance"
-        self.description = "Package media as a provider private-asset reference for Seedance 2.0"
+        self.description = "Package media as a provider private-asset reference for Seedance"
 
         self.add_parameter(
             ParameterString(
@@ -118,14 +118,14 @@ class SeedanceHumanReferenceAsset(DataNode):
         )
 
         # Output type/output_type is swapped per Asset Kind in _update_media_visibility so the
-        # connection (and edge color) matches the matching Seedance 2.0 reference input.
+        # connection (and edge color) matches the matching Seedance reference input.
         initial_type = reference_type_name_for_kind(ASSET_KIND_IMAGE)
         self._asset_reference_param = Parameter(
             name="asset_reference",
             type=initial_type,
             output_type=initial_type,
             default_value=None,
-            tooltip="The packaged private-asset reference. Connect into a Seedance 2.0 reference input.",
+            tooltip="The packaged private-asset reference. Connect into a Seedance reference input.",
             allowed_modes={ParameterMode.OUTPUT},
             settable=False,
             ui_options={"display_name": "Asset Reference", "pulse_on_run": True},
@@ -232,7 +232,7 @@ class SeedanceHumanReferenceAsset(DataNode):
                 self.hide_parameter_by_name(param_name)
 
         # Retype the output so the connection (and edge color) matches the receiving
-        # Seedance 2.0 reference input for this kind.
+        # Seedance reference input for this kind.
         reference_type = reference_type_name_for_kind(kind)
         self._asset_reference_param.type = reference_type
         self._asset_reference_param.output_type = reference_type
