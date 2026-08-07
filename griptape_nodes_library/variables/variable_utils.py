@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
     from griptape_nodes.retained_mode.variable_types import FlowVariable, VariableScope
@@ -169,6 +169,48 @@ def has_variable(node_name: str, variable_name: str, scope: "VariableScope") -> 
         msg = f"Failed to check variable: {result.result_details}"
         raise RuntimeError(msg)  # noqa: TRY004
     return result.exists
+
+
+def get_variables(node_name: str, names: list[str], scope: "VariableScope") -> dict[str, Any]:
+    """Probe the Variables system for specific names, returning the ones that resolve.
+
+    The named companion to ``list_variables``: it answers "of THESE names, which
+    resolve and to what?" A miss is not an error — unresolved names are simply
+    absent from the returned dict, leaving the caller to decide what to do.
+
+    Args:
+        node_name: The name of the node making the request
+        names: Variable names to probe. Must be non-empty.
+        scope: The scope to search for variables within
+
+    Returns:
+        Mapping of variable name -> value for every probed name that resolved.
+
+    Raises:
+        LookupError: If the probe itself could not run (e.g. empty names or an
+            unknown starting flow).
+    """
+    # Lazy imports to avoid circular import issues
+    from griptape_nodes.retained_mode.events.variable_events import (
+        GetVariablesRequest,
+        GetVariablesResultSuccess,
+    )
+    from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
+    # Try to resolve via the node's registered flow; fall back to the Context Manager's
+    # active flow (starting_flow=None) so hierarchical lookups still work if the node
+    # is not yet attached to a flow.
+    try:
+        current_flow_name = _get_flow_for_node(node_name)
+    except RuntimeError:
+        current_flow_name = None
+
+    request = GetVariablesRequest(names=names, lookup_scope=scope, starting_flow=current_flow_name)
+    result = GriptapeNodes.handle_request(request)
+    if not isinstance(result, GetVariablesResultSuccess):
+        msg = f"Failed to probe variables: {result.result_details}"
+        raise LookupError(msg)  # noqa: TRY004
+    return result.variables
 
 
 def _get_flow_for_node(node_name: str) -> str:

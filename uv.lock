@@ -703,7 +703,7 @@ loaders-pdf = [
 
 [[package]]
 name = "griptape-nodes-engine"
-version = "0.93.0"
+version = "0.95.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -716,7 +716,7 @@ dependencies = [
     { name = "httpx" },
     { name = "huggingface-hub" },
     { name = "json-repair" },
-    { name = "mcp", extra = ["ws"] },
+    { name = "mcp" },
     { name = "packaging" },
     { name = "pillow" },
     { name = "portalocker" },
@@ -741,9 +741,9 @@ dependencies = [
     { name = "websockets" },
     { name = "xdg-base-dirs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c8/e5/da6f0cb8a999350c44b20397a4f955a7099371b5da31abe78a96cfad9e12/griptape_nodes_engine-0.93.0.tar.gz", hash = "sha256:13cd316d38b9825a5cc8979668a594d52305ddad4f7ae8db08d8e54e981e1ac9", size = 1071800, upload-time = "2026-07-15T19:24:56.621Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c0/a6/2e797d5f1ccfc3d0a7a08d95a246dfa3bac8c05c831db125fcc6955791bc/griptape_nodes_engine-0.95.0.tar.gz", hash = "sha256:f6cf4deaca518620d7a13e9d85efa198078a56dccff83dee58230586b5fa70a2", size = 1096781, upload-time = "2026-08-04T17:57:40.27Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3a/e5/6ee45fd087b35187a4b10728a9fe8778dea96f50e43d92a260b23e1608af/griptape_nodes_engine-0.93.0-py3-none-any.whl", hash = "sha256:b2096d86641286254440701f330990cc08e69cbd4b59f69da80eb9ccf4c6caaa", size = 1312012, upload-time = "2026-07-15T19:24:54.905Z" },
+    { url = "https://files.pythonhosted.org/packages/da/ab/ec213aa53af66c7c7d896adde25b2c1afc189e6e9deef9f73cdcd92d372e/griptape_nodes_engine-0.95.0-py3-none-any.whl", hash = "sha256:84aae1c9fdfa59af3031f493ae51d59ac7a2d4b4daaef32ed798cb20929c2bb1", size = 1338072, upload-time = "2026-08-04T17:57:38.543Z" },
 ]
 
 [[package]]
@@ -781,7 +781,7 @@ requires-dist = [
     { name = "asteval", specifier = ">=1.0.8" },
     { name = "color-matcher" },
     { name = "griptape", extras = ["drivers-prompt-amazon-bedrock", "drivers-prompt-anthropic", "drivers-prompt-cohere", "drivers-prompt-ollama", "drivers-web-scraper-trafilatura", "drivers-web-search-duckduckgo", "drivers-web-search-exa", "loaders-image", "loaders-pdf"], specifier = ">=1.9.4" },
-    { name = "griptape-nodes-engine", specifier = ">=0.93.0" },
+    { name = "griptape-nodes-engine", specifier = ">=0.95.0" },
     { name = "jmespath", specifier = ">=1.0.1" },
     { name = "json-repair", specifier = ">=0.46.1" },
     { name = "json-schema-to-pydantic", specifier = ">=0.4.6" },
@@ -1350,11 +1350,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/fc/6d/62e76bbb8144d6ed86e202b5edd8a4cb631e7c8130f3f4893c3f90262b10/mcp-1.26.0.tar.gz", hash = "sha256:db6e2ef491eecc1a0d93711a76f28dec2e05999f93afd48795da1c1137142c66", size = 608005, upload-time = "2026-01-24T19:40:32.468Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fd/d9/eaa1f80170d2b7c5ba23f3b59f766f3a0bb41155fbc32a69adfa1adaaef9/mcp-1.26.0-py3-none-any.whl", hash = "sha256:904a21c33c25aa98ddbeb47273033c435e595bbacfdb177f4bd87f6dceebe1ca", size = 233615, upload-time = "2026-01-24T19:40:30.652Z" },
-]
-
-[package.optional-dependencies]
-ws = [
-    { name = "websockets" },
 ]
 
 [[package]]

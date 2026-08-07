@@ -30,7 +30,7 @@
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
     "library_version": "0.83.0",
-    "engine_version": "0.93.0",
+    "engine_version": "0.95.0",
     "tags": [
       "Griptape",
       "AI"
@@ -5874,6 +5874,24 @@
           "text",
           "search",
           "replace"
+        ]
+      }
+    },
+    {
+      "class_name": "ResolveMacroTemplate",
+      "file_path": "griptape_nodes_library/text/resolve_macro_template.py",
+      "metadata": {
+        "category": "text",
+        "description": "Resolve a macro template string by substituting variables from a dictionary. Fails with details if a variable is missing or the template has invalid syntax.",
+        "display_name": "Resolve Macro Template",
+        "icon": "braces",
+        "group": "edit",
+        "tags": [
+          "text",
+          "template",
+          "macro",
+          "resolve",
+          "substitute"
         ]
       }
     },
