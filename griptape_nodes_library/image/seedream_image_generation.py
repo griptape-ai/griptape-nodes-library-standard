@@ -46,16 +46,29 @@ MODEL_NAME_MAP = {
 
 # Size options for different models (using friendly names)
 SIZE_OPTIONS = {
-    # Provisional: Seedream 5.0 Pro's accepted sizes are unconfirmed because the account is
-    # not yet activated for the model. The proxy prices "1.5K" and "2K" by name and splits
-    # its cost tiers at 2,360,000px, which implies Pro accepts sub-2.36MP output (unlike
-    # Seedream 5.0 Lite, which enforces a 3,686,400px floor). Explicit WxH values are priced
-    # by their pixel product. Keep this list short until the values can be probed.
+    # A resolution token lets the model choose the aspect ratio from the prompt; an explicit
+    # WxH pins it. 1K and 1.5K cost the same, so 1K's explicit dimensions are omitted as
+    # strictly lower quality for the price; the token remains for smaller, faster output.
     "Seedream 5.0 Pro": [
+        "1K",
         "1.5K",
+        "2K",
+        "1536x1536",
+        "1792x1344",
+        "1344x1792",
         "2048x1152",
         "1152x2048",
-        "2K",
+        "1872x1248",
+        "1248x1872",
+        "2352x1008",
+        "2048x2048",
+        "2368x1776",
+        "1776x2368",
+        "2816x1584",
+        "1584x2816",
+        "2496x1664",
+        "1664x2496",
+        "3136x1344",
     ],
     "Seedream 5.0 Lite": [
         "2K",
@@ -106,7 +119,8 @@ SIZE_OPTIONS = {
 DEFAULT_MODEL = "Seedream 4.5"
 
 # Size selected when the current size isn't offered by the newly selected model.
-# Seedream 5.0 Pro defaults to the provider's own default, which is also its cheaper tier.
+# Seedream 5.0 Pro deliberately differs from the provider default of 2K: 1.5K is billed at the
+# 1K rate while producing better images, so it is the best value rather than the cheapest option.
 DEFAULT_SIZE_PER_MODEL = {
     "Seedream 5.0 Pro": "1.5K",
     "Seedream 5.0 Lite": "2K",
@@ -137,10 +151,11 @@ class SeedreamImageGeneration(GriptapeProxyNode):
 
     Supports four models:
     - Seedream 5.0 Pro: Single-image model with optional multiple image inputs (up to 10).
-      Does not support batch generation, so max_images does not apply.
+      Rejects the batch generation fields outright, so max_images does not apply.
       Reference images after the first are billed, unlike the other Seedream models.
-      Size options are provisional pending confirmation against the provider; images above
-      2,360,000 pixels cost twice as much as smaller ones.
+      Size options: 1K, 1.5K, 2K (aspect ratio taken from the prompt) or explicit dimensions.
+      Total pixels range: [921,600, 4,624,220], Aspect ratio: [1/16, 16]
+      1K and 1.5K are billed at the same rate; 2K costs twice as much.
     - Seedream 5.0 Lite: Text-to-image model with optional multiple image inputs (up to 14)
       Size options: 2K, 3K (auto aspect ratio) or explicit dimensions (2048x2048 to 4096x2304)
       Total pixels range: [3,686,400, 10,404,496], Aspect ratio: [1/16, 16]
@@ -157,8 +172,9 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         - images (list): Multiple input images (Seedream 5.0 Lite/4.5 support up to 14, Seedream 5.0 Pro and 4.0 up to 10)
         - size (str): Image size specification (dynamic options based on selected model)
         - max_images (int): Maximum number of images to generate (1-15, not supported by Seedream 5.0 Pro)
-        - output_format (str): Output image format - jpeg or png (Seedream 5.0 Lite only, default: jpeg)
-        - optimize_prompt_mode (str): Prompt optimization mode - standard or fast (Seedream 5.0 Lite and 4.0 only, default: standard)
+        - output_format (str): Output image format - jpeg or png (Seedream 5.0 Pro and 5.0 Lite only, default: jpeg)
+        - optimize_prompt_mode (str): Prompt optimization mode - standard or fast (not supported by Seedream 4.5;
+          fast is only supported by Seedream 5.0 Pro and 4.0, default: standard)
 
     Outputs:
         - generation_id (str): Generation ID from the API
@@ -275,7 +291,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             ParameterString(
                 name="output_format",
                 default_value="jpeg",
-                tooltip="Output image format (Seedream 5.0 Lite only)",
+                tooltip="Output image format (Seedream 5.0 Pro and 5.0 Lite only)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=["jpeg", "png"])},
                 ui_options={"hide": True},
@@ -284,7 +300,10 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             ParameterString(
                 name="optimize_prompt_mode",
                 default_value="standard",
-                tooltip="Prompt optimization mode: standard (higher quality) or fast (Seedream 5.0 Lite and 4.0 only)",
+                tooltip=(
+                    "Prompt optimization mode: standard (higher quality) or fast. "
+                    "Seedream 4.5 does not support this; only Seedream 5.0 Pro and 4.0 support fast."
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=["standard", "fast"])},
                 ui_options={"hide": True},
@@ -360,8 +379,9 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         """Show or hide the model-dependent generation settings for the selected model."""
         match model:
             case "Seedream 5.0 Pro":
-                # Pro takes neither the batch fields nor the Lite/4.0 prompt and format options.
-                visible = set()
+                # Pro rejects the batch fields outright, but does take output_format and
+                # prompt optimization (including the "fast" mode that Lite refuses).
+                visible = {"output_format", "optimize_prompt_mode"}
             case "Seedream 5.0 Lite":
                 visible = {"max_images", "output_format", "optimize_prompt_mode"}
             case "Seedream 4.0":
@@ -436,20 +456,20 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             self._update_option_choices("size", new_choices, default_size)
 
     def _update_size_badge(self, model: str) -> None:
-        """Warn about Seedream 5.0 Pro's unconfirmed sizes and its two cost tiers."""
+        """Surface Seedream 5.0 Pro's two price tiers, which the size choices don't convey."""
         size_parameter = self.get_parameter_by_name("size")
         if size_parameter is None:
             return
 
         if model == "Seedream 5.0 Pro":
             size_parameter.set_badge(
-                variant="warning",
-                title="Sizes are provisional",
+                variant="note",
+                title="2K costs twice as much",
                 message=(
-                    "Seedream 5.0 Pro's accepted sizes have not been confirmed against the provider yet, "
-                    "so a size may be rejected.\n\n"
-                    "Cost scales with resolution: anything above 2,360,000 pixels (such as `2K`) "
-                    "costs twice as much as `1.5K`."
+                    "`1K` and `1.5K` are billed at the same rate, so `1.5K` is the better value. "
+                    "`2K` and any explicit size above 2,360,000 pixels cost twice as much.\n\n"
+                    "A resolution level (`1K`, `1.5K`, `2K`) lets the model pick the aspect ratio "
+                    "from your prompt; an explicit `WxH` pins it."
                 ),
             )
         else:
@@ -597,8 +617,9 @@ class SeedreamImageGeneration(GriptapeProxyNode):
 
         match model:
             case "Seedream 5.0 Pro":
-                # Pro generates a single image and does not accept the batch fields.
-                pass
+                # Pro generates a single image and errors if the batch fields are present.
+                payload["output_format"] = params.get("output_format", "jpeg")
+                payload["optimize_prompt_options"] = {"mode": params.get("optimize_prompt_mode", "standard")}
             case "Seedream 5.0 Lite":
                 self._add_batch_payload_fields(payload, params)
                 payload["output_format"] = params.get("output_format", "jpeg")
