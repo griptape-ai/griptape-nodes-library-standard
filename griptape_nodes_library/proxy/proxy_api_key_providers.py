@@ -141,6 +141,7 @@ _NODE_PROVIDER_CONFIGS = {
     "Rodin23DGeneration": RODIN,
     "SeedanceVideoGeneration": SEED,
     "Seedance20VideoGeneration": SEED,
+    "Seedance25VideoGeneration": SEED,
     "SeedreamImageGeneration": SEED,
     "SoraVideoGeneration": OPENAI,
     "TopazImageEnhance": TOPAZ,

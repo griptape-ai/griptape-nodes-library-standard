@@ -29,7 +29,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.82.0",
+    "library_version": "0.83.0",
     "engine_version": "0.96.0",
     "tags": [
       "Griptape",
@@ -382,6 +382,12 @@
           "bytedance_seed": {
             "display_name": "ByteDance Seed",
             "models": {
+              "gtc_seedream_5_0_pro": {
+                "display_name": "Seedream 5.0 Pro",
+                "family": "Seedream",
+                "provider_model_id": "dola-seedream-5-0-pro-260628",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
               "gtc_seedream_5_0_lite": {
                 "display_name": "Seedream 5.0 Lite",
                 "family": "Seedream",
@@ -392,12 +398,6 @@
                 "display_name": "Seedream 4.5",
                 "family": "Seedream",
                 "provider_model_id": "seedream-4-5-251128",
-                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
-              },
-              "gtc_seedream_4_0": {
-                "display_name": "Seedream 4.0",
-                "family": "Seedream",
-                "provider_model_id": "seedream-4-0-250828",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_seedance_1_5_pro": {
@@ -434,6 +434,12 @@
                 "display_name": "Seedance 2.0 Mini",
                 "family": "Seedance",
                 "provider_model_id": "dreamina-seedance-2-0-mini-260615",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedance_2_5": {
+                "display_name": "Seedance 2.5",
+                "family": "Seedance",
+                "provider_model_id": "dreamina-seedance-2-5-260628",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_omnihuman_1_0": {
@@ -2469,11 +2475,37 @@
       }
     },
     {
+      "class_name": "Seedance25VideoGeneration",
+      "file_path": "griptape_nodes_library/video/seedance_2_5_video_generation.py",
+      "metadata": {
+        "category": "video",
+        "description": "Generate a video using Seedance 2.5 with multimodal references, editing, and extension via Griptape Cloud model proxy.",
+        "display_name": "Seedance 2.5 Video Generation",
+        "icon": "Sparkles",
+        "group": "create",
+        "tags": [
+          "video",
+          "generation",
+          "ai",
+          "api",
+          "seedance"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_seedance_2_5"
+            ]
+          }
+        ]
+      }
+    },
+    {
       "class_name": "SeedanceHumanReferenceAsset",
       "file_path": "griptape_nodes_library/video/seedance_human_reference_asset.py",
       "metadata": {
         "category": "video/seedance",
-        "description": "Package an image, video, or audio as a private-asset reference for Seedance 2.0 human-reference inputs.",
+        "description": "Package an image, video, or audio as a private-asset reference for Seedance human-reference inputs.",
         "display_name": "Seedance Human Reference Asset",
         "icon": "Link",
         "group": "create",
@@ -4636,9 +4668,9 @@
           {
             "type": "model_usage",
             "model_ids": [
+              "gtc_seedream_5_0_pro",
               "gtc_seedream_5_0_lite",
-              "gtc_seedream_4_5",
-              "gtc_seedream_4_0"
+              "gtc_seedream_4_5"
             ]
           }
         ]

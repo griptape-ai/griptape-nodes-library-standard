@@ -25,8 +25,8 @@ from griptape_nodes_library.video.seedance_2_0_video_generation import (
     SEEDANCE_2_0_MODEL_ID,
     SEEDANCE_MODEL_CAPABILITIES,
     Seedance20VideoGeneration,
-    _normalize_audio_data_uri_subtype,
 )
+from griptape_nodes_library.video.seedance_common import normalize_audio_data_uri_subtype
 
 
 def _set_parameter_list_values(node: Seedance20VideoGeneration, parameter_name: str, values: list[object]) -> None:
@@ -259,7 +259,7 @@ async def test_build_payload_includes_multimodal_video_url_and_audio_base64() ->
     ],
 )
 def test_normalize_audio_data_uri_subtype(data_uri: str, expected: str) -> None:
-    assert _normalize_audio_data_uri_subtype(data_uri) == expected
+    assert normalize_audio_data_uri_subtype(data_uri) == expected
 
 
 @pytest.mark.asyncio

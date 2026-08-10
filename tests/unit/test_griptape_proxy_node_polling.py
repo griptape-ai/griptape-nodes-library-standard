@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import importlib
+import inspect
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,16 @@ from griptape_nodes_library.image.flux_2_image_generation import Flux2ImageGener
 
 
 def _iter_proxy_node_classes() -> Iterator[tuple[str, str]]:
+    """Yield every concrete GriptapeProxyNode subclass in the library, however deep.
+
+    Some nodes derive from an intermediate abstract base (e.g. SeedanceProxyNode) rather than
+    directly from GriptapeProxyNode, so the base names are resolved to a fixed point. Abstract
+    bases are skipped: they cannot be instantiated and it's their concrete subclasses that owe
+    the timeout parameter.
+    """
     library_root = Path(__file__).parents[2] / "griptape_nodes_library"
+
+    classes: list[tuple[str, str, set[str]]] = []
     for path in sorted(library_root.rglob("*.py")):
         module_rel_path = path.relative_to(library_root.parent)
         module_name = ".".join(module_rel_path.with_suffix("").parts)
@@ -21,9 +31,23 @@ def _iter_proxy_node_classes() -> Iterator[tuple[str, str]]:
         for node in tree.body:
             if not isinstance(node, ast.ClassDef):
                 continue
-            if not any(isinstance(base, ast.Name) and base.id == "GriptapeProxyNode" for base in node.bases):
-                continue
-            yield node.name, module_name
+            base_names = {base.id for base in node.bases if isinstance(base, ast.Name)}
+            classes.append((node.name, module_name, base_names))
+
+    proxy_base_names = {"GriptapeProxyNode"}
+    while True:
+        matched = {name for name, _module, bases in classes if bases & proxy_base_names}
+        if matched <= proxy_base_names:
+            break
+        proxy_base_names |= matched
+
+    for class_name, module_name, base_names in classes:
+        if not base_names & proxy_base_names:
+            continue
+        node_class = getattr(importlib.import_module(module_name), class_name)
+        if inspect.isabstract(node_class):
+            continue
+        yield class_name, module_name
 
 
 PROXY_NODE_CLASSES = tuple(_iter_proxy_node_classes())
