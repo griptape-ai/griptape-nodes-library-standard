@@ -3,8 +3,8 @@ from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.events import ActionChunkEvent, FinishStructureRunEvent, StartStructureRunEvent, TextChunkEvent
 from griptape.structures import Agent, Structure
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
+from griptape_nodes_library.utils.cloud_credential_utils import resolve_cloud_api_key
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
@@ -20,7 +20,7 @@ class BaseTask(ControlNode):
     def create_driver(self, model: str = "gpt-4.1") -> GriptapeCloudPromptDriver:
         return GriptapeCloudPromptDriver(
             model=model,
-            api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
+            api_key=resolve_cloud_api_key(),
             stream=True,
         )
 

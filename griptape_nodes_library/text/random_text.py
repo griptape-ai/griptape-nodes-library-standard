@@ -14,6 +14,10 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
+from griptape_nodes_library.utils.cloud_credential_utils import (
+    missing_credential_message,
+    resolve_cloud_api_key,
+)
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
@@ -218,9 +222,9 @@ class RandomText(DataNode):
 
     def _initialize_agent(self) -> None:
         """Initialize the Griptape Agent for text generation."""
-        api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
+        api_key = resolve_cloud_api_key()
         if not api_key:
-            msg = f"{API_KEY_ENV_VAR} is not defined"
+            msg = missing_credential_message("generate random text")
             raise KeyError(msg)
 
         prompt_driver = GriptapeCloudPromptDriver(model=MODEL, api_key=api_key, stream=True)

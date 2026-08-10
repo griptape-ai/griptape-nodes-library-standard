@@ -13,12 +13,15 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
 from griptape_nodes_library.utils.agent_utils import restore_provider_driver, unwrap_agent, wrap_agent
+from griptape_nodes_library.utils.cloud_credential_utils import (
+    missing_credential_message,
+    resolve_cloud_api_key,
+)
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
@@ -153,13 +156,13 @@ class GenerateImage(ControlNode):
     def validate_before_workflow_run(self) -> list[Exception] | None:
         # TODO: https://github.com/griptape-ai/griptape-nodes/issues/871
         exceptions = []
-        api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
+        api_key = resolve_cloud_api_key()
         if not api_key:
             # If we have an agent or a driver, the lack of API key will be surfaced on them, not us.
             agent_val = self.parameter_values.get("agent", None)
             driver_val = self.parameter_values.get("driver", None)
             if agent_val is None and driver_val is None:
-                msg = f"{API_KEY_ENV_VAR} is not defined"
+                msg = missing_credential_message("generate an image")
                 exceptions.append(KeyError(msg))
 
         # Validate that we have a prompt.
@@ -233,7 +236,7 @@ class GenerateImage(ControlNode):
         if not agent_input:
             prompt_driver = GriptapeCloudPromptDriver(
                 model="gpt-4o",
-                api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
+                api_key=resolve_cloud_api_key(),
                 stream=True,
             )
             agent = GtAgent(prompt_driver=prompt_driver)
@@ -293,7 +296,7 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
             driver = GriptapeCloudImageGenerationDriver(
                 model=model_input,
                 image_size=self.get_parameter_value("image_size"),
-                api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
+                api_key=resolve_cloud_api_key(),
                 # Don't retry on HTTP errors, we want to fail fast.
                 ignored_exception_types=(requests.exceptions.HTTPError,),
             )
@@ -301,7 +304,7 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
             driver = GriptapeCloudImageGenerationDriver(
                 model=DEFAULT_MODEL,
                 image_size=self.get_parameter_value("image_size"),
-                api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
+                api_key=resolve_cloud_api_key(),
                 ignored_exception_types=(requests.HTTPError,),
             )
 
