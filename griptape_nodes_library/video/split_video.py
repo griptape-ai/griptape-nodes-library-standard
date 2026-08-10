@@ -14,9 +14,13 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.utils.cloud_credential_utils import (
+    missing_credential_message,
+    resolve_cloud_api_key,
+)
 from griptape_nodes_library.utils.ffmpeg_utils import (
     build_video_segment_cmd,
     detect_video_properties,
@@ -197,9 +201,9 @@ class SplitVideo(SuccessFailureNode):
         self.split_videos_list.clear_list()
 
     def _parse_timecodes_with_agent(self, timecodes_str: str) -> str:
-        api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
+        api_key = resolve_cloud_api_key()
         if not api_key:
-            error_msg = f"No API key found for {SERVICE}. Please set {API_KEY_ENV_VAR} environment variable."
+            error_msg = missing_credential_message("parse the timecodes")
             raise ValueError(error_msg)
 
         prompt_driver = GriptapeCloudPromptDriver(

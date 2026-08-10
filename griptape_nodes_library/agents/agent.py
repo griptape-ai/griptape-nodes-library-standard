@@ -57,6 +57,10 @@ from griptape_nodes_library.utils.agent_utils import (
     unwrap_agent,
     wrap_agent,
 )
+from griptape_nodes_library.utils.cloud_credential_utils import (
+    missing_credential_message,
+    resolve_cloud_api_key,
+)
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
@@ -701,10 +705,14 @@ class Agent(ControlNode):
     def validate_before_workflow_run(self) -> list[Exception] | None:
         """Performs pre-run validation checks for the node.
 
-        The Griptape Cloud API key is only required when the node would fall back
+        A Griptape Cloud credential is only required when the node would fall back
         to the default Griptape Cloud prompt driver. A connected agent carries its
         own driver, and a connected prompt driver (Prompt Model Config) supplies its
-        own credentials, so neither needs the cloud key.
+        own credentials, so neither needs the cloud credential.
+
+        Either credential is accepted: a Griptape Nodes License or a Griptape Cloud
+        API key. Griptape Cloud's chat endpoints authenticate a License, so a
+        license-only user (no `GT_CLOUD_API_KEY` at all) must not be blocked here.
 
         Returns:
             A list of Exception objects if validation fails, otherwise None.
@@ -716,11 +724,11 @@ class Agent(ControlNode):
         if not self._provider.uses_griptape_cloud_driver():
             return None
 
-        # Check to see if the API key is set.
-        api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
+        # Check to see if either credential is set.
+        api_key = resolve_cloud_api_key()
 
         if not api_key:
-            msg = f"{API_KEY_ENV_VAR} is not defined"
+            msg = missing_credential_message("run the Agent")
             exceptions.append(KeyError(msg))
             return exceptions
 
@@ -790,7 +798,7 @@ class Agent(ControlNode):
         include_details = self.get_parameter_value("include_details")
         default_prompt_driver = GriptapeCloudPromptDriver(
             model=DEFAULT_MODEL,
-            api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
+            api_key=resolve_cloud_api_key(),
             stream=True,
         )
 
@@ -907,7 +915,7 @@ class Agent(ControlNode):
                 args = {k: v for k, v in args.items() if v is not None}
                 prompt_driver = GriptapeCloudPromptDriver(
                     model=model_input,
-                    api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
+                    api_key=resolve_cloud_api_key(),
                     **args,
                 )
             else:

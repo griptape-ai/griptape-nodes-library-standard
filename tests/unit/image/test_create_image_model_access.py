@@ -19,11 +19,13 @@ from griptape_nodes_library.image.create_image import GenerateImage
 
 
 def _stub_secret(monkeypatch: pytest.MonkeyPatch, value: str | None) -> None:
-    class _FakeSecrets:
-        def get_secret(self, _name: str) -> str | None:
-            return value
+    """Stub the node's Griptape Cloud credential lookup.
 
-    monkeypatch.setattr(create_image_module.GriptapeNodes, "SecretsManager", lambda: _FakeSecrets())
+    Patched at the node's import site rather than via the SecretsManager: the node
+    resolves a License *or* an API key through `resolve_cloud_api_key`, so stubbing
+    one secret name no longer covers it.
+    """
+    monkeypatch.setattr(create_image_module, "resolve_cloud_api_key", lambda: value or "")
 
 
 @pytest.fixture

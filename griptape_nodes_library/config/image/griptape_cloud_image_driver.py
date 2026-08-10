@@ -4,11 +4,14 @@ from griptape.drivers.image_generation.griptape_cloud import (
     GriptapeCloudImageGenerationDriver as GtGriptapeCloudImageGenerationDriver,
 )
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.config.image.base_image_driver import BaseImageDriver
+from griptape_nodes_library.utils.cloud_credential_utils import (
+    missing_credential_message,
+    resolve_cloud_api_key,
+)
 
 # --- Constants ---
 
@@ -101,7 +104,7 @@ class GriptapeCloudImage(BaseImageDriver):
         specific_args = {}
 
         # Retrieve the mandatory API key.
-        specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
+        specific_args["api_key"] = resolve_cloud_api_key()
 
         specific_args["quality"] = self.get_parameter_value("quality")
 
@@ -119,4 +122,8 @@ class GriptapeCloudImage(BaseImageDriver):
             service_name=SERVICE,
             api_key_env_var=API_KEY_ENV_VAR,
             api_key_url=API_KEY_URL,
+            # Griptape Cloud accepts a License as well as an API key; a license-only
+            # user has no GT_CLOUD_API_KEY, so resolve both before deciding.
+            resolved_credential=resolve_cloud_api_key(),
+            missing_credential_msg=missing_credential_message("configure the Griptape Cloud image driver"),
         )
