@@ -7,6 +7,7 @@ from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import patch
 
+import griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter as public_artifact_url_parameter_module
 import griptape_nodes.retained_mode.managers.config_manager as config_manager_module
 import griptape_nodes.retained_mode.managers.secrets_manager as secrets_manager_module
 import pytest
@@ -46,6 +47,24 @@ def run_test_in_isolated_env() -> Generator[None, None, None]:
 
     with _isolated_env():
         yield
+
+
+@pytest.fixture(autouse=True)
+def stub_public_artifact_cloud_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Satisfy the Cloud credential lookup in ``PublicArtifactUrlParameter``.
+
+    The component resolves a Griptape Cloud credential in its constructor and
+    raises when there is none, so every node that builds one fails to construct
+    under ``_isolated_env`` -- which deliberately provides no real secrets.
+    Patched at the component's import site rather than via ``GT_CLOUD_API_KEY``
+    so the tests that assert credential-resolution behaviour keep control of
+    the environment.
+    """
+    monkeypatch.setattr(
+        public_artifact_url_parameter_module,
+        "resolve_cloud_credential",
+        lambda *_args, **_kwargs: "test-api-key",
+    )
 
 
 @pytest.fixture(autouse=True)
