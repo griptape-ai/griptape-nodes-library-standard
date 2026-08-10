@@ -22,6 +22,11 @@ from griptape.events import (
 from griptape.memory.structure import ConversationMemory, Run
 from griptape.structures import Structure
 from griptape.tasks import PromptTask
+from griptape_nodes.drivers.cloud_models import (
+    DEPRECATED_MODELS,
+    MODEL_CHOICES,
+    MODEL_CHOICES_ARGS,
+)
 from griptape_nodes.exe_types.core_types import (
     NodeMessageResult,
     Parameter,
@@ -44,11 +49,6 @@ from jinja2 import Template
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
-from griptape_nodes_library.config.prompt.cloud_models import (
-    DEPRECATED_MODELS,
-    MODEL_CHOICES,
-    MODEL_CHOICES_ARGS,
-)
 from griptape_nodes_library.utils.agent_utils import (
     build_prompt_driver,
     build_rulesets_from_configs,
@@ -66,7 +66,7 @@ _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_
 # --- Constants ---
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_MODEL = "claude-sonnet-5"
 
 
 class Agent(ControlNode):

@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from griptape_nodes.drivers.cloud_models import MODEL_CHOICES_ARGS
 from griptape_nodes.node_library.library_declarations import find_model_catalog, resolve_node_models
 from griptape_nodes.node_library.library_registry import LibrarySchema
 from griptape_nodes.node_library.library_validation import validate_library_declarations
@@ -33,7 +34,6 @@ from griptape_nodes_library.config.image.grok_image_driver import MODEL_CHOICES 
 from griptape_nodes_library.config.image.openai_image_driver import MODEL_CHOICES as OPENAI_IMAGE_MODEL_CHOICES
 from griptape_nodes_library.config.prompt.amazon_bedrock_prompt import MODEL_CHOICES as AMAZON_BEDROCK_MODEL_CHOICES
 from griptape_nodes_library.config.prompt.anthropic_prompt import MODEL_CHOICES as ANTHROPIC_MODEL_CHOICES
-from griptape_nodes_library.config.prompt.cloud_models import MODEL_CHOICES_ARGS
 from griptape_nodes_library.config.prompt.cohere_prompt import MODEL_CHOICES as COHERE_PROMPT_MODEL_CHOICES
 from griptape_nodes_library.config.prompt.grok_prompt import MODEL_CHOICES as GROK_PROMPT_MODEL_CHOICES
 from griptape_nodes_library.config.prompt.groq_prompt import MODEL_CHOICES as GROQ_PROMPT_MODEL_CHOICES

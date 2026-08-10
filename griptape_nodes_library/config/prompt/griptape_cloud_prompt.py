@@ -11,17 +11,17 @@ from typing import Any
 
 import requests
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver as GtGriptapeCloudPromptDriver
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
-from griptape_nodes.traits.button import Button
-
-from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
-from griptape_nodes_library.config.prompt.cloud_models import (
+from griptape_nodes.drivers.cloud_models import (
     DEPRECATED_MODELS,
     MODEL_CHOICES,
     MODEL_CHOICES_ARGS,
     O_SERIES_MODELS,
 )
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.traits.button import Button
+
+from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
 
 # --- Constants ---
 
