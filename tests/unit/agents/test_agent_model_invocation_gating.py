@@ -41,7 +41,9 @@ def _stub_secret(monkeypatch: pytest.MonkeyPatch, value: str | None) -> None:
 def agent_node(monkeypatch: pytest.MonkeyPatch) -> Agent:
     _stub_secret(monkeypatch, "gt-cloud-key")
     node = Agent(name="Agent")
-    node.set_parameter_value("model", "claude-sonnet-4-6")
+    # A current, non-deprecated model that is not the node's default, so the
+    # assertions below distinguish a selected value from the fallback default.
+    node.set_parameter_value("model", "claude-opus-5")
     node.set_parameter_value("prompt", "Hello there")
     return node
 
@@ -61,7 +63,7 @@ def test_declares_invocation_with_selected_model_before_running(
     gen = agent_node.process()
     runner = next(gen)
 
-    assert captured["api_model_id"] == "claude-sonnet-4-6"
+    assert captured["api_model_id"] == "claude-opus-5"
     assert captured["node"] is agent_node
     assert callable(runner)
 
@@ -119,7 +121,7 @@ def test_declares_connected_agents_model_over_stale_dropdown_value(
     upstream = GtStructureAgent(prompt_driver=GriptapeCloudPromptDriver(model="gpt-4.1", api_key="fake-key"))
     agent_node.set_parameter_value("agent", wrap_agent(upstream.to_dict(), [], []))
     # The dropdown still holds its previous selection (set in the fixture).
-    assert agent_node.get_parameter_value("model") == "claude-sonnet-4-6"
+    assert agent_node.get_parameter_value("model") == "claude-opus-5"
 
     captured: dict[str, Any] = {}
 
