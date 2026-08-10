@@ -15,6 +15,8 @@ from griptape.rules import Rule, Ruleset
 from griptape.tasks import PromptTask
 from griptape_nodes.drivers.cloud_models import ProviderID
 
+from griptape_nodes_library.utils.cloud_credential_utils import resolve_cloud_api_key
+
 
 # ---------------------------------------------------------------------------
 # Temporary monkey-patch — remove when https://github.com/griptape-ai/griptape/pull/2200 is merged and released.
@@ -269,7 +271,9 @@ def build_tool_from_config(config: dict) -> object:
         if file_location == "GriptapeCloud":
             from griptape.drivers.file_manager.griptape_cloud import GriptapeCloudFileManagerDriver
 
-            api_key = GriptapeNodes.SecretsManager().get_secret("GT_CLOUD_API_KEY")
+            # A License is a valid Griptape Cloud credential; a license-only user has
+            # no GT_CLOUD_API_KEY to read.
+            api_key = resolve_cloud_api_key()
             bucket_id = config.get("bucket_id", "")
             driver = GriptapeCloudFileManagerDriver(api_key=api_key, bucket_id=bucket_id)
         else:

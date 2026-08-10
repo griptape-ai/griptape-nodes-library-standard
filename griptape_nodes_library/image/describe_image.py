@@ -31,6 +31,10 @@ from griptape_nodes_library.utils.agent_utils import (
     unwrap_agent,
     wrap_agent,
 )
+from griptape_nodes_library.utils.cloud_credential_utils import (
+    missing_credential_message,
+    resolve_cloud_api_key,
+)
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
@@ -277,9 +281,9 @@ class DescribeImage(ControlNode):
         exceptions = []
         if not self._provider.uses_griptape_cloud_driver():
             return None
-        api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
+        api_key = resolve_cloud_api_key()
         if not api_key:
-            msg = f"{API_KEY_ENV_VAR} is not defined"
+            msg = missing_credential_message("describe an image")
             exceptions.append(KeyError(msg))
             return exceptions
         return exceptions if exceptions else None
@@ -364,7 +368,7 @@ class DescribeImage(ControlNode):
 
         default_prompt_driver = GriptapeCloudPromptDriver(
             model=DEFAULT_MODEL,
-            api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
+            api_key=resolve_cloud_api_key(),
             stream=False,  # TODO: enable once https://github.com/griptape-ai/griptape-cloud/issues/1593 is resolved
         )
 
@@ -446,7 +450,7 @@ class DescribeImage(ControlNode):
                 model_input = DEFAULT_MODEL
             prompt_driver = GriptapeCloudPromptDriver(
                 model=model_input,
-                api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
+                api_key=resolve_cloud_api_key(),
                 stream=False,  # TODO: enable once https://github.com/griptape-ai/griptape-cloud/issues/1593 is resolved
             )
             agent = GtAgent(prompt_driver=prompt_driver, output_schema=pydantic_schema)

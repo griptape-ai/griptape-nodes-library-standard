@@ -12,12 +12,13 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterList, Parame
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent
 from griptape_nodes_library.utils.agent_utils import build_tools, restore_provider_driver, unwrap_agent, wrap_agent
+from griptape_nodes_library.utils.cloud_credential_utils import resolve_cloud_api_key
 from griptape_nodes_library.utils.mcp_utils import (
     create_mcp_tool,
     get_available_mcp_servers,
@@ -380,7 +381,7 @@ class MCPTaskNode(SuccessFailureNode):
         """Create a GriptapeCloudPromptDriver."""
         return GriptapeCloudPromptDriver(
             model=model,
-            api_key=GriptapeNodes.SecretsManager().get_secret("GT_CLOUD_API_KEY"),
+            api_key=resolve_cloud_api_key(),
             stream=True,
         )
 

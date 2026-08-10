@@ -31,7 +31,9 @@ class _FakeDeclaration:
 
 def _stub_secret(monkeypatch: pytest.MonkeyPatch, value: str | None) -> None:
     class _FakeSecrets:
-        def get_secret(self, _name: str) -> str | None:
+        # Accepts **kwargs because the Cloud credential resolver passes
+        # should_error_on_not_found= when probing for the License.
+        def get_secret(self, _name: str, **_kwargs: object) -> str | None:
             return value
 
     monkeypatch.setattr(describe_image_module.GriptapeNodes, "SecretsManager", lambda: _FakeSecrets())

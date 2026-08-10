@@ -110,7 +110,14 @@ class BaseDriver(DataNode):
     # Internal Helper Methods
     # -----------------------------------------------------------------------------
 
-    def _display_api_key_message(self, service_name: str, api_key_env_var: str, api_key_url: str | None) -> None:
+    def _display_api_key_message(
+        self,
+        service_name: str,
+        api_key_env_var: str,
+        api_key_url: str | None,
+        *,
+        credential_present: bool | None = None,
+    ) -> None:
         """Checks if the API key exists in the node configuration, displays a message if not.
 
         This method checks if the API key for a specific service is present
@@ -122,13 +129,20 @@ class BaseDriver(DataNode):
             api_key_env_var: The name of the key variable within the service config.
             api_key_url: An optional URL for users to visit to obtain the key,
                          included in the error message if provided.
+            credential_present: Overrides the `api_key_env_var` lookup when the
+                service accepts a credential other than that secret. Griptape Cloud
+                nodes pass the License-aware result so a license-only user is not
+                shown a "requires an API key" warning for a node that works.
 
         Returns:
             bool: True if the API key exists and is not empty, False otherwise.
         """
         message_param = self.get_parameter_by_name("message")
         if message_param is not None:
-            api_key = GriptapeNodes.SecretsManager().get_secret(api_key_env_var)
+            if credential_present is None:
+                api_key = GriptapeNodes.SecretsManager().get_secret(api_key_env_var)
+            else:
+                api_key = credential_present
             msg = f"⚠️ This node requires an API key from {service_name}\nPlease visit {api_key_url} to obtain a valid key and update your settings."
             message_param.default_value = msg
             ui_options = message_param.ui_options
@@ -139,7 +153,13 @@ class BaseDriver(DataNode):
             message_param.ui_options = ui_options
 
     def _validate_api_key(
-        self, service_name: str, api_key_env_var: str, api_key_url: str | None
+        self,
+        service_name: str,
+        api_key_env_var: str,
+        api_key_url: str | None,
+        *,
+        resolved_credential: str | None = None,
+        missing_credential_msg: str | None = None,
     ) -> list[Exception] | None:
         """Validates the presence and non-emptiness of a specific API key in config.
 
@@ -151,6 +171,15 @@ class BaseDriver(DataNode):
             api_key_env_var: The name of the key variable within the service config.
             api_key_url: An optional URL for users to visit to obtain the key,
                      included in the error message if provided.
+            resolved_credential: The already-resolved credential, for services that
+                accept something other than the `api_key_env_var` secret. Griptape
+                Cloud nodes pass the License-aware result, since a license-only user
+                has no `GT_CLOUD_API_KEY` and must not be blocked. When omitted, the
+                `api_key_env_var` secret is looked up as before.
+            missing_credential_msg: Replaces the default "API Key (...) is missing"
+                wording. Pass this whenever `resolved_credential` is supplied, so the
+                message names the credentials the service actually accepts rather
+                than pointing at one secret the user may not be meant to set.
 
         Returns:
             A list of exceptions (KeyError or ValueError) if validation fails,
@@ -158,18 +187,27 @@ class BaseDriver(DataNode):
         """
         exceptions = []
 
-        api_key = GriptapeNodes.SecretsManager().get_secret(api_key_env_var)
+        if resolved_credential is None:
+            api_key = GriptapeNodes.SecretsManager().get_secret(api_key_env_var)
+        else:
+            api_key = resolved_credential
         if not api_key:
-            msg = f"API Key ('{api_key_env_var}') for service '{service_name}' is missing."
-            if api_key_url:
-                msg += f" Please visit {api_key_url} to obtain a valid key and update your settings."
+            if missing_credential_msg is not None:
+                msg = missing_credential_msg
             else:
-                msg += " Please provide a valid API key in your settings."
+                msg = f"API Key ('{api_key_env_var}') for service '{service_name}' is missing."
+                if api_key_url:
+                    msg += f" Please visit {api_key_url} to obtain a valid key and update your settings."
+                else:
+                    msg += " Please provide a valid API key in your settings."
             exceptions.append(KeyError(msg))
 
         # Display a message to the user if the API key is missing or empty.
         self._display_api_key_message(
-            service_name=service_name, api_key_env_var=api_key_env_var, api_key_url=api_key_url
+            service_name=service_name,
+            api_key_env_var=api_key_env_var,
+            api_key_url=api_key_url,
+            credential_present=None if resolved_credential is None else bool(api_key),
         )
 
         return exceptions if exceptions else None

@@ -12,7 +12,7 @@ from typing import Any
 import requests
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver as GtGriptapeCloudPromptDriver
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.button import Button
 
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
@@ -21,6 +21,10 @@ from griptape_nodes_library.config.prompt.cloud_models import (
     MODEL_CHOICES,
     MODEL_CHOICES_ARGS,
     O_SERIES_MODELS,
+)
+from griptape_nodes_library.utils.cloud_credential_utils import (
+    missing_credential_message,
+    resolve_cloud_api_key,
 )
 
 # --- Constants ---
@@ -160,7 +164,7 @@ class GriptapeCloudPrompt(BasePrompt):
         specific_args = {}
 
         # Retrieve the mandatory API key.
-        specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
+        specific_args["api_key"] = resolve_cloud_api_key()
 
         # Get the selected model.
         model = self.get_parameter_value("model")
@@ -215,6 +219,10 @@ class GriptapeCloudPrompt(BasePrompt):
             service_name=SERVICE,
             api_key_env_var=API_KEY_ENV_VAR,
             api_key_url=API_KEY_URL,
+            # Griptape Cloud accepts a License as well as an API key; a license-only
+            # user has no GT_CLOUD_API_KEY, so resolve both before deciding.
+            resolved_credential=resolve_cloud_api_key(),
+            missing_credential_msg=missing_credential_message("configure the Griptape Cloud prompt driver"),
         )
 
     def _list_models(self) -> tuple[list[str], str]:
@@ -230,7 +238,7 @@ class GriptapeCloudPrompt(BasePrompt):
         # Fetch the list of available models from the Griptape Cloud API.
         response = requests.get(
             CHAT_MODELS_URL,
-            headers={"Authorization": f"Bearer {GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)}"},
+            headers={"Authorization": f"Bearer {resolve_cloud_api_key()}"},
             timeout=10,
         )
         response.raise_for_status()
