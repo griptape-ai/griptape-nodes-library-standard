@@ -84,8 +84,11 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._api_key_provider: ProxyAuthProviderParameter | None = None
         self._initialize_api_key_provider()
 
-        # Set by `_install_model_access` on subclasses whose model selection is a
-        # license-filtered dropdown; stays None on the ones bound to a single model.
+        # Assigned by subclasses whose model selection is a license-filtered dropdown:
+        # they construct a `ModelAccessComponent` over their model parameter and store it
+        # here, which is what wires the dropdown into `after_value_set`,
+        # `_get_api_model_id`, `_get_catalog_model_id`, and the `_submit_and_poll` gate.
+        # Stays None on the subclasses bound to a single model.
         self._model_access: ModelAccessComponent | None = None
 
         default_timeout = self.DEFAULT_MAX_ATTEMPTS * self.DEFAULT_POLL_INTERVAL
@@ -166,37 +169,6 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._api_key_provider.after_value_set(parameter, value)
         if self._model_access is not None:
             self._model_access.on_value_set(parameter, value)
-
-    def _install_model_access(
-        self,
-        *,
-        parameter: Parameter,
-        model_choices: list[str],
-        default_model: str,
-        deprecated_values: dict[str, str] | None = None,
-    ) -> None:
-        """Turn an already-added model parameter into a license-filtered dropdown.
-
-        The component owns the parameter's `Options` trait, so pass a parameter
-        built without one; it also adds an inline refresh button, marks the models
-        the caller's license denies, and moves the stored value off a denied
-        default. `_submit_and_poll` then refuses to submit a denied selection.
-
-        Args:
-            parameter: The model parameter, already added to this node.
-            model_choices: The provider model ids the node offers, in dropdown order.
-            default_model: The choice selected by default.
-            deprecated_values: Legacy value -> canonical `model_choices` entry map,
-                needed only when the parameter used to store something other than
-                the provider's model id (an old display label, a catalog key).
-        """
-        self._model_access = ModelAccessComponent(
-            node=self,
-            parameter=parameter,
-            model_choices=model_choices,
-            default_model=default_model,
-            deprecated_values=deprecated_values,
-        )
 
     def _get_selected_model_id(self) -> str:
         """The provider model id the model dropdown currently stores.

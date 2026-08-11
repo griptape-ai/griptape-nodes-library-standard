@@ -9,6 +9,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -65,7 +66,8 @@ class OmnihumanSubjectDetection(GriptapeProxyNode):
         self.add_parameter(model_id_param)
         # License-policy dropdown: the component adds Options + refresh Button traits and
         # marks the models the license denies; the proxy base refuses a denied selection.
-        self._install_model_access(
+        self._model_access = ModelAccessComponent(
+            node=self,
             parameter=model_id_param,
             model_choices=self.MODEL_IDS,
             default_model=self.MODEL_IDS[0],

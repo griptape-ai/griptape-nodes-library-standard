@@ -6,6 +6,7 @@ from typing import Any, ClassVar
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -87,7 +88,8 @@ class GrokImageGeneration(GriptapeProxyNode):
         self.add_parameter(model_param)
         # License-policy dropdown: the component adds Options + refresh Button traits and
         # marks the models the license denies; the proxy base refuses a denied selection.
-        self._install_model_access(
+        self._model_access = ModelAccessComponent(
+            node=self,
             parameter=model_param,
             model_choices=["grok-imagine-image"],
             default_model="grok-imagine-image",
