@@ -7,6 +7,7 @@ from griptape.artifacts import TextArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.memory.structure import Run
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -102,7 +103,8 @@ class TranscribeAudio(GriptapeProxyNode):
         # marks the models the license denies, and relocates the stored value to a
         # permitted alternative if DEFAULT_MODEL is denied. The proxy base class
         # refuses to submit a denied selection.
-        self._install_model_access(
+        self._model_access = ModelAccessComponent(
+            node=self,
             parameter=model_param,
             model_choices=MODEL_CHOICES,
             default_model=DEFAULT_MODEL,

@@ -15,6 +15,7 @@ from griptape_nodes.exe_types.core_types import (
     ParameterList,
     ParameterMode,
 )
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -234,7 +235,8 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         # License-policy dropdown: the component adds Options + refresh Button traits, marks the
         # models the license denies, and migrates saved values through LEGACY_MODEL_VALUES. The
         # proxy base class refuses to submit a denied selection.
-        self._install_model_access(
+        self._model_access = ModelAccessComponent(
+            node=self,
             parameter=model_param,
             model_choices=MODEL_CHOICES,
             default_model=DEFAULT_MODEL,

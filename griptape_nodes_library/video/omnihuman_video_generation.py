@@ -14,6 +14,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, Param
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -94,7 +95,8 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         self.add_parameter(model_id_param)
         # License-policy dropdown: the component adds Options + refresh Button traits and
         # marks the models the license denies; the proxy base refuses a denied selection.
-        self._install_model_access(
+        self._model_access = ModelAccessComponent(
+            node=self,
             parameter=model_id_param,
             model_choices=self.MODEL_IDS,
             default_model="omnihuman-1-5",

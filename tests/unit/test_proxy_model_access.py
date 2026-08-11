@@ -2,13 +2,12 @@
 ``ModelAccessComponent``.
 
 Every proxy node under ``griptape_nodes_library`` that offers a choice of
-models routes its ``model``/``model_id`` parameter through
-``GriptapeProxyNode._install_model_access``, which hands the parameter to a
-``ModelAccessComponent``: the component owns the ``Options`` + refresh
-``Button`` traits, decorates each row with the caller's license entitlement,
-and gates ``_submit_and_poll`` against the current policy. These tests cover
-that wiring and the runtime gate across every node that installs it; the
-component's own behavior is covered in the engine test suite.
+models constructs a ``ModelAccessComponent`` over its ``model``/``model_id``
+parameter and stores it on ``self._model_access``: the component owns the
+``Options`` + refresh ``Button`` traits, decorates each row with the caller's
+license entitlement, and gates ``_submit_and_poll`` against the current policy.
+These tests cover that wiring and the runtime gate across every node that
+installs it; the component's own behavior is covered in the engine test suite.
 """
 
 from __future__ import annotations
