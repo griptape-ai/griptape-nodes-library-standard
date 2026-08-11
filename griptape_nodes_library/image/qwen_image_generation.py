@@ -9,6 +9,7 @@ from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -92,7 +93,8 @@ class QwenImageGeneration(GriptapeProxyNode):
         self.add_parameter(model_param)
         # License-policy dropdown: the component adds Options + refresh Button traits and
         # marks the models the license denies; the proxy base refuses a denied selection.
-        self._install_model_access(
+        self._model_access = ModelAccessComponent(
+            node=self,
             parameter=model_param,
             model_choices=MODEL_OPTIONS,
             default_model="qwen-image",

@@ -6,6 +6,7 @@ import subprocess
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -72,7 +73,8 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         self.add_parameter(model_param)
         # License-policy dropdown: the component adds Options + refresh Button traits and
         # marks the models the license denies; the proxy base refuses a denied selection.
-        self._install_model_access(
+        self._model_access = ModelAccessComponent(
+            node=self,
             parameter=model_param,
             model_choices=["ltx-2-3-pro"],
             default_model="ltx-2-3-pro",
