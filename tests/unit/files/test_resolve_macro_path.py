@@ -100,14 +100,14 @@ class TestResolveMacroPathProcess:
     def test_failure_clears_resolved_path(self, node: ResolveMacroPath, monkeypatch: pytest.MonkeyPatch) -> None:
         _stub_failure(monkeypatch)
         node.parameter_values["path"] = "{bad}/file.png"
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             node.process()
         assert node.parameter_output_values["resolved_path"] == ""
 
     def test_failure_sets_was_not_successful(self, node: ResolveMacroPath, monkeypatch: pytest.MonkeyPatch) -> None:
         _stub_failure(monkeypatch)
         node.parameter_values["path"] = "{bad}/file.png"
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             node.process()
         assert node.parameter_output_values["was_successful"] is False
 
@@ -161,6 +161,6 @@ class TestResolveMacroPathsProcess:
     def test_failure_clears_resolved_paths(self, node: ResolveMacroPaths, monkeypatch: pytest.MonkeyPatch) -> None:
         _stub_failure(monkeypatch)
         node.parameter_values["paths"] = ["{bad}/file.png"]
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             node.process()
         assert node.parameter_output_values["resolved_paths"] == []
