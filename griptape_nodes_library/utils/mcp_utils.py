@@ -21,7 +21,7 @@ def get_available_mcp_servers() -> list[str]:
         enabled_request = GetEnabledMCPServersRequest()
         enabled_result = mcp_manager.on_get_enabled_mcp_servers_request(enabled_request)
 
-        if hasattr(enabled_result, "servers"):
+        if isinstance(enabled_result, GetEnabledMCPServersResultSuccess):
             servers.extend(enabled_result.servers.keys())
 
         # Note: griptape-nodes-local removed from MCPTaskNode due to circular dependency issues
