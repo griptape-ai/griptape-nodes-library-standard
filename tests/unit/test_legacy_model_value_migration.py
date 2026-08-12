@@ -121,10 +121,10 @@ EXPLICIT_LEGACY_VALUES: dict[str, dict[str, str]] = {
         "claude-opus-4-6": "claude-opus-4-7",
     },
     "GriptapeCloudPrompt": {
-        "claude-3-7-sonnet": "claude-sonnet-4-6",
+        "claude-3-7-sonnet": "claude-sonnet-5",
         "claude-3-5-haiku": "claude-haiku-4-5",
-        "claude-sonnet-4-20250514": "claude-sonnet-4-6",
-        "amazon.titan-text-premier-v1": "claude-sonnet-4-6",
+        "claude-sonnet-4-20250514": "claude-sonnet-5",
+        "amazon.titan-text-premier-v1": "claude-sonnet-5",
         "gpt-4.5-preview": "gpt-4.1",
         "o1-mini": "o3-mini",
         "gemini-2.0-flash": "gemini-2.5-flash",
@@ -147,8 +147,8 @@ EXPLICIT_LEGACY_VALUES: dict[str, dict[str, str]] = {
     "SeedreamImageGeneration": {
         "Seedream 3.0 T2I": "seedream-5-0-260128",
         "seedream-3-0-t2i-250415": "seedream-5-0-260128",
-        "Seedream 3.0 I2I": "seedream-4-0-250828",
-        "seededit-3-0-i2i-250628": "seedream-4-0-250828",
+        "Seedream 3.0 I2I": "seedream-5-0-260128",
+        "seededit-3-0-i2i-250628": "seedream-5-0-260128",
         "seedream-4.5": "seedream-4-5-251128",
     },
     "GoogleImageGeneration": {
