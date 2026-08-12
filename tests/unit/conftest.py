@@ -7,7 +7,6 @@ from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import patch
 
-import griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter as public_artifact_url_parameter_module
 import griptape_nodes.retained_mode.managers.config_manager as config_manager_module
 import griptape_nodes.retained_mode.managers.secrets_manager as secrets_manager_module
 import pytest
@@ -60,10 +59,14 @@ def stub_public_artifact_cloud_credential(monkeypatch: pytest.MonkeyPatch) -> No
     so the tests that assert credential-resolution behaviour keep control of
     the environment.
     """
+    # `resolve_cloud_credential` was removed from the engine; credentials are now
+    # resolved via PublicArtifactUrlParameter._get_secret_value. Patching at the
+    # class level so the constructor doesn't raise under _isolated_env (no real
+    # secrets available in test runs).
     monkeypatch.setattr(
-        public_artifact_url_parameter_module,
-        "resolve_cloud_credential",
-        lambda *_args, **_kwargs: "test-api-key",
+        PublicArtifactUrlParameter,
+        "_get_secret_value",
+        classmethod(lambda cls, key, default=None, *, should_error_on_not_found=False: "test-api-key"),
     )
 
 
