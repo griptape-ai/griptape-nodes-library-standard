@@ -178,6 +178,31 @@ class BaseDriver(DataNode):
         if self._model_access is not None:
             self._model_access.raise_if_selection_denied()
 
+    def _validate_model_selection(self) -> list[Exception] | None:
+        """The license denial for the stored model selection, as a validation failure.
+
+        Returns `None` when the node never installed a license-filtered dropdown,
+        or when its current selection is permitted. Routes through the same
+        `raise_if_selection_denied` the execute path uses, so a denied model reads
+        identically whether it surfaces during validation or at execution.
+        """
+        if self._model_access is None:
+            return None
+        try:
+            self._model_access.raise_if_selection_denied()
+        except RuntimeError as denial:
+            return [denial]
+        return None
+
+    def validate_before_workflow_run(self) -> list[Exception] | None:
+        """Refuse a model the caller's license denies before the workflow starts.
+
+        Covers the driver nodes that validate nothing else. Nodes that check their
+        own credentials override this and reach the same denial through
+        `_validate_api_key`, which reports it in place of any key error.
+        """
+        return self._validate_model_selection()
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Keep the model dropdown's denial badge in step with the selection."""
         if self._model_access is not None:
@@ -257,8 +282,16 @@ class BaseDriver(DataNode):
 
         Returns:
             A list of exceptions (KeyError or ValueError) if validation fails,
-            otherwise None.
+            otherwise None. A model the caller's license denies is reported on its
+            own, in place of any key error.
         """
+        # A denied model is a more fundamental blocker than a missing key: sending
+        # someone off to obtain a key for a model they are not licensed to run wastes
+        # their time. Report the denial and skip the key check entirely.
+        model_denial = self._validate_model_selection()
+        if model_denial is not None:
+            return model_denial
+
         exceptions = []
 
         if resolved_credential is None:

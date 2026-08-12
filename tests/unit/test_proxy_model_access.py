@@ -202,11 +202,19 @@ async def test_submit_and_poll_gates_on_denial(monkeypatch: pytest.MonkeyPatch) 
     (SoraVideoGeneration) is exercised here: the gate itself lives in
     `GriptapeProxyNode._submit_and_poll`, shared by every adopting node, so this
     isn't re-checked per node.
+
+    The gate must also run ahead of `_build_payload`. On the nodes that hand the
+    provider a URL rather than bytes, building the payload uploads the input
+    image or video to public storage, so a denied model reaching that far costs
+    the caller an upload for work that can never run.
     """
     node = cast("SoraVideoGeneration", _create_node("SoraVideoGeneration"))
     node.set_parameter_value("model", "sora-2-pro")
 
+    build_calls: list[None] = []
+
     async def fake_build_payload() -> dict[str, Any]:
+        build_calls.append(None)
         return {}
 
     submit_calls: list[dict[str, Any]] = []
@@ -231,11 +239,13 @@ async def test_submit_and_poll_gates_on_denial(monkeypatch: pytest.MonkeyPatch) 
     assert node.parameter_output_values.get("was_successful") is False
     assert "denied for test" in node.parameter_output_values.get("result_details", "")
     assert submit_calls == []
+    assert build_calls == []
 
     # Mirror case: with the hook removed, the same selection is permitted again
-    # and the flow reaches `_submit_generation`.
+    # and the flow reaches `_build_payload` and then `_submit_generation`.
     await node._submit_and_poll({})
 
+    assert len(build_calls) == 1
     assert len(submit_calls) == 1
     assert submit_calls[0]["api_model_id"] == "sora-2-pro"
 
@@ -276,3 +286,50 @@ def test_topaz_image_enhance_operation_has_no_model_access() -> None:
     """
     node = cast("GriptapeProxyNode", _create_node("TopazImageEnhance"))
     assert node._model_access is None
+
+
+@pytest.mark.parametrize(
+    ("node_type", "denied_catalog_id", "denied_provider_id", "param_name"),
+    [case for case in NODE_MODEL_CASES if case[0] in {"KlingTextToVideoGeneration", "SoraVideoGeneration"}],
+    ids=["KlingTextToVideoGeneration", "SoraVideoGeneration"],
+)
+def test_validation_reports_denial_alongside_input_checks(
+    node_type: str,
+    denied_catalog_id: str,
+    denied_provider_id: str,
+    param_name: str,
+    authorization_hook: Callable[[AuthorizationHook], None],
+) -> None:
+    """A denied model surfaces during validation, not only from `_submit_and_poll`.
+
+    Nodes whose own input checks live in `validate_before_node_run` would otherwise
+    report nothing but "requires a prompt" to an artist whose real blocker is the
+    license, because those checks run before `process` ever starts. Two nodes are
+    parametrized rather than all of them: `KlingTextToVideoGeneration` appends input
+    validation to the base result, `SoraVideoGeneration` adds none, so between them
+    they cover both shapes of the shared hook.
+
+    Construct the node BEFORE registering the deny hook, so the component's
+    constructor-time snapshot is clean and doesn't relocate the stored value off the
+    about-to-be-denied selection.
+    """
+    node = cast("GriptapeProxyNode", _create_node(node_type))
+    authorization_hook(_deny_hook(CheckpointAction.OFFER_MODEL, denied_catalog_id))
+    node.set_parameter_value(param_name, denied_provider_id)
+
+    exceptions = node.validate_before_node_run()
+
+    assert exceptions is not None
+    assert any(isinstance(exception, RuntimeError) and "denied for test" in str(exception) for exception in exceptions)
+
+
+def test_validation_stays_quiet_when_model_is_permitted() -> None:
+    """The shared hook must not invent failures for a permitted selection.
+
+    Guards the `exceptions or None` return: with no deny hook registered and no input
+    validation of its own, the node has nothing to report.
+    """
+    node = cast("GriptapeProxyNode", _create_node("SoraVideoGeneration"))
+    node.set_parameter_value("model", "sora-2-pro")
+
+    assert node.validate_before_node_run() is None

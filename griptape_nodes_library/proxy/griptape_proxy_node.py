@@ -170,6 +170,25 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         if self._model_access is not None:
             self._model_access.on_value_set(parameter, value)
 
+    def validate_before_node_run(self) -> list[Exception] | None:
+        """Refuse a model the caller's license denies, alongside the node's input checks.
+
+        Subclasses append their own input validation to the list this returns, so
+        reporting the denial here stops a missing prompt or image from being the only
+        thing an artist hears about when the real blocker is the license. `super()`
+        also resets the status parameters, so it must run either way.
+        `_submit_and_poll` re-checks the selection for execution paths that skip
+        validation entirely.
+        """
+        exceptions = super().validate_before_node_run() or []
+        if self._model_access is None:
+            return exceptions or None
+        denial = self._model_access.selection_denial()
+        if denial is None:
+            return exceptions or None
+        exceptions.append(RuntimeError(f"{self.name}: {denial.reason()}"))
+        return exceptions
+
     def _get_selected_model_id(self) -> str:
         """The provider model id the model dropdown currently stores.
 
@@ -669,22 +688,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Returns:
             tuple | None: (generation_id, status_response) if successful, None otherwise
         """
-        # Build payload
-        try:
-            payload = await self._build_payload()
-        except Exception as e:
-            self._handle_payload_build_error(e)
-            return None
-
-        # Get API model ID
-        api_model_id = self._get_api_model_id()
-        if not api_model_id:
-            self._handle_missing_model_id()
-            return None
-
         # Re-check the dropdown selection against the license policy: it may have
-        # been permitted when the node was built and denied since. Runs before the
-        # invocation declaration so the failure carries the dropdown's own reason.
+        # been permitted when the node was built and denied since. Both gates run
+        # ahead of `_build_payload`, which uploads input images and videos to public
+        # storage on the nodes that hand the provider a URL rather than bytes; a
+        # denied model must not cost the caller that upload. The dropdown check runs
+        # before the invocation declaration so the failure carries the dropdown's
+        # own reason.
         if self._model_access is not None:
             selection_denial = self._model_access.selection_denial()
             if selection_denial is not None:
@@ -701,6 +711,19 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._set_safe_defaults()
             details = str(declaration.result_details or f"{self.name}: model invocation was not permitted.")
             self._set_status_results(was_successful=False, result_details=details)
+            return None
+
+        # Build payload
+        try:
+            payload = await self._build_payload()
+        except Exception as e:
+            self._handle_payload_build_error(e)
+            return None
+
+        # Get API model ID
+        api_model_id = self._get_api_model_id()
+        if not api_model_id:
+            self._handle_missing_model_id()
             return None
 
         # Submit request to get generation ID

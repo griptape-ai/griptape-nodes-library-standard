@@ -51,7 +51,10 @@ type AuthorizationHook = Callable[[AuthorizationCheckpoint], CheckpointDenial | 
 NODE_MODEL_CASES: list[tuple[str, str, str]] = [
     ("AnthropicPrompt", "gtc_claude_haiku_4_5", "claude-haiku-4-5"),
     ("CoherePrompt", "cohere_command_r_plus", "command-r-plus"),  # CoherePrompt's only declared model
-    ("GriptapeCloudPrompt", "gtc_claude_sonnet_4_6", "claude-sonnet-4-6"),
+    # `gtc_claude_sonnet_4_6` is AnthropicPrompt's catalog id, not one this node
+    # declares, and `claude-sonnet-4-6` is a legacy value the component migrates to
+    # `claude-sonnet-5` on assignment. Deny a model this node actually offers.
+    ("GriptapeCloudPrompt", "gtc_claude_haiku_4_5", "claude-haiku-4-5"),
     ("GrokPrompt", "xai_grok_3_mini_beta", "grok-3-mini-beta"),
     ("GroqPrompt", "groq_llama_3_3_70b_versatile", "llama-3.3-70b-versatile"),
     ("NimPrompt", "nim_gpt_oss_20b", "openai/gpt-oss-20b"),
@@ -183,3 +186,32 @@ def test_process_raises_when_selected_model_is_denied(
 
     with pytest.raises(RuntimeError, match="is not permitted"):
         node.process()
+
+
+@pytest.mark.parametrize(("node_type", "denied_catalog_id", "denied_provider_id"), NODE_MODEL_CASES)
+def test_validation_reports_denial_instead_of_missing_api_key(
+    node_type: str,
+    denied_catalog_id: str,
+    denied_provider_id: str,
+    authorization_hook: Callable[[AuthorizationHook], None],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A denied model outranks a missing key during validation.
+
+    Every secret reads as empty here, so the key check would fire if validation
+    reached it. It must not: telling someone to go obtain a key for a model their
+    license forbids sends them off to solve the wrong problem. Construct the node
+    BEFORE registering the deny hook, so the component's constructor-time snapshot
+    is clean and doesn't relocate the stored value off the about-to-be-denied
+    selection.
+    """
+    monkeypatch.setattr(GriptapeNodes.SecretsManager(), "get_secret", lambda *args, **kwargs: "")  # noqa: ARG005
+    node = _create_node(node_type)
+    authorization_hook(_deny_hook(CheckpointAction.OFFER_MODEL, denied_catalog_id))
+    node.set_parameter_value("model", denied_provider_id)
+
+    exceptions = node.validate_before_workflow_run()
+
+    assert exceptions is not None
+    assert any(isinstance(exception, RuntimeError) and "is not permitted" in str(exception) for exception in exceptions)
+    assert not any(isinstance(exception, KeyError) for exception in exceptions)
