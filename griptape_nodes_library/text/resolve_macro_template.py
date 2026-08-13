@@ -215,12 +215,15 @@ class ResolveMacroTemplate(SuccessFailureNode):
 
     def _normalize_variable_value(self, value: Any) -> str | int:
         """Coerce a single value to what ParsedMacro.resolve accepts (str or int)."""
-        # bool is a subclass of int; render it as "True"/"False" instead of 1/0.
-        if isinstance(value, bool):
+        try:
+            # bool is a subclass of int; render it as "True"/"False" instead of 1/0.
+            if isinstance(value, bool):
+                return str(value)
+            if isinstance(value, (str, int)):
+                return value
             return str(value)
-        if isinstance(value, (str, int)):
-            return value
-        return str(value)
+        except Exception as error:
+            raise ValueError(f"Value {value} of type {type(value).__name__} cannot be converted to str due to {error}.")
 
     def _report_failure(self, message: str, exception: Exception | None = None) -> None:
         self.set_parameter_value("resolved_string", "")
