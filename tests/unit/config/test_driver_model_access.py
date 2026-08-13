@@ -215,3 +215,24 @@ def test_validation_reports_denial_instead_of_missing_api_key(
     assert exceptions is not None
     assert any(isinstance(exception, RuntimeError) and "is not permitted" in str(exception) for exception in exceptions)
     assert not any(isinstance(exception, KeyError) for exception in exceptions)
+
+
+def test_validation_does_not_report_an_unrelated_error_as_a_denial(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bug inside the component surfaces as a bug, not as a license denial.
+
+    Validation asks the component for the denial rather than catching the
+    `RuntimeError` `raise_if_selection_denied` throws, so an unrelated
+    `RuntimeError` raised while evaluating policy propagates instead of being
+    reported to the artist as "this model is not permitted".
+    """
+    node = cast("BaseDriver", _create_node("AnthropicPrompt"))
+    assert node._model_access is not None
+
+    def explode() -> None:
+        msg = "engine exploded"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(node._model_access, "selection_denial", explode)
+
+    with pytest.raises(RuntimeError, match="engine exploded"):
+        node.validate_before_workflow_run()
