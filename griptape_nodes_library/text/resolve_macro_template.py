@@ -147,7 +147,7 @@ class ResolveMacroTemplate(SuccessFailureNode):
         raw_variables = self.get_parameter_value("variables")
         source = VariableSource(self.get_parameter_value("variable_source"))
 
-        coerced = self._coerce_variables(raw_variables)
+        coerced = {str(key): self._normalize_variable_value(value) for key, value in raw_variables.items()}
 
         try:
             parsed = ParsedMacro(template=template)
@@ -212,15 +212,6 @@ class ResolveMacroTemplate(SuccessFailureNode):
 
         variables = get_variables(self.name, names, scope)
         return {name: self._normalize_variable_value(value) for name, value in variables.items()}
-
-    def _coerce_variables(self, raw_variables: Any) -> dict[str, str | int]:
-        """Normalize the variables dict so ParsedMacro.resolve accepts it.
-
-        Keys become strings; str and int values pass through (keeping
-        format specs like {count:03} working). Everything else is
-        str()-coerced.
-        """
-        return {str(key): self._normalize_variable_value(value) for key, value in raw_variables.items()}
 
     def _normalize_variable_value(self, value: Any) -> str | int:
         """Coerce a single value to what ParsedMacro.resolve accepts (str or int)."""
