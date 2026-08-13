@@ -139,9 +139,7 @@ class DescribeImage(ControlNode):
 
         self._provider = ProviderSelectionComponent(
             node=self,
-            model_param=model_param,
             model_provider_param=model_provider_param,
-            gtc_model_choices=GTC_VISION_MODEL_CHOICES,
             model_access=self._model_access,
             default_model=DEFAULT_MODEL,
         )
@@ -370,7 +368,7 @@ class DescribeImage(ControlNode):
         super().after_value_set(parameter, value)
         self._model_access.on_value_set(parameter, value)
         if parameter.name == "model_provider":
-            self._provider.update_model_choices_for_provider(str(value))
+            self._provider.on_provider_changed(str(value))
 
     def process(self) -> AsyncResult[Structure]:  # noqa: C901, PLR0915, PLR0912
         # Get the parameters from the node

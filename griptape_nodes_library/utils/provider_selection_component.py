@@ -10,7 +10,7 @@ from griptape_nodes.retained_mode.events.agent_events import (
     ListProviderModelsResultSuccess,
     ProviderConfig,
 )
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
@@ -20,22 +20,20 @@ _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_
 class ProviderSelectionComponent:
     """Swaps the model dropdown's choices between Griptape Cloud and a third-party provider.
 
-    The Griptape Cloud branch offers ``model_access``'s catalog model keys --
-    the same license-gated choices ``ModelAccessComponent`` decorates -- since
-    those are Griptape Cloud models. A third-party provider's models are not
-    catalog models: that branch offers whatever the provider itself reports
-    (``fetch_models_for_provider``) and is exempt from license gating. The two
-    id shapes are never interchangeable -- a catalog key must never be offered
-    for, or reach a driver through, the third-party branch, and vice versa.
+    The Griptape Cloud branch offers ``model_access``'s own choices -- the
+    license-gated Griptape Cloud model ids ``ModelAccessComponent`` decorates.
+    A third-party provider's models are not Griptape Cloud models: that branch
+    offers whatever the provider itself reports (``fetch_models_for_provider``)
+    and is exempt from license gating. The two vocabularies are never
+    interchangeable -- a Griptape Cloud id must never be offered for, or reach a
+    driver through, the third-party branch, and vice versa.
     """
 
     def __init__(
         self,
         node,
-        model_param,
         *,
         model_provider_param: Parameter,
-        gtc_model_choices,
         model_access: ModelAccessComponent,
         default_model: str | None = None,
     ):
@@ -47,10 +45,9 @@ class ProviderSelectionComponent:
         installs them, mirroring the contract of ``ModelAccessComponent``.
         """
         self._node = node
-        self._model_param = model_param
-        self._gtc_model_choices = gtc_model_choices
         self._model_access = model_access
-        self._default_model = default_model or (gtc_model_choices[0] if gtc_model_choices else "")
+        model_choices = model_access.model_choices
+        self._default_model = default_model or (model_choices[0] if model_choices else "")
 
         if self._node.get_parameter_by_name(model_provider_param.name) is not model_provider_param:
             msg = (
@@ -75,7 +72,9 @@ class ProviderSelectionComponent:
         )
 
     def on_provider_changed(self, provider_name: str) -> None:
-        self.update_model_choices_for_provider(provider_name)
+        failure = self.update_model_choices_for_provider(provider_name)
+        if failure is not None:
+            logger.error("%s: %s", self._node.name, failure)
 
     def hide(self) -> None:
         self._node.hide_parameter_by_name("model")
@@ -131,40 +130,62 @@ class ProviderSelectionComponent:
     ) -> NodeMessageResult | None:  # noqa: ARG002
         """Refresh the model dropdown for the currently selected provider."""
         provider_name = self._node.get_parameter_value("model_provider") or "griptape_cloud"
-        self.update_model_choices_for_provider(provider_name)
+        failure = self.update_model_choices_for_provider(provider_name)
+        if failure is not None:
+            return NodeMessageResult(success=False, details=failure, response=button_details)
         return None
 
-    def update_model_choices_for_provider(self, provider_name: str) -> None:
+    def update_model_choices_for_provider(self, provider_name: str) -> str | None:
+        """Point the model dropdown at ``provider_name``'s models.
+
+        Returns ``None`` once the dropdown offers that provider's models, or a
+        message naming why the dropdown was left on the previous provider's.
+        Callers surface it: the refresh button as a failed ``NodeMessageResult``,
+        a provider change as a logged error.
+        """
         if provider_name == "griptape_cloud":
-            # The component's own choices ARE catalog model keys; offer them as-is.
+            # The component's own choices ARE Griptape Cloud model ids; offer them as-is.
             default = self._model_access.pick_permitted_default() or self._default_model
             self._node._update_option_choices(param="model", choices=self._model_access.model_choices, default=default)
             # Restore the component's per-row license decoration and badge; the
             # _update_option_choices call above only refreshed choices and value.
             self._model_access.reinstall_options()
-            return
-        # A third-party provider's models are not catalog models -- offer whatever the
-        # provider itself reports, never `self._gtc_model_choices` (those are catalog keys,
-        # meaningless and ungate-able for this provider's own driver).
+            return None
+        # A third-party provider's models are not Griptape Cloud models -- offer whatever
+        # the provider itself reports, never the Griptape Cloud choices (meaningless and
+        # ungate-able for this provider's own driver).
         models = self.fetch_models_for_provider(provider_name)
-        default = models[0] if models else ""
-        self._node._update_option_choices(param="model", choices=models, default=default)
+        if not models:
+            # Emptying the dropdown wedges it: `_update_option_choices` assigns
+            # `choices=[]` before rejecting the empty default it was handed, and an empty
+            # choice list survives save/reload through the serialized `simple_dropdown`,
+            # so every later assignment indexes `choices[0]` on an empty list. Leave the
+            # dropdown on the previous provider's models and report the failure instead.
+            return (
+                f"Provider '{provider_name}' reported no models, so the model dropdown still offers the "
+                "previous provider's. Check that the provider is reachable and its API key is set, then "
+                "refresh the model list."
+            )
+        self._node._update_option_choices(param="model", choices=models, default=models[0])
         param = self._node.get_parameter_by_name("model")
         if param:
             param.update_ui_options_key("data", [{"name": m, "icon": "", "args": {}} for m in models])
+        return None
 
     def fetch_models_for_provider(self, provider_name: str) -> list[str]:
         """Fetch a third-party provider's own model list.
 
-        Falls back to an empty list on failure or an unconfigured provider --
-        `self._gtc_model_choices` are catalog keys, not this provider's model
-        names, so they are never a valid substitute here: offering one would
-        risk it reaching this provider's driver unresolved.
+        Returns an empty list for an unconfigured or unreachable provider, naming
+        the reason in the log -- the Griptape Cloud choices are not this provider's
+        model names, so they are never a valid substitute here: offering one would
+        risk it reaching this provider's driver unresolved. Callers must treat the
+        empty list as a failure rather than as this provider's model list.
         """
         try:
             providers = self._fetch_providers()
             provider_config = next((p for p in providers if p.name == provider_name), None)
             if provider_config is None:
+                logger.warning("Provider '%s' is not among the configured providers.", provider_name)
                 return []
             result = GriptapeNodes.handle_request(
                 ListProviderModelsRequest(
@@ -175,6 +196,7 @@ class ProviderSelectionComponent:
             )
             if isinstance(result, ListProviderModelsResultSuccess):
                 return cast(ListProviderModelsResultSuccess, result).models or []
-        except Exception:
-            pass
+            logger.warning("Provider '%s' did not return a model list (%s).", provider_name, type(result).__name__)
+        except Exception as error:
+            logger.warning("Listing models for provider '%s' failed: %s", provider_name, error)
         return []

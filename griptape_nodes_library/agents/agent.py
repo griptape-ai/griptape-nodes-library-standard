@@ -232,9 +232,7 @@ class Agent(ControlNode):
 
         self._provider = ProviderSelectionComponent(
             node=self,
-            model_param=model_param,
             model_provider_param=model_provider_param,
-            gtc_model_choices=MODEL_CHOICES,
             model_access=self._model_access,
             default_model=DEFAULT_MODEL,
         )
