@@ -182,17 +182,18 @@ class BaseDriver(DataNode):
         """The license denial for the stored model selection, as a validation failure.
 
         Returns `None` when the node never installed a license-filtered dropdown,
-        or when its current selection is permitted. Routes through the same
-        `raise_if_selection_denied` the execute path uses, so a denied model reads
-        identically whether it surfaces during validation or at execution.
+        or when its current selection is permitted. Asks the component for the
+        denial rather than catching the one `raise_if_selection_denied` throws, so
+        an unrelated `RuntimeError` from inside the component surfaces as the bug
+        it is instead of being reported as a license denial.
         """
         if self._model_access is None:
             return None
-        try:
-            self._model_access.raise_if_selection_denied()
-        except RuntimeError as denial:
-            return [denial]
-        return None
+        denial = self._model_access.selection_denial()
+        if denial is None:
+            return None
+        selection = self._model_access.selected_value
+        return [RuntimeError(f"Cannot run {type(self).__name__}: '{selection}' is not permitted. {denial.reason()}")]
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
         """Refuse a model the caller's license denies before the workflow starts.
