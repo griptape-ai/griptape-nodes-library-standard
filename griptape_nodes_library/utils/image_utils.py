@@ -431,11 +431,19 @@ def image_to_bytes(image: Image.Image, output_format: str) -> bytes:
 
 
 def extract_image_url(image_item: Any) -> str:
-    """Extract URL from various image input types."""
+    """Extract URL from various image input types.
+
+    Returns ``""`` when there is no image, so callers can treat a falsy result as
+    "no image was set". ``None`` in particular must not reach ``str(image_item)``
+    below: that produces the truthy string ``"None"``, which slips past an
+    ``if not url`` guard and only fails much later with an opaque AttributeError.
+    """
+    if image_item is None:
+        return ""
     if isinstance(image_item, ImageUrlArtifact):
         return image_item.value
     if isinstance(image_item, dict) and "value" in image_item:
-        return image_item["value"]
+        return image_item["value"] or ""
     if isinstance(image_item, str):
         return image_item
     # Try to load from URL if it's a string
