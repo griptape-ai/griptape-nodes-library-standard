@@ -36,6 +36,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
+from griptape_nodes_library.utils.cloud_legacy_models import cloud_legacy_values_for
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
@@ -50,41 +51,8 @@ API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 GTC_VISION_MODEL_CHOICES = VISION_MODEL_CHOICES
 DEFAULT_MODEL = GTC_VISION_MODEL_CHOICES[0]
 
-# Migrates values saved before the dropdown stored the provider's own model id.
-LEGACY_MODEL_VALUES = {
-    "Claude Opus 4.7": "claude-opus-5",
-    "Claude Sonnet 4.5": "claude-sonnet-5",
-    "Claude Sonnet 4.6": "claude-sonnet-5",
-    "GPT-4.1": "gpt-4.1",
-    "GPT-4.1 mini": "gpt-4.1-mini",
-    "GPT-4.1 nano": "gpt-4.1-nano",
-    "GPT-4o": "gpt-4o",
-    "GPT-5": "gpt-5",
-    "GPT-5 mini": "gpt-5-mini",
-    "GPT-5.1": "gpt-5.1",
-    "GPT-5.2": "gpt-5.2",
-    "Gemini 2.5 Pro": "gemini-2.5-pro",
-    "Gemini 3.1 Pro": "gemini-3.1-pro",
-    "claude-4-5-sonnet": "claude-sonnet-5",
-    "claude-opus-4-7": "claude-opus-5",
-    "claude-sonnet-4-6": "claude-sonnet-5",
-    "gtc_claude_opus_4_7": "claude-opus-5",
-    "gtc_claude_sonnet_4_5": "claude-sonnet-5",
-    "gtc_claude_sonnet_4_6": "claude-sonnet-5",
-    "gtc_gemini_2_5_pro": "gemini-2.5-pro",
-    "gtc_gemini_3_1_pro": "gemini-3.1-pro",
-    "gtc_gpt_4_1": "gpt-4.1",
-    "gtc_gpt_4_1_mini": "gpt-4.1-mini",
-    "gtc_gpt_4_1_nano": "gpt-4.1-nano",
-    "gtc_gpt_4o": "gpt-4o",
-    "gtc_gpt_5": "gpt-5",
-    "gtc_gpt_5_1": "gpt-5.1",
-    "gtc_gpt_5_2": "gpt-5.2",
-    "gtc_gpt_5_mini": "gpt-5-mini",
-    "gtc_o3": "o3",
-    "gtc_o4_mini": "o4-mini",
-    "o4 mini": "o4-mini",
-}
+# The shared Griptape Cloud table, narrowed to the vision-capable models this node offers.
+LEGACY_MODEL_VALUES = cloud_legacy_values_for(GTC_VISION_MODEL_CHOICES)
 
 
 class DescribeImage(ControlNode):
