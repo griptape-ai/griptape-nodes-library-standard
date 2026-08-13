@@ -67,7 +67,7 @@ def scope_string_to_variable_scope(scope_str: str) -> "VariableScope":
         raise ValueError(msg) from None
 
 
-def get_variable(node_name: str, variable_name: str, scope: "VariableScope") -> "FlowVariable":
+def get_variable(node_name: str, variable_name: str, scope: VariableScope) -> FlowVariable:
     """Attempts to get a variable at the specified scope.
 
     Args:
