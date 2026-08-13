@@ -1,33 +1,12 @@
-from typing import Any
-
 from griptape.engines import PromptSummaryEngine
 from griptape.structures import Agent, Structure
 from griptape.tasks import TextSummaryTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
-from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 
 from griptape_nodes_library.tasks.base_task import BaseTask
 
-MODEL_CHOICES = [
-    "gpt-4.1",
-    "gpt-4.1-mini",
-    "gpt-4.1-nano",
-    "gpt-5",
-]
 DEFAULT_MODEL = "gpt-4.1-nano"
-
-# Migrates values saved before the dropdown stored the provider's own model id.
-LEGACY_MODEL_VALUES = {
-    "GPT-4.1": "gpt-4.1",
-    "GPT-4.1 mini": "gpt-4.1-mini",
-    "GPT-4.1 nano": "gpt-4.1-nano",
-    "GPT-5": "gpt-5",
-    "gtc_gpt_4_1": "gpt-4.1",
-    "gtc_gpt_4_1_mini": "gpt-4.1-mini",
-    "gtc_gpt_4_1_nano": "gpt-4.1-nano",
-    "gtc_gpt_5": "gpt-5",
-}
 
 
 class SummarizeText(BaseTask):
@@ -50,21 +29,7 @@ class SummarizeText(BaseTask):
                 ui_options={"multiline": True, "placeholder_text": "Input text to process"},
             )
         )
-        model_param = Parameter(
-            name="model",
-            type="str",
-            default_value=DEFAULT_MODEL,
-            tooltip="The model to use for the task.",
-            ui_options={"hide": True},
-        )
-        self.add_parameter(model_param)
-        self._model_access = ModelAccessComponent(
-            node=self,
-            parameter=model_param,
-            model_choices=MODEL_CHOICES,
-            default_model=DEFAULT_MODEL,
-            deprecated_values=LEGACY_MODEL_VALUES,
-        )
+        self._add_model_parameter(default_model=DEFAULT_MODEL)
 
         self.add_parameter(
             Parameter(
@@ -78,20 +43,8 @@ class SummarizeText(BaseTask):
             )
         )
 
-    def after_value_set(
-        self,
-        parameter: Parameter,
-        value: Any,
-    ) -> None:
-        self._model_access.on_value_set(parameter, value)
-        return super().after_value_set(parameter, value)
-
     def process(self) -> AsyncResult[Structure]:
-        model = self.get_parameter_value("model")
-
-        # License-policy runtime gate. Raises RuntimeError if the currently-selected
-        # model is denied.
-        self._model_access.raise_if_selection_denied()
+        model = self._require_permitted_model()
 
         engine = PromptSummaryEngine(prompt_driver=self.create_driver(model=model))
         task = TextSummaryTask(summary_engine=engine)
