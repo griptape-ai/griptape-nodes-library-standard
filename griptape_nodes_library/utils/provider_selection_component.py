@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter
@@ -70,6 +70,40 @@ class ProviderSelectionComponent:
                 on_click=self._refresh_providers_button,
             )
         )
+
+        self._take_over_legacy_migration()
+
+    def _take_over_legacy_migration(self) -> None:
+        """Confine ``model_access``'s legacy-value migration to the Griptape Cloud vocabulary.
+
+        The component's migration converter is an unconditional lookup in a table
+        of retired Griptape Cloud ids, and a third-party provider can genuinely
+        serve one of those ids under its own meaning: Google's OpenAI-compatible
+        endpoint offers both ``gemini-2.0-flash`` and ``gemini-2.5-flash``, so
+        leaving the converter attached would rewrite the artist's pick to a model
+        they did not choose, or leave the ``Options`` validator rejecting a
+        legitimate one. Detach it and reinstall the same migration behind a
+        provider check.
+        """
+        model_param = self._node.get_parameter_by_name(self._model_access.parameter_name)
+        if model_param is None:
+            msg = (
+                f"ProviderSelectionComponent: node '{self._node.name}' has no "
+                f"'{self._model_access.parameter_name}' parameter for the model-access component to decorate."
+            )
+            raise ValueError(msg)
+        model_param.remove_converter(self._model_access.legacy_value_converter)
+        model_param.add_converter(self._migrate_griptape_cloud_value)
+
+    def _migrate_griptape_cloud_value(self, value: Any) -> Any:
+        """Migrate a retired Griptape Cloud value, but only while Griptape Cloud is selected.
+
+        A third-party provider's ids are its own; nothing in ``model_access``'s
+        table applies to them.
+        """
+        if self._node.get_parameter_value("model_provider") != "griptape_cloud":
+            return value
+        return self._model_access.migrate_value(value) or value
 
     def on_provider_changed(self, provider_name: str) -> None:
         failure = self.update_model_choices_for_provider(provider_name)

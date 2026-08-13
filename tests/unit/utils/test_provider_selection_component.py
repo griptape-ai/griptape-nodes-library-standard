@@ -1,12 +1,17 @@
-"""Tests that swapping the model dropdown between providers cannot wedge it.
+"""Tests that swapping the model dropdown between providers cannot wedge it or rewrite a pick.
 
 `ProviderSelectionComponent` repoints the shared `model` dropdown at whichever
-provider is selected. A provider that reports no models (unreachable, or its
-api_key secret unset) must leave the dropdown on the previous provider's models
-and report the failure: emptying it is unrecoverable, because
-`_update_option_choices` assigns `choices=[]` before rejecting the empty default
-it was handed, and the empty list survives save/reload through the serialized
-`simple_dropdown`, after which every assignment indexes `choices[0]` on it.
+provider is selected. Two things must survive that swap:
+
+- A provider that reports no models (unreachable, or its api_key secret unset)
+  must leave the dropdown on the previous provider's models and report the
+  failure: emptying it is unrecoverable, because `_update_option_choices` assigns
+  `choices=[]` before rejecting the empty default it was handed, and the empty
+  list survives save/reload through the serialized `simple_dropdown`, after which
+  every assignment indexes `choices[0]` on it.
+- The Griptape Cloud legacy-value migration must not follow the dropdown into a
+  third-party vocabulary, where the same id can mean a model that provider
+  actually serves.
 """
 
 from __future__ import annotations
@@ -85,14 +90,6 @@ def test_returning_to_griptape_cloud_restores_the_cloud_models(agent: Agent, mon
     assert agent.get_parameter_value("model") in agent._model_access.model_choices
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="ModelAccessComponent.reinstall_options() adds a second Options trait rather than replacing "
-    "the first, so the stale trait -- whose choices _update_option_choices overwrote with the provider's "
-    "models -- keeps governing conversion, and the component's legacy keys never return. A saved legacy "
-    "value then snaps to choices[0] instead of migrating. Fixed by the engine's dropdown-vocabulary API; "
-    "drop this marker when the engine pin bumps.",
-)
 def test_returning_to_griptape_cloud_restores_the_legacy_vocabulary(
     agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -107,6 +104,34 @@ def test_returning_to_griptape_cloud_restores_the_legacy_vocabulary(
     agent._provider.update_model_choices_for_provider("ollama")
     agent._provider.update_model_choices_for_provider("griptape_cloud")
 
+    agent.set_parameter_value("model", "GPT-4o")
+
+    assert agent.get_parameter_value("model") == "gpt-4o"
+
+
+def test_legacy_migration_leaves_a_third_party_selection_alone(agent: Agent, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A provider that serves a retired Griptape Cloud id keeps its own meaning for it.
+
+    Google's OpenAI-compatible endpoint offers both `gemini-2.0-flash` and
+    `gemini-2.5-flash`, and the Griptape Cloud table migrates the former to the
+    latter. That rewrite must not follow the dropdown into another provider's
+    vocabulary: the artist would silently run a model they did not pick.
+    """
+    _offer_models(agent, ["gemini-2.0-flash", "gemini-2.5-flash"], monkeypatch)
+    monkeypatch.setattr(agent._provider, "_fetch_provider_names", lambda: ["griptape_cloud", "google_compat"])
+    agent._provider._refresh_providers_button(
+        Button(on_click=lambda _button, _details: None),
+        ButtonDetailsMessagePayload(label="Refresh", variant="secondary", size="icon", state="enabled"),
+    )
+    agent.set_parameter_value("model_provider", "google_compat")
+
+    agent.set_parameter_value("model", "gemini-2.0-flash")
+
+    assert agent.get_parameter_value("model") == "gemini-2.0-flash"
+
+
+def test_legacy_migration_still_applies_to_griptape_cloud(agent: Agent) -> None:
+    """Confining the migration to the cloud vocabulary must not switch it off there."""
     agent.set_parameter_value("model", "GPT-4o")
 
     assert agent.get_parameter_value("model") == "gpt-4o"
