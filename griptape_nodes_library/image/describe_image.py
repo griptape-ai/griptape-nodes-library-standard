@@ -7,6 +7,7 @@ from griptape.drivers.prompt.griptape_cloud_prompt_driver import GriptapeCloudPr
 from griptape.drivers.prompt.openai import OpenAiChatPromptDriver as GtOpenAiChatPromptDriver
 from griptape.structures import Structure
 from griptape.tasks import PromptTask
+from griptape_nodes.drivers.cloud_models import VISION_MODEL_CHOICES
 from griptape_nodes.exe_types.core_types import (
     Parameter,
     ParameterList,
@@ -31,6 +32,10 @@ from griptape_nodes_library.utils.agent_utils import (
     unwrap_agent,
     wrap_agent,
 )
+from griptape_nodes_library.utils.cloud_credential_utils import (
+    missing_credential_message,
+    resolve_cloud_api_key,
+)
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
@@ -40,24 +45,9 @@ SERVICE = "Griptape"
 API_KEY_URL = "https://cloud.griptape.ai/configuration/api-keys"
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 
-# Vision-capable models available on Griptape Cloud.
-GTC_VISION_MODEL_CHOICES = [
-    "gpt-5.2",
-    "gpt-5.1",
-    "gpt-5",
-    "gpt-5-mini",
-    "gpt-4.1",
-    "gpt-4.1-mini",
-    "gpt-4.1-nano",
-    "gpt-4o",
-    "o4-mini",
-    "o3",
-    "claude-opus-4-7",
-    "claude-sonnet-4-6",
-    "claude-4-5-sonnet",
-    "gemini-3.1-pro",
-    "gemini-2.5-pro",
-]
+# Vision-capable models available on Griptape Cloud, derived from the catalog's
+# per-model `vision` flag so this list cannot drift from the models it describes.
+GTC_VISION_MODEL_CHOICES = VISION_MODEL_CHOICES
 DEFAULT_MODEL = GTC_VISION_MODEL_CHOICES[0]
 
 
@@ -277,9 +267,9 @@ class DescribeImage(ControlNode):
         exceptions = []
         if not self._provider.uses_griptape_cloud_driver():
             return None
-        api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
+        api_key = resolve_cloud_api_key()
         if not api_key:
-            msg = f"{API_KEY_ENV_VAR} is not defined"
+            msg = missing_credential_message("describe an image")
             exceptions.append(KeyError(msg))
             return exceptions
         return exceptions if exceptions else None
@@ -364,7 +354,7 @@ class DescribeImage(ControlNode):
 
         default_prompt_driver = GriptapeCloudPromptDriver(
             model=DEFAULT_MODEL,
-            api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
+            api_key=resolve_cloud_api_key(),
             stream=False,  # TODO: enable once https://github.com/griptape-ai/griptape-cloud/issues/1593 is resolved
         )
 
@@ -446,7 +436,7 @@ class DescribeImage(ControlNode):
                 model_input = DEFAULT_MODEL
             prompt_driver = GriptapeCloudPromptDriver(
                 model=model_input,
-                api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
+                api_key=resolve_cloud_api_key(),
                 stream=False,  # TODO: enable once https://github.com/griptape-ai/griptape-cloud/issues/1593 is resolved
             )
             agent = GtAgent(prompt_driver=prompt_driver, output_schema=pydantic_schema)

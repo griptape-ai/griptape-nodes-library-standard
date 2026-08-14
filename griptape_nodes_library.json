@@ -30,7 +30,7 @@
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
     "library_version": "0.83.0",
-    "engine_version": "0.93.0",
+    "engine_version": "0.96.0",
     "tags": [
       "Griptape",
       "AI"
@@ -85,6 +85,18 @@
                 "display_name": "Claude Haiku 4.5",
                 "family": "Claude 4",
                 "provider_model_id": "claude-haiku-4-5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_claude_opus_5": {
+                "display_name": "Claude Opus 5",
+                "family": "Claude 5",
+                "provider_model_id": "claude-opus-5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_claude_sonnet_5": {
+                "display_name": "Claude Sonnet 5",
+                "family": "Claude 5",
+                "provider_model_id": "claude-sonnet-5",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
@@ -202,6 +214,24 @@
                 "display_name": "Gemini Omni Flash",
                 "family": "Gemini Omni",
                 "provider_model_id": "gemini-omni-flash-preview",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gemini_3_6_flash": {
+                "display_name": "Gemini 3.6 Flash",
+                "family": "Gemini",
+                "provider_model_id": "gemini-3.6-flash",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gemini_3_5_flash": {
+                "display_name": "Gemini 3.5 Flash",
+                "family": "Gemini",
+                "provider_model_id": "gemini-3.5-flash",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gemini_3_5_flash_lite": {
+                "display_name": "Gemini 3.5 Flash-Lite",
+                "family": "Gemini",
+                "provider_model_id": "gemini-3.5-flash-lite",
                 "key_support": "REQUIRES_GRIPTAPE_KEY"
               }
             }
@@ -404,6 +434,12 @@
                 "display_name": "Seedance 2.0 Mini",
                 "family": "Seedance",
                 "provider_model_id": "dreamina-seedance-2-0-mini-260615",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedance_2_5": {
+                "display_name": "Seedance 2.5",
+                "family": "Seedance",
+                "provider_model_id": "dreamina-seedance-2-5-260628",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_omnihuman_1_0": {
@@ -1994,14 +2030,12 @@
           {
             "type": "model_usage",
             "model_ids": [
-              "gtc_claude_opus_4_7",
-              "gtc_claude_sonnet_4_6",
-              "gtc_claude_sonnet_4_5",
+              "gtc_claude_sonnet_5",
+              "gtc_claude_opus_5",
               "gtc_claude_haiku_4_5",
-              "gtc_deepseek_v3",
-              "gtc_deepseek_r1",
-              "gtc_llama_3_3_70b",
-              "gtc_llama_3_1_70b",
+              "gtc_gemini_3_6_flash",
+              "gtc_gemini_3_5_flash",
+              "gtc_gemini_3_5_flash_lite",
               "gtc_gemini_3_1_pro",
               "gtc_gemini_3_1_flash_lite",
               "gtc_gemini_3_flash",
@@ -2021,7 +2055,11 @@
               "gtc_o4_mini",
               "gtc_o3",
               "gtc_o3_mini",
-              "gtc_o1"
+              "gtc_o1",
+              "gtc_deepseek_v3",
+              "gtc_deepseek_r1",
+              "gtc_llama_3_3_70b",
+              "gtc_llama_3_1_70b"
             ]
           }
         ]
@@ -2437,11 +2475,37 @@
       }
     },
     {
+      "class_name": "Seedance25VideoGeneration",
+      "file_path": "griptape_nodes_library/video/seedance_2_5_video_generation.py",
+      "metadata": {
+        "category": "video",
+        "description": "Generate a video using Seedance 2.5 with multimodal references, editing, and extension via Griptape Cloud model proxy.",
+        "display_name": "Seedance 2.5 Video Generation",
+        "icon": "Sparkles",
+        "group": "create",
+        "tags": [
+          "video",
+          "generation",
+          "ai",
+          "api",
+          "seedance"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_seedance_2_5"
+            ]
+          }
+        ]
+      }
+    },
+    {
       "class_name": "SeedanceHumanReferenceAsset",
       "file_path": "griptape_nodes_library/video/seedance_human_reference_asset.py",
       "metadata": {
         "category": "video/seedance",
-        "description": "Package an image, video, or audio as a private-asset reference for Seedance 2.0 human-reference inputs.",
+        "description": "Package an image, video, or audio as a private-asset reference for Seedance human-reference inputs.",
         "display_name": "Seedance Human Reference Asset",
         "icon": "Link",
         "group": "create",
@@ -4224,14 +4288,12 @@
           {
             "type": "model_usage",
             "model_ids": [
-              "gtc_claude_opus_4_7",
-              "gtc_claude_sonnet_4_6",
-              "gtc_claude_sonnet_4_5",
+              "gtc_claude_sonnet_5",
+              "gtc_claude_opus_5",
               "gtc_claude_haiku_4_5",
-              "gtc_deepseek_v3",
-              "gtc_deepseek_r1",
-              "gtc_llama_3_3_70b",
-              "gtc_llama_3_1_70b",
+              "gtc_gemini_3_6_flash",
+              "gtc_gemini_3_5_flash",
+              "gtc_gemini_3_5_flash_lite",
               "gtc_gemini_3_1_pro",
               "gtc_gemini_3_1_flash_lite",
               "gtc_gemini_3_flash",
@@ -4251,7 +4313,11 @@
               "gtc_o4_mini",
               "gtc_o3",
               "gtc_o3_mini",
-              "gtc_o1"
+              "gtc_o1",
+              "gtc_deepseek_v3",
+              "gtc_deepseek_r1",
+              "gtc_llama_3_3_70b",
+              "gtc_llama_3_1_70b"
             ]
           }
         ]
@@ -4486,6 +4552,17 @@
           {
             "type": "model_usage",
             "model_ids": [
+              "gtc_claude_sonnet_5",
+              "gtc_claude_opus_5",
+              "gtc_gemini_3_6_flash",
+              "gtc_gemini_3_5_flash",
+              "gtc_gemini_3_5_flash_lite",
+              "gtc_gemini_3_1_pro",
+              "gtc_gemini_3_1_flash_lite",
+              "gtc_gemini_3_flash",
+              "gtc_gemini_2_5_pro",
+              "gtc_gemini_2_5_flash",
+              "gtc_gemini_2_5_flash_lite",
               "gtc_gpt_5_2",
               "gtc_gpt_5_1",
               "gtc_gpt_5",
@@ -4495,12 +4572,7 @@
               "gtc_gpt_4_1_nano",
               "gtc_gpt_4o",
               "gtc_o4_mini",
-              "gtc_o3",
-              "gtc_claude_opus_4_7",
-              "gtc_claude_sonnet_4_6",
-              "gtc_claude_sonnet_4_5",
-              "gtc_gemini_3_1_pro",
-              "gtc_gemini_2_5_pro"
+              "gtc_o3"
             ]
           }
         ]
