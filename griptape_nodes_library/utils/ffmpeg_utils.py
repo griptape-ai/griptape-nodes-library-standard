@@ -115,6 +115,20 @@ def get_ffmpeg_paths() -> FfmpegPaths:
     return FfmpegPaths(*_resolve_executables())
 
 
+def describe_ffmpeg_failure(e: Exception) -> str:
+    """Return the best available reason for a failed ffmpeg/ffprobe subprocess.
+
+    ffmpeg and ffprobe explain themselves on stderr, so that text is the reason when it
+    is present. `CalledProcessError.__str__` reports only the exit status, so falling
+    back to it keeps a failure with no diagnostics from being reported as an empty
+    reason. Probe commands must run at `-v error` or louder for stderr to hold anything.
+    """
+    stderr = getattr(e, "stderr", None)
+    if stderr:
+        return str(stderr).strip()
+    return str(e)
+
+
 def run_ffmpeg_cmd(
     cmd: list[str],
     *,
@@ -135,7 +149,7 @@ def run_ffmpeg_cmd(
             log(f"ERROR: {error_msg}\n")
         raise ValueError(error_msg) from e
     except subprocess.CalledProcessError as e:
-        error_msg = f"FFmpeg error: {e.stderr}"
+        error_msg = f"FFmpeg error: {describe_ffmpeg_failure(e)}"
         if log:
             log(f"ERROR: {error_msg}\n")
         raise ValueError(error_msg) from e
@@ -157,8 +171,10 @@ def detect_video_properties(
 
     cmd = [
         ffprobe_path,
+        # "error" rather than "quiet" so the warning below can report why the probe
+        # failed; ffprobe keeps its JSON on stdout and its diagnostics on stderr.
         "-v",
-        "quiet",
+        "error",
         "-print_format",
         "json",
         "-show_streams",
@@ -174,7 +190,7 @@ def detect_video_properties(
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError, OSError) as e:
         if log:
             log(
-                f"WARNING: Could not detect video properties ({e}) — using defaults: {_DEFAULT_MSG}. Timecode/frame-range calculations may be inaccurate.\n"
+                f"WARNING: Could not detect video properties for {input_url!r} ({describe_ffmpeg_failure(e)}) — using defaults: {_DEFAULT_MSG}. Timecode/frame-range calculations may be inaccurate.\n"
             )
         return _DEFAULTS
 
@@ -332,8 +348,11 @@ def extract_video_metadata_structured(video_path: str) -> VideoMetadata:
 
     cmd = [
         ffprobe_path,
+        # "error" rather than "quiet": ffprobe writes its JSON to stdout and its
+        # diagnostics to stderr, so keeping errors enabled leaves the parsed output
+        # untouched while giving the failure paths below an actual reason to report.
         "-v",
-        "quiet",
+        "error",
         "-print_format",
         "json",
         "-show_streams",
@@ -346,10 +365,10 @@ def extract_video_metadata_structured(video_path: str) -> VideoMetadata:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)  # noqa: S603
     except subprocess.TimeoutExpired as e:
-        msg = f"When attempting to extract video metadata, ffprobe operation timed out: {e}"
+        msg = f"When attempting to extract video metadata for {video_path!r}, ffprobe operation timed out: {e}"
         raise ValueError(msg) from e
     except subprocess.CalledProcessError as e:
-        msg = f"When attempting to extract video metadata, ffprobe failed: {e.stderr}"
+        msg = f"When attempting to extract video metadata for {video_path!r}, ffprobe failed: {describe_ffmpeg_failure(e)}"
         raise ValueError(msg) from e
 
     try:

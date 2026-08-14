@@ -19,6 +19,7 @@ from static_ffmpeg import run  # type: ignore[import-untyped]
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.utils.ffmpeg_utils import describe_ffmpeg_failure
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -282,8 +283,10 @@ class LTXVideoRetake(GriptapeProxyNode):
 
             cmd = [
                 ffprobe_path,
+                # "error" rather than "quiet" so the log below can report why the probe
+                # failed; the JSON stays on stdout, diagnostics go to stderr.
                 "-v",
-                "quiet",
+                "error",
                 "-print_format",
                 "json",
                 "-show_streams",
@@ -323,7 +326,7 @@ class LTXVideoRetake(GriptapeProxyNode):
             ValueError,
             KeyError,
         ) as e:
-            logger.debug("%s ffprobe failed to read stream info: %s", self.name, e)
+            logger.debug("%s ffprobe failed to read stream info: %s", self.name, describe_ffmpeg_failure(e))
             return None
 
     @staticmethod

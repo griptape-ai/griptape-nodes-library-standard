@@ -209,7 +209,9 @@ class AudioDetails(DataNode):
 
         try:
             # Build ffprobe command to get comprehensive audio information
-            cmd = [ffprobe_path, "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", audio_url]
+            # "-v error" rather than "quiet" so the CalledProcessError handler below can
+            # report why ffprobe failed; the JSON stays on stdout either way.
+            cmd = [ffprobe_path, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", audio_url]
 
             # Run ffprobe command
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)  # noqa: S603
