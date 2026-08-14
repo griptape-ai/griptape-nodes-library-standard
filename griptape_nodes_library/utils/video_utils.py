@@ -15,7 +15,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.utils.async_utils import subprocess_run
 
-from griptape_nodes_library.utils.ffmpeg_utils import RATE_TOLERANCE, get_ffmpeg_paths
+from griptape_nodes_library.utils.ffmpeg_utils import RATE_TOLERANCE, describe_ffmpeg_failure, get_ffmpeg_paths
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -220,8 +220,10 @@ async def get_video_duration(video_url: str) -> float:
 
     cmd = [
         ffprobe_path,
+        # "error" rather than "quiet" so the failure path below has a reason to report;
+        # ffprobe keeps its JSON on stdout and its diagnostics on stderr.
         "-v",
-        "quiet",
+        "error",
         "-print_format",
         "json",
         "-show_streams",
@@ -241,7 +243,7 @@ async def get_video_duration(video_url: str) -> float:
                 return float(duration_str)
 
     except subprocess.CalledProcessError as e:
-        msg = f"ffprobe failed for {video_url}: {e.stderr}"
+        msg = f"ffprobe failed for {video_url}: {describe_ffmpeg_failure(e)}"
         raise ValueError(msg) from e
     except json.JSONDecodeError as e:
         msg = f"ffprobe returned invalid JSON for {video_url}"

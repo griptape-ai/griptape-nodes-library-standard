@@ -602,8 +602,10 @@ class ConcatenateVideos(BaseVideoProcessor):
             # Use ffprobe to get video information
             cmd = [
                 ffprobe_path,
+                # "error" rather than "quiet" so _raise_ffprobe_error has a reason to
+                # report; ffprobe keeps its JSON on stdout and diagnostics on stderr.
                 "-v",
-                "quiet",
+                "error",
                 "-print_format",
                 "json",
                 "-show_streams",
