@@ -1236,6 +1236,11 @@
   },
   "widgets": [
     {
+      "name": "VideoPlayerFrameSelector",
+      "path": "griptape_nodes_library/video/widgets/VideoPlayerFrameSelector.js",
+      "description": "Video player with frame selection capabilities for precise frame extraction."
+    },
+    {
       "name": "KlingMultiShotEditor",
       "path": "griptape_nodes_library/video/widgets/KlingMultiShotEditor.js",
       "description": "Multi-shot editor for Kling v3 customize mode."
@@ -3484,6 +3489,23 @@
         "tags": [
           "video",
           "composite",
+          "ffmpeg"
+        ]
+      }
+    },
+    {
+      "class_name": "ExtractFrames",
+      "file_path": "griptape_nodes_library/video/extract_frames.py",
+      "metadata": {
+        "category": "video",
+        "description": "Extract specific frames from a video and save them as images",
+        "display_name": "Extract Frames",
+        "icon": "film",
+        "group": "describe",
+        "tags": [
+          "video",
+          "image",
+          "frames",
           "ffmpeg"
         ]
       }
