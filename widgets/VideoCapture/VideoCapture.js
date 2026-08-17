@@ -150,7 +150,7 @@ export default function VideoCapture(container, props) {
   const videoSel = mkSelect();
   const audioSel = mkSelect();
   const deviceRow = document.createElement("div");
-  deviceRow.style.cssText = "display:flex;align-items:center;gap:6px;margin-top:6px;transition:opacity 0.15s;";
+  deviceRow.style.cssText = "display:flex;align-items:center;gap:6px;margin-top:6px;transition:opacity 0.15s;color:var(--muted-foreground);";
   deviceRow.append(mkIcon("camera", 15), videoSel, mkIcon("mic", 15), audioSel);
 
   wrapper.append(videoWrap, deviceRow);
