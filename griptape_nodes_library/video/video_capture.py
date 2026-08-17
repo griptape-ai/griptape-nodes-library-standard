@@ -16,6 +16,8 @@ class VideoCapture(DataNode):
         super().__init__(**kwargs)
         # Absolute path to the temp upload file; set in requesting_upload_url, consumed in accepted.
         self._pending_upload_path: Path | None = None
+        # MIME type of the recorded blob (e.g. "video/webm;codecs=vp9,opus").
+        self._pending_mime: str = "video/mp4"
 
         self.add_parameter(
             ParameterDict(
@@ -51,8 +53,11 @@ class VideoCapture(DataNode):
                     workspace = GriptapeNodes.ConfigManager().workspace_path
                     # Predictable name: no orphan files accumulate on re-record.
                     # Static server creates temp/ and writes the file on PUT.
+                    mime = value.get("_mime", "video/mp4")
+                    self._pending_mime = mime
+                    ext = ".webm" if mime.startswith("video/webm") else ".mp4"
                     safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", self.name)
-                    rel_path = f"temp/_vc_{safe_name}.mp4"
+                    rel_path = f"temp/_vc_{safe_name}{ext}"
                     self._pending_upload_path = workspace / rel_path
                     ready = {
                         "state": "upload_ready",
@@ -75,6 +80,13 @@ class VideoCapture(DataNode):
                     self._pending_upload_path = None
                     data = pending.read_bytes()
                     pending.unlink(missing_ok=True)
+                    # Coerce the output filename extension to match the recorded container.
+                    # Firefox records webm even when mp4 is the default; updating the
+                    # parameter here also corrects what the user sees in the UI.
+                    correct_ext = ".webm" if self._pending_mime.startswith("video/webm") else ".mp4"
+                    output_val = self.get_parameter_value("output_file") or ""
+                    if output_val and Path(output_val).suffix.lower() != correct_ext:
+                        self.set_parameter_value("output_file", str(Path(output_val).with_suffix(correct_ext)))
                     saved = self._output_file.build_file().write_bytes(data)
                     artifact = VideoUrlArtifact(saved.location)
                     self.parameter_output_values["output_video"] = artifact

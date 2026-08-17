@@ -303,7 +303,7 @@ export default function VideoCapture(container, props) {
     requestAnimationFrame(() => {
       _emitSeq++;
       // Ask Python for an upload URL; Python responds with state:"upload_ready"
-      onChange?.({ state: "requesting_upload_url", _emitSeq });
+      onChange?.({ state: "requesting_upload_url", _mime: mime, _emitSeq });
     });
   }
 
