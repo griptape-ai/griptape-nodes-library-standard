@@ -1,11 +1,12 @@
+import base64
+
 from griptape.artifacts import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.widget import Widget
-
-from griptape_nodes_library.utils.video_utils import dict_to_video_url_artifact
 
 
 class VideoCapture(DataNode):
@@ -31,18 +32,34 @@ class VideoCapture(DataNode):
             )
         )
 
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="webcam_capture.webm",
+        )
+        self._output_file.add_parameter()
+
     def after_value_set(self, parameter, value):
         if parameter.name == "recording" and isinstance(value, dict):
             if value.get("state") == "accepted" and value.get("value"):
-                artifact = dict_to_video_url_artifact(value)
+                artifact = self._save_recording(value)
                 self.parameter_output_values["output_video"] = artifact
                 self.publish_update_to_parameter("output_video", artifact)
-                # Replace stored recording with a slim reference — no blob, just the saved path.
-                # This prevents the base64 payload from being serialised into the workflow file.
+                # Replace stored recording with a slim reference so the workflow
+                # never serialises the base64 blob, and signal the JS overlay to hide.
                 processed = {"state": "processed", "url": artifact.value, "_emitSeq": value.get("_emitSeq", 0)}
                 self.set_parameter_value("recording", processed)
                 self.publish_update_to_parameter("recording", processed)
         return super().after_value_set(parameter, value)
+
+    def _save_recording(self, recording: dict) -> VideoUrlArtifact:
+        raw = recording["value"]
+        if "base64," in raw:
+            raw = raw.split("base64,")[1]
+        video_bytes = base64.b64decode(raw)
+        dest = self._output_file.build_file()
+        saved = dest.write_bytes(video_bytes)
+        return VideoUrlArtifact(saved.location)
 
     def process(self) -> None:
         recording = self.get_parameter_value("recording")
