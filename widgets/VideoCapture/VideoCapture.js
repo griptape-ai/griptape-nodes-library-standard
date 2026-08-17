@@ -338,27 +338,6 @@ export default function VideoCapture(container, props) {
     else video.pause();
   }
 
-  // ── Restore saved state ──────────────────────────────────────────────────
-
-  function restore(b64, type) {
-    try {
-      const mime64 = (type || "video/webm").split(";")[0];
-      const raw = b64.includes(",") ? b64.split(",")[1] : b64;
-      const bytes = Uint8Array.from(atob(raw), (c) => c.charCodeAt(0));
-      blob = new Blob([bytes], { type: mime64 });
-      if (blobUrl) URL.revokeObjectURL(blobUrl);
-      blobUrl = URL.createObjectURL(blob);
-      video.srcObject = null;
-      video.src = blobUrl;
-      video.muted = false;
-      video.loop = false;
-      video.play().catch(() => {});
-      isStreaming = false; isRecording = false; hasRecording = true;
-      render();
-      return true;
-    } catch { return false; }
-  }
-
   // ── handleUpdate ─────────────────────────────────────────────────────────
 
   function handleUpdate(newProps) {
@@ -400,12 +379,7 @@ export default function VideoCapture(container, props) {
 
   container._vcInst = { handleUpdate, cleanup, wrapper };
 
-  const init = props.value ?? {};
-  if ((init.state === "recorded" || init.state === "accepted") && init.value) {
-    if (!restore(init.value, init.type)) startCamera();
-  } else {
-    startCamera();
-  }
+  startCamera();
 
   render();
   return { cleanup, update: handleUpdate };
