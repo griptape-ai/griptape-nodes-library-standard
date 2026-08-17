@@ -1,18 +1,20 @@
 import { mkIcon } from './_icons.js';
 
 const PREFERRED_MIMES = [
+  "video/mp4;codecs=avc1,mp4a.40.2",
+  "video/mp4;codecs=avc1",
+  "video/mp4",
   "video/webm;codecs=vp9,opus",
   "video/webm;codecs=vp8,opus",
   "video/webm",
-  "video/mp4",
 ];
 
 function getSupportedMime() {
-  if (typeof MediaRecorder === "undefined") return "video/webm";
+  if (typeof MediaRecorder === "undefined") return "video/mp4";
   for (const t of PREFERRED_MIMES) {
     if (MediaRecorder.isTypeSupported(t)) return t;
   }
-  return "video/webm";
+  return "video/mp4";
 }
 
 function fmtTime(s) {
@@ -296,16 +298,21 @@ export default function VideoCapture(container, props) {
     acceptBtn.disabled = true;
     discardBtn.disabled = true;
     playPauseBtn.disabled = true;
-    // rAF ensures overlay paints before the FileReader (and WebSocket send) starts
+    // rAF ensures overlay paints before the WebSocket send starts
     requestAnimationFrame(() => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        _emitSeq++;
-        onChange?.({ state: "accepted", value: reader.result, type: mime.split(";")[0], _emitSeq });
-        // Overlay stays visible — Python will echo back state:"processed" when done
-      };
-      reader.readAsDataURL(blob);
+      _emitSeq++;
+      // Ask Python for an upload URL; Python responds with state:"upload_ready"
+      onChange?.({ state: "requesting_upload_url", _emitSeq });
     });
+  }
+
+  function doUpload(uploadUrl, artifactUrl) {
+    fetch(uploadUrl, { method: "PUT", body: blob })
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); })
+      .then(() => {
+        onChange?.({ state: "accepted", url: artifactUrl, _emitSeq });
+      })
+      .catch(() => hideEncodingOverlay());
   }
 
   function discard() {
@@ -350,9 +357,10 @@ export default function VideoCapture(container, props) {
   function handleUpdate(newProps) {
     onChange = newProps.onChange;
     const v = newProps.value ?? {};
-    // Python echoes this after dict_to_video_url_artifact completes — hide overlay
     if (v.state === "processed") { hideEncodingOverlay(); return; }
-    if ((v._emitSeq || 0) <= _emitSeq) return;
+    // Python responds to requesting_upload_url with the PUT destination and artifact path
+    if (v.state === "upload_ready" && v._uploadUrl) { doUpload(v._uploadUrl, v._artifactUrl); return; }
+    if ((v._emitSeq || 0) < _emitSeq) return;
     if ((v.state === "recorded" || v.state === "accepted") && v.value && !hasRecording)
       restore(v.value, v.type);
   }

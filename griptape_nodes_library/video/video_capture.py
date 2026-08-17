@@ -1,4 +1,4 @@
-import base64
+from pathlib import Path
 
 from griptape.artifacts import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterMode
@@ -6,6 +6,12 @@ from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.files.file import FileDestination
+from griptape_nodes.retained_mode.events.project_events import (
+    AttemptMapAbsolutePathToProjectRequest,
+    AttemptMapAbsolutePathToProjectResultSuccess,
+)
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.widget import Widget
 
 
@@ -35,32 +41,53 @@ class VideoCapture(DataNode):
         self._output_file = ProjectFileParameter(
             node=self,
             name="output_file",
-            default_filename="webcam_capture.webm",
+            default_filename="webcam_capture.mp4",
         )
         self._output_file.add_parameter()
 
     def after_value_set(self, parameter, value):
         if parameter.name == "recording" and isinstance(value, dict):
-            if value.get("state") == "accepted" and value.get("value"):
-                artifact = self._save_recording(value)
-                self.parameter_output_values["output_video"] = artifact
-                self.publish_update_to_parameter("output_video", artifact)
-                # Replace with a slim reference immediately — set_parameter_value triggers
-                # its own after_value_set → super() chain for the processed dict, so we
-                # return here to prevent the blob-carrying value from ever reaching super().
-                processed = {"state": "processed", "url": artifact.value, "_emitSeq": value.get("_emitSeq", 0)}
-                self.set_parameter_value("recording", processed)
-                return
-        return super().after_value_set(parameter, value)
+            match value.get("state"):
+                case "requesting_upload_url":
+                    server_url = GriptapeNodes.StaticFilesManager().static_server_base_url
+                    dest = self._output_file.build_file()
+                    # resolve() fails for CREATE_NEW situations because _index is only
+                    # computed at write time. Call the base-class write_bytes directly to
+                    # allocate the indexed path without the ProjectFileDestination macro
+                    # mapping — that gives us the raw absolute path we need for the URL.
+                    placeholder = FileDestination.write_bytes(dest, b"")
+                    abs_path = Path(placeholder.location)
+                    workspace = GriptapeNodes.ConfigManager().workspace_path
+                    rel_path = str(abs_path.relative_to(workspace))
+                    upload_url = f"{server_url}/static-uploads/{rel_path}"
+                    map_result = GriptapeNodes.handle_request(
+                        AttemptMapAbsolutePathToProjectRequest(absolute_path=abs_path)
+                    )
+                    artifact_url = (
+                        map_result.mapped_path
+                        if isinstance(map_result, AttemptMapAbsolutePathToProjectResultSuccess)
+                        and map_result.mapped_path
+                        else str(abs_path)
+                    )
+                    ready = {
+                        "state": "upload_ready",
+                        "_uploadUrl": upload_url,
+                        "_artifactUrl": artifact_url,
+                        "_emitSeq": value.get("_emitSeq", 0),
+                    }
+                    self.set_parameter_value("recording", ready)
+                    return
 
-    def _save_recording(self, recording: dict) -> VideoUrlArtifact:
-        raw = recording["value"]
-        if "base64," in raw:
-            raw = raw.split("base64,")[1]
-        video_bytes = base64.b64decode(raw)
-        dest = self._output_file.build_file()
-        saved = dest.write_bytes(video_bytes)
-        return VideoUrlArtifact(saved.location)
+                case "accepted":
+                    if value.get("url"):
+                        artifact = VideoUrlArtifact(value["url"])
+                        self.parameter_output_values["output_video"] = artifact
+                        self.publish_update_to_parameter("output_video", artifact)
+                        processed = {"state": "processed", "url": artifact.value, "_emitSeq": value.get("_emitSeq", 0)}
+                        self.set_parameter_value("recording", processed)
+                        return
+
+        return super().after_value_set(parameter, value)
 
     def process(self) -> None:
         recording = self.get_parameter_value("recording")
