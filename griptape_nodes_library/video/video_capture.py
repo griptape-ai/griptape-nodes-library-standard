@@ -45,11 +45,12 @@ class VideoCapture(DataNode):
                 artifact = self._save_recording(value)
                 self.parameter_output_values["output_video"] = artifact
                 self.publish_update_to_parameter("output_video", artifact)
-                # Replace stored recording with a slim reference so the workflow
-                # never serialises the base64 blob, and signal the JS overlay to hide.
+                # Replace with a slim reference immediately — set_parameter_value triggers
+                # its own after_value_set → super() chain for the processed dict, so we
+                # return here to prevent the blob-carrying value from ever reaching super().
                 processed = {"state": "processed", "url": artifact.value, "_emitSeq": value.get("_emitSeq", 0)}
                 self.set_parameter_value("recording", processed)
-                self.publish_update_to_parameter("recording", processed)
+                return
         return super().after_value_set(parameter, value)
 
     def _save_recording(self, recording: dict) -> VideoUrlArtifact:
