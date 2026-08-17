@@ -75,6 +75,7 @@ export default function VideoCapture(container, props) {
   let isRecording  = false;
   let hasRecording = false;
 
+  let _uploading = false;
   let stream = null, recorder = null, chunks = [], blob = null, blobUrl = null;
   let elapsed = 0, timer = null;
   const mime = getSupportedMime();
@@ -306,16 +307,22 @@ export default function VideoCapture(container, props) {
     });
   }
 
-  function doUpload(uploadUrl, artifactUrl) {
+  function doUpload(uploadUrl) {
+    if (_uploading) return;
+    _uploading = true;
     fetch(uploadUrl, { method: "PUT", body: blob })
       .then((r) => { if (!r.ok) throw new Error(r.statusText); })
       .then(() => {
-        onChange?.({ state: "accepted", url: artifactUrl, _emitSeq });
+        onChange?.({ state: "accepted", _emitSeq });
       })
-      .catch(() => hideEncodingOverlay());
+      .catch(() => {
+        _uploading = false;
+        hideEncodingOverlay();
+      });
   }
 
   function discard() {
+    _uploading = false;
     video.src = "";
     video.muted = true;
     if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrl = null; }
@@ -358,8 +365,13 @@ export default function VideoCapture(container, props) {
     onChange = newProps.onChange;
     const v = newProps.value ?? {};
     if (v.state === "processed") { hideEncodingOverlay(); return; }
-    // Python responds to requesting_upload_url with the PUT destination and artifact path
-    if (v.state === "upload_ready" && v._uploadUrl) { doUpload(v._uploadUrl, v._artifactUrl); return; }
+    if (v.state === "error") {
+      spinner.hidden = true;
+      encodingOverlay.querySelector("span").textContent = v.message || "Upload failed.";
+      setTimeout(hideEncodingOverlay, 4000);
+      return;
+    }
+    if (v.state === "upload_ready" && v._uploadUrl) { doUpload(v._uploadUrl); return; }
   }
 
   // ── Cleanup ───────────────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from griptape.artifacts import VideoUrlArtifact
@@ -6,11 +7,6 @@ from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import FileDestination
-from griptape_nodes.retained_mode.events.project_events import (
-    AttemptMapAbsolutePathToProjectRequest,
-    AttemptMapAbsolutePathToProjectResultSuccess,
-)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.widget import Widget
 
@@ -18,6 +14,8 @@ from griptape_nodes.traits.widget import Widget
 class VideoCapture(DataNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
+        # Absolute path to the temp upload file; set in requesting_upload_url, consumed in accepted.
+        self._pending_upload_path: Path | None = None
 
         self.add_parameter(
             ParameterDict(
@@ -50,42 +48,40 @@ class VideoCapture(DataNode):
             match value.get("state"):
                 case "requesting_upload_url":
                     server_url = GriptapeNodes.StaticFilesManager().static_server_base_url
-                    dest = self._output_file.build_file()
-                    # resolve() fails for CREATE_NEW situations because _index is only
-                    # computed at write time. Call the base-class write_bytes directly to
-                    # allocate the indexed path without the ProjectFileDestination macro
-                    # mapping — that gives us the raw absolute path we need for the URL.
-                    placeholder = FileDestination.write_bytes(dest, b"")
-                    abs_path = Path(placeholder.location)
                     workspace = GriptapeNodes.ConfigManager().workspace_path
-                    rel_path = str(abs_path.relative_to(workspace))
-                    upload_url = f"{server_url}/static-uploads/{rel_path}"
-                    map_result = GriptapeNodes.handle_request(
-                        AttemptMapAbsolutePathToProjectRequest(absolute_path=abs_path)
-                    )
-                    artifact_url = (
-                        map_result.mapped_path
-                        if isinstance(map_result, AttemptMapAbsolutePathToProjectResultSuccess)
-                        and map_result.mapped_path
-                        else str(abs_path)
-                    )
+                    # Predictable name: no orphan files accumulate on re-record.
+                    # Static server creates temp/ and writes the file on PUT.
+                    safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", self.name)
+                    rel_path = f"temp/_vc_{safe_name}.mp4"
+                    self._pending_upload_path = workspace / rel_path
                     ready = {
                         "state": "upload_ready",
-                        "_uploadUrl": upload_url,
-                        "_artifactUrl": artifact_url,
+                        "_uploadUrl": f"{server_url}/static-uploads/{rel_path}",
                         "_emitSeq": value.get("_emitSeq", 0),
                     }
                     self.set_parameter_value("recording", ready)
                     return
 
                 case "accepted":
-                    if value.get("url"):
-                        artifact = VideoUrlArtifact(value["url"])
-                        self.parameter_output_values["output_video"] = artifact
-                        self.publish_update_to_parameter("output_video", artifact)
-                        processed = {"state": "processed", "url": artifact.value, "_emitSeq": value.get("_emitSeq", 0)}
-                        self.set_parameter_value("recording", processed)
+                    pending = self._pending_upload_path
+                    if pending is None or not pending.exists():
+                        error = {
+                            "state": "error",
+                            "message": "Upload not found. Please re-record.",
+                            "_emitSeq": value.get("_emitSeq", 0),
+                        }
+                        self.set_parameter_value("recording", error)
                         return
+                    self._pending_upload_path = None
+                    data = pending.read_bytes()
+                    pending.unlink(missing_ok=True)
+                    saved = self._output_file.build_file().write_bytes(data)
+                    artifact = VideoUrlArtifact(saved.location)
+                    self.parameter_output_values["output_video"] = artifact
+                    self.publish_update_to_parameter("output_video", artifact)
+                    processed = {"state": "processed", "url": artifact.value, "_emitSeq": value.get("_emitSeq", 0)}
+                    self.set_parameter_value("recording", processed)
+                    return
 
         return super().after_value_set(parameter, value)
 
