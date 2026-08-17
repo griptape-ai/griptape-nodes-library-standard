@@ -360,9 +360,6 @@ export default function VideoCapture(container, props) {
     if (v.state === "processed") { hideEncodingOverlay(); return; }
     // Python responds to requesting_upload_url with the PUT destination and artifact path
     if (v.state === "upload_ready" && v._uploadUrl) { doUpload(v._uploadUrl, v._artifactUrl); return; }
-    if ((v._emitSeq || 0) < _emitSeq) return;
-    if ((v.state === "recorded" || v.state === "accepted") && v.value && !hasRecording)
-      restore(v.value, v.type);
   }
 
   // ── Cleanup ───────────────────────────────────────────────────────────────
