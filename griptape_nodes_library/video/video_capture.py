@@ -14,8 +14,6 @@ from griptape_nodes.traits.widget import Widget
 class VideoCapture(DataNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        # Absolute path to the temp upload file; set in requesting_upload_url, consumed in accepted.
-        self._pending_upload_path: Path | None = None
         # MIME type of the recorded blob (e.g. "video/webm;codecs=vp9,opus").
         self._pending_mime: str = "video/mp4"
 
@@ -45,20 +43,18 @@ class VideoCapture(DataNode):
         )
         self._output_file.add_parameter()
 
+    def _temp_rel_path(self) -> str:
+        ext = ".webm" if self._pending_mime.startswith("video/webm") else ".mp4"
+        safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", self.name)
+        return f"temp/_vc_{safe_name}{ext}"
+
     def after_value_set(self, parameter, value):
         if parameter.name == "recording" and isinstance(value, dict):
             match value.get("state"):
                 case "requesting_upload_url":
+                    self._pending_mime = value.get("_mime", "video/mp4")
                     server_url = GriptapeNodes.StaticFilesManager().static_server_base_url
-                    workspace = GriptapeNodes.ConfigManager().workspace_path
-                    # Predictable name: no orphan files accumulate on re-record.
-                    # Static server creates temp/ and writes the file on PUT.
-                    mime = value.get("_mime", "video/mp4")
-                    self._pending_mime = mime
-                    ext = ".webm" if mime.startswith("video/webm") else ".mp4"
-                    safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", self.name)
-                    rel_path = f"temp/_vc_{safe_name}{ext}"
-                    self._pending_upload_path = workspace / rel_path
+                    rel_path = self._temp_rel_path()
                     ready = {
                         "state": "upload_ready",
                         "_uploadUrl": f"{server_url}/static-uploads/{rel_path}",
@@ -68,8 +64,9 @@ class VideoCapture(DataNode):
                     return
 
                 case "accepted":
-                    pending = self._pending_upload_path
-                    if pending is None or not pending.exists():
+                    workspace = GriptapeNodes.ConfigManager().workspace_path
+                    temp_path = workspace / self._temp_rel_path()
+                    if not temp_path.exists():
                         error = {
                             "state": "error",
                             "message": "Upload not found. Please re-record.",
@@ -77,13 +74,12 @@ class VideoCapture(DataNode):
                         }
                         self.set_parameter_value("recording", error)
                         return
-                    self._pending_upload_path = None
-                    data = pending.read_bytes()
-                    pending.unlink(missing_ok=True)
+                    data = temp_path.read_bytes()
+                    temp_path.unlink(missing_ok=True)
                     # Coerce the output filename extension to match the recorded container.
                     # Firefox records webm even when mp4 is the default; updating the
                     # parameter here also corrects what the user sees in the UI.
-                    correct_ext = ".webm" if self._pending_mime.startswith("video/webm") else ".mp4"
+                    correct_ext = Path(temp_path).suffix.lower()
                     output_val = self.get_parameter_value("output_file") or ""
                     if output_val and Path(output_val).suffix.lower() != correct_ext:
                         self.set_parameter_value("output_file", str(Path(output_val).with_suffix(correct_ext)))
