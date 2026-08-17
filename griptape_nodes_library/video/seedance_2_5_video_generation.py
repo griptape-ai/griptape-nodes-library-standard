@@ -50,7 +50,7 @@ MIN_DURATION = 4
 MAX_DURATION = 30
 SMART_DURATION = -1
 
-RESOLUTION_CHOICES = ["480p", "720p"]
+RESOLUTION_CHOICES = ["480p", "720p", "1080p"]
 OUTPUT_FORMAT_CHOICES = ["mp4", "mov"]
 DEFAULT_OUTPUT_FORMAT = "mp4"
 OUTPUT_FILENAME_BASE = "seedance_2_5_video"
@@ -74,10 +74,10 @@ SUPPORTS_PRIVATE_ASSETS = True
 class SeedanceTask(StrEnum):
     """The five task types Seedance 2.5 classifies a request into.
 
-    The provider infers the task from ``content.role`` plus the prompt's intent — there is no
-    ``task_type`` field — and applies per-task constraints to ``ratio`` and ``duration``. A
-    violation is reported asynchronously, after the task has queued, so this node makes the task
-    an explicit choice and validates its constraints before submitting.
+    The provider infers the task from ``content.role`` plus the prompt's intent, and applies
+    per-task constraints to ``ratio`` and ``duration``. This node makes the task an explicit
+    choice, validates its constraints before submitting, and declares the three reference
+    subtasks to the provider through ``omni_reference_task_type``.
     """
 
     TEXT_TO_VIDEO = "Text to Video"
@@ -85,6 +85,20 @@ class SeedanceTask(StrEnum):
     REFERENCE_TO_VIDEO = "Reference to Video"
     VIDEO_EDITING = "Video Editing"
     VIDEO_EXTENSION = "Video Extension"
+
+
+class OmniReferenceTaskType(StrEnum):
+    """The ``omni_reference_task_type`` values Seedance 2.5 accepts for omni reference tasks.
+
+    Declaring the subtask makes the provider validate that subtask's ratio/duration constraints
+    synchronously, when the task is submitted, instead of asynchronously after it has queued. The
+    provider's ``auto`` default is deliberately absent: omitting the field is equivalent to it,
+    and the node always knows which task the user selected.
+    """
+
+    REFERENCE = "reference"
+    EDIT = "edit"
+    EXTEND = "extend"
 
 
 @dataclass(frozen=True)
@@ -99,6 +113,8 @@ class TaskConstraints:
         duration_choices: The ``duration`` values the provider accepts for this task.
         trigger_keywords: Words the prompt must contain for the provider to classify the request
             as this task. Empty when the task needs no prompt trigger.
+        omni_reference_task_type: The subtask name to declare to the provider for this task, or
+            None for the tasks that are not omni reference tasks.
     """
 
     allows_frames: bool
@@ -107,6 +123,7 @@ class TaskConstraints:
     ratio_choices: tuple[str, ...]
     duration_choices: tuple[int, ...]
     trigger_keywords: tuple[str, ...]
+    omni_reference_task_type: str | None
 
 
 # Single source of truth for the per-task constraints, straight from the Seedance 2.5
@@ -119,6 +136,7 @@ TASK_CONSTRAINTS: dict[SeedanceTask, TaskConstraints] = {
         ratio_choices=ALL_RATIO_CHOICES,
         duration_choices=ALL_DURATION_CHOICES,
         trigger_keywords=(),
+        omni_reference_task_type=None,
     ),
     SeedanceTask.FIRST_LAST_FRAME: TaskConstraints(
         allows_frames=True,
@@ -128,6 +146,8 @@ TASK_CONSTRAINTS: dict[SeedanceTask, TaskConstraints] = {
         ratio_choices=ADAPTIVE_ONLY_RATIO_CHOICES,
         duration_choices=ALL_DURATION_CHOICES,
         trigger_keywords=(),
+        # Its own task type, declared through content.role rather than a reference subtask.
+        omni_reference_task_type=None,
     ),
     SeedanceTask.REFERENCE_TO_VIDEO: TaskConstraints(
         allows_frames=False,
@@ -136,6 +156,7 @@ TASK_CONSTRAINTS: dict[SeedanceTask, TaskConstraints] = {
         ratio_choices=ALL_RATIO_CHOICES,
         duration_choices=ALL_DURATION_CHOICES,
         trigger_keywords=(),
+        omni_reference_task_type=OmniReferenceTaskType.REFERENCE,
     ),
     SeedanceTask.VIDEO_EDITING: TaskConstraints(
         allows_frames=False,
@@ -145,6 +166,7 @@ TASK_CONSTRAINTS: dict[SeedanceTask, TaskConstraints] = {
         ratio_choices=ADAPTIVE_ONLY_RATIO_CHOICES,
         duration_choices=SMART_ONLY_DURATION_CHOICES,
         trigger_keywords=("edit", "add", "delete", "remove", "modify", "replace", "change"),
+        omni_reference_task_type=OmniReferenceTaskType.EDIT,
     ),
     SeedanceTask.VIDEO_EXTENSION: TaskConstraints(
         allows_frames=False,
@@ -154,6 +176,7 @@ TASK_CONSTRAINTS: dict[SeedanceTask, TaskConstraints] = {
         ratio_choices=ADAPTIVE_ONLY_RATIO_CHOICES,
         duration_choices=ALL_DURATION_CHOICES,
         trigger_keywords=("extend", "continue"),
+        omni_reference_task_type=OmniReferenceTaskType.EXTEND,
     ),
 }
 
@@ -162,9 +185,9 @@ PROMPT_TIPS_MESSAGE = (
     "follow the order of the reference lists below.\n\n"
     "Audio cues use special characters: () for music, <> for sound effects, {} for dialogue, "
     "and 【】 for subtitles.\n\n"
-    "Video Editing and Video Extension are classified from the prompt, so the prompt must name "
-    "what you want done — e.g. 'Remove everyone in @Video 1 except the protagonist' or "
-    "'Extend @Video 1 backward'."
+    "The provider checks the prompt against the selected task, so for Video Editing and Video "
+    "Extension the prompt must name what you want done — e.g. 'Remove everyone in @Video 1 "
+    "except the protagonist' or 'Extend @Video 1 backward'."
 )
 
 REFERENCE_VIDEO_UPLOAD_MESSAGE = (
@@ -193,8 +216,10 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
     Seedance 2.5 classifies each request into one of five task types from the media roles and the
     prompt's intent, and locks `ratio`/`duration` per task. The `task` parameter makes that choice
     explicit so the node can show the right inputs, narrow the settings to the values the provider
-    accepts, and reject a mismatched request before it is queued (the provider only reports task
-    constraint violations asynchronously, after the task starts processing).
+    accepts, and reject a mismatched request before it is queued. For the three reference subtasks
+    the node also declares the task via `omni_reference_task_type`, which moves the provider's own
+    constraint checks to submission time; a prompt that contradicts the declared task is still
+    only reported asynchronously, after the task starts processing.
 
     Tasks:
     - Text to Video: prompt only
@@ -206,7 +231,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
     Inputs:
         - prompt (str): Text prompt for the video
         - task (str): One of the five Seedance 2.5 task types (default: Text to Video)
-        - resolution (str): Output resolution (default: 720p, options: 480p, 720p)
+        - resolution (str): Output resolution (default: 720p, options: 480p, 720p, 1080p)
         - ratio (str): Output aspect ratio (default: adaptive)
         - duration (int): Video duration in seconds (4-30, or -1 to let the model choose)
         - generate_audio (bool): Generate audio with video (default: False)
@@ -350,7 +375,11 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
             ParameterString(
                 name="resolution",
                 default_value="720p",
-                tooltip="Output resolution (480p or 720p)",
+                tooltip=(
+                    "Output resolution: 480p, 720p, or 1080p. 1080p output uses 10-bit color depth and "
+                    "H.265/HEVC encoding, which some players cannot open — try VLC or mpv if the video "
+                    "will not play."
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=list(RESOLUTION_CHOICES))},
             )
@@ -645,6 +674,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         self._validate_media_matches_task(params, task, constraints)
         self._validate_reference_counts(params)
         self._validate_trigger_keywords(params, task, constraints)
+        self._validate_resolution(params)
         self._validate_ratio_and_duration(params, task, constraints)
 
         # Private-asset references require Griptape auth (not BYOK). Gate first so the user gets a
@@ -687,6 +717,15 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
             )
             raise ValueError(msg)
 
+        # The provider defines a reference task as content carrying at least one reference asset. With
+        # none, the request is a text-to-video that contradicts the declared task type.
+        if constraints.omni_reference_task_type == OmniReferenceTaskType.REFERENCE and not has_references:
+            msg = (
+                f"{self.name}: the {task} task requires at least one reference image, video, or audio "
+                f"input. Connect a reference, or switch the task to {SeedanceTask.TEXT_TO_VIDEO.value}."
+            )
+            raise ValueError(msg)
+
     def _validate_reference_counts(self, params: dict[str, Any]) -> None:
         """Raise if any reference list exceeds the provider's cap for that kind.
 
@@ -707,8 +746,9 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
     def _validate_trigger_keywords(self, params: dict[str, Any], task: str, constraints: TaskConstraints) -> None:
         """Raise if the prompt lacks a keyword the provider needs to classify this task.
 
-        Seedance 2.5 derives Video Editing and Video Extension from the prompt's intent, so a
-        prompt with no such wording is classified as a different task and rejected asynchronously.
+        Declaring the task through ``omni_reference_task_type`` does not remove this check: the
+        provider still derives the task from the prompt's intent while processing, and fails the
+        task asynchronously if its own reading disagrees with what the node declared.
         """
         if not constraints.trigger_keywords:
             return
@@ -723,6 +763,18 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
             f"reference video. Include at least one of: {keywords}."
         )
         raise ValueError(msg)
+
+    def _validate_resolution(self, params: dict[str, Any]) -> None:
+        """Raise if resolution is outside what the provider accepts.
+
+        The dropdown is already restricted to the supported values, but the value can arrive over a
+        connection. Resolution is task-independent for Seedance 2.5 — every task supports all three.
+        """
+        resolution = params.get("resolution")
+        if resolution not in RESOLUTION_CHOICES:
+            accepted = ", ".join(RESOLUTION_CHOICES)
+            msg = f"{self.name}: Seedance 2.5 supports resolution {accepted}, got {resolution!r}."
+            raise ValueError(msg)
 
     def _validate_ratio_and_duration(self, params: dict[str, Any], task: str, constraints: TaskConstraints) -> None:
         """Raise if ratio or duration is outside what the provider accepts for this task.
@@ -833,6 +885,12 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
             payload["watermark"] = bool(params["watermark"])
         if params["return_last_frame"] is not None:
             payload["return_last_frame"] = bool(params["return_last_frame"])
+
+        # Declaring the reference subtask makes the provider check that subtask's ratio/duration
+        # constraints at submission instead of after the task queues, and stops it reclassifying a
+        # reference request as an edit or extension because of incidental prompt wording.
+        if omni_task_type := _get_task_constraints(params["task"]).omni_reference_task_type:
+            payload["omni_reference_task_type"] = omni_task_type
 
         content_list: list[dict[str, Any]] = [{"type": "text", "text": params["prompt"].strip()}]
         await self._add_media_inputs_async(content_list, params)

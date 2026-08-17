@@ -1,16 +1,16 @@
 # /// script
 # dependencies = []
 # [tool.griptape-nodes]
-# name = "test_seedance_2_5"
+# name = "test_ltx_text_to_video_generation_2_5"
 # schema_version = "0.16.0"
 # engine_version_created_with = "0.77.3"
 # node_libraries_referenced = [["Griptape Nodes Library", "0.67.0"], ["Griptape Nodes Testing Library", "0.1.0"]]
-# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "Seedance25VideoGeneration"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
+# node_types_used = [["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "LTXTextToVideoGeneration"], ["Griptape Nodes Library", "StartFlow"], ["Griptape Nodes Library", "ToText"]]
 # is_griptape_provided = false
 # is_template = false
 # is_internal = true
 # ///
-"""Integration test for the Seedance 2.5 Text to Video task."""
+"""Integration test for LTX 2.5 text-to-video generation."""
 
 import argparse
 import asyncio
@@ -34,25 +34,24 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 GriptapeNodes.handle_request(
     RegisterLibraryFromFileRequest(library_name="Griptape Nodes Library", perform_discovery_if_not_found=True)
 )
-
-# The graph is built at import time, so the tier is set here rather than from an argument. Change it
-# to "1080p" to exercise that tier, which the provider encodes as 10-bit H.265/HEVC.
-RESOLUTION = "720p"
+GriptapeNodes.handle_request(
+    RegisterLibraryFromFileRequest(library_name="Griptape Nodes Testing Library", perform_discovery_if_not_found=True)
+)
 
 context_manager = GriptapeNodes.ContextManager()
 if not context_manager.has_current_workflow():
     context_manager.push_workflow(file_path=__file__)
 
 flow_name = GriptapeNodes.handle_request(
-    CreateFlowRequest(parent_flow_name=None, flow_name="main", set_as_new_context=False, metadata={})
+    CreateFlowRequest(parent_flow_name=None, flow_name="ControlFlow_1", set_as_new_context=False, metadata={})
 ).flow_name
 
 with GriptapeNodes.ContextManager().flow(flow_name):
     gen_node = GriptapeNodes.handle_request(
         CreateNodeRequest(
-            node_type="Seedance25VideoGeneration",
+            node_type="LTXTextToVideoGeneration",
             specific_library_name="Griptape Nodes Library",
-            node_name="Seedance25VideoGeneration",
+            node_name="LTXTextToVideoGeneration",
             metadata={},
             initial_setup=True,
         )
@@ -122,11 +121,12 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             )
         )
 
-    # Seedance 2.5 has one model, so the task selector is what shapes the request.
+    # LTX 2.5 Fast at 1280x720, 24 fps, 6 seconds is the cheapest supported combination.
     with GriptapeNodes.ContextManager().node(gen_node):
-        GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="task", value="Text to Video"))
-        GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="duration", value=4))
-        GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="resolution", value=RESOLUTION))
+        GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="model", value="LTX 2.5 Fast"))
+        GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="resolution", value="1280x720"))
+        GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="fps", value=24))
+        GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="duration", value=6))
 
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
@@ -212,14 +212,14 @@ async def aexecute_workflow(
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    parser = argparse.ArgumentParser(description="Test the Seedance 2.5 Text to Video task")
+    parser = argparse.ArgumentParser(description="Test LTX 2.5 text-to-video generation")
     parser.add_argument("--storage-backend", choices=["local", "gtc"], default="local")
     parser.add_argument("--project-file-path", default=None)
     parser.add_argument("--json-input", default=None)
     parser.add_argument("--prompt", default=None)
     args = parser.parse_args()
 
-    test_prompt = args.prompt or "A cat walking on a sunny beach, cinematic style"
+    test_prompt = args.prompt or "Gentle ocean waves rolling onto a sandy beach at sunrise"
 
     if args.json_input is not None:
         flow_input = json.loads(args.json_input)
