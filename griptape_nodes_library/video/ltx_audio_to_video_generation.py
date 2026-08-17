@@ -29,6 +29,8 @@ __all__ = ["LTXAudioToVideoGeneration"]
 MODEL_MAPPING = {
     "LTX 2 Pro": "ltx-2-pro",
     "LTX 2.3 Pro": "ltx-2-3-pro",
+    "LTX 2.5 Pro": "ltx-2-5-pro",
+    "LTX 2.5 Fast": "ltx-2-5-fast",
 }
 
 
@@ -39,7 +41,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
         - audio (AudioArtifact|AudioUrlArtifact|str): Input audio (required, base64 data URI format)
         - prompt (str): Text prompt for video generation (required)
         - image (ImageArtifact|ImageUrlArtifact|str): Input image (optional, base64 data URI format)
-        - resolution (str): Video resolution (1920x1080)
+        - resolution (str): Video resolution (1920x1080 or 1080x1920)
         - guidance_scale (float): Guidance scale for generation (1-50, optional)
 
     Outputs:
@@ -64,7 +66,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
                 default_value="LTX 2 Pro",
                 tooltip="Model to use for video generation",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["LTX 2 Pro", "LTX 2.3 Pro"])},
+                traits={Options(choices=["LTX 2 Pro", "LTX 2.3 Pro", "LTX 2.5 Pro", "LTX 2.5 Fast"])},
             )
         )
         self.add_parameter(
@@ -109,7 +111,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
                 default_value="1920x1080",
                 tooltip="Video resolution",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["1920x1080"])},
+                traits={Options(choices=["1920x1080", "1080x1920"])},
             )
         )
 
