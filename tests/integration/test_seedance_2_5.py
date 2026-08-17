@@ -35,6 +35,10 @@ GriptapeNodes.handle_request(
     RegisterLibraryFromFileRequest(library_name="Griptape Nodes Library", perform_discovery_if_not_found=True)
 )
 
+# The graph is built at import time, so the tier is set here rather than from an argument. Change it
+# to "1080p" to exercise that tier, which the provider encodes as 10-bit H.265/HEVC.
+RESOLUTION = "720p"
+
 context_manager = GriptapeNodes.ContextManager()
 if not context_manager.has_current_workflow():
     context_manager.push_workflow(file_path=__file__)
@@ -122,6 +126,7 @@ with GriptapeNodes.ContextManager().flow(flow_name):
     with GriptapeNodes.ContextManager().node(gen_node):
         GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="task", value="Text to Video"))
         GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="duration", value=4))
+        GriptapeNodes.handle_request(SetParameterValueRequest(parameter_name="resolution", value=RESOLUTION))
 
     GriptapeNodes.handle_request(
         CreateConnectionRequest(

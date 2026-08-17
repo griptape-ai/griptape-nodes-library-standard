@@ -24,8 +24,11 @@ from griptape_nodes_library.video.seedance_2_5_video_generation import (
     MAX_REFERENCE_IMAGES,
     MAX_REFERENCE_VIDEOS,
     MAX_TOTAL_REFERENCE_ASSETS,
+    RESOLUTION_CHOICES,
     SEEDANCE_2_5_MODEL_ID,
     SMART_DURATION,
+    TASK_CONSTRAINTS,
+    OmniReferenceTaskType,
     Seedance25VideoGeneration,
     SeedanceTask,
 )
@@ -199,6 +202,26 @@ def test_switching_task_coerces_out_of_range_ratio_and_duration() -> None:
     assert node.get_parameter_value("duration") == SMART_DURATION
 
 
+# --- Resolution ------------------------------------------------------------------------------
+
+
+def test_resolution_dropdown_offers_every_supported_tier() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    assert _option_choices(node, "resolution") == ["480p", "720p", "1080p"]
+
+
+@pytest.mark.parametrize("task", list(SeedanceTask))
+def test_resolution_choices_do_not_depend_on_the_task(task: SeedanceTask) -> None:
+    # Unlike ratio and duration, the provider documents resolution with no per-task constraint, so
+    # switching tasks must never narrow the tiers or coerce the selected one.
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("resolution", "1080p")
+    node.set_parameter_value("task", task)
+
+    assert _option_choices(node, "resolution") == RESOLUTION_CHOICES
+    assert node.get_parameter_value("resolution") == "1080p"
+
+
 # --- Validation: media matches task ----------------------------------------------------------
 
 
@@ -247,6 +270,17 @@ def test_audio_only_reference_input_is_accepted() -> None:
     _set_parameter_list_values(node, "reference_audio", ["data:audio/wav;base64,AAA"])
 
     node._validate_parameters(node._get_parameters())
+
+
+def test_reference_to_video_requires_at_least_one_reference() -> None:
+    # The provider defines a reference task by the presence of a reference asset, so with none the
+    # request would contradict the task the node declares.
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("task", SeedanceTask.REFERENCE_TO_VIDEO)
+    node.set_parameter_value("prompt", "A quiet street at dusk")
+
+    with pytest.raises(ValueError, match="requires at least one reference image, video, or audio"):
+        node._validate_parameters(node._get_parameters())
 
 
 # --- Validation: trigger keywords ------------------------------------------------------------
@@ -373,6 +407,28 @@ def test_unknown_task_is_reported() -> None:
         node._validate_parameters(params)
 
 
+# --- Validation: resolution ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("resolution", ["4k", "1080P", "720", "", None])
+def test_unsupported_resolution_arriving_over_a_connection_is_rejected(resolution: str | None) -> None:
+    # The dropdown only offers supported tiers, but a connected value bypasses the dropdown.
+    node = Seedance25VideoGeneration(name="Seedance25")
+    params = node._get_parameters()
+    params["resolution"] = resolution
+
+    with pytest.raises(ValueError, match="supports resolution 480p, 720p, 1080p"):
+        node._validate_parameters(params)
+
+
+@pytest.mark.parametrize("resolution", RESOLUTION_CHOICES)
+def test_every_offered_resolution_passes_validation(resolution: str) -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("resolution", resolution)
+
+    node._validate_parameters(node._get_parameters())
+
+
 # --- Payload ---------------------------------------------------------------------------------
 
 
@@ -401,6 +457,18 @@ async def test_text_to_video_payload_carries_all_settings() -> None:
         "return_last_frame": True,
         "content": [{"type": "text", "text": "A fox runs through a forest"}],
     }
+
+
+@pytest.mark.asyncio
+async def test_1080p_reaches_the_payload_verbatim() -> None:
+    # The tier drives the provider's encoding and our billing rate, so it must pass through as-is.
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("prompt", "A fox runs through a forest")
+    node.set_parameter_value("resolution", "1080p")
+
+    payload = await node._build_payload()
+
+    assert payload["resolution"] == "1080p"
 
 
 @pytest.mark.asyncio
@@ -537,6 +605,49 @@ async def test_build_payload_registers_private_asset_references(monkeypatch: pyt
         "image_url": {"url": "asset://generated-asset-id"},
         "role": "reference_image",
     }
+
+
+# --- Omni reference task type ----------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("task", "prompt", "expected"),
+    [
+        (SeedanceTask.REFERENCE_TO_VIDEO, "A street at dusk, styled after @Image 1", "reference"),
+        (SeedanceTask.VIDEO_EDITING, "Remove the background music from @Video 1", "edit"),
+        (SeedanceTask.VIDEO_EXTENSION, "Extend @Video 1 backward", "extend"),
+    ],
+)
+async def test_reference_subtasks_are_declared_to_the_provider(task: SeedanceTask, prompt: str, expected: str) -> None:
+    # Declaring the subtask is what moves the provider's ratio/duration checks to submission time.
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("task", task)
+    node.set_parameter_value("prompt", prompt)
+    _set_parameter_list_values(node, "reference_videos", [VideoUrlArtifact("https://public.example/reference.mp4")])
+
+    payload = await node._build_payload()
+
+    assert payload["omni_reference_task_type"] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("task", [SeedanceTask.TEXT_TO_VIDEO, SeedanceTask.FIRST_LAST_FRAME])
+async def test_non_reference_tasks_omit_the_task_type(task: SeedanceTask) -> None:
+    # Neither is an omni reference task, and omitting the field is what the provider treats as auto.
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("task", task)
+    node.set_parameter_value("prompt", "A fox runs through a forest")
+
+    payload = await node._build_payload()
+
+    assert "omni_reference_task_type" not in payload
+
+
+def test_every_task_declares_a_value_the_provider_accepts() -> None:
+    accepted = {None, *OmniReferenceTaskType}
+    for task, constraints in TASK_CONSTRAINTS.items():
+        assert constraints.omni_reference_task_type in accepted, task
 
 
 # --- Private-asset gating --------------------------------------------------------------------
