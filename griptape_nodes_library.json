@@ -1264,6 +1264,11 @@
       "name": "SelectFromGrid",
       "path": "widgets/SelectFromGrid/SelectFromGrid.js",
       "description": "Interactive grid selector \u2014 displays list items as thumbnails (images, video, audio, text) and lets the user click to select one or more."
+    },
+    {
+      "name": "VideoCapture",
+      "path": "widgets/VideoCapture/VideoCapture.js",
+      "description": "Webcam video capture widget \u2014 live preview, record with audio, review playback, then accept before running."
     }
   ],
   "categories": [
@@ -3517,6 +3522,25 @@
           "video",
           "audio",
           "ffmpeg"
+        ]
+      }
+    },
+    {
+      "class_name": "VideoCapture",
+      "file_path": "griptape_nodes_library/video/video_capture.py",
+      "metadata": {
+        "category": "video",
+        "description": "Capture video and audio from your webcam. Record, preview the playback, then accept to output a VideoUrlArtifact.",
+        "display_name": "Video Capture",
+        "icon": "video",
+        "group": "capture",
+        "tags": [
+          "video",
+          "webcam",
+          "camera",
+          "capture",
+          "input",
+          "record"
         ]
       }
     },
