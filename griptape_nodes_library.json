@@ -3533,7 +3533,7 @@
         "description": "Capture video and audio from your webcam. Record, preview the playback, then accept to output a VideoUrlArtifact.",
         "display_name": "Video Capture",
         "icon": "video",
-        "group": "capture",
+        "group": "create",
         "tags": [
           "video",
           "webcam",
