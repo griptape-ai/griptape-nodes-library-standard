@@ -28,6 +28,8 @@ MODEL_MAPPING = {
     "LTX 2 Fast": "ltx-2-fast",
     "LTX 2.3 Pro": "ltx-2-3-pro",
     "LTX 2.3 Fast": "ltx-2-3-fast",
+    "LTX 2.5 Pro": "ltx-2-5-pro",
+    "LTX 2.5 Fast": "ltx-2-5-fast",
 }
 
 # Camera motion options
@@ -39,6 +41,7 @@ CAMERA_MOTION_OPTIONS = [
     "dolly_right",
     "jib_up",
     "jib_down",
+    "focus_shift",
 ]
 
 
@@ -47,9 +50,10 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
 
     Inputs:
         - image (ImageArtifact|ImageUrlArtifact|str): Input image (required, base64 data URI format)
+        - last_frame (ImageArtifact|ImageUrlArtifact|str): Optional last frame image to interpolate toward
         - prompt (str): Text prompt for video generation (required)
-        - model (str): Model to use (LTX 2 Pro, LTX 2 Fast, LTX 2.3 Pro, or LTX 2.3 Fast)
-        - resolution (str): Video resolution (1920x1080, 2560x1440, or 3840x2160)
+        - model (str): Model to use (LTX 2 Pro, LTX 2 Fast, LTX 2.3 Pro, LTX 2.3 Fast, LTX 2.5 Pro, or LTX 2.5 Fast)
+        - resolution (str): Video resolution (model-dependent, 1280x720 up to 3840x2160, landscape or portrait)
         - duration (int): Video length in seconds
         - fps (int): Frames per second (default: 25)
         - camera_motion (str): Camera movement type (default: static)
@@ -95,12 +99,81 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
         }
     }
 
+    # LTX 2.5 inverts the tiers: Fast reaches 1440p/4K and long durations, Pro caps at 1080p
+    FAST_2_5_MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
+        "resolutions": {
+            "1920x1080": {
+                "fps": {
+                    24: [6, 8, 10, 12, 14, 16, 18, 20],
+                    25: [6, 8, 10, 12, 14, 16, 18, 20],
+                    48: [6, 8, 10],
+                    50: [6, 8, 10],
+                },
+            },
+            "1080x1920": {
+                "fps": {
+                    24: [6, 8, 10, 12, 14, 16, 18, 20],
+                    25: [6, 8, 10, 12, 14, 16, 18, 20],
+                    48: [6, 8, 10],
+                    50: [6, 8, 10],
+                },
+            },
+            "1280x720": {
+                "fps": {
+                    24: [6, 8, 10, 12, 14, 16, 18, 20],
+                    25: [6, 8, 10, 12, 14, 16, 18, 20],
+                    48: [6, 8, 10],
+                    50: [6, 8, 10],
+                },
+            },
+            "720x1280": {
+                "fps": {
+                    24: [6, 8, 10, 12, 14, 16, 18, 20],
+                    25: [6, 8, 10, 12, 14, 16, 18, 20],
+                    48: [6, 8, 10],
+                    50: [6, 8, 10],
+                },
+            },
+            "2560x1440": {
+                "fps": {24: [6, 8, 10], 25: [6, 8, 10], 48: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "1440x2560": {
+                "fps": {24: [6, 8, 10], 25: [6, 8, 10], 48: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "3840x2160": {
+                "fps": {24: [6, 8, 10], 25: [6, 8, 10], 48: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "2160x3840": {
+                "fps": {24: [6, 8, 10], 25: [6, 8, 10], 48: [6, 8, 10], 50: [6, 8, 10]},
+            },
+        }
+    }
+
+    PRO_2_5_MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
+        "resolutions": {
+            "1920x1080": {
+                "fps": {24: [6, 8, 10], 25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "1080x1920": {
+                "fps": {24: [6, 8, 10], 25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "1280x720": {
+                "fps": {24: [6, 8, 10], 25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "720x1280": {
+                "fps": {24: [6, 8, 10], 25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+        }
+    }
+
     # Model capability definitions
     MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
         "ltx-2-fast": FAST_MODEL_CAPABILITIES,
         "ltx-2-3-fast": FAST_MODEL_CAPABILITIES,
         "ltx-2-pro": PRO_MODEL_CAPABILITIES,
         "ltx-2-3-pro": PRO_MODEL_CAPABILITIES,
+        "ltx-2-5-fast": FAST_2_5_MODEL_CAPABILITIES,
+        "ltx-2-5-pro": PRO_2_5_MODEL_CAPABILITIES,
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -110,10 +183,21 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterString(
                 name="model",
-                default_value="LTX 2.3 Fast",
+                default_value="LTX 2.5 Fast",
                 tooltip="Model to use for video generation",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["LTX 2 Pro", "LTX 2 Fast", "LTX 2.3 Pro", "LTX 2.3 Fast"])},
+                traits={
+                    Options(
+                        choices=[
+                            "LTX 2 Pro",
+                            "LTX 2 Fast",
+                            "LTX 2.3 Pro",
+                            "LTX 2.3 Fast",
+                            "LTX 2.5 Pro",
+                            "LTX 2.5 Fast",
+                        ]
+                    )
+                },
             )
         )
         self.add_parameter(
@@ -138,13 +222,36 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
             )
         )
 
+        self.add_parameter(
+            ParameterImage(
+                name="last_frame",
+                tooltip="Optional last frame image; the video interpolates from the input image to this frame. Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
+                ui_options={"display_name": "Last Frame Image"},
+            )
+        )
+
         with ParameterGroup(name="Generation Settings") as gen_settings_group:
             ParameterString(
                 name="resolution",
                 default_value="1920x1080",
                 tooltip="Video resolution",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["1920x1080", "2560x1440", "3840x2160"])},
+                traits={
+                    Options(
+                        choices=[
+                            "1920x1080",
+                            "2560x1440",
+                            "3840x2160",
+                            "1280x720",
+                            "720x1280",
+                            "1080x1920",
+                            "1440x2560",
+                            "2160x3840",
+                        ]
+                    )
+                },
             )
 
             ParameterInt(
@@ -160,7 +267,7 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
                 default_value=25,
                 tooltip="Frames per second",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=[25, 50])},
+                traits={Options(choices=[24, 25, 48, 50])},
             )
 
             ParameterString(
@@ -273,6 +380,7 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
             "prompt": self.get_parameter_value("prompt") or "",
             "model": self.get_parameter_value("model") or "LTX 2 Fast",
             "image_uri": await self._prepare_image_data_url_async(self.get_parameter_value("image")),
+            "last_frame_uri": await self._prepare_image_data_url_async(self.get_parameter_value("last_frame")),
             "resolution": self.get_parameter_value("resolution") or "1920x1080",
             "duration": self.get_parameter_value("duration") or 6,
             "fps": self.get_parameter_value("fps") or 25,
@@ -358,6 +466,8 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
             "camera_motion": params["camera_motion"],
             "generate_audio": bool(params["generate_audio"]),
         }
+        if params["last_frame_uri"]:
+            payload["last_frame_uri"] = params["last_frame_uri"]
 
         return payload
 
