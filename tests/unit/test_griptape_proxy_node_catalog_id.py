@@ -83,9 +83,9 @@ def test_grok_catalog_id_is_bare_provider_id(node_class: type[GriptapeProxyNode]
 # `model_usage` ids each node declares in griptape_nodes_library.json's `model_catalog`
 # metadata.
 SUFFIXED_NODES = [
-    (LTXTextToVideoGeneration, "ltx-2-3-fast", "ltx-2-3-fast:text-to-video"),
-    (LTXImageToVideoGeneration, "ltx-2-3-fast", "ltx-2-3-fast:image-to-video"),
-    (LTXAudioToVideoGeneration, "ltx-2-pro", "ltx-2-pro:audio-to-video"),
+    (LTXTextToVideoGeneration, "ltx-2-5-fast", "ltx-2-5-fast:text-to-video"),
+    (LTXImageToVideoGeneration, "ltx-2-5-fast", "ltx-2-5-fast:image-to-video"),
+    (LTXAudioToVideoGeneration, "ltx-2-5-fast", "ltx-2-5-fast:audio-to-video"),
     (LTXVideoExtend, "ltx-2-3-pro", "ltx-2-3-pro:extend"),
     (LTXVideoRetake, "ltx-2-pro", "ltx-2-pro:retake"),
     (LTXVideoToVideoHDR, "ltx-2-3-pro", "ltx-2-3-pro:video-to-video-hdr"),
