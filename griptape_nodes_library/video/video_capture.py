@@ -16,6 +16,9 @@ class VideoCapture(DataNode):
         super().__init__(**kwargs)
         # MIME type of the recorded blob (e.g. "video/webm;codecs=vp9,opus").
         self._pending_mime: str = "video/mp4"
+        # _emitSeq of the in-flight accept; -1 when idle. Consumed on first
+        # accepted call so duplicate after_value_set calls are ignored.
+        self._expected_seq: int = -1
 
         self.add_parameter(
             ParameterDict(
@@ -53,6 +56,7 @@ class VideoCapture(DataNode):
             match value.get("state"):
                 case "requesting_upload_url":
                     self._pending_mime = value.get("_mime", "video/mp4")
+                    self._expected_seq = value.get("_emitSeq", 0)
                     server_url = GriptapeNodes.StaticFilesManager().static_server_base_url
                     rel_path = self._temp_rel_path()
                     ready = {
@@ -64,6 +68,10 @@ class VideoCapture(DataNode):
                     return
 
                 case "accepted":
+                    seq = value.get("_emitSeq", 0)
+                    if seq != self._expected_seq:
+                        return  # duplicate after_value_set call; already handled
+                    self._expected_seq = -1
                     workspace = GriptapeNodes.ConfigManager().workspace_path
                     temp_path = workspace / self._temp_rel_path()
                     if not temp_path.exists():
