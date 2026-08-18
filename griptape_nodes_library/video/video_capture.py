@@ -76,19 +76,23 @@ class VideoCapture(DataNode):
                         return
                     data = temp_path.read_bytes()
                     temp_path.unlink(missing_ok=True)
+                    correct_ext = Path(temp_path).suffix.lower()
+                    saved = self._output_file.build_file().write_bytes(data)
+                    artifact = VideoUrlArtifact(saved.location)
+                    # Mark recording as processed BEFORE publishing any output updates.
+                    # publish_update_to_parameter can trigger a node re-render; if the
+                    # widget remounts while recording is still "upload_ready" it would
+                    # fire a second PUT and cause a spurious "Upload not found" error.
+                    processed = {"state": "processed", "url": artifact.value, "_emitSeq": value.get("_emitSeq", 0)}
+                    self.set_parameter_value("recording", processed)
+                    self.parameter_output_values["output_video"] = artifact
+                    self.publish_update_to_parameter("output_video", artifact)
                     # Coerce the output filename extension to match the recorded container.
                     # Firefox records webm even when mp4 is the default; updating the
                     # parameter here also corrects what the user sees in the UI.
-                    correct_ext = Path(temp_path).suffix.lower()
                     output_val = self.get_parameter_value("output_file") or ""
                     if output_val and Path(output_val).suffix.lower() != correct_ext:
                         self.set_parameter_value("output_file", str(Path(output_val).with_suffix(correct_ext)))
-                    saved = self._output_file.build_file().write_bytes(data)
-                    artifact = VideoUrlArtifact(saved.location)
-                    self.parameter_output_values["output_video"] = artifact
-                    self.publish_update_to_parameter("output_video", artifact)
-                    processed = {"state": "processed", "url": artifact.value, "_emitSeq": value.get("_emitSeq", 0)}
-                    self.set_parameter_value("recording", processed)
                     return
 
         return super().after_value_set(parameter, value)
