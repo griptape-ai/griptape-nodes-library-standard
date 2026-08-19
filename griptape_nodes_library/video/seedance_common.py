@@ -212,9 +212,10 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
-        # Transient (helper, scratch parameter name) pairs created while registering private
-        # assets; the upload and the scratch parameter are both cleaned up in
-        # _process_generation's finally block so they don't accumulate on the node across runs.
+        # Transient (helper, scratch parameter name) pairs created while uploading media for
+        # a public URL (frame/reference images and private-asset registration); the upload and
+        # the scratch parameter are both cleaned up in the subclasses' _process_generation
+        # finally blocks so they don't accumulate on the node across runs.
         self._pending_asset_uploads: list[tuple[PublicArtifactUrlParameter, str]] = []
 
     # --- Media preparation ------------------------------------------------------------------
@@ -235,17 +236,26 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             )
             return None
 
+        # An input that arrives as a data URI stays inline. Uploading needs a filename, and
+        # the upload layer takes the storage key from the value's path -- a data URI has no
+        # path, so the key would be built out of the base64 payload itself.
         if frame_url.startswith("data:image/"):
             self._log(f"{self.name} {frame_label} prepared as inline data URI")
             return frame_url
 
+        # Seedance rejects oversized JSON bodies, and a handful of base64 reference images
+        # is enough to get there, so anything that names a file is uploaded to GTC static
+        # storage and sent as a short-lived presigned URL rather than being read inline.
+        # _resolve_public_url_for_media passes public http(s) URLs through untouched.
         try:
-            data_uri = await File(frame_url).aread_data_uri(fallback_mime="image/jpeg")
-            self._log(f"{self.name} {frame_label} loaded from file/URL into data URI")
-            return data_uri
+            public_url = self._resolve_public_url_for_media(
+                frame_url, artifact_type=_ASSET_KIND_ARTIFACT_TYPES[ASSET_KIND_IMAGE]
+            )
         except FileLoadError as e:
             self._log(f"{self.name} {frame_label} failed to load from {frame_url}: {e}")
             return None
+        self._log(f"{self.name} {frame_label} prepared as public URL")
+        return public_url
 
     async def _prepare_audio_url_async(self, audio_input: Any, *, audio_label: str) -> str | None:
         """Convert audio input to a Seedance-accepted URL or data URI."""
