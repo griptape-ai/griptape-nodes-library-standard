@@ -7,12 +7,8 @@ Anthropic specific model options, requires an Anthropic API key via
 node configuration, and instantiates the `GtAnthropicPromptDriver`.
 """
 
-from typing import Any
-
 from griptape.drivers.prompt.anthropic import AnthropicPromptDriver as GtAnthropicPromptDriver
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-from griptape_nodes.traits.button import Button
 
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
 
@@ -28,8 +24,14 @@ MODEL_CHOICES = [
 ]
 DEFAULT_MODEL = MODEL_CHOICES[1]  # claude-sonnet-4-6
 
-# Deprecated models and their replacements
-DEPRECATED_MODELS = {
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES = {
+    "Claude Haiku 4.5": "claude-haiku-4-5",
+    "Claude Opus 4.7": "claude-opus-4-7",
+    "Claude Sonnet 4.6": "claude-sonnet-4-6",
+    "gtc_claude_haiku_4_5": "claude-haiku-4-5",
+    "gtc_claude_opus_4_7": "claude-opus-4-7",
+    "gtc_claude_sonnet_4_6": "claude-sonnet-4-6",
     # Dated model versions
     "claude-3-5-sonnet-20241022": "claude-sonnet-4-6",
     "claude-3-5-sonnet-20240620": "claude-sonnet-4-6",
@@ -75,25 +77,9 @@ class AnthropicPrompt(BasePrompt):
 
         # --- Customize Inherited Parameters ---
 
-        # Update the 'model' parameter for Anthropic specifics.
-        self._update_option_choices(param="model", choices=MODEL_CHOICES, default=DEFAULT_MODEL)
-
-        # Add deprecation notice message element right after model parameter
-        self.add_node_element(
-            ParameterMessage(
-                name="model_deprecation_notice",
-                title="Model Deprecation Notice",
-                variant="info",
-                value="",
-                traits={
-                    Button(
-                        full_width=True,
-                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
-                    )
-                },
-                button_text="Dismiss",
-                hide=True,
-            )
+        # Offer Anthropic's models as a license-filtered dropdown.
+        self._install_model_access(
+            model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=LEGACY_MODEL_VALUES
         )
 
         # Replace `min_p` with `top_p` for Anthropic.
@@ -103,25 +89,6 @@ class AnthropicPrompt(BasePrompt):
 
         # Remove the 'seed' parameter as it's not directly used by AnthropicPromptDriver.
         self.remove_parameter_element_by_name("seed")
-
-    def before_value_set(
-        self,
-        parameter: Parameter,
-        value: Any,
-    ) -> Any:
-        if parameter.name == "model":
-            if isinstance(value, str) and value in DEPRECATED_MODELS:
-                replacement = DEPRECATED_MODELS[value]
-                message = self.get_message_by_name_or_element_id("model_deprecation_notice")
-                if message is None:
-                    raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
-                message.value = f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. Please save your workflow to apply this change."
-                self.show_message_by_name("model_deprecation_notice")
-                value = replacement
-            else:
-                self.hide_message_by_name("model_deprecation_notice")
-
-        return super().before_value_set(parameter, value)
 
     def process(self) -> None:
         """Processes the node configuration to create an AnthropicPromptDriver.
@@ -138,6 +105,9 @@ class AnthropicPrompt(BasePrompt):
         # Retrieve all parameter values set on the node.
         params = self.parameter_values
 
+        # A model the license denies must not reach a downstream node as a driver.
+        self._raise_if_model_denied()
+
         # --- Get Common Driver Arguments ---
         # Use the helper method from BasePrompt. This gets temperature, stream,
         # max_attempts, max_tokens, use_native_tools, min_p, top_k if they are set.
@@ -149,8 +119,8 @@ class AnthropicPrompt(BasePrompt):
         # Retrieve the mandatory API key.
         specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
 
-        # Get the selected model.
-        specific_args["model"] = self.get_parameter_value("model")
+        # Get the upstream provider's id for the selected model.
+        specific_args["model"] = self._get_selected_model_id()
 
         # Handle specific parameter conversions/logic for Anthropic driver
         # Anthropic uses 'top_p' and 'top_k' directly as kwargs.

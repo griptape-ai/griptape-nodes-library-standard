@@ -10,6 +10,7 @@ from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -31,6 +32,14 @@ MODEL_OPTIONS = [
     "wan2.2-animate-mix",
     "wan2.2-animate-move",
 ]
+
+# Migrates values saved before the dropdown stored catalog keys.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Wan 2.2 Animate Mix": "wan2.2-animate-mix",
+    "Wan 2.2 Animate Move": "wan2.2-animate-move",
+    "gtc_wan_2_2_animate_mix": "wan2.2-animate-mix",
+    "gtc_wan_2_2_animate_move": "wan2.2-animate-move",
+}
 
 # Mode options
 MODE_OPTIONS = [
@@ -93,14 +102,21 @@ class WanAnimateGeneration(GriptapeProxyNode):
         self.description = "Generate animated videos from images using WAN Animate models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value=MODEL_OPTIONS[0],
-                tooltip="Select the WAN Animate model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value=MODEL_OPTIONS[0],
+            tooltip="Select the WAN Animate model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model=MODEL_OPTIONS[0],
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
         # Mode selection
         self.add_parameter(
@@ -265,9 +281,6 @@ class WanAnimateGeneration(GriptapeProxyNode):
             msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
             raise ValueError(msg)
         return api_key
-
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or ""
 
     async def _build_payload(self) -> dict[str, Any]:
         params = await self._get_parameters()

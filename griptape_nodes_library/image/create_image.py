@@ -6,14 +6,13 @@ from griptape.drivers.image_generation.base_image_generation_driver import BaseI
 from griptape.drivers.image_generation.griptape_cloud import GriptapeCloudImageGenerationDriver
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.tasks import PromptImageGenerationTask, PromptTask
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
@@ -27,15 +26,29 @@ from griptape_nodes_library.utils.model_invocation import require_model_invocati
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
-MODEL_CHOICES = ["gpt-image-1-mini", "gpt-image-1.5"]
+MODEL_CHOICES = [
+    "gpt-image-1-mini",
+    "gpt-image-1.5",
+]
 AVAILABLE_SIZES = ["1024x1024", "1536x1024", "1024x1536"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 DEFAULT_SIZE = AVAILABLE_SIZES[0]
 
-# Deprecated models and their replacements
-DEPRECATED_MODELS = {
+# Migrates values saved before the dropdown stored the provider's own model id. "dall-e-3"
+# and "gpt-image-1" predate this node's own MODEL_CHOICES history and were folded in
+# from the DEPRECATED_MODELS dict this replaces. "GPT-4o" / "gpt-4o" are deliberately
+# excluded even though the generated catalog table lists them: this node's dropdown
+# never offered "gpt-4o" as an image model (it's the hardcoded model of the separate
+# prompt-enhancement driver below), and its catalog key gtc_gpt_4o is not one of this
+# node's own MODEL_CHOICES, so mapping to it here would fail ModelAccessComponent's
+# construction-time validation that every deprecated_values target is a current choice.
+LEGACY_MODEL_VALUES = {
+    "GPT Image 1 Mini": "gpt-image-1-mini",
+    "GPT Image 1.5": "gpt-image-1.5",
     "dall-e-3": "gpt-image-1-mini",
     "gpt-image-1": "gpt-image-1-mini",
+    "gtc_gpt_image_1_5": "gpt-image-1.5",
+    "gtc_gpt_image_1_mini": "gpt-image-1-mini",
 }
 
 
@@ -75,22 +88,7 @@ class GenerateImage(ControlNode):
             parameter=model_param,
             model_choices=MODEL_CHOICES,
             default_model=DEFAULT_MODEL,
-        )
-        self.add_node_element(
-            ParameterMessage(
-                name="model_deprecation_notice",
-                title="Model Deprecation Notice",
-                variant="info",
-                value="",
-                traits={
-                    Button(
-                        full_width=True,
-                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
-                    )
-                },
-                button_text="Dismiss",
-                hide=True,
-            )
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
         self.add_parameter(
             ParameterString(
@@ -172,24 +170,6 @@ class GenerateImage(ControlNode):
 
         return exceptions if exceptions else None
 
-    def before_value_set(
-        self,
-        parameter: Parameter,
-        value: Any,
-    ) -> Any:
-        if parameter.name == "model" and isinstance(value, str) and value in DEPRECATED_MODELS:
-            replacement = DEPRECATED_MODELS[value]
-            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
-            if message is None:
-                raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
-            message.value = f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. Please save your workflow to apply this change."
-            self.show_message_by_name("model_deprecation_notice")
-            value = replacement
-        elif parameter.name == "model" and isinstance(value, str):
-            self.hide_message_by_name("model_deprecation_notice")
-
-        return super().before_value_set(parameter, value)
-
     def after_value_set(
         self,
         parameter: Parameter,
@@ -210,7 +190,7 @@ class GenerateImage(ControlNode):
             else:
                 # It's an Image Generation Driver, which we canNOT serialize.
                 parameter.serializable = False
-            self._model_access.on_value_changed(value)
+            self._model_access.on_value_set(parameter, value)
 
         return super().after_value_set(parameter, value)
 
@@ -228,7 +208,7 @@ class GenerateImage(ControlNode):
         # License-policy runtime gate for the image model. Non-string values (a connected
         # Image Generation Driver) bypass it: they carry their own model identity. The
         # INVOKE_MODEL declarations below still gate the models that actually run.
-        self._model_access.raise_if_denied(self.get_parameter_value("model"))
+        self._model_access.raise_if_selection_denied()
 
         agent_input = self.get_parameter_value("agent")
         tool_configs: list = []

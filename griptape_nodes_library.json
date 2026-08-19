@@ -30,7 +30,7 @@
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
     "library_version": "0.83.0",
-    "engine_version": "0.96.0",
+    "engine_version": "0.97.0",
     "tags": [
       "Griptape",
       "AI"
@@ -923,6 +923,18 @@
                 "display_name": "LTX 2.3 Fast",
                 "family": "LTX",
                 "provider_model_id": "ltx-2-3-fast",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_ltx_2_5_pro": {
+                "display_name": "LTX 2.5 Pro",
+                "family": "LTX",
+                "provider_model_id": "ltx-2-5-pro",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_ltx_2_5_fast": {
+                "display_name": "LTX 2.5 Fast",
+                "family": "LTX",
+                "provider_model_id": "ltx-2-5-fast",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
@@ -2776,7 +2788,9 @@
               "gtc_ltx_2_pro",
               "gtc_ltx_2_fast",
               "gtc_ltx_2_3_pro",
-              "gtc_ltx_2_3_fast"
+              "gtc_ltx_2_3_fast",
+              "gtc_ltx_2_5_pro",
+              "gtc_ltx_2_5_fast"
             ]
           }
         ]
@@ -2805,7 +2819,9 @@
               "gtc_ltx_2_pro",
               "gtc_ltx_2_fast",
               "gtc_ltx_2_3_pro",
-              "gtc_ltx_2_3_fast"
+              "gtc_ltx_2_3_fast",
+              "gtc_ltx_2_5_pro",
+              "gtc_ltx_2_5_fast"
             ]
           }
         ]
@@ -2832,7 +2848,9 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_ltx_2_pro",
-              "gtc_ltx_2_3_pro"
+              "gtc_ltx_2_3_pro",
+              "gtc_ltx_2_5_pro",
+              "gtc_ltx_2_5_fast"
             ]
           }
         ]

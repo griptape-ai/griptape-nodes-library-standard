@@ -7,6 +7,7 @@ from typing import Any
 
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -22,6 +23,14 @@ logger = logging.getLogger(__name__)
 __all__ = ["ElevenLabsTextToSpeechGeneration"]
 
 PROMPT_TRUNCATE_LENGTH = 100
+
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Eleven Multilingual v2": "eleven_multilingual_v2",
+    "Eleven v3": "eleven_v3",
+    "gtc_eleven_multilingual_v2": "eleven_multilingual_v2",
+    "gtc_eleven_v3": "eleven_v3",
+}
 
 # Voice preset mapping - friendly names to Eleven Labs voice IDs (sorted alphabetically)
 VOICE_PRESET_MAP = {  # spellchecker:disable-line
@@ -64,15 +73,22 @@ class ElevenLabsTextToSpeechGeneration(GriptapeProxyNode):
 
         # INPUTS / PROPERTIES
         # Model Selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="eleven_v3",
-                tooltip="Select the Eleven Labs text-to-speech model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["eleven_multilingual_v2", "eleven_v3"])},
-                ui_options={"display_name": "Model"},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="eleven_v3",
+            tooltip="Select the Eleven Labs text-to-speech model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={"display_name": "Model"},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=["eleven_multilingual_v2", "eleven_v3"],
+            default_model="eleven_v3",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Text input
@@ -268,10 +284,6 @@ class ElevenLabsTextToSpeechGeneration(GriptapeProxyNode):
 
         return super().after_value_set(parameter, value)
 
-    def _get_api_model_id(self) -> str:
-        """Get the API model ID for this generation."""
-        return self.get_parameter_value("model") or "eleven_v3"
-
     def _log(self, message: str) -> None:
         with suppress(Exception):
             logger.info(message)
@@ -294,7 +306,7 @@ class ElevenLabsTextToSpeechGeneration(GriptapeProxyNode):
         elif voice_preset:
             voice_id = VOICE_PRESET_MAP.get(voice_preset)
 
-        model = self.get_parameter_value("model") or "eleven_v3"
+        model = self._get_selected_model_id() or "eleven_v3"
         params = {"text": text, "model_id": model}
 
         # Add optional parameters if they have values

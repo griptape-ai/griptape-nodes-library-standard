@@ -23,7 +23,6 @@ from griptape.memory.structure import ConversationMemory, Run
 from griptape.structures import Structure
 from griptape.tasks import PromptTask
 from griptape_nodes.drivers.cloud_models import (
-    DEPRECATED_MODELS,
     MODEL_CHOICES,
     MODEL_CHOICES_ARGS,
 )
@@ -32,7 +31,6 @@ from griptape_nodes.exe_types.core_types import (
     Parameter,
     ParameterGroup,
     ParameterList,
-    ParameterMessage,
     ParameterMode,
     ParameterType,
 )
@@ -61,6 +59,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
+from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
@@ -123,22 +122,6 @@ class Agent(ControlNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
             )
         )
-        self.add_node_element(
-            ParameterMessage(
-                name="model_deprecation_notice",
-                title="Model Deprecation Notice",
-                variant="info",
-                value="",
-                traits={
-                    Button(
-                        full_width=True,
-                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
-                    )
-                },
-                button_text="Dismiss",
-                hide=True,
-            )
-        )
 
         # Provider selector shown above the model dropdown. The ProviderSelectionComponent
         # installs the Options + refresh Button traits after construction.
@@ -170,13 +153,12 @@ class Agent(ControlNode):
             parameter=model_param,
             model_choices=MODEL_CHOICES,
             default_model=DEFAULT_MODEL,
+            deprecated_values=CLOUD_LEGACY_MODEL_VALUES,
         )
 
         self._provider = ProviderSelectionComponent(
             node=self,
-            model_param=model_param,
             model_provider_param=model_provider_param,
-            gtc_model_choices=MODEL_CHOICES,
             model_access=self._model_access,
             default_model=DEFAULT_MODEL,
         )
@@ -281,32 +263,6 @@ class Agent(ControlNode):
         logs_group.ui_options = {"hide": True}  # Hide the logs group by default.
 
         self.add_node_element(logs_group)
-
-    def before_value_set(
-        self,
-        parameter: Parameter,
-        value: Any,
-    ) -> Any:
-        if parameter.name == "model":
-            # Only run deprecation check for string model names. When a prompt driver
-            # is connected, value is a BasePromptDriver; "value in DEPRECATED_MODELS"
-            # would hash it and raise (drivers are unhashable). See #3713.
-            if isinstance(value, str) and value in DEPRECATED_MODELS:
-                replacement = DEPRECATED_MODELS[value]
-                message = self.get_message_by_name_or_element_id("model_deprecation_notice")
-                if message is None:
-                    raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
-                message.value = f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. Please save your workflow to apply this change."
-                self.show_message_by_name("model_deprecation_notice")
-                value = replacement
-            elif isinstance(value, str):
-                self.hide_message_by_name("model_deprecation_notice")
-
-        # Call the parent implementation and return the result
-        return super().before_value_set(
-            parameter,
-            value,
-        )
 
     def _build_tool_exchange(self, subtask_events: list) -> str:
         """Build a verified tool-use record from FinishActionsSubtaskEvents.
@@ -607,9 +563,8 @@ class Agent(ControlNode):
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
-        if parameter.name == "model":
-            self._model_access.on_value_changed(value)
-        elif parameter.name == "model_provider":
+        self._model_access.on_value_set(parameter, value)
+        if parameter.name == "model_provider":
             self._provider.on_provider_changed(str(value))
 
     # --- UI Interaction Hooks ---
@@ -793,7 +748,7 @@ class Agent(ControlNode):
         # driver, so the node's (hidden, not cleared) dropdown value is stale. The
         # INVOKE_MODEL declaration below gates the model that actually runs.
         if agent_input is None and provider_name == "griptape_cloud":
-            self._model_access.raise_if_denied(model_input)
+            self._model_access.raise_if_selection_denied()
         agent = None
         include_details = self.get_parameter_value("include_details")
         default_prompt_driver = GriptapeCloudPromptDriver(
