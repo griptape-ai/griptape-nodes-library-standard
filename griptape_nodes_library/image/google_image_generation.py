@@ -22,7 +22,6 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key
 from griptape_nodes_library.utils.image_utils import shrink_image_to_size
 
 logger = logging.getLogger("griptape_nodes")
@@ -409,13 +408,6 @@ class GoogleImageGeneration(GriptapeProxyNode):
 
     async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
         await self._handle_response(result_json)
-
-    def _validate_api_key(self) -> str:
-        api_key = resolve_proxy_api_key(self.API_KEY_NAME)
-        if not api_key:
-            msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
-            raise ValueError(msg)
-        return api_key
 
     async def _submit_request_and_process(self, params: dict[str, Any], headers: dict[str, str]) -> None:
         post_url = urljoin(self._proxy_base, f"models/{params['model']}")
