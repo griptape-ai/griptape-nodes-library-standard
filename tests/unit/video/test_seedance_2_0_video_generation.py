@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 
@@ -160,25 +161,33 @@ async def test_build_payload_accepts_serialized_image_artifact_dict(monkeypatch:
     node.set_parameter_value("prompt", "A fox runs through a forest")
     node.set_parameter_value(
         "first_frame",
-        {"type": "ImageArtifact", "value": "RAW_IMAGE_BASE64", "format": "png", "width": 1, "height": 1},
+        {
+            "type": "ImageArtifact",
+            "value": base64.b64encode(b"png-bytes").decode(),
+            "format": "png",
+            "width": 1,
+            "height": 1,
+        },
     )
 
     async def fail_if_called(self: File, fallback_mime: str = "application/octet-stream") -> str:
         raise AssertionError("File.aread_data_uri should not be used for inline image artifact dicts")
 
-    def fail_if_uploaded(self) -> str:
-        raise AssertionError("a data URI has no filename to upload under; it must stay inline")
-
     monkeypatch.setattr(File, "aread_data_uri", fail_if_called)
-    monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", fail_if_uploaded)
+    monkeypatch.setattr(
+        PublicArtifactUrlParameter,
+        "get_public_url_for_parameter",
+        lambda self: "https://public.example/uploaded.png",
+    )
 
     payload = await node._build_payload()
 
+    # A serialized artifact dict is still accepted, and like every other image it travels as a URL.
     assert payload["content"] == [
         {"type": "text", "text": "A fox runs through a forest"},
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,RAW_IMAGE_BASE64"},
+            "image_url": {"url": "https://public.example/uploaded.png"},
             "role": "first_frame",
         },
     ]
@@ -360,10 +369,10 @@ async def test_public_reference_image_url_passes_through_without_upload(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_data_uri_reference_image_stays_inline(monkeypatch: pytest.MonkeyPatch) -> None:
-    # A data URI carries its bytes but names no file, and the upload layer builds the storage
-    # key from the value's path -- so uploading one would key the object by its own base64
-    # payload. These stay inline instead, which is also how they behaved before.
+async def test_data_uri_reference_image_is_written_out_and_uploaded(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A data URI carries its bytes but names no file, and the upload builds the storage key from the
+    # value's path, so handing one over keys the object by its own base64 payload. Write it out to a
+    # temp file first: leaving it inline is the body-size failure this whole path exists to fix.
     node = Seedance20VideoGeneration(name="Seedance20")
     node.set_parameter_value("model_id", "Seedance 2.0")
     node.set_parameter_value("input_mode", "Multimodal References")
@@ -371,22 +380,36 @@ async def test_data_uri_reference_image_stays_inline(monkeypatch: pytest.MonkeyP
     _set_parameter_list_values(
         node,
         "reference_images",
-        [{"type": "ImageArtifact", "value": "RAW_IMAGE_BASE64", "format": "png", "width": 1, "height": 1}],
+        [{"type": "ImageArtifact", "value": base64.b64encode(b"png-bytes").decode(), "format": "png"}],
     )
 
-    def fail_if_uploaded(self) -> str:
-        raise AssertionError("a data URI has no filename to upload under; it must stay inline")
+    uploaded: list[object] = []
 
-    monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", fail_if_uploaded)
+    def record_and_return_public_url(self) -> str:
+        uploaded.append(self._node.get_parameter_value(self._parameter.name))
+        return "https://public.example/uploaded.png"
+
+    monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", record_and_return_public_url)
 
     payload = await node._build_payload()
 
     assert payload["content"][1] == {
         "type": "image_url",
-        "image_url": {"url": "data:image/png;base64,RAW_IMAGE_BASE64"},
+        "image_url": {"url": "https://public.example/uploaded.png"},
         "role": "reference_image",
     }
-    assert not node._pending_asset_uploads
+    # What the upload receives has to be a real file, with an extension, not the data URI.
+    assert len(uploaded) == 1
+    upload_path = Path(str(uploaded[0]))
+    assert upload_path.suffix == ".png"
+    assert upload_path.read_bytes() == b"png-bytes"
+    assert len(node._pending_asset_uploads) == 1
+
+    # The temp file is the node's to remove, so it must not outlive the run.
+    assert node._pending_temp_files == [upload_path]
+    node._cleanup_pending_asset_uploads()
+    assert not upload_path.exists()
+    assert node._pending_temp_files == []
 
 
 @pytest.mark.asyncio

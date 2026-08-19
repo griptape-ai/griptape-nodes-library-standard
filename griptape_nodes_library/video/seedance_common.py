@@ -16,8 +16,10 @@ from __future__ import annotations
 import asyncio
 import json as _json
 import logging
+import tempfile
 from abc import ABC
 from contextlib import suppress
+from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 from uuid import uuid4
@@ -36,7 +38,7 @@ from griptape_nodes_library.assets import (
     get_provider_asset_kind,
     get_provider_asset_value,
 )
-from griptape_nodes_library.media import coerce_media_url_or_data_uri
+from griptape_nodes_library.media import coerce_media_url_or_data_uri, split_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -218,6 +220,10 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         # finally blocks so they don't accumulate on the node across runs.
         self._pending_asset_uploads: list[tuple[PublicArtifactUrlParameter, str]] = []
 
+        # Temp files written to give a data URI a real filename before uploading it; removed by
+        # the same cleanup.
+        self._pending_temp_files: list[Path] = []
+
     # --- Media preparation ------------------------------------------------------------------
 
     async def _prepare_frame_url_async(self, frame_input: Any, *, frame_label: str) -> str | None:
@@ -236,16 +242,10 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             )
             return None
 
-        # An input that arrives as a data URI stays inline. Uploading needs a filename, and
-        # the upload layer takes the storage key from the value's path -- a data URI has no
-        # path, so the key would be built out of the base64 payload itself.
-        if frame_url.startswith("data:image/"):
-            self._log(f"{self.name} {frame_label} prepared as inline data URI")
-            return frame_url
-
-        # Seedance rejects oversized JSON bodies, and a handful of base64 reference images
-        # is enough to get there, so anything that names a file is uploaded to GTC static
-        # storage and sent as a short-lived presigned URL rather than being read inline.
+        # Seedance rejects oversized JSON bodies, and a handful of base64 reference images is
+        # enough to get there, so no image is inlined: everything that is not already a public URL
+        # is uploaded to GTC static storage and sent as a short-lived presigned URL instead. A data
+        # URI included -- leaving those inline is the size problem this exists to fix.
         # _resolve_public_url_for_media passes public http(s) URLs through untouched.
         try:
             public_url = self._resolve_public_url_for_media(
@@ -332,6 +332,22 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             raise RuntimeError(msg)
         return public_url
 
+    def _materialize_data_uri(self, url: str) -> str:
+        """Write a base64 data URI to a temp file and return its path; pass anything else through.
+
+        The file is tracked for removal by _cleanup_pending_asset_uploads. A data URI that cannot be
+        decoded is passed through untouched so the upload reports the failure against the media,
+        rather than this helper raising a decoding error the user cannot act on.
+        """
+        parts = split_data_uri(url)
+        if parts is None:
+            return url
+
+        temp_file = Path(tempfile.gettempdir()) / f"seedance_upload_{uuid4().hex}.{parts.extension}"
+        temp_file.write_bytes(parts.content)
+        self._pending_temp_files.append(temp_file)
+        return str(temp_file)
+
     def _resolve_public_url_for_media(self, media_value: Any, *, artifact_type: str) -> str:
         """Upload media to GTC static storage through a transient parameter and return its URL.
 
@@ -350,6 +366,12 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             raise ValueError(msg)
         if url.startswith(("http://", "https://")) and "localhost" not in url:
             return url
+
+        # The upload takes the stored object's key from the last path segment of what it is handed,
+        # and a data URI has no path, so it would be stored under a slice of its own base64 payload:
+        # no extension, and long enough to blow the storage key limit for some payloads. Write it out
+        # first so the upload has a real filename.
+        url = self._materialize_data_uri(url)
 
         # Adding this scratch parameter during aprocess trips the strict-mode
         # "parameter-mutation-during-aprocess" warning. That is expected and harmless here: the
@@ -456,7 +478,8 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         after registration) are reclaimed by the backend's orphan sweeper. The transient GTC
         static-storage upload made to feed CreateProviderAsset is ours to clean up, along with the
         scratch parameter created to perform the upload (its name is unique per call, so leaving it
-        would accumulate parameters on the node).
+        would accumulate parameters on the node), and any temp file written to give a data URI a
+        real filename for the upload.
         """
         for helper, scratch_name in self._pending_asset_uploads:
             with suppress(Exception):
@@ -464,6 +487,11 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             with suppress(Exception):
                 self.remove_parameter_element_by_name(scratch_name)
         self._pending_asset_uploads = []
+
+        for temp_file in self._pending_temp_files:
+            with suppress(OSError):
+                temp_file.unlink(missing_ok=True)
+        self._pending_temp_files = []
 
     # --- Provider error reporting ------------------------------------------------------------
 
