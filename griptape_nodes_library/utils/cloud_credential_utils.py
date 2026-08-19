@@ -18,7 +18,7 @@ deliberately NOT for:
 
 - **BYOK provider keys.** ``OPENAI_API_KEY``, ``ANTHROPIC_API_KEY``, and friends are
   the user's own provider credentials; a Griptape License says nothing about them.
-- **The model proxy.** Proxy nodes resolve through ``resolve_proxy_api_key`` in
+- **The model proxy.** Proxy nodes resolve through ``resolve_proxy_credential`` in
   ``griptape_nodes_library.proxy.provider_asset_access``, which additionally honors the
   proxy-scoped ``GT_CLOUD_PROXY_API_KEY`` override.
 """
