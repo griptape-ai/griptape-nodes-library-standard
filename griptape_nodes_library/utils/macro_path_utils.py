@@ -46,8 +46,23 @@ def resolve_to_macro_path(path: str) -> MacroPathResult:
     except MacroSyntaxError:
         pass
 
-    resolved = Path(path).resolve()
-    if resolved.exists():
+    # Remote URL (e.g. an S3 URL) — external by definition, never probe the filesystem.
+    # Resolving a URL as a path would join it onto the cwd and collapse "//" to "/", and
+    # stat()-ing the resulting long single filename raises OSError (ENAMETOOLONG), not a
+    # clean "does not exist". Short-circuit before any filesystem access.
+    if _is_url(path):
+        return MacroPathResult(resolved_path=path, is_external=True)
+
+    try:
+        resolved = Path(path).resolve()
+        path_exists = resolved.exists()
+    except OSError as e:
+        # Defense-in-depth: any non-filesystem value that slips past the URL check
+        # (e.g. an over-long name) should degrade to "external" rather than raising.
+        logger.debug(f"Failed to resolve path '{path}' against the filesystem: {e}")
+        return MacroPathResult(resolved_path=path, is_external=True)
+
+    if path_exists:
         result = GriptapeNodes.handle_request(AttemptMapAbsolutePathToProjectRequest(absolute_path=resolved))
         if isinstance(result, AttemptMapAbsolutePathToProjectResultSuccess) and result.mapped_path is not None:
             return MacroPathResult(resolved_path=result.mapped_path, is_external=False)
@@ -57,6 +72,20 @@ def resolve_to_macro_path(path: str) -> MacroPathResult:
 
     # Path does not exist on disk — treat as external URL
     return MacroPathResult(resolved_path=path, is_external=True)
+
+
+def _is_url(path: str) -> bool:
+    """Return True if the value is a remote URL rather than a filesystem path.
+
+    Uses the URL scheme as the discriminator, guarding against treating a Windows
+    drive letter (e.g. ``C:\\Users\\...``) as a scheme by requiring more than one
+    character before the colon.
+    """
+    try:
+        scheme = urlparse(path).scheme
+    except ValueError:
+        return False
+    return len(scheme) > 1
 
 
 def create_external_file_controls(on_click_callback: Any) -> tuple[ParameterMessage, ParameterButton]:
