@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
@@ -498,9 +499,16 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
         try:
             await super()._process_generation()
         finally:
-            self._public_reference_video_parameter_1.delete_uploaded_artifact()
-            self._public_reference_video_parameter_2.delete_uploaded_artifact()
-            self._public_reference_video_parameter_3.delete_uploaded_artifact()
+            # Each delete is a network call, so one failing must not skip the rest of the teardown:
+            # _pending_asset_uploads is reset at the top of the next run, so a skipped cleanup strands
+            # its scratch parameters on the node permanently and leaks the uploaded objects.
+            for reference_video_parameter in (
+                self._public_reference_video_parameter_1,
+                self._public_reference_video_parameter_2,
+                self._public_reference_video_parameter_3,
+            ):
+                with suppress(Exception):
+                    reference_video_parameter.delete_uploaded_artifact()
             self._cleanup_pending_asset_uploads()
 
     def validate_before_node_run(self) -> list[Exception] | None:

@@ -4,10 +4,6 @@ import pytest
 from griptape.artifacts import ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode
-from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
-    PublicArtifactUrlParameter,
-)
-from griptape_nodes.files.file import File
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.assets import (
@@ -472,29 +468,24 @@ async def test_1080p_reaches_the_payload_verbatim() -> None:
 
 
 @pytest.mark.asyncio
-async def test_first_last_frame_payload_assigns_frame_roles(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_first_last_frame_payload_assigns_frame_roles() -> None:
     node = Seedance25VideoGeneration(name="Seedance25")
     node.set_parameter_value("task", SeedanceTask.FIRST_LAST_FRAME)
     node.set_parameter_value("prompt", "The girl turns to face the camera")
     node.set_parameter_value("first_frame", ImageUrlArtifact("https://public.example/first.png"))
     node.set_parameter_value("last_frame", ImageUrlArtifact("https://public.example/last.png"))
 
-    async def fake_aread_data_uri(self: File, fallback_mime: str = "application/octet-stream") -> str:
-        return "data:image/png;base64,VALID_IMAGE"
-
-    monkeypatch.setattr(File, "aread_data_uri", fake_aread_data_uri)
-
     payload = await node._build_payload()
 
     assert payload["content"] == [
         {"type": "text", "text": "The girl turns to face the camera"},
-        {"type": "image_url", "image_url": {"url": "data:image/png;base64,VALID_IMAGE"}, "role": "first_frame"},
-        {"type": "image_url", "image_url": {"url": "data:image/png;base64,VALID_IMAGE"}, "role": "last_frame"},
+        {"type": "image_url", "image_url": {"url": "https://public.example/first.png"}, "role": "first_frame"},
+        {"type": "image_url", "image_url": {"url": "https://public.example/last.png"}, "role": "last_frame"},
     ]
 
 
 @pytest.mark.asyncio
-async def test_reference_payload_preserves_list_order_per_kind(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_reference_payload_preserves_list_order_per_kind() -> None:
     # List order is what @Image N / @Video N / @Audio N in the prompt resolve against.
     node = Seedance25VideoGeneration(name="Seedance25")
     node.set_parameter_value("task", SeedanceTask.REFERENCE_TO_VIDEO)
@@ -517,23 +508,18 @@ async def test_reference_payload_preserves_list_order_per_kind(monkeypatch: pyte
     )
     _set_parameter_list_values(node, "reference_audio", ["https://public.example/track.mp3"])
 
-    async def fake_aread_data_uri(self: File, fallback_mime: str = "application/octet-stream") -> str:
-        return f"data:image/png;base64,{fallback_mime}"
-
-    monkeypatch.setattr(File, "aread_data_uri", fake_aread_data_uri)
-
     payload = await node._build_payload()
 
     assert payload["content"] == [
         {"type": "text", "text": "@Image 1 walks toward @Image 2 while @Audio 1 plays"},
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image/jpeg"},
+            "image_url": {"url": "https://public.example/one.png"},
             "role": "reference_image",
         },
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image/jpeg"},
+            "image_url": {"url": "https://public.example/two.png"},
             "role": "reference_image",
         },
         {
@@ -555,26 +541,26 @@ async def test_reference_payload_preserves_list_order_per_kind(monkeypatch: pyte
 
 
 @pytest.mark.asyncio
-async def test_non_public_reference_video_is_uploaded_for_a_public_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Seedance rejects video base64, so a local/non-public video must be uploaded first.
+async def test_non_public_reference_video_is_uploaded_for_a_public_url(upload_env, tmp_path) -> None:
+    # Seedance rejects video base64, so a local/non-public video must be uploaded first. Asserted
+    # against the engine's real get_public_url_for_parameter, so the upload has to actually happen
+    # rather than being mocked into existence.
+    local_clip = tmp_path / "local-clip.mp4"
+    local_clip.write_bytes(b"clip bytes")
     node = Seedance25VideoGeneration(name="Seedance25")
     node.set_parameter_value("task", SeedanceTask.REFERENCE_TO_VIDEO)
     node.set_parameter_value("prompt", "Match the motion in @Video 1")
-    _set_parameter_list_values(node, "reference_videos", [VideoUrlArtifact("/tmp/local-clip.mp4")])
-
-    monkeypatch.setattr(
-        PublicArtifactUrlParameter,
-        "get_public_url_for_parameter",
-        lambda self: "https://public.example/uploaded.mp4",
-    )
+    _set_parameter_list_values(node, "reference_videos", [VideoUrlArtifact(str(local_clip))])
 
     payload = await node._build_payload()
 
     assert payload["content"][1] == {
         "type": "video_url",
-        "video_url": {"url": "https://public.example/uploaded.mp4"},
+        "video_url": {"url": upload_env.signed_url},
         "role": "reference_video",
     }
+    assert len(upload_env.uploaded_keys) == 1
+    assert upload_env.uploaded_keys[0].endswith("/local-clip.mp4")
 
 
 @pytest.mark.asyncio
