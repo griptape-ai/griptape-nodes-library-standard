@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 from griptape.artifacts import ImageUrlArtifact
@@ -376,51 +377,88 @@ async def test_public_reference_image_url_passes_through_without_upload(monkeypa
         "http://192.168.1.20:8124/workspace/static_files/style.png",
         "http://my-container:8124/workspace/static_files/style.png",
         "https://192.168.1.20:8124/workspace/static_files/style.png",
-        "http://insecure.example.com/style.png",
+        # The static server appends a cachebuster, which must not defeat path resolution.
+        "http://192.168.1.20:8124/workspace/static_files/style.png?t=1730000000",
     ],
 )
-async def test_unreachable_host_reference_image_is_uploaded(monkeypatch: pytest.MonkeyPatch, static_url: str) -> None:
-    # The static server's address is not something the provider can fetch, and STATIC_SERVER_HOST /
-    # static_server_base_url are overridable for tunnels and reverse proxies -- so it is spelled
-    # localhost, a loopback or LAN IP, or a bare container name depending on the deployment. Passing
-    # any of them through would both fail the fetch and disclose an internal host, so all of them
-    # upload. Plain http is included: only https on a real domain is treated as fetchable.
+async def test_static_server_reference_image_is_really_uploaded(upload_env, static_url: str) -> None:
+    # STATIC_SERVER_HOST / static_server_base_url are overridable for tunnels and reverse proxies,
+    # so the static server is reached by localhost, a loopback or LAN IP, or a bare container name
+    # depending on the deployment. Every spelling must produce a real upload -- not a pass-through
+    # (the provider cannot fetch it, and it discloses an internal host) and not base64 (that is the
+    # oversized body of #2191). Asserted against the engine's real get_public_url_for_parameter.
     node = _multimodal_node_with_reference_images([ImageUrlArtifact(static_url)])
 
-    monkeypatch.setattr(
-        PublicArtifactUrlParameter,
-        "get_public_url_for_parameter",
-        lambda self: "https://public.example/uploaded.png",
-    )
-
     payload = await node._build_payload()
+    serialized = json.dumps(payload)
 
-    assert payload["content"][1]["image_url"] == {"url": "https://public.example/uploaded.png"}
-    assert len(node._pending_asset_uploads) == 1
+    hostname = urlparse(static_url).hostname
+    assert hostname is not None
+
+    assert payload["content"][1]["image_url"] == {"url": upload_env.signed_url}
+    # The upload really happened, and kept the extension the presigned content type is guessed from.
+    assert len(upload_env.uploaded_keys) == 1
+    assert upload_env.uploaded_keys[0].endswith("/style.png")
+    # Neither the URL nor the internal host it names may survive anywhere in the payload.
+    assert static_url not in serialized
+    assert hostname not in serialized
+    assert "base64" not in serialized
 
 
 @pytest.mark.asyncio
-async def test_local_path_reference_image_is_uploaded_for_a_public_url(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-) -> None:
+async def test_unresolvable_unreachable_url_degrades_to_base64(monkeypatch: pytest.MonkeyPatch, upload_env) -> None:
+    # An unreachable host that is *not* one of our static-server URLs cannot be resolved to a file,
+    # so there is nothing to upload. It must degrade to base64 -- what this path always did -- and
+    # must not pass through as a URL the provider cannot fetch.
+    unreachable_url = "http://192.168.1.20:9000/img/style.png"
+    node = _multimodal_node_with_reference_images([ImageUrlArtifact(unreachable_url)])
+
+    async def fake_read(self: File, fallback_mime: str = "application/octet-stream") -> str:  # noqa: ARG001
+        return upload_env.inline_data_uri
+
+    monkeypatch.setattr(File, "aread_data_uri", fake_read)
+
+    payload = await node._build_payload()
+    serialized = json.dumps(payload)
+
+    assert payload["content"][1]["image_url"] == {"url": upload_env.inline_data_uri}
+    assert upload_env.uploaded_keys == []
+    assert unreachable_url not in serialized
+    assert "192.168.1.20" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_public_http_url_passes_through_without_upload(upload_env) -> None:
+    # Plain http on a real domain is fetchable by the provider, so it passes through. Holding it to
+    # an https-only bar instead sent it to an upload the engine declines to perform, which then had
+    # nothing to return -- a regression this asserts against.
+    public_http_url = "http://insecure.example.com/style.png"
+    node = _multimodal_node_with_reference_images([ImageUrlArtifact(public_http_url)])
+
+    payload = await node._build_payload()
+
+    assert payload["content"][1]["image_url"] == {"url": public_http_url}
+    assert upload_env.uploaded_keys == []
+    assert not node._pending_asset_uploads
+
+
+@pytest.mark.asyncio
+async def test_local_path_reference_image_is_uploaded_for_a_public_url(upload_env, tmp_path) -> None:
     reference_image = tmp_path / "style.png"
     reference_image.write_bytes(b"style")
     node = _multimodal_node_with_reference_images([ImageUrlArtifact(str(reference_image))])
 
-    monkeypatch.setattr(
-        PublicArtifactUrlParameter,
-        "get_public_url_for_parameter",
-        lambda self: "https://public.example/uploaded.png",
-    )
-
     payload = await node._build_payload()
 
-    assert payload["content"][1]["image_url"] == {"url": "https://public.example/uploaded.png"}
-    assert len(node._pending_asset_uploads) == 1
+    assert payload["content"][1]["image_url"] == {"url": upload_env.signed_url}
+    assert len(upload_env.uploaded_keys) == 1
+    assert upload_env.uploaded_keys[0].endswith("/style.png")
 
 
 @pytest.mark.asyncio
-async def test_many_reference_images_stay_out_of_the_payload(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+async def test_many_reference_images_stay_out_of_the_payload(
+    monkeypatch: pytest.MonkeyPatch, upload_env, tmp_path
+) -> None:
     # Regression for griptape-ai/griptape-cloud#2191: seven reference images read from disk were
     # inlined as base64, pushing the request past the provider's size limit, which came back as an
     # opaque "proxy client error". Images that name a file must travel as URLs however many there are.
@@ -435,18 +473,40 @@ async def test_many_reference_images_stay_out_of_the_payload(monkeypatch: pytest
         raise AssertionError("reference images that name a file must not be read inline as base64")
 
     monkeypatch.setattr(File, "aread_data_uri", fail_if_called)
-    monkeypatch.setattr(
-        PublicArtifactUrlParameter,
-        "get_public_url_for_parameter",
-        lambda self: "https://public.example/uploaded.png",
-    )
 
     payload = await node._build_payload()
     image_entries = [item for item in payload["content"] if item["type"] == "image_url"]
 
     assert len(image_entries) == 7
-    assert all(item["image_url"] == {"url": "https://public.example/uploaded.png"} for item in image_entries)
+    assert all(item["image_url"] == {"url": upload_env.signed_url} for item in image_entries)
+    # Seven real uploads, not seven mocked return values.
+    assert len(upload_env.uploaded_keys) == 7
     assert "base64" not in json.dumps(payload)
+
+
+def test_private_asset_accepts_a_public_http_url(upload_env) -> None:
+    # Provider asset registration needs a URL the provider can fetch, and plain http on a real
+    # domain qualifies. Requiring https here rejected an input that registers fine, because the
+    # upload it assumed would happen instead is one the engine declines to perform.
+    public_http_url = "http://images.example.com/face.png"
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node._pending_asset_uploads = []
+    ref = create_provider_asset_reference(value=public_http_url, asset_kind=ASSET_KIND_IMAGE)
+
+    assert node._resolve_public_url_for_asset(ref, asset_kind=ASSET_KIND_IMAGE) == public_http_url
+    assert upload_env.uploaded_keys == []
+
+
+def test_private_asset_rejects_an_unreachable_host(upload_env) -> None:
+    # The provider cannot fetch a LAN address. Registering it anyway leaves the asset stuck and
+    # discloses an internal host, so this fails at our own gate with a message that says why.
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node._pending_asset_uploads = []
+    ref = create_provider_asset_reference(value="http://192.168.1.20:9000/face.png", asset_kind=ASSET_KIND_IMAGE)
+
+    with pytest.raises(RuntimeError, match="was not uploaded"):
+        node._resolve_public_url_for_asset(ref, asset_kind=ASSET_KIND_IMAGE)
+    assert upload_env.uploaded_keys == []
 
 
 @pytest.mark.asyncio
@@ -772,24 +832,17 @@ async def test_build_payload_does_not_register_assets_when_byok_enabled(
     ]
 
 
-def test_scratch_upload_parameters_are_removed_after_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_scratch_upload_parameters_are_removed_after_cleanup(upload_env) -> None:
     # Registering an asset whose media needs uploading creates a uniquely-named scratch
     # parameter. The cleanup must remove it so parameters don't accumulate across runs.
     node = Seedance20VideoGeneration(name="Seedance20")
-
-    monkeypatch.setattr(
-        PublicArtifactUrlParameter,
-        "get_public_url_for_parameter",
-        lambda self: "https://public.example/uploaded.png",
-    )
-    monkeypatch.setattr(PublicArtifactUrlParameter, "delete_uploaded_artifact", lambda self: None)
 
     # A non-public (data URI) value forces the upload path that mints a scratch parameter.
     public_url = node._resolve_public_url_for_asset(
         create_provider_asset_reference(value="data:image/png;base64,AAAA", asset_kind=ASSET_KIND_IMAGE),
         asset_kind=ASSET_KIND_IMAGE,
     )
-    assert public_url == "https://public.example/uploaded.png"
+    assert public_url == upload_env.signed_url
 
     scratch_names = [name for _, name in node._pending_asset_uploads]
     assert scratch_names, "expected a scratch upload parameter to be created"

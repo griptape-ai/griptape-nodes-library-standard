@@ -19,7 +19,7 @@ import logging
 from abc import ABC
 from contextlib import suppress
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 
 import httpx
@@ -28,6 +28,7 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
     PublicArtifactUrlParameter,
 )
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.assets import (
     ASSET_KIND_AUDIO,
@@ -38,7 +39,7 @@ from griptape_nodes_library.assets import (
 )
 from griptape_nodes_library.media import (
     coerce_media_url_or_data_uri,
-    is_public_https_domain_url,
+    is_publicly_reachable_url,
     prepare_media_data_uri,
 )
 from griptape_nodes_library.proxy import GriptapeProxyNode
@@ -261,8 +262,8 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
 
         Mirrors PublicVideoUrlMixin._upload_video_to_public_url. Seedance rejects oversized JSON
         bodies and a handful of base64 reference images is enough to get there, so an image that
-        merely *names* a file is uploaded rather than read into the request body; an already-public
-        https URL passes through untouched.
+        merely *names* a file is uploaded rather than read into the request body; a URL the provider
+        can already fetch passes through untouched.
 
         An image that already carries its bytes is left to the caller's data-URI fallback: uploading
         one keys the stored object by a slice of its own base64 payload, with no extension for the
@@ -347,7 +348,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         public_url = self._resolve_public_url_for_media(
             media_value, artifact_type=_ASSET_KIND_ARTIFACT_TYPES[asset_kind]
         )
-        if not is_public_https_domain_url(public_url):
+        if not is_publicly_reachable_url(public_url):
             msg = (
                 f"{self.name}: could not obtain a public URL for the {asset_kind} private asset. "
                 "Provider asset registration requires a publicly fetchable URL (data URIs are not supported)."
@@ -355,15 +356,37 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             raise RuntimeError(msg)
         return public_url
 
+    def _local_path_for_static_server_url(self, url: str) -> str | None:
+        """Map one of our own static-server URLs back to the file on disk, or None if it isn't one.
+
+        Mirrors StaticServerFileDriver._resolve_to_local_path, which does the same thing for the
+        `localhost` spelling only: take the path after `/workspace/` and anchor it to the workspace
+        directory. Query parameters are stripped because the static server appends a cachebuster.
+
+        Returns None unless the result is a file on this machine, so a static server running on a
+        different host degrades to base64 rather than uploading whatever the path happens to hit.
+        """
+        path = urlparse(url.split("?", maxsplit=1)[0]).path
+        if "/workspace/" not in path:
+            return None
+        workspace_relative = path.split("/workspace/", 1)[1]
+        if not workspace_relative:
+            return None
+        candidate = GriptapeNodes.ConfigManager().workspace_path / workspace_relative
+        return str(candidate) if candidate.is_file() else None
+
     def _resolve_public_url_for_media(self, media_value: Any, *, artifact_type: str) -> str:
         """Upload media to GTC static storage through a transient parameter and return its URL.
 
-        Only a URL the provider can actually fetch passes through untouched -- https:// on a real
-        domain, per is_public_https_domain_url. The static server's own address does not qualify,
-        whether it is spelled localhost, a LAN IP or a container name, so it uploads like any
-        local path. PublicArtifactUrlParameter binds to a named parameter, so a hidden scratch
-        parameter is created per call and torn down together with the upload by
-        _cleanup_pending_asset_uploads.
+        A URL the provider can already fetch passes through untouched, per
+        is_publicly_reachable_url. The static server's own address does not qualify, whether it is
+        spelled localhost, a loopback or LAN IP, or a container name, so it uploads like any local
+        path. PublicArtifactUrlParameter binds to a named parameter, so a hidden scratch parameter
+        is created per call and torn down together with the upload by _cleanup_pending_asset_uploads.
+
+        Raises if the upload did not happen, rather than returning a URL the provider cannot fetch.
+        Callers that can inline instead catch this and fall back to base64; the private-asset path,
+        which has no fallback, surfaces it.
         """
         # Media reaches this node as a URL string, an artifact, or a serialized artifact dict, and
         # any of the three can already carry a public URL that needs no upload.
@@ -374,8 +397,17 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         if not isinstance(url, str) or not url:
             msg = f"{self.name}: cannot obtain a public URL for {media_value!r}, which carries no media path or URL."
             raise ValueError(msg)
-        if is_public_https_domain_url(url):
+        if is_publicly_reachable_url(url):
             return url
+
+        # A URL naming our own static server is uploaded by nobody as it stands: the engine's
+        # StaticServerFileDriver only recognizes one spelled `localhost`
+        # (static_server_file_driver.py:42), and PublicArtifactUrlParameter only uploads a value
+        # that is not an http(s) URL at all. Handing over the file it resolves to is what gets it
+        # uploaded rather than inlined, which is the whole point of this path for a static server
+        # reached by LAN IP or container name. Falls back to the URL when it resolves to nothing on
+        # this machine -- the file may well live on another host -- and the guard below catches it.
+        upload_value = self._local_path_for_static_server_url(url) or url
 
         # Adding this scratch parameter during aprocess trips the strict-mode
         # "parameter-mutation-during-aprocess" warning. That is expected and harmless here: the
@@ -398,9 +430,25 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         )
         helper.add_input_parameters()
         self._pending_asset_uploads.append((helper, scratch_name))
-        self.set_parameter_value(scratch_name, url)
+        self.set_parameter_value(scratch_name, upload_value)
 
-        return helper.get_public_url_for_parameter()
+        public_url = helper.get_public_url_for_parameter()
+
+        # get_public_url_for_parameter opens with its own "is this already public?" test, and in
+        # engine 0.96.0 that test is the weak substring form this module no longer uses
+        # (public_artifact_url_parameter.py:172). So for a URL it considers public but we do not --
+        # a LAN IP, a container name, plain http on a non-routable host -- it returns the value
+        # unchanged and uploads nothing, and the truthy return would otherwise read as success.
+        # gtc_file_path is the engine's own record of having uploaded (delete_uploaded_artifact
+        # keys off it), and it stays None on that pass-through, so it is what distinguishes the two.
+        if helper.gtc_file_path is None:
+            msg = (
+                f"{self.name}: {url} was not uploaded -- the engine treated it as already public "
+                "and returned it unchanged, but the provider cannot fetch it."
+            )
+            raise RuntimeError(msg)
+
+        return public_url
 
     async def _create_provider_asset(self, public_url: str, asset_kind: str, headers: dict[str, str]) -> str:
         """POST proxy/v2/assets and poll to ACTIVE; return the provider asset id."""
