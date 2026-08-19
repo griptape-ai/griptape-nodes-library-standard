@@ -36,7 +36,11 @@ from griptape_nodes_library.assets import (
     get_provider_asset_kind,
     get_provider_asset_value,
 )
-from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri
+from griptape_nodes_library.media import (
+    coerce_media_url_or_data_uri,
+    is_public_https_domain_url,
+    prepare_media_data_uri,
+)
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -258,7 +262,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         Mirrors PublicVideoUrlMixin._upload_video_to_public_url. Seedance rejects oversized JSON
         bodies and a handful of base64 reference images is enough to get there, so an image that
         merely *names* a file is uploaded rather than read into the request body; an already-public
-        http(s) URL passes through untouched.
+        https URL passes through untouched.
 
         An image that already carries its bytes is left to the caller's data-URI fallback: uploading
         one keys the stored object by a slice of its own base64 payload, with no extension for the
@@ -343,7 +347,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         public_url = self._resolve_public_url_for_media(
             media_value, artifact_type=_ASSET_KIND_ARTIFACT_TYPES[asset_kind]
         )
-        if not (public_url.startswith(("http://", "https://")) and "localhost" not in public_url):
+        if not is_public_https_domain_url(public_url):
             msg = (
                 f"{self.name}: could not obtain a public URL for the {asset_kind} private asset. "
                 "Provider asset registration requires a publicly fetchable URL (data URIs are not supported)."
@@ -354,9 +358,12 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
     def _resolve_public_url_for_media(self, media_value: Any, *, artifact_type: str) -> str:
         """Upload media to GTC static storage through a transient parameter and return its URL.
 
-        Already-public http(s) URLs pass through untouched. PublicArtifactUrlParameter binds to a
-        named parameter, so a hidden scratch parameter is created per call and torn down together
-        with the upload by _cleanup_pending_asset_uploads.
+        Only a URL the provider can actually fetch passes through untouched -- https:// on a real
+        domain, per is_public_https_domain_url. The static server's own address does not qualify,
+        whether it is spelled localhost, a LAN IP or a container name, so it uploads like any
+        local path. PublicArtifactUrlParameter binds to a named parameter, so a hidden scratch
+        parameter is created per call and torn down together with the upload by
+        _cleanup_pending_asset_uploads.
         """
         # Media reaches this node as a URL string, an artifact, or a serialized artifact dict, and
         # any of the three can already carry a public URL that needs no upload.
@@ -367,7 +374,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         if not isinstance(url, str) or not url:
             msg = f"{self.name}: cannot obtain a public URL for {media_value!r}, which carries no media path or URL."
             raise ValueError(msg)
-        if url.startswith(("http://", "https://")) and "localhost" not in url:
+        if is_public_https_domain_url(url):
             return url
 
         # Adding this scratch parameter during aprocess trips the strict-mode

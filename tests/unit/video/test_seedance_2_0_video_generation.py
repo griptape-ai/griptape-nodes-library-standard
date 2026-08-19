@@ -367,6 +367,39 @@ async def test_public_reference_image_url_passes_through_without_upload(monkeypa
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "static_url",
+    [
+        "http://localhost:8124/workspace/static_files/style.png",
+        "http://127.0.0.1:8124/workspace/static_files/style.png",
+        "http://0.0.0.0:8124/workspace/static_files/style.png",
+        "http://192.168.1.20:8124/workspace/static_files/style.png",
+        "http://my-container:8124/workspace/static_files/style.png",
+        "https://192.168.1.20:8124/workspace/static_files/style.png",
+        "http://insecure.example.com/style.png",
+    ],
+)
+async def test_unreachable_host_reference_image_is_uploaded(monkeypatch: pytest.MonkeyPatch, static_url: str) -> None:
+    # The static server's address is not something the provider can fetch, and STATIC_SERVER_HOST /
+    # static_server_base_url are overridable for tunnels and reverse proxies -- so it is spelled
+    # localhost, a loopback or LAN IP, or a bare container name depending on the deployment. Passing
+    # any of them through would both fail the fetch and disclose an internal host, so all of them
+    # upload. Plain http is included: only https on a real domain is treated as fetchable.
+    node = _multimodal_node_with_reference_images([ImageUrlArtifact(static_url)])
+
+    monkeypatch.setattr(
+        PublicArtifactUrlParameter,
+        "get_public_url_for_parameter",
+        lambda self: "https://public.example/uploaded.png",
+    )
+
+    payload = await node._build_payload()
+
+    assert payload["content"][1]["image_url"] == {"url": "https://public.example/uploaded.png"}
+    assert len(node._pending_asset_uploads) == 1
+
+
+@pytest.mark.asyncio
 async def test_local_path_reference_image_is_uploaded_for_a_public_url(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:

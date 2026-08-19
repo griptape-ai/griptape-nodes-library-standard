@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import ipaddress
 import logging
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
 from uuid import uuid4
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
@@ -12,7 +10,7 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
     PublicArtifactUrlParameter,
 )
 
-from griptape_nodes_library.media import coerce_media_url_or_data_uri
+from griptape_nodes_library.media import coerce_media_url_or_data_uri, is_public_https_domain_url
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -26,23 +24,6 @@ __all__ = ["MAX_VIDEO_DATA_URI_SIZE_BYTES", "PublicVideoUrlMixin", "decoded_data
 # The URL tier avoids this entirely by handing LTX a public URL it fetches server-side,
 # where the limit is a larger 32 MB; this guard only applies to the base64 fallback.
 MAX_VIDEO_DATA_URI_SIZE_BYTES = 15 * 1024 * 1024 * 3 // 4  # ≈ 11.25 MB decoded
-
-
-def _is_public_https_domain_url(url: str) -> bool:
-    """Return True only for URLs LTX will accept directly: https:// with a proper domain name.
-
-    Rejects http://, bare IPs (0.0.0.0, 192.168.x.x, 127.0.0.1, ::1), and single-label
-    hostnames (localhost, container names) — all of which must upload to Griptape Cloud instead.
-    """
-    if not url.startswith("https://"):
-        return False
-    hostname = urlparse(url).hostname or ""
-    try:
-        ipaddress.ip_address(hostname)
-        return False
-    except ValueError:
-        pass
-    return "." in hostname
 
 
 def decoded_data_uri_size(data_uri: str) -> int:
@@ -121,7 +102,7 @@ class PublicVideoUrlMixin:
     def _upload_video_to_public_url(self, video_input: Any) -> str | None:
         """Upload the video to Griptape Cloud and return a public URL, or None to fall back.
 
-        Already-public remote http(s) URLs pass through unchanged (LTX fetches them directly).
+        Already-public remote https URLs pass through unchanged (LTX fetches them directly).
         Local paths, ``data:`` URIs, and localhost URLs are uploaded via a transient
         ``PublicArtifactUrlParameter``. Returns None (and logs a warning) if the upload can't
         be performed so the caller falls back to base64.
@@ -129,7 +110,7 @@ class PublicVideoUrlMixin:
         video_value = coerce_media_url_or_data_uri(video_input, kind="video")
         if not video_value:
             return None
-        if _is_public_https_domain_url(video_value):
+        if is_public_https_domain_url(video_value):
             return video_value
 
         # The scratch parameter is a transient, worker-local helper that only exists to feed the
