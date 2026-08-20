@@ -38,6 +38,12 @@ def resolve_to_macro_path(path: str) -> MacroPathResult:
     exist on disk (e.g. a remote URL), returns the original path with is_external=True
     so the caller can prompt the user to copy it into the project.
     """
+    # A data URI is not a filesystem path, and URL detection requires "://" — which a
+    # "data:opaque" URI lacks — so it would otherwise fall through to the filesystem
+    # branch and be joined onto the workspace directory as a bogus base64 path.
+    if path.startswith("data:"):
+        return MacroPathResult(resolved_path=path, is_external=True)
+
     # Already a macro path (e.g. "{inputs}/image.png") — treat as in-project
     try:
         parsed = ParsedMacro(path)
@@ -46,7 +52,16 @@ def resolve_to_macro_path(path: str) -> MacroPathResult:
     except MacroSyntaxError:
         pass
 
-    resolved = Path(path).resolve()
+    # Use `File` so a relative path anchors to the workspace directory (matching
+    # read/write behavior elsewhere in the engine).
+    resolved_str = File(path).resolve()
+
+    # A URL that `File.resolve()` did not turn into a local path is external.
+    if "://" in resolved_str:
+        return MacroPathResult(resolved_path=path, is_external=True)
+
+    # Resolve through any symlinks before AttemptMapAbsolutePathToProjectRequest.
+    resolved = Path(resolved_str).resolve()
     if resolved.exists():
         result = GriptapeNodes.handle_request(AttemptMapAbsolutePathToProjectRequest(absolute_path=resolved))
         if isinstance(result, AttemptMapAbsolutePathToProjectResultSuccess) and result.mapped_path is not None:
