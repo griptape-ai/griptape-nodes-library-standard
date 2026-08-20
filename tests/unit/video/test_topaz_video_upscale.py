@@ -388,9 +388,7 @@ async def test_parse_result_downloads_from_the_documented_shape(monkeypatch: pyt
 
     monkeypatch.setattr(TopazVideoUpscale, "_download_and_save", fake_download_and_save)
 
-    await node._parse_result(
-        {"status": "complete", "download": {"url": "https://topaz.example/out.mp4"}}, "gen-1"
-    )
+    await node._parse_result({"status": "complete", "download": {"url": "https://topaz.example/out.mp4"}}, "gen-1")
 
     assert captured["url"] == "https://topaz.example/out.mp4"
 
@@ -442,7 +440,9 @@ def test_resize_mode_reveals_the_matching_fields() -> None:
 
 def test_model_carries_a_cost_badge() -> None:
     # Starlight is metered per frame; the issue asks for that to be visible.
-    badge = _node().get_parameter_by_name("model").get_badge()
+    model_param = _node().get_parameter_by_name("model")
+    assert model_param is not None
+    badge = model_param.get_badge()
 
     assert badge is not None
     assert badge.variant == "warning"
@@ -454,7 +454,9 @@ def test_width_and_height_near_4k_warns_about_the_expensive_tier() -> None:
     node.set_parameter_value("target_width", 3200)
     node.set_parameter_value("target_height", 1800)
 
-    badge = node.get_parameter_by_name("resize_mode").get_badge()
+    resize_mode_param = node.get_parameter_by_name("resize_mode")
+    assert resize_mode_param is not None
+    badge = resize_mode_param.get_badge()
 
     assert badge is not None
     assert badge.variant == "warning"
@@ -467,7 +469,9 @@ def test_width_and_height_1080p_reports_the_cheaper_tier() -> None:
     node.set_parameter_value("target_width", 1920)
     node.set_parameter_value("target_height", 1080)
 
-    badge = node.get_parameter_by_name("resize_mode").get_badge()
+    resize_mode_param = node.get_parameter_by_name("resize_mode")
+    assert resize_mode_param is not None
+    badge = resize_mode_param.get_badge()
 
     assert badge is not None
     assert badge.variant == "info"
@@ -478,14 +482,20 @@ def test_tier_boundary_is_pixel_area_not_height() -> None:
     # cheap tier; 1921x1080 crosses it.
     node = _node()
     node.set_parameter_value("resize_mode", ResizeMode.WIDTH_HEIGHT)
+    resize_mode_param = node.get_parameter_by_name("resize_mode")
+    assert resize_mode_param is not None
 
     node.set_parameter_value("target_width", 1080)
     node.set_parameter_value("target_height", 1920)
-    assert node.get_parameter_by_name("resize_mode").get_badge().variant == "info"
+    badge = resize_mode_param.get_badge()
+    assert badge is not None
+    assert badge.variant == "info"
 
     node.set_parameter_value("target_width", 1922)
     assert 1922 * 1920 > STARLIGHT_1080P_MAX_PIXELS
-    assert node.get_parameter_by_name("resize_mode").get_badge().variant == "warning"
+    badge = resize_mode_param.get_badge()
+    assert badge is not None
+    assert badge.variant == "warning"
 
 
 def test_width_and_height_over_hard_cap_shows_error_badge(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -498,7 +508,9 @@ def test_width_and_height_over_hard_cap_shows_error_badge(monkeypatch: pytest.Mo
 
     assert 3840 * 3840 > STARLIGHT_MAX_OUTPUT_PIXELS
     node._update_tier_badge()
-    badge = node.get_parameter_by_name("resize_mode").get_badge()
+    resize_mode_param = node.get_parameter_by_name("resize_mode")
+    assert resize_mode_param is not None
+    badge = resize_mode_param.get_badge()
 
     assert badge is not None
     assert badge.variant == "error"
@@ -509,7 +521,9 @@ def test_width_only_shows_a_source_dependent_note_badge() -> None:
     node.set_parameter_value("resize_mode", ResizeMode.WIDTH)
     node.set_parameter_value("target_size", 1920)
 
-    badge = node.get_parameter_by_name("resize_mode").get_badge()
+    resize_mode_param = node.get_parameter_by_name("resize_mode")
+    assert resize_mode_param is not None
+    badge = resize_mode_param.get_badge()
 
     assert badge is not None
     assert badge.variant == "note"
@@ -520,7 +534,9 @@ def test_height_only_shows_a_source_dependent_note_badge() -> None:
     node.set_parameter_value("resize_mode", ResizeMode.HEIGHT)
     node.set_parameter_value("target_size", 1080)
 
-    badge = node.get_parameter_by_name("resize_mode").get_badge()
+    resize_mode_param = node.get_parameter_by_name("resize_mode")
+    assert resize_mode_param is not None
+    badge = resize_mode_param.get_badge()
 
     assert badge is not None
     assert badge.variant == "note"
