@@ -749,6 +749,18 @@
                 "family": "Topaz",
                 "provider_model_id": "topaz-tool",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_video_slp_2_5": {
+                "display_name": "Topaz Starlight Precise 2.5",
+                "family": "Topaz",
+                "provider_model_id": "topaz-video-slp-2.5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_video_slp_2_6": {
+                "display_name": "Topaz Starlight Precise 2.6",
+                "family": "Topaz",
+                "provider_model_id": "topaz-video-slp-2.6",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
           },
@@ -2887,6 +2899,34 @@
             "model_ids": [
               "gtc_ltx_2_pro",
               "gtc_ltx_2_3_pro"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "TopazVideoUpscale",
+      "file_path": "griptape_nodes_library/video/topaz_video_upscale.py",
+      "metadata": {
+        "category": "video",
+        "description": "Upscale a video using Topaz Starlight Precise generative upscaling via the Griptape model proxy. Billed per frame.",
+        "display_name": "Topaz Video Upscale",
+        "icon": "Sparkles",
+        "group": "edit",
+        "tags": [
+          "video",
+          "upscale",
+          "enhance",
+          "ai",
+          "api",
+          "topaz"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_topaz_video_slp_2_5",
+              "gtc_topaz_video_slp_2_6"
             ]
           }
         ]
