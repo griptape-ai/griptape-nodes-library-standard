@@ -4,7 +4,9 @@ import asyncio
 import logging
 import math
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
@@ -73,6 +75,24 @@ MAX_ASTRA_FRAMES = 9000
 # A prompt drops Astra's ceiling by 20x. As with Starlight the proxy only clamps what
 # it *bills*; the job still reaches Topaz, which rejects it.
 MAX_ASTRA_FRAMES_WITH_PROMPT = 450
+
+# Topaz's source.container enum is exactly mp4/mov/mkv:
+# https://developer.topazlabs.com/reference/api-endpoints/video/create-request.md
+#
+# ffprobe's format_name can't tell these apart -- mp4 and mov both report
+# "mov,mp4,m4a,3gp,3g2,mj2", and mkv and webm both report "matroska,webm" (which
+# isn't even a valid Topaz value) -- so container is derived from the file
+# extension (or, for a data URI, the MIME subtype) instead. See _derive_container.
+CONTAINER_BY_TOKEN: dict[str, str] = {
+    "mp4": "mp4",
+    "m4v": "mp4",
+    "mov": "mov",
+    "qt": "mov",
+    "quicktime": "mov",
+    "mkv": "mkv",
+    "matroska": "mkv",
+    "x-matroska": "mkv",
+}
 
 # Both families bill in two rate tiers, chosen by output pixel *area*, not height. A
 # portrait 1080x1920 output bills as 1080p; 1921x1080 already bills as 4K.
@@ -598,6 +618,28 @@ class TopazVideoUpscale(GriptapeProxyNode):
 
         return extract_video_metadata_structured(str(resolved_path))
 
+    def _derive_container(self, video_input: Any) -> str:
+        """Map the input video to Topaz's exact ``source.container`` enum (mp4/mov/mkv).
+
+        Deliberately independent of ``_probe_source``/``VideoMetadata``: it only needs
+        the raw parameter value, and calling the same cheap, pure
+        ``coerce_media_url_or_data_uri`` helper here keeps this check from being
+        silently bypassed by tests that stub ``_probe_source`` wholesale.
+        """
+        video_url = coerce_media_url_or_data_uri(video_input, kind="video") or ""
+        if video_url.startswith("data:"):
+            header = video_url.removeprefix("data:").split(",", 1)[0]
+            token = header.split(";", 1)[0].split("/", 1)[-1].lower()
+        else:
+            token = Path(urlsplit(video_url).path).suffix.lstrip(".").lower()
+
+        container = CONTAINER_BY_TOKEN.get(token)
+        if container is None:
+            found = token or "no extension"
+            msg = f"{self.name}: Topaz only accepts mp4, mov, or mkv source video, but got {found!r}."
+            raise ValueError(msg)
+        return container
+
     @staticmethod
     def _frame_count(metadata: VideoMetadata) -> int:
         """Derive the source frame count, which the proxy requires and never defaults.
@@ -680,6 +722,8 @@ class TopazVideoUpscale(GriptapeProxyNode):
             msg = f"{self.name} requires an input video to upscale."
             raise ValueError(msg)
 
+        container = self._derive_container(video)
+
         # ffprobe is synchronous and can take a moment on a long clip; keep it off
         # the event loop.
         metadata = await asyncio.to_thread(self._probe_source, video)
@@ -714,7 +758,7 @@ class TopazVideoUpscale(GriptapeProxyNode):
             raise ValueError(msg)
 
         source: dict[str, Any] = {
-            "container": "mp4",
+            "container": container,
             "frameCount": frame_count,
             "frameRate": metadata.frame_details.frame_rate,
             "resolution": {"width": source_width, "height": source_height},
@@ -849,6 +893,7 @@ class TopazVideoUpscale(GriptapeProxyNode):
         if isinstance(e, ValueError):
             self._set_safe_defaults()
             self._set_status_results(was_successful=False, result_details=str(e))
+            self._handle_failure_exception(e)
             return
 
         super()._handle_payload_build_error(e)
