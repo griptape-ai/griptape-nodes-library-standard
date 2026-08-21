@@ -10,10 +10,15 @@ from griptape_nodes_library.utils.ffmpeg_utils import (
     VideoMetadata,
 )
 from griptape_nodes_library.video.topaz_video_upscale import (
+    ASTRA_FILTER_PARAMS,
+    ASTRA_VS_STARLIGHT_1080P,
+    MAX_ASTRA_FRAMES,
+    MAX_ASTRA_FRAMES_WITH_PROMPT,
     MAX_STARLIGHT_FRAMES,
+    MODEL_FAMILIES,
     MODEL_MAPPING,
-    STARLIGHT_1080P_MAX_PIXELS,
     STARLIGHT_MAX_OUTPUT_PIXELS,
+    TIER_1080P_MAX_PIXELS,
     ResizeMode,
     TopazVideoUpscale,
 )
@@ -54,6 +59,17 @@ def _metadata(
 
 def _node(name: str = "TopazVideoUpscale") -> TopazVideoUpscale:
     return TopazVideoUpscale(name=name)
+
+
+ASTRA_MODEL = "Astra 2"
+STARLIGHT_MODEL = "Starlight Precise 2.6"
+
+
+def _astra_node(name: str = "TopazVideoUpscale") -> TopazVideoUpscale:
+    """A node switched to Astra through the normal setter, so the UI reactions fire."""
+    node = _node(name)
+    node.set_parameter_value("model", ASTRA_MODEL)
+    return node
 
 
 def _stub_probe(monkeypatch: pytest.MonkeyPatch, metadata: VideoMetadata) -> None:
@@ -146,7 +162,9 @@ def test_odd_source_still_yields_even_output() -> None:
 
 
 def test_output_exceeding_the_hard_cap_raises() -> None:
+    # The cap is now Starlight's alone, so pin the model rather than lean on the default.
     node = _node()
+    node.set_parameter_value("model", STARLIGHT_MODEL)
     node.set_parameter_value("resize_mode", ResizeMode.PERCENTAGE)
     node.set_parameter_value("percentage", 200)
 
@@ -276,6 +294,21 @@ async def test_build_payload_omits_filters(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 @pytest.mark.asyncio
+async def test_starlight_payload_has_only_source_and_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The regression lock for the Astra merge: adding a second model family must not
+    # change a single byte of what Starlight sends. Asserting the exact key set (rather
+    # than "filters" not in payload) catches any new top-level key, not just that one.
+    node = _node()
+    node.set_parameter_value("video", "{inputs}/clip.mp4")
+    _stub_probe(monkeypatch, _metadata())
+    _stub_public_url(node, monkeypatch)
+
+    payload = await node._build_payload()
+
+    assert set(payload) == {"source", "output"}
+
+
+@pytest.mark.asyncio
 async def test_build_payload_omits_absent_optional_source_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     node = _node()
     node.set_parameter_value("video", "{inputs}/clip.mp4")
@@ -372,6 +405,19 @@ def test_default_model_is_the_newer_starlight() -> None:
 def test_every_mapped_model_is_prefixed() -> None:
     for model_id in MODEL_MAPPING.values():
         assert model_id.startswith("topaz-video-")
+
+
+def test_astra_routes_to_its_own_proxy_id() -> None:
+    node = _node()
+    node.set_parameter_value("model", ASTRA_MODEL)
+
+    assert node._get_api_model_id() == "topaz-video-ast-2"
+
+
+def test_every_model_has_a_registered_family() -> None:
+    # MODEL_FAMILIES is a second table beside MODEL_MAPPING, so drift between them is
+    # the failure mode. _family() raises on a miss; this catches it at test time.
+    assert MODEL_FAMILIES.keys() == MODEL_MAPPING.keys()
 
 
 # -- result parsing -----------------------------------------------------------
@@ -492,7 +538,7 @@ def test_tier_boundary_is_pixel_area_not_height() -> None:
     assert badge.variant == "info"
 
     node.set_parameter_value("target_width", 1922)
-    assert 1922 * 1920 > STARLIGHT_1080P_MAX_PIXELS
+    assert 1922 * 1920 > TIER_1080P_MAX_PIXELS
     badge = resize_mode_param.get_badge()
     assert badge is not None
     assert badge.variant == "warning"
@@ -540,3 +586,344 @@ def test_height_only_shows_a_source_dependent_note_badge() -> None:
 
     assert badge is not None
     assert badge.variant == "note"
+
+
+# -- Astra: filters ----------------------------------------------------------
+
+
+async def _astra_payload(monkeypatch: pytest.MonkeyPatch, node: TopazVideoUpscale) -> dict:
+    node.set_parameter_value("video", "{inputs}/clip.mp4")
+    _stub_probe(monkeypatch, _metadata())
+    _stub_public_url(node, monkeypatch)
+    return await node._build_payload()
+
+
+@pytest.mark.asyncio
+async def test_astra_payload_carries_the_creative_filters(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = await _astra_payload(monkeypatch, _astra_node())
+
+    assert payload["filters"] == [{"creativity": 0.5, "sharp": 0.5, "realism": 0.5}]
+
+
+@pytest.mark.asyncio
+async def test_astra_filters_omit_the_model_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The proxy stamps the routed model code onto filters[0] when no entry carries one.
+    # Sending our own would risk the "filters[].model must match" rejection and would
+    # force this node to know that the code is the api id minus its "topaz-video-" prefix.
+    payload = await _astra_payload(monkeypatch, _astra_node())
+
+    assert "model" not in payload["filters"][0]
+
+
+@pytest.mark.asyncio
+async def test_astra_filters_are_never_an_empty_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The proxy rejects `filters: []` outright ("must be a non-empty array when provided"),
+    # so the key is either absent or populated -- never present and empty.
+    payload = await _astra_payload(monkeypatch, _astra_node())
+
+    assert payload["filters"]
+
+
+@pytest.mark.asyncio
+async def test_astra_creative_values_reach_the_filter_verbatim(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _astra_node()
+    node.set_parameter_value("creativity", 0.9)
+    node.set_parameter_value("sharp", 0.1)
+    node.set_parameter_value("realism", 0.75)
+
+    payload = await _astra_payload(monkeypatch, node)
+
+    assert payload["filters"][0]["creativity"] == 0.9
+    assert payload["filters"][0]["sharp"] == 0.1
+    assert payload["filters"][0]["realism"] == 0.75
+
+
+@pytest.mark.asyncio
+async def test_astra_creative_values_are_sent_as_floats(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A value arriving over a connection or a workflow round-trip can be an int, and
+    # `json.dumps(1)` emits `1` against a field Topaz documents as a decimal.
+    node = _astra_node()
+    node.set_parameter_value("creativity", 1)
+    node.set_parameter_value("sharp", 0)
+
+    payload = await _astra_payload(monkeypatch, node)
+
+    assert isinstance(payload["filters"][0]["creativity"], float)
+    assert isinstance(payload["filters"][0]["sharp"], float)
+
+
+@pytest.mark.asyncio
+async def test_astra_filters_include_a_nonempty_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _astra_node()
+    node.set_parameter_value("prompt", "a bouncing ball")
+
+    payload = await _astra_payload(monkeypatch, node)
+
+    assert payload["filters"][0]["prompt"] == "a bouncing ball"
+
+
+@pytest.mark.asyncio
+async def test_astra_filters_omit_a_whitespace_only_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The proxy decides whether a job is "prompted" -- and which frame cap to bill
+    # against -- from the truthiness of this key, so a blank one must not be sent.
+    node = _astra_node()
+    node.set_parameter_value("prompt", "   \n ")
+
+    payload = await _astra_payload(monkeypatch, node)
+
+    assert "prompt" not in payload["filters"][0]
+
+
+# -- Astra: frame caps -------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_astra_accepts_up_to_the_unprompted_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _astra_node()
+    node.set_parameter_value("video", "{inputs}/clip.mp4")
+    _stub_probe(monkeypatch, _metadata(nb_frames=MAX_ASTRA_FRAMES))
+    _stub_public_url(node, monkeypatch)
+
+    payload = await node._build_payload()
+
+    assert payload["source"]["frameCount"] == MAX_ASTRA_FRAMES
+
+
+@pytest.mark.asyncio
+async def test_astra_rejects_one_frame_over_the_unprompted_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _astra_node()
+    node.set_parameter_value("video", "{inputs}/clip.mp4")
+    _stub_probe(monkeypatch, _metadata(nb_frames=MAX_ASTRA_FRAMES + 1))
+    _stub_public_url(node, monkeypatch)
+
+    with pytest.raises(ValueError, match="over Astra's"):
+        await node._build_payload()
+
+
+@pytest.mark.asyncio
+async def test_a_prompt_drops_astras_cap_to_450(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 500 frames is fine unprompted and rejected once a prompt is set -- the whole
+    # point of enforcing this client-side, since the proxy only clamps what it bills.
+    node = _astra_node()
+    node.set_parameter_value("video", "{inputs}/clip.mp4")
+    _stub_probe(monkeypatch, _metadata(nb_frames=MAX_ASTRA_FRAMES_WITH_PROMPT + 50))
+    _stub_public_url(node, monkeypatch)
+
+    assert (await node._build_payload())["source"]["frameCount"] == MAX_ASTRA_FRAMES_WITH_PROMPT + 50
+
+    node.set_parameter_value("prompt", "a bouncing ball")
+
+    with pytest.raises(ValueError, match="clearing the prompt"):
+        await node._build_payload()
+
+
+@pytest.mark.asyncio
+async def test_a_whitespace_prompt_does_not_lower_the_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The cap enforced here has to agree with the cap the proxy bills against, and the
+    # proxy's test is truthiness of filters[].prompt -- which a blank string fails.
+    node = _astra_node()
+    node.set_parameter_value("prompt", "   ")
+    node.set_parameter_value("video", "{inputs}/clip.mp4")
+    _stub_probe(monkeypatch, _metadata(nb_frames=MAX_ASTRA_FRAMES_WITH_PROMPT + 50))
+    _stub_public_url(node, monkeypatch)
+
+    payload = await node._build_payload()
+
+    assert payload["source"]["frameCount"] == MAX_ASTRA_FRAMES_WITH_PROMPT + 50
+
+
+@pytest.mark.asyncio
+async def test_astra_prompt_cap_rejects_before_uploading(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Same discipline as the Starlight case: the cheap local check must run before the
+    # upload, or a rejected job still costs a round trip and cloud storage.
+    node = _astra_node()
+    node.set_parameter_value("prompt", "a bouncing ball")
+    node.set_parameter_value("video", "{inputs}/clip.mp4")
+    _stub_probe(monkeypatch, _metadata(nb_frames=MAX_ASTRA_FRAMES_WITH_PROMPT + 1))
+
+    calls: list[None] = []
+
+    def _record() -> str:
+        calls.append(None)
+        return PUBLIC_URL
+
+    monkeypatch.setattr(node._public_video_url_parameter, "get_public_url_for_parameter", _record)
+
+    with pytest.raises(ValueError, match="over Astra's"):
+        await node._build_payload()
+
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_starlights_frame_cap_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Astra's prompt-dependent cap must not leak into Starlight, which has no prompt
+    # at all and keeps its flat 9000.
+    node = _node()
+    node.set_parameter_value("video", "{inputs}/clip.mp4")
+    _stub_probe(monkeypatch, _metadata(nb_frames=MAX_STARLIGHT_FRAMES))
+    _stub_public_url(node, monkeypatch)
+
+    payload = await node._build_payload()
+
+    assert payload["source"]["frameCount"] == MAX_STARLIGHT_FRAMES
+
+
+# -- Astra: output resolution ------------------------------------------------
+
+
+def test_astra_has_no_hard_output_cap() -> None:
+    # Topaz documents no output ceiling for Astra and the proxy enforces none, so the
+    # node must not invent one and reject a job Topaz may well accept.
+    node = _astra_node()
+    node.set_parameter_value("resize_mode", ResizeMode.PERCENTAGE)
+    node.set_parameter_value("percentage", 200)
+
+    assert node._output_resolution(3840, 2160) == (7680, 4320)
+
+
+def test_starlight_still_enforces_the_hard_output_cap() -> None:
+    node = _astra_node()
+    node.set_parameter_value("resize_mode", ResizeMode.PERCENTAGE)
+    node.set_parameter_value("percentage", 200)
+    node.set_parameter_value("model", STARLIGHT_MODEL)
+
+    with pytest.raises(ValueError, match="hard limit"):
+        node._output_resolution(3840, 2160)
+
+
+# -- Astra: badges -----------------------------------------------------------
+
+
+def _model_badge_message(node: TopazVideoUpscale) -> str:
+    param = node.get_parameter_by_name("model")
+    assert param is not None
+    badge = param.get_badge()
+    assert badge is not None
+    return badge.message or ""
+
+
+def test_the_cost_badge_names_the_selected_familys_rate_spread() -> None:
+    node = _node()
+    assert "2.2x" in _model_badge_message(node)
+
+    node.set_parameter_value("model", ASTRA_MODEL)
+    assert "1.67x" in _model_badge_message(node)
+
+
+def test_both_cost_badges_compare_the_two_models_to_each_other() -> None:
+    # The within-family spreads invite the wrong read on their own -- Astra's 1.67x is
+    # the smaller number but the pricier model -- so both badges have to state the
+    # cross-model ratio outright.
+    node = _node()
+    assert ASTRA_VS_STARLIGHT_1080P in _model_badge_message(node)
+
+    node.set_parameter_value("model", ASTRA_MODEL)
+    assert ASTRA_VS_STARLIGHT_1080P in _model_badge_message(node)
+
+
+def test_astras_badge_disowns_its_own_spread_as_a_cross_model_figure() -> None:
+    message = _model_badge_message(_astra_node())
+
+    assert "not a comparison with Starlight" in message
+
+
+def test_switching_back_to_starlight_restores_its_cost_badge() -> None:
+    node = _astra_node()
+    node.set_parameter_value("model", STARLIGHT_MODEL)
+
+    message = _model_badge_message(node)
+    assert "2.2x" in message
+    assert "1.67x" not in message
+
+
+def test_astra_over_4k_warns_about_the_tier_without_calling_it_an_error() -> None:
+    # The same shape that gives Starlight a red "exceeds the limit" badge is merely an
+    # expensive-tier warning for Astra, which has no documented ceiling.
+    node = _astra_node()
+    node.set_parameter_value("resize_mode", ResizeMode.WIDTH_HEIGHT)
+    node.set_parameter_value("target_width", 3840)
+    node.set_parameter_value("target_height", 2160)
+
+    resize_mode_param = node.get_parameter_by_name("resize_mode")
+    assert resize_mode_param is not None
+    badge = resize_mode_param.get_badge()
+
+    assert badge is not None
+    assert badge.variant == "warning"
+    assert "no output ceiling" in (badge.message or "")
+
+
+def _prompt_badge_variant(node: TopazVideoUpscale) -> str | None:
+    param = node.get_parameter_by_name("prompt")
+    assert param is not None
+    badge = param.get_badge()
+    assert badge is not None
+    return badge.variant
+
+
+def test_the_prompt_badge_states_the_cap_before_one_is_typed() -> None:
+    # The source frame count is not knowable in the editor, so the badge states the
+    # cap rather than testing against it.
+    assert _prompt_badge_variant(_astra_node()) == "note"
+
+
+def test_typing_a_prompt_escalates_the_badge_to_a_warning() -> None:
+    node = _astra_node()
+    node.set_parameter_value("prompt", "a bouncing ball")
+
+    assert _prompt_badge_variant(node) == "warning"
+
+
+def test_clearing_the_prompt_returns_the_badge_to_a_note() -> None:
+    node = _astra_node()
+    node.set_parameter_value("prompt", "a bouncing ball")
+    node.set_parameter_value("prompt", "")
+
+    assert _prompt_badge_variant(node) == "note"
+
+
+# -- Astra: parameter visibility ---------------------------------------------
+
+
+def _hidden(node: TopazVideoUpscale, name: str) -> bool:
+    param = node.get_parameter_by_name(name)
+    assert param is not None
+    return param.ui_options.get("hide") is True
+
+
+def test_the_creative_controls_are_hidden_on_a_fresh_starlight_node() -> None:
+    # Not just tidiness: a visible prompt box under Starlight would silently do
+    # nothing, because Starlight sends no filters at all.
+    node = _node()
+
+    for name in ASTRA_FILTER_PARAMS:
+        assert _hidden(node, name), f"{name} should be hidden for Starlight"
+
+
+def test_selecting_astra_reveals_the_creative_controls() -> None:
+    node = _astra_node()
+
+    for name in ASTRA_FILTER_PARAMS:
+        assert not _hidden(node, name), f"{name} should be visible for Astra"
+
+
+def test_switching_back_to_starlight_hides_them_again() -> None:
+    node = _astra_node()
+    node.set_parameter_value("model", STARLIGHT_MODEL)
+
+    for name in ASTRA_FILTER_PARAMS:
+        assert _hidden(node, name), f"{name} should be hidden again for Starlight"
+
+
+def test_selecting_astra_does_not_disturb_the_resize_fields() -> None:
+    # The two visibility rules are independent; switching models must not reset the
+    # resize UI the user has already set up.
+    node = _node()
+    node.set_parameter_value("resize_mode", ResizeMode.WIDTH_HEIGHT)
+    node.set_parameter_value("model", ASTRA_MODEL)
+
+    assert not _hidden(node, "target_width")
+    assert not _hidden(node, "target_height")
+    assert _hidden(node, "percentage")
+    assert _hidden(node, "target_size")
