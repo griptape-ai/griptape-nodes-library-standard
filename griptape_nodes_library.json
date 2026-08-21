@@ -198,18 +198,6 @@
                 "provider_model_id": "veo-3.1-fast-generate-001",
                 "key_support": "REQUIRES_GRIPTAPE_KEY"
               },
-              "gtc_veo_3_0": {
-                "display_name": "Veo 3.0",
-                "family": "Veo",
-                "provider_model_id": "veo-3.0-generate-001",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
-              },
-              "gtc_veo_3_0_fast": {
-                "display_name": "Veo 3.0 Fast",
-                "family": "Veo",
-                "provider_model_id": "veo-3.0-fast-generate-001",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
-              },
               "gtc_gemini_omni_flash": {
                 "display_name": "Gemini Omni Flash",
                 "family": "Gemini Omni",
@@ -3118,9 +3106,7 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_veo_3_1",
-              "gtc_veo_3_1_fast",
-              "gtc_veo_3_0",
-              "gtc_veo_3_0_fast"
+              "gtc_veo_3_1_fast"
             ]
           }
         ]

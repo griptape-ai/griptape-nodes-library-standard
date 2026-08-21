@@ -6,11 +6,17 @@ import json
 import logging
 from copy import deepcopy
 from enum import StrEnum
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import (
+    Parameter,
+    ParameterGroup,
+    ParameterList,
+    ParameterMessage,
+    ParameterMode,
+)
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -20,6 +26,7 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
@@ -34,23 +41,17 @@ __all__ = ["Veo3VideoGeneration"]
 class ModelName(StrEnum):
     VEO_3_1 = "Veo 3.1"
     VEO_3_1_FAST = "Veo 3.1 Fast"
-    VEO_3_0 = "Veo 3.0"
-    VEO_3_0_FAST = "Veo 3.0 Fast"
 
 
 class ModelId(StrEnum):
     VEO_3_1_GENERATE_001 = "veo-3.1-generate-001"
     VEO_3_1_FAST_GENERATE_001 = "veo-3.1-fast-generate-001"
-    VEO_3_0_GENERATE_001 = "veo-3.0-generate-001"
-    VEO_3_0_FAST_GENERATE_001 = "veo-3.0-fast-generate-001"
 
 
 # Model mapping from human-friendly names to API model IDs
 MODEL_MAPPING = {
     ModelName.VEO_3_1.value: ModelId.VEO_3_1_GENERATE_001,
     ModelName.VEO_3_1_FAST.value: ModelId.VEO_3_1_FAST_GENERATE_001,
-    ModelName.VEO_3_0.value: ModelId.VEO_3_0_GENERATE_001,
-    ModelName.VEO_3_0_FAST.value: ModelId.VEO_3_0_FAST_GENERATE_001,
 }
 
 
@@ -59,7 +60,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
 
     Inputs:
         - prompt (str): Text prompt for the video
-        - model_id (str): Provider model (default: Veo 3.1, options: Veo 3.1, Veo 3.1 Fast, Veo 3.0, Veo 3.0 Fast)
+        - model_id (str): Provider model (default: Veo 3.1, options: Veo 3.1, Veo 3.1 Fast)
         - negative_prompt (str): Negative prompt to avoid certain content
         - image (ImageArtifact|ImageUrlArtifact|str): Optional start frame image (supported by all models)
         - last_frame (ImageArtifact|ImageUrlArtifact|str): Optional last frame image (only Veo 3.1 and Veo 3.1 Fast)
@@ -86,6 +87,17 @@ class Veo3VideoGeneration(GriptapeProxyNode):
     SERVICE_NAME = "Griptape"
     API_KEY_NAME = "GT_CLOUD_API_KEY"
 
+    # Retired provider endpoints and their replacements. Google returns 404 for these, so a
+    # saved workflow referencing one is migrated on load rather than allowed to call through.
+    # Keyed by the friendly name the dropdown stored, and by the provider ID, which reaches
+    # model_id when a caller feeds one into the input rather than picking from the dropdown.
+    DEPRECATED_MODELS: ClassVar[dict[str, str]] = {
+        "Veo 3.0": ModelName.VEO_3_1.value,
+        "veo-3.0-generate-001": ModelName.VEO_3_1.value,
+        "Veo 3.0 Fast": ModelName.VEO_3_1_FAST.value,
+        "veo-3.0-fast-generate-001": ModelName.VEO_3_1_FAST.value,
+    }
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
@@ -104,11 +116,26 @@ class Veo3VideoGeneration(GriptapeProxyNode):
                         choices=[
                             ModelName.VEO_3_1.value,
                             ModelName.VEO_3_1_FAST.value,
-                            ModelName.VEO_3_0.value,
-                            ModelName.VEO_3_0_FAST.value,
                         ]
                     )
                 },
+            )
+        )
+
+        self.add_node_element(
+            ParameterMessage(
+                name="model_deprecation_notice",
+                title="Model Deprecation Notice",
+                variant="info",
+                value="",
+                traits={
+                    Button(
+                        full_width=True,
+                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
+                    )
+                },
+                button_text="Dismiss",
+                hide=True,
             )
         )
 
@@ -306,6 +333,24 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         """Initialize parameter visibility based on default model selection."""
         default_model = self.get_parameter_value("model_id") or ModelName.VEO_3_1.value
         self._update_parameter_visibility_for_model(default_model)
+
+    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
+        """Migrate deprecated model selections to their replacement."""
+        if parameter.name == "model_id" and isinstance(value, str) and value in self.DEPRECATED_MODELS:
+            replacement = self.DEPRECATED_MODELS[value]
+            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
+            if message is None:
+                raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
+            message.value = (
+                f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. "
+                "Please save your workflow to apply this change."
+            )
+            self.show_message_by_name("model_deprecation_notice")
+            value = replacement
+        elif parameter.name == "model_id" and isinstance(value, str):
+            self.hide_message_by_name("model_deprecation_notice")
+
+        return super().before_value_set(parameter, value)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to show/hide dependent parameters."""
