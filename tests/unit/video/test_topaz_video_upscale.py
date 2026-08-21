@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from griptape_nodes_library.utils.ffmpeg_utils import (
@@ -384,6 +386,76 @@ async def test_build_payload_raises_when_no_public_url_is_produced(monkeypatch: 
 
     with pytest.raises(ValueError, match="could not produce a public URL"):
         await node._build_payload()
+
+
+def test_payload_build_error_triggers_failure_exception() -> None:
+    # _handle_failure_exception is what raises when the failure output has no
+    # outgoing connection -- without it a ValueError guard sets was_successful=False
+    # and quietly dead-ends the flow instead of crashing with immediate feedback.
+    node = _node()
+    err = ValueError("boom")
+    with patch.object(node, "_handle_failure_exception") as mock_failure:
+        node._handle_payload_build_error(err)
+    mock_failure.assert_called_once_with(err)
+
+
+# -- container derivation -----------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_container_is_derived_from_the_extension(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _node()
+    node.set_parameter_value("video", "{inputs}/clip.mov")
+    _stub_probe(monkeypatch, _metadata())
+    _stub_public_url(node, monkeypatch)
+
+    payload = await node._build_payload()
+
+    assert payload["source"]["container"] == "mov"
+
+
+@pytest.mark.asyncio
+async def test_container_defaults_map_mp4_variants(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _node()
+    node.set_parameter_value("video", "{inputs}/clip.m4v")
+    _stub_probe(monkeypatch, _metadata())
+    _stub_public_url(node, monkeypatch)
+
+    payload = await node._build_payload()
+
+    assert payload["source"]["container"] == "mp4"
+
+
+@pytest.mark.asyncio
+async def test_container_derived_from_data_uri_mime_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _node()
+    node.set_parameter_value("video", "data:video/quicktime;base64,AAAA")
+    _stub_probe(monkeypatch, _metadata())
+    _stub_public_url(node, monkeypatch)
+
+    payload = await node._build_payload()
+
+    assert payload["source"]["container"] == "mov"
+
+
+@pytest.mark.asyncio
+async def test_unsupported_container_raises_before_uploading(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _node()
+    node.set_parameter_value("video", "{inputs}/clip.webm")
+    _stub_probe(monkeypatch, _metadata())
+
+    calls: list[None] = []
+
+    def _record() -> str:
+        calls.append(None)
+        return PUBLIC_URL
+
+    monkeypatch.setattr(node._public_video_url_parameter, "get_public_url_for_parameter", _record)
+
+    with pytest.raises(ValueError, match="only accepts mp4, mov, or mkv"):
+        await node._build_payload()
+
+    assert calls == []
 
 
 # -- model routing -----------------------------------------------------------
