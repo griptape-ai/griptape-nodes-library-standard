@@ -4,7 +4,9 @@ import asyncio
 import logging
 import math
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
@@ -13,6 +15,7 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
 )
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
+from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
@@ -31,33 +34,140 @@ __all__ = ["TopazVideoUpscale"]
 MODEL_MAPPING = {
     "Starlight Precise 2.6": "topaz-video-slp-2.6",
     "Starlight Precise 2.5": "topaz-video-slp-2.5",
+    "Astra 2": "topaz-video-ast-2",
 }
 
 DEFAULT_MODEL = "Starlight Precise 2.6"
+
+
+class TopazVideoFamily(StrEnum):
+    """Which Topaz video model family a selection belongs to.
+
+    The frame cap, the creative controls and the 4K rate spread are all properties of
+    the family rather than of the individual version. The values are the display
+    spelling so they interpolate straight into badge and error prose.
+    """
+
+    STARLIGHT = "Starlight"
+    ASTRA = "Astra"
+
+
+# Kept as a second table rather than folded into MODEL_MAPPING: a flat
+# `display name -> api id` MODEL_MAPPING is the convention across every video node in
+# this library, and reshaping it here would cost more than it buys for three entries.
+# `test_every_model_has_a_registered_family` guards the two against drifting.
+MODEL_FAMILIES = {
+    "Starlight Precise 2.6": TopazVideoFamily.STARLIGHT,
+    "Starlight Precise 2.5": TopazVideoFamily.STARLIGHT,
+    "Astra 2": TopazVideoFamily.ASTRA,
+}
+
+# Astra's creative controls. These ride *inside* a `filters` entry rather than at the
+# top level of the payload. Starlight accepts none of them.
+ASTRA_FILTER_PARAMS = ("prompt", "creativity", "sharp", "realism")
 
 # Topaz caps a Starlight job at 9000 frames. The proxy clamps the *billed* volume to
 # match, so exceeding it does not overcharge -- but Topaz still rejects the job, and
 # failing here is cheaper than discovering it after the upload.
 MAX_STARLIGHT_FRAMES = 9000
 
-# Starlight has two rate tiers, chosen by output pixel *area*, not height. A portrait
-# 1080x1920 output bills as 1080p; 1921x1080 already bills as 4K.
+MAX_ASTRA_FRAMES = 9000
+# A prompt drops Astra's ceiling by 20x. As with Starlight the proxy only clamps what
+# it *bills*; the job still reaches Topaz, which rejects it.
+MAX_ASTRA_FRAMES_WITH_PROMPT = 450
+
+# Topaz's source.container enum is exactly mp4/mov/mkv:
+# https://developer.topazlabs.com/reference/api-endpoints/video/create-request.md
+#
+# ffprobe's format_name can't tell these apart -- mp4 and mov both report
+# "mov,mp4,m4a,3gp,3g2,mj2", and mkv and webm both report "matroska,webm" (which
+# isn't even a valid Topaz value) -- so container is derived from the file
+# extension (or, for a data URI, the MIME subtype) instead. See _derive_container.
+CONTAINER_BY_TOKEN: dict[str, str] = {
+    "mp4": "mp4",
+    "m4v": "mp4",
+    "mov": "mov",
+    "qt": "mov",
+    "quicktime": "mov",
+    "mkv": "mkv",
+    "matroska": "mkv",
+    "x-matroska": "mkv",
+}
+
+# Both families bill in two rate tiers, chosen by output pixel *area*, not height. A
+# portrait 1080x1920 output bills as 1080p; 1921x1080 already bills as 4K.
 # https://developer.topazlabs.com/getting-started/model-pricing
-STARLIGHT_1080P_MAX_PIXELS = 1920 * 1080
+TIER_1080P_MAX_PIXELS = 1920 * 1080
 
 # Topaz's documented hard output ceiling for Starlight (distinct from the 1080p/4K
 # billing-tier boundary above): https://docs.topazlabs.com/video-ai/project-starlight
 STARLIGHT_MAX_OUTPUT_PIXELS = 3840 * 2160
 
-COST_BADGE_MESSAGE = (
-    "Starlight is metered **per frame**, not per second, and costs far more than "
+# What the 4K tier costs relative to the 1080p tier, as UI prose.
+RATE_SPREADS = {
+    TopazVideoFamily.STARLIGHT: "2.2x",
+    TopazVideoFamily.ASTRA: "1.67x",
+}
+
+# How the two families compare *to each other* per frame, at the same tier. Griptape
+# Cloud bills Astra 13,000 credits/frame at 1080p against Starlight's 4,992, and 21,667
+# against 10,908 at 4K -- so Astra is the pricier model by 2.6x and 2.0x respectively.
+# (griptape-cloud credits migrations 0087 and 0088.)
+#
+# This is spelled out in the badge because the RATE_SPREADS above are *within* a family
+# and invite exactly the wrong read on their own: Astra's 1.67x is the smaller number
+# but the more expensive model.
+ASTRA_VS_STARLIGHT_1080P = "2.6x"
+ASTRA_VS_STARLIGHT_4K = "2x"
+
+# Topaz publishes a hard output ceiling for Starlight and none for Astra, and the proxy
+# enforces neither -- so Astra maps to None rather than to an invented limit that would
+# reject jobs Topaz may well accept.
+MAX_OUTPUT_PIXELS: dict[TopazVideoFamily, int | None] = {
+    TopazVideoFamily.STARLIGHT: STARLIGHT_MAX_OUTPUT_PIXELS,
+    TopazVideoFamily.ASTRA: None,
+}
+
+_COST_BADGE_TEMPLATE = (
+    "{family} is metered **per frame**, not per second, and costs far more than "
     "Topaz's non-generative video models.\n\n"
     "Two rate tiers, picked by output pixel area:\n"
     "- **1080p** (up to 1920x1080) — the cheaper tier\n"
-    "- **4K** (anything larger) — roughly **2.2x** the 1080p rate\n\n"
-    "A 10-second 30fps clip is 300 frames whichever tier it lands in.\n\n"
+    "- **4K** (anything larger) — roughly **{spread}** the 1080p rate\n\n"
+    "{cross_model}\n\n"
+    "A 10-second 30fps clip is 300 frames whichever tier it lands in.{extra}\n\n"
     "[Topaz model pricing](https://developer.topazlabs.com/getting-started/model-pricing)"
 )
+
+COST_BADGE_MESSAGES = {
+    TopazVideoFamily.STARLIGHT: _COST_BADGE_TEMPLATE.format(
+        family=TopazVideoFamily.STARLIGHT,
+        spread=RATE_SPREADS[TopazVideoFamily.STARLIGHT],
+        cross_model=(
+            f"Starlight is the cheaper of the two models here: Astra 2 costs about "
+            f"**{ASTRA_VS_STARLIGHT_1080P}** as much per frame at 1080p, and about "
+            f"**{ASTRA_VS_STARLIGHT_4K}** as much at 4K."
+        ),
+        extra="",
+    ),
+    TopazVideoFamily.ASTRA: _COST_BADGE_TEMPLATE.format(
+        family=TopazVideoFamily.ASTRA,
+        spread=RATE_SPREADS[TopazVideoFamily.ASTRA],
+        # The second sentence is doing real work: the 1.67x above is smaller than
+        # Starlight's 2.2x, so quoting it alone reads as "Astra is cheaper" when Astra
+        # is in fact the pricier model on both tiers.
+        cross_model=(
+            f"Astra costs about **{ASTRA_VS_STARLIGHT_1080P} Starlight** per frame at 1080p, and "
+            f"about **{ASTRA_VS_STARLIGHT_4K} Starlight** at 4K. The "
+            f"{RATE_SPREADS[TopazVideoFamily.ASTRA]} above is Astra's own 4K premium, not a "
+            "comparison with Starlight."
+        ),
+        extra=(
+            f"\n\nTopaz caps an Astra job at {MAX_ASTRA_FRAMES:,} frames — or "
+            f"**{MAX_ASTRA_FRAMES_WITH_PROMPT}** once a prompt is set."
+        ),
+    ),
+}
 
 
 class ResizeMode(StrEnum):
@@ -70,7 +180,11 @@ class ResizeMode(StrEnum):
 
 
 class TopazVideoUpscale(GriptapeProxyNode):
-    """Upscale a video with Topaz Starlight Precise via the Griptape Cloud model proxy.
+    """Upscale a video with Topaz Starlight Precise or Astra 2 via the Griptape Cloud model proxy.
+
+    Both families share the source probing, the resize modes and the per-frame billing
+    tiers. Astra additionally accepts four creative controls (prompt, creativity, sharp,
+    realism), which are shown only while an Astra model is selected.
 
     Inputs:
         - video (VideoUrlArtifact): source video to upscale (sent as a base64 data URI)
@@ -89,8 +203,8 @@ class TopazVideoUpscale(GriptapeProxyNode):
         super().__init__(**kwargs)
         self.category = "video"
         self.description = (
-            "Upscale a video using Topaz Starlight Precise via the Griptape model proxy. "
-            "Billed per frame -- see the cost note on the model parameter."
+            "Upscale a video using Topaz Starlight Precise or Astra 2 via the Griptape model "
+            "proxy. Billed per frame -- see the cost note on the model parameter."
         )
 
         # INPUTS / PROPERTIES
@@ -98,16 +212,61 @@ class TopazVideoUpscale(GriptapeProxyNode):
         model_param = ParameterString(
             name="model",
             default_value=DEFAULT_MODEL,
-            tooltip="Starlight Precise model to upscale with",
+            tooltip="Topaz video model to upscale with. Astra adds creative controls; Starlight does not.",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             traits={Options(choices=list(MODEL_MAPPING.keys()))},
         )
-        model_param.set_badge(
-            variant="warning",
-            title="Billed per frame",
-            message=COST_BADGE_MESSAGE,
-        )
         self.add_parameter(model_param)
+
+        # Astra only. Hidden by default because the default model is Starlight, and
+        # declaring them hidden matters beyond tidiness: a visible prompt box under
+        # Starlight would silently do nothing, since Starlight sends no filters at all.
+        prompt_param = ParameterString(
+            name="prompt",
+            default_value="",
+            tooltip=(
+                "Astra only. A description of the detail to generate. Setting one drops Topaz's "
+                f"frame cap from {MAX_ASTRA_FRAMES:,} to {MAX_ASTRA_FRAMES_WITH_PROMPT}."
+            ),
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            multiline=True,
+            placeholder_text="Optional: describe the detail Astra should generate...",
+            hide=True,
+        )
+        self.add_parameter(prompt_param)
+
+        creativity_param = ParameterFloat(
+            name="creativity",
+            default_value=0.5,
+            tooltip="Astra only. 0.0 stays faithful to the source; 1.0 invents the most new detail.",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            hide=True,
+        )
+        creativity_param.add_trait(Slider(min_val=0.0, max_val=1.0))
+        self.add_parameter(creativity_param)
+
+        sharp_param = ParameterFloat(
+            name="sharp",
+            default_value=0.5,
+            tooltip="Astra only. Pre-enhance sharpness: 0.0 blurs, 0.5 passes through unchanged, 1.0 sharpens.",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            hide=True,
+        )
+        sharp_param.add_trait(Slider(min_val=0.0, max_val=1.0))
+        self.add_parameter(sharp_param)
+
+        # Topaz documents a default for `sharp` but not for `realism`; 0.5 is our own
+        # midpoint choice, picked so the slider is WYSIWYG rather than to match an
+        # unpublished provider default.
+        realism_param = ParameterFloat(
+            name="realism",
+            default_value=0.5,
+            tooltip="Astra only. Biases the generated detail toward photorealism (0.0-1.0).",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            hide=True,
+        )
+        realism_param.add_trait(Slider(min_val=0.0, max_val=1.0))
+        self.add_parameter(realism_param)
 
         # Topaz downloads the source itself rather than receiving it in the request
         # body -- a video is far too large to base64 into JSON. This uploads the
@@ -211,6 +370,12 @@ class TopazVideoUpscale(GriptapeProxyNode):
         )
 
         self.set_initial_node_size(height=400)
+        # All four run here, after every add_parameter: show/hide silently no-ops on a
+        # name that does not exist yet, so refreshing earlier would leave Astra's
+        # controls hidden forever with no error to point at.
+        self._update_model_visibility()
+        self._update_cost_badge()
+        self._update_prompt_badge()
         self._update_tier_badge()
 
     # -- lifecycle ---------------------------------------------------------
@@ -230,28 +395,120 @@ class TopazVideoUpscale(GriptapeProxyNode):
         model_name = self.get_parameter_value("model") or DEFAULT_MODEL
         return MODEL_MAPPING.get(model_name, MODEL_MAPPING[DEFAULT_MODEL])
 
+    def _family(self) -> TopazVideoFamily:
+        """Which family the selected model belongs to.
+
+        Raises rather than defaulting: an unmapped name means MODEL_MAPPING and
+        MODEL_FAMILIES have drifted, and quietly billing at another model's rate is a
+        worse outcome than a loud failure. The Options trait makes an off-list value
+        unreachable from the UI anyway.
+        """
+        model_name = self.get_parameter_value("model") or DEFAULT_MODEL
+        family = MODEL_FAMILIES.get(model_name)
+        if family is None:
+            msg = f"{self.name}: no model family is registered for {model_name!r}."
+            raise ValueError(msg)
+        return family
+
+    def _has_prompt(self) -> bool:
+        """Whether a prompt will actually reach Topaz.
+
+        Mirrors the proxy's own truthiness test on ``filters[].prompt`` so the cap
+        enforced here can never disagree with the cap the proxy bills against.
+        """
+        return bool((self.get_parameter_value("prompt") or "").strip())
+
     # -- UI reactions ------------------------------------------------------
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
 
-        if parameter.name == "resize_mode":
-            match value:
-                case ResizeMode.WIDTH | ResizeMode.HEIGHT:
-                    self.show_parameter_by_name("target_size")
-                    self.hide_parameter_by_name(["target_width", "target_height", "percentage"])
-                case ResizeMode.WIDTH_HEIGHT:
-                    self.hide_parameter_by_name(["target_size", "percentage"])
-                    self.show_parameter_by_name(["target_width", "target_height"])
-                case ResizeMode.PERCENTAGE:
-                    self.hide_parameter_by_name(["target_size", "target_width", "target_height"])
-                    self.show_parameter_by_name("percentage")
-                case _:
-                    msg = f"Unknown resize mode: {value!r}"
-                    raise ValueError(msg)
+        # Unlike the other match statements in this file, the wildcard here must be a
+        # no-op rather than a raise: `parameter.name` is an open set -- `video`,
+        # `output_file` and every status parameter also land here.
+        match parameter.name:
+            case "model":
+                self._update_model_visibility()
+                self._update_cost_badge()
+                self._update_prompt_badge()
+                self._update_tier_badge()
+            case "resize_mode":
+                self._update_resize_visibility(value)
+                self._update_tier_badge()
+            case "target_size" | "target_width" | "target_height" | "percentage":
+                self._update_tier_badge()
+            case "prompt":
+                self._update_prompt_badge()
+            case _:
+                return
 
-        if parameter.name in ("resize_mode", "target_size", "target_width", "target_height", "percentage"):
-            self._update_tier_badge()
+    def _update_resize_visibility(self, mode: Any) -> None:
+        match mode:
+            case ResizeMode.WIDTH | ResizeMode.HEIGHT:
+                self.show_parameter_by_name("target_size")
+                self.hide_parameter_by_name(["target_width", "target_height", "percentage"])
+            case ResizeMode.WIDTH_HEIGHT:
+                self.hide_parameter_by_name(["target_size", "percentage"])
+                self.show_parameter_by_name(["target_width", "target_height"])
+            case ResizeMode.PERCENTAGE:
+                self.hide_parameter_by_name(["target_size", "target_width", "target_height"])
+                self.show_parameter_by_name("percentage")
+            case _:
+                msg = f"Unknown resize mode: {mode!r}"
+                raise ValueError(msg)
+
+    def _update_model_visibility(self) -> None:
+        """Show the creative controls only for the family that accepts them."""
+        match self._family():
+            case TopazVideoFamily.ASTRA:
+                self.show_parameter_by_name(list(ASTRA_FILTER_PARAMS))
+            case TopazVideoFamily.STARLIGHT:
+                self.hide_parameter_by_name(list(ASTRA_FILTER_PARAMS))
+            case family:
+                msg = f"Unknown model family: {family!r}"
+                raise ValueError(msg)
+
+    def _update_cost_badge(self) -> None:
+        param = self.get_parameter_by_name("model")
+        if param is None:
+            return
+
+        param.set_badge(
+            variant="warning",
+            title="Billed per frame",
+            message=COST_BADGE_MESSAGES[self._family()],
+        )
+
+    def _update_prompt_badge(self) -> None:
+        """State Astra's prompt-dependent frame cap while the graph is still being wired.
+
+        The source frame count is not knowable in the editor -- the video usually
+        arrives over a connection and is not probed until the node runs -- so this
+        states the cap rather than testing against it. ``_build_payload`` remains the
+        authority that actually enforces it.
+        """
+        param = self.get_parameter_by_name("prompt")
+        if param is None or self._family() is not TopazVideoFamily.ASTRA:
+            return
+
+        if self._has_prompt():
+            param.set_badge(
+                variant="warning",
+                title=f"Caps this job at {MAX_ASTRA_FRAMES_WITH_PROMPT} frames",
+                message=(
+                    f"Topaz caps a *prompted* Astra job at {MAX_ASTRA_FRAMES_WITH_PROMPT} frames "
+                    f"(~15 seconds at 30fps). Clear the prompt to allow up to {MAX_ASTRA_FRAMES:,}."
+                ),
+            )
+        else:
+            param.set_badge(
+                variant="note",
+                title=f"A prompt drops the cap to {MAX_ASTRA_FRAMES_WITH_PROMPT} frames",
+                message=(
+                    f"Without a prompt Astra accepts up to {MAX_ASTRA_FRAMES:,} frames. Adding one "
+                    f"drops Topaz's cap to {MAX_ASTRA_FRAMES_WITH_PROMPT} (~15 seconds at 30fps)."
+                ),
+            )
 
     def _update_tier_badge(self) -> None:
         """Show which billing tier the current settings land in.
@@ -266,6 +523,9 @@ class TopazVideoUpscale(GriptapeProxyNode):
             return
 
         mode = self.get_parameter_value("resize_mode") or ResizeMode.PERCENTAGE
+        family = self._family()
+        spread = RATE_SPREADS[family]
+        max_pixels = MAX_OUTPUT_PIXELS[family]
 
         match mode:
             case ResizeMode.WIDTH | ResizeMode.HEIGHT:
@@ -286,24 +546,32 @@ class TopazVideoUpscale(GriptapeProxyNode):
                     return
 
                 pixels = width * height
-                if pixels > STARLIGHT_MAX_OUTPUT_PIXELS:
+                if max_pixels is not None and pixels > max_pixels:
                     param.set_badge(
                         variant="error",
                         title="Exceeds Topaz's output limit",
                         message=(
-                            f"{width}x{height} is {pixels:,} pixels, over Topaz's "
-                            f"{STARLIGHT_MAX_OUTPUT_PIXELS:,}-pixel (3840x2160) hard limit. The node "
-                            "will fail rather than submit this to Topaz."
+                            f"{width}x{height} is {pixels:,} pixels, over {family}'s "
+                            f"{max_pixels:,}-pixel (3840x2160) hard limit. The node will fail "
+                            "rather than submit this to Topaz."
                         ),
                     )
-                elif pixels > STARLIGHT_1080P_MAX_PIXELS:
+                elif pixels > TIER_1080P_MAX_PIXELS:
+                    # Astra reaches here with no ceiling of its own, so say so rather
+                    # than let an unusually large request look fully sanctioned.
+                    unbounded = (
+                        ""
+                        if max_pixels is not None
+                        else f" Topaz documents no output ceiling for {family}, so a very large "
+                        "request may still be refused by the provider."
+                    )
                     param.set_badge(
                         variant="warning",
                         title="4K billing tier",
                         message=(
                             f"{width}x{height} is {pixels:,} pixels, over the "
-                            f"{STARLIGHT_1080P_MAX_PIXELS:,}-pixel 1080p limit. This bills at the 4K "
-                            "per-frame rate, about 2.2x the 1080p rate."
+                            f"{TIER_1080P_MAX_PIXELS:,}-pixel 1080p limit. This bills at the 4K "
+                            f"per-frame rate, about {spread} the 1080p rate.{unbounded}"
                         ),
                     )
                 else:
@@ -315,14 +583,14 @@ class TopazVideoUpscale(GriptapeProxyNode):
             case ResizeMode.PERCENTAGE:
                 percentage = self.get_parameter_value("percentage") or 200
                 multiplier = percentage / 100
-                threshold = math.isqrt(int(STARLIGHT_1080P_MAX_PIXELS // (multiplier * multiplier)))
+                threshold = math.isqrt(int(TIER_1080P_MAX_PIXELS // (multiplier * multiplier)))
                 param.set_badge(
                     variant="note",
                     title="Billing tier depends on the source",
                     message=(
                         f"At {percentage}%, any source larger than roughly {threshold}x{threshold} "
-                        f"produces a 4K-tier output (over {STARLIGHT_1080P_MAX_PIXELS:,} output pixels), "
-                        "at about 2.2x the 1080p rate."
+                        f"produces a 4K-tier output (over {TIER_1080P_MAX_PIXELS:,} output pixels), "
+                        f"at about {spread} the 1080p rate."
                     ),
                 )
             case _:
@@ -349,6 +617,28 @@ class TopazVideoUpscale(GriptapeProxyNode):
             raise ValueError(msg) from e
 
         return extract_video_metadata_structured(str(resolved_path))
+
+    def _derive_container(self, video_input: Any) -> str:
+        """Map the input video to Topaz's exact ``source.container`` enum (mp4/mov/mkv).
+
+        Deliberately independent of ``_probe_source``/``VideoMetadata``: it only needs
+        the raw parameter value, and calling the same cheap, pure
+        ``coerce_media_url_or_data_uri`` helper here keeps this check from being
+        silently bypassed by tests that stub ``_probe_source`` wholesale.
+        """
+        video_url = coerce_media_url_or_data_uri(video_input, kind="video") or ""
+        if video_url.startswith("data:"):
+            header = video_url.removeprefix("data:").split(",", 1)[0]
+            token = header.split(";", 1)[0].split("/", 1)[-1].lower()
+        else:
+            token = Path(urlsplit(video_url).path).suffix.lstrip(".").lower()
+
+        container = CONTAINER_BY_TOKEN.get(token)
+        if container is None:
+            found = token or "no extension"
+            msg = f"{self.name}: Topaz only accepts mp4, mov, or mkv source video, but got {found!r}."
+            raise ValueError(msg)
+        return container
 
     @staticmethod
     def _frame_count(metadata: VideoMetadata) -> int:
@@ -412,10 +702,13 @@ class TopazVideoUpscale(GriptapeProxyNode):
                 msg = f"Unknown resize mode: {mode!r}"
                 raise ValueError(msg)
 
-        if width * height > STARLIGHT_MAX_OUTPUT_PIXELS:
+        # Astra maps to None here: Topaz publishes no output ceiling for it and the
+        # proxy enforces none, so there is nothing to check against.
+        max_pixels = MAX_OUTPUT_PIXELS[self._family()]
+        if max_pixels is not None and width * height > max_pixels:
             msg = (
                 f"{self.name}: computed output {width}x{height} exceeds Topaz's "
-                f"{STARLIGHT_MAX_OUTPUT_PIXELS:,}-pixel (3840x2160) hard limit."
+                f"{max_pixels:,}-pixel (3840x2160) hard limit."
             )
             raise ValueError(msg)
 
@@ -428,6 +721,8 @@ class TopazVideoUpscale(GriptapeProxyNode):
         if not video:
             msg = f"{self.name} requires an input video to upscale."
             raise ValueError(msg)
+
+        container = self._derive_container(video)
 
         # ffprobe is synchronous and can take a moment on a long clip; keep it off
         # the event loop.
@@ -445,10 +740,11 @@ class TopazVideoUpscale(GriptapeProxyNode):
             )
             raise ValueError(msg)
 
-        if frame_count > MAX_STARLIGHT_FRAMES:
+        max_frames = self._max_frames()
+        if frame_count > max_frames:
             msg = (
-                f"{self.name}: the input video has {frame_count} frames, over Starlight's "
-                f"{MAX_STARLIGHT_FRAMES}-frame limit. Trim or split the video first."
+                f"{self.name}: the input video has {frame_count} frames, over {self._family()}'s "
+                f"{max_frames}-frame limit{self._frame_cap_hint()}. Trim or split the video first."
             )
             raise ValueError(msg)
 
@@ -462,7 +758,7 @@ class TopazVideoUpscale(GriptapeProxyNode):
             raise ValueError(msg)
 
         source: dict[str, Any] = {
-            "container": "mp4",
+            "container": container,
             "frameCount": frame_count,
             "frameRate": metadata.frame_details.frame_rate,
             "resolution": {"width": source_width, "height": source_height},
@@ -486,14 +782,67 @@ class TopazVideoUpscale(GriptapeProxyNode):
             output_height,
         )
 
-        # `filters` is deliberately omitted: the proxy synthesizes
-        # [{"model": <routed code>}] when it is absent, and sending our own only
-        # risks the "filters[].model must match the requested model" rejection --
-        # the code there is the id minus its "topaz-video-" prefix.
-        return {
+        payload: dict[str, Any] = {
             "source": source,
             "output": {"resolution": {"width": output_width, "height": output_height}},
         }
+
+        filters = self._build_filters()
+        if filters is not None:
+            payload["filters"] = filters
+
+        return payload
+
+    def _build_filters(self) -> list[dict[str, Any]] | None:
+        """Astra's creative controls, as the single ``filters`` entry Topaz expects.
+
+        No ``model`` key is sent. The proxy passes filter dicts through verbatim and
+        stamps the routed code onto the first entry itself when none carries one, so
+        omitting it sidesteps the "filters[].model must match the requested model"
+        rejection -- and means this node never has to know that the code is the id
+        minus its "topaz-video-" prefix.
+
+        Returns None rather than an empty list for Starlight: the proxy rejects
+        ``filters: []`` outright, and omitting the key is what Starlight does today.
+        """
+        match self._family():
+            case TopazVideoFamily.STARLIGHT:
+                return None
+            case TopazVideoFamily.ASTRA:
+                # float() because a value arriving over a connection or a workflow
+                # round-trip can be an int, and `json.dumps(1)` emits `1` against a
+                # field Topaz documents as a decimal.
+                creative: dict[str, Any] = {
+                    "creativity": float(self.get_parameter_value("creativity")),
+                    "sharp": float(self.get_parameter_value("sharp")),
+                    "realism": float(self.get_parameter_value("realism")),
+                }
+                # Omitted rather than sent blank: the proxy decides whether the job is
+                # "prompted" -- and which frame cap to bill against -- from the
+                # truthiness of this key.
+                prompt = (self.get_parameter_value("prompt") or "").strip()
+                if prompt:
+                    creative["prompt"] = prompt
+                return [creative]
+            case family:
+                msg = f"Unknown model family: {family!r}"
+                raise ValueError(msg)
+
+    def _max_frames(self) -> int:
+        match self._family():
+            case TopazVideoFamily.STARLIGHT:
+                return MAX_STARLIGHT_FRAMES
+            case TopazVideoFamily.ASTRA:
+                return MAX_ASTRA_FRAMES_WITH_PROMPT if self._has_prompt() else MAX_ASTRA_FRAMES
+            case family:
+                msg = f"Unknown model family: {family!r}"
+                raise ValueError(msg)
+
+    def _frame_cap_hint(self) -> str:
+        """Name the way out when the cap is the prompt's doing rather than the clip's."""
+        if self._family() is TopazVideoFamily.ASTRA and self._has_prompt():
+            return f" for a prompted job (clearing the prompt raises it to {MAX_ASTRA_FRAMES:,})"
+        return ""
 
     # -- result ------------------------------------------------------------
 
@@ -544,6 +893,7 @@ class TopazVideoUpscale(GriptapeProxyNode):
         if isinstance(e, ValueError):
             self._set_safe_defaults()
             self._set_status_results(was_successful=False, result_details=str(e))
+            self._handle_failure_exception(e)
             return
 
         super()._handle_payload_build_error(e)
