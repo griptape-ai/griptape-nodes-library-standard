@@ -1281,6 +1281,11 @@
       "name": "VideoCapture",
       "path": "widgets/VideoCapture/VideoCapture.js",
       "description": "Webcam video capture widget — live preview, record with audio, review playback, then accept before running."
+    },
+    {
+      "name": "WebcamCapture",
+      "path": "widgets/WebcamCapture/WebcamCapture.js",
+      "description": "Webcam snapshot widget — live camera preview, capture a frame, review, then accept to output an ImageUrlArtifact."
     }
   ],
   "categories": [

@@ -1,30 +1,187 @@
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import DataNode
+import base64
+from typing import Any
 
-from griptape_nodes_library.utils.image_utils import dict_to_image_url_artifact
+from griptape.artifacts import ImageUrlArtifact
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
+from griptape_nodes.exe_types.node_types import DataNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
+from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
+from griptape_nodes.files.file import File
+from griptape_nodes.retained_mode.events.static_file_events import (
+    CreateStaticFileDownloadUrlFromPathRequest,
+    CreateStaticFileDownloadUrlFromPathResultSuccess,
+)
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.widget import Widget
+
+_IDLE: dict[str, Any] = {
+    "state": "idle",
+    "gallery_items": [],
+    "selected_index": -1,
+    "gallery_count": 0,
+}
 
 
 class Webcam(DataNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        image_parameter = Parameter(
-            name="image",
-            input_types=["ImageArtifact", "ImageUrlArtifact", "dict"],
-            type="ImageArtifact",
-            output_type="ImageUrlArtifact",
-            ui_options={"webcam_capture_image": True, "expander": True},
-            tooltip="The image that has been captured.",
-            allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
+        self._updating_selection = False
+
+        self.add_parameter(
+            ParameterDict(
+                name="snapshot",
+                default_value=dict(_IDLE),
+                tooltip="Webcam snapshot widget. Capture frames and build a gallery.",
+                allowed_modes={ParameterMode.PROPERTY},
+                traits={Widget(name="WebcamCapture", library="Griptape Nodes Library")},
+            )
         )
-        self.add_parameter(image_parameter)
+
+        self.add_parameter(
+            ParameterImage(
+                name="image",
+                tooltip="The selected image from the gallery (latest capture by default).",
+                allowed_modes={ParameterMode.OUTPUT},
+                ui_options={"pulse_on_run": True},
+            )
+        )
+
+        self.add_parameter(
+            Parameter(
+                name="images",
+                output_type=ParameterTypeBuiltin.ALL.value,
+                allowed_modes={ParameterMode.OUTPUT},
+                tooltip="All captured images.",
+            )
+        )
+
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename="webcam_snapshot.jpg",
+        )
+        self._output_file.add_parameter()
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter.name == "snapshot" and isinstance(value, dict):
+            match value.get("state"):
+                case "accepted":
+                    if value.get("value"):
+                        self._handle_accepted(value)
+                case "selected":
+                    if not self._updating_selection:
+                        self._handle_selected(value)
+                case "clear_gallery":
+                    self._handle_clear_gallery(value)
+                case _:
+                    pass
+        return super().after_value_set(parameter, value)
+
+    def _handle_accepted(self, snapshot: dict) -> None:
+        artifact = self._save_snapshot(snapshot)
+        url = self._resolve_url(artifact.value)
+
+        # JS sends the current gallery_items along with the accepted event so
+        # Python doesn't need to read from the stored value (which has been
+        # overwritten by the incoming event dict before after_value_set fires).
+        items = list(snapshot.get("gallery_items", []))
+        items.append({"url": url, "_path": artifact.value})
+        selected_index = len(items) - 1
+
+        self.parameter_output_values["image"] = artifact
+        self.parameter_output_values["images"] = self._all_artifacts(items)
+        self.publish_update_to_parameter("image", artifact)
+        self.publish_update_to_parameter("images", self.parameter_output_values["images"])
+
+        processed = {
+            "state": "processed",
+            "gallery_items": items,
+            "selected_index": selected_index,
+            "gallery_count": len(items),
+            "_emitSeq": snapshot.get("_emitSeq", 0),
+        }
+        self.set_parameter_value("snapshot", processed)
+        self.publish_update_to_parameter("snapshot", processed)
+
+    def _handle_selected(self, snapshot: dict) -> None:
+        self._updating_selection = True
+        try:
+            selected_index = snapshot.get("selected_index", 0)
+            # JS sends gallery_items along with selected so Python doesn't read stale stored state
+            stored = self.get_parameter_value("snapshot") or {}
+            items = snapshot.get("gallery_items") or stored.get("gallery_items", [])
+
+            artifact = self._artifact_at(items, selected_index)
+            self.parameter_output_values["image"] = artifact
+            self.parameter_output_values["images"] = self._all_artifacts(items)
+            self.publish_update_to_parameter("image", artifact)
+            self.publish_update_to_parameter("images", self.parameter_output_values["images"])
+
+            new_stored = {
+                "state": "processed",
+                "gallery_items": items,
+                "selected_index": selected_index,
+                "gallery_count": len(items),
+                "_emitSeq": snapshot.get("_emitSeq", 0),
+            }
+            self.set_parameter_value("snapshot", new_stored)
+        finally:
+            self._updating_selection = False
+
+    def _handle_clear_gallery(self, snapshot: dict) -> None:
+        self.parameter_output_values["image"] = None
+        self.parameter_output_values["images"] = []
+        self.publish_update_to_parameter("image", None)
+        self.publish_update_to_parameter("images", [])
+
+        idle = {**_IDLE, "_emitSeq": snapshot.get("_emitSeq", 0)}
+        self.set_parameter_value("snapshot", idle)
+        self.publish_update_to_parameter("snapshot", idle)
+
+    def _artifact_at(self, items: list, index: int) -> ImageUrlArtifact | None:
+        if isinstance(index, int) and 0 <= index < len(items):
+            path = items[index].get("_path", "")
+            return ImageUrlArtifact(path) if path else None
+        return None
+
+    def _all_artifacts(self, items: list) -> list[ImageUrlArtifact]:
+        return [ImageUrlArtifact(item["_path"]) for item in items if item.get("_path")]
+
+    def _save_snapshot(self, snapshot: dict) -> ImageUrlArtifact:
+        raw = snapshot["value"]
+        if "base64," in raw:
+            raw = raw.split("base64,")[1]
+        image_bytes = base64.b64decode(raw)
+        dest = self._output_file.build_file()
+        saved = dest.write_bytes(image_bytes)
+        return ImageUrlArtifact(saved.location)
+
+    def _resolve_url(self, path: str) -> str:
+        if path.startswith(("http://", "https://")):
+            return path
+        try:
+            resolved = File(path).resolve()
+        except Exception:
+            resolved = path
+        try:
+            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved))
+            if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
+                return result.url
+        except Exception:
+            pass
+        return path
 
     def process(self) -> None:
-        image = self.get_parameter_value("image")
+        stored = self.get_parameter_value("snapshot") or {}
+        items = stored.get("gallery_items", [])
+        selected_index = stored.get("selected_index", -1)
 
-        if isinstance(image, dict):
-            image_artifact = dict_to_image_url_artifact(image)
-        else:
-            image_artifact = image
+        if not items:
+            msg = "No images captured. Use the webcam widget to capture snapshots before running."
+            raise ValueError(msg)
 
-        self.parameter_output_values["image"] = image_artifact
+        artifact = self._artifact_at(items, selected_index) or self._artifact_at(items, len(items) - 1)
+        self.parameter_output_values["image"] = artifact
+        self.parameter_output_values["images"] = self._all_artifacts(items)
