@@ -1,4 +1,6 @@
 import base64
+import logging
+from contextlib import suppress
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
@@ -14,6 +16,8 @@ from griptape_nodes.retained_mode.events.static_file_events import (
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.widget import Widget
+
+logger = logging.getLogger(__name__)
 
 _IDLE: dict[str, Any] = {
     "state": "idle",
@@ -126,6 +130,8 @@ class Webcam(DataNode):
             self.publish_update_to_parameter("image", artifact)
             self.publish_update_to_parameter("images", self.parameter_output_values["images"])
         except Exception:
+            with suppress(Exception):
+                logger.warning("Failed to save webcam snapshot; dropping capture", exc_info=True)
             items = self._get_items()
             selected_index = len(items) - 1 if items else -1
 
