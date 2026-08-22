@@ -28,6 +28,12 @@ class Webcam(DataNode):
         super().__init__(**kwargs)
 
         self._updating_selection = False
+        # In-memory gallery list.  Lazy-initialized from gallery_store on first
+        # access so it survives node restarts.  Kept as instance state (not read
+        # from `snapshot`) so rapid-fire captures can't overwrite each other —
+        # each "accepted" event replaces the snapshot parameter before the
+        # previous after_value_set has a chance to read back the saved list.
+        self._items: list | None = None
 
         self.add_parameter(
             ParameterDict(
@@ -38,6 +44,19 @@ class Webcam(DataNode):
                 traits={Widget(name="WebcamCapture", library="Griptape Nodes Library")},
             )
         )
+
+        # Hidden parameter: sole Python-owned store for accumulated gallery items.
+        # Never written to by JS events, so it is safe to read even when `snapshot`
+        # has been overwritten by a new incoming capture.
+        gallery_store = Parameter(
+            name="gallery_store",
+            type="list",
+            default_value=[],
+            allowed_modes={ParameterMode.PROPERTY},
+            hide_property=True,
+        )
+        self.add_parameter(gallery_store)
+        gallery_store.hide = True
 
         self.add_parameter(
             ParameterImage(
@@ -60,9 +79,22 @@ class Webcam(DataNode):
         self._output_file = ProjectFileParameter(
             node=self,
             name="output_file",
-            default_filename="webcam_snapshot.jpg",
+            default_filename="webcam/snapshot.jpg",
         )
         self._output_file.add_parameter()
+
+    # ── Gallery helpers ───────────────────────────────────────────────────────
+
+    def _get_items(self) -> list:
+        if self._items is None:
+            self._items = list(self.get_parameter_value("gallery_store") or [])
+        return self._items
+
+    def _commit_items(self, items: list) -> None:
+        self._items = list(items)
+        self.set_parameter_value("gallery_store", list(items))
+
+    # ── Parameter events ──────────────────────────────────────────────────────
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "snapshot" and isinstance(value, dict):
@@ -79,15 +111,15 @@ class Webcam(DataNode):
                     pass
         return super().after_value_set(parameter, value)
 
+    # ── State handlers ────────────────────────────────────────────────────────
+
     def _handle_accepted(self, snapshot: dict) -> None:
         artifact = self._save_snapshot(snapshot)
         url = self._resolve_url(artifact.value)
 
-        # JS sends the current gallery_items along with the accepted event so
-        # Python doesn't need to read from the stored value (which has been
-        # overwritten by the incoming event dict before after_value_set fires).
-        items = list(snapshot.get("gallery_items", []))
+        items = self._get_items()
         items.append({"url": url, "_path": artifact.value})
+        self._commit_items(items)
         selected_index = len(items) - 1
 
         self.parameter_output_values["image"] = artifact
@@ -97,7 +129,7 @@ class Webcam(DataNode):
 
         processed = {
             "state": "processed",
-            "gallery_items": items,
+            "gallery_items": list(items),
             "selected_index": selected_index,
             "gallery_count": len(items),
             "_emitSeq": snapshot.get("_emitSeq", 0),
@@ -109,9 +141,7 @@ class Webcam(DataNode):
         self._updating_selection = True
         try:
             selected_index = snapshot.get("selected_index", 0)
-            # JS sends gallery_items along with selected so Python doesn't read stale stored state
-            stored = self.get_parameter_value("snapshot") or {}
-            items = snapshot.get("gallery_items") or stored.get("gallery_items", [])
+            items = self._get_items()
 
             artifact = self._artifact_at(items, selected_index)
             self.parameter_output_values["image"] = artifact
@@ -121,7 +151,7 @@ class Webcam(DataNode):
 
             new_stored = {
                 "state": "processed",
-                "gallery_items": items,
+                "gallery_items": list(items),
                 "selected_index": selected_index,
                 "gallery_count": len(items),
                 "_emitSeq": snapshot.get("_emitSeq", 0),
@@ -131,6 +161,8 @@ class Webcam(DataNode):
             self._updating_selection = False
 
     def _handle_clear_gallery(self, snapshot: dict) -> None:
+        self._commit_items([])
+
         self.parameter_output_values["image"] = None
         self.parameter_output_values["images"] = []
         self.publish_update_to_parameter("image", None)
@@ -139,6 +171,8 @@ class Webcam(DataNode):
         idle = {**_IDLE, "_emitSeq": snapshot.get("_emitSeq", 0)}
         self.set_parameter_value("snapshot", idle)
         self.publish_update_to_parameter("snapshot", idle)
+
+    # ── Artifact helpers ──────────────────────────────────────────────────────
 
     def _artifact_at(self, items: list, index: int) -> ImageUrlArtifact | None:
         if isinstance(index, int) and 0 <= index < len(items):
@@ -173,15 +207,15 @@ class Webcam(DataNode):
             pass
         return path
 
-    def process(self) -> None:
-        stored = self.get_parameter_value("snapshot") or {}
-        items = stored.get("gallery_items", [])
-        selected_index = stored.get("selected_index", -1)
+    # ── Run ───────────────────────────────────────────────────────────────────
 
+    def process(self) -> None:
+        items = self._get_items()
         if not items:
             msg = "No images captured. Use the webcam widget to capture snapshots before running."
             raise ValueError(msg)
-
+        stored = self.get_parameter_value("snapshot") or {}
+        selected_index = stored.get("selected_index", len(items) - 1)
         artifact = self._artifact_at(items, selected_index) or self._artifact_at(items, len(items) - 1)
         self.parameter_output_values["image"] = artifact
         self.parameter_output_values["images"] = self._all_artifacts(items)

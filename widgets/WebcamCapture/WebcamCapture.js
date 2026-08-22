@@ -243,7 +243,7 @@ export default function WebcamCapture(container, props) {
     renderThumbs();
 
     _emitSeq++;
-    onChange?.({ state: "accepted", value: dataUrl, type: "image/jpeg", gallery_items: galleryItems, _emitSeq });
+    onChange?.({ state: "accepted", value: dataUrl, type: "image/jpeg", _emitSeq });
   }
 
   function clearGallery() {
