@@ -767,6 +767,18 @@
                 "family": "Topaz",
                 "provider_model_id": "topaz-video-ast-2",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_video_hyp_2": {
+                "display_name": "Topaz Hyperion 2",
+                "family": "Topaz",
+                "provider_model_id": "topaz-video-hyp-2",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_video_hyp_2_5": {
+                "display_name": "Topaz Hyperion 2.5",
+                "family": "Topaz",
+                "provider_model_id": "topaz-video-hyp-2.5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
           },
@@ -2937,6 +2949,37 @@
               "gtc_topaz_video_slp_2_5",
               "gtc_topaz_video_slp_2_6",
               "gtc_topaz_video_ast_2"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "TopazVideoConvertHdr",
+      "file_path": "griptape_nodes_library/video/topaz_video_convert_hdr.py",
+      "metadata": {
+        "category": "video",
+        "description": "Convert an SDR video to HDR using Topaz Hyperion via the Griptape model proxy. Billed per frame.",
+        "display_name": "Topaz Video Convert HDR",
+        "icon": "Sparkles",
+        "group": "edit",
+        "tags": [
+          "video",
+          "hdr",
+          "sdr",
+          "convert",
+          "tone-mapping",
+          "ai",
+          "api",
+          "topaz",
+          "hyperion"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_topaz_video_hyp_2",
+              "gtc_topaz_video_hyp_2_5"
             ]
           }
         ]
