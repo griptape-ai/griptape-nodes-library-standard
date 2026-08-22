@@ -8,6 +8,7 @@ import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from contextlib import suppress
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin
 
@@ -45,6 +46,22 @@ HTTP_CLIENT_ERROR_MIN = 400
 HTTP_CLIENT_ERROR_MAX = 500
 # Short delay before the single retry on a transient download failure.
 DOWNLOAD_RETRY_DELAY_SECONDS = 1.0
+# The proxy accepts cancellation only while a generation is still QUEUED; it answers
+# 400 once the work has been dispatched to the provider.
+HTTP_BAD_REQUEST = 400
+# Cancellation is cleanup on the way out of a cancelled node, so it gets a short timeout.
+CANCEL_REQUEST_TIMEOUT_SECONDS = 10
+
+
+class CancelOutcome(StrEnum):
+    """What a best-effort server-side cancel request actually achieved."""
+
+    # The proxy dropped the generation while it was still queued; no billable work ran.
+    CANCELLED = "cancelled"
+    # The generation had already been dispatched, so it runs to completion and is billed.
+    ALREADY_STARTED = "already_started"
+    # The cancel request never got an answer; the generation's fate is unknown.
+    UNKNOWN = "unknown"
 
 
 class GriptapeProxyNode(SuccessFailureNode, ABC):
@@ -55,6 +72,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     2. Poll generation status via GET /api/proxy/v2/generations/{generation_id}
     3. Handle terminal states (COMPLETED, FAILED, ERRORED, CANCELLED)
     4. Fetch final results from GET /api/proxy/v2/generations/{generation_id}/result
+    5. Cancel a still-queued generation via POST /api/proxy/v2/generations/{generation_id}/cancel
+       when the node's execution is cancelled
 
     Subclasses must implement:
     - _build_payload(): Build the request payload for generation submission
@@ -514,6 +533,106 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             return self.DEFAULT_MAX_ATTEMPTS * self.DEFAULT_POLL_INTERVAL
         return max(0, int(value))
 
+    async def _request_generation_cancel(self, generation_id: str, headers: dict[str, str]) -> CancelOutcome:
+        """POST the proxy's cancel endpoint for a generation.
+
+        Never raises. Cancellation is cleanup, and a failure here must not replace
+        the reason the node is unwinding, so every failure mode collapses into a
+        ``CancelOutcome`` the caller can report.
+
+        Args:
+            generation_id: The generation to cancel
+            headers: HTTP headers including Authorization
+
+        Returns:
+            CancelOutcome: What the request achieved
+        """
+        cancel_url = urljoin(self._proxy_base, f"generations/{generation_id}/cancel")
+        self._log(f"Requesting cancellation of generation {generation_id}")
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(cancel_url, headers=headers, timeout=CANCEL_REQUEST_TIMEOUT_SECONDS)
+        except Exception as e:
+            self._log(f"Cancel request for generation {generation_id} failed: {e}")
+            return CancelOutcome.UNKNOWN
+
+        # Both the accepted and the rejected response report the generation's status, and
+        # the proxy is authoritative about it — record it so `generation_status` reflects
+        # where the work actually ended up rather than the last status polling happened to see.
+        with suppress(Exception):
+            reported_status = response.json().get("status")
+            if reported_status:
+                self.parameter_output_values["generation_status"] = reported_status
+
+        # A generation that has already left the queue cannot be cancelled. That is the
+        # expected answer whenever the work was picked up quickly, so it is reported as
+        # an outcome rather than surfaced as a node error.
+        if response.status_code == HTTP_BAD_REQUEST:
+            return CancelOutcome.ALREADY_STARTED
+        if response.is_success:
+            return CancelOutcome.CANCELLED
+
+        self._log(f"Cancel request for generation {generation_id} returned HTTP {response.status_code}")
+        return CancelOutcome.UNKNOWN
+
+    async def _cancel_generation_best_effort(self, generation_id: str, headers: dict[str, str]) -> CancelOutcome:
+        """Ask the proxy to drop a generation, then record what that achieved.
+
+        The request is shielded because the usual caller is a cancellation unwind: a
+        second ``task.cancel()`` landing on this node while the POST is in flight
+        would otherwise abandon the request before it reaches the server.
+
+        Args:
+            generation_id: The generation to cancel
+            headers: HTTP headers including Authorization
+
+        Returns:
+            CancelOutcome: What the request achieved
+        """
+        outcome = await asyncio.shield(self._request_generation_cancel(generation_id, headers))
+        self._report_cancellation(generation_id, outcome)
+        return outcome
+
+    def _report_cancellation(self, generation_id: str, outcome: CancelOutcome) -> None:
+        """Record on the node what the cancel attempt achieved.
+
+        A cancel that could not stop billable work is the case worth telling the user
+        about, so each outcome gets its own message. The generation_id is preserved so
+        a generation that outlived the cancel can still be recovered via Refresh.
+
+        Args:
+            generation_id: The generation the cancel was requested for
+            outcome: What the cancel request achieved
+
+        Raises:
+            ValueError: If the outcome is not a known CancelOutcome
+        """
+        match outcome:
+            case CancelOutcome.CANCELLED:
+                details = (
+                    f"Generation `{generation_id}` was cancelled on Griptape Cloud before it started running, "
+                    f"so it will not be billed."
+                )
+            case CancelOutcome.ALREADY_STARTED:
+                details = (
+                    f"Generation `{generation_id}` had already started and could not be cancelled. It will run to "
+                    f"completion and be billed — click the refresh icon on `generation_status` to retrieve its result."
+                )
+            case CancelOutcome.UNKNOWN:
+                details = (
+                    f"Cancellation of generation `{generation_id}` could not be confirmed. It may still be running "
+                    f"and be billed — click the refresh icon on `generation_status` to check."
+                )
+            case _:
+                msg = f"Unknown cancel outcome: {outcome!r}"
+                raise ValueError(msg)
+
+        logger.info("%s: %s", self.name, details)
+        self._set_safe_defaults()
+        self.parameter_output_values["generation_id"] = generation_id
+        self._set_status_results(was_successful=False, result_details=details)
+
     async def _poll_generation_status(self, generation_id: str, headers: dict[str, str]) -> dict[str, Any] | None:
         """Poll generation status until terminal state is reached.
 
@@ -531,50 +650,66 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         max_attempts = max(1, (timeout_s + poll_interval - 1) // poll_interval) if timeout_s > 0 else None
 
         attempt = 0
-        async with httpx.AsyncClient() as client:
-            while True:
-                try:
-                    self._log(f"Polling attempt #{attempt + 1} for generation {generation_id}")
-
-                    response = await client.get(get_url, headers=headers, timeout=60)
-                    response.raise_for_status()
-                    result_json = response.json()
-
-                    status = result_json.get("status", "unknown")
-                    self._log(f"Status: {status}")
-                    self.parameter_output_values["generation_status"] = status
-
-                    is_terminal, terminal_result = self._handle_terminal_status(status, result_json)
-                    if is_terminal:
-                        return terminal_result
-
-                    attempt += 1
-
-                    # Timeout reached (only when max_attempts is set)
-                    if max_attempts is not None and attempt >= max_attempts:
-                        break
-
-                    # Still processing (QUEUED or RUNNING), wait before next poll
-                    await asyncio.sleep(poll_interval)
-
-                except httpx.HTTPStatusError as e:
-                    self._log(f"HTTP error while polling: {e.response.status_code} - {e.response.text}")
-                    attempt += 1
-                    if max_attempts is not None and attempt >= max_attempts:
-                        self._set_safe_defaults()
-                        error_msg = f"Failed to poll generation status: HTTP {e.response.status_code}"
-                        self._set_status_results(was_successful=False, result_details=error_msg)
+        try:
+            async with httpx.AsyncClient() as client:
+                while True:
+                    # Cooperative cancellation: covers a cancel that lands between awaits,
+                    # and callers that set the flag without cancelling the asyncio task.
+                    if self.is_cancellation_requested:
+                        self._log(f"Cancellation requested while polling generation {generation_id}")
+                        await self._cancel_generation_best_effort(generation_id, headers)
                         return None
-                    await asyncio.sleep(poll_interval)
-                except Exception as e:
-                    self._log(f"Error while polling: {e}")
-                    attempt += 1
-                    if max_attempts is not None and attempt >= max_attempts:
-                        self._set_safe_defaults()
-                        error_msg = f"Failed to poll generation status: {e}"
-                        self._set_status_results(was_successful=False, result_details=error_msg)
-                        return None
-                    await asyncio.sleep(poll_interval)
+
+                    try:
+                        self._log(f"Polling attempt #{attempt + 1} for generation {generation_id}")
+
+                        response = await client.get(get_url, headers=headers, timeout=60)
+                        response.raise_for_status()
+                        result_json = response.json()
+
+                        status = result_json.get("status", "unknown")
+                        self._log(f"Status: {status}")
+                        self.parameter_output_values["generation_status"] = status
+
+                        is_terminal, terminal_result = self._handle_terminal_status(status, result_json)
+                        if is_terminal:
+                            return terminal_result
+
+                        attempt += 1
+
+                        # Timeout reached (only when max_attempts is set)
+                        if max_attempts is not None and attempt >= max_attempts:
+                            break
+
+                        # Still processing (QUEUED or RUNNING), wait before next poll
+                        await asyncio.sleep(poll_interval)
+
+                    except httpx.HTTPStatusError as e:
+                        self._log(f"HTTP error while polling: {e.response.status_code} - {e.response.text}")
+                        attempt += 1
+                        if max_attempts is not None and attempt >= max_attempts:
+                            self._set_safe_defaults()
+                            error_msg = f"Failed to poll generation status: HTTP {e.response.status_code}"
+                            self._set_status_results(was_successful=False, result_details=error_msg)
+                            return None
+                        await asyncio.sleep(poll_interval)
+                    except Exception as e:
+                        self._log(f"Error while polling: {e}")
+                        attempt += 1
+                        if max_attempts is not None and attempt >= max_attempts:
+                            self._set_safe_defaults()
+                            error_msg = f"Failed to poll generation status: {e}"
+                            self._set_status_results(was_successful=False, result_details=error_msg)
+                            return None
+                        await asyncio.sleep(poll_interval)
+        except asyncio.CancelledError:
+            # The engine cancels this node's task, which with a 5s poll interval almost
+            # always lands mid-sleep — so this, not the flag check above, is the load-bearing
+            # path. Ask the proxy to drop the generation before unwinding so queued work is
+            # not billed for a result nobody will see, then let the cancellation stand.
+            with suppress(asyncio.CancelledError):
+                await self._cancel_generation_best_effort(generation_id, headers)
+            raise
 
         # Timeout reached — preserve generation_id so the user can recover via Refresh
         self._log("Polling timed out waiting for result")
@@ -764,6 +899,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         # Clear execution status at the start
         self._clear_execution_status()
+        # A node's cancellation flag is only cleared by BaseNode.clear_node(), which the
+        # flow's cancel path does not reach for a node cancelled mid-resolution — so the
+        # flag outlives the run it belonged to. Left set, it would make the poll loop
+        # cancel the generation this run is about to submit. A cancellation that really
+        # applies to this run is requested after the run starts and also cancels the
+        # asyncio task, which the poll loop's CancelledError path handles.
+        self.clear_cancellation()
         self.parameter_output_values["generation_id"] = ""
         self.parameter_output_values["generation_status"] = ""
 
