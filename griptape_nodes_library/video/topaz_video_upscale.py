@@ -4,9 +4,7 @@ import asyncio
 import logging
 import math
 from enum import StrEnum
-from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
@@ -19,13 +17,18 @@ from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
-from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.utils.ffmpeg_utils import VideoMetadata, extract_video_metadata_structured
+from griptape_nodes_library.utils.ffmpeg_utils import VideoMetadata
+from griptape_nodes_library.video.topaz_video_common import (
+    TIER_1080P_MAX_PIXELS,
+    derive_container,
+    frame_count,
+    probe_source,
+    to_even,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -75,29 +78,6 @@ MAX_ASTRA_FRAMES = 9000
 # A prompt drops Astra's ceiling by 20x. As with Starlight the proxy only clamps what
 # it *bills*; the job still reaches Topaz, which rejects it.
 MAX_ASTRA_FRAMES_WITH_PROMPT = 450
-
-# Topaz's source.container enum is exactly mp4/mov/mkv:
-# https://developer.topazlabs.com/reference/api-endpoints/video/create-request.md
-#
-# ffprobe's format_name can't tell these apart -- mp4 and mov both report
-# "mov,mp4,m4a,3gp,3g2,mj2", and mkv and webm both report "matroska,webm" (which
-# isn't even a valid Topaz value) -- so container is derived from the file
-# extension (or, for a data URI, the MIME subtype) instead. See _derive_container.
-CONTAINER_BY_TOKEN: dict[str, str] = {
-    "mp4": "mp4",
-    "m4v": "mp4",
-    "mov": "mov",
-    "qt": "mov",
-    "quicktime": "mov",
-    "mkv": "mkv",
-    "matroska": "mkv",
-    "x-matroska": "mkv",
-}
-
-# Both families bill in two rate tiers, chosen by output pixel *area*, not height. A
-# portrait 1080x1920 output bills as 1080p; 1921x1080 already bills as 4K.
-# https://developer.topazlabs.com/getting-started/model-pricing
-TIER_1080P_MAX_PIXELS = 1920 * 1080
 
 # Topaz's documented hard output ceiling for Starlight (distinct from the 1080p/4K
 # billing-tier boundary above): https://docs.topazlabs.com/video-ai/project-starlight
@@ -600,68 +580,22 @@ class TopazVideoUpscale(GriptapeProxyNode):
     # -- source probing ----------------------------------------------------
 
     def _probe_source(self, video_input: Any) -> VideoMetadata:
-        """Resolve the input to a local path and probe it with ffprobe.
-
-        Resolving through ``File`` first is what makes ``{inputs}/clip.mp4`` macro
-        paths work; handing the raw value to ffprobe silently fails for those.
-        """
-        video_url = coerce_media_url_or_data_uri(video_input, kind="video")
-        if not video_url:
-            msg = f"{self.name} could not resolve the input video."
-            raise ValueError(msg)
-
-        try:
-            resolved_path = File(video_url).resolve()
-        except FileLoadError as e:
-            msg = f"{self.name} could not resolve video path {video_url!r}: {e}"
-            raise ValueError(msg) from e
-
-        return extract_video_metadata_structured(str(resolved_path))
+        """Probe the source with ffprobe. See ``topaz_video_common.probe_source``."""
+        return probe_source(video_input, node_name=self.name)
 
     def _derive_container(self, video_input: Any) -> str:
-        """Map the input video to Topaz's exact ``source.container`` enum (mp4/mov/mkv).
-
-        Deliberately independent of ``_probe_source``/``VideoMetadata``: it only needs
-        the raw parameter value, and calling the same cheap, pure
-        ``coerce_media_url_or_data_uri`` helper here keeps this check from being
-        silently bypassed by tests that stub ``_probe_source`` wholesale.
-        """
-        video_url = coerce_media_url_or_data_uri(video_input, kind="video") or ""
-        if video_url.startswith("data:"):
-            header = video_url.removeprefix("data:").split(",", 1)[0]
-            token = header.split(";", 1)[0].split("/", 1)[-1].lower()
-        else:
-            token = Path(urlsplit(video_url).path).suffix.lstrip(".").lower()
-
-        container = CONTAINER_BY_TOKEN.get(token)
-        if container is None:
-            found = token or "no extension"
-            msg = f"{self.name}: Topaz only accepts mp4, mov, or mkv source video, but got {found!r}."
-            raise ValueError(msg)
-        return container
+        """Map the input to Topaz's container enum. See ``topaz_video_common.derive_container``."""
+        return derive_container(video_input, node_name=self.name)
 
     @staticmethod
     def _frame_count(metadata: VideoMetadata) -> int:
-        """Derive the source frame count, which the proxy requires and never defaults.
-
-        ffprobe omits ``nb_frames`` for plenty of ordinary MP4s, so fall back to
-        duration x frame rate rather than letting the request 400 downstream.
-        """
-        nb_frames = metadata.frame_details.optional_nb_frames
-        if nb_frames and nb_frames > 0:
-            return nb_frames
-
-        duration = metadata.file_details.optional_duration
-        frame_rate = metadata.frame_details.frame_rate
-        if duration and duration > 0 and frame_rate > 0:
-            return math.ceil(duration * frame_rate)
-
-        return 0
+        """Derive the source frame count. See ``topaz_video_common.frame_count``."""
+        return frame_count(metadata)
 
     @staticmethod
     def _to_even(value: int) -> int:
-        """Round down to an even number -- odd dimensions break yuv420 encoding."""
-        return max(2, value - (value % 2))
+        """Round down to an even number. See ``topaz_video_common.to_even``."""
+        return to_even(value)
 
     def _output_resolution(self, source_width: int, source_height: int) -> tuple[int, int]:
         mode = self.get_parameter_value("resize_mode") or ResizeMode.PERCENTAGE
