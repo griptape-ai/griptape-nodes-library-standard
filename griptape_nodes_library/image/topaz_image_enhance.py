@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from contextlib import suppress
 from copy import deepcopy
+from enum import StrEnum
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -21,6 +23,7 @@ from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key
+from griptape_nodes_library.utils.image_utils import get_image_dimensions_from_artifact
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -41,6 +44,44 @@ OPERATION_OPTIONS = [
     "matting",
     "tool",
 ]
+
+
+class ResizeMode(StrEnum):
+    """How the requested output resolution is derived."""
+
+    NONE = "none"
+    WIDTH = "width"
+    HEIGHT = "height"
+    WIDTH_HEIGHT = "width and height"
+    PERCENTAGE = "percentage"
+
+
+# Only these three Topaz endpoints accept output_width/output_height/crop_to_fill.
+# sharpen, sharpen-generative, denoise, restore-generative, lighting and matting
+# always emit at the input resolution.
+UPSCALE_OPERATIONS = frozenset({"enhance", "enhance-generative", "tool"})
+
+# Topaz's documented bounds for a single output dimension.
+MIN_OUTPUT_DIMENSION = 1
+MAX_OUTPUT_DIMENSION = 32_000
+
+# Topaz meters output megapixels against credits, and the rate is fixed per endpoint
+# rather than per model: everything on /enhance-gen/async is Wonder-family, everything
+# on /enhance/async and /tool/async is Gigapixel-family.
+# https://developer.topazlabs.com/getting-started/model-pricing.md
+MP_PER_CREDIT_BY_OPERATION = {
+    "enhance": 24,
+    "enhance-generative": 4,
+    "tool": 24,
+}
+
+# Parameters in the resize group. Deliberately NOT part of any per-model table (and so
+# not in ALL_MODEL_PARAMS): resize is a property of the operation, not of the model, and
+# _update_visible_params_for_model hides every ALL_MODEL_PARAMS member the selected model
+# does not declare.
+RESIZE_PARAMS = ("output_width", "output_height", "percentage", "crop_to_fill")
+
+PERCENT_SCALE = 100
 
 ENHANCE_MODELS = {
     "Standard V2": [
@@ -741,6 +782,63 @@ class TopazImageEnhance(GriptapeProxyNode):
             )
         )
 
+        # Resize / upscale controls. Shown only for the operations Topaz accepts
+        # output_width/output_height on. Defaults are a no-op: at ResizeMode.NONE nothing
+        # is added to the payload, so existing workflows send byte-identical requests.
+        with ParameterGroup(name="resize", ui_options={"collapsed": False}):
+            self.add_parameter(
+                ParameterString(
+                    name="resize_mode",
+                    default_value=ResizeMode.NONE,
+                    tooltip="How to size the output image. 'none' leaves sizing to Topaz.",
+                    allow_output=False,
+                    traits={Options(choices=[mode.value for mode in ResizeMode])},
+                )
+            )
+            self.add_parameter(
+                ParameterInt(
+                    name="output_width",
+                    default_value=None,
+                    tooltip=f"Output width in pixels ({MIN_OUTPUT_DIMENSION}-{MAX_OUTPUT_DIMENSION:,})",
+                    allow_output=False,
+                    min_val=MIN_OUTPUT_DIMENSION,
+                    max_val=MAX_OUTPUT_DIMENSION,
+                    hide=True,
+                )
+            )
+            self.add_parameter(
+                ParameterInt(
+                    name="output_height",
+                    default_value=None,
+                    tooltip=f"Output height in pixels ({MIN_OUTPUT_DIMENSION}-{MAX_OUTPUT_DIMENSION:,})",
+                    allow_output=False,
+                    min_val=MIN_OUTPUT_DIMENSION,
+                    max_val=MAX_OUTPUT_DIMENSION,
+                    hide=True,
+                )
+            )
+            self.add_parameter(
+                ParameterInt(
+                    name="percentage",
+                    default_value=200,
+                    tooltip="Output size as a percentage of the source image",
+                    allow_output=False,
+                    min_val=1,
+                    hide=True,
+                )
+            )
+            self.add_parameter(
+                ParameterBool(
+                    name="crop_to_fill",
+                    default_value=False,
+                    tooltip=(
+                        "When the requested aspect ratio differs from the source, crop to fill instead of letterboxing."
+                    ),
+                    allow_output=False,
+                    hide=True,
+                )
+            )
+
         # Output format parameter
         self.add_parameter(
             ParameterString(
@@ -803,6 +901,101 @@ class TopazImageEnhance(GriptapeProxyNode):
             else:
                 self.hide_parameter_by_name(param_name)
 
+    def _update_resize_visibility(self) -> None:
+        """Show/hide the resize controls for the current operation and resize mode.
+
+        Resize is gated on the *operation*, not the model, so this is deliberately
+        separate from _update_visible_params_for_model.
+        """
+        operation = self.get_parameter_value("operation") or "enhance"
+
+        if operation not in UPSCALE_OPERATIONS:
+            # Topaz ignores these fields on the other endpoints; don't offer them.
+            self.hide_parameter_by_name(["resize_mode", *RESIZE_PARAMS])
+            if self.get_parameter_value("resize_mode") != ResizeMode.NONE:
+                # Guarded so the resulting after_value_set doesn't recurse.
+                self.set_parameter_value("resize_mode", ResizeMode.NONE)
+            return
+
+        self.show_parameter_by_name("resize_mode")
+        mode = self.get_parameter_value("resize_mode") or ResizeMode.NONE
+
+        match mode:
+            case ResizeMode.NONE:
+                visible = ()
+            case ResizeMode.WIDTH:
+                visible = ("output_width",)
+            case ResizeMode.HEIGHT:
+                visible = ("output_height",)
+            case ResizeMode.WIDTH_HEIGHT:
+                # The only mode where the requested aspect ratio can differ from the
+                # source's, so the only mode where crop_to_fill changes anything.
+                visible = ("output_width", "output_height", "crop_to_fill")
+            case ResizeMode.PERCENTAGE:
+                visible = ("percentage",)
+            case _:
+                msg = f"Unknown resize mode: {mode!r}"
+                raise ValueError(msg)
+
+        for param_name in RESIZE_PARAMS:
+            if param_name in visible:
+                self.show_parameter_by_name(param_name)
+            else:
+                self.hide_parameter_by_name(param_name)
+
+    def _update_cost_badge(self) -> None:
+        """Show the Topaz credit cost the current resize settings imply.
+
+        Topaz bills max(1, ceil(output_megapixels / rate)) credits, where the rate is
+        fixed per endpoint. That's exact whenever the output pixel count is known from
+        values already on the node; in the modes that depend on the source's aspect
+        ratio it isn't knowable until the node runs, so say so instead of guessing.
+        """
+        param = self.get_parameter_by_name("resize_mode")
+        if param is None:
+            return
+
+        operation = self.get_parameter_value("operation") or "enhance"
+        rate = MP_PER_CREDIT_BY_OPERATION.get(operation)
+        mode = self.get_parameter_value("resize_mode") or ResizeMode.NONE
+
+        if rate is None or mode == ResizeMode.NONE:
+            param.clear_badge()
+            return
+
+        if mode == ResizeMode.WIDTH_HEIGHT:
+            width = self.get_parameter_value("output_width") or 0
+            height = self.get_parameter_value("output_height") or 0
+            if width <= 0 or height <= 0:
+                param.clear_badge()
+                return
+            credits = self._credits_for_pixels(width * height, rate)
+            param.set_badge(
+                variant="info",
+                title=f"About {credits} Topaz credit{'s' if credits != 1 else ''}",
+                message=(
+                    f"{width}x{height} is {width * height / 1_000_000:.1f} MP. This operation bills "
+                    f"{rate} MP per credit, so Topaz charges {credits} credit"
+                    f"{'s' if credits != 1 else ''}."
+                ),
+            )
+            return
+
+        param.set_badge(
+            variant="note",
+            title="Cost depends on the source image",
+            message=(
+                f"This operation bills {rate} MP of output per Topaz credit. The output pixel "
+                "count -- and so the cost -- isn't known until the node runs and reads the "
+                "source's dimensions."
+            ),
+        )
+
+    @staticmethod
+    def _credits_for_pixels(pixels: int, mp_per_credit: int) -> int:
+        """Topaz's meter: megapixels divided by the rate, rounded up, minimum one credit."""
+        return max(1, math.ceil(pixels / 1_000_000 / mp_per_credit))
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
 
@@ -821,6 +1014,12 @@ class TopazImageEnhance(GriptapeProxyNode):
 
         if parameter.name == "model" and value:
             self._update_visible_params_for_model(value)
+
+        if parameter.name in ("operation", "resize_mode"):
+            self._update_resize_visibility()
+
+        if parameter.name in ("operation", "resize_mode", "output_width", "output_height"):
+            self._update_cost_badge()
 
     async def _process_generation(self) -> None:
         await super()._process_generation()
@@ -844,6 +1043,13 @@ class TopazImageEnhance(GriptapeProxyNode):
 
         for param_name in supported_params:
             params[param_name] = self.get_parameter_value(param_name)
+
+        # Resize is keyed on the operation, not the model, so it is not in the
+        # per-model tables and has to be collected separately.
+        if operation in UPSCALE_OPERATIONS:
+            params["resize_mode"] = self.get_parameter_value("resize_mode") or ResizeMode.NONE
+            for param_name in RESIZE_PARAMS:
+                params[param_name] = self.get_parameter_value(param_name)
 
         return params
 
@@ -885,6 +1091,18 @@ class TopazImageEnhance(GriptapeProxyNode):
                     continue
                 payload[param_name] = value
 
+        # Output sizing. Topaz accepts these only on enhance, enhance-gen and tool, and
+        # silently ignores unknown keys -- so a wrong name looks like success. They are
+        # snake_case at the top level even though the per-model settings are camelCase.
+        if operation in UPSCALE_OPERATIONS:
+            width, height = self._resolve_output_size(params)
+            if width is not None:
+                payload["output_width"] = width
+            if height is not None:
+                payload["output_height"] = height
+            if width is not None or height is not None:
+                payload["crop_to_fill"] = bool(params.get("crop_to_fill"))
+
         # Add input image
         image_input = params.get("image_input")
         if image_input:
@@ -893,6 +1111,128 @@ class TopazImageEnhance(GriptapeProxyNode):
                 payload["image"] = input_image_data
 
         return payload
+
+    def _resolve_output_size(self, params: dict[str, Any]) -> tuple[int | None, int | None]:
+        """Resolve the requested output size, or (None, None) to leave sizing to Topaz.
+
+        Every mode but NONE resolves to *both* dimensions. Topaz would happily scale a
+        missing dimension itself, but then the output pixel count -- and so the credit
+        cost -- is unknowable until the job finishes, and the proxy bills at request
+        time. Deriving the partner dimension here keeps billing exact; the value matches
+        what Topaz would have picked to within a pixel.
+        """
+        mode = params.get("resize_mode") or ResizeMode.NONE
+
+        match mode:
+            case ResizeMode.NONE:
+                return (None, None)
+            case ResizeMode.WIDTH:
+                width = self._validated_dimension(params.get("output_width"), "output_width")
+                source_width, source_height = self._source_dimensions(params)
+                height = max(1, round(width * source_height / source_width))
+                return (width, self._validated_dimension(height, "output_height"))
+            case ResizeMode.HEIGHT:
+                height = self._validated_dimension(params.get("output_height"), "output_height")
+                source_width, source_height = self._source_dimensions(params)
+                width = max(1, round(height * source_width / source_height))
+                return (self._validated_dimension(width, "output_width"), height)
+            case ResizeMode.WIDTH_HEIGHT:
+                return (
+                    self._validated_dimension(params.get("output_width"), "output_width"),
+                    self._validated_dimension(params.get("output_height"), "output_height"),
+                )
+            case ResizeMode.PERCENTAGE:
+                return self._percentage_output_size(params)
+            case _:
+                msg = f"Unknown resize mode: {mode!r}"
+                raise ValueError(msg)
+
+    def _source_dimensions(self, params: dict[str, Any]) -> tuple[int, int]:
+        """Read the source image's pixel dimensions, or raise if they can't be read.
+
+        get_image_dimensions_from_artifact reports failure as (0, 0). Treating that as
+        "skip the resize" would ship an un-upscaled image that looks like a success.
+        """
+        source_width, source_height = get_image_dimensions_from_artifact(params.get("image_input"))
+        if source_width <= 0 or source_height <= 0:
+            msg = (
+                f"{self.name}: could not read the source image's dimensions, which are required "
+                f"by the '{params.get('resize_mode')}' resize mode. Use "
+                f"'{ResizeMode.WIDTH_HEIGHT}' to request an explicit size instead."
+            )
+            raise ValueError(msg)
+        return (source_width, source_height)
+
+    def _percentage_output_size(self, params: dict[str, Any]) -> tuple[int, int]:
+        """Scale the source's dimensions by the requested percentage."""
+        percentage = params.get("percentage")
+        if not percentage or percentage <= 0:
+            msg = f"{self.name}: percentage must be greater than 0 to resize by percentage."
+            raise ValueError(msg)
+
+        source_width, source_height = self._source_dimensions(params)
+
+        scale = percentage / PERCENT_SCALE
+        return (
+            self._validated_dimension(max(1, round(source_width * scale)), "output_width"),
+            self._validated_dimension(max(1, round(source_height * scale)), "output_height"),
+        )
+
+    def _validated_dimension(self, value: Any, param_name: str) -> int:
+        """Check a single output dimension against Topaz's documented bounds."""
+        if value is None:
+            msg = f"{self.name}: {param_name} is required for the selected resize mode."
+            raise ValueError(msg)
+        if isinstance(value, bool) or not isinstance(value, int):
+            msg = f"{self.name}: {param_name} must be an integer, got {value!r}."
+            raise ValueError(msg)
+        if not MIN_OUTPUT_DIMENSION <= value <= MAX_OUTPUT_DIMENSION:
+            msg = (
+                f"{self.name}: {param_name} must be between {MIN_OUTPUT_DIMENSION} and "
+                f"{MAX_OUTPUT_DIMENSION:,}, got {value}."
+            )
+            raise ValueError(msg)
+        return value
+
+    def validate_before_node_run(self) -> list[Exception] | None:
+        """Catch resize misconfiguration before the node runs.
+
+        after_value_set does not fire while a workflow loads, so a workflow saved against
+        an older build can come back with a resize mode set on an operation that cannot
+        honour it. Fail loudly rather than silently dropping the request.
+        """
+        errors = super().validate_before_node_run() or []
+
+        operation = self.get_parameter_value("operation") or "enhance"
+        mode = self.get_parameter_value("resize_mode") or ResizeMode.NONE
+
+        if mode == ResizeMode.NONE:
+            return errors or None
+
+        if operation not in UPSCALE_OPERATIONS:
+            supported = ", ".join(sorted(UPSCALE_OPERATIONS))
+            errors.append(
+                ValueError(
+                    f"{self.name}: resize_mode is '{mode}' but the '{operation}' operation cannot "
+                    f"resize. Topaz accepts an output size only for: {supported}."
+                )
+            )
+            return errors
+
+        # Range-check whatever the mode actually requires. Percentage needs the source
+        # image, so it is left to run time.
+        required = {
+            ResizeMode.WIDTH: ("output_width",),
+            ResizeMode.HEIGHT: ("output_height",),
+            ResizeMode.WIDTH_HEIGHT: ("output_width", "output_height"),
+        }.get(mode, ())
+        for param_name in required:
+            try:
+                self._validated_dimension(self.get_parameter_value(param_name), param_name)
+            except ValueError as exc:  # noqa: PERF203
+                errors.append(exc)
+
+        return errors or None
 
     async def _process_input_image(self, image_input: Any) -> str | None:
         """Process input image and convert to base64 data URI."""
