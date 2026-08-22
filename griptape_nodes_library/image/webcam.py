@@ -38,7 +38,7 @@ class Webcam(DataNode):
         self.add_parameter(
             ParameterDict(
                 name="snapshot",
-                default_value=dict(_IDLE),
+                default_value={**_IDLE, "gallery_items": []},
                 tooltip="Webcam snapshot widget. Capture frames and build a gallery.",
                 allowed_modes={ParameterMode.PROPERTY},
                 traits={Widget(name="WebcamCapture", library="Griptape Nodes Library")},
@@ -88,7 +88,7 @@ class Webcam(DataNode):
     def _get_items(self) -> list:
         if self._items is None:
             self._items = list(self.get_parameter_value("gallery_store") or [])
-        return self._items
+        return list(self._items)
 
     def _commit_items(self, items: list) -> None:
         self._items = list(items)
@@ -114,18 +114,20 @@ class Webcam(DataNode):
     # ── State handlers ────────────────────────────────────────────────────────
 
     def _handle_accepted(self, snapshot: dict) -> None:
-        artifact = self._save_snapshot(snapshot)
-        url = self._resolve_url(artifact.value)
-
-        items = self._get_items()
-        items.append({"url": url, "_path": artifact.value})
-        self._commit_items(items)
-        selected_index = len(items) - 1
-
-        self.parameter_output_values["image"] = artifact
-        self.parameter_output_values["images"] = self._all_artifacts(items)
-        self.publish_update_to_parameter("image", artifact)
-        self.publish_update_to_parameter("images", self.parameter_output_values["images"])
+        try:
+            artifact = self._save_snapshot(snapshot)
+            url = self._resolve_url(artifact.value)
+            items = self._get_items()
+            items.append({"url": url, "_path": artifact.value})
+            self._commit_items(items)
+            selected_index = len(items) - 1
+            self.parameter_output_values["image"] = artifact
+            self.parameter_output_values["images"] = self._all_artifacts(items)
+            self.publish_update_to_parameter("image", artifact)
+            self.publish_update_to_parameter("images", self.parameter_output_values["images"])
+        except Exception:
+            items = self._get_items()
+            selected_index = len(items) - 1 if items else -1
 
         processed = {
             "state": "processed",
@@ -168,7 +170,7 @@ class Webcam(DataNode):
         self.publish_update_to_parameter("image", None)
         self.publish_update_to_parameter("images", [])
 
-        idle = {**_IDLE, "_emitSeq": snapshot.get("_emitSeq", 0)}
+        idle = {**_IDLE, "gallery_items": [], "_emitSeq": snapshot.get("_emitSeq", 0)}
         self.set_parameter_value("snapshot", idle)
         self.publish_update_to_parameter("snapshot", idle)
 
