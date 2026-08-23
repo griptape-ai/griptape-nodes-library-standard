@@ -42,7 +42,7 @@ export default function WebcamCapture(container, props) {
   let selectedIndex = init.selected_index ?? (galleryItems.length > 0 ? galleryItems.length - 1 : -1);
   let pendingThumbs = [];
 
-  // Queue of { dataUrl, blob } items waiting to enter the upload protocol.
+  // Queue of Blob values waiting to enter the upload protocol.
   // Only one capture flows through requesting_upload_url → processed at a time
   // because all captures share a single snapshot parameter channel — concurrent
   // in-flight requests would race on upload_ready delivery.

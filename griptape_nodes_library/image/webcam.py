@@ -150,7 +150,7 @@ class Webcam(DataNode):
         try:
             if not temp_path.exists():
                 # The HTTP PUT failed on the JS side; drop this capture silently.
-                logger.warning("webcam: temp upload not found for seq %d; dropping capture", seq)
+                logger.warning("webcam [%s]: temp upload not found for seq %d; dropping capture", self.name, seq)
             else:
                 image_bytes = temp_path.read_bytes()
                 temp_path.unlink(missing_ok=True)
@@ -164,7 +164,7 @@ class Webcam(DataNode):
                 self.publish_update_to_parameter("image", artifact)
                 self.publish_update_to_parameter("images", self.parameter_output_values["images"])
         except Exception:
-            logger.warning("Failed to save webcam snapshot; dropping capture", exc_info=True)
+            logger.warning("webcam [%s]: failed to save snapshot; dropping capture", self.name, exc_info=True)
 
         # Always echo "processed" back so the JS clears the pending thumbnail,
         # whether the save succeeded or failed.
