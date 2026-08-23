@@ -42,10 +42,18 @@ export default function WebcamCapture(container, props) {
   let selectedIndex = init.selected_index ?? (galleryItems.length > 0 ? galleryItems.length - 1 : -1);
   let pendingThumbs = [];
 
+  // Queue of { dataUrl, blob } items waiting to enter the upload protocol.
+  // Only one capture flows through requesting_upload_url → processed at a time
+  // because all captures share a single snapshot parameter channel — concurrent
+  // in-flight requests would race on upload_ready delivery.
+  const captureQueue = [];
+  let _processing = false;
+  let _pendingBlob = null;  // blob for the capture currently in-flight
+
   let stream = null;
   let currentVideoId = "";
 
-  const MAX_DIM = 1920;
+  const MAX_DIM = 960;
 
   // ── DOM ──────────────────────────────────────────────────────────────────
 
@@ -225,10 +233,24 @@ export default function WebcamCapture(container, props) {
     }
   }
 
-  // ── Capture ───────────────────────────────────────────────────────────────
+  // ── Capture (upload protocol) ─────────────────────────────────────────────
+
+  // toDataURL is one synchronous JPEG encode. We reuse that encoded data for both
+  // the pending thumbnail (as a data URL) and the binary PUT upload (as a Blob).
+  // This avoids calling canvas.toBlob(), which would kick off a second async JPEG
+  // encode and force the upload to wait for it to complete before it could start.
+  function dataUrlToBlob(dataUrl) {
+    const comma = dataUrl.indexOf(",");
+    const mime  = dataUrl.slice(5, dataUrl.indexOf(";"));
+    const bytes = atob(dataUrl.slice(comma + 1));
+    const arr   = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  }
 
   function capture() {
     if (!stream) return;
+
     const canvas = document.createElement("canvas");
     const rawW = video.videoWidth  || 640;
     const rawH = video.videoHeight || 480;
@@ -236,17 +258,44 @@ export default function WebcamCapture(container, props) {
     canvas.width  = Math.round(rawW * scale);
     canvas.height = Math.round(rawH * scale);
     canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.88);
 
-    // Show pending thumbnail immediately, camera keeps rolling
+    // One encode — reuse for both thumbnail and binary upload
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.75);
+    const blob    = dataUrlToBlob(dataUrl);  // base64→binary in memory, no re-encode
+
+    captureQueue.push({ dataUrl, blob });
     pendingThumbs = [...pendingThumbs, dataUrl];
     renderThumbs();
+    _processNext();
+  }
 
+  function _processNext() {
+    if (_processing || captureQueue.length === 0) return;
+    _processing = true;
+    const { blob } = captureQueue.shift();
+    _pendingBlob = blob;
     _emitSeq++;
-    onChange?.({ state: "accepted", value: dataUrl, type: "image/jpeg", _emitSeq });
+    onChange?.({ state: "requesting_upload_url", _emitSeq });
+  }
+
+  function _doUpload(uploadUrl, seq) {
+    const blob = _pendingBlob;
+    _pendingBlob = null;
+    fetch(uploadUrl, { method: "PUT", body: blob })
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); })
+      .then(() => { onChange?.({ state: "accepted", _emitSeq: seq }); })
+      .catch(() => {
+        // On PUT failure, still send accepted so Python echoes "processed"
+        // and the pending thumbnail clears rather than staying stuck forever.
+        onChange?.({ state: "accepted", _emitSeq: seq });
+      });
   }
 
   function clearGallery() {
+    captureQueue.length = 0;
+    _processing = false;
+    _pendingBlob = null;
+    pendingThumbs = [];
     _emitSeq++;
     onChange?.({ state: "clear_gallery", _emitSeq });
   }
@@ -257,23 +306,31 @@ export default function WebcamCapture(container, props) {
     onChange = newProps.onChange;
     const v = newProps.value ?? {};
 
+    if (v.state === "upload_ready" && v._uploadUrl && _pendingBlob) {
+      _doUpload(v._uploadUrl, v._emitSeq);
+      return;
+    }
+
     if (v.state === "processed") {
       pendingThumbs = pendingThumbs.slice(1);
       galleryItems  = v.gallery_items  ?? galleryItems;
       selectedIndex = v.selected_index ?? (galleryItems.length - 1);
       renderThumbs();
+      _processing = false;
+      _processNext();
       return;
     }
 
     if (v.state === "idle") {
+      captureQueue.length = 0;
+      _processing = false;
+      _pendingBlob = null;
       galleryItems  = [];
       selectedIndex = -1;
       pendingThumbs = [];
       renderThumbs();
       return;
     }
-
-    if ((v._emitSeq || 0) <= _emitSeq) return;
   }
 
   // ── Cleanup ───────────────────────────────────────────────────────────────

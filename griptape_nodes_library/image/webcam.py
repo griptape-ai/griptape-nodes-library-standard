@@ -1,5 +1,5 @@
-import base64
 import logging
+import re
 from contextlib import suppress
 from typing import Any
 
@@ -32,12 +32,9 @@ class Webcam(DataNode):
         super().__init__(**kwargs)
 
         self._updating_selection = False
-        # In-memory gallery list.  Lazy-initialized from gallery_store on first
-        # access so it survives node restarts.  Kept as instance state (not read
-        # from `snapshot`) so rapid-fire captures can't overwrite each other —
-        # each "accepted" event replaces the snapshot parameter before the
-        # previous after_value_set has a chance to read back the saved list.
         self._items: list | None = None
+        self._safe_name: str = ""
+        self._accepted_seqs: set[int] = set()  # guard against duplicate after_value_set calls
 
         self.add_parameter(
             ParameterDict(
@@ -98,49 +95,87 @@ class Webcam(DataNode):
         self._items = list(items)
         self.set_parameter_value("gallery_store", list(items))
 
+    def _safe_node_name(self) -> str:
+        if not self._safe_name:
+            self._safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", self.name)
+        return self._safe_name
+
+    def _temp_rel_path(self, seq: int) -> str:
+        return f"temp/_wc_{self._safe_node_name()}_{seq}.jpg"
+
     # ── Parameter events ──────────────────────────────────────────────────────
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "snapshot" and isinstance(value, dict):
             match value.get("state"):
+                case "requesting_upload_url":
+                    self._handle_requesting_upload_url(value)
+                    return
                 case "accepted":
-                    if value.get("value"):
-                        self._handle_accepted(value)
+                    self._handle_accepted(value)
+                    return
                 case "selected":
                     if not self._updating_selection:
                         self._handle_selected(value)
+                    return
                 case "clear_gallery":
                     self._handle_clear_gallery(value)
+                    return
                 case _:
                     pass
         return super().after_value_set(parameter, value)
 
     # ── State handlers ────────────────────────────────────────────────────────
 
+    def _handle_requesting_upload_url(self, snapshot: dict) -> None:
+        seq = snapshot.get("_emitSeq", 0)
+        server_url = GriptapeNodes.StaticFilesManager().static_server_base_url
+        rel_path = self._temp_rel_path(seq)
+        upload_ready = {
+            "state": "upload_ready",
+            "_uploadUrl": f"{server_url}/static-uploads/{rel_path}",
+            "_emitSeq": seq,
+        }
+        self.set_parameter_value("snapshot", upload_ready)
+
     def _handle_accepted(self, snapshot: dict) -> None:
+        seq = snapshot.get("_emitSeq", 0)
+        # after_value_set can fire more than once for the same value; ignore repeats.
+        if seq in self._accepted_seqs:
+            return
+        self._accepted_seqs.add(seq)
+
+        workspace = GriptapeNodes.ConfigManager().workspace_path
+        temp_path = workspace / self._temp_rel_path(seq)
+        items = self._get_items()
         try:
-            artifact = self._save_snapshot(snapshot)
-            url = self._resolve_url(artifact.value)
-            items = self._get_items()
-            items.append({"url": url, "_path": artifact.value})
-            self._commit_items(items)
-            selected_index = len(items) - 1
-            self.parameter_output_values["image"] = artifact
-            self.parameter_output_values["images"] = self._all_artifacts(items)
-            self.publish_update_to_parameter("image", artifact)
-            self.publish_update_to_parameter("images", self.parameter_output_values["images"])
+            if not temp_path.exists():
+                # The HTTP PUT failed on the JS side; drop this capture silently.
+                logger.warning("webcam: temp upload not found for seq %d; dropping capture", seq)
+            else:
+                image_bytes = temp_path.read_bytes()
+                temp_path.unlink(missing_ok=True)
+                saved = self._output_file.build_file().write_bytes(image_bytes)
+                artifact = ImageUrlArtifact(saved.location)
+                url = self._resolve_url(artifact.value)
+                items.append({"url": url, "_path": artifact.value})
+                self._commit_items(items)
+                self.parameter_output_values["image"] = artifact
+                self.parameter_output_values["images"] = self._all_artifacts(items)
+                self.publish_update_to_parameter("image", artifact)
+                self.publish_update_to_parameter("images", self.parameter_output_values["images"])
         except Exception:
             with suppress(Exception):
                 logger.warning("Failed to save webcam snapshot; dropping capture", exc_info=True)
-            items = self._get_items()
-            selected_index = len(items) - 1 if items else -1
 
+        # Always echo "processed" back so the JS clears the pending thumbnail,
+        # whether the save succeeded or failed.
         processed = {
             "state": "processed",
             "gallery_items": list(items),
-            "selected_index": selected_index,
+            "selected_index": len(items) - 1 if items else -1,
             "gallery_count": len(items),
-            "_emitSeq": snapshot.get("_emitSeq", 0),
+            "_emitSeq": seq,
         }
         self.set_parameter_value("snapshot", processed)
         self.publish_update_to_parameter("snapshot", processed)
@@ -169,6 +204,7 @@ class Webcam(DataNode):
             self._updating_selection = False
 
     def _handle_clear_gallery(self, snapshot: dict) -> None:
+        self._accepted_seqs.clear()
         self._commit_items([])
 
         self.parameter_output_values["image"] = None
@@ -190,15 +226,6 @@ class Webcam(DataNode):
 
     def _all_artifacts(self, items: list) -> list[ImageUrlArtifact]:
         return [ImageUrlArtifact(item["_path"]) for item in items if item.get("_path")]
-
-    def _save_snapshot(self, snapshot: dict) -> ImageUrlArtifact:
-        raw = snapshot["value"]
-        if "base64," in raw:
-            raw = raw.split("base64,")[1]
-        image_bytes = base64.b64decode(raw)
-        dest = self._output_file.build_file()
-        saved = dest.write_bytes(image_bytes)
-        return ImageUrlArtifact(saved.location)
 
     def _resolve_url(self, path: str) -> str:
         if path.startswith(("http://", "https://")):
