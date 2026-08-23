@@ -143,35 +143,40 @@ class Webcam(DataNode):
 
     def _handle_accepted(self, snapshot: dict) -> None:
         seq = snapshot.get("_emitSeq", 0)
-        # after_value_set can fire more than once for the same value; ignore repeats.
-        if seq in self._accepted_seqs:
-            return
-        self._accepted_seqs.add(seq)
+        # after_value_set can fire more than once for the same value; skip
+        # re-processing the file, but always echo "processed" even on duplicates.
+        # Echoing on duplicates prevents a permanent deadlock: stale _accepted_seqs
+        # entries from a prior session (across a page reload) would otherwise block
+        # the JS pending thumbnail from clearing and wedge the capture queue forever.
+        is_duplicate = seq in self._accepted_seqs
+        if not is_duplicate:
+            self._accepted_seqs.add(seq)
 
         workspace = GriptapeNodes.ConfigManager().workspace_path
         temp_path = workspace / self._temp_rel_path(seq)
         items = self._get_items()
-        try:
-            if not temp_path.exists():
-                # The HTTP PUT failed on the JS side; drop this capture silently.
-                logger.warning("webcam [%s]: temp upload not found for seq %d; dropping capture", self.name, seq)
-            else:
-                image_bytes = temp_path.read_bytes()
-                temp_path.unlink(missing_ok=True)
-                saved = self._output_file.build_file().write_bytes(image_bytes)
-                artifact = ImageUrlArtifact(saved.location)
-                url = self._resolve_url(artifact.value)
-                items.append({"url": url, "_path": artifact.value})
-                self._commit_items(items)
-                self.parameter_output_values["image"] = artifact
-                self.parameter_output_values["images"] = self._all_artifacts(items)
-                self.publish_update_to_parameter("image", artifact)
-                self.publish_update_to_parameter("images", self.parameter_output_values["images"])
-        except Exception:
-            logger.warning("webcam [%s]: failed to save snapshot; dropping capture", self.name, exc_info=True)
+        if not is_duplicate:
+            try:
+                if not temp_path.exists():
+                    # The HTTP PUT failed on the JS side; drop this capture silently.
+                    logger.warning("webcam [%s]: temp upload not found for seq %d; dropping capture", self.name, seq)
+                else:
+                    image_bytes = temp_path.read_bytes()
+                    temp_path.unlink(missing_ok=True)
+                    saved = self._output_file.build_file().write_bytes(image_bytes)
+                    artifact = ImageUrlArtifact(saved.location)
+                    url = self._resolve_url(artifact.value)
+                    items.append({"url": url, "_path": artifact.value})
+                    self._commit_items(items)
+                    self.parameter_output_values["image"] = artifact
+                    self.parameter_output_values["images"] = self._all_artifacts(items)
+                    self.publish_update_to_parameter("image", artifact)
+                    self.publish_update_to_parameter("images", self.parameter_output_values["images"])
+            except Exception:
+                logger.warning("webcam [%s]: failed to save snapshot; dropping capture", self.name, exc_info=True)
 
-        # Always echo "processed" back so the JS clears the pending thumbnail,
-        # whether the save succeeded or failed.
+        # Always echo "processed" so the JS clears the pending thumbnail,
+        # whether the save succeeded, failed, or was a duplicate.
         processed = {
             "state": "processed",
             "gallery_items": list(items),

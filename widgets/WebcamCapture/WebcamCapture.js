@@ -48,7 +48,8 @@ export default function WebcamCapture(container, props) {
   // in-flight requests would race on upload_ready delivery.
   const captureQueue = [];
   let _processing = false;
-  let _pendingBlob = null;  // blob for the capture currently in-flight
+  let _pendingBlob = null;    // blob for the capture currently in-flight
+  let _lastProcessedSeq = -1; // dedupes double delivery of "processed" messages
 
   let stream = null;
   let currentVideoId = "";
@@ -319,6 +320,11 @@ export default function WebcamCapture(container, props) {
     }
 
     if (v.state === "processed") {
+      // Guard against double delivery: Python echoes "processed" on duplicate seqs
+      // (to prevent cross-reload deadlocks) and set_parameter_value +
+      // publish_update_to_parameter can both trigger handleUpdate for the same event.
+      if (v._emitSeq === _lastProcessedSeq) return;
+      _lastProcessedSeq = v._emitSeq;
       pendingThumbs = pendingThumbs.slice(1);
       galleryItems  = v.gallery_items  ?? galleryItems;
       selectedIndex = v.selected_index ?? (galleryItems.length - 1);
@@ -332,6 +338,7 @@ export default function WebcamCapture(container, props) {
       captureQueue.length = 0;
       _processing = false;
       _pendingBlob = null;
+      _lastProcessedSeq = -1;
       galleryItems  = [];
       selectedIndex = -1;
       pendingThumbs = [];
