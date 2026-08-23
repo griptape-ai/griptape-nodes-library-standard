@@ -135,7 +135,9 @@ class Webcam(DataNode):
             self.set_parameter_value("snapshot", upload_ready)
             self.publish_update_to_parameter("snapshot", upload_ready)
         except Exception:
-            logger.warning("webcam [%s]: failed to build upload URL for seq %d; dropping capture", self.name, seq, exc_info=True)
+            logger.warning(
+                "webcam [%s]: failed to build upload URL for seq %d; dropping capture", self.name, seq, exc_info=True
+            )
             # Echo "processed" with no new item so the JS pending thumbnail clears
             # and the capture queue can continue draining.
             items = self._get_items()
@@ -176,7 +178,9 @@ class Webcam(DataNode):
                 self.publish_update_to_parameter("image", artifact)
                 self.publish_update_to_parameter("images", self.parameter_output_values["images"])
         except Exception:
-            logger.warning("webcam [%s]: failed to save snapshot for seq %d; dropping capture", self.name, seq, exc_info=True)
+            logger.warning(
+                "webcam [%s]: failed to save snapshot for seq %d; dropping capture", self.name, seq, exc_info=True
+            )
 
         # Always echo "processed" so the JS clears the pending thumbnail,
         # whether the save succeeded, failed, or was a duplicate call.
