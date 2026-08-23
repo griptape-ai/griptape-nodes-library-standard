@@ -306,8 +306,15 @@ export default function WebcamCapture(container, props) {
     onChange = newProps.onChange;
     const v = newProps.value ?? {};
 
-    if (v.state === "upload_ready" && v._uploadUrl && _pendingBlob) {
-      _doUpload(v._uploadUrl, v._emitSeq);
+    if (v.state === "upload_ready" && v._uploadUrl) {
+      if (_pendingBlob) {
+        _doUpload(v._uploadUrl, v._emitSeq);
+      } else {
+        // No blob to upload (e.g., cleared while awaiting URL); abandon this
+        // slot so the queue doesn't deadlock if _processing was somehow still true.
+        _processing = false;
+        _processNext();
+      }
       return;
     }
 

@@ -128,6 +128,10 @@ class Webcam(DataNode):
 
     def _handle_requesting_upload_url(self, snapshot: dict) -> None:
         seq = snapshot.get("_emitSeq", 0)
+        # seq=1 means the widget just (re)mounted; clear stale dedup entries
+        # from any prior session so they don't block new captures.
+        if seq == 1:
+            self._accepted_seqs.clear()
         server_url = GriptapeNodes.StaticFilesManager().static_server_base_url
         rel_path = self._temp_rel_path(seq)
         upload_ready = {
@@ -191,7 +195,10 @@ class Webcam(DataNode):
             self.publish_update_to_parameter("images", self.parameter_output_values["images"])
 
             new_stored = {
-                "state": "processed",
+                # Use "selection_confirmed", NOT "processed" — the JS "processed"
+                # handler removes a pending thumb and resets _processing, which
+                # would corrupt capture state if a capture is in-flight.
+                "state": "selection_confirmed",
                 "gallery_items": list(items),
                 "selected_index": selected_index,
                 "gallery_count": len(items),
