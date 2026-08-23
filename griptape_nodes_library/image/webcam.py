@@ -33,7 +33,6 @@ class Webcam(DataNode):
         self._updating_selection = False
         self._items: list | None = None
         self._safe_name: str = ""
-        self._accepted_seqs: set[int] = set()  # guard against duplicate after_value_set calls
 
         self.add_parameter(
             ParameterDict(
@@ -128,55 +127,61 @@ class Webcam(DataNode):
 
     def _handle_requesting_upload_url(self, snapshot: dict) -> None:
         seq = snapshot.get("_emitSeq", 0)
-        # seq=1 means the widget just (re)mounted; clear stale dedup entries
-        # from any prior session so they don't block new captures.
-        if seq == 1:
-            self._accepted_seqs.clear()
-        server_url = GriptapeNodes.StaticFilesManager().static_server_base_url
-        rel_path = self._temp_rel_path(seq)
-        upload_ready = {
-            "state": "upload_ready",
-            "_uploadUrl": f"{server_url}/static-uploads/{rel_path}",
-            "_emitSeq": seq,
-        }
-        self.set_parameter_value("snapshot", upload_ready)
+        try:
+            server_url = GriptapeNodes.StaticFilesManager().static_server_base_url
+            rel_path = self._temp_rel_path(seq)
+            upload_ready = {
+                "state": "upload_ready",
+                "_uploadUrl": f"{server_url}/static-uploads/{rel_path}",
+                "_emitSeq": seq,
+            }
+            self.set_parameter_value("snapshot", upload_ready)
+        except Exception:
+            logger.warning("webcam [%s]: failed to build upload URL for seq %d; dropping capture", self.name, seq, exc_info=True)
+            # Echo "processed" with no new item so the JS pending thumbnail clears
+            # and the capture queue can continue draining.
+            items = self._get_items()
+            failed = {
+                "state": "processed",
+                "gallery_items": list(items),
+                "selected_index": len(items) - 1 if items else -1,
+                "gallery_count": len(items),
+                "_emitSeq": seq,
+            }
+            self.set_parameter_value("snapshot", failed)
+            self.publish_update_to_parameter("snapshot", failed)
 
     def _handle_accepted(self, snapshot: dict) -> None:
         seq = snapshot.get("_emitSeq", 0)
-        # after_value_set can fire more than once for the same value; skip
-        # re-processing the file, but always echo "processed" even on duplicates.
-        # Echoing on duplicates prevents a permanent deadlock: stale _accepted_seqs
-        # entries from a prior session (across a page reload) would otherwise block
-        # the JS pending thumbnail from clearing and wedge the capture queue forever.
-        is_duplicate = seq in self._accepted_seqs
-        if not is_duplicate:
-            self._accepted_seqs.add(seq)
-
         workspace = GriptapeNodes.ConfigManager().workspace_path
         temp_path = workspace / self._temp_rel_path(seq)
         items = self._get_items()
-        if not is_duplicate:
-            try:
-                if not temp_path.exists():
-                    # The HTTP PUT failed on the JS side; drop this capture silently.
-                    logger.warning("webcam [%s]: temp upload not found for seq %d; dropping capture", self.name, seq)
-                else:
-                    image_bytes = temp_path.read_bytes()
-                    temp_path.unlink(missing_ok=True)
-                    saved = self._output_file.build_file().write_bytes(image_bytes)
-                    artifact = ImageUrlArtifact(saved.location)
-                    url = self._resolve_url(artifact.value)
-                    items.append({"url": url, "_path": artifact.value})
-                    self._commit_items(items)
-                    self.parameter_output_values["image"] = artifact
-                    self.parameter_output_values["images"] = self._all_artifacts(items)
-                    self.publish_update_to_parameter("image", artifact)
-                    self.publish_update_to_parameter("images", self.parameter_output_values["images"])
-            except Exception:
-                logger.warning("webcam [%s]: failed to save snapshot; dropping capture", self.name, exc_info=True)
+        try:
+            if not temp_path.exists():
+                # Temp file missing means either the PUT failed (upload error) or
+                # this is a duplicate after_value_set call (file already consumed).
+                # Either way there's nothing to save — echo "processed" to let JS
+                # clear the pending thumbnail and drain the queue.
+                pass
+            else:
+                # Read and immediately delete so any duplicate call finds the file
+                # gone and skips processing — idempotency without cross-session state.
+                image_bytes = temp_path.read_bytes()
+                temp_path.unlink(missing_ok=True)
+                saved = self._output_file.build_file().write_bytes(image_bytes)
+                artifact = ImageUrlArtifact(saved.location)
+                url = self._resolve_url(artifact.value)
+                items.append({"url": url, "_path": artifact.value})
+                self._commit_items(items)
+                self.parameter_output_values["image"] = artifact
+                self.parameter_output_values["images"] = self._all_artifacts(items)
+                self.publish_update_to_parameter("image", artifact)
+                self.publish_update_to_parameter("images", self.parameter_output_values["images"])
+        except Exception:
+            logger.warning("webcam [%s]: failed to save snapshot for seq %d; dropping capture", self.name, seq, exc_info=True)
 
         # Always echo "processed" so the JS clears the pending thumbnail,
-        # whether the save succeeded, failed, or was a duplicate.
+        # whether the save succeeded, failed, or was a duplicate call.
         processed = {
             "state": "processed",
             "gallery_items": list(items),
@@ -214,7 +219,6 @@ class Webcam(DataNode):
             self._updating_selection = False
 
     def _handle_clear_gallery(self, snapshot: dict) -> None:
-        self._accepted_seqs.clear()
         self._commit_items([])
 
         self.parameter_output_values["image"] = None
