@@ -32,7 +32,6 @@ class Webcam(DataNode):
 
         self._updating_selection = False
         self._items: list | None = None
-        self._safe_name: str = ""
 
         self.add_parameter(
             ParameterDict(
@@ -94,9 +93,7 @@ class Webcam(DataNode):
         self.set_parameter_value("gallery_store", list(items))
 
     def _safe_node_name(self) -> str:
-        if not self._safe_name:
-            self._safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", self.name)
-        return self._safe_name
+        return re.sub(r"[^a-zA-Z0-9_-]", "_", self.name)
 
     def _temp_rel_path(self, seq: int) -> str:
         return f"temp/_wc_{self._safe_node_name()}_{seq}.jpg"
@@ -136,6 +133,7 @@ class Webcam(DataNode):
                 "_emitSeq": seq,
             }
             self.set_parameter_value("snapshot", upload_ready)
+            self.publish_update_to_parameter("snapshot", upload_ready)
         except Exception:
             logger.warning("webcam [%s]: failed to build upload URL for seq %d; dropping capture", self.name, seq, exc_info=True)
             # Echo "processed" with no new item so the JS pending thumbnail clears
@@ -215,6 +213,10 @@ class Webcam(DataNode):
                 "_emitSeq": snapshot.get("_emitSeq", 0),
             }
             self.set_parameter_value("snapshot", new_stored)
+            # publish_update_to_parameter intentionally omitted: JS handles selection
+            # locally and deliberately ignores "selection_confirmed" in handleUpdate,
+            # so broadcasting would be a no-op. Calling it could also race with an
+            # in-flight capture that is listening for "processed".
         finally:
             self._updating_selection = False
 

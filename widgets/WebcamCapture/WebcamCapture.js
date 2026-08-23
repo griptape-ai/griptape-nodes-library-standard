@@ -50,6 +50,7 @@ export default function WebcamCapture(container, props) {
   let _processing = false;
   let _pendingBlob = null;    // blob for the capture currently in-flight
   let _lastProcessedSeq = -1; // dedupes double delivery of "processed" messages
+  let _generation = 0;        // incremented on clear; guards in-flight uploads from writing back after a clear
 
   let stream = null;
   let currentVideoId = "";
@@ -279,15 +280,19 @@ export default function WebcamCapture(container, props) {
     onChange?.({ state: "requesting_upload_url", _emitSeq });
   }
 
-  function _doUpload(uploadUrl, seq) {
+  function _doUpload(uploadUrl, seq, gen) {
     const blob = _pendingBlob;
     _pendingBlob = null;
     fetch(uploadUrl, { method: "PUT", body: blob })
       .then((r) => { if (!r.ok) throw new Error(r.statusText); })
-      .then(() => { onChange?.({ state: "accepted", _emitSeq: seq }); })
-      .catch(() => {
-        // On PUT failure, still send accepted so Python echoes "processed"
-        // and the pending thumbnail clears rather than staying stuck forever.
+      .then(() => {
+        if (_generation !== gen) return; // gallery cleared while upload was in-flight
+        onChange?.({ state: "accepted", _emitSeq: seq });
+      })
+      .catch((err) => {
+        console.error("WebcamCapture: upload failed, capture dropped:", err);
+        if (_generation !== gen) return;
+        // Send accepted so Python echoes "processed" and the pending thumb clears.
         onChange?.({ state: "accepted", _emitSeq: seq });
       });
   }
@@ -297,6 +302,7 @@ export default function WebcamCapture(container, props) {
     _processing = false;
     _pendingBlob = null;
     pendingThumbs = [];
+    _generation++;  // invalidate any in-flight upload so it won't write back after clear
     _emitSeq++;
     onChange?.({ state: "clear_gallery", _emitSeq });
   }
@@ -309,7 +315,7 @@ export default function WebcamCapture(container, props) {
 
     if (v.state === "upload_ready" && v._uploadUrl) {
       if (_pendingBlob) {
-        _doUpload(v._uploadUrl, v._emitSeq);
+        _doUpload(v._uploadUrl, v._emitSeq, _generation);
       } else {
         // No blob to upload (e.g., cleared while awaiting URL); abandon this
         // slot so the queue doesn't deadlock if _processing was somehow still true.
@@ -339,6 +345,7 @@ export default function WebcamCapture(container, props) {
       _processing = false;
       _pendingBlob = null;
       _lastProcessedSeq = -1;
+      _generation++;
       galleryItems  = [];
       selectedIndex = -1;
       pendingThumbs = [];
