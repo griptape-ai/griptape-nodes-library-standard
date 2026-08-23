@@ -263,7 +263,7 @@ export default function WebcamCapture(container, props) {
     const dataUrl = canvas.toDataURL("image/jpeg", 0.75);
     const blob    = dataUrlToBlob(dataUrl);  // base64→binary in memory, no re-encode
 
-    captureQueue.push({ dataUrl, blob });
+    captureQueue.push(blob);
     pendingThumbs = [...pendingThumbs, dataUrl];
     renderThumbs();
     _processNext();
@@ -272,7 +272,7 @@ export default function WebcamCapture(container, props) {
   function _processNext() {
     if (_processing || captureQueue.length === 0) return;
     _processing = true;
-    const { blob } = captureQueue.shift();
+    const blob = captureQueue.shift();
     _pendingBlob = blob;
     _emitSeq++;
     onChange?.({ state: "requesting_upload_url", _emitSeq });

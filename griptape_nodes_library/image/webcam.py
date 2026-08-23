@@ -1,6 +1,5 @@
 import logging
 import re
-from contextlib import suppress
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
@@ -165,8 +164,7 @@ class Webcam(DataNode):
                 self.publish_update_to_parameter("image", artifact)
                 self.publish_update_to_parameter("images", self.parameter_output_values["images"])
         except Exception:
-            with suppress(Exception):
-                logger.warning("Failed to save webcam snapshot; dropping capture", exc_info=True)
+            logger.warning("Failed to save webcam snapshot; dropping capture", exc_info=True)
 
         # Always echo "processed" back so the JS clears the pending thumbnail,
         # whether the save succeeded or failed.
