@@ -1045,9 +1045,15 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             # _handle_failure_exception, which re-raises whenever the Failed output has no
             # outgoing connection. That is the common case, and it is exactly when the user
             # most needs a recoverable ID — the generation succeeded and was billed, only
-            # our parsing of it failed. Announcing the state first makes it survive the
-            # raise; the status stays short of COMPLETED so recovery is still offered.
-            self._publish_generation_state(generation_id=generation_id, status=STATUS_ERRORED)
+            # our parsing of it failed. Announcing it first makes it survive the raise.
+            #
+            # Only the ID is published, deliberately. `generation_status` mirrors the cloud's
+            # own vocabulary, in which ERRORED means "an internal failure; nothing is
+            # billed" — the opposite of what happened here. Leaving the last cloud-reported
+            # status in place keeps the badge honest and, being short of COMPLETED, keeps
+            # recovery on offer. The parse failure itself is reported through
+            # `result_details` by the handler below.
+            self._publish_generation_state(generation_id=generation_id)
             self._handle_result_parsing_error(e)
             return
 
@@ -1178,6 +1184,11 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
     def _extract_generation_model_id(self, status_json: dict[str, Any]) -> str:
         """Pull the model ID out of a generation status response, if it reports one.
+
+        ``model_id`` is the field the proxy spec defines (and marks required) for a
+        generation's model. The other keys are accepted because this library also runs
+        against cloud deployments predating that spec, which is also why the caller treats
+        an absent model as "cannot tell" rather than as a mismatch.
 
         Args:
             status_json: The JSON response from the generation status endpoint.

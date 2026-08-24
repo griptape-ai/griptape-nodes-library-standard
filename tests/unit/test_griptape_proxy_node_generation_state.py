@@ -21,6 +21,7 @@ from griptape_nodes_library.proxy import griptape_proxy_node as proxy_module
 from griptape_nodes_library.proxy.griptape_proxy_node import (
     MAX_TIMEOUT_SECONDS,
     STATUS_COMPLETED,
+    STATUS_ERRORED,
     STATUS_QUEUED,
     STATUS_RUNNING,
     STATUS_TIMED_OUT,
@@ -266,6 +267,9 @@ async def test_parse_failure_publishes_id_before_the_failure_can_raise(monkeypat
     assert "gen-unparseable" in published.ids()
     # Short of COMPLETED, so the editor keeps offering recovery.
     assert STATUS_COMPLETED not in published.statuses()
+    # And not relabelled ERRORED: in the cloud's vocabulary that means "internal failure,
+    # nothing is billed", which is the opposite of a generation that ran and was charged.
+    assert STATUS_ERRORED not in published.statuses()
 
 
 # --- TASK 2: adopt an existing generation ID -------------------------------------------
@@ -329,6 +333,22 @@ def test_refresh_fails_open_when_the_response_names_no_model(monkeypatch: pytest
     node._get_api_model_id = lambda: "flux-2"  # type: ignore[method-assign]
 
     assert node._refresh_model_mismatch({"status": STATUS_COMPLETED}) is None
+
+
+def test_status_constants_match_the_proxy_spec_vocabulary() -> None:
+    """`generation_status` is reconciled against the cloud, so the values must be its own.
+
+    These six are `ProxyGenerationStatus` in the proxy Smithy spec. TIMED_OUT is
+    deliberately not among them: it is this library's local "we stopped watching" marker,
+    which the editor renders as a neutral badge.
+    """
+    assert (STATUS_QUEUED, STATUS_RUNNING, STATUS_COMPLETED) == ("QUEUED", "RUNNING", "COMPLETED")
+    assert (proxy_module.STATUS_FAILED, STATUS_ERRORED, proxy_module.STATUS_CANCELLED) == (
+        "FAILED",
+        "ERRORED",
+        "CANCELLED",
+    )
+    assert STATUS_TIMED_OUT == "TIMED_OUT"
 
 
 # --- TASK 3: bounded polling ------------------------------------------------------------
