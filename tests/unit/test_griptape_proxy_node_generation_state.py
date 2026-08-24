@@ -464,9 +464,11 @@ async def test_submitting_retires_a_previously_pasted_id(monkeypatch: pytest.Mon
 def test_refresh_accepts_another_variant_of_the_same_node_family(monkeypatch: pytest.MonkeyPatch) -> None:
     """The guard must key off the node class, not the dropdown's current position.
 
-    Every model in a node's own `MODEL_MAPPING` shares one `_parse_result`, so refusing
-    `flux-2-flex` because the dropdown currently says `flux-2-pro` would block recovery with
-    no other node type to send the user to.
+    Every model the node offers shares one `_parse_result`, so refusing `flux-2-flex` because
+    the dropdown currently says `flux-2-pro` would block recovery with no other node type to
+    send the user to. The candidate set comes from the model-access component's
+    `model_choices`, which stores provider model ids and is the node's own list of what it
+    can run.
     """
     node = _make_node(monkeypatch)
     node._get_api_model_id = lambda: "flux-2-pro"  # type: ignore[method-assign]

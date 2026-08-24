@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 import re
-import sys
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -45,11 +44,6 @@ STATUS_TIMED_OUT = "TIMED_OUT"
 # `generation_status` is reconciled against the cloud, so it only ever carries a status the
 # cloud actually reported (plus our own TIMED_OUT marker).
 STATUS_UNKNOWN = "unknown"
-
-# Module-level dicts, keyed by display name and valued by API model id, that subclasses use
-# to back their `model` dropdown. Read reflectively by `_supported_model_ids` so every
-# subclass gets variant-aware adoption without being modified. See that method.
-MODEL_MAPPING_NAMES = ("MODEL_MAPPING", "MODEL_NAME_MAP")
 
 # Number of HTTP client errors (4xx) that indicate a permanent failure not worth retrying.
 HTTP_CLIENT_ERROR_MIN = 400
@@ -1323,24 +1317,21 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         have moved — and there is no other node type to send the user to, on the one route by
         which a raw-bytes result can reach them at all.
 
-        Subclasses back their ``model`` dropdown with a module-level
-        ``{display name: api id}`` dict, so the defining module is searched for one of
-        :data:`MODEL_MAPPING_NAMES` to recover the whole family. Reading it reflectively is
-        deliberate: it gives all 46 subclasses variant-aware adoption without modifying any
-        of them. Override to state the set explicitly.
+        The model-access component's ``model_choices`` is the node's own list of offered
+        models and stores provider model ids directly, so it is exactly the right set and is
+        already the single source of truth for what a node can run. Nodes bound to a single
+        model have no component and fall back to their current ids.
 
         Returns:
-            set[str]: Un-normalized candidate model ids. Always includes this node's current
-                API and catalog ids, so a module with no recognised mapping simply keeps the
-                previous single-model behaviour.
+            set[str]: Un-normalized candidate model ids, always including this node's current
+                API and catalog ids.
         """
         candidates = {self._get_api_model_id(), self._get_catalog_model_id()}
-        with suppress(Exception):
-            module = sys.modules.get(type(self).__module__)
-            for mapping_name in MODEL_MAPPING_NAMES:
-                mapping = getattr(module, mapping_name, None)
-                if isinstance(mapping, dict):
-                    candidates.update(value for value in mapping.values() if isinstance(value, str) and value)
+        if self._model_access is not None:
+            with suppress(Exception):
+                candidates.update(
+                    choice for choice in self._model_access.model_choices if isinstance(choice, str) and choice
+                )
         candidates.discard("")
         return candidates
 
