@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 from griptape_nodes.exe_types.core_types import ParameterMode
+from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
 from griptape_nodes_library.image.flux_2_image_generation import Flux2ImageGeneration
 from griptape_nodes_library.proxy import griptape_proxy_node as proxy_module
@@ -281,6 +282,8 @@ def test_generation_id_parameter_is_settable_and_visible_for_adoption() -> None:
     status_group = node.status_component.get_parameter_group()
     generation_id = next(child for child in status_group.children if child.name == "generation_id")
 
+    # `children` is typed as BaseNodeElement; narrow before reading parameter attributes.
+    assert isinstance(generation_id, ParameterString)
     assert ParameterMode.PROPERTY in generation_id.get_mode()
     # Still reported as an output by the node that submitted it.
     assert ParameterMode.OUTPUT in generation_id.get_mode()
