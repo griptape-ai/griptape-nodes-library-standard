@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+import sys
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -40,6 +41,15 @@ STATUS_ERRORED = "ERRORED"
 STATUS_FAILED = "FAILED"
 STATUS_COMPLETED = "COMPLETED"
 STATUS_TIMED_OUT = "TIMED_OUT"
+# Local placeholder for a status response that names no status at all. Never published:
+# `generation_status` is reconciled against the cloud, so it only ever carries a status the
+# cloud actually reported (plus our own TIMED_OUT marker).
+STATUS_UNKNOWN = "unknown"
+
+# Module-level dicts, keyed by display name and valued by API model id, that subclasses use
+# to back their `model` dropdown. Read reflectively by `_supported_model_ids` so every
+# subclass gets variant-aware adoption without being modified. See that method.
+MODEL_MAPPING_NAMES = ("MODEL_MAPPING", "MODEL_NAME_MAP")
 
 # Number of HTTP client errors (4xx) that indicate a permanent failure not worth retrying.
 HTTP_CLIENT_ERROR_MIN = 400
@@ -53,9 +63,13 @@ HTTP_BAD_REQUEST = 400
 CANCEL_REQUEST_TIMEOUT_SECONDS = 10
 # Upper bound on polling, and the meaning of `timeout=0`. This is also the `timeout`
 # parameter's max_val, so 0 means "the longest this node is allowed to wait" rather than
-# literally forever: an unbounded poll is what held an org's only concurrency slot for
-# ~58 minutes while further generations queued behind it, and a node that polls forever
-# can never hand its slot back.
+# literally forever, which guarantees the poll loop always terminates and always reaches
+# the code that reports a recoverable generation ID.
+#
+# Note what this does and does not buy: at 24 hours, a user who sets `timeout=0` still
+# holds a concurrency slot far longer than any org would want. Bounding the loop does not
+# make slot-holding safe — it makes it recoverable, because the loop now always reaches
+# the timeout path that leaves a published generation ID behind.
 MAX_TIMEOUT_SECONDS = 86400
 
 
@@ -68,6 +82,15 @@ class CancelOutcome(StrEnum):
     ALREADY_STARTED = "already_started"
     # The cancel request never got an answer; the generation's fate is unknown.
     UNKNOWN = "unknown"
+
+
+def _loop_time() -> float:
+    """Monotonic event-loop time.
+
+    Wrapped in a module-level function so tests can substitute a controllable clock without
+    monkeypatching the stdlib `asyncio` module globally.
+    """
+    return asyncio.get_running_loop().time()
 
 
 class GriptapeProxyNode(SuccessFailureNode, ABC):
@@ -494,52 +517,83 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             error_message = self._extract_error_message(error_json)
             return f"{self.name}: {error_message}"
 
+    @staticmethod
+    def _reported_status(status_json: dict[str, Any]) -> str | None:
+        """The status the cloud actually reported, or None if it named none.
+
+        Distinguishing "no status" from a status matters because ``generation_status`` is
+        reconciled against the cloud: publishing our own :data:`STATUS_UNKNOWN` sentinel
+        would replace a good RUNNING badge with a neutral one on a single malformed response.
+        Callers use the return value directly when publishing and fall back to the sentinel
+        only for logging and local branching.
+        """
+        status = status_json.get("status")
+        if isinstance(status, str) and status:
+            return status
+        return None
+
+    def _publish_one(self, name: str, value: str) -> None:
+        """Record one generation output value and push it to the editor immediately.
+
+        Both channels matter and they are not the same. ``parameter_output_values`` is what
+        downstream nodes read and what the editor displays; assigning to it also emits an
+        ``AlterElementEvent`` for the displayed value. ``publish_update_to_parameter`` emits
+        a ``ParameterValueUpdateEvent``, which is the channel the editor's generation tray
+        registers on. A value that must reach the tray has to go through both, which is why
+        every write in this class goes through here.
+
+        The output write comes first and is unconditional: publishing is telemetry, and a
+        failure to notify the editor must never be the reason a paid generation fails.
+        """
+        self.parameter_output_values[name] = value
+        if self.get_parameter_by_name(name) is None:
+            return
+        with suppress(Exception):
+            self.publish_update_to_parameter(name, value)
+
     def _publish_generation_state(self, *, generation_id: str | None = None, status: str | None = None) -> None:
-        """Write generation identity/status to the node's outputs and push them to the UI now.
+        """Record generation identity/status and push them to the editor now.
 
-        ``parameter_output_values`` is only flushed to the editor when the node resolves.
-        A node that polls for an hour and then never resolves — because the session died —
-        therefore never tells anyone which generation it started, which is precisely how a
-        batch of paid generations became unreachable. Publishing emits a
-        ``ParameterValueUpdateEvent`` per call, which the editor registers on arrival and
-        reconciles against the cloud, so the ID survives the session that created it.
+        ``parameter_output_values`` is only flushed to downstream nodes when the node
+        resolves, and the tray's channel is not written at all. A node that polls for an
+        hour and then never resolves — because the session died — therefore never tells
+        anyone which generation it started, which is precisely how a batch of paid
+        generations became unreachable. Publishing on arrival is what makes the ID survive
+        the session that created it.
 
-        ``COMPLETED`` is deliberately never published from here. The editor reads a
-        published ``COMPLETED`` as "the node has the result, stop offering recovery", so
-        announcing it before the result is actually on the node would hide the recovery
-        affordance for a result the node does not yet hold. Use
-        :meth:`_publish_generation_completed`, which runs only after ``_parse_result``.
+        ``COMPLETED`` is dropped entirely here, on both channels. The editor reads
+        ``COMPLETED`` as "the node has the result, stop offering recovery", so announcing it
+        before the result is on the node would hide the recovery affordance for a result the
+        node does not yet hold. Nothing needs the intermediate value — leaving
+        ``generation_status`` at the last non-terminal status until ``_parse_result``
+        succeeds is also the more honest badge. Use :meth:`_publish_generation_completed`.
 
         Args:
             generation_id: The generation ID to record, or None to leave it unchanged.
             status: The status to record, or None to leave it unchanged.
         """
-        for name, value in (("generation_id", generation_id), ("generation_status", status)):
-            if value is None:
-                continue
-            # Keep the node's own output correct first and unconditionally. Publishing is
-            # telemetry, and a failure to notify the UI must never be the reason a paid
-            # generation fails, so nothing below is allowed to raise.
-            self.parameter_output_values[name] = value
-            if name == "generation_status" and value == STATUS_COMPLETED:
-                continue
-            if self.get_parameter_by_name(name) is None:
-                continue
-            with suppress(Exception):
-                self.publish_update_to_parameter(name, value)
+        if generation_id is not None:
+            self._publish_one("generation_id", generation_id)
+        if status is not None and status != STATUS_COMPLETED:
+            self._publish_one("generation_status", status)
 
-    def _publish_generation_completed(self) -> None:
+    def _publish_generation_completed(self, generation_id: str | None = None) -> None:
         """Announce ``COMPLETED``, once the result is actually on the node.
 
         Ordering is load-bearing: the editor stops offering result recovery as soon as it
-        sees a published ``COMPLETED``. Call this only after ``_parse_result`` has
-        succeeded, so the affordance disappears exactly when it stops being needed.
+        sees ``COMPLETED``. Call this only after ``_parse_result`` has succeeded, so the
+        affordance disappears exactly when it stops being needed.
+
+        Args:
+            generation_id: The cloud generation ID to re-assert alongside the status.
+                ``_parse_result`` runs between the ID being published and this call, and
+                some subclasses overwrite ``generation_id`` there with a provider-side task
+                id — a value that 404s when the editor reconciles it against the cloud.
+                This parameter means the cloud generation ID, so restore it last.
         """
-        self.parameter_output_values["generation_status"] = STATUS_COMPLETED
-        if self.get_parameter_by_name("generation_status") is None:
-            return
-        with suppress(Exception):
-            self.publish_update_to_parameter("generation_status", STATUS_COMPLETED)
+        if generation_id:
+            self._publish_one("generation_id", generation_id)
+        self._publish_one("generation_status", STATUS_COMPLETED)
 
     def _handle_terminal_status(self, status: str, result_json: dict[str, Any]) -> tuple[bool, dict[str, Any] | None]:
         """Handle terminal generation statuses.
@@ -587,11 +641,12 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     def _resolve_timeout_seconds(self) -> int:
         """Resolve the polling timeout in seconds.
 
-        ``0`` is clamped to :data:`MAX_TIMEOUT_SECONDS` rather than meaning "poll forever".
-        Truly unbounded polling is how one generation held an org's only concurrency slot
-        for ~58 minutes; a node that can never stop waiting can never release its slot, and
-        with the generation ID now published the caller loses nothing by us giving up, since
-        the result stays recoverable via Refresh.
+        ``0`` is clamped to :data:`MAX_TIMEOUT_SECONDS` rather than meaning "poll forever",
+        so the loop always terminates and always reaches the code that leaves a recoverable
+        generation ID behind. A 24-hour ceiling does not by itself stop a node from holding
+        a concurrency slot for a punishing length of time; it stops the node from holding one
+        *with no way out*, and the caller loses nothing by us giving up, because the result
+        stays recoverable via Refresh.
         """
         try:
             value = self.get_parameter_value("timeout")
@@ -622,7 +677,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Returns:
             bool: True when either bound has been reached.
         """
-        return attempt >= max_attempts or asyncio.get_running_loop().time() >= deadline
+        return attempt >= max_attempts or _loop_time() >= deadline
 
     async def _request_generation_cancel(self, generation_id: str, headers: dict[str, str]) -> CancelOutcome:
         """POST the proxy's cancel endpoint for a generation.
@@ -739,7 +794,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         timeout_s = self._resolve_timeout_seconds()
         # Two independent bounds; whichever trips first ends polling. See _polling_exhausted.
         max_attempts = max(1, (timeout_s + poll_interval - 1) // poll_interval)
-        deadline = asyncio.get_running_loop().time() + timeout_s
+        deadline = _loop_time() + timeout_s
 
         attempt = 0
         try:
@@ -752,6 +807,12 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                         await self._cancel_generation_best_effort(generation_id, headers)
                         return None
 
+                    # Checked here as well as after each attempt: the post-attempt checks run
+                    # before the sleep, so without this the loop can overshoot `timeout` by a
+                    # whole request plus a whole interval (~65s) on its final pass.
+                    if attempt > 0 and self._polling_exhausted(attempt, max_attempts, deadline):
+                        break
+
                     try:
                         self._log(f"Polling attempt #{attempt + 1} for generation {generation_id}")
 
@@ -759,12 +820,18 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                         response.raise_for_status()
                         result_json = response.json()
 
-                        status = result_json.get("status", "unknown")
+                        reported_status = self._reported_status(result_json)
+                        status = reported_status or STATUS_UNKNOWN
                         self._log(f"Status: {status}")
                         # Publish every intermediate status so the editor can track this
                         # generation even if the node never resolves. COMPLETED is withheld
                         # here and announced after _parse_result — see _publish_generation_state.
-                        self._publish_generation_state(status=status)
+                        #
+                        # An absent status is not a status: `generation_status` is reconciled
+                        # against the cloud, so publishing our own "unknown" sentinel would
+                        # replace a good RUNNING badge with a neutral one on a single malformed
+                        # response. Leave the last status the cloud actually reported standing.
+                        self._publish_generation_state(status=reported_status)
 
                         is_terminal, terminal_result = self._handle_terminal_status(status, result_json)
                         if is_terminal:
@@ -848,15 +915,23 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             async with httpx.AsyncClient() as client:
                 response = await client.get(result_url, headers=headers, timeout=300)
                 response.raise_for_status()
+        # Both failure branches restore the generation ID after `_set_safe_defaults()` blanks
+        # it. This is the likeliest of all the recovery paths to actually fire — a plain
+        # network failure part-way through a large media download — and the generation is
+        # COMPLETED and billed by the time we get here, so losing the ID would strand paid
+        # work. `generation_status` is deliberately left at the last status the cloud
+        # reported rather than COMPLETED: the node does not have the result.
         except httpx.HTTPStatusError as e:
             self._log(f"HTTP error fetching result: {e.response.status_code} - {e.response.text}")
             self._set_safe_defaults()
+            self._publish_generation_state(generation_id=generation_id)
             error_msg = f"Failed to fetch generation result: HTTP {e.response.status_code}"
             self._set_status_results(was_successful=False, result_details=error_msg)
             return None
         except Exception as e:
             self._log(f"Error fetching result: {e}")
             self._set_safe_defaults()
+            self._publish_generation_state(generation_id=generation_id)
             error_msg = f"Failed to fetch generation result: {e}"
             self._set_status_results(was_successful=False, result_details=error_msg)
             return None
@@ -905,10 +980,29 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._set_status_results(was_successful=False, result_details=str(e))
         self._handle_failure_exception(e)
 
-    def _handle_result_parsing_error(self, e: Exception) -> None:
-        """Handle result parsing errors."""
+    def _handle_result_parsing_error(self, e: Exception, *, generation_id: str | None = None) -> None:
+        """Handle result parsing errors.
+
+        Args:
+            e: The exception raised by ``_parse_result``.
+            generation_id: The generation whose result failed to parse, restored *after*
+                ``_set_safe_defaults()`` has blanked it. Ordering is the whole point: every
+                subclass's ``_set_safe_defaults`` sets ``generation_id`` to ``""``, so a
+                caller that publishes the ID before calling this loses it again immediately,
+                and Refresh then reports that the node has no generation to recover. The
+                generation itself ran and was billed — only our parsing of it failed.
+
+                No status accompanies it, deliberately. ``generation_status`` mirrors the
+                cloud's vocabulary, in which ``ERRORED`` means "an internal failure; nothing
+                is billed" — the opposite of what happened here. Leaving the last
+                cloud-reported status in place keeps the badge honest and, being short of
+                ``COMPLETED``, keeps recovery on offer. The parse failure itself is reported
+                through ``result_details``.
+        """
         self._log(f"Error parsing result: {e}")
         self._set_safe_defaults()
+        if generation_id:
+            self._publish_generation_state(generation_id=generation_id)
         error_msg = f"Failed to parse generation result: {e}"
         self._set_status_results(was_successful=False, result_details=error_msg)
         self._handle_failure_exception(e)
@@ -1010,6 +1104,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # applies to this run is requested after the run starts and also cancels the
         # asyncio task, which the poll loop's CancelledError path handles.
         self.clear_cancellation()
+        self._retire_adopted_generation_id()
         self._publish_generation_state(generation_id="", status="")
 
         try:
@@ -1041,25 +1136,16 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         try:
             await self._parse_result(result_json, generation_id)
         except Exception as e:
-            # Publish before delegating: _handle_result_parsing_error ends in
-            # _handle_failure_exception, which re-raises whenever the Failed output has no
-            # outgoing connection. That is the common case, and it is exactly when the user
-            # most needs a recoverable ID — the generation succeeded and was billed, only
-            # our parsing of it failed. Announcing it first makes it survive the raise.
-            #
-            # Only the ID is published, deliberately. `generation_status` mirrors the cloud's
-            # own vocabulary, in which ERRORED means "an internal failure; nothing is
-            # billed" — the opposite of what happened here. Leaving the last cloud-reported
-            # status in place keeps the badge honest and, being short of COMPLETED, keeps
-            # recovery on offer. The parse failure itself is reported through
-            # `result_details` by the handler below.
-            self._publish_generation_state(generation_id=generation_id)
-            self._handle_result_parsing_error(e)
+            # The handler restores and publishes the ID itself, after its own
+            # `_set_safe_defaults()` call and before `_handle_failure_exception` re-raises.
+            # See `_handle_result_parsing_error` for why both orderings matter.
+            self._handle_result_parsing_error(e, generation_id=generation_id)
             return
 
-        # Only now is it true that the node has the result, which is what a published
-        # COMPLETED tells the editor.
-        self._publish_generation_completed()
+        # Only now is it true that the node has the result, which is what COMPLETED tells
+        # the editor. The ID is re-asserted here because `_parse_result` may have overwritten
+        # it — see `_publish_generation_completed`.
+        self._publish_generation_completed(generation_id)
 
     def _on_refresh_clicked(self, _button: Any, _details: Any) -> None:
         """Sync entry point for the Refresh button — bridges into the async refresh flow.
@@ -1118,14 +1204,14 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         try:
             await self._parse_result(result_json, generation_id)
         except Exception as e:
-            self._handle_result_parsing_error(e)
+            self._handle_result_parsing_error(e, generation_id=generation_id)
             self._set_status_results(
                 was_successful=False,
                 result_details=f"Generation `{generation_id}` completed, but parsing the result failed: {e}",
             )
             return
         # The result is on the node now, so COMPLETED is finally true to publish.
-        self._publish_generation_completed()
+        self._publish_generation_completed(generation_id)
         self._set_status_results(
             was_successful=True,
             result_details=f"Refreshed: generation `{generation_id}` completed and result was retrieved.",
@@ -1163,6 +1249,25 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             ),
         )
 
+    def _retire_adopted_generation_id(self) -> None:
+        """Drop a pasted generation ID when this node submits a generation of its own.
+
+        Adoption has to be one-shot. A pasted ID lands in ``parameter_values``, which nothing
+        else in this class ever writes, so without this it would outrank the node's own
+        ``generation_id`` *forever* — and `_refresh_async` would then overwrite the real ID
+        with the stale pasted one. Concretely: paste `gen-OLD` and refresh; run the node, so
+        `gen-NEW` is submitted and billed and then times out; click Refresh, and the node
+        fetches `gen-OLD` and destroys its only pointer to `gen-NEW`. That reproduces the
+        original incident through the very mechanism meant to fix it, and the stale value
+        persists into the saved workflow file.
+
+        ``parameter_values`` is popped directly rather than going through
+        ``set_parameter_value``, which would fire the value-changed machinery (and, on the
+        request path, unresolve downstream nodes) in the middle of our own execution.
+        """
+        with suppress(Exception):
+            self.parameter_values.pop("generation_id", None)
+
     def _resolve_refresh_generation_id(self) -> str:
         """Resolve which generation ID the Refresh button should act on.
 
@@ -1172,6 +1277,10 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         the node's own last generation instead of the one that was pasted. The output value
         remains the fallback for the ordinary post-timeout case, where the node submitted
         the generation itself and the property was never touched.
+
+        The precedence is safe only because ``_retire_adopted_generation_id`` clears the
+        property whenever this node submits a generation, which keeps a paste from
+        outranking the node's own work indefinitely.
 
         Returns:
             str: The generation ID to refresh, or "" if none is available.
@@ -1204,14 +1313,50 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 return value
         return ""
 
-    def _refresh_model_mismatch(self, status_json: dict[str, Any]) -> str | None:
-        """Check that an adopted generation was produced by this node's model.
+    def _supported_model_ids(self) -> set[str]:
+        """Every API model id whose results this node's ``_parse_result`` can interpret.
 
-        Only this node's ``_parse_result`` knows how to rehydrate this model's result shape,
-        so pointing a node at another model's generation would at best fail confusingly and
-        at worst write a mis-parsed result onto the node. The check is deliberately
-        fail-open: if the response does not name a model we allow the refresh rather than
-        block the one route by which a raw-bytes result can reach a user at all.
+        Result-shape compatibility is a property of the node *class*, not of whichever model
+        the dropdown currently names: an ``LTXImageToVideoGeneration`` parses ``ltx-2-fast``
+        and ``ltx-2-pro`` results identically. Comparing against only the current selection
+        refuses a perfectly recoverable generation because an unrelated dropdown happens to
+        have moved — and there is no other node type to send the user to, on the one route by
+        which a raw-bytes result can reach them at all.
+
+        Subclasses back their ``model`` dropdown with a module-level
+        ``{display name: api id}`` dict, so the defining module is searched for one of
+        :data:`MODEL_MAPPING_NAMES` to recover the whole family. Reading it reflectively is
+        deliberate: it gives all 46 subclasses variant-aware adoption without modifying any
+        of them. Override to state the set explicitly.
+
+        Returns:
+            set[str]: Un-normalized candidate model ids. Always includes this node's current
+                API and catalog ids, so a module with no recognised mapping simply keeps the
+                previous single-model behaviour.
+        """
+        candidates = {self._get_api_model_id(), self._get_catalog_model_id()}
+        with suppress(Exception):
+            module = sys.modules.get(type(self).__module__)
+            for mapping_name in MODEL_MAPPING_NAMES:
+                mapping = getattr(module, mapping_name, None)
+                if isinstance(mapping, dict):
+                    candidates.update(value for value in mapping.values() if isinstance(value, str) and value)
+        candidates.discard("")
+        return candidates
+
+    def _refresh_model_mismatch(self, status_json: dict[str, Any]) -> str | None:
+        """Check that an adopted generation is one this node can actually interpret.
+
+        Only a matching ``_parse_result`` knows how to rehydrate a given model's result
+        shape, so pointing a node at an unrelated model's generation would at best fail
+        confusingly and at worst write a mis-parsed result onto the node. Two deliberate
+        biases, both because a false refusal is worse than a false accept here — a false
+        accept surfaces as a parse error, while a false refusal blocks the only route by
+        which a binary result can be recovered at all:
+
+        * fail open when the response names no model;
+        * compare against :meth:`_supported_model_ids`, the node's whole model family,
+          rather than just its current selection.
 
         Args:
             status_json: The JSON response from the generation status endpoint.
@@ -1220,25 +1365,34 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             str | None: An error message if the models definitely disagree, else None.
         """
 
-        def normalize(model_id: str) -> str:
-            # Drop any operation suffix (`grok-imagine-video:generate`) and provider path
-            # prefix, so the comparison is between bare model ids.
-            bare = model_id.strip().lower().split(":", 1)[0]
-            return bare.rsplit("/", 1)[-1]
+        def bare(model_id: str) -> str:
+            # Drop any operation suffix (`grok-imagine-video:generate`).
+            return model_id.strip().lower().split(":", 1)[0].strip("/")
+
+        def matches(left: str, right: str) -> bool:
+            # Equal bare ids, or one is a provider-prefixed form of the other
+            # (`grok/flux-2-pro` vs `flux-2-pro`). Deliberately segment-aligned rather than
+            # comparing last segments: `kling/v2-1/master` and `wan/v2-2/master` are
+            # different models that happen to share a final `master`.
+            if not left or not right:
+                return False
+            return left == right or left.endswith(f"/{right}") or right.endswith(f"/{left}")
 
         reported = self._extract_generation_model_id(status_json)
         if not reported:
             return None
 
-        expected = {normalize(candidate) for candidate in (self._get_api_model_id(), self._get_catalog_model_id())}
-        expected.discard("")
-        if not expected or normalize(reported) in expected:
+        expected = self._supported_model_ids()
+        reported_bare = bare(reported)
+        if not expected or any(matches(reported_bare, bare(candidate)) for candidate in expected):
             return None
 
+        supported = sorted({bare(candidate) for candidate in expected} - {""})
         return (
-            f"This generation was produced by model `{reported}`, but this node runs "
-            f"`{self._get_api_model_id()}`. Only a node using the same model can interpret the result, so "
-            f"refresh was not performed. Use the matching node type for this generation ID."
+            f"This generation was produced by model `{bare(reported)}`, which this node cannot interpret, "
+            f"so refresh was not performed. This node can read results from: "
+            f"{', '.join(f'`{name}`' for name in supported)}. Use the node type that runs "
+            f"`{bare(reported)}` to recover this generation."
         )
 
     async def _refresh_async(self) -> None:
@@ -1273,10 +1427,12 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._set_status_results(was_successful=False, result_details=mismatch)
             return
 
-        status = status_json.get("status", "unknown")
+        reported_status = self._reported_status(status_json)
+        status = reported_status or STATUS_UNKNOWN
         # Record the ID we actually acted on, so an adopted generation is tracked by the
-        # editor exactly like one this node submitted.
-        self._publish_generation_state(generation_id=generation_id, status=status)
+        # editor exactly like one this node submitted. An absent status is not published —
+        # see the same guard in _poll_generation_status.
+        self._publish_generation_state(generation_id=generation_id, status=reported_status)
 
         if status == STATUS_COMPLETED:
             await self._refresh_completed(generation_id)
