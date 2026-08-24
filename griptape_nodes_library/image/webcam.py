@@ -132,8 +132,10 @@ class Webcam(DataNode):
                 "_uploadUrl": f"{server_url}/static-uploads/{rel_path}",
                 "_emitSeq": seq,
             }
+            # No publish_update_to_parameter here: it delivers this same
+            # "upload_ready" value to the widget a second time, which fires a
+            # duplicate PUT. Same reasoning as video_capture.py:90-93.
             self.set_parameter_value("snapshot", upload_ready)
-            self.publish_update_to_parameter("snapshot", upload_ready)
         except Exception:
             logger.warning(
                 "webcam [%s]: failed to build upload URL for seq %d; dropping capture", self.name, seq, exc_info=True
