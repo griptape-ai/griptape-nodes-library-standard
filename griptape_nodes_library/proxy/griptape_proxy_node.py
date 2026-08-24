@@ -186,6 +186,12 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 # PROPERTY (settable, visible) is what makes adoption possible: a user who
                 # lost the session that owned a generation can paste its ID here and click
                 # Refresh. OUTPUT is retained so the node still reports the ID it submitted.
+                # Being settable has a consequence worth knowing before touching any of this:
+                # the engine unresolves the node and everything downstream of it on any
+                # non-output set, so the paste that precedes Refresh invalidates the graph. That
+                # is why `_retire_adopted_generation_id` pops `parameter_values` directly
+                # instead of routing through `set_parameter_value` — "fixing" it into a proper
+                # setter would unresolve downstream nodes in the middle of our own execution.
                 allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT},
             )
         )
@@ -538,6 +544,14 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         The output write comes first and is unconditional: publishing is telemetry, and a
         failure to notify the editor must never be the reason a paid generation fails.
+
+        Neither channel is deduplicated, so an unchanged status is re-announced on every poll —
+        one event per poll interval for as long as the node waits. That is intentional: the
+        output-value channel *is* change-gated by the engine, so an editor that connects
+        part-way through a generation would otherwise see nothing at all until the status next
+        changed, which for a long QUEUED job is the whole point of the tray. The volume is
+        bounded by :data:`MAX_TIMEOUT_SECONDS` over the poll interval and is a rounding error
+        next to the generation itself.
         """
         self.parameter_output_values[name] = value
         if self.get_parameter_by_name(name) is None:
@@ -900,7 +914,10 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         try:
             api_key = self._validate_api_key()
         except ValueError as e:
-            self._handle_api_key_validation_error(e)
+            # Same restore as the two transport branches below, and for the same reason: the
+            # generation is COMPLETED and billed by the time this method runs. Reached when the
+            # key is rotated or cleared between the final status poll and the result fetch.
+            self._handle_api_key_validation_error(e, generation_id=generation_id)
             return None
 
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -942,9 +959,20 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._log(f"Result fetched successfully (binary, content-type: {content_type})")
             return {"raw_bytes": response.content}
 
-    def _handle_api_key_validation_error(self, e: ValueError) -> None:
-        """Handle API key validation errors."""
+    def _handle_api_key_validation_error(self, e: ValueError, *, generation_id: str | None = None) -> None:
+        """Handle API key validation errors.
+
+        Args:
+            e: The validation failure.
+            generation_id: Passed only by the result-fetch caller, where a billed generation
+                already exists. Restored *after* ``_set_safe_defaults()`` blanks it and *before*
+                ``_handle_failure_exception`` can re-raise — the same two-sided ordering
+                constraint documented on :meth:`_handle_result_parsing_error`. The pre-submission
+                caller has no ID yet and passes nothing.
+        """
         self._set_safe_defaults()
+        if generation_id:
+            self._publish_generation_state(generation_id=generation_id)
         self._set_status_results(was_successful=False, result_details=str(e))
         logger.error("%s API key validation failed: %s", self.name, e)
         self._handle_failure_exception(e)
@@ -1285,13 +1313,50 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 return str(pasted).strip()
         return (self.parameter_output_values.get("generation_id") or "").strip()
 
+    @staticmethod
+    def _unusable_generation_id_reason(generation_id: str) -> str | None:
+        """Reject a pasted value that would not address a generation, before it reaches a URL.
+
+        Every ID is interpolated into ``generations/{id}`` and resolved with ``urljoin``, and
+        making ``generation_id`` settable means this value is now user-typed rather than
+        whatever the API handed back. ``urljoin`` resolves dot segments and honours ``?``/``#``,
+        so a paste that includes a whole URL, a trailing query string, or ``../`` silently
+        addresses a *different* endpoint with the user's key attached instead of failing with
+        something a user can act on.
+
+        Deliberately a denylist of the characters that change the request target rather than an
+        allowlist of ID shapes: the asymmetry that governs the model check governs this one too
+        — refusing a legitimate ID blocks the only route by which a binary result can be
+        recovered, so the check may only reject input that could not have addressed a generation
+        in the first place.
+
+        Args:
+            generation_id: The already-stripped candidate ID.
+
+        Returns:
+            str | None: An error message if the value cannot be an ID, else None.
+        """
+        offending = {char for char in "/\\?#" if char in generation_id}
+        if any(char.isspace() for char in generation_id):
+            offending.add("whitespace")
+        if not offending:
+            return None
+        return (
+            f"`{generation_id}` does not look like a generation ID (it contains "
+            f"{', '.join(f'`{char}`' for char in sorted(offending))}). Paste just the ID from the editor's "
+            f"generation tray, without any surrounding URL or punctuation."
+        )
+
     def _extract_generation_model_id(self, status_json: dict[str, Any]) -> str:
         """Pull the model ID out of a generation status response, if it reports one.
 
         ``model_id`` is the field the proxy spec defines (and marks required) for a
-        generation's model. The other keys are accepted because this library also runs
-        against cloud deployments predating that spec, which is also why the caller treats
-        an absent model as "cannot tell" rather than as a mismatch.
+        generation's model, so it is consulted first. The other keys are accepted because this
+        library also runs against cloud deployments predating that spec, which is also why the
+        caller treats an absent model as "cannot tell" rather than as a mismatch. Order
+        matters: ``model`` is the key subclasses put a *friendly* label under in the request
+        payload, so letting it win over the authoritative field would feed a display name into
+        the comparison and manufacture a mismatch.
 
         Args:
             status_json: The JSON response from the generation status endpoint.
@@ -1299,7 +1364,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Returns:
             str: The reported model ID, or "" if the response does not name one.
         """
-        for key in ("model", "model_id", "provider_model_id"):
+        for key in ("model_id", "model", "provider_model_id"):
             value = status_json.get(key)
             if isinstance(value, dict):
                 value = value.get("model_id") or value.get("id") or value.get("name")
@@ -1317,16 +1382,26 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         have moved — and there is no other node type to send the user to, on the one route by
         which a raw-bytes result can reach them at all.
 
-        The model-access component's ``model_choices`` is the node's own list of offered
-        models and stores provider model ids directly, so it is exactly the right set and is
-        already the single source of truth for what a node can run. Nodes bound to a single
-        model have no component and fall back to their current ids.
+        The model-access component's ``model_choices`` is the node's list of *declared* models
+        and stores provider model ids directly, so it is exactly the right set and is already
+        the single source of truth for what a node can run. "Declared", not "permitted": an
+        OFFER_MODEL denial decorates a dropdown row and gates execution, it does not remove the
+        choice — which is what keeps a licence downgrade from making a node unable to recover a
+        generation it ran before the downgrade. Nodes without a component fall back to their
+        current ids, which is why the caller loosens the comparison for them.
+
+        Every lookup is best-effort: the whole check exists to *widen* what Refresh accepts, so
+        a subclass raising here must degrade to "cannot tell" (an empty set fails open) rather
+        than take down the only route by which a binary result can be recovered.
 
         Returns:
-            set[str]: Un-normalized candidate model ids, always including this node's current
-                API and catalog ids.
+            set[str]: Un-normalized candidate model ids, including this node's current API and
+                catalog ids where those can be resolved.
         """
-        candidates = {self._get_api_model_id(), self._get_catalog_model_id()}
+        candidates: set[str] = set()
+        for get_id in (self._get_api_model_id, self._get_catalog_model_id):
+            with suppress(Exception):
+                candidates.add(get_id())
         if self._model_access is not None:
             with suppress(Exception):
                 candidates.update(
@@ -1347,7 +1422,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         * fail open when the response names no model;
         * compare against :meth:`_supported_model_ids`, the node's whole model family,
-          rather than just its current selection.
+          rather than just its current selection;
+        * for nodes that cannot enumerate that family, ignore the trailing id segment.
 
         Args:
             status_json: The JSON response from the generation status endpoint.
@@ -1369,27 +1445,53 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 return False
             return left == right or left.endswith(f"/{right}") or right.endswith(f"/{left}")
 
+        def family(bare_id: str) -> str:
+            # Everything but the final `-` segment, which is the part a plain dropdown varies.
+            head, sep, _tail = bare_id.rpartition("-")
+            return head if sep else ""
+
         reported = self._extract_generation_model_id(status_json)
         if not reported:
             return None
 
         expected = self._supported_model_ids()
-        reported_bare = bare(reported)
-        if not expected or any(matches(reported_bare, bare(candidate)) for candidate in expected):
+        if not expected:
             return None
+
+        reported_bare = bare(reported)
+        if any(matches(reported_bare, bare(candidate)) for candidate in expected):
+            return None
+
+        # A node with no `ModelAccessComponent` cannot enumerate its family at all:
+        # `_supported_model_ids` collapses to whatever the dropdown names *right now*, which is
+        # exactly the basis this check is documented not to use. Both such nodes build their API
+        # id by substituting a dropdown value into the final segment (`topaz-{operation}`,
+        # `topaz-video-slp-{version}`), so comparing with that segment dropped restores the
+        # family comparison without needing the component. It stays strict enough to separate
+        # `topaz-video-slp-2.6` from `topaz-enhance`, and errs toward a parse error rather than
+        # refusing the user's own billed generation because an unrelated dropdown moved.
+        if self._model_access is None:
+            reported_family = family(reported_bare)
+            if reported_family and any(reported_family == family(bare(candidate)) for candidate in expected):
+                return None
 
         supported = sorted({bare(candidate) for candidate in expected} - {""})
         return (
-            f"This generation was produced by model `{bare(reported)}`, which this node cannot interpret, "
+            f"This generation was produced by model `{reported_bare}`, which this node cannot interpret, "
             f"so refresh was not performed. This node can read results from: "
-            f"{', '.join(f'`{name}`' for name in supported)}. Use the node type that runs "
-            f"`{bare(reported)}` to recover this generation."
+            f"{', '.join(f'`{name}`' for name in supported)}. Try a node that runs "
+            f"`{reported_bare}` instead."
         )
 
     async def _refresh_async(self) -> None:
         """Re-check the generation status and pull the result if it has completed.
 
         A single GET to /generations/{id}; never re-enters the polling loop.
+
+        Deliberately ungated by model-access policy, unlike ``_submit_and_poll``: this path
+        invokes nothing and bills nothing, it retrieves a result the org has already paid for.
+        Refusing here would strand paid work whenever a licence changed between submission and
+        recovery, which is the exact failure this whole flow exists to prevent.
         """
         generation_id = self._resolve_refresh_generation_id()
         if not generation_id:
@@ -1400,6 +1502,11 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                     "an existing generation ID into `generation_id` and click Refresh."
                 ),
             )
+            return
+
+        unusable = self._unusable_generation_id_reason(generation_id)
+        if unusable is not None:
+            self._set_status_results(was_successful=False, result_details=unusable)
             return
 
         try:

@@ -13,11 +13,13 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
 import pytest
 from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
 from griptape_nodes_library.image.flux_2_image_generation import Flux2ImageGeneration
+from griptape_nodes_library.image.topaz_image_enhance import TopazImageEnhance
 from griptape_nodes_library.proxy import griptape_proxy_node as proxy_module
 from griptape_nodes_library.proxy.griptape_proxy_node import (
     MAX_TIMEOUT_SECONDS,
@@ -181,9 +183,9 @@ async def test_poll_loop_does_not_publish_a_fabricated_status(monkeypatch: pytes
     node.set_parameter_value("timeout", 10)
     await node._poll_generation_status("gen-1", {"Authorization": "Bearer k"})
 
-    assert STATUS_RUNNING in published.statuses()
-    assert "unknown" not in published.statuses()
-    # The last status the cloud actually reported is what stands.
+    # The malformed second response contributes nothing: RUNNING then our own timeout marker,
+    # with no sentinel wedged between them.
+    assert published.statuses() == [STATUS_RUNNING, STATUS_TIMED_OUT]
     assert node.parameter_output_values["generation_status"] == STATUS_TIMED_OUT
 
 
@@ -250,14 +252,19 @@ def test_publish_generation_completed_reasserts_the_cloud_generation_id(
     assert published.ids() == ["gen-real"]
 
 
+@pytest.mark.parametrize("failure", ["transport", "http_status"])
 @pytest.mark.asyncio
-async def test_polling_error_exhaustion_preserves_generation_id(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_polling_error_exhaustion_preserves_generation_id(monkeypatch: pytest.MonkeyPatch, failure: str) -> None:
     """Giving up because polling kept erroring must still leave the ID recoverable.
 
     The two error branches called _set_safe_defaults() and returned without restoring
     generation_id, so a run that died to repeated transport errors lost the pointer to
     billable work in exactly the way the timeout path was fixed not to. Run against the real
     _set_safe_defaults, since that is what does the blanking.
+
+    Parametrised because the branches are separate code with identical restore logic: the
+    `httpx.HTTPStatusError` handler is the one a 502 from the proxy takes, and testing only the
+    generic one would leave it free to regress.
     """
     node = _make_node(monkeypatch, real_safe_defaults=True)
     published = _Published(node)
@@ -271,6 +278,10 @@ async def test_polling_error_exhaustion_preserves_generation_id(monkeypatch: pyt
             return None
 
         async def get(self, url: str, headers: dict[str, str], timeout: int) -> Any:  # noqa: ARG002
+            if failure == "http_status":
+                request = httpx.Request("GET", url)
+                response = httpx.Response(502, text="bad gateway", request=request)
+                raise httpx.HTTPStatusError("502", request=request, response=response)
             msg = "connection reset"
             raise RuntimeError(msg)
 
@@ -344,17 +355,24 @@ async def test_result_fetch_failure_keeps_the_id_and_does_not_claim_completed(
     """The likeliest recovery path of all: the download fails after the generation is billed.
 
     `_fetch_generation_result` calls `_set_safe_defaults()`, which blanks `generation_id`.
-    Leaving that unpatched — with the poll loop having already recorded COMPLETED — produced
-    the maximally contradictory state: a COMPLETED badge over an empty ID, with nothing on
-    the node able to name the generation to retry.
+    Leaving that unpatched stranded paid work: nothing on the node could name the generation
+    to retry, on the one route by which a raw-bytes result can be recovered at all.
+
+    The COMPLETED assertions pin the other half. The poll loop has seen COMPLETED from the
+    cloud by the time this runs and the obvious implementation publishes it there; withholding
+    it until `_parse_result` succeeds is what keeps the editor offering recovery for a result
+    the node does not hold. Note the badge cannot merely be *restored* to something else here —
+    `_publish_generation_state` drops COMPLETED on both channels, so the only way it reaches the
+    node is `_publish_generation_completed`, which this path must never reach.
     """
     node = _make_node(monkeypatch, real_safe_defaults=True)
     published = _Published(node)
     node._validate_api_key = lambda: "fake-key"  # type: ignore[method-assign]
 
     async def _submit_and_poll(_headers: dict[str, str]) -> tuple[str, dict[str, Any]]:
-        # The poll loop saw COMPLETED before this point.
-        node._publish_generation_state(status=STATUS_COMPLETED)
+        # What the real poll loop leaves behind on seeing COMPLETED: the last non-terminal
+        # status on the badge, and COMPLETED reported only in the returned payload.
+        node._publish_generation_state(status=STATUS_RUNNING)
         return "gen-undownloadable", {"status": STATUS_COMPLETED}
 
     class ExplodingClient:
@@ -375,8 +393,56 @@ async def test_result_fetch_failure_keeps_the_id_and_does_not_claim_completed(
 
     assert node.parameter_output_values["generation_id"] == "gen-undownloadable"
     assert published.ids()[-1] == "gen-undownloadable"
-    # Never claimed the node has a result it failed to download.
-    assert node.parameter_output_values.get("generation_status") != STATUS_COMPLETED
+    # Never claimed the node has a result it failed to download; the badge is left at the last
+    # status the cloud actually reported, which is short of COMPLETED and so keeps recovery on
+    # offer.
+    assert node.parameter_output_values["generation_status"] == STATUS_RUNNING
+    assert STATUS_COMPLETED not in published.statuses()
+
+
+@pytest.mark.asyncio
+async def test_result_fetch_keeps_the_id_when_the_api_key_disappears(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The last member of the defect class the other fetch branches were fixed for.
+
+    `_fetch_generation_result` re-validates the API key, and the generation is COMPLETED and
+    billed by the time it does. If the key is rotated or cleared between the final status poll
+    and the result fetch, `_handle_api_key_validation_error` calls `_set_safe_defaults()` and the
+    pointer to paid work is gone.
+
+    Restoring inside that handler rather than at the call site is forced by the same two-sided
+    ordering as the parse path: the handler ends in `_handle_failure_exception`, which re-raises
+    when the Failed output is unconnected, so a publish after the call is skipped in exactly the
+    case that matters — and a publish before it is wiped by `_set_safe_defaults()`. Hence
+    `real_safe_defaults=True`.
+    """
+    node = _make_node(monkeypatch, real_safe_defaults=True)
+    published = _Published(node)
+
+    async def _submit_and_poll(_headers: dict[str, str]) -> tuple[str, dict[str, Any]]:
+        node._publish_generation_state(status=STATUS_RUNNING)
+        return "gen-keyless", {"status": STATUS_COMPLETED}
+
+    node._submit_and_poll = _submit_and_poll  # type: ignore[method-assign]
+
+    calls = {"n": 0}
+
+    def _validate_api_key() -> str:
+        # Succeeds for submission, then the key vanishes before the result fetch.
+        calls["n"] += 1
+        if calls["n"] > 1:
+            msg = "Flux2 is missing GRIPTAPE_API_KEY."
+            raise ValueError(msg)
+        return "fake-key"
+
+    node._validate_api_key = _validate_api_key  # type: ignore[method-assign]
+
+    # The re-raise is the point: this is the "Failed output unconnected" case, which is why the
+    # publish cannot be left to the caller.
+    with pytest.raises(ValueError, match="missing GRIPTAPE_API_KEY"):
+        await node._process_generation()
+
+    assert node.parameter_output_values["generation_id"] == "gen-keyless"
+    assert published.ids()[-1] == "gen-keyless"
     assert STATUS_COMPLETED not in published.statuses()
 
 
@@ -514,12 +580,175 @@ def test_refresh_accepts_a_matching_model_ignoring_operation_suffix(monkeypatch:
     assert node._refresh_model_mismatch({"model_id": "GROK-IMAGINE-VIDEO"}) is None
 
 
+def test_the_spec_defined_model_field_outranks_the_friendly_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`model_id` is the authoritative field; `model` is where a display name shows up.
+
+    Subclasses put a human label under `model` in the request payload (`"Starlight Precise 2.6"`),
+    so if the cloud echoes request-side fields back and `model` were consulted first, a display
+    name would reach the comparison and manufacture a mismatch against the user's own generation.
+    """
+    node = _make_node(monkeypatch)
+    node._get_api_model_id = lambda: "topaz-video-slp-2.6"  # type: ignore[method-assign]
+    node._get_catalog_model_id = lambda: "topaz-video-slp-2.6"  # type: ignore[method-assign]
+    node._supported_model_ids = lambda: {"topaz-video-slp-2.6"}  # type: ignore[method-assign]
+
+    status_json = {"model_id": "topaz-video-slp-2.6", "model": "Starlight Precise 2.6"}
+
+    assert node._extract_generation_model_id(status_json) == "topaz-video-slp-2.6"
+    assert node._refresh_model_mismatch(status_json) is None
+
+
 def test_refresh_fails_open_when_the_response_names_no_model(monkeypatch: pytest.MonkeyPatch) -> None:
     """Never block the only binary-recovery route on a field the API may not send."""
     node = _make_node(monkeypatch)
     node._get_api_model_id = lambda: "flux-2"  # type: ignore[method-assign]
 
     assert node._refresh_model_mismatch({"status": STATUS_COMPLETED}) is None
+
+
+def test_refresh_survives_a_node_that_cannot_report_its_model() -> None:
+    """An empty candidate set must fail open, not refuse everything.
+
+    `_supported_model_ids` is best-effort by design — it exists to *widen* what Refresh accepts.
+    A subclass whose `_get_api_model_id` raises would otherwise turn the widening into a total
+    block on the one route by which a raw-bytes result can be recovered.
+    """
+    node = Flux2ImageGeneration(name="Flux2")
+
+    def _explode() -> str:
+        msg = "no model configured"
+        raise RuntimeError(msg)
+
+    node._get_api_model_id = _explode  # type: ignore[method-assign]
+    node._get_catalog_model_id = _explode  # type: ignore[method-assign]
+    node._model_access = None
+
+    assert node._supported_model_ids() == set()
+    assert node._refresh_model_mismatch({"model_id": "anything-at-all"}) is None
+
+
+def test_refresh_accepts_a_generation_after_a_plain_dropdown_moved() -> None:
+    """The false-block the family comparison exists to prevent, on a real node.
+
+    `TopazImageEnhance` has no `ModelAccessComponent`, so its candidate set collapses to
+    `topaz-{operation}` for whatever the dropdown says *right now* — exactly the basis the guard
+    is documented not to use. Submit with `enhance`, time out, flip the dropdown to `denoise`,
+    then click Refresh on your own billed generation: comparing exact ids refused it and named a
+    `topaz-enhance` node type that does not exist, while `_parse_result` here is
+    operation-agnostic and would have succeeded.
+    """
+    node = TopazImageEnhance(name="Topaz")
+    assert node._model_access is None
+
+    node.set_parameter_value("operation", "denoise")
+    assert node._get_api_model_id() == "topaz-denoise"
+
+    assert node._refresh_model_mismatch({"model_id": "topaz-enhance"}) is None
+    # Still strict enough to separate the Topaz *video* family, whose ids share the `topaz`
+    # prefix but not the segment a dropdown varies, and anything genuinely foreign.
+    assert node._refresh_model_mismatch({"model_id": "topaz-video-slp-2.6"}) is not None
+    assert node._refresh_model_mismatch({"model_id": "flux-2-pro"}) is not None
+
+
+def test_refresh_does_not_loosen_the_comparison_for_nodes_that_declare_their_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The trailing-segment fallback is only for nodes that cannot enumerate their family.
+
+    A node with a `ModelAccessComponent` already knows every model it can run, so dropping the
+    last segment there would buy nothing and start accepting foreign models that happen to share
+    a prefix.
+    """
+    node = _make_node(monkeypatch)
+    node._supported_model_ids = lambda: {"sora-2"}  # type: ignore[method-assign]
+
+    assert node._model_access is not None
+    assert node._refresh_model_mismatch({"model_id": "sora-9"}) is not None
+
+
+def test_supported_model_ids_keeps_models_the_licence_currently_denies() -> None:
+    """A licence downgrade must not strand a generation the org already paid for.
+
+    This rests on `model_choices` being the node's *declared* models: OFFER_MODEL denials
+    decorate a dropdown row and gate execution, they do not remove the choice. If that ever
+    changes, adoption of a now-denied model would start being refused — so pin it here rather
+    than let it regress silently.
+    """
+    node = Flux2ImageGeneration(name="Flux2")
+    assert node._model_access is not None
+
+    declared = [choice for choice in node._model_access.model_choices if isinstance(choice, str)]
+    assert len(declared) > 1, "test needs a multi-model node to be meaningful"
+    assert set(declared) <= node._supported_model_ids()
+
+    # Every declared model is adoptable regardless of what the current selection is.
+    for choice in declared:
+        assert node._refresh_model_mismatch({"model_id": choice}) is None
+
+
+@pytest.mark.parametrize(
+    "pasted",
+    [
+        "https://cloud.griptape.ai/generations/gen-abc",
+        "../../v1/organizations",
+        "gen-abc?expand=all",
+        "gen-abc#fragment",
+        "gen abc",
+    ],
+)
+@pytest.mark.asyncio
+async def test_refresh_refuses_a_pasted_value_that_is_not_a_generation_id(
+    monkeypatch: pytest.MonkeyPatch, pasted: str
+) -> None:
+    """Making `generation_id` settable means this value is now user-typed.
+
+    Every ID is interpolated into `generations/{id}` and resolved with `urljoin`, which honours
+    dot segments, `?` and `#` — so a whole pasted URL or a stray query string silently addresses
+    a different endpoint with the user's key attached instead of saying anything useful. Nothing
+    should leave the process.
+    """
+    node = _make_node(monkeypatch, real_safe_defaults=True)
+
+    captured: list[dict[str, Any]] = []
+    node._set_status_results = lambda **kwargs: captured.append(kwargs)  # type: ignore[method-assign]
+
+    class NoRequestsClient:
+        async def __aenter__(self) -> NoRequestsClient:
+            return self
+
+        async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+            return None
+
+        async def get(self, url: str, **_kwargs: Any) -> Any:
+            msg = f"no request should have been made, got {url}"
+            raise AssertionError(msg)
+
+    monkeypatch.setattr("griptape_nodes_library.proxy.griptape_proxy_node.httpx.AsyncClient", NoRequestsClient)
+    node.set_parameter_value("generation_id", pasted)
+
+    await node._refresh_async()
+
+    assert len(captured) == 1
+    assert captured[0]["was_successful"] is False
+    assert "does not look like a generation ID" in captured[0]["result_details"]
+
+
+def test_plain_generation_ids_are_not_rejected() -> None:
+    """The shape check is a denylist for a reason: a false refusal blocks the only route.
+
+    Anything that could address a generation has to pass, including forms this library has not
+    seen — so only the characters that redirect the request are rejected.
+    """
+    node = Flux2ImageGeneration(name="Flux2")
+
+    for candidate in (
+        "gen-1",
+        "1a2b3c4d-5e6f-7890-abcd-ef1234567890",
+        "generation_01JQ8Z9ABCDEF",
+        "abc.def",
+        "kling:motion-control-42",
+    ):
+        assert node._unusable_generation_id_reason(candidate) is None
 
 
 def test_status_constants_match_the_proxy_spec_vocabulary() -> None:
@@ -550,9 +779,18 @@ def test_timeout_zero_is_clamped_rather_than_unbounded() -> None:
 
 
 def test_timeout_is_capped_at_the_documented_maximum() -> None:
-    node = Flux2ImageGeneration(name="Flux2")
-    node.set_parameter_value("timeout", MAX_TIMEOUT_SECONDS * 10)
+    """The cap in `_resolve_timeout_seconds` is the one that has to hold, not the UI's.
 
+    `max_val` installs a Clamp trait that clamps on assignment, so going through
+    `set_parameter_value` here would store 86400 before the code under test ever ran and the
+    assertion would pass with `min(seconds, MAX_TIMEOUT_SECONDS)` deleted. Written straight
+    into `parameter_values` to bypass the trait — which is also the realistic path for a value
+    restored from a workflow file saved before the cap existed.
+    """
+    node = Flux2ImageGeneration(name="Flux2")
+    node.parameter_values["timeout"] = MAX_TIMEOUT_SECONDS * 10
+
+    assert node.parameter_values["timeout"] == MAX_TIMEOUT_SECONDS * 10
     assert node._resolve_timeout_seconds() == MAX_TIMEOUT_SECONDS
 
 
@@ -663,15 +901,15 @@ async def test_timeout_does_not_cancel_the_generation(monkeypatch: pytest.Monkey
     node = _make_node(monkeypatch, real_safe_defaults=True)
     _no_sleep(monkeypatch)
 
-    # A client that answers GET and nothing else. Cancel is POST /generations/{id}/cancel, so
-    # any attempt to cancel — now or after PR #550 lands — raises AttributeError here rather
-    # than passing silently. The earlier version of this test guarded on
-    # `hasattr(node, "_request_generation_cancel")`, which does not exist yet, so its
-    # assertion was vacuously true and could never have caught a regression.
+    # A client that records every verb, not just GET. Recording is what makes the assertion
+    # real: a client that only implements `get` would turn a cancel into an AttributeError
+    # inside the poll loop's blanket `except Exception` and swallow it, leaving every assertion
+    # below passing. Cancel is POST /generations/{id}/cancel, so `post` has to exist *and* be
+    # observed — that holds now and when PR #550 adds `_request_generation_cancel`.
     requests: list[tuple[str, str]] = []
 
-    class GetOnlyClient:
-        async def __aenter__(self) -> GetOnlyClient:
+    class RecordingClient:
+        async def __aenter__(self) -> RecordingClient:
             return self
 
         async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
@@ -689,12 +927,24 @@ async def test_timeout_does_not_cancel_the_generation(monkeypatch: pytest.Monkey
 
             return Response()
 
-    monkeypatch.setattr("griptape_nodes_library.proxy.griptape_proxy_node.httpx.AsyncClient", GetOnlyClient)
+        async def post(self, url: str, **_kwargs: Any) -> Any:
+            requests.append(("POST", url))
+            msg = f"unexpected POST to {url}"
+            raise AssertionError(msg)
 
-    node.set_parameter_value("timeout", 5)
+        async def delete(self, url: str, **_kwargs: Any) -> Any:
+            requests.append(("DELETE", url))
+            msg = f"unexpected DELETE to {url}"
+            raise AssertionError(msg)
+
+    monkeypatch.setattr("griptape_nodes_library.proxy.griptape_proxy_node.httpx.AsyncClient", RecordingClient)
+
+    node.set_parameter_value("timeout", 15)
     await node._poll_generation_status("gen-running", {"Authorization": "Bearer k"})
 
-    assert [verb for verb, _url in requests] == ["GET"] * len(requests)
+    # Polled more than once, so the loop really ran rather than falling straight out.
+    assert len(requests) > 1
+    assert {verb for verb, _url in requests} == {"GET"}
     assert not any(url.endswith("/cancel") for _verb, url in requests)
     assert node.parameter_output_values["generation_status"] == STATUS_TIMED_OUT
     assert node.parameter_output_values["generation_id"] == "gen-running"
