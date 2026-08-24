@@ -917,7 +917,19 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             # Same restore as the two transport branches below, and for the same reason: the
             # generation is COMPLETED and billed by the time this method runs. Reached when the
             # key is rotated or cleared between the final status poll and the result fetch.
-            self._handle_api_key_validation_error(e, generation_id=generation_id)
+            #
+            # `finally` rather than a parameter on the handler, because twelve subclasses
+            # override `_handle_api_key_validation_error` with the two-argument signature and
+            # never call `super()`; passing a keyword through would raise `TypeError` on exactly
+            # this path for those nodes. `finally` also satisfies both halves of the ordering
+            # constraint on its own: it runs after the handler's `_set_safe_defaults()` has
+            # blanked the ID, and it still runs when `_handle_failure_exception` re-raises
+            # because the Failed output is unconnected. It restores the ID for the overriding
+            # subclasses too, which their own handlers would never have done.
+            try:
+                self._handle_api_key_validation_error(e)
+            finally:
+                self._publish_generation_state(generation_id=generation_id)
             return None
 
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -959,20 +971,14 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._log(f"Result fetched successfully (binary, content-type: {content_type})")
             return {"raw_bytes": response.content}
 
-    def _handle_api_key_validation_error(self, e: ValueError, *, generation_id: str | None = None) -> None:
+    def _handle_api_key_validation_error(self, e: ValueError) -> None:
         """Handle API key validation errors.
 
-        Args:
-            e: The validation failure.
-            generation_id: Passed only by the result-fetch caller, where a billed generation
-                already exists. Restored *after* ``_set_safe_defaults()`` blanks it and *before*
-                ``_handle_failure_exception`` can re-raise — the same two-sided ordering
-                constraint documented on :meth:`_handle_result_parsing_error`. The pre-submission
-                caller has no ID yet and passes nothing.
+        The signature is fixed by twelve subclasses that override this method without calling
+        ``super()``, so the result-fetch caller restores ``generation_id`` around the call rather
+        than through a parameter here — see :meth:`_fetch_generation_result`.
         """
         self._set_safe_defaults()
-        if generation_id:
-            self._publish_generation_state(generation_id=generation_id)
         self._set_status_results(was_successful=False, result_details=str(e))
         logger.error("%s API key validation failed: %s", self.name, e)
         self._handle_failure_exception(e)
@@ -1336,10 +1342,20 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Returns:
             str | None: An error message if the value cannot be an ID, else None.
         """
-        offending = {char for char in "/\\?#" if char in generation_id}
+        # `%` is here because `urljoin` passes percent-escapes through undecoded, so whether
+        # `%2e%2e%2f` redirects depends on gateway behaviour this library cannot see. Real IDs are
+        # UUIDs, so rejecting `%` costs nothing.
+        offending = {char for char in "/\\?#%" if char in generation_id}
         if any(char.isspace() for char in generation_id):
             offending.add("whitespace")
         if not offending:
+            # A value made only of dots contains none of the above and still walks the path:
+            # `..` resolves to the collection endpoint, `.` to `generations/`.
+            if set(generation_id) == {"."}:
+                return (
+                    f"`{generation_id}` does not look like a generation ID (it is only dots). Paste just the ID "
+                    f"from the editor's generation tray, without any surrounding URL or punctuation."
+                )
             return None
         return (
             f"`{generation_id}` does not look like a generation ID (it contains "
@@ -1423,7 +1439,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         * fail open when the response names no model;
         * compare against :meth:`_supported_model_ids`, the node's whole model family,
           rather than just its current selection;
-        * for nodes that cannot enumerate that family, ignore the trailing id segment.
+        * for nodes that cannot enumerate that family, compare only the leading id segment.
 
         Args:
             status_json: The JSON response from the generation status endpoint.
@@ -1446,9 +1462,14 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             return left == right or left.endswith(f"/{right}") or right.endswith(f"/{left}")
 
         def family(bare_id: str) -> str:
-            # Everything but the final `-` segment, which is the part a plain dropdown varies.
-            head, sep, _tail = bare_id.rpartition("-")
-            return head if sep else ""
+            # The leading `-` segment, which is the provider/family part a dropdown never
+            # varies. Anything narrower does not survive contact with the real dropdowns:
+            # `TopazImageEnhance` offers nine operations, three of which are themselves
+            # hyphenated (`enhance-generative`), so dropping only the *final* segment leaves
+            # `topaz-enhance-generative` in family `topaz-enhance` and `topaz-denoise` in family
+            # `topaz` — still refusing 42 of the 81 dropdown pairs. Ids with no `-` fall through
+            # to exact matching, which is what a single hardcoded id wants anyway.
+            return bare_id.partition("-")[0]
 
         reported = self._extract_generation_model_id(status_json)
         if not reported:
@@ -1465,17 +1486,26 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # A node with no `ModelAccessComponent` cannot enumerate its family at all:
         # `_supported_model_ids` collapses to whatever the dropdown names *right now*, which is
         # exactly the basis this check is documented not to use. Both such nodes build their API
-        # id by substituting a dropdown value into the final segment (`topaz-{operation}`,
-        # `topaz-video-slp-{version}`), so comparing with that segment dropped restores the
-        # family comparison without needing the component. It stays strict enough to separate
-        # `topaz-video-slp-2.6` from `topaz-enhance`, and errs toward a parse error rather than
-        # refusing the user's own billed generation because an unrelated dropdown moved.
+        # id by substituting a dropdown value into an id whose leading segment is fixed
+        # (`topaz-{operation}`, `topaz-video-slp-{version}`), so comparing on that segment
+        # restores a family comparison without needing the component.
+        #
+        # This deliberately accepts more than it has to: a Topaz *video* id now passes on a Topaz
+        # *image* node. No rule over the id string alone can do better — `topaz-video-slp-2.6`
+        # and `topaz-enhance-generative` are equidistant from `topaz-denoise`, and the
+        # information that separates them is not in the id. Given that, the trade is the one this
+        # whole check is documented around: a false accept surfaces as `_parse_result` reporting
+        # no usable payload, while a false refusal blocks the only route by which a binary result
+        # can be recovered and points the user at a node type that does not exist. Cross-provider
+        # pastes — the actual footgun — are still refused.
         if self._model_access is None:
             reported_family = family(reported_bare)
             if reported_family and any(reported_family == family(bare(candidate)) for candidate in expected):
                 return None
 
-        supported = sorted({bare(candidate) for candidate in expected} - {""})
+        # Listed un-`bare()`d: `bare()` truncates at `:`, which would advertise `kling` rather than
+        # the `kling:motion-control` a user could act on.
+        supported = sorted({candidate.strip().lower() for candidate in expected} - {""})
         return (
             f"This generation was produced by model `{reported_bare}`, which this node cannot interpret, "
             f"so refresh was not performed. This node can read results from: "

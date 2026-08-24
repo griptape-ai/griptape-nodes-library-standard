@@ -11,6 +11,9 @@ the result is genuinely on the node.
 
 from __future__ import annotations
 
+import ast
+import inspect
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -18,7 +21,9 @@ import pytest
 from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
-from griptape_nodes_library.image.flux_2_image_generation import Flux2ImageGeneration
+import griptape_nodes_library
+from griptape_nodes_library.image.flux_2_image_generation import MODEL_OPTIONS, Flux2ImageGeneration
+from griptape_nodes_library.image.flux_image_generation import FluxImageGeneration
 from griptape_nodes_library.image.topaz_image_enhance import TopazImageEnhance
 from griptape_nodes_library.proxy import griptape_proxy_node as proxy_module
 from griptape_nodes_library.proxy.griptape_proxy_node import (
@@ -28,6 +33,7 @@ from griptape_nodes_library.proxy.griptape_proxy_node import (
     STATUS_QUEUED,
     STATUS_RUNNING,
     STATUS_TIMED_OUT,
+    GriptapeProxyNode,
 )
 
 
@@ -401,7 +407,10 @@ async def test_result_fetch_failure_keeps_the_id_and_does_not_claim_completed(
 
 
 @pytest.mark.asyncio
-async def test_result_fetch_keeps_the_id_when_the_api_key_disappears(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("node_class", [Flux2ImageGeneration, FluxImageGeneration])
+async def test_result_fetch_keeps_the_id_when_the_api_key_disappears(
+    monkeypatch: pytest.MonkeyPatch, node_class: type[Any]
+) -> None:
     """The last member of the defect class the other fetch branches were fixed for.
 
     `_fetch_generation_result` re-validates the API key, and the generation is COMPLETED and
@@ -409,13 +418,21 @@ async def test_result_fetch_keeps_the_id_when_the_api_key_disappears(monkeypatch
     and the result fetch, `_handle_api_key_validation_error` calls `_set_safe_defaults()` and the
     pointer to paid work is gone.
 
-    Restoring inside that handler rather than at the call site is forced by the same two-sided
-    ordering as the parse path: the handler ends in `_handle_failure_exception`, which re-raises
-    when the Failed output is unconnected, so a publish after the call is skipped in exactly the
-    case that matters — and a publish before it is wiped by `_set_safe_defaults()`. Hence
-    `real_safe_defaults=True`.
+    The restore is a `finally` around the handler call, not a parameter on the handler, and both
+    halves of that matter:
+
+    * ordering — `finally` runs after the handler's `_set_safe_defaults()` has blanked the ID, and
+      still runs when `_handle_failure_exception` re-raises because the Failed output is
+      unconnected. A publish before the call is wiped; one after it is skipped.
+    * reach — twelve subclasses override `_handle_api_key_validation_error` with the
+      two-argument signature and never call `super()`, so threading a keyword through raised
+      `TypeError` on this exact path for those nodes, which is worse than the bug being fixed.
+      Hence the parametrisation: `Flux2ImageGeneration` inherits the base handler,
+      `FluxImageGeneration` is one of the twelve overriders. Testing only the former is how that
+      regression got in — `reportIncompatibleMethodOverride` is off, so pyright does not flag it.
     """
-    node = _make_node(monkeypatch, real_safe_defaults=True)
+    node = node_class(name="Node")
+    node._set_status_results = lambda **_kwargs: None  # type: ignore[method-assign]
     published = _Published(node)
 
     async def _submit_and_poll(_headers: dict[str, str]) -> tuple[str, dict[str, Any]]:
@@ -430,20 +447,53 @@ async def test_result_fetch_keeps_the_id_when_the_api_key_disappears(monkeypatch
         # Succeeds for submission, then the key vanishes before the result fetch.
         calls["n"] += 1
         if calls["n"] > 1:
-            msg = "Flux2 is missing GRIPTAPE_API_KEY."
+            msg = "Node is missing GRIPTAPE_API_KEY."
             raise ValueError(msg)
         return "fake-key"
 
     node._validate_api_key = _validate_api_key  # type: ignore[method-assign]
 
-    # The re-raise is the point: this is the "Failed output unconnected" case, which is why the
-    # publish cannot be left to the caller.
+    # A ValueError and nothing else: a TypeError here means the handler signature drifted.
     with pytest.raises(ValueError, match="missing GRIPTAPE_API_KEY"):
         await node._process_generation()
 
     assert node.parameter_output_values["generation_id"] == "gen-keyless"
     assert published.ids()[-1] == "gen-keyless"
     assert STATUS_COMPLETED not in published.statuses()
+
+
+def test_the_api_key_handler_signature_all_subclasses_share() -> None:
+    """Pin the contract that the `finally` above exists to respect.
+
+    Twelve subclasses override `_handle_api_key_validation_error` without calling `super()`, so
+    the base class cannot add a parameter to it — and with
+    `reportIncompatibleMethodOverride = false` in pyproject.toml, nothing but this test would
+    notice. If a future change needs to pass state into the handler, those overrides have to move
+    first.
+    """
+    base_params = list(inspect.signature(GriptapeProxyNode._handle_api_key_validation_error).parameters)
+    assert base_params == ["self", "e"]
+
+    # Parsed rather than imported: importing all 46 subclasses to read one signature is far more
+    # machinery than reading the source, and this also catches a module the test never imports.
+    library_root = Path(griptape_nodes_library.__file__).parent
+    base_module = library_root / "proxy" / "griptape_proxy_node.py"
+    overriders: list[str] = []
+    for path in sorted(library_root.rglob("*.py")):
+        if path == base_module:
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            for item in node.body:
+                if isinstance(item, ast.FunctionDef) and item.name == "_handle_api_key_validation_error":
+                    args = [a.arg for a in item.args.args]
+                    kwonly = [a.arg for a in item.args.kwonlyargs]
+                    assert args == base_params, f"{path.name}:{node.name} takes {args}, base takes {base_params}"
+                    assert not kwonly, f"{path.name}:{node.name} adds keyword-only args the base does not have"
+                    overriders.append(f"{path.name}:{node.name}")
+
+    assert overriders, "expected subclass overrides; if they are all gone, this test can go too"
 
 
 # --- TASK 2: adopt an existing generation ID -------------------------------------------
@@ -643,46 +693,76 @@ def test_refresh_accepts_a_generation_after_a_plain_dropdown_moved() -> None:
     node.set_parameter_value("operation", "denoise")
     assert node._get_api_model_id() == "topaz-denoise"
 
-    assert node._refresh_model_mismatch({"model_id": "topaz-enhance"}) is None
-    # Still strict enough to separate the Topaz *video* family, whose ids share the `topaz`
-    # prefix but not the segment a dropdown varies, and anything genuinely foreign.
-    assert node._refresh_model_mismatch({"model_id": "topaz-video-slp-2.6"}) is not None
+    # Every operation the dropdown offers, not just the convenient ones: three of the nine are
+    # themselves hyphenated, and a rule that dropped only the final id segment left those in a
+    # different family from the single-word ones — refusing 42 of the 81 pairs while passing a
+    # test that happened to pick `enhance`/`denoise`.
+    for operation in ("enhance", "enhance-generative", "sharpen-generative", "restore-generative", "matting"):
+        assert node._refresh_model_mismatch({"model_id": f"topaz-{operation}"}) is None, operation
+
+    # Cross-provider — the actual footgun — is still refused.
     assert node._refresh_model_mismatch({"model_id": "flux-2-pro"}) is not None
+    assert node._refresh_model_mismatch({"model_id": "kling/v2-1/master"}) is not None
 
 
 def test_refresh_does_not_loosen_the_comparison_for_nodes_that_declare_their_models(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The trailing-segment fallback is only for nodes that cannot enumerate their family.
+    """The leading-segment fallback is only for nodes that cannot enumerate their family.
 
-    A node with a `ModelAccessComponent` already knows every model it can run, so dropping the
-    last segment there would buy nothing and start accepting foreign models that happen to share
-    a prefix.
+    A node with a `ModelAccessComponent` already knows every model it can run, so comparing on
+    the leading segment there would buy nothing and start accepting foreign models that happen to
+    share a prefix.
     """
     node = _make_node(monkeypatch)
     node._supported_model_ids = lambda: {"sora-2"}  # type: ignore[method-assign]
 
     assert node._model_access is not None
     assert node._refresh_model_mismatch({"model_id": "sora-9"}) is not None
+    # The same node with the component removed takes the widened path, so the branch — not some
+    # incidental property of these ids — is what makes the assertion above hold.
+    node._model_access = None
+    assert node._refresh_model_mismatch({"model_id": "sora-9"}) is None
 
 
-def test_supported_model_ids_keeps_models_the_licence_currently_denies() -> None:
+def test_the_refusal_names_models_the_user_could_actually_select(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The refusal is the whole value of the guard, so what it lists has to be actionable.
+
+    Model ids carry an operation suffix (`kling:motion-control`) that the comparison strips but
+    the message must not: `kling` is not something a user can paste, select, or search for.
+    """
+    node = _make_node(monkeypatch)
+    node._supported_model_ids = lambda: {"kling:motion-control", "kling:standard"}  # type: ignore[method-assign]
+
+    mismatch = node._refresh_model_mismatch({"model_id": "sora-2"})
+
+    assert mismatch is not None
+    assert "kling:motion-control" in mismatch
+    assert "kling:standard" in mismatch
+
+
+def test_supported_model_ids_is_every_declared_model_not_the_permitted_subset() -> None:
     """A licence downgrade must not strand a generation the org already paid for.
 
-    This rests on `model_choices` being the node's *declared* models: OFFER_MODEL denials
-    decorate a dropdown row and gate execution, they do not remove the choice. If that ever
-    changes, adoption of a now-denied model would start being refused — so pin it here rather
-    than let it regress silently.
+    That property rests entirely on `model_choices` being the node's *declared* models: an
+    OFFER_MODEL denial decorates a dropdown row and gates execution, it does not remove the
+    choice. So the load-bearing assertion is the identity against the subclass's own
+    `MODEL_OPTIONS` — if a future engine ever made `model_choices` return only the permitted
+    subset, that is what breaks, loudly, instead of adoption of a now-denied model quietly
+    starting to be refused. (This test cannot itself install a denial: no engine is running, so
+    nothing is denied here either way, and asserting over a set nothing has filtered would only
+    restate itself.)
     """
     node = Flux2ImageGeneration(name="Flux2")
     assert node._model_access is not None
 
-    declared = [choice for choice in node._model_access.model_choices if isinstance(choice, str)]
-    assert len(declared) > 1, "test needs a multi-model node to be meaningful"
-    assert set(declared) <= node._supported_model_ids()
+    assert node._model_access.model_choices == MODEL_OPTIONS
+    assert len(MODEL_OPTIONS) > 1, "test needs a multi-model node to be meaningful"
+    assert set(MODEL_OPTIONS) <= node._supported_model_ids()
 
     # Every declared model is adoptable regardless of what the current selection is.
-    for choice in declared:
+    node.set_parameter_value("model", MODEL_OPTIONS[0])
+    for choice in MODEL_OPTIONS:
         assert node._refresh_model_mismatch({"model_id": choice}) is None
 
 
@@ -694,6 +774,9 @@ def test_supported_model_ids_keeps_models_the_licence_currently_denies() -> None
         "gen-abc?expand=all",
         "gen-abc#fragment",
         "gen abc",
+        "..",
+        ".",
+        "%2e%2e%2fv1%2forganizations",
     ],
 )
 @pytest.mark.asyncio
