@@ -10,13 +10,28 @@ is denied.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from griptape_nodes.exe_types.node_types import BaseNode
+from griptape_nodes.node_library.library_registry import LibraryRegistry
 
 import griptape_nodes_library.image.create_image as create_image_module
 import griptape_nodes_library.utils.model_invocation as model_invocation_module
 from griptape_nodes_library.image.create_image import GenerateImage
+
+LIBRARY_NAME = "Griptape Nodes Library"
+
+
+def _create_node(node_type: str) -> BaseNode:
+    """Create a node through the library so its metadata carries `library` / `node_type`.
+
+    `_get_selected_model_id` / `resolve_catalog_model_id` read those two metadata
+    keys to resolve a node's declared models; a bare `NodeClass(name=...)`
+    construction leaves every model-id resolution in `process()` returning `None`.
+    """
+    library = LibraryRegistry.get_library(name=LIBRARY_NAME)
+    return library.create_node(node_type=node_type, name=node_type)
 
 
 class _FakeDeclaration:
@@ -43,7 +58,7 @@ def _stub_secret(monkeypatch: pytest.MonkeyPatch, value: str | None) -> None:
 @pytest.fixture
 def generate_image_node(monkeypatch: pytest.MonkeyPatch) -> GenerateImage:
     _stub_secret(monkeypatch, "gt-cloud-key")
-    node = GenerateImage(name="GenerateImage")
+    node = cast(GenerateImage, _create_node("GenerateImage"))
     node.set_parameter_value("model", "gpt-image-1-mini")
     node.set_parameter_value("prompt", "a cat wearing a hat")
     # Leave enhance_prompt off (default) so process() reaches the image generation

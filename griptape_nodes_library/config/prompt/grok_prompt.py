@@ -17,8 +17,28 @@ from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
 SERVICE = "Grok"
 API_KEY_URL = "https://console.x.ai"
 API_KEY_ENV_VAR = "GROK_API_KEY"
-MODEL_CHOICES = ["grok-3-beta", "grok-3-fast-beta", "grok-3-mini-beta", "grok-3-mini-fast-beta", "grok-2-vision-1212"]
+MODEL_CHOICES = [
+    "grok-3-beta",
+    "grok-3-fast-beta",
+    "grok-3-mini-beta",
+    "grok-3-mini-fast-beta",
+    "grok-2-vision-1212",
+]
 DEFAULT_MODEL = MODEL_CHOICES[0]
+
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES = {
+    "Grok 2 Vision": "grok-2-vision-1212",
+    "Grok 3 Beta": "grok-3-beta",
+    "Grok 3 Fast Beta": "grok-3-fast-beta",
+    "Grok 3 Mini Beta": "grok-3-mini-beta",
+    "Grok 3 Mini Fast Beta": "grok-3-mini-fast-beta",
+    "xai_grok_2_vision_1212": "grok-2-vision-1212",
+    "xai_grok_3_beta": "grok-3-beta",
+    "xai_grok_3_fast_beta": "grok-3-fast-beta",
+    "xai_grok_3_mini_beta": "grok-3-mini-beta",
+    "xai_grok_3_mini_fast_beta": "grok-3-mini-fast-beta",
+}
 
 
 class GrokPrompt(BasePrompt):
@@ -49,8 +69,10 @@ class GrokPrompt(BasePrompt):
 
         # --- Customize Inherited Parameters ---
 
-        # Update the 'model' parameter for Grok specifics.
-        self._update_option_choices(param="model", choices=MODEL_CHOICES, default=DEFAULT_MODEL)
+        # Offer Grok's models as a license-filtered dropdown.
+        self._install_model_access(
+            model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=LEGACY_MODEL_VALUES
+        )
 
         # Remove `top_k` parameter as it's not used by Grok.
         self.remove_parameter_element_by_name("seed")
@@ -75,6 +97,9 @@ class GrokPrompt(BasePrompt):
         # Retrieve all parameter values set on the node UI or via input connections.
         params = self.parameter_values
 
+        # A model the license denies must not reach a downstream node as a driver.
+        self._raise_if_model_denied()
+
         # --- Get Common Driver Arguments ---
         # Use the helper method from BasePrompt to get args like temperature, stream, max_attempts, etc.
         common_args = self._get_common_driver_args(params)
@@ -85,8 +110,8 @@ class GrokPrompt(BasePrompt):
         # Retrieve the mandatory API key.
         specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
 
-        # Get the selected model.
-        specific_args["model"] = self.get_parameter_value("model")
+        # Get the upstream provider's id for the selected model.
+        specific_args["model"] = self._get_selected_model_id()
 
         # Handle parameters that go into 'extra_params' for Grok.
         extra_params = {}

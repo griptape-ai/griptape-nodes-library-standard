@@ -4,12 +4,12 @@ from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
@@ -32,8 +32,10 @@ class GrokVideoEdit(GriptapeProxyNode):
         - result_details (str): Details about the edit result or error
     """
 
-    MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
+    # Migrates values saved before the dropdown stored the provider's own model id.
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
         "Grok Imagine Video": "grok-imagine-video",
+        "gtc_grok_imagine_video": "grok-imagine-video",
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -41,14 +43,21 @@ class GrokVideoEdit(GriptapeProxyNode):
         self.category = "API Nodes"
         self.description = "Edit videos using Grok video models via Griptape model proxy"
 
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="Grok Imagine Video",
-                tooltip="Select the Grok video model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["Grok Imagine Video"])},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="grok-imagine-video",
+            tooltip="Select the Grok video model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=["grok-imagine-video"],
+            default_model="grok-imagine-video",
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -152,18 +161,10 @@ class GrokVideoEdit(GriptapeProxyNode):
             return None
 
     def _get_api_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "Grok Imagine Video"
-        base_model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
-        return f"{base_model_id}:edit"
+        return f"{self._get_selected_model_id()}:edit"
 
     def _get_payload_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "Grok Imagine Video"
-        return self.MODEL_NAME_MAP.get(model_name, model_name)
-
-    def _get_catalog_model_id(self) -> str:
-        # The catalog declares the bare provider id (no `:edit` suffix), so
-        # resolve the declaration against the un-suffixed id.
-        return self._get_payload_model_id()
+        return self._get_selected_model_id() or "grok-imagine-video"
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []
