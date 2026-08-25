@@ -54,14 +54,6 @@ LICENSE_SECRET_NAME = "GRIPTAPE_NODES_LICENSE"
 # systems that read GT_CLOUD_API_KEY untouched.
 PROXY_API_KEY_ENV_VAR = "GT_CLOUD_PROXY_API_KEY"
 
-# Appended to every missing-credential message. The node is named after the model's provider and
-# fails at the moment the user asked that model for something, so the credential being asked for
-# reads as a provider key unless its owner is spelled out.
-PROXY_CREDENTIAL_OWNER_HINT = (
-    "Griptape Cloud calls the model provider on your behalf, so the credential needed here is a "
-    "Griptape Cloud one, not a key for that provider."
-)
-
 # Probe asset id used purely to reach the provider-asset handler. It is not expected to exist;
 # an access-granted org returns a 404 "provider asset not found" for it.
 _PROBE_ASSET_ID = "griptape-access-probe-0000"
@@ -166,8 +158,8 @@ def missing_proxy_credential_message(credential: ProxyCredential, *, attempted: 
     """Build the user-facing message for a proxy call with no usable credential.
 
     Names both credentials a user configures -- the License and the API key -- so a License-only
-    user is not sent after an API key they are not meant to have, and calls out any source that
-    is configured but blank. ``GT_CLOUD_PROXY_API_KEY`` is deliberately not offered as a remedy:
+    user is not sent after an API key they are not meant to have, and names any source that is
+    configured but blank. ``GT_CLOUD_PROXY_API_KEY`` is deliberately not offered as a remedy:
     it is an override for pointing the proxy at other infrastructure, not a credential users are
     meant to set. It still appears when it is one of the blank sources, since a blank override
     silently costs the user their configured credential.
@@ -180,9 +172,11 @@ def missing_proxy_credential_message(credential: ProxyCredential, *, attempted: 
     reason = MISSING_CREDENTIAL_MESSAGE
     if credential.blank_sources:
         names = ", ".join(credential.blank_sources)
-        verb = "is" if len(credential.blank_sources) == 1 else "are"
-        reason += f" {names} {verb} set to a blank value, which does not count as configured."
-    return f"Attempted to {attempted}. Failed because {reason} {PROXY_CREDENTIAL_OWNER_HINT}"
+        if len(credential.blank_sources) == 1:
+            reason += f" {names} is set to a blank value, which does not count as configured."
+        else:
+            reason += f" {names} are set to blank values, which do not count as configured."
+    return f"Attempted to {attempted}. Failed because {reason}"
 
 
 def _read_secret(secret_name: str) -> str | None:

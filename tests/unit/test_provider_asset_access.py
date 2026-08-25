@@ -205,8 +205,7 @@ def test_resolve_survives_unavailable_secrets_manager(monkeypatch: pytest.Monkey
 def test_missing_message_names_both_credentials() -> None:
     message = missing_proxy_credential_message(ProxyCredential(value=None), attempted="run My Node")
     assert "Attempted to run My Node." in message
-    # A License-only user must not be sent after an API key alone, and the credential's owner is
-    # named so it does not read as a key for the model's provider.
+    # A License-only user must not be sent after an API key alone.
     assert "license" in message.lower()
     assert API_KEY_NAME in message
     assert "Griptape Cloud" in message
@@ -224,4 +223,4 @@ def test_missing_message_calls_out_several_blank_credentials() -> None:
     message = missing_proxy_credential_message(
         ProxyCredential(value=None, blank_sources=(LICENSE_SECRET_NAME, API_KEY_NAME)), attempted="run My Node"
     )
-    assert f"{LICENSE_SECRET_NAME}, {API_KEY_NAME} are set to a blank value" in message
+    assert f"{LICENSE_SECRET_NAME}, {API_KEY_NAME} are set to blank values" in message
