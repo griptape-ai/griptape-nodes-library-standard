@@ -22,8 +22,9 @@ from typing import TYPE_CHECKING
 from urllib.parse import urljoin
 
 import httpx
-from griptape_nodes.drivers.cloud_credentials import MISSING_CREDENTIAL_MESSAGE
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
+from griptape_nodes_library.utils.cloud_credential_utils import missing_credential_message
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -157,26 +158,27 @@ def resolve_proxy_credential(secret_name: str = API_KEY_NAME) -> ProxyCredential
 def missing_proxy_credential_message(credential: ProxyCredential, *, attempted: str) -> str:
     """Build the user-facing message for a proxy call with no usable credential.
 
-    Names both credentials a user configures -- the License and the API key -- so a License-only
-    user is not sent after an API key they are not meant to have, and names any source that is
-    configured but blank. ``GT_CLOUD_PROXY_API_KEY`` is deliberately not offered as a remedy:
-    it is an override for pointing the proxy at other infrastructure, not a credential users are
-    meant to set. It still appears when it is one of the blank sources, since a blank override
-    silently costs the user their configured credential.
+    Extends the library-wide :func:`missing_credential_message` with what proxy resolution saw.
+    The shared builder names both credentials a user configures -- the License and the API key --
+    so a License-only user is not sent after an API key they are not meant to have; this adds any
+    source that is configured but blank. ``GT_CLOUD_PROXY_API_KEY`` is deliberately not offered as
+    a remedy: it is an override for pointing the proxy at other infrastructure, not a credential
+    users are meant to set. It still appears when it is one of the blank sources, since a blank
+    override silently costs the user their configured credential.
 
     Args:
         credential: The failed resolution, from :func:`resolve_proxy_credential`.
         attempted: What the caller was trying to do, as a sentence fragment starting with a verb
             -- e.g. ``"run Nano Banana Image Generation"``.
     """
-    reason = MISSING_CREDENTIAL_MESSAGE
+    message = missing_credential_message(attempted)
     if credential.blank_sources:
         names = ", ".join(credential.blank_sources)
         if len(credential.blank_sources) == 1:
-            reason += f" {names} is set to a blank value, which does not count as configured."
+            message += f" {names} is set to a blank value, which does not count as configured."
         else:
-            reason += f" {names} are set to blank values, which do not count as configured."
-    return f"Attempted to {attempted}. Failed because {reason}"
+            message += f" {names} are set to blank values, which do not count as configured."
+    return message
 
 
 def _read_secret(secret_name: str) -> str | None:
