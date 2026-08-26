@@ -20,6 +20,7 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key, resolve_proxy_base
 from griptape_nodes_library.proxy.proxy_api_key_providers import get_proxy_api_key_provider_config
@@ -85,6 +86,91 @@ def _loop_time() -> float:
     monkeypatching the stdlib `asyncio` module globally.
     """
     return asyncio.get_running_loop().time()
+
+
+# Shortest dropdown value worth treating as the varying part of a model id. A one- or
+# two-character value ("2", "v3") occurs inside ids by coincidence, and substituting over a
+# coincidence manufactures candidate ids the node cannot actually produce.
+MIN_SUBSTITUTABLE_CHOICE_LENGTH = 3
+# The characters that delimit one segment of a model id from the next, in every id this
+# library uses: `topaz-denoise`, `kling:motion-control`, `grok/flux-2-pro`.
+MODEL_ID_SEGMENT_DELIMITERS = "-:/"
+
+
+def _bare_model_id(model_id: str) -> str:
+    """Normalize a model id for comparison: case-folded, unpadded, no leading/trailing slash."""
+    return model_id.strip().lower().strip("/")
+
+
+def _model_ids_match(left: str, right: str) -> bool:
+    """Whether two normalized model ids name the same model.
+
+    Three forms of the same id have to compare equal, because the id the node holds and the id
+    the cloud reports are produced by different layers:
+
+    * exactly equal;
+    * one is a provider-prefixed form of the other (``grok/flux-2-pro`` vs ``flux-2-pro``) —
+      deliberately segment-aligned rather than comparing final path segments, since
+      ``kling/v2-1/master`` and ``wan/v2-2/master`` are different models that share a
+      final ``master``;
+    * one carries an operation suffix the other omits (``grok-imagine-video:generate`` vs
+      ``grok-imagine-video``). The suffix is only dropped from a side that *has* one against a
+      side that does not: dropping it from both would collapse ``kling:motion-control`` and
+      ``kling:video-extend`` — the library's only two colon-bearing ids — onto ``kling`` and
+      make the check a no-op between exactly the two nodes it exists to separate.
+    """
+    if not left or not right:
+        return False
+    if left == right or left.endswith(f"/{right}") or right.endswith(f"/{left}"):
+        return True
+    left_head, _, left_suffix = left.partition(":")
+    right_head, _, right_suffix = right.partition(":")
+    if bool(left_suffix) == bool(right_suffix):
+        return False
+    return _model_ids_match(left_head, right_head)
+
+
+def _model_id_family(model_id: str) -> str:
+    """The part of a model id a node's own dropdown cannot vary: everything but the last segment.
+
+    Used only for nodes that cannot enumerate their model family, and only as a fallback after
+    exact matching and dropdown substitution have both failed. Dropping the final segment is what
+    lets ``topaz-video-slp-2.6`` and ``topaz-video-slp-2.5`` — the same node, one version
+    dropdown apart — compare equal, while keeping ``gemini-omni-flash-preview`` out of
+    ``gemini-3-pro-image``'s family and every cross-provider paste refused. Ids with no
+    delimiter have no family and fall through to exact matching, which is what a single
+    hardcoded id wants anyway.
+    """
+    head, delimiter, _tail = _rpartition_any(model_id, MODEL_ID_SEGMENT_DELIMITERS)
+    return head if delimiter else ""
+
+
+def _contains_whole_segment(model_id: str, candidate: str) -> bool:
+    """Whether ``candidate`` occurs in ``model_id`` bounded by segment delimiters or the ends.
+
+    ``topaz-denoise`` contains the operation ``denoise`` as a whole segment; it does not contain
+    ``enoise``, and ``flux-2-pro`` does not contain ``ro``. Bounding the match is what keeps
+    substitution from splicing a dropdown value into the middle of an unrelated segment.
+    """
+    if not candidate:
+        return False
+    start = model_id.find(candidate)
+    while start != -1:
+        end = start + len(candidate)
+        before_ok = start == 0 or model_id[start - 1] in MODEL_ID_SEGMENT_DELIMITERS
+        after_ok = end == len(model_id) or model_id[end] in MODEL_ID_SEGMENT_DELIMITERS
+        if before_ok and after_ok:
+            return True
+        start = model_id.find(candidate, start + 1)
+    return False
+
+
+def _rpartition_any(value: str, delimiters: str) -> tuple[str, str, str]:
+    """``str.rpartition`` against whichever of ``delimiters`` occurs last in ``value``."""
+    index = max((value.rfind(delimiter) for delimiter in delimiters), default=-1)
+    if index < 0:
+        return "", "", value
+    return value[:index], value[index], value[index + 1 :]
 
 
 class GriptapeProxyNode(SuccessFailureNode, ABC):
@@ -1473,6 +1559,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         payload, so letting it win over the authoritative field would feed a display name into
         the comparison and manufacture a mismatch.
 
+        Ordering is not enough on its own, though — the fallback keys exist precisely for
+        deployments that send no ``model_id``, and on those the label is all that is left. So a
+        value that cannot be an API id at all is treated as naming no model rather than as
+        naming a foreign one: ``TopazImageEnhance`` sends ``"model": "Standard V2"`` and
+        ``TopazVideoUpscale`` sends ``"Starlight Precise 2.6"``, and refusing on an echo of
+        either would block recovery of the user's own generation.
+
         Args:
             status_json: The JSON response from the generation status endpoint.
 
@@ -1483,7 +1576,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             value = status_json.get(key)
             if isinstance(value, dict):
                 value = value.get("model_id") or value.get("id") or value.get("name")
-            if value and isinstance(value, str):
+            if value and isinstance(value, str) and not any(char.isspace() for char in value):
                 return value
         return ""
 
@@ -1514,16 +1607,78 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 catalog ids where those can be resolved.
         """
         candidates: set[str] = set()
+
+        def offer(value: Any) -> None:
+            # Guards the *return* of every source, not just the call: the annotations promise
+            # `str` but nothing enforces them, and a `None` reaching the comparison would raise
+            # inside `_refresh_model_mismatch` — on the refresh worker thread, where it surfaces
+            # as no status at all rather than as a message the user can act on.
+            if isinstance(value, str) and value.strip():
+                candidates.add(value.strip())
+
         for get_id in (self._get_api_model_id, self._get_catalog_model_id):
             with suppress(Exception):
-                candidates.add(get_id())
+                offer(get_id())
         if self._model_access is not None:
             with suppress(Exception):
-                candidates.update(
-                    choice for choice in self._model_access.model_choices if isinstance(choice, str) and choice
-                )
-        candidates.discard("")
+                for choice in self._model_access.model_choices:
+                    offer(choice)
+        with suppress(Exception):
+            for model_id in self._dropdown_derived_model_ids():
+                offer(model_id)
         return candidates
+
+    def _dropdown_derived_model_ids(self) -> set[str]:
+        """Every API model id this node's own dropdowns could produce, by substitution.
+
+        Some subclasses build their API id by interpolating a dropdown value
+        (``TopazImageEnhance`` returns ``f"topaz-{operation}"`` over nine operations) and have no
+        ``ModelAccessComponent`` to enumerate, so ``_supported_model_ids`` would otherwise
+        collapse to whatever the dropdown names *right now* — the exact basis the adoption check
+        is documented not to use. Submit with ``enhance``, time out, move the dropdown, and your
+        own billed generation becomes unrecoverable.
+
+        Recovering the set by substitution is what lets the family fallback in
+        :meth:`_refresh_model_mismatch` stay narrow. The alternative — widening that fallback far
+        enough to cover nine operations, three of them hyphenated — also widened it for the nine
+        single-hardcoded-id subclasses that gain nothing from it, and started accepting
+        ``gemini-3-pro-image`` results on a ``gemini-omni-flash-preview`` node.
+
+        Deliberately conservative, because a wrong candidate loosens the guard: a choice only
+        substitutes when the node's *current* value for that dropdown appears in the current API
+        id as a whole segment, and short values are skipped, so a coincidental match
+        (``aspect_ratio`` of ``"2"`` inside ``flux-2-pro``) does not manufacture ids the node
+        cannot produce.
+
+        Returns:
+            set[str]: API ids reachable by moving one dropdown, empty when the id is not
+                dropdown-derived.
+        """
+        current = self._get_api_model_id()
+        if not current:
+            return set()
+
+        derived: set[str] = set()
+        for parameter in self.parameters:
+            options = parameter.find_elements_by_type(Options)
+            if not options:
+                continue
+            selected = self.get_parameter_value(parameter.name)
+            if not isinstance(selected, str) or len(selected) < MIN_SUBSTITUTABLE_CHOICE_LENGTH:
+                continue
+            # Only a dropdown whose value is *part* of the id is a template. When the value is the
+            # whole id the node is not interpolating anything — the dropdown already enumerates
+            # every model, `model_choices` already contributes them, and substituting would just
+            # re-add the choice list, which for a model dropdown also carries display labels
+            # (`FLUX.2 [pro]`) and catalog keys (`gtc_flux_2_pro`) alongside the provider ids.
+            if selected == current or not _contains_whole_segment(current, selected):
+                continue
+            for trait in options:
+                for choice in trait.choices:
+                    if isinstance(choice, str) and choice and not any(char.isspace() for char in choice):
+                        derived.add(current.replace(selected, choice))
+        derived.discard(current)
+        return derived
 
     def _refresh_model_mismatch(self, status_json: dict[str, Any]) -> str | None:
         """Check that an adopted generation is one this node can actually interpret.
@@ -1538,7 +1693,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         * fail open when the response names no model;
         * compare against :meth:`_supported_model_ids`, the node's whole model family,
           rather than just its current selection;
-        * for nodes that cannot enumerate that family, compare only the leading id segment.
+        * for nodes that cannot enumerate that family, ignore the final id segment.
 
         Args:
             status_json: The JSON response from the generation status endpoint.
@@ -1546,71 +1701,56 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Returns:
             str | None: An error message if the models definitely disagree, else None.
         """
-
-        def bare(model_id: str) -> str:
-            # Drop any operation suffix (`grok-imagine-video:generate`).
-            return model_id.strip().lower().split(":", 1)[0].strip("/")
-
-        def matches(left: str, right: str) -> bool:
-            # Equal bare ids, or one is a provider-prefixed form of the other
-            # (`grok/flux-2-pro` vs `flux-2-pro`). Deliberately segment-aligned rather than
-            # comparing last segments: `kling/v2-1/master` and `wan/v2-2/master` are
-            # different models that happen to share a final `master`.
-            if not left or not right:
-                return False
-            return left == right or left.endswith(f"/{right}") or right.endswith(f"/{left}")
-
-        def family(bare_id: str) -> str:
-            # The leading `-` segment, which is the provider/family part a dropdown never
-            # varies. Anything narrower does not survive contact with the real dropdowns:
-            # `TopazImageEnhance` offers nine operations, three of which are themselves
-            # hyphenated (`enhance-generative`), so dropping only the *final* segment leaves
-            # `topaz-enhance-generative` in family `topaz-enhance` and `topaz-denoise` in family
-            # `topaz` — still refusing 42 of the 81 dropdown pairs. Ids with no `-` fall through
-            # to exact matching, which is what a single hardcoded id wants anyway.
-            return bare_id.partition("-")[0]
-
         reported = self._extract_generation_model_id(status_json)
         if not reported:
             return None
 
-        expected = self._supported_model_ids()
+        expected = {_bare_model_id(candidate) for candidate in self._supported_model_ids()} - {""}
         if not expected:
             return None
 
-        reported_bare = bare(reported)
-        if any(matches(reported_bare, bare(candidate)) for candidate in expected):
+        reported_bare = _bare_model_id(reported)
+        if any(_model_ids_match(reported_bare, candidate) for candidate in expected):
             return None
 
-        # A node with no `ModelAccessComponent` cannot enumerate its family at all:
-        # `_supported_model_ids` collapses to whatever the dropdown names *right now*, which is
-        # exactly the basis this check is documented not to use. Both such nodes build their API
-        # id by substituting a dropdown value into an id whose leading segment is fixed
-        # (`topaz-{operation}`, `topaz-video-slp-{version}`), so comparing on that segment
-        # restores a family comparison without needing the component.
+        # A node with no `ModelAccessComponent` cannot enumerate its declared models, so its
+        # candidate set is only as good as what `_supported_model_ids` could reconstruct. Ignoring
+        # the final segment covers the remaining case that reconstruction cannot: a version
+        # dropdown whose values are *friendly labels* mapped to ids elsewhere
+        # (`"Starlight Precise 2.6"` -> `topaz-video-slp-2.6`), where there is no substring to
+        # substitute. `topaz-video-slp-2.5` and `topaz-video-slp-2.6` are one such dropdown apart.
         #
-        # This deliberately accepts more than it has to: a Topaz *video* id now passes on a Topaz
-        # *image* node. No rule over the id string alone can do better — `topaz-video-slp-2.6`
-        # and `topaz-enhance-generative` are equidistant from `topaz-denoise`, and the
-        # information that separates them is not in the id. Given that, the trade is the one this
-        # whole check is documented around: a false accept surfaces as `_parse_result` reporting
-        # no usable payload, while a false refusal blocks the only route by which a binary result
-        # can be recovered and points the user at a node type that does not exist. Cross-provider
-        # pastes — the actual footgun — are still refused.
+        # Kept to one segment because the widening is not free: every id in a family shares a
+        # prefix, so a rule that drops more starts accepting foreign models
+        # (`gemini-3-pro-image` on a `gemini-omni-flash-preview` node) for the nine subclasses
+        # here whose id is a single hardcoded string and which gain nothing from any widening at
+        # all. Cross-provider pastes — the actual footgun — are refused under either rule.
         if self._model_access is None:
-            reported_family = family(reported_bare)
-            if reported_family and any(reported_family == family(bare(candidate)) for candidate in expected):
+            reported_family = _model_id_family(reported_bare)
+            if reported_family and any(reported_family == _model_id_family(candidate) for candidate in expected):
                 return None
 
-        # Listed un-`bare()`d: `bare()` truncates at `:`, which would advertise `kling` rather than
-        # the `kling:motion-control` a user could act on.
-        supported = sorted({candidate.strip().lower() for candidate in expected} - {""})
         return (
             f"This generation was produced by model `{reported_bare}`, which this node cannot interpret, "
             f"so refresh was not performed. This node can read results from: "
-            f"{', '.join(f'`{name}`' for name in supported)}. Try a node that runs "
-            f"`{reported_bare}` instead."
+            f"{self._advertised_model_ids(expected)}. Try a node that runs `{reported_bare}` instead."
         )
+
+    def _advertised_model_ids(self, expected: set[str]) -> str:
+        """The model list to name in a refusal, formatted for the message.
+
+        Prefers the dropdown's own choices where there are any, because the point of the message
+        is to name something the user can act on: ``expected`` is a union that also carries
+        catalog ids and URL-path forms the dropdown never shows. Ids are listed with any operation
+        suffix intact for the same reason — advertising `kling` rather than `kling:motion-control`
+        names nothing a user could select.
+        """
+        listed: set[str] = set()
+        if self._model_access is not None:
+            with suppress(Exception):
+                listed = {choice.strip() for choice in self._model_access.model_choices if isinstance(choice, str)}
+        listed = {choice for choice in listed if choice} or expected
+        return ", ".join(f"`{name}`" for name in sorted(listed))
 
     async def _refresh_async(self) -> None:
         """Re-check the generation status and pull the result if it has completed.

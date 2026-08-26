@@ -24,7 +24,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 import griptape_nodes_library
 from griptape_nodes_library.image.flux_2_image_generation import MODEL_OPTIONS, Flux2ImageGeneration
 from griptape_nodes_library.image.flux_image_generation import FluxImageGeneration
-from griptape_nodes_library.image.topaz_image_enhance import TopazImageEnhance
+from griptape_nodes_library.image.topaz_image_enhance import OPERATION_OPTIONS, TopazImageEnhance
 from griptape_nodes_library.proxy import griptape_proxy_node as proxy_module
 from griptape_nodes_library.proxy.griptape_proxy_node import (
     MAX_TIMEOUT_SECONDS,
@@ -35,6 +35,7 @@ from griptape_nodes_library.proxy.griptape_proxy_node import (
     STATUS_TIMED_OUT,
     GriptapeProxyNode,
 )
+from griptape_nodes_library.video.gemini_omni_flash_generation import GeminiOmniFlashGeneration
 
 
 class _Published:
@@ -949,13 +950,139 @@ def test_refresh_does_not_loosen_the_comparison_for_nodes_that_declare_their_mod
     assert node._refresh_model_mismatch({"model_id": "sora-9"}) is None
 
 
+def test_a_display_name_echoed_under_model_is_not_read_as_a_foreign_model() -> None:
+    """`model` carries a friendly label on the two Topaz nodes, and ordering alone cannot save it.
+
+    Consulting `model_id` first only helps when the response *has* one — but the fallback keys
+    exist precisely for deployments that send none, and there the label is all that is left.
+    `TopazImageEnhance` sends `"model": "Standard V2"`, so an echo of it would refuse the user's
+    own generation and name "standard v2" as the node type to try instead. A value that cannot be
+    an API id names no model.
+    """
+    node = TopazImageEnhance(name="Topaz")
+
+    assert node._extract_generation_model_id({"model": "Standard V2"}) == ""
+    assert node._refresh_model_mismatch({"model": "Standard V2"}) is None
+    assert node._extract_generation_model_id({"model": "Starlight Precise 2.6"}) == ""
+
+    # An id under the same key is still read — the rule is "cannot be an id", not "ignore `model`".
+    assert node._extract_generation_model_id({"model": "topaz-denoise"}) == "topaz-denoise"
+    assert node._refresh_model_mismatch({"model": "flux-2-pro"}) is not None
+
+
+@pytest.mark.parametrize(
+    ("left", "right", "same_model"),
+    [
+        # The two colon-bearing ids in the library, one per node, with different result shapes.
+        ("kling:motion-control", "kling:video-extend", False),
+        ("kling:motion-control", "kling:motion-control", True),
+        # An operation suffix the cloud does not echo back still has to match.
+        ("grok-imagine-video:generate", "grok-imagine-video", True),
+        ("ltx-2-pro:text-to-video", "ltx-2-pro", True),
+        # Provider-prefixed forms of the same id.
+        ("grok/flux-2-pro", "flux-2-pro", True),
+        # Different models that share a final path segment.
+        ("kling/v2-1/master", "wan/v2-2/master", False),
+        ("flux-2-pro", "flux-2-max", False),
+    ],
+)
+def test_model_id_matching_treats_an_operation_suffix_as_optional_not_absent(
+    left: str, right: str, *, same_model: bool
+) -> None:
+    """Table-driven because the rule is subtle and one clause of it was a no-op.
+
+    Dropping the suffix from *both* sides collapsed `kling:motion-control` and
+    `kling:video-extend` onto `kling`, so the check passed at its primary comparison for the only
+    two ids the suffix rule exists for — accepting a video-extension generation on a
+    motion-control node, which then hands the result to the wrong `_parse_result`. Asserted on
+    the module-level helper because neither Kling node can be constructed without cloud
+    credentials (both build a `PublicArtifactUrlParameter` in `__init__`).
+    """
+    assert proxy_module._model_ids_match(left, right) is same_model
+    assert proxy_module._model_ids_match(right, left) is same_model
+
+
+@pytest.mark.parametrize(
+    ("reported", "candidate", "same_family"),
+    [
+        # One version dropdown apart on the same node, where the dropdown holds friendly labels
+        # mapped to ids elsewhere, so there is no substring for substitution to work on.
+        ("topaz-video-slp-2.6", "topaz-video-slp-2.5", True),
+        # Same provider, unrelated models — the widening must not reach this far.
+        ("gemini-3-pro-image", "gemini-omni-flash-preview", False),
+        ("topaz-video-slp-2.6", "topaz-denoise", False),
+        ("kling-v3", "kling:motion-control", False),
+    ],
+)
+def test_the_family_fallback_spans_a_version_dropdown_and_no_further(
+    reported: str, candidate: str, *, same_family: bool
+) -> None:
+    """The fallback is the whole reason a node without a dropdown to enumerate can recover at all.
+
+    It is also the loosest rule in the check, and nine of the eleven subclasses that reach it have
+    a single hardcoded id and gain nothing from any widening — so every extra segment it ignores
+    is a false accept charged to them. One segment covers the case substitution cannot.
+    """
+    matched = proxy_module._model_id_family(reported) == proxy_module._model_id_family(candidate)
+    assert matched is same_family
+
+
+def test_a_provider_family_is_not_treated_as_one_model_on_a_real_node() -> None:
+    """The same narrowness, end to end on a node that has no `ModelAccessComponent`.
+
+    `GeminiOmniFlashGeneration` returns a single hardcoded `gemini-omni-flash-preview` and parses
+    a video result; `GoogleImageGeneration` runs `gemini-3-pro-image` and produces an image. A
+    rule that compared only the leading segment put them in one family.
+    """
+    node = GeminiOmniFlashGeneration(name="Gemini")
+    assert node._model_access is None
+
+    assert node._refresh_model_mismatch({"model_id": "gemini-omni-flash-preview"}) is None
+    assert node._refresh_model_mismatch({"model_id": "gemini-3-pro-image"}) is not None
+
+
+def test_substitution_recovers_a_dropdown_derived_family_without_inventing_ids() -> None:
+    """How a node with no component enumerates the family the adoption check compares against.
+
+    `TopazImageEnhance` builds `topaz-{operation}` from a nine-value dropdown, so its candidate
+    set has to be all nine however the dropdown is currently set — otherwise moving it strands
+    the generation. The substitution is bounded to whole segments so it cannot splice a value into
+    an unrelated part of an id.
+    """
+    node = TopazImageEnhance(name="Topaz")
+    node.set_parameter_value("operation", "denoise")
+
+    derived = node._dropdown_derived_model_ids()
+
+    assert derived == {f"topaz-{operation}" for operation in OPERATION_OPTIONS} - {"topaz-denoise"}
+    assert node._supported_model_ids() >= {f"topaz-{operation}" for operation in OPERATION_OPTIONS}
+
+
+def test_substitution_leaves_a_dropdown_that_names_whole_model_ids_alone() -> None:
+    """A model dropdown is not a template, and treating it as one poisons the candidate set.
+
+    `Flux2ImageGeneration`'s dropdown *is* the API id, and its choices also carry display labels
+    (`FLUX.2 [pro]`) and catalog keys (`gtc_flux_2_pro`) so a pasted alias still resolves.
+    Substituting over it replaced the whole id with each of those, advertising twenty "models" the
+    proxy has never heard of in the refusal message.
+    """
+    node = Flux2ImageGeneration(name="Flux2")
+
+    assert node._dropdown_derived_model_ids() == set()
+    assert node._supported_model_ids() == set(MODEL_OPTIONS)
+
+
 def test_the_refusal_names_models_the_user_could_actually_select(monkeypatch: pytest.MonkeyPatch) -> None:
     """The refusal is the whole value of the guard, so what it lists has to be actionable.
 
-    Model ids carry an operation suffix (`kling:motion-control`) that the comparison strips but
-    the message must not: `kling` is not something a user can paste, select, or search for.
+    Two ways the raw candidate set is not actionable, one per branch: it strips nothing, so an
+    operation suffix (`kling:motion-control`) has to survive into the message because `kling`
+    is not something a user can paste, select, or search for; and on a node that has a dropdown
+    it is a union carrying catalog ids and URL-path forms the dropdown never offers, so the
+    dropdown's own choices are what gets named.
     """
     node = _make_node(monkeypatch)
+    node._model_access = None
     node._supported_model_ids = lambda: {"kling:motion-control", "kling:standard"}  # type: ignore[method-assign]
 
     mismatch = node._refresh_model_mismatch({"model_id": "sora-2"})
@@ -963,6 +1090,15 @@ def test_the_refusal_names_models_the_user_could_actually_select(monkeypatch: py
     assert mismatch is not None
     assert "kling:motion-control" in mismatch
     assert "kling:standard" in mismatch
+
+    with_dropdown = _make_node(monkeypatch)
+    with_dropdown._supported_model_ids = lambda: {"flux-2-pro", "flux-2-pro:edit", "internal-catalog-key"}  # type: ignore[method-assign]
+
+    mismatch = with_dropdown._refresh_model_mismatch({"model_id": "sora-2"})
+
+    assert mismatch is not None
+    assert "internal-catalog-key" not in mismatch
+    assert all(f"`{choice}`" in mismatch for choice in MODEL_OPTIONS)
 
 
 def test_supported_model_ids_is_every_declared_model_not_the_permitted_subset() -> None:
