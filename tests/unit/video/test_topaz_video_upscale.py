@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from unittest.mock import patch
 
 import pytest
@@ -164,7 +165,7 @@ def test_odd_source_still_yields_even_output() -> None:
 
 
 def test_output_exceeding_the_hard_cap_raises() -> None:
-    # The cap is now Starlight's alone, so pin the model rather than lean on the default.
+    # The output ceiling belongs to Starlight only, so pin the model explicitly.
     node = _node()
     node.set_parameter_value("model", STARLIGHT_MODEL)
     node.set_parameter_value("resize_mode", ResizeMode.PERCENTAGE)
@@ -297,9 +298,9 @@ async def test_build_payload_omits_filters(monkeypatch: pytest.MonkeyPatch) -> N
 
 @pytest.mark.asyncio
 async def test_starlight_payload_has_only_source_and_output(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The regression lock for the Astra merge: adding a second model family must not
-    # change a single byte of what Starlight sends. Asserting the exact key set (rather
-    # than "filters" not in payload) catches any new top-level key, not just that one.
+    # Starlight sends nothing but source and output. Asserting the exact key set
+    # (rather than `"filters" not in payload`) catches any unexpected top-level key,
+    # not just that one.
     node = _node()
     node.set_parameter_value("video", "{inputs}/clip.mp4")
     _stub_probe(monkeypatch, _metadata())
@@ -436,6 +437,36 @@ async def test_container_derived_from_data_uri_mime_type(monkeypatch: pytest.Mon
     payload = await node._build_payload()
 
     assert payload["source"]["container"] == "mov"
+
+
+@pytest.mark.asyncio
+async def test_extensionless_url_falls_back_to_mp4(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A signed URL that strips the filename gives no container signal at all. Guessing
+    # mp4 keeps such a URL working; only a *recognizable but unsupported* token raises.
+    node = _node()
+    node.set_parameter_value("video", "https://acct.blob.core.windows.net/bucket/rawkey?sig=abc")
+    _stub_probe(monkeypatch, _metadata())
+    _stub_public_url(node, monkeypatch)
+
+    with caplog.at_level(logging.WARNING, logger="griptape_nodes"):
+        payload = await node._build_payload()
+
+    assert payload["source"]["container"] == "mp4"
+    assert "assuming mp4" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_data_uri_without_mime_subtype_falls_back_to_mp4(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _node()
+    node.set_parameter_value("video", "data:;base64,AAAA")
+    _stub_probe(monkeypatch, _metadata())
+    _stub_public_url(node, monkeypatch)
+
+    payload = await node._build_payload()
+
+    assert payload["source"]["container"] == "mp4"
 
 
 @pytest.mark.asyncio

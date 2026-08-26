@@ -94,6 +94,10 @@ CONTAINER_BY_TOKEN: dict[str, str] = {
     "x-matroska": "mkv",
 }
 
+# Assumed when the input carries no extension or MIME subtype at all -- see
+# _derive_container for why that case is not an error.
+DEFAULT_CONTAINER = "mp4"
+
 # Both families bill in two rate tiers, chosen by output pixel *area*, not height. A
 # portrait 1080x1920 output bills as 1080p; 1921x1080 already bills as 4K.
 # https://developer.topazlabs.com/getting-started/model-pricing
@@ -109,10 +113,21 @@ RATE_SPREADS = {
     TopazVideoFamily.ASTRA: "1.67x",
 }
 
-# How the two families compare *to each other* per frame, at the same tier. Griptape
-# Cloud bills Astra 13,000 credits/frame at 1080p against Starlight's 4,992, and 21,667
-# against 10,908 at 4K -- so Astra is the pricier model by 2.6x and 2.0x respectively.
-# (griptape-cloud credits migrations 0087 and 0088.)
+# How the two families compare *to each other* per frame, at the same tier. Topaz meters
+# both in frames-per-credit, and Griptape Cloud turns that into a per-frame credit cost at
+# a flat 1.3x margin (griptape-cloud credits migrations 0087 and 0088):
+#
+#   Astra 2 ("ast-2")           10 / 6 fpc      -> 13,000 / 21,667 credits per frame
+#   Starlight Precise 2.5, 2.6  26.04 / 11.92   ->  4,992 / 10,908
+#
+#   https://developer.topazlabs.com/video-models/astra/astra-2
+#   https://developer.topazlabs.com/video-models/starlight
+#
+# So Astra is the pricier model: 13,000/4,992 = 2.6x at 1080p, 21,667/10,908 = 2.0x at 4K.
+#
+# Careful when re-checking these: the Astra *family* page publishes 7.7 / 4.3 fpc, but
+# those belong to Astra 1 ("slc-1", deprecated), not the "ast-2" this node routes. Reading
+# them as Astra 2's makes the rate card look ~30% too cheap and the margin look near-zero.
 #
 # This is spelled out in the badge because the RATE_SPREADS above are *within* a family
 # and invite exactly the wrong read on their own: Astra's 1.67x is the smaller number
@@ -625,6 +640,13 @@ class TopazVideoUpscale(GriptapeProxyNode):
         the raw parameter value, and calling the same cheap, pure
         ``coerce_media_url_or_data_uri`` helper here keeps this check from being
         silently bypassed by tests that stub ``_probe_source`` wholesale.
+
+        Strict about a wrong answer, lenient about no answer. A recognizable but
+        unsupported token (``.webm``, ``.avi``) raises, because that input really is
+        wrong and failing here costs nothing. A *missing* token -- a raw storage key, a
+        signed URL that strips the filename -- carries no signal either way, so it falls
+        back to ``DEFAULT_CONTAINER`` rather than reject a URL that Topaz would
+        likely have accepted.
         """
         video_url = coerce_media_url_or_data_uri(video_input, kind="video") or ""
         if video_url.startswith("data:"):
@@ -634,11 +656,20 @@ class TopazVideoUpscale(GriptapeProxyNode):
             token = Path(urlsplit(video_url).path).suffix.lstrip(".").lower()
 
         container = CONTAINER_BY_TOKEN.get(token)
-        if container is None:
-            found = token or "no extension"
-            msg = f"{self.name}: Topaz only accepts mp4, mov, or mkv source video, but got {found!r}."
+        if container is not None:
+            return container
+
+        if token:
+            msg = f"{self.name}: Topaz only accepts mp4, mov, or mkv source video, but got {token!r}."
             raise ValueError(msg)
-        return container
+
+        logger.warning(
+            "%s could not determine a container for %s (no extension or MIME subtype); assuming %s.",
+            self.name,
+            video_url,
+            DEFAULT_CONTAINER,
+        )
+        return DEFAULT_CONTAINER
 
     @staticmethod
     def _frame_count(metadata: VideoMetadata) -> int:
