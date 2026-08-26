@@ -714,10 +714,15 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # Both the accepted and the rejected response report the generation's status, and
         # the proxy is authoritative about it — record it so `generation_status` reflects
         # where the work actually ended up rather than the last status polling happened to see.
+        #
+        # Published rather than assigned, because this runs on a cancellation unwind: the node
+        # is not going to resolve, and `parameter_output_values` alone is only flushed when it
+        # does. A cancel that reports COMPLETED is dropped by `_publish_generation_state` like
+        # any other, which is right here too — the node does not hold that result.
         with suppress(Exception):
             reported_status = response.json().get("status")
             if reported_status:
-                self.parameter_output_values["generation_status"] = reported_status
+                self._publish_generation_state(status=reported_status)
 
         # A generation that has already left the queue cannot be cancelled. That is the
         # expected answer whenever the work was picked up quickly, so it is reported as
@@ -755,6 +760,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         about, so each outcome gets its own message. The generation_id is preserved so
         a generation that outlived the cancel can still be recovered via Refresh.
 
+        The ID is *published*, not just assigned. This method's own ALREADY_STARTED and
+        UNKNOWN messages tell the user to click Refresh to retrieve a generation that is
+        still running and still billing — and this runs on a cancellation unwind, where the
+        node never resolves and so `parameter_output_values` is never flushed. Assigning
+        alone would leave the ID nowhere the editor can see it, which is the exact way paid
+        generations were lost before.
+
         Args:
             generation_id: The generation the cancel was requested for
             outcome: What the cancel request achieved
@@ -784,7 +796,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         logger.info("%s: %s", self.name, details)
         self._set_safe_defaults()
-        self.parameter_output_values["generation_id"] = generation_id
+        # After `_set_safe_defaults()`, which blanks the ID — same ordering as every other
+        # recovery path in this class.
+        self._publish_generation_state(generation_id=generation_id)
         self._set_status_results(was_successful=False, result_details=details)
 
     async def _poll_generation_status(self, generation_id: str, headers: dict[str, str]) -> dict[str, Any] | None:
