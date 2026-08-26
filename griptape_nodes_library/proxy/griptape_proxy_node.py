@@ -592,6 +592,14 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         sees ``COMPLETED``. Call this only after ``_parse_result`` has succeeded, so the
         affordance disappears exactly when it stops being needed.
 
+        A node that has reported failure is refused here rather than trusted to the caller.
+        "``_parse_result`` returned" is not the same as "the result is on the node": the most
+        likely post-billing failure in this library — a media download that dies part-way — is
+        *reported*, not raised (see ``_download_and_save``), so both callers would otherwise
+        announce ``COMPLETED`` for a node holding nothing. ``_execution_succeeded`` is the same
+        signal the engine routes control flow on and is only ever written by
+        ``_set_status_results``, so this makes the badge agree with the node's own verdict.
+
         Args:
             generation_id: The cloud generation ID to re-assert alongside the status.
                 ``_parse_result`` runs between the ID being published and this call, and
@@ -601,6 +609,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         if generation_id:
             self._publish_one("generation_id", generation_id)
+        if self._execution_succeeded is False:
+            return
         self._publish_one("generation_status", STATUS_COMPLETED)
 
     def _handle_terminal_status(self, status: str, result_json: dict[str, Any]) -> tuple[bool, dict[str, Any] | None]:
@@ -1176,7 +1186,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         # Parse model-specific result
         try:
-            await self._parse_result(result_json, generation_id)
+            landed = await self._parse_result_onto_node(result_json, generation_id)
         except Exception as e:
             # The handler restores and publishes the ID itself, after its own
             # `_set_safe_defaults()` call and before `_handle_failure_exception` re-raises.
@@ -1185,8 +1195,11 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             return
 
         # Only now is it true that the node has the result, which is what COMPLETED tells
-        # the editor. The ID is re-asserted here because `_parse_result` may have overwritten
-        # it — see `_publish_generation_completed`.
+        # the editor. The ID is re-asserted either way because `_parse_result` may have
+        # overwritten it — see `_publish_generation_completed`.
+        if not landed:
+            self._publish_generation_state(generation_id=generation_id)
+            return
         self._publish_generation_completed(generation_id)
 
     def _on_refresh_clicked(self, _button: Any, _details: Any) -> None:
@@ -1232,6 +1245,32 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             )
         return None
 
+    async def _parse_result_onto_node(self, result_json: dict[str, Any], generation_id: str) -> bool:
+        """Run the subclass's ``_parse_result`` and report whether the result actually landed.
+
+        Subclasses signal a *reported* failure — one they handled and explained rather than
+        raised — by calling ``_set_status_results(was_successful=False)``, which is the only
+        writer of ``_execution_succeeded``. Clearing that verdict first is what makes the return
+        value describe this parse and not a previous run: ``_process_generation`` clears it at the
+        top, but the Refresh path never does, and refresh sets it on nearly every branch.
+
+        A subclass that reports nothing is treated as having succeeded, which is the behaviour
+        every caller had before this seam existed.
+
+        Args:
+            result_json: The result payload to hand to ``_parse_result``.
+            generation_id: The cloud generation ID, passed through unchanged.
+
+        Returns:
+            bool: True when the node holds the result, False when the subclass reported failure.
+
+        Raises:
+            Exception: Whatever ``_parse_result`` raises, for the callers' own handlers.
+        """
+        self._execution_succeeded = None
+        await self._parse_result(result_json, generation_id)
+        return self._execution_succeeded is not False
+
     async def _refresh_completed(self, generation_id: str) -> None:
         """Fetch and parse the result onto the node."""
         result_json = await self._fetch_generation_result(generation_id)
@@ -1244,13 +1283,19 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         if "provider_response" in self.parameter_output_values:
             self.parameter_output_values["provider_response"] = result_json
         try:
-            await self._parse_result(result_json, generation_id)
+            landed = await self._parse_result_onto_node(result_json, generation_id)
         except Exception as e:
             self._handle_result_parsing_error(e, generation_id=generation_id)
             self._set_status_results(
                 was_successful=False,
                 result_details=f"Generation `{generation_id}` completed, but parsing the result failed: {e}",
             )
+            return
+        if not landed:
+            # The subclass reported the failure and named the cause (typically a provider URL the
+            # user can still fetch by hand), so leave its message standing rather than overwrite
+            # it with a success line. Re-assert the ID so Refresh stays available.
+            self._publish_generation_state(generation_id=generation_id)
             return
         # The result is on the node now, so COMPLETED is finally true to publish.
         self._publish_generation_completed(generation_id)

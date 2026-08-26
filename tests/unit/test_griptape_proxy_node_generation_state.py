@@ -83,6 +83,15 @@ def _make_node(monkeypatch: pytest.MonkeyPatch, *, real_safe_defaults: bool = Fa
     return node
 
 
+def _returns(value: Any) -> Any:
+    """An async stand-in for a coroutine method that just yields `value`."""
+
+    async def _coroutine(*_args: Any, **_kwargs: Any) -> Any:
+        return value
+
+    return _coroutine
+
+
 def _no_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
     async def noop_sleep(_: float) -> None:
         pass
@@ -256,6 +265,118 @@ def test_publish_generation_completed_reasserts_the_cloud_generation_id(
 
     assert node.parameter_output_values["generation_id"] == "gen-real"
     assert published.ids() == ["gen-real"]
+
+
+@pytest.mark.asyncio
+async def test_the_download_helper_reports_failure_without_raising() -> None:
+    """The premise of the two tests below, pinned separately so they cannot pass vacuously.
+
+    `_download_and_save` is how ~20 subclasses put a result on the node, and a download that
+    dies part-way is the likeliest failure *after* the generation has been billed. It handles
+    that itself: output cleared, `_set_status_results(was_successful=False)`, no exception. So a
+    caller that treats "`_parse_result` returned" as "the result is on the node" is wrong on
+    exactly the path where being wrong costs the user their recovery affordance.
+    """
+    node = Flux2ImageGeneration(name="Flux2")
+
+    async def _explode(_url: str) -> bytes:
+        msg = "connection reset mid-download"
+        raise RuntimeError(msg)
+
+    node._download_bytes_from_url = _explode  # type: ignore[method-assign]
+
+    await node._download_and_save(
+        "https://provider.example/asset.png",
+        "image",
+        lambda value, name: {"value": value, "name": name},
+        media_kind="image",
+    )
+
+    assert node._execution_succeeded is False
+    assert node.parameter_output_values["image"] is None
+
+
+@pytest.mark.asyncio
+async def test_completed_is_withheld_when_the_result_did_not_land(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A reported (not raised) parse failure must not announce COMPLETED.
+
+    The editor stops offering recovery the moment it sees COMPLETED, so publishing it for a node
+    holding no result hides the affordance in the one case it is needed: the generation is billed,
+    the provider URL is still live, and the user has to be able to try again. The ID has to stay
+    published for the same reason.
+    """
+    node = Flux2ImageGeneration(name="Flux2")
+    published = _Published(node)
+
+    async def _parse_result(_result_json: dict[str, Any], _generation_id: str) -> None:
+        # What `_download_and_save` does on a failed download, minus the network.
+        node.parameter_output_values["image"] = None
+        node._set_status_results(was_successful=False, result_details="could not be retrieved")
+
+    node._parse_result = _parse_result  # type: ignore[method-assign]
+    node._fetch_generation_result = _returns({"images": [{"url": "https://provider.example/x.png"}]})  # type: ignore[method-assign]
+    node._submit_and_poll = _returns(("gen-billed", {"status": STATUS_COMPLETED}))  # type: ignore[method-assign]
+    node._validate_api_key = lambda: "fake-key"  # type: ignore[method-assign]
+    node._prepare_user_auth_info = lambda: None  # type: ignore[method-assign]
+
+    await node._process_generation()
+
+    assert STATUS_COMPLETED not in published.statuses()
+    assert node.parameter_output_values.get("generation_status") != STATUS_COMPLETED
+    assert node.parameter_output_values["generation_id"] == "gen-billed"
+    assert published.ids()[-1] == "gen-billed"
+
+
+@pytest.mark.asyncio
+async def test_refresh_does_not_report_success_when_the_result_did_not_land() -> None:
+    """Same failure via Refresh, where the wrong answer was also *stated* to the user.
+
+    `_refresh_completed` overwrote the subclass's verdict with "completed and result was
+    retrieved", so a failed download reported success and lost the provider URL the subclass had
+    just put in `result_details` — the one thing the user could still act on.
+    """
+    node = Flux2ImageGeneration(name="Flux2")
+    published = _Published(node)
+
+    async def _parse_result(_result_json: dict[str, Any], _generation_id: str) -> None:
+        node._set_status_results(
+            was_successful=False,
+            result_details="generation completed upstream but the image could not be retrieved. Provider URL: https://p/x",
+        )
+
+    node._parse_result = _parse_result  # type: ignore[method-assign]
+    node._fetch_generation_result = _returns({"images": [{"url": "https://p/x"}]})  # type: ignore[method-assign]
+
+    await node._refresh_completed("gen-billed")
+
+    assert node._execution_succeeded is False
+    assert "could not be retrieved" in (node.parameter_output_values.get("result_details") or "")
+    assert STATUS_COMPLETED not in published.statuses()
+    assert published.ids()[-1] == "gen-billed"
+
+
+@pytest.mark.asyncio
+async def test_a_previous_runs_verdict_does_not_withhold_completed() -> None:
+    """The gate has to describe *this* parse, or Refresh after any failure never says COMPLETED.
+
+    `_process_generation` clears the verdict at the top, but the Refresh path does not and sets it
+    on nearly every branch — so a node that failed, then recovered via Refresh, would be stuck
+    with the old FALSE and never announce the result it now holds.
+    """
+    node = Flux2ImageGeneration(name="Flux2")
+    published = _Published(node)
+    node._set_status_results(was_successful=False, result_details="an earlier run failed")
+
+    async def _parse_result(_result_json: dict[str, Any], _generation_id: str) -> None:
+        node.parameter_output_values["image"] = {"value": "saved"}
+
+    node._parse_result = _parse_result  # type: ignore[method-assign]
+
+    landed = await node._parse_result_onto_node({"images": []}, "gen-recovered")
+
+    assert landed is True
+    node._publish_generation_completed("gen-recovered")
+    assert published.statuses() == [STATUS_COMPLETED]
 
 
 @pytest.mark.parametrize("failure", ["transport", "http_status"])
