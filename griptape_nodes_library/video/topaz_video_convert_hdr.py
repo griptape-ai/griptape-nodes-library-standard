@@ -113,13 +113,15 @@ def _default_filename(output_format: OutputFormat) -> str:
 # ffprobe's spellings for transfer characteristics and primaries that mean the source
 # is already HDR. Hyperion would still run -- and still bill -- but it would be
 # tone-mapping something that does not need it.
-HDR_TRANSFERS = frozenset({"smpte2084", "arib-std-b67", "smpte428", "bt2020-10", "bt2020-12"})
+HDR_TRANSFERS = frozenset({"smpte2084", "arib-std-b67", "smpte428"})
 HDR_PRIMARIES = frozenset({"bt2020"})
 
-# ffprobe reports progressive footage as "progressive"; anything else here is some
-# flavour of interlacing. Topaz notes that SDR-to-HDR "does not operate well with
-# interlaced footage".
+# ffprobe reports progressive footage as "progressive"; most other values are some
+# flavour of interlacing. "unknown" means ffprobe could not determine the value, not
+# that it detected interlacing, so it is excluded from the guard below. Topaz notes
+# that SDR-to-HDR "does not operate well with interlaced footage".
 PROGRESSIVE_FIELD_ORDER = "progressive"
+UNKNOWN_FIELD_ORDER = "unknown"
 
 COST_BADGE_MESSAGE = (
     "Hyperion is metered **per frame**, not per second.\n\n"
@@ -401,7 +403,7 @@ class TopazVideoConvertHdr(GriptapeProxyNode):
             )
 
         field_order = (color.optional_field_order or "").lower()
-        if field_order and field_order != PROGRESSIVE_FIELD_ORDER:
+        if field_order and field_order not in {PROGRESSIVE_FIELD_ORDER, UNKNOWN_FIELD_ORDER}:
             advisories.append(
                 f"The source reports interlaced field order {field_order!r}. Topaz notes "
                 "that SDR-to-HDR conversion does not operate well on interlaced footage; "
@@ -508,6 +510,10 @@ class TopazVideoConvertHdr(GriptapeProxyNode):
         # validator does not enforce them -- TopazVideoUpscale ships sending only
         # `resolution` -- and guessing an audio disposition for a source whose audio
         # streams we have not probed is the worse risk.
+        # No `filters`: Hyperion accepts no creative controls, and the proxy stamps the
+        # routed model code onto the filters it synthesizes itself. Sending our own
+        # would only risk the "filters[].model must match the requested model"
+        # rejection.
         return {
             "source": source,
             "output": {
@@ -517,10 +523,6 @@ class TopazVideoConvertHdr(GriptapeProxyNode):
                 "container": encoding.container,
             },
         }
-        # No `filters`: Hyperion accepts no creative controls, and the proxy stamps the
-        # routed model code onto the filters it synthesizes itself. Sending our own
-        # would only risk the "filters[].model must match the requested model"
-        # rejection.
 
     # -- result ------------------------------------------------------------
 

@@ -541,8 +541,8 @@ class TopazVideoUpscale(GriptapeProxyNode):
         source_width = metadata.dimensions.width
         source_height = metadata.dimensions.height
 
-        frame_count = self._frame_count(metadata)
-        if frame_count <= 0:
+        source_frame_count = self._frame_count(metadata)
+        if source_frame_count <= 0:
             msg = (
                 f"{self.name} could not determine the frame count of the input video. "
                 "Topaz requires it, and neither nb_frames nor duration x frame rate was "
@@ -551,9 +551,9 @@ class TopazVideoUpscale(GriptapeProxyNode):
             raise ValueError(msg)
 
         max_frames = self._max_frames()
-        if frame_count > max_frames:
+        if source_frame_count > max_frames:
             msg = (
-                f"{self.name}: the input video has {frame_count} frames, over {self._family()}'s "
+                f"{self.name}: the input video has {source_frame_count} frames, over {self._family()}'s "
                 f"{max_frames}-frame limit{self._frame_cap_hint()}. Trim or split the video first."
             )
             raise ValueError(msg)
@@ -569,7 +569,7 @@ class TopazVideoUpscale(GriptapeProxyNode):
 
         source: dict[str, Any] = {
             "container": container,
-            "frameCount": frame_count,
+            "frameCount": source_frame_count,
             "frameRate": metadata.frame_details.frame_rate,
             "resolution": {"width": source_width, "height": source_height},
             # Topaz fetches the video from this URL itself. `provider` is required and
@@ -587,7 +587,7 @@ class TopazVideoUpscale(GriptapeProxyNode):
             self.name,
             source_width,
             source_height,
-            frame_count,
+            source_frame_count,
             output_width,
             output_height,
         )

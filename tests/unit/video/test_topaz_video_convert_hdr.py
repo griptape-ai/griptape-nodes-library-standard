@@ -439,6 +439,23 @@ def test_interlaced_footage_is_flagged() -> None:
     assert "interlaced" in advisories[0]
 
 
+def test_unknown_field_order_is_not_flagged_as_interlaced() -> None:
+    # ffprobe reports "unknown" when it could not determine field order, not when it
+    # detected interlacing -- it must not trip the interlaced advisory.
+    node = _node()
+
+    assert node._source_advisories(_metadata(field_order="unknown")) == []
+
+
+def test_bt2020_bit_depth_transfer_tags_are_not_flagged_as_hdr() -> None:
+    # ffprobe's "bt2020-10"/"bt2020-12" label bit depth on wide-gamut content and use
+    # the same OETF as BT.709 -- they are not HDR transfer characteristics.
+    node = _node()
+
+    assert node._source_advisories(_metadata(color_transfer="bt2020-10")) == []
+    assert node._source_advisories(_metadata(color_transfer="bt2020-12")) == []
+
+
 def test_both_advisories_can_fire_at_once() -> None:
     node = _node()
 
