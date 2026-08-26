@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 from enum import StrEnum
 from typing import Any
 

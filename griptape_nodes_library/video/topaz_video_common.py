@@ -17,6 +17,7 @@ nodes keep thin methods that delegate, which is also what lets a test monkeypatc
 
 from __future__ import annotations
 
+import logging
 import math
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -32,8 +33,11 @@ if TYPE_CHECKING:
 
     from griptape_nodes_library.utils.ffmpeg_utils import VideoMetadata
 
+logger = logging.getLogger("griptape_nodes")
+
 __all__ = [
     "CONTAINER_BY_TOKEN",
+    "DEFAULT_CONTAINER",
     "TIER_1080P_MAX_PIXELS",
     "derive_container",
     "frame_count",
@@ -58,6 +62,10 @@ CONTAINER_BY_TOKEN: dict[str, str] = {
     "matroska": "mkv",
     "x-matroska": "mkv",
 }
+
+# Assumed when the input carries no extension or MIME subtype at all -- see
+# derive_container for why that case is not an error.
+DEFAULT_CONTAINER = "mp4"
 
 # Every per-frame Topaz video model bills in two rate tiers, chosen by output pixel
 # *area*, not height. A portrait 1080x1920 output bills as 1080p; 1921x1080 already
@@ -93,6 +101,13 @@ def derive_container(video_input: Any, *, node_name: str) -> str:
     the raw parameter value, and calling the same cheap, pure
     ``coerce_media_url_or_data_uri`` helper here keeps this check from being
     silently bypassed by tests that stub ``probe_source`` wholesale.
+
+    Strict about a wrong answer, lenient about no answer. A recognizable but
+    unsupported token (``.webm``, ``.avi``) raises, because that input really is
+    wrong and failing here costs nothing. A *missing* token -- a raw storage key, a
+    signed URL that strips the filename -- carries no signal either way, so it falls
+    back to ``DEFAULT_CONTAINER`` rather than reject a URL that Topaz would
+    likely have accepted.
     """
     video_url = coerce_media_url_or_data_uri(video_input, kind="video") or ""
     if video_url.startswith("data:"):
@@ -102,11 +117,20 @@ def derive_container(video_input: Any, *, node_name: str) -> str:
         token = Path(urlsplit(video_url).path).suffix.lstrip(".").lower()
 
     container = CONTAINER_BY_TOKEN.get(token)
-    if container is None:
-        found = token or "no extension"
-        msg = f"{node_name}: Topaz only accepts mp4, mov, or mkv source video, but got {found!r}."
+    if container is not None:
+        return container
+
+    if token:
+        msg = f"{node_name}: Topaz only accepts mp4, mov, or mkv source video, but got {token!r}."
         raise ValueError(msg)
-    return container
+
+    logger.warning(
+        "%s could not determine a container for %s (no extension or MIME subtype); assuming %s.",
+        node_name,
+        video_url,
+        DEFAULT_CONTAINER,
+    )
+    return DEFAULT_CONTAINER
 
 
 def frame_count(metadata: VideoMetadata) -> int:
