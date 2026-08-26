@@ -43,7 +43,7 @@ DEFAULT_MODEL = "Starlight Precise 2.6"
 class TopazVideoFamily(StrEnum):
     """Which Topaz video model family a selection belongs to.
 
-    The frame cap, the creative controls and the 4K rate spread are all properties of
+    The frame cap, the creative controls and the output ceiling are all properties of
     the family rather than of the individual version. The values are the display
     spelling so they interpolate straight into badge and error prose.
     """
@@ -98,42 +98,9 @@ CONTAINER_BY_TOKEN: dict[str, str] = {
 # _derive_container for why that case is not an error.
 DEFAULT_CONTAINER = "mp4"
 
-# Both families bill in two rate tiers, chosen by output pixel *area*, not height. A
-# portrait 1080x1920 output bills as 1080p; 1921x1080 already bills as 4K.
-# https://developer.topazlabs.com/getting-started/model-pricing
-TIER_1080P_MAX_PIXELS = 1920 * 1080
-
-# Topaz's documented hard output ceiling for Starlight (distinct from the 1080p/4K
-# billing-tier boundary above): https://docs.topazlabs.com/video-ai/project-starlight
+# Topaz's documented hard output ceiling for Starlight:
+# https://docs.topazlabs.com/video-ai/project-starlight
 STARLIGHT_MAX_OUTPUT_PIXELS = 3840 * 2160
-
-# What the 4K tier costs relative to the 1080p tier, as UI prose.
-RATE_SPREADS = {
-    TopazVideoFamily.STARLIGHT: "2.2x",
-    TopazVideoFamily.ASTRA: "1.67x",
-}
-
-# How the two families compare *to each other* per frame, at the same tier. Topaz meters
-# both in frames-per-credit, and Griptape Cloud turns that into a per-frame credit cost at
-# a flat 1.3x margin (griptape-cloud credits migrations 0087 and 0088):
-#
-#   Astra 2 ("ast-2")           10 / 6 fpc      -> 13,000 / 21,667 credits per frame
-#   Starlight Precise 2.5, 2.6  26.04 / 11.92   ->  4,992 / 10,908
-#
-#   https://developer.topazlabs.com/video-models/astra/astra-2
-#   https://developer.topazlabs.com/video-models/starlight
-#
-# So Astra is the pricier model: 13,000/4,992 = 2.6x at 1080p, 21,667/10,908 = 2.0x at 4K.
-#
-# Careful when re-checking these: the Astra *family* page publishes 7.7 / 4.3 fpc, but
-# those belong to Astra 1 ("slc-1", deprecated), not the "ast-2" this node routes. Reading
-# them as Astra 2's makes the rate card look ~30% too cheap and the margin look near-zero.
-#
-# This is spelled out in the badge because the RATE_SPREADS above are *within* a family
-# and invite exactly the wrong read on their own: Astra's 1.67x is the smaller number
-# but the more expensive model.
-ASTRA_VS_STARLIGHT_1080P = "2.6x"
-ASTRA_VS_STARLIGHT_4K = "2x"
 
 # Topaz publishes a hard output ceiling for Starlight and none for Astra, and the proxy
 # enforces neither -- so Astra maps to None rather than to an invented limit that would
@@ -141,47 +108,6 @@ ASTRA_VS_STARLIGHT_4K = "2x"
 MAX_OUTPUT_PIXELS: dict[TopazVideoFamily, int | None] = {
     TopazVideoFamily.STARLIGHT: STARLIGHT_MAX_OUTPUT_PIXELS,
     TopazVideoFamily.ASTRA: None,
-}
-
-_COST_BADGE_TEMPLATE = (
-    "{family} is metered **per frame**, not per second, and costs far more than "
-    "Topaz's non-generative video models.\n\n"
-    "Two rate tiers, picked by output pixel area:\n"
-    "- **1080p** (up to 1920x1080) — the cheaper tier\n"
-    "- **4K** (anything larger) — roughly **{spread}** the 1080p rate\n\n"
-    "{cross_model}\n\n"
-    "A 10-second 30fps clip is 300 frames whichever tier it lands in.{extra}\n\n"
-    "[Topaz model pricing](https://developer.topazlabs.com/getting-started/model-pricing)"
-)
-
-COST_BADGE_MESSAGES = {
-    TopazVideoFamily.STARLIGHT: _COST_BADGE_TEMPLATE.format(
-        family=TopazVideoFamily.STARLIGHT,
-        spread=RATE_SPREADS[TopazVideoFamily.STARLIGHT],
-        cross_model=(
-            f"Starlight is the cheaper of the two models here: Astra 2 costs about "
-            f"**{ASTRA_VS_STARLIGHT_1080P}** as much per frame at 1080p, and about "
-            f"**{ASTRA_VS_STARLIGHT_4K}** as much at 4K."
-        ),
-        extra="",
-    ),
-    TopazVideoFamily.ASTRA: _COST_BADGE_TEMPLATE.format(
-        family=TopazVideoFamily.ASTRA,
-        spread=RATE_SPREADS[TopazVideoFamily.ASTRA],
-        # The second sentence is doing real work: the 1.67x above is smaller than
-        # Starlight's 2.2x, so quoting it alone reads as "Astra is cheaper" when Astra
-        # is in fact the pricier model on both tiers.
-        cross_model=(
-            f"Astra costs about **{ASTRA_VS_STARLIGHT_1080P} Starlight** per frame at 1080p, and "
-            f"about **{ASTRA_VS_STARLIGHT_4K} Starlight** at 4K. The "
-            f"{RATE_SPREADS[TopazVideoFamily.ASTRA]} above is Astra's own 4K premium, not a "
-            "comparison with Starlight."
-        ),
-        extra=(
-            f"\n\nTopaz caps an Astra job at {MAX_ASTRA_FRAMES:,} frames — or "
-            f"**{MAX_ASTRA_FRAMES_WITH_PROMPT}** once a prompt is set."
-        ),
-    ),
 }
 
 
@@ -197,9 +123,9 @@ class ResizeMode(StrEnum):
 class TopazVideoUpscale(GriptapeProxyNode):
     """Upscale a video with Topaz Starlight Precise or Astra 2 via the Griptape Cloud model proxy.
 
-    Both families share the source probing, the resize modes and the per-frame billing
-    tiers. Astra additionally accepts four creative controls (prompt, creativity, sharp,
-    realism), which are shown only while an Astra model is selected.
+    Both families share the source probing and the resize modes. Astra additionally
+    accepts four creative controls (prompt, creativity, sharp, realism), which are shown
+    only while an Astra model is selected.
 
     Inputs:
         - video (VideoUrlArtifact): source video to upscale (sent as a base64 data URI)
@@ -217,10 +143,7 @@ class TopazVideoUpscale(GriptapeProxyNode):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.category = "video"
-        self.description = (
-            "Upscale a video using Topaz Starlight Precise or Astra 2 via the Griptape model "
-            "proxy. Billed per frame -- see the cost note on the model parameter."
-        )
+        self.description = "Upscale a video using Topaz Starlight Precise or Astra 2 via the Griptape model proxy."
 
         # INPUTS / PROPERTIES
 
@@ -304,7 +227,7 @@ class TopazVideoUpscale(GriptapeProxyNode):
         resize_mode_param = ParameterString(
             name="resize_mode",
             default_value=ResizeMode.PERCENTAGE,
-            tooltip="How to derive the output resolution from the source. Output size selects the billing tier.",
+            tooltip="How to derive the output resolution from the source.",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             traits={Options(choices=[m.value for m in ResizeMode])},
         )
@@ -385,13 +308,12 @@ class TopazVideoUpscale(GriptapeProxyNode):
         )
 
         self.set_initial_node_size(height=400)
-        # All four run here, after every add_parameter: show/hide silently no-ops on a
+        # All three run here, after every add_parameter: show/hide silently no-ops on a
         # name that does not exist yet, so refreshing earlier would leave Astra's
         # controls hidden forever with no error to point at.
         self._update_model_visibility()
-        self._update_cost_badge()
         self._update_prompt_badge()
-        self._update_tier_badge()
+        self._update_limit_badge()
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -444,14 +366,13 @@ class TopazVideoUpscale(GriptapeProxyNode):
         match parameter.name:
             case "model":
                 self._update_model_visibility()
-                self._update_cost_badge()
                 self._update_prompt_badge()
-                self._update_tier_badge()
+                self._update_limit_badge()
             case "resize_mode":
                 self._update_resize_visibility(value)
-                self._update_tier_badge()
+                self._update_limit_badge()
             case "target_size" | "target_width" | "target_height" | "percentage":
-                self._update_tier_badge()
+                self._update_limit_badge()
             case "prompt":
                 self._update_prompt_badge()
             case _:
@@ -482,17 +403,6 @@ class TopazVideoUpscale(GriptapeProxyNode):
             case family:
                 msg = f"Unknown model family: {family!r}"
                 raise ValueError(msg)
-
-    def _update_cost_badge(self) -> None:
-        param = self.get_parameter_by_name("model")
-        if param is None:
-            return
-
-        param.set_badge(
-            variant="warning",
-            title="Billed per frame",
-            message=COST_BADGE_MESSAGES[self._family()],
-        )
 
     def _update_prompt_badge(self) -> None:
         """State Astra's prompt-dependent frame cap while the graph is still being wired.
@@ -525,92 +435,43 @@ class TopazVideoUpscale(GriptapeProxyNode):
                 ),
             )
 
-    def _update_tier_badge(self) -> None:
-        """Show which billing tier the current settings land in.
+    def _update_limit_badge(self) -> None:
+        """Warn when the requested output exceeds the family's hard pixel ceiling.
 
-        For width-and-height and percentage modes the tier is exact -- it depends only
-        on numbers already on the node. For width/height-only modes it depends on the
-        source's aspect ratio, which is not known until the node runs, so say what to
-        watch out for instead of guessing.
+        Only width-and-height mode can be checked here: it is the one mode whose output
+        pixel count follows from numbers already on the node. The other modes scale off
+        the source, which is not probed until the node runs, and ``_resolve_output_size``
+        is the authority that catches them.
         """
         param = self.get_parameter_by_name("resize_mode")
         if param is None:
             return
 
-        mode = self.get_parameter_value("resize_mode") or ResizeMode.PERCENTAGE
         family = self._family()
-        spread = RATE_SPREADS[family]
         max_pixels = MAX_OUTPUT_PIXELS[family]
+        mode = self.get_parameter_value("resize_mode") or ResizeMode.PERCENTAGE
+        width = self.get_parameter_value("target_width") or 0
+        height = self.get_parameter_value("target_height") or 0
 
-        match mode:
-            case ResizeMode.WIDTH | ResizeMode.HEIGHT:
-                param.set_badge(
-                    variant="note",
-                    title="Billing tier depends on the source",
-                    message=(
-                        "The other dimension scales to preserve the source's aspect ratio, so the "
-                        "output pixel count -- and which billing tier it lands in -- isn't known "
-                        "until the node runs."
-                    ),
-                )
-            case ResizeMode.WIDTH_HEIGHT:
-                width = self.get_parameter_value("target_width") or 0
-                height = self.get_parameter_value("target_height") or 0
-                if width <= 0 or height <= 0:
-                    param.clear_badge()
-                    return
+        # `mode` arrives from the UI as a plain string, so compare by value, not identity.
+        if mode != ResizeMode.WIDTH_HEIGHT or max_pixels is None or width <= 0 or height <= 0:
+            param.clear_badge()
+            return
 
-                pixels = width * height
-                if max_pixels is not None and pixels > max_pixels:
-                    param.set_badge(
-                        variant="error",
-                        title="Exceeds Topaz's output limit",
-                        message=(
-                            f"{width}x{height} is {pixels:,} pixels, over {family}'s "
-                            f"{max_pixels:,}-pixel (3840x2160) hard limit. The node will fail "
-                            "rather than submit this to Topaz."
-                        ),
-                    )
-                elif pixels > TIER_1080P_MAX_PIXELS:
-                    # Astra reaches here with no ceiling of its own, so say so rather
-                    # than let an unusually large request look fully sanctioned.
-                    unbounded = (
-                        ""
-                        if max_pixels is not None
-                        else f" Topaz documents no output ceiling for {family}, so a very large "
-                        "request may still be refused by the provider."
-                    )
-                    param.set_badge(
-                        variant="warning",
-                        title="4K billing tier",
-                        message=(
-                            f"{width}x{height} is {pixels:,} pixels, over the "
-                            f"{TIER_1080P_MAX_PIXELS:,}-pixel 1080p limit. This bills at the 4K "
-                            f"per-frame rate, about {spread} the 1080p rate.{unbounded}"
-                        ),
-                    )
-                else:
-                    param.set_badge(
-                        variant="info",
-                        title="1080p billing tier",
-                        message=f"{width}x{height} is {pixels:,} pixels, within the cheaper 1080p tier.",
-                    )
-            case ResizeMode.PERCENTAGE:
-                percentage = self.get_parameter_value("percentage") or 200
-                multiplier = percentage / 100
-                threshold = math.isqrt(int(TIER_1080P_MAX_PIXELS // (multiplier * multiplier)))
-                param.set_badge(
-                    variant="note",
-                    title="Billing tier depends on the source",
-                    message=(
-                        f"At {percentage}%, any source larger than roughly {threshold}x{threshold} "
-                        f"produces a 4K-tier output (over {TIER_1080P_MAX_PIXELS:,} output pixels), "
-                        f"at about {spread} the 1080p rate."
-                    ),
-                )
-            case _:
-                msg = f"Unknown resize mode: {mode!r}"
-                raise ValueError(msg)
+        pixels = width * height
+        if pixels <= max_pixels:
+            param.clear_badge()
+            return
+
+        param.set_badge(
+            variant="error",
+            title="Exceeds Topaz's output limit",
+            message=(
+                f"{width}x{height} is {pixels:,} pixels, over {family}'s "
+                f"{max_pixels:,}-pixel (3840x2160) hard limit. The node will fail "
+                "rather than submit this to Topaz."
+            ),
+        )
 
     # -- source probing ----------------------------------------------------
 

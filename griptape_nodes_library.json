@@ -2938,7 +2938,7 @@
       "file_path": "griptape_nodes_library/video/topaz_video_upscale.py",
       "metadata": {
         "category": "video",
-        "description": "Upscale a video using Topaz Starlight Precise or Astra 2 generative upscaling via the Griptape model proxy. Billed per frame.",
+        "description": "Upscale a video using Topaz Starlight Precise or Astra 2 generative upscaling via the Griptape model proxy.",
         "display_name": "Topaz Video Upscale",
         "icon": "Sparkles",
         "group": "edit",

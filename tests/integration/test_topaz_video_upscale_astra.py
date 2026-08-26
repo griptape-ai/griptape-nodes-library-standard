@@ -109,10 +109,10 @@ with GriptapeNodes.ContextManager().flow(flow_name):
                 is_output=False,
             )
         )
-    # Astra is metered per frame and the 4K tier costs ~1.67x the 1080p one, so this
-    # run is deliberately the cheapest shape the graph can produce: LTX's smallest
-    # output (1920x1080, 25fps, 6s = 150 frames), upscaled to 1920x1080 so it stays
-    # under the 1080p pixel ceiling. A larger target here would be 4K-tier.
+    # Astra is metered per frame, and Topaz bills a 4K-area output at a higher rate
+    # than a 1080p one, so this run is deliberately the cheapest shape the graph can
+    # produce: LTX's smallest output (1920x1080, 25fps, 6s = 150 frames), upscaled to
+    # 1920x1080 so it stays under the 1080p pixel ceiling.
     #
     # The prompt is what this workflow exists to exercise: `filters` passthrough is
     # the one part of the Astra design that unit tests cannot verify, because it rests

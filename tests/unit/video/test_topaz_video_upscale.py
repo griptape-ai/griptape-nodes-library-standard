@@ -14,14 +14,12 @@ from griptape_nodes_library.utils.ffmpeg_utils import (
 )
 from griptape_nodes_library.video.topaz_video_upscale import (
     ASTRA_FILTER_PARAMS,
-    ASTRA_VS_STARLIGHT_1080P,
     MAX_ASTRA_FRAMES,
     MAX_ASTRA_FRAMES_WITH_PROMPT,
     MAX_STARLIGHT_FRAMES,
     MODEL_FAMILIES,
     MODEL_MAPPING,
     STARLIGHT_MAX_OUTPUT_PIXELS,
-    TIER_1080P_MAX_PIXELS,
     ResizeMode,
     TopazVideoUpscale,
 )
@@ -587,17 +585,15 @@ def test_resize_mode_reveals_the_matching_fields() -> None:
     assert percentage.ui_options.get("hide") is not True
 
 
-def test_model_carries_a_cost_badge() -> None:
-    # Starlight is metered per frame; the issue asks for that to be visible.
+def test_model_carries_no_badge() -> None:
+    # Cost guidance lives outside the node; the model picker states no rates.
     model_param = _node().get_parameter_by_name("model")
     assert model_param is not None
-    badge = model_param.get_badge()
 
-    assert badge is not None
-    assert badge.variant == "warning"
+    assert model_param.get_badge() is None
 
 
-def test_width_and_height_near_4k_warns_about_the_expensive_tier() -> None:
+def test_an_output_within_the_limit_carries_no_badge() -> None:
     node = _node()
     node.set_parameter_value("resize_mode", ResizeMode.WIDTH_HEIGHT)
     node.set_parameter_value("target_width", 3200)
@@ -605,46 +601,8 @@ def test_width_and_height_near_4k_warns_about_the_expensive_tier() -> None:
 
     resize_mode_param = node.get_parameter_by_name("resize_mode")
     assert resize_mode_param is not None
-    badge = resize_mode_param.get_badge()
 
-    assert badge is not None
-    assert badge.variant == "warning"
-    assert "4K" in (badge.title or "")
-
-
-def test_width_and_height_1080p_reports_the_cheaper_tier() -> None:
-    node = _node()
-    node.set_parameter_value("resize_mode", ResizeMode.WIDTH_HEIGHT)
-    node.set_parameter_value("target_width", 1920)
-    node.set_parameter_value("target_height", 1080)
-
-    resize_mode_param = node.get_parameter_by_name("resize_mode")
-    assert resize_mode_param is not None
-    badge = resize_mode_param.get_badge()
-
-    assert badge is not None
-    assert badge.variant == "info"
-
-
-def test_tier_boundary_is_pixel_area_not_height() -> None:
-    # 1080x1920 portrait is the same pixel count as 1920x1080, so it stays in the
-    # cheap tier; 1921x1080 crosses it.
-    node = _node()
-    node.set_parameter_value("resize_mode", ResizeMode.WIDTH_HEIGHT)
-    resize_mode_param = node.get_parameter_by_name("resize_mode")
-    assert resize_mode_param is not None
-
-    node.set_parameter_value("target_width", 1080)
-    node.set_parameter_value("target_height", 1920)
-    badge = resize_mode_param.get_badge()
-    assert badge is not None
-    assert badge.variant == "info"
-
-    node.set_parameter_value("target_width", 1922)
-    assert 1922 * 1920 > TIER_1080P_MAX_PIXELS
-    badge = resize_mode_param.get_badge()
-    assert badge is not None
-    assert badge.variant == "warning"
+    assert resize_mode_param.get_badge() is None
 
 
 def test_width_and_height_over_hard_cap_shows_error_badge(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -656,7 +614,7 @@ def test_width_and_height_over_hard_cap_shows_error_badge(monkeypatch: pytest.Mo
     _force_values(node, monkeypatch, target_width=3840, target_height=3840)
 
     assert 3840 * 3840 > STARLIGHT_MAX_OUTPUT_PIXELS
-    node._update_tier_badge()
+    node._update_limit_badge()
     resize_mode_param = node.get_parameter_by_name("resize_mode")
     assert resize_mode_param is not None
     badge = resize_mode_param.get_badge()
@@ -665,30 +623,31 @@ def test_width_and_height_over_hard_cap_shows_error_badge(monkeypatch: pytest.Mo
     assert badge.variant == "error"
 
 
-def test_width_only_shows_a_source_dependent_note_badge() -> None:
+def test_returning_under_the_cap_clears_the_error_badge(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A badge that survives the edit that fixed it is worse than no badge at all.
     node = _node()
-    node.set_parameter_value("resize_mode", ResizeMode.WIDTH)
-    node.set_parameter_value("target_size", 1920)
+    node.set_parameter_value("resize_mode", ResizeMode.WIDTH_HEIGHT)
+    _force_values(node, monkeypatch, target_width=3840, target_height=3840)
+    node._update_limit_badge()
+
+    _force_values(node, monkeypatch, target_width=3840, target_height=2160)
+    node._update_limit_badge()
 
     resize_mode_param = node.get_parameter_by_name("resize_mode")
     assert resize_mode_param is not None
-    badge = resize_mode_param.get_badge()
-
-    assert badge is not None
-    assert badge.variant == "note"
+    assert resize_mode_param.get_badge() is None
 
 
-def test_height_only_shows_a_source_dependent_note_badge() -> None:
+@pytest.mark.parametrize("mode", [ResizeMode.WIDTH, ResizeMode.HEIGHT, ResizeMode.PERCENTAGE])
+def test_source_dependent_modes_carry_no_badge(mode: ResizeMode) -> None:
+    # Their output size follows from the source, which isn't probed until the node
+    # runs, so there is nothing to check against here.
     node = _node()
-    node.set_parameter_value("resize_mode", ResizeMode.HEIGHT)
-    node.set_parameter_value("target_size", 1080)
+    node.set_parameter_value("resize_mode", mode)
 
     resize_mode_param = node.get_parameter_by_name("resize_mode")
     assert resize_mode_param is not None
-    badge = resize_mode_param.get_badge()
-
-    assert badge is not None
-    assert badge.variant == "note"
+    assert resize_mode_param.get_badge() is None
 
 
 # -- Astra: filters ----------------------------------------------------------
@@ -898,63 +857,40 @@ def test_starlight_still_enforces_the_hard_output_cap() -> None:
 # -- Astra: badges -----------------------------------------------------------
 
 
-def _model_badge_message(node: TopazVideoUpscale) -> str:
-    param = node.get_parameter_by_name("model")
-    assert param is not None
-    badge = param.get_badge()
-    assert badge is not None
-    return badge.message or ""
+def test_neither_family_puts_a_badge_on_the_model_picker() -> None:
+    for node in (_node(), _astra_node()):
+        param = node.get_parameter_by_name("model")
+        assert param is not None
+        assert param.get_badge() is None
 
 
-def test_the_cost_badge_names_the_selected_familys_rate_spread() -> None:
-    node = _node()
-    assert "2.2x" in _model_badge_message(node)
-
-    node.set_parameter_value("model", ASTRA_MODEL)
-    assert "1.67x" in _model_badge_message(node)
-
-
-def test_both_cost_badges_compare_the_two_models_to_each_other() -> None:
-    # The within-family spreads invite the wrong read on their own -- Astra's 1.67x is
-    # the smaller number but the pricier model -- so both badges have to state the
-    # cross-model ratio outright.
-    node = _node()
-    assert ASTRA_VS_STARLIGHT_1080P in _model_badge_message(node)
-
-    node.set_parameter_value("model", ASTRA_MODEL)
-    assert ASTRA_VS_STARLIGHT_1080P in _model_badge_message(node)
-
-
-def test_astras_badge_disowns_its_own_spread_as_a_cross_model_figure() -> None:
-    message = _model_badge_message(_astra_node())
-
-    assert "not a comparison with Starlight" in message
-
-
-def test_switching_back_to_starlight_restores_its_cost_badge() -> None:
-    node = _astra_node()
-    node.set_parameter_value("model", STARLIGHT_MODEL)
-
-    message = _model_badge_message(node)
-    assert "2.2x" in message
-    assert "1.67x" not in message
-
-
-def test_astra_over_4k_warns_about_the_tier_without_calling_it_an_error() -> None:
-    # The same shape that gives Starlight a red "exceeds the limit" badge is merely an
-    # expensive-tier warning for Astra, which has no documented ceiling.
+def test_astra_has_no_ceiling_so_an_oversized_output_raises_no_badge(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The shape that gives Starlight a red "exceeds the limit" badge is unremarkable
+    # for Astra, which Topaz publishes no output ceiling for.
     node = _astra_node()
     node.set_parameter_value("resize_mode", ResizeMode.WIDTH_HEIGHT)
-    node.set_parameter_value("target_width", 3840)
-    node.set_parameter_value("target_height", 2160)
+    _force_values(node, monkeypatch, target_width=3840, target_height=3840)
+    node._update_limit_badge()
 
     resize_mode_param = node.get_parameter_by_name("resize_mode")
     assert resize_mode_param is not None
-    badge = resize_mode_param.get_badge()
+    assert resize_mode_param.get_badge() is None
 
-    assert badge is not None
-    assert badge.variant == "warning"
-    assert "no output ceiling" in (badge.message or "")
+
+def test_switching_to_astra_clears_starlights_limit_badge(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The ceiling belongs to the family, so the badge has to follow a model change and
+    # not just a size change.
+    node = _node()
+    node.set_parameter_value("resize_mode", ResizeMode.WIDTH_HEIGHT)
+    _force_values(node, monkeypatch, target_width=3840, target_height=3840)
+    node._update_limit_badge()
+
+    resize_mode_param = node.get_parameter_by_name("resize_mode")
+    assert resize_mode_param is not None
+    assert resize_mode_param.get_badge() is not None
+
+    node.set_parameter_value("model", ASTRA_MODEL)
+    assert resize_mode_param.get_badge() is None
 
 
 def _prompt_badge_variant(node: TopazVideoUpscale) -> str | None:
