@@ -677,7 +677,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             return MAX_TIMEOUT_SECONDS
         return min(seconds, MAX_TIMEOUT_SECONDS)
 
-    def _polling_exhausted(self, attempt: int, max_attempts: int, deadline: float) -> bool:
+    @staticmethod
+    def _polling_exhausted(attempt: int, max_attempts: int, deadline: float) -> bool:
         """Whether polling should stop, by either of its two independent bounds.
 
         Attempt-counting alone does not bound elapsed time: every iteration costs the HTTP
@@ -953,7 +954,11 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             try:
                 self._handle_api_key_validation_error(e)
             finally:
-                self._publish_generation_state(generation_id=generation_id)
+                # Suppressed only in the `finally`: an exception raised from here would replace
+                # the in-flight error the handler is re-raising, so the user would see an
+                # unrelated failure and the flow would route on it.
+                with suppress(Exception):
+                    self._publish_generation_state(generation_id=generation_id)
             return None
 
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -1126,6 +1131,17 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # mid-poll takes the only reference to it with it. Publishing (rather than writing
         # parameter_output_values, which is flushed only at node-resolve) is what makes the
         # ID survive a node that never resolves.
+        #
+        # The status is the one value published here that the cloud did not report: a
+        # just-submitted generation is queued, and the tray needs something to show for the
+        # interval before the first poll can replace it with a reconciled status.
+        #
+        # Retiring any pasted ID happens *here*, against the new ID, not at the top of the run:
+        # a run that fails before this point (denied model, bad payload, submission error) must
+        # leave the user's pasted ID intact, since it is the only pointer they have to the work
+        # they were trying to recover. From this line on the new generation is the one that
+        # needs recovering, so the paste has to go — including when polling later times out.
+        self._retire_adopted_generation_id()
         self._publish_generation_state(generation_id=generation_id, status=STATUS_QUEUED)
 
         # Poll for completion
@@ -1147,7 +1163,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         # Clear execution status at the start. Publish the cleared state too, so a re-run
         # retires the previous generation from the editor's tray instead of leaving a stale
-        # ID that reconciles against work this node no longer represents.
+        # ID that reconciles against work this node no longer represents. Only the *published*
+        # state is cleared here; a pasted ID survives until there is a new one to replace it
+        # with — see `_retire_adopted_generation_id`'s call site in `_submit_and_poll`.
         self._clear_execution_status()
         # A node's cancellation flag is only cleared by BaseNode.clear_node(), which the
         # flow's cancel path does not reach for a node cancelled mid-resolution — so the
@@ -1156,7 +1174,6 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # applies to this run is requested after the run starts and also cancels the
         # asyncio task, which the poll loop's CancelledError path handles.
         self.clear_cancellation()
-        self._retire_adopted_generation_id()
         self._publish_generation_state(generation_id="", status="")
 
         try:

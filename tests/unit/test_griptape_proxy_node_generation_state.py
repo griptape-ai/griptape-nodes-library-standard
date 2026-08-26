@@ -592,8 +592,9 @@ def test_the_api_key_handler_signature_all_subclasses_share() -> None:
     notice. If a future change needs to pass state into the handler, those overrides have to move
     first.
     """
-    base_params = list(inspect.signature(GriptapeProxyNode._handle_api_key_validation_error).parameters)
-    assert base_params == ["self", "e"]
+    base = inspect.signature(GriptapeProxyNode._handle_api_key_validation_error)
+    assert list(base.parameters) == ["self", "e"]
+    assert not inspect.iscoroutinefunction(GriptapeProxyNode._handle_api_key_validation_error)
 
     # Parsed rather than imported: importing all 46 subclasses to read one signature is far more
     # machinery than reading the source, and this also catches a module the test never imports.
@@ -607,12 +608,24 @@ def test_the_api_key_handler_signature_all_subclasses_share() -> None:
             if not isinstance(node, ast.ClassDef):
                 continue
             for item in node.body:
-                if isinstance(item, ast.FunctionDef) and item.name == "_handle_api_key_validation_error":
-                    args = [a.arg for a in item.args.args]
-                    kwonly = [a.arg for a in item.args.kwonlyargs]
-                    assert args == base_params, f"{path.name}:{node.name} takes {args}, base takes {base_params}"
-                    assert not kwonly, f"{path.name}:{node.name} adds keyword-only args the base does not have"
-                    overriders.append(f"{path.name}:{node.name}")
+                # `AsyncFunctionDef` too: the base calls this handler synchronously, so an
+                # override defined with `async def` returns a coroutine nobody awaits and the
+                # failure is never handled at all — the likeliest way this contract breaks next,
+                # and invisible to a check that only walks `FunctionDef`.
+                if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                if item.name != "_handle_api_key_validation_error":
+                    continue
+                where = f"{path.name}:{node.name}"
+                assert isinstance(item, ast.FunctionDef), f"{where} is async; the base calls it synchronously"
+                # Arity and kinds, not names: every call site passes `e` positionally, so a
+                # subclass is free to call it something else. Adding or removing a parameter is
+                # what breaks, and `reportIncompatibleMethodOverride = false` in pyproject.toml
+                # means nothing else in the toolchain would notice.
+                assert len(item.args.args) == len(base.parameters), f"{where} takes {len(item.args.args)} positional"
+                assert not item.args.kwonlyargs, f"{where} adds keyword-only args the base does not have"
+                assert item.args.vararg is None and item.args.kwarg is None, f"{where} adds *args/**kwargs"
+                overriders.append(where)
 
     assert overriders, "expected subclass overrides; if they are all gone, this test can go too"
 
@@ -696,6 +709,57 @@ async def test_submitting_retires_a_previously_pasted_id(monkeypatch: pytest.Mon
     # The paste no longer shadows the node's own work.
     assert node._resolve_refresh_generation_id() == "gen-NEW"
     assert node.parameter_output_values["generation_id"] == "gen-NEW"
+
+
+@pytest.mark.asyncio
+async def test_a_run_that_fails_before_submitting_keeps_the_pasted_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Retiring the paste is only safe once there is a new ID to retire it *for*.
+
+    Retiring at the top of the run destroyed it ahead of key validation, payload build and
+    submission, so a user who pasted an ID to recover paid work and then accidentally ran the
+    node — or ran it with a rotated key — was left with neither ID: the paste was popped and the
+    output value was blanked by the same startup publish.
+    """
+    node = _make_node(monkeypatch)
+    node.set_parameter_value("generation_id", "gen-PASTED")
+
+    def _no_key() -> str:
+        msg = "missing GT_CLOUD_API_KEY"
+        raise ValueError(msg)
+
+    node._validate_api_key = _no_key  # type: ignore[method-assign]
+    node._prepare_user_auth_info = lambda: None  # type: ignore[method-assign]
+    node._handle_api_key_validation_error = lambda _e: None  # type: ignore[method-assign]
+
+    await node._process_generation()
+
+    assert node._resolve_refresh_generation_id() == "gen-PASTED"
+
+
+@pytest.mark.asyncio
+async def test_a_publish_failure_does_not_replace_the_api_key_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ID restore runs in a `finally`, so anything it raises would displace the real error.
+
+    `_handle_api_key_validation_error` ends in `_handle_failure_exception`, which re-raises when
+    the Failed output is unconnected. An exception escaping the `finally` would replace that
+    ValueError with an unrelated one — the user would be told the wrong thing, and the flow would
+    route on the wrong failure.
+    """
+    node = _make_node(monkeypatch, real_safe_defaults=True)
+
+    def _no_key() -> str:
+        msg = "missing GRIPTAPE_API_KEY"
+        raise ValueError(msg)
+
+    def _explode(**_kwargs: Any) -> None:
+        msg = "editor channel is gone"
+        raise RuntimeError(msg)
+
+    node._validate_api_key = _no_key  # type: ignore[method-assign]
+    node._publish_generation_state = _explode  # type: ignore[method-assign]
+
+    with pytest.raises(ValueError, match="missing GRIPTAPE_API_KEY"):
+        await node._fetch_generation_result("gen-keyless")
 
 
 def test_refresh_accepts_another_variant_of_the_same_node_family(monkeypatch: pytest.MonkeyPatch) -> None:
