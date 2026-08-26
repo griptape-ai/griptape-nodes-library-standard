@@ -737,6 +737,45 @@ async def test_a_run_that_fails_before_submitting_keeps_the_pasted_id(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_a_refused_paste_names_the_generation_it_is_shadowing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every refusal path returns without clearing the field, and the field outranks the output.
+
+    So the user who pastes a bad ID onto a node that has already timed out cannot reach their own
+    generation by clicking Refresh again — each click re-reports the refusal, and nothing says the
+    field is what is in the way.
+    """
+    node = _make_node(monkeypatch)
+    captured: list[dict[str, Any]] = []
+    node._set_status_results = lambda **kwargs: captured.append(kwargs)  # type: ignore[method-assign]
+
+    node.parameter_output_values["generation_id"] = "gen-OWN"
+    node.set_parameter_value("generation_id", "https://cloud.griptape.ai/generations/gen-abc")
+
+    await node._refresh_async()
+
+    assert len(captured) == 1
+    assert captured[0]["was_successful"] is False
+    assert "gen-OWN" in captured[0]["result_details"]
+    assert "Clear the `generation_id` field" in captured[0]["result_details"]
+
+
+@pytest.mark.asyncio
+async def test_a_refusal_says_nothing_about_shadowing_when_there_is_nothing_to_shadow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The note is only true when the node has an ID of its own that the paste is hiding."""
+    node = _make_node(monkeypatch)
+    captured: list[dict[str, Any]] = []
+    node._set_status_results = lambda **kwargs: captured.append(kwargs)  # type: ignore[method-assign]
+
+    node.set_parameter_value("generation_id", "gen abc")
+
+    await node._refresh_async()
+
+    assert "Clear the `generation_id` field" not in captured[0]["result_details"]
+
+
+@pytest.mark.asyncio
 async def test_a_publish_failure_does_not_replace_the_api_key_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """The ID restore runs in a `finally`, so anything it raises would displace the real error.
 

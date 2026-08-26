@@ -1395,6 +1395,29 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 return str(pasted).strip()
         return (self.parameter_output_values.get("generation_id") or "").strip()
 
+    def _with_shadowing_note(self, refusal: str) -> str:
+        """Add a way out when a refused paste is hiding a generation this node submitted.
+
+        Every refusal path returns without clearing the pasted value, and the paste outranks the
+        node's own ``generation_id`` — so a user who pasted a malformed or foreign ID onto a node
+        that has since timed out cannot reach their own generation by clicking Refresh again, and
+        nothing in the message says why. Naming the shadowed ID makes the field's precedence
+        visible at the moment it starts costing something.
+
+        Args:
+            refusal: The refusal message to extend.
+
+        Returns:
+            str: The message, with a note appended when a different ID is being shadowed.
+        """
+        own = (self.parameter_output_values.get("generation_id") or "").strip()
+        if not own or own == self._resolve_refresh_generation_id():
+            return refusal
+        return (
+            f"{refusal} Clear the `generation_id` field to refresh the generation this node "
+            f"submitted (`{own}`) instead."
+        )
+
     @staticmethod
     def _unusable_generation_id_reason(generation_id: str) -> str | None:
         """Reject a pasted value that would not address a generation, before it reaches a URL.
@@ -1612,7 +1635,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         unusable = self._unusable_generation_id_reason(generation_id)
         if unusable is not None:
-            self._set_status_results(was_successful=False, result_details=unusable)
+            self._set_status_results(was_successful=False, result_details=self._with_shadowing_note(unusable))
             return
 
         try:
@@ -1628,7 +1651,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         mismatch = self._refresh_model_mismatch(status_json)
         if mismatch is not None:
-            self._set_status_results(was_successful=False, result_details=mismatch)
+            self._set_status_results(was_successful=False, result_details=self._with_shadowing_note(mismatch))
             return
 
         reported_status = self._reported_status(status_json)
