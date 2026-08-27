@@ -489,10 +489,15 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
 
         available_resolutions = list(_get_model_capabilities(model_id).resolutions)
 
-        existing_traits = resolution_param.find_elements_by_type(Options)
-        if existing_traits:
-            resolution_param.remove_trait(trait_type=existing_traits[0])
-        resolution_param.add_trait(Options(choices=available_resolutions))
+        options_traits = resolution_param.find_elements_by_type(Options)
+        if not options_traits:
+            return
+        options_traits[0].choices = available_resolutions
+        # A saved workflow replays ui_options into the parameter's stored dict on load, where
+        # "simple_dropdown" shadows the trait's choices. Writing the key through ui_options keeps
+        # the stored copy in sync (and notifies the UI); updating the trait alone leaves the
+        # dropdown stuck at the save-time choices after a reload.
+        resolution_param.update_ui_options_key("simple_dropdown", available_resolutions)
 
         current_resolution = self.get_parameter_value("resolution")
         if current_resolution not in available_resolutions:

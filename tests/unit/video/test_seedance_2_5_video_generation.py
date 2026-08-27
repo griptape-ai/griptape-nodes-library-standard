@@ -198,6 +198,24 @@ def test_switching_task_coerces_out_of_range_ratio_and_duration() -> None:
     assert node.get_parameter_value("duration") == SMART_DURATION
 
 
+def test_narrowed_choices_recover_after_a_save_reload_cycle() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("task", SeedanceTask.FIRST_LAST_FRAME)
+
+    # A saved workflow replays the merged ui_options into the parameter's stored dict on load,
+    # where "simple_dropdown" shadows whatever choices the trait carries afterwards. Reproduce
+    # that stored state, then widen the choices by switching back to an unconstrained task.
+    for parameter_name in ("ratio", "duration"):
+        parameter = _parameter_by_name(node, parameter_name)
+        parameter.ui_options = dict(parameter.ui_options)
+
+    node.set_parameter_value("task", SeedanceTask.TEXT_TO_VIDEO)
+
+    assert _option_choices(node, "ratio") == list(ALL_RATIO_CHOICES)
+    assert _option_choices(node, "duration") == list(ALL_DURATION_CHOICES)
+    assert _parameter_by_name(node, "ratio").ui_options["simple_dropdown"] == list(ALL_RATIO_CHOICES)
+
+
 # --- Resolution ------------------------------------------------------------------------------
 
 
