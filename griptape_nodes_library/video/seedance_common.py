@@ -14,11 +14,13 @@ must tear down), while the stateless helpers are module-level functions.
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import json as _json
 import logging
 from abc import ABC
 from contextlib import suppress
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 
@@ -29,6 +31,7 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
 )
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from PIL import Image, ImageOps
 
 from griptape_nodes_library.assets import (
     ASSET_KIND_AUDIO,
@@ -55,8 +58,11 @@ __all__ = [
     "ASSET_STATUS_DELETED",
     "ASSET_STATUS_FAILED",
     "SEEDANCE_AUDIO_SUBTYPE_ALIASES",
+    "SEEDANCE_MAX_IMAGE_DIMENSION_PX",
     "SeedanceProxyNode",
     "coerce_video_url",
+    "downscale_oversized_image_data_uri",
+    "downscale_oversized_image_file",
     "extract_video_url",
     "normalize_audio_data_uri_subtype",
     "parse_provider_response",
@@ -79,6 +85,12 @@ _ASSET_KIND_ARTIFACT_TYPES = {
     ASSET_KIND_VIDEO: "VideoUrlArtifact",
     ASSET_KIND_AUDIO: "AudioUrlArtifact",
 }
+
+# Seedance accepts input images whose width and height are each within [300, 6000] px (per the
+# BytePlus docs, all models). Only the 2.5 backend enforces the cap -- it rejects the whole task
+# for an oversized image, while the 2.0 backend downscales it silently -- so any image we read
+# locally is downscaled to fit before it is sent, matching what 2.0 already does server-side.
+SEEDANCE_MAX_IMAGE_DIMENSION_PX = 6000
 
 # Seedance only accepts audio data URIs whose subtype is exactly `wav` or `mp3` (per the BytePlus
 # docs). The local File/mimetypes layer emits other subtypes for the same formats (e.g. an .mp3
@@ -110,6 +122,85 @@ def normalize_audio_data_uri_subtype(data_uri: str) -> str:
     if normalized_subtype is None or normalized_subtype == subtype:
         return data_uri
     return f"{prefix}{normalized_subtype};{rest}"
+
+
+class DownscaledImage(NamedTuple):
+    """An image data URI downscaled to the provider's dimension cap, with before/after sizes."""
+
+    data_uri: str
+    original_size: tuple[int, int]
+    new_size: tuple[int, int]
+
+
+def _downscale_decoded_image(decoded_image: Image.Image) -> DownscaledImage | None:
+    """Downscale a decoded image whose width or height exceeds SEEDANCE_MAX_IMAGE_DIMENSION_PX.
+
+    Returns None when the image is within the cap. EXIF orientation is baked in before resizing,
+    because the re-encoded copy no longer carries the original's EXIF and would otherwise render
+    rotated. PNG stays PNG to preserve alpha; every other format re-encodes as JPEG.
+    """
+    original_size = decoded_image.size
+    if max(original_size) <= SEEDANCE_MAX_IMAGE_DIMENSION_PX:
+        return None
+
+    image = ImageOps.exif_transpose(decoded_image)
+    width, height = image.size
+    scale = SEEDANCE_MAX_IMAGE_DIMENSION_PX / max(width, height)
+    new_size = (max(1, round(width * scale)), max(1, round(height * scale)))
+    resized = image.resize(new_size, Image.Resampling.LANCZOS)
+
+    buffer = io.BytesIO()
+    if (decoded_image.format or "").upper() == "PNG":
+        resized.save(buffer, format="PNG")
+        mime = "image/png"
+    else:
+        if resized.mode not in ("RGB", "L"):
+            resized = resized.convert("RGB")
+        resized.save(buffer, format="JPEG", quality=92)
+        mime = "image/jpeg"
+
+    encoded_output = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    return DownscaledImage(
+        data_uri=f"data:{mime};base64,{encoded_output}",
+        original_size=original_size,
+        new_size=new_size,
+    )
+
+
+def downscale_oversized_image_data_uri(data_uri: str) -> DownscaledImage | None:
+    """Downscale an image data URI whose width or height exceeds SEEDANCE_MAX_IMAGE_DIMENSION_PX.
+
+    Returns None when no downscale is needed: the image is within the cap, or the payload is not
+    an image data URI, or PIL cannot decode the bytes. The unreadable case must pass through
+    unchanged rather than fail -- Seedance accepts formats PIL has no codec for (HEIC/HEIF), and
+    the provider is the authority on what it can decode.
+    """
+    header, separator, encoded = data_uri.partition(";base64,")
+    if not separator or not header.startswith("data:image/"):
+        return None
+
+    # binascii.Error (a ValueError) for malformed base64; UnidentifiedImageError (an OSError) for
+    # formats PIL cannot decode, e.g. HEIC; OSError for truncated image data.
+    try:
+        raw_bytes = base64.b64decode(encoded)
+        with Image.open(io.BytesIO(raw_bytes)) as decoded_image:
+            return _downscale_decoded_image(decoded_image)
+    except (OSError, ValueError):
+        return None
+
+
+def downscale_oversized_image_file(path: str) -> DownscaledImage | None:
+    """Downscale an image file whose width or height exceeds SEEDANCE_MAX_IMAGE_DIMENSION_PX.
+
+    Returns None when no downscale is needed or the path is not an image PIL can open. Opening
+    reads only the image header, so measuring a file that turns out to be within the cap does not
+    read it into memory.
+    """
+    try:
+        with Image.open(path) as decoded_image:
+            return _downscale_decoded_image(decoded_image)
+    except (OSError, ValueError):
+        return None
 
 
 def coerce_video_url(val: Any) -> str | None:
@@ -241,6 +332,15 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             )
             return None
 
+        # An image over the provider's dimension cap fails no matter how it is delivered, so one
+        # that names a local file is measured (a header read, never a full read into memory) and
+        # downscaled + inlined when oversized, instead of being uploaded at full size. Public URLs
+        # are exempt: they are never read locally, and the provider reports on them itself.
+        if not is_publicly_reachable_url(frame_url):
+            downscaled_uri = self._downscale_local_image_if_oversized(frame_url, label=frame_label)
+            if downscaled_uri:
+                return downscaled_uri
+
         public_url = self._upload_image_to_public_url(frame_url)
         if public_url:
             self._log(f"{self.name} {frame_label} prepared as public URL")
@@ -254,8 +354,49 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         if not data_uri:
             self._log(f"{self.name} {frame_label} failed to load from {frame_url}")
             return None
+
+        # These bytes are already in memory and destined for the request body, so cap them here
+        # too: inputs that carry raw bytes or resolve through engine macros never reach the local
+        # file measure above.
+        downscaled = downscale_oversized_image_data_uri(data_uri)
+        if downscaled is not None:
+            self._log_image_downscale(frame_label, downscaled)
+            return downscaled.data_uri
+
         self._log(f"{self.name} {frame_label} prepared as inline data URI")
         return data_uri
+
+    def _downscale_local_image_if_oversized(self, image_url: str, *, label: str) -> str | None:
+        """Return a downscaled data URI for a local image that exceeds the provider's dimension cap.
+
+        Returns None when the image is within limits, or when the value does not resolve to a file
+        on this machine (a data URI, an engine macro path, a remote URL) -- those cases are capped
+        where their bytes are materialized, or reported on by the provider.
+        """
+        if image_url.startswith("data:"):
+            return None
+
+        if image_url.startswith(("http://", "https://")):
+            local_path = self._local_path_for_static_server_url(image_url)
+        else:
+            local_path = image_url
+        if not local_path:
+            return None
+
+        downscaled = downscale_oversized_image_file(local_path)
+        if downscaled is None:
+            return None
+
+        self._log_image_downscale(label, downscaled)
+        return downscaled.data_uri
+
+    def _log_image_downscale(self, label: str, downscaled: DownscaledImage) -> None:
+        original_w, original_h = downscaled.original_size
+        new_w, new_h = downscaled.new_size
+        self._log(
+            f"{self.name} {label} is {original_w}x{original_h}px, over Seedance's "
+            f"{SEEDANCE_MAX_IMAGE_DIMENSION_PX}px limit; downscaled to {new_w}x{new_h}px"
+        )
 
     def _upload_image_to_public_url(self, image_value: str) -> str | None:
         """Upload an image that names a file and return its public URL, or None to inline it instead.
