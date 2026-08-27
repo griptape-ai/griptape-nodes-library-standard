@@ -7,8 +7,7 @@ API and inspect the response, so this module exposes a small access check that p
 
 These helpers also centralize the proxy base-URL and API-key resolution so that nodes which are
 not ``GriptapeProxyNode`` subclasses (e.g. the human-reference-asset DataNode) can reach the
-proxy without duplicating that logic. Resolution reports what it found at each source, so a
-failure message can name both credentials a user configures (see
+proxy without duplicating that logic. Resolution reports what it found at each source (see
 :func:`missing_proxy_credential_message`).
 """
 
@@ -104,13 +103,10 @@ class ProxyCredential:
     ``value`` is None when no source held a usable credential, and ``source`` names the source
     that supplied it otherwise.
 
-    ``blank_sources`` names the credentials a user configures -- the License and the API key --
-    that held a value which cannot be used as one (empty or whitespace only). It exists because
-    the two states are indistinguishable from ``value`` alone: ``SecretsManager.get_secret``
-    returns on presence rather than truthiness, so a secret registered as ``""`` is a hit that
-    resolves to nothing, and both it and a never-set secret arrive at the call site as a falsy
-    ``value``. A blank secret is reported as present by the config file, the Settings UI, and the
-    DEBUG log, so the failure message is the only place a user can learn it is the problem.
+    ``blank_sources`` names the License or API key secrets that hold a blank (empty or
+    whitespace-only) value rather than being unset. ``SecretsManager.get_secret`` reports
+    presence, not truthiness, so a blank secret and an absent one both resolve to a falsy
+    ``value`` and are otherwise indistinguishable.
 
     ``PROXY_API_KEY_ENV_VAR`` is deliberately absent from ``blank_sources``: it is a debug
     override, and naming it would send a user after a knob they are not meant to set.
@@ -144,10 +140,8 @@ def resolve_proxy_credential(secret_name: str = API_KEY_NAME) -> ProxyCredential
        reach the proxy. When both a License and an API key are configured, the License wins.
     3. The Griptape Cloud API key (``secret_name``, ``GT_CLOUD_API_KEY`` by default).
 
-    A source holding an empty or whitespace-only value is skipped rather than returned: sending
-    it would buy a 401 from Griptape Cloud instead of a message naming the credentials that
-    would actually work. A blank License or API key is recorded in
-    ``ProxyCredential.blank_sources``; a blank debug override is not.
+    An empty or whitespace-only value is treated as absent rather than returned. A blank License
+    or API key is recorded in ``ProxyCredential.blank_sources``; a blank debug override is not.
 
     This does not touch BYOK (bring-your-own-key) provider credentials; those are resolved
     separately and take precedence when present.
@@ -175,12 +169,9 @@ def resolve_proxy_credential(secret_name: str = API_KEY_NAME) -> ProxyCredential
 def missing_proxy_credential_message(credential: ProxyCredential, *, attempted: str) -> str:
     """Build the user-facing message for a proxy call with no usable credential.
 
-    Extends the library-wide :func:`missing_credential_message` with what proxy resolution saw.
-    The shared builder names both credentials a user configures -- the License and the API key --
-    so a License-only user is not sent after an API key they are not meant to have; this adds
-    either of them that is configured but blank. ``GT_CLOUD_PROXY_API_KEY`` never appears, blank
-    or otherwise: it is a debug override for pointing the proxy at other infrastructure, not a
-    credential users are meant to set.
+    Extends :func:`missing_credential_message` with any blank License or API key found during
+    resolution. ``GT_CLOUD_PROXY_API_KEY`` never appears, blank or otherwise: it is a debug
+    override, not a credential users are meant to set.
 
     Args:
         credential: The failed resolution, from :func:`resolve_proxy_credential`.
@@ -197,14 +188,23 @@ def missing_proxy_credential_message(credential: ProxyCredential, *, attempted: 
     return message
 
 
+def _credential_source_label(credential: ProxyCredential) -> str:
+    """Name ``credential.source`` for a user-facing message, without exposing the debug override.
+
+    Mirrors :func:`missing_proxy_credential_message`'s rule: ``PROXY_API_KEY_ENV_VAR`` is a debug
+    override, not a credential users configure, so it is never named.
+    """
+    if credential.source == PROXY_API_KEY_ENV_VAR:
+        return "the configured credential"
+    return credential.source or "the configured credential"
+
+
 def _read_secret(secret_name: str) -> str | None:
     """Return a secret's raw value, None when it is absent or cannot be read.
 
     Absence is routine here — an API-key user has no License and a License-only user has no API
-    key — so ``should_error_on_not_found=False`` keeps an ordinary lookup out of the error log.
-    A SecretsManager failure is also reported as absence: the caller's job is to describe what
-    it found, and letting an unrelated exception escape would replace the credential message
-    with a worse one.
+    key — so ``should_error_on_not_found=False`` keeps an ordinary lookup out of the error log. A
+    SecretsManager failure is also treated as absence rather than propagated.
     """
     try:
         return GriptapeNodes.SecretsManager().get_secret(secret_name, should_error_on_not_found=False)
@@ -294,8 +294,8 @@ def check_provider_asset_access() -> ProviderAssetAccess:
         return ProviderAssetAccess(
             outcome=ProviderAssetAccessOutcome.INDETERMINATE,
             detail=(
-                f"The Griptape Cloud credential from {credential.source} was rejected (HTTP 401). "
-                "Verify that it is valid."
+                f"The Griptape Cloud credential from {_credential_source_label(credential)} was "
+                "rejected (HTTP 401). Verify that it is valid."
             ),
         )
 

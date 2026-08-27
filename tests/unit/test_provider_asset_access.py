@@ -28,8 +28,10 @@ def _stub_credential(monkeypatch: pytest.MonkeyPatch, credential: ProxyCredentia
     monkeypatch.setattr(access_module, "resolve_proxy_credential", lambda *_args, **_kwargs: resolved)
 
 
-def _stub_get(monkeypatch: pytest.MonkeyPatch, response: _FakeResponse) -> None:
-    _stub_credential(monkeypatch)
+def _stub_get(
+    monkeypatch: pytest.MonkeyPatch, response: _FakeResponse, credential: ProxyCredential | None = None
+) -> None:
+    _stub_credential(monkeypatch, credential)
     monkeypatch.setattr(access_module.httpx, "get", lambda *_args, **_kwargs: response)
 
 
@@ -74,6 +76,26 @@ def test_401_is_indeterminate_not_denied(monkeypatch: pytest.MonkeyPatch) -> Non
     result = check_provider_asset_access()
     assert result.outcome is ProviderAssetAccessOutcome.INDETERMINATE
     assert result.is_denied is False
+
+
+def test_401_names_the_api_key_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_get(
+        monkeypatch, _FakeResponse(401, "token_not_valid"), credential=ProxyCredential(value="k", source=API_KEY_NAME)
+    )
+    result = check_provider_asset_access()
+    assert API_KEY_NAME in result.detail
+
+
+def test_401_does_not_name_the_debug_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The debug override must never reach a user-facing message, even when it is the credential
+    # that got rejected.
+    _stub_get(
+        monkeypatch,
+        _FakeResponse(401, "token_not_valid"),
+        credential=ProxyCredential(value="k", source=PROXY_API_KEY_ENV_VAR),
+    )
+    result = check_provider_asset_access()
+    assert PROXY_API_KEY_ENV_VAR not in result.detail
 
 
 @pytest.mark.parametrize("status", [500, 502, 503])
