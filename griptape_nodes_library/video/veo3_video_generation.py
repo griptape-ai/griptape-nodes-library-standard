@@ -35,21 +35,23 @@ __all__ = ["Veo3VideoGeneration"]
 class ModelId(StrEnum):
     VEO_3_1_GENERATE_001 = "veo-3.1-generate-001"
     VEO_3_1_FAST_GENERATE_001 = "veo-3.1-fast-generate-001"
-    VEO_3_0_GENERATE_001 = "veo-3.0-generate-001"
-    VEO_3_0_FAST_GENERATE_001 = "veo-3.0-fast-generate-001"
 
 
-# Migrates values saved before the dropdown stored the provider's own model id: old
-# display labels and catalog keys.
+# Migrates values saved before the dropdown stored the provider's own model id (old
+# display labels and catalog keys), plus Veo 3.0's retired spellings. Google returns
+# 404 for the 3.0 endpoints, so a saved workflow referencing one (by label, catalog
+# key, or provider id) migrates to its 3.1 replacement rather than calling through.
 LEGACY_MODEL_VALUES: dict[str, str] = {
-    "Veo 3.0": ModelId.VEO_3_0_GENERATE_001.value,
-    "Veo 3.0 Fast": ModelId.VEO_3_0_FAST_GENERATE_001.value,
+    "Veo 3.0": ModelId.VEO_3_1_GENERATE_001.value,
+    "Veo 3.0 Fast": ModelId.VEO_3_1_FAST_GENERATE_001.value,
     "Veo 3.1": ModelId.VEO_3_1_GENERATE_001.value,
     "Veo 3.1 Fast": ModelId.VEO_3_1_FAST_GENERATE_001.value,
-    "gtc_veo_3_0": ModelId.VEO_3_0_GENERATE_001.value,
-    "gtc_veo_3_0_fast": ModelId.VEO_3_0_FAST_GENERATE_001.value,
+    "gtc_veo_3_0": ModelId.VEO_3_1_GENERATE_001.value,
+    "gtc_veo_3_0_fast": ModelId.VEO_3_1_FAST_GENERATE_001.value,
     "gtc_veo_3_1": ModelId.VEO_3_1_GENERATE_001.value,
     "gtc_veo_3_1_fast": ModelId.VEO_3_1_FAST_GENERATE_001.value,
+    "veo-3.0-fast-generate-001": ModelId.VEO_3_1_FAST_GENERATE_001.value,
+    "veo-3.0-generate-001": ModelId.VEO_3_1_GENERATE_001.value,
 }
 
 
@@ -58,7 +60,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
 
     Inputs:
         - prompt (str): Text prompt for the video
-        - model_id (str): Provider model (default: Veo 3.1, options: Veo 3.1, Veo 3.1 Fast, Veo 3.0, Veo 3.0 Fast)
+        - model_id (str): Provider model (default: Veo 3.1, options: Veo 3.1, Veo 3.1 Fast)
         - negative_prompt (str): Negative prompt to avoid certain content
         - image (ImageArtifact|ImageUrlArtifact|str): Optional start frame image (supported by all models)
         - last_frame (ImageArtifact|ImageUrlArtifact|str): Optional last frame image (only Veo 3.1 and Veo 3.1 Fast)
@@ -107,8 +109,6 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             model_choices=[
                 ModelId.VEO_3_1_GENERATE_001.value,
                 ModelId.VEO_3_1_FAST_GENERATE_001.value,
-                ModelId.VEO_3_0_GENERATE_001.value,
-                ModelId.VEO_3_0_FAST_GENERATE_001.value,
             ],
             default_model=ModelId.VEO_3_1_GENERATE_001.value,
             deprecated_values=LEGACY_MODEL_VALUES,

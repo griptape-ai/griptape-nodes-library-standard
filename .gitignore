@@ -218,9 +218,11 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Griptape Nodes test-run artifacts: the engine creates a workspace dir at the repo
-# root and drops run metadata + saved outputs next to any executed workflow.
-/GriptapeNodes/
-.griptape-nodes-metadata/
+# Griptape Nodes
+#   Engine runtime artifacts. GriptapeNodes/ is the local workspace directory, and
+#   outputs/ plus .griptape-nodes-metadata/ are written next to any workflow that runs,
+#   so both appear under tests/ and workflows/ as well as inside the workspace.
+GriptapeNodes/
 outputs/
+.griptape-nodes-metadata/
 

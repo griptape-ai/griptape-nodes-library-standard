@@ -29,7 +29,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.84.0",
+    "library_version": "0.85.0",
     "engine_version": "0.97.0",
     "tags": [
       "Griptape",
@@ -197,18 +197,6 @@
                 "display_name": "Veo 3.1 Fast",
                 "family": "Veo",
                 "provider_model_id": "veo-3.1-fast-generate-001",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
-              },
-              "gtc_veo_3_0": {
-                "display_name": "Veo 3.0",
-                "family": "Veo",
-                "provider_model_id": "veo-3.0-generate-001",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
-              },
-              "gtc_veo_3_0_fast": {
-                "display_name": "Veo 3.0 Fast",
-                "family": "Veo",
-                "provider_model_id": "veo-3.0-fast-generate-001",
                 "key_support": "REQUIRES_GRIPTAPE_KEY"
               },
               "gtc_gemini_omni_flash": {
@@ -761,6 +749,12 @@
                 "display_name": "Topaz Starlight Precise 2.6",
                 "family": "Topaz",
                 "provider_model_id": "topaz-video-slp-2.6",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_video_ast_2": {
+                "display_name": "Topaz Astra 2",
+                "family": "Topaz",
+                "provider_model_id": "topaz-video-ast-2",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
@@ -2933,7 +2927,7 @@
       "file_path": "griptape_nodes_library/video/topaz_video_upscale.py",
       "metadata": {
         "category": "video",
-        "description": "Upscale a video using Topaz Starlight Precise generative upscaling via the Griptape model proxy. Billed per frame.",
+        "description": "Upscale a video using Topaz Starlight Precise or Astra 2 generative upscaling via the Griptape model proxy.",
         "display_name": "Topaz Video Upscale",
         "icon": "Sparkles",
         "group": "edit",
@@ -2941,16 +2935,20 @@
           "video",
           "upscale",
           "enhance",
+          "generative",
           "ai",
           "api",
-          "topaz"
+          "topaz",
+          "starlight",
+          "astra"
         ],
         "declarations": [
           {
             "type": "model_usage",
             "model_ids": [
               "gtc_topaz_video_slp_2_5",
-              "gtc_topaz_video_slp_2_6"
+              "gtc_topaz_video_slp_2_6",
+              "gtc_topaz_video_ast_2"
             ]
           }
         ]
@@ -3142,9 +3140,7 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_veo_3_1",
-              "gtc_veo_3_1_fast",
-              "gtc_veo_3_0",
-              "gtc_veo_3_0_fast"
+              "gtc_veo_3_1_fast"
             ]
           }
         ]
@@ -7044,13 +7040,14 @@
       "file_path": "griptape_nodes_library/image/topaz_image_enhance.py",
       "metadata": {
         "category": "image",
-        "description": "Enhance images using Topaz Labs models via Griptape model proxy. Supports enhance, denoise, and sharpen operations.",
+        "description": "Enhance and upscale images using Topaz Labs models via Griptape model proxy. Supports enhance, upscale, denoise, and sharpen operations.",
         "display_name": "Topaz Image Enhance",
         "icon": "Sparkles",
         "group": "edit",
         "tags": [
           "image",
           "enhance",
+          "upscale",
           "ai",
           "api",
           "topaz"
