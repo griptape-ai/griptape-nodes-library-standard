@@ -304,7 +304,7 @@ After migrating a node:
 
 You **DO NOT** need to implement these - they're handled by the base class:
 
-1. **API Key Validation**: `_validate_api_key()` - automatically checks `GT_CLOUD_API_KEY`
+1. **API Key Validation**: `_validate_api_key()` - resolves the Griptape Nodes License or `GT_CLOUD_API_KEY` (see `resolve_proxy_credential`); do not reimplement it per node
 1. **Request Submission**: `_submit_generation()` - POSTs to `/api/proxy/v2/models/{model_id}`
 1. **Status Polling**: `_poll_generation_status()` - polls until COMPLETED/FAILED/ERRORED
 1. **Result Fetching**: Automatically fetches from `/api/proxy/v2/generations/{generation_id}/result`
