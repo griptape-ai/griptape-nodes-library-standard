@@ -29,7 +29,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.84.0",
+    "library_version": "0.85.0",
     "engine_version": "0.97.0",
     "tags": [
       "Griptape",
@@ -7054,13 +7054,14 @@
       "file_path": "griptape_nodes_library/image/topaz_image_enhance.py",
       "metadata": {
         "category": "image",
-        "description": "Enhance images using Topaz Labs models via Griptape model proxy. Supports enhance, denoise, and sharpen operations.",
+        "description": "Enhance and upscale images using Topaz Labs models via Griptape model proxy. Supports enhance, upscale, denoise, and sharpen operations.",
         "display_name": "Topaz Image Enhance",
         "icon": "Sparkles",
         "group": "edit",
         "tags": [
           "image",
           "enhance",
+          "upscale",
           "ai",
           "api",
           "topaz"
