@@ -29,7 +29,7 @@ def _files_defining_validate_api_key() -> set[Path]:
     for path in sorted(LIBRARY_ROOT.rglob("*.py")):
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == "_validate_api_key":
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name == "_validate_api_key":
                 matches.add(path)
     return matches
 
