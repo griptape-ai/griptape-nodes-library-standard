@@ -182,6 +182,23 @@ def test_resolve_falls_through_blank_license_to_api_key(monkeypatch: pytest.Monk
     assert credential.blank_sources == (LICENSE_SECRET_NAME,)
 
 
+def test_resolve_does_not_report_a_blank_proxy_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The override is a debug knob, so a user reading the message must not be sent after it.
+    monkeypatch.setenv(PROXY_API_KEY_ENV_VAR, "  ")
+    _stub_secrets(monkeypatch, {LICENSE_SECRET_NAME: None, API_KEY_NAME: ""})
+    credential = resolve_proxy_credential()
+    assert credential.value is None
+    assert credential.blank_sources == (API_KEY_NAME,)
+
+
+def test_resolve_falls_through_blank_proxy_override_to_license(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(PROXY_API_KEY_ENV_VAR, "")
+    _stub_secrets(monkeypatch, {LICENSE_SECRET_NAME: "the-license", API_KEY_NAME: None})
+    credential = resolve_proxy_credential()
+    assert credential.value == "the-license"
+    assert credential.blank_sources == ()
+
+
 def test_resolve_strips_surrounding_whitespace(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(PROXY_API_KEY_ENV_VAR, raising=False)
     _stub_secrets(monkeypatch, {LICENSE_SECRET_NAME: None, API_KEY_NAME: "  the-api-key\n"})

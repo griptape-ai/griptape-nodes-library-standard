@@ -18,7 +18,7 @@ import logging
 import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 from urllib.parse import urljoin
 
 import httpx
@@ -51,8 +51,9 @@ API_KEY_NAME = "GT_CLOUD_API_KEY"
 # can still reach the proxy. When both are configured we prefer the License.
 LICENSE_SECRET_NAME = "GRIPTAPE_NODES_LICENSE"
 
-# Env var that overrides the credential used for proxy requests only, leaving other engine
-# systems that read GT_CLOUD_API_KEY untouched.
+# Debug override for the credential used for proxy requests only, leaving other engine systems
+# that read GT_CLOUD_API_KEY untouched. For pointing the proxy at other infrastructure, not a
+# credential users configure, so it stays out of user-facing messages.
 PROXY_API_KEY_ENV_VAR = "GT_CLOUD_PROXY_API_KEY"
 
 # Probe asset id used purely to reach the provider-asset handler. It is not expected to exist;
@@ -103,13 +104,16 @@ class ProxyCredential:
     ``value`` is None when no source held a usable credential, and ``source`` names the source
     that supplied it otherwise.
 
-    ``blank_sources`` names sources that held a value that cannot be used as a credential (empty
-    or whitespace only). It exists because the two states are indistinguishable from ``value``
-    alone: ``SecretsManager.get_secret`` returns on presence rather than truthiness, so a secret
-    registered as ``""`` is a hit that resolves to nothing, and both it and a never-set secret
-    arrive at the call site as a falsy ``value``. A blank secret is reported as present by the
-    config file, the Settings UI, and the DEBUG log, so the failure message is the only place a
-    user can learn it is the problem.
+    ``blank_sources`` names the credentials a user configures -- the License and the API key --
+    that held a value which cannot be used as one (empty or whitespace only). It exists because
+    the two states are indistinguishable from ``value`` alone: ``SecretsManager.get_secret``
+    returns on presence rather than truthiness, so a secret registered as ``""`` is a hit that
+    resolves to nothing, and both it and a never-set secret arrive at the call site as a falsy
+    ``value``. A blank secret is reported as present by the config file, the Settings UI, and the
+    DEBUG log, so the failure message is the only place a user can learn it is the problem.
+
+    ``PROXY_API_KEY_ENV_VAR`` is deliberately absent from ``blank_sources``: it is a debug
+    override, and naming it would send a user after a knob they are not meant to set.
     """
 
     value: str | None
@@ -117,13 +121,24 @@ class ProxyCredential:
     blank_sources: tuple[str, ...] = ()
 
 
+class _CredentialSource(NamedTuple):
+    """A source consulted during resolution.
+
+    ``reportable`` gates whether a blank value here may be named in a user-facing message.
+    """
+
+    name: str
+    fetch: Callable[[], str | None]
+    reportable: bool
+
+
 def resolve_proxy_credential(secret_name: str = API_KEY_NAME) -> ProxyCredential:
     """Resolve the credential for proxy requests and report what each source held.
 
     Resolution order, first usable value wins:
 
-    1. ``GT_CLOUD_PROXY_API_KEY`` env var — an explicit override for the proxy credential that
-       does not affect other engine systems using the ``secret_name`` secret.
+    1. ``GT_CLOUD_PROXY_API_KEY`` env var — a debug override for the proxy credential that does
+       not affect other engine systems using the ``secret_name`` secret.
     2. The Griptape Nodes License (``GRIPTAPE_NODES_LICENSE`` secret) — the proxy accepts a
        License as a valid credential, so a License-only user (no ``GT_CLOUD_API_KEY``) can still
        reach the proxy. When both a License and an API key are configured, the License wins.
@@ -131,7 +146,8 @@ def resolve_proxy_credential(secret_name: str = API_KEY_NAME) -> ProxyCredential
 
     A source holding an empty or whitespace-only value is skipped rather than returned: sending
     it would buy a 401 from Griptape Cloud instead of a message naming the credentials that
-    would actually work. Each such source is recorded in ``ProxyCredential.blank_sources``.
+    would actually work. A blank License or API key is recorded in
+    ``ProxyCredential.blank_sources``; a blank debug override is not.
 
     This does not touch BYOK (bring-your-own-key) provider credentials; those are resolved
     separately and take precedence when present.
@@ -139,19 +155,20 @@ def resolve_proxy_credential(secret_name: str = API_KEY_NAME) -> ProxyCredential
     blank_sources: list[str] = []
     # Fetchers stay lazy so a winning source short-circuits the ones below it, mirroring the
     # search order in SecretsManager.get_secret.
-    search_order: tuple[tuple[str, Callable[[], str | None]], ...] = (
-        (PROXY_API_KEY_ENV_VAR, lambda: os.getenv(PROXY_API_KEY_ENV_VAR)),
-        (LICENSE_SECRET_NAME, lambda: _read_secret(LICENSE_SECRET_NAME)),
-        (secret_name, lambda: _read_secret(secret_name)),
+    search_order = (
+        _CredentialSource(PROXY_API_KEY_ENV_VAR, lambda: os.getenv(PROXY_API_KEY_ENV_VAR), reportable=False),
+        _CredentialSource(LICENSE_SECRET_NAME, lambda: _read_secret(LICENSE_SECRET_NAME), reportable=True),
+        _CredentialSource(secret_name, lambda: _read_secret(secret_name), reportable=True),
     )
-    for source, fetch in search_order:
-        raw_value = fetch()
+    for source in search_order:
+        raw_value = source.fetch()
         if raw_value is None:
             continue
         value = raw_value.strip()
         if value:
-            return ProxyCredential(value=value, source=source, blank_sources=tuple(blank_sources))
-        blank_sources.append(source)
+            return ProxyCredential(value=value, source=source.name, blank_sources=tuple(blank_sources))
+        if source.reportable:
+            blank_sources.append(source.name)
     return ProxyCredential(value=None, blank_sources=tuple(blank_sources))
 
 
@@ -160,11 +177,10 @@ def missing_proxy_credential_message(credential: ProxyCredential, *, attempted: 
 
     Extends the library-wide :func:`missing_credential_message` with what proxy resolution saw.
     The shared builder names both credentials a user configures -- the License and the API key --
-    so a License-only user is not sent after an API key they are not meant to have; this adds any
-    source that is configured but blank. ``GT_CLOUD_PROXY_API_KEY`` is deliberately not offered as
-    a remedy: it is an override for pointing the proxy at other infrastructure, not a credential
-    users are meant to set. It still appears when it is one of the blank sources, since a blank
-    override silently costs the user their configured credential.
+    so a License-only user is not sent after an API key they are not meant to have; this adds
+    either of them that is configured but blank. ``GT_CLOUD_PROXY_API_KEY`` never appears, blank
+    or otherwise: it is a debug override for pointing the proxy at other infrastructure, not a
+    credential users are meant to set.
 
     Args:
         credential: The failed resolution, from :func:`resolve_proxy_credential`.
