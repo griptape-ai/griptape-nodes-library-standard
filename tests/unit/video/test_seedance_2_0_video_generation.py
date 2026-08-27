@@ -654,11 +654,12 @@ def test_seedance_2_mini_omits_4k_resolution_choice() -> None:
 def test_resolution_choices_recover_after_a_save_reload_cycle() -> None:
     node = Seedance20VideoGeneration(name="Seedance20")
     node.set_parameter_value("model_id", "Seedance 2.0 Fast")
+    resolution_param = _parameter_by_name(node, "resolution")
+    assert resolution_param.find_elements_by_type(Options)[0].choices == ["480p", "720p"]
 
     # A saved workflow replays the merged ui_options into the parameter's stored dict on load,
     # where "simple_dropdown" shadows whatever choices the trait carries afterwards. Reproduce
     # that stored state, then widen the choices by switching to the model with the full range.
-    resolution_param = _parameter_by_name(node, "resolution")
     resolution_param.ui_options = dict(resolution_param.ui_options)
 
     node.set_parameter_value("model_id", "Seedance 2.0")
