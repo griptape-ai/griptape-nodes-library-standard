@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import pytest
+from griptape_nodes.traits.slider import Slider
 
 from griptape_nodes_library.image.topaz_image_enhance import (
     MAX_OUTPUT_DIMENSION,
+    MAX_PERCENTAGE_SCALE,
+    MIN_PERCENTAGE_SCALE,
     ResizeMode,
     TopazImageEnhance,
 )
@@ -177,6 +180,39 @@ async def test_percentage_below_100_downscales(monkeypatch: pytest.MonkeyPatch) 
 
     assert payload["output_width"] == 500
     assert payload["output_height"] == 250
+
+
+@pytest.mark.asyncio
+async def test_percentage_restores_a_quarter_scale_image(monkeypatch: pytest.MonkeyPatch) -> None:
+    """400% undoes a 25% shrink exactly, which is the comparison workflow this mode exists for."""
+    node = _node()
+    _stub_image(node, monkeypatch)
+    _stub_source_dimensions(monkeypatch, 480, 270)  # a 1920x1080 original shrunk to 25%
+    node.set_parameter_value("resize_mode", ResizeMode.PERCENTAGE)
+    node.set_parameter_value("percentage", 400)
+
+    payload = await node._build_payload()
+
+    assert (payload["output_width"], payload["output_height"]) == (1920, 1080)
+
+
+def test_percentage_exposes_a_slider_over_the_documented_range() -> None:
+    """The slider bound is the control the UI renders; assert the range, not just its presence."""
+    percentage = _node().get_parameter_by_name("percentage")
+    assert percentage is not None
+
+    trait = next(iter(percentage.find_elements_by_type(Slider)))
+
+    assert (trait.min, trait.max) == (MIN_PERCENTAGE_SCALE, MAX_PERCENTAGE_SCALE)
+
+
+@pytest.mark.parametrize("value", [MIN_PERCENTAGE_SCALE - 1, MAX_PERCENTAGE_SCALE + 1])
+def test_percentage_outside_the_slider_range_is_rejected(value: int) -> None:
+    """Slider validates rather than clamping, so an out-of-range percentage surfaces instead of silently becoming 500."""
+    node = _node()
+
+    with pytest.raises(ValueError, match="out of range"):
+        node.set_parameter_value("percentage", value)
 
 
 @pytest.mark.asyncio

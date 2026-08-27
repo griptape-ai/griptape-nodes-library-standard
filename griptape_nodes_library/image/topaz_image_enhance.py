@@ -83,6 +83,12 @@ RESIZE_PARAMS = ("output_width", "output_height", "percentage", "crop_to_fill")
 
 PERCENT_SCALE = 100
 
+# Slider bounds for percentage mode, matching RescaleImage ("Resize Image") so the two
+# nodes feel the same. 500% is well inside Topaz's per-dimension ceiling for any realistic
+# source, and _validated_dimension still enforces MAX_OUTPUT_DIMENSION on the result.
+MIN_PERCENTAGE_SCALE = 1
+MAX_PERCENTAGE_SCALE = 500
+
 ENHANCE_MODELS = {
     "Standard V2": [
         "face_enhancement",
@@ -821,9 +827,14 @@ class TopazImageEnhance(GriptapeProxyNode):
                 ParameterInt(
                     name="percentage",
                     default_value=200,
-                    tooltip="Output size as a percentage of the source image",
+                    tooltip=(
+                        f"Output size as a percentage of the source image "
+                        f"({MIN_PERCENTAGE_SCALE}-{MAX_PERCENTAGE_SCALE}%, 100% = original size)"
+                    ),
                     allow_output=False,
-                    min_val=1,
+                    slider=True,
+                    min_val=MIN_PERCENTAGE_SCALE,
+                    max_val=MAX_PERCENTAGE_SCALE,
                     hide=True,
                 )
             )
