@@ -4,6 +4,7 @@ from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 
@@ -28,6 +29,11 @@ class BaseDriver(DataNode):
             driver = BaseDriver(name="ExampleDriver")
         """
         super().__init__(**kwargs)
+
+        # Set by `_install_model_access` on subclasses whose model parameter is a
+        # license-filtered dropdown; stays None on the ones offering free text or a
+        # dynamically fetched list.
+        self._model_access: ModelAccessComponent | None = None
 
         self.add_parameter(
             Parameter(
@@ -110,6 +116,100 @@ class BaseDriver(DataNode):
     # Internal Helper Methods
     # -----------------------------------------------------------------------------
 
+    def _install_model_access(
+        self,
+        *,
+        model_choices: list[str],
+        default_model: str,
+        param: str = "model",
+        deprecated_values: dict[str, str] | None = None,
+    ) -> None:
+        """Turn the named model parameter into a license-filtered dropdown.
+
+        Stands in for `_update_option_choices` on driver nodes: the component owns
+        the `Options` trait (so the parameter must not already carry one), adds an
+        inline refresh button, marks the models the caller's license denies, and
+        moves the stored value off a denied default. The declared default is still
+        applied here, so the parameter reads the same as it did before adoption.
+
+        Args:
+            model_choices: The provider model ids the node offers, in dropdown order.
+            default_model: The choice to select by default; must be in `model_choices`.
+            param: Name of the parameter to decorate.
+            deprecated_values: Legacy value -> canonical `model_choices` entry map,
+                needed only when the parameter used to store something other than
+                the provider's model id (an old display label, a catalog key).
+        """
+        if default_model not in model_choices:
+            msg = f"Default model '{default_model}' is not one of the offered choices."
+            raise ValueError(msg)
+        parameter = self.get_parameter_by_name(param)
+        if parameter is None:
+            msg = f"Cannot install model access on '{type(self).__name__}': no '{param}' parameter."
+            raise ValueError(msg)
+
+        parameter.default_value = default_model
+        self.set_parameter_value(param, default_model)
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=parameter,
+            model_choices=model_choices,
+            default_model=default_model,
+            deprecated_values=deprecated_values,
+        )
+
+    def _get_selected_model_id(self) -> str:
+        """The provider model id the model dropdown currently stores.
+
+        The dropdown stores the provider's own id for the model, so a driver
+        built from this node's parameters passes the stored value upstream as-is.
+        Reading it through here keeps the parameter's name in one place.
+        """
+        if self._model_access is None:
+            return ""
+        return self._model_access.selected_value or ""
+
+    def _raise_if_model_denied(self) -> None:
+        """Fail closed rather than hand a downstream node a driver the license denies.
+
+        Called at the top of `process` on nodes with a license-filtered dropdown;
+        no-ops on the nodes that never installed one.
+        """
+        if self._model_access is not None:
+            self._model_access.raise_if_selection_denied()
+
+    def _validate_model_selection(self) -> list[Exception] | None:
+        """The license denial for the stored model selection, as a validation failure.
+
+        Returns `None` when the node never installed a license-filtered dropdown,
+        or when its current selection is permitted. Asks the component for the
+        denial rather than catching the one `raise_if_selection_denied` throws, so
+        an unrelated `RuntimeError` from inside the component surfaces as the bug
+        it is instead of being reported as a license denial.
+        """
+        if self._model_access is None:
+            return None
+        denial = self._model_access.selection_denial()
+        if denial is None:
+            return None
+        selection = self._model_access.selected_value
+        return [RuntimeError(f"Cannot run {type(self).__name__}: '{selection}' is not permitted. {denial.reason()}")]
+
+    def validate_before_workflow_run(self) -> list[Exception] | None:
+        """Refuse a model the caller's license denies before the workflow starts.
+
+        Covers the driver nodes that validate nothing else. Nodes that check their
+        own credentials override this and reach the same denial through
+        `_validate_api_key`, which reports it in place of any key error.
+        """
+        return self._validate_model_selection()
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        """Keep the model dropdown's denial badge in step with the selection."""
+        if self._model_access is not None:
+            self._model_access.on_value_set(parameter, value)
+        return super().after_value_set(parameter, value)
+
     def _display_api_key_message(
         self,
         service_name: str,
@@ -183,8 +283,16 @@ class BaseDriver(DataNode):
 
         Returns:
             A list of exceptions (KeyError or ValueError) if validation fails,
-            otherwise None.
+            otherwise None. A model the caller's license denies is reported on its
+            own, in place of any key error.
         """
+        # A denied model is a more fundamental blocker than a missing key: sending
+        # someone off to obtain a key for a model they are not licensed to run wastes
+        # their time. Report the denial and skip the key check entirely.
+        model_denial = self._validate_model_selection()
+        if model_denial is not None:
+            return model_denial
+
         exceptions = []
 
         if resolved_credential is None:

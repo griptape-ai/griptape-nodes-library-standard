@@ -11,6 +11,7 @@ import httpx
 from griptape.artifacts import ImageArtifact
 from griptape.artifacts.image_url_artifact import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -44,25 +45,25 @@ class GoogleImageGeneration(GriptapeProxyNode):
 
     SERVICE_NAME = "Griptape"
     API_KEY_NAME = "GT_CLOUD_API_KEY"
-    DEFAULT_MODEL: ClassVar[str] = "Nano Banana Pro"
-    SUPPORTED_MODELS_TO_API_MODELS: ClassVar[dict[str, str]] = {
-        "Nano Banana Pro": "gemini-3-pro-image",
+    DEFAULT_MODEL: ClassVar[str] = "gemini-3-pro-image"
+    MODEL_OPTIONS: ClassVar[list[str]] = ["gemini-3-pro-image", "gemini-3.1-flash-image"]
+    # Migrates values saved before this dropdown stored the provider's own model id
+    # (friendly labels and catalog keys alike).
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
         "Nano Banana 2": "gemini-3.1-flash-image",
-    }
-    DEPRECATED_MODELS_TO_API_MODELS: ClassVar[dict[str, str]] = {
+        "Nano Banana Pro": "gemini-3-pro-image",
+        "gtc_gemini_3_1_flash_image": "gemini-3.1-flash-image",
+        "gtc_gemini_3_pro_image": "gemini-3-pro-image",
+        # Folded in from this node's own retired DEPRECATED_MODELS_TO_API_MODELS dict.
         "nano-banana-3-pro": "gemini-3-pro-image",
     }
-    ALL_MODELS_TO_API_MODELS: ClassVar[dict[str, str]] = {
-        **SUPPORTED_MODELS_TO_API_MODELS,
-        **DEPRECATED_MODELS_TO_API_MODELS,
-    }
     IMAGE_SIZE_OPTIONS: ClassVar[dict[str, list[str]]] = {
-        "Nano Banana Pro": ["1K", "2K", "4K"],
-        "Nano Banana 2": ["512", "1K", "2K", "4K"],
+        "gemini-3-pro-image": ["1K", "2K", "4K"],
+        "gemini-3.1-flash-image": ["512", "1K", "2K", "4K"],
     }
     ASPECT_RATIO_OPTIONS: ClassVar[dict[str, list[str]]] = {
-        "Nano Banana Pro": ["1:1", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"],
-        "Nano Banana 2": [
+        "gemini-3-pro-image": ["1:1", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"],
+        "gemini-3.1-flash-image": [
             "1:1",
             "1:4",
             "1:8",
@@ -86,21 +87,24 @@ class GoogleImageGeneration(GriptapeProxyNode):
         self.description = "Generate images using Google Gemini models via Griptape Cloud model proxy"
 
         # Model ID
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value=self.DEFAULT_MODEL,
-                tooltip="Model id to call via proxy",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={
-                    "display_name": "Model",
-                },
-                traits={
-                    Options(
-                        choices=list(self.SUPPORTED_MODELS_TO_API_MODELS.keys()),
-                    )
-                },
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value=self.DEFAULT_MODEL,
+            tooltip="Model id to call via proxy",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={
+                "display_name": "Model",
+            },
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=self.MODEL_OPTIONS,
+            default_model=self.DEFAULT_MODEL,
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
         # Prompt
@@ -300,7 +304,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
             self._update_option_choices("aspect_ratio", new_ratios, default_ratio)
 
             # Show Google Image Search only for Nano Banana 2
-            if value == "Nano Banana 2":
+            if value == "gemini-3.1-flash-image":
                 self.show_parameter_by_name("use_google_image_search")
             else:
                 self.hide_parameter_by_name("use_google_image_search")
@@ -379,7 +383,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
                 parts.append({"inlineData": {"mimeType": mime_type, "data": image_data}})
 
         payload = {
-            "model": self.ALL_MODELS_TO_API_MODELS.get(self.get_parameter_value("model")),
+            "model": self._get_selected_model_id(),
             "contents": [{"parts": parts}],
             "generationConfig": {
                 "responseModalities": ["TEXT", "IMAGE"],
@@ -399,10 +403,6 @@ class GoogleImageGeneration(GriptapeProxyNode):
             payload["tools"] = [{"google_search": {}}]
 
         return payload
-
-    def _get_api_model_id(self) -> str:
-        model = self.get_parameter_value("model")
-        return self.ALL_MODELS_TO_API_MODELS.get(model) or ""
 
     async def _build_payload(self) -> dict[str, Any]:
         return await self._get_parameters()

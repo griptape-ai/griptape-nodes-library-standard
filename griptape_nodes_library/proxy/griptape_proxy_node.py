@@ -8,12 +8,14 @@ import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from contextlib import suppress
-from typing import Any
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin
 
 import httpx
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
@@ -23,6 +25,9 @@ from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api
 from griptape_nodes_library.proxy.proxy_api_key_providers import get_proxy_api_key_provider_config
 from griptape_nodes_library.proxy.proxy_auth_provider_parameter import ProxyAuthProviderParameter
 from griptape_nodes_library.utils.model_invocation import declare_model_invocation
+
+if TYPE_CHECKING:
+    from griptape_nodes.retained_mode.managers.authorization_checkpoint import CheckpointDenial
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -41,6 +46,22 @@ HTTP_CLIENT_ERROR_MIN = 400
 HTTP_CLIENT_ERROR_MAX = 500
 # Short delay before the single retry on a transient download failure.
 DOWNLOAD_RETRY_DELAY_SECONDS = 1.0
+# The proxy accepts cancellation only while a generation is still QUEUED; it answers
+# 400 once the work has been dispatched to the provider.
+HTTP_BAD_REQUEST = 400
+# Cancellation is cleanup on the way out of a cancelled node, so it gets a short timeout.
+CANCEL_REQUEST_TIMEOUT_SECONDS = 10
+
+
+class CancelOutcome(StrEnum):
+    """What a best-effort server-side cancel request actually achieved."""
+
+    # The proxy dropped the generation while it was still queued; no billable work ran.
+    CANCELLED = "cancelled"
+    # The generation had already been dispatched, so it runs to completion and is billed.
+    ALREADY_STARTED = "already_started"
+    # The cancel request never got an answer; the generation's fate is unknown.
+    UNKNOWN = "unknown"
 
 
 class GriptapeProxyNode(SuccessFailureNode, ABC):
@@ -51,6 +72,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     2. Poll generation status via GET /api/proxy/v2/generations/{generation_id}
     3. Handle terminal states (COMPLETED, FAILED, ERRORED, CANCELLED)
     4. Fetch final results from GET /api/proxy/v2/generations/{generation_id}/result
+    5. Cancel a still-queued generation via POST /api/proxy/v2/generations/{generation_id}/cancel
+       when the node's execution is cancelled
 
     Subclasses must implement:
     - _build_payload(): Build the request payload for generation submission
@@ -79,6 +102,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._user_auth_info: str | None = None
         self._api_key_provider: ProxyAuthProviderParameter | None = None
         self._initialize_api_key_provider()
+
+        # Assigned by subclasses whose model selection is a license-filtered dropdown:
+        # they construct a `ModelAccessComponent` over their model parameter and store it
+        # here, which is what wires the dropdown into `after_value_set`,
+        # `_get_api_model_id`, `_get_catalog_model_id`, and the `_submit_and_poll` gate.
+        # Stays None on the subclasses bound to a single model.
+        self._model_access: ModelAccessComponent | None = None
 
         default_timeout = self.DEFAULT_MAX_ATTEMPTS * self.DEFAULT_POLL_INTERVAL
         self.add_parameter(
@@ -156,6 +186,43 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         super().after_value_set(parameter, value)
         if self._api_key_provider:
             self._api_key_provider.after_value_set(parameter, value)
+        if self._model_access is not None:
+            self._model_access.on_value_set(parameter, value)
+
+    def validate_before_node_run(self) -> list[Exception] | None:
+        """Refuse a model the caller's license denies, alongside the node's input checks.
+
+        Subclasses append their own input validation to the list this returns, so
+        reporting the denial here stops a missing prompt or image from being the only
+        thing an artist hears about when the real blocker is the license. `super()`
+        also resets the status parameters, so it must run either way.
+        `_submit_and_poll` re-checks the selection for execution paths that skip
+        validation entirely.
+        """
+        exceptions = super().validate_before_node_run() or []
+        if self._model_access is None:
+            return exceptions or None
+        denial = self._model_access.selection_denial()
+        if denial is None:
+            return exceptions or None
+        exceptions.append(RuntimeError(f"{self.name}: {denial.reason()}"))
+        return exceptions
+
+    def _get_selected_model_id(self) -> str:
+        """The provider model id the model dropdown currently stores.
+
+        The dropdown stores the provider's own id for the model, which is what a
+        node building a request URL or payload needs. Reading it through here
+        rather than by name keeps the parameter's name in one place: it is
+        `model` on most nodes but `model_name` or `model_id` on others.
+
+        Returns:
+            str: The stored provider model id, or `""` when there is no
+                model-access component installed or nothing is selected.
+        """
+        if self._model_access is None:
+            return ""
+        return self._model_access.selected_value or ""
 
     def _prepare_user_auth_info(self) -> None:
         self.register_user_auth_info(None)
@@ -245,29 +312,35 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
 
-        Subclasses can override this if they need to map friendly names to API IDs.
-        By default, returns the value of the 'model' parameter if it exists.
+        Subclasses can override this if they need to map the dropdown value to a
+        differently-shaped API ID (e.g. an operation suffix in the URL path). By
+        default, returns the dropdown's stored provider model id; falls back to
+        the raw 'model' parameter value when no model-access component is
+        installed.
 
         Returns:
             str: The model ID to use in the API request
         """
+        if self._model_access is not None:
+            return self._get_selected_model_id()
         return self.get_parameter_value("model") or ""
 
     def _get_catalog_model_id(self) -> str:
         """Get the model ID used to resolve this node's declared catalog model.
 
-        The permission/declaration layer matches on the catalog's
-        `provider_model_id`, which is the bare upstream model id. By default this
-        is the same value used in the API request URL (`_get_api_model_id()`).
+        The declaration layer resolves this through the catalog's
+        `provider_model_id`, so the bare stored value is what it needs. Falls
+        back to `_get_api_model_id()` when no model-access component is installed.
 
         Subclasses whose `_get_api_model_id()` decorates the id with an operation
-        suffix for the URL path (e.g. `grok-imagine-video:generate`) must override
-        this to return the bare provider id instead, or the catalog lookup will
-        fail to match and the invocation cannot be declared.
+        suffix for the URL path (e.g. `grok-imagine-video:generate`) do not need
+        to override this: the stored value is already the bare provider id.
 
         Returns:
             str: The model ID to match against declared catalog models
         """
+        if self._model_access is not None:
+            return self._get_selected_model_id()
         return self._get_api_model_id()
 
     def _validate_api_key(self) -> str:
@@ -460,6 +533,106 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             return self.DEFAULT_MAX_ATTEMPTS * self.DEFAULT_POLL_INTERVAL
         return max(0, int(value))
 
+    async def _request_generation_cancel(self, generation_id: str, headers: dict[str, str]) -> CancelOutcome:
+        """POST the proxy's cancel endpoint for a generation.
+
+        Never raises. Cancellation is cleanup, and a failure here must not replace
+        the reason the node is unwinding, so every failure mode collapses into a
+        ``CancelOutcome`` the caller can report.
+
+        Args:
+            generation_id: The generation to cancel
+            headers: HTTP headers including Authorization
+
+        Returns:
+            CancelOutcome: What the request achieved
+        """
+        cancel_url = urljoin(self._proxy_base, f"generations/{generation_id}/cancel")
+        self._log(f"Requesting cancellation of generation {generation_id}")
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(cancel_url, headers=headers, timeout=CANCEL_REQUEST_TIMEOUT_SECONDS)
+        except Exception as e:
+            self._log(f"Cancel request for generation {generation_id} failed: {e}")
+            return CancelOutcome.UNKNOWN
+
+        # Both the accepted and the rejected response report the generation's status, and
+        # the proxy is authoritative about it — record it so `generation_status` reflects
+        # where the work actually ended up rather than the last status polling happened to see.
+        with suppress(Exception):
+            reported_status = response.json().get("status")
+            if reported_status:
+                self.parameter_output_values["generation_status"] = reported_status
+
+        # A generation that has already left the queue cannot be cancelled. That is the
+        # expected answer whenever the work was picked up quickly, so it is reported as
+        # an outcome rather than surfaced as a node error.
+        if response.status_code == HTTP_BAD_REQUEST:
+            return CancelOutcome.ALREADY_STARTED
+        if response.is_success:
+            return CancelOutcome.CANCELLED
+
+        self._log(f"Cancel request for generation {generation_id} returned HTTP {response.status_code}")
+        return CancelOutcome.UNKNOWN
+
+    async def _cancel_generation_best_effort(self, generation_id: str, headers: dict[str, str]) -> CancelOutcome:
+        """Ask the proxy to drop a generation, then record what that achieved.
+
+        The request is shielded because the usual caller is a cancellation unwind: a
+        second ``task.cancel()`` landing on this node while the POST is in flight
+        would otherwise abandon the request before it reaches the server.
+
+        Args:
+            generation_id: The generation to cancel
+            headers: HTTP headers including Authorization
+
+        Returns:
+            CancelOutcome: What the request achieved
+        """
+        outcome = await asyncio.shield(self._request_generation_cancel(generation_id, headers))
+        self._report_cancellation(generation_id, outcome)
+        return outcome
+
+    def _report_cancellation(self, generation_id: str, outcome: CancelOutcome) -> None:
+        """Record on the node what the cancel attempt achieved.
+
+        A cancel that could not stop billable work is the case worth telling the user
+        about, so each outcome gets its own message. The generation_id is preserved so
+        a generation that outlived the cancel can still be recovered via Refresh.
+
+        Args:
+            generation_id: The generation the cancel was requested for
+            outcome: What the cancel request achieved
+
+        Raises:
+            ValueError: If the outcome is not a known CancelOutcome
+        """
+        match outcome:
+            case CancelOutcome.CANCELLED:
+                details = (
+                    f"Generation `{generation_id}` was cancelled on Griptape Cloud before it started running, "
+                    f"so it will not be billed."
+                )
+            case CancelOutcome.ALREADY_STARTED:
+                details = (
+                    f"Generation `{generation_id}` had already started and could not be cancelled. It will run to "
+                    f"completion and be billed — click the refresh icon on `generation_status` to retrieve its result."
+                )
+            case CancelOutcome.UNKNOWN:
+                details = (
+                    f"Cancellation of generation `{generation_id}` could not be confirmed. It may still be running "
+                    f"and be billed — click the refresh icon on `generation_status` to check."
+                )
+            case _:
+                msg = f"Unknown cancel outcome: {outcome!r}"
+                raise ValueError(msg)
+
+        logger.info("%s: %s", self.name, details)
+        self._set_safe_defaults()
+        self.parameter_output_values["generation_id"] = generation_id
+        self._set_status_results(was_successful=False, result_details=details)
+
     async def _poll_generation_status(self, generation_id: str, headers: dict[str, str]) -> dict[str, Any] | None:
         """Poll generation status until terminal state is reached.
 
@@ -477,50 +650,66 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         max_attempts = max(1, (timeout_s + poll_interval - 1) // poll_interval) if timeout_s > 0 else None
 
         attempt = 0
-        async with httpx.AsyncClient() as client:
-            while True:
-                try:
-                    self._log(f"Polling attempt #{attempt + 1} for generation {generation_id}")
-
-                    response = await client.get(get_url, headers=headers, timeout=60)
-                    response.raise_for_status()
-                    result_json = response.json()
-
-                    status = result_json.get("status", "unknown")
-                    self._log(f"Status: {status}")
-                    self.parameter_output_values["generation_status"] = status
-
-                    is_terminal, terminal_result = self._handle_terminal_status(status, result_json)
-                    if is_terminal:
-                        return terminal_result
-
-                    attempt += 1
-
-                    # Timeout reached (only when max_attempts is set)
-                    if max_attempts is not None and attempt >= max_attempts:
-                        break
-
-                    # Still processing (QUEUED or RUNNING), wait before next poll
-                    await asyncio.sleep(poll_interval)
-
-                except httpx.HTTPStatusError as e:
-                    self._log(f"HTTP error while polling: {e.response.status_code} - {e.response.text}")
-                    attempt += 1
-                    if max_attempts is not None and attempt >= max_attempts:
-                        self._set_safe_defaults()
-                        error_msg = f"Failed to poll generation status: HTTP {e.response.status_code}"
-                        self._set_status_results(was_successful=False, result_details=error_msg)
+        try:
+            async with httpx.AsyncClient() as client:
+                while True:
+                    # Cooperative cancellation: covers a cancel that lands between awaits,
+                    # and callers that set the flag without cancelling the asyncio task.
+                    if self.is_cancellation_requested:
+                        self._log(f"Cancellation requested while polling generation {generation_id}")
+                        await self._cancel_generation_best_effort(generation_id, headers)
                         return None
-                    await asyncio.sleep(poll_interval)
-                except Exception as e:
-                    self._log(f"Error while polling: {e}")
-                    attempt += 1
-                    if max_attempts is not None and attempt >= max_attempts:
-                        self._set_safe_defaults()
-                        error_msg = f"Failed to poll generation status: {e}"
-                        self._set_status_results(was_successful=False, result_details=error_msg)
-                        return None
-                    await asyncio.sleep(poll_interval)
+
+                    try:
+                        self._log(f"Polling attempt #{attempt + 1} for generation {generation_id}")
+
+                        response = await client.get(get_url, headers=headers, timeout=60)
+                        response.raise_for_status()
+                        result_json = response.json()
+
+                        status = result_json.get("status", "unknown")
+                        self._log(f"Status: {status}")
+                        self.parameter_output_values["generation_status"] = status
+
+                        is_terminal, terminal_result = self._handle_terminal_status(status, result_json)
+                        if is_terminal:
+                            return terminal_result
+
+                        attempt += 1
+
+                        # Timeout reached (only when max_attempts is set)
+                        if max_attempts is not None and attempt >= max_attempts:
+                            break
+
+                        # Still processing (QUEUED or RUNNING), wait before next poll
+                        await asyncio.sleep(poll_interval)
+
+                    except httpx.HTTPStatusError as e:
+                        self._log(f"HTTP error while polling: {e.response.status_code} - {e.response.text}")
+                        attempt += 1
+                        if max_attempts is not None and attempt >= max_attempts:
+                            self._set_safe_defaults()
+                            error_msg = f"Failed to poll generation status: HTTP {e.response.status_code}"
+                            self._set_status_results(was_successful=False, result_details=error_msg)
+                            return None
+                        await asyncio.sleep(poll_interval)
+                    except Exception as e:
+                        self._log(f"Error while polling: {e}")
+                        attempt += 1
+                        if max_attempts is not None and attempt >= max_attempts:
+                            self._set_safe_defaults()
+                            error_msg = f"Failed to poll generation status: {e}"
+                            self._set_status_results(was_successful=False, result_details=error_msg)
+                            return None
+                        await asyncio.sleep(poll_interval)
+        except asyncio.CancelledError:
+            # The engine cancels this node's task, which with a 5s poll interval almost
+            # always lands mid-sleep — so this, not the flag check above, is the load-bearing
+            # path. Ask the proxy to drop the generation before unwinding so queued work is
+            # not billed for a result nobody will see, then let the cancellation stand.
+            with suppress(asyncio.CancelledError):
+                await self._cancel_generation_best_effort(generation_id, headers)
+            raise
 
         # Timeout reached — preserve generation_id so the user can recover via Refresh
         self._log("Polling timed out waiting for result")
@@ -606,6 +795,12 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         error_msg = f"{self.name}: No model ID provided"
         self._set_status_results(was_successful=False, result_details=error_msg)
 
+    def _handle_denied_model(self, denial: CheckpointDenial) -> None:
+        """Handle a dropdown selection the license policy does not permit."""
+        self._set_safe_defaults()
+        error_msg = f"{self.name}: {denial.reason()}"
+        self._set_status_results(was_successful=False, result_details=error_msg)
+
     def _handle_submission_error(self, e: RuntimeError) -> None:
         """Handle generation submission errors."""
         self._set_safe_defaults()
@@ -629,6 +824,31 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Returns:
             tuple | None: (generation_id, status_response) if successful, None otherwise
         """
+        # Re-check the dropdown selection against the license policy: it may have
+        # been permitted when the node was built and denied since. Both gates run
+        # ahead of `_build_payload`, which uploads input images and videos to public
+        # storage on the nodes that hand the provider a URL rather than bytes; a
+        # denied model must not cost the caller that upload. The dropdown check runs
+        # before the invocation declaration so the failure carries the dropdown's
+        # own reason.
+        if self._model_access is not None:
+            selection_denial = self._model_access.selection_denial()
+            if selection_denial is not None:
+                self._handle_denied_model(selection_denial)
+                return None
+
+        # Declare the invocation so the engine's permission layer can gate it
+        # before any network call. The proxy still enforces server-side; this is
+        # the engine-side gate, so a denied invocation fails fast here. The
+        # declaration resolves the bare provider model id, which may differ from
+        # the URL-path id (e.g. when the latter carries an operation suffix).
+        declaration = await declare_model_invocation(self, self._get_catalog_model_id())
+        if declaration.failed():
+            self._set_safe_defaults()
+            details = str(declaration.result_details or f"{self.name}: model invocation was not permitted.")
+            self._set_status_results(was_successful=False, result_details=details)
+            return None
+
         # Build payload
         try:
             payload = await self._build_payload()
@@ -640,18 +860,6 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         api_model_id = self._get_api_model_id()
         if not api_model_id:
             self._handle_missing_model_id()
-            return None
-
-        # Declare the invocation so the engine's permission layer can gate it
-        # before any network call. The proxy still enforces server-side; this is
-        # the engine-side gate, so a denied invocation fails fast here. The
-        # declaration matches on the bare catalog id, which may differ from the
-        # URL-path id (e.g. when the latter carries an operation suffix).
-        declaration = await declare_model_invocation(self, self._get_catalog_model_id())
-        if declaration.failed():
-            self._set_safe_defaults()
-            details = str(declaration.result_details or f"{self.name}: model invocation was not permitted.")
-            self._set_status_results(was_successful=False, result_details=details)
             return None
 
         # Submit request to get generation ID
@@ -691,6 +899,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         # Clear execution status at the start
         self._clear_execution_status()
+        # A node's cancellation flag is only cleared by BaseNode.clear_node(), which the
+        # flow's cancel path does not reach for a node cancelled mid-resolution — so the
+        # flag outlives the run it belonged to. Left set, it would make the poll loop
+        # cancel the generation this run is about to submit. A cancellation that really
+        # applies to this run is requested after the run starts and also cancels the
+        # asyncio task, which the poll loop's CancelledError path handles.
+        self.clear_cancellation()
         self.parameter_output_values["generation_id"] = ""
         self.parameter_output_values["generation_status"] = ""
 

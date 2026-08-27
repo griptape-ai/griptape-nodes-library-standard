@@ -41,20 +41,16 @@ function mkSelect() {
   return sel;
 }
 
-function mkBtn(iconName, label, danger) {
+function mkOverlayBtn(iconName, label) {
   const btn = document.createElement("button");
   btn.style.cssText = [
     "display:flex", "align-items:center", "gap:6px",
     "padding:6px 14px", "border-radius:6px", "border:none",
     "cursor:pointer", "font-size:13px", "font-weight:500",
-    "transition:opacity 0.15s",
-    danger ? "background:var(--destructive);color:white;"
-           : "background:rgba(0,0,0,0.65);color:white;backdrop-filter:blur(4px);",
+    "background:rgba(0,0,0,0.6);color:white;backdrop-filter:blur(4px);",
   ].join(";");
   btn.appendChild(mkIcon(iconName, 14));
-  const span = document.createElement("span");
-  span.textContent = label;
-  btn.appendChild(span);
+  btn.appendChild(Object.assign(document.createElement("span"), { textContent: label }));
   btn.addEventListener("pointerdown", (e) => e.stopPropagation());
   btn.addEventListener("mousedown",   (e) => e.stopPropagation());
   return btn;
@@ -87,10 +83,8 @@ export default function VideoCapture(container, props) {
 
   const wrapper = document.createElement("div");
   wrapper.className = "nodrag nowheel";
-  // height:100% makes the widget fill the canvas as it's resized
   wrapper.style.cssText = "display:flex;flex-direction:column;height:100%;padding:8px;box-sizing:border-box;";
 
-  // Video area — flex:1 so it grows to fill available height
   const videoWrap = document.createElement("div");
   videoWrap.style.cssText = [
     "position:relative", "background:#111", "border-radius:8px",
@@ -99,18 +93,16 @@ export default function VideoCapture(container, props) {
   ].join(";");
 
   const video = document.createElement("video");
-  // object-fit:contain keeps the video aspect ratio; height:100% fills the flex area
   video.style.cssText = "width:100%;height:100%;object-fit:contain;display:block;";
   video.autoplay = true;
   video.muted = true;
   video.playsInline = true;
 
-  // Placeholder
   const placeholder = document.createElement("div");
   placeholder.style.cssText = "position:absolute;color:var(--muted-foreground);font-size:13px;text-align:center;padding:24px;user-select:none;";
   placeholder.textContent = "Starting camera…";
 
-  // REC badge (top-left)
+  // REC badge
   const recBadge = document.createElement("div");
   recBadge.style.cssText = [
     "position:absolute", "top:10px", "left:10px",
@@ -120,7 +112,7 @@ export default function VideoCapture(container, props) {
   ].join(";");
   recBadge.hidden = true;
 
-  // Encoding overlay — shown from Accept click until Python confirms processing complete
+  // Encoding overlay
   const encodingOverlay = document.createElement("div");
   encodingOverlay.style.cssText = [
     "position:absolute", "inset:0", "z-index:10",
@@ -136,20 +128,35 @@ export default function VideoCapture(container, props) {
   encodingOverlay.appendChild(Object.assign(document.createElement("span"), { textContent: "Processing…" }));
   encodingOverlay.hidden = true;
 
-  // Overlay button row (bottom of video)
-  const overlay = document.createElement("div");
-  overlay.style.cssText = "position:absolute;bottom:10px;left:0;right:0;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;";
+  // Circular record button — red dot morphs to stop square when recording
+  const recordBtn = document.createElement("button");
+  recordBtn.style.cssText = [
+    "position:absolute", "bottom:12px", "left:50%", "transform:translateX(-50%)",
+    "width:52px", "height:52px", "border-radius:50%",
+    "border:3px solid rgba(255,255,255,0.85)", "background:rgba(20,20,20,0.55)",
+    "cursor:pointer", "display:flex", "align-items:center", "justify-content:center",
+    "backdrop-filter:blur(4px)", "transition:transform 0.1s,opacity 0.15s",
+  ].join(";");
+  const innerDot = document.createElement("div");
+  innerDot.style.cssText = "width:20px;height:20px;border-radius:50%;background:#e53e3e;transition:border-radius 0.2s,width 0.2s,height 0.2s;";
+  recordBtn.appendChild(innerDot);
+  recordBtn.addEventListener("pointerdown", (e) => { e.stopPropagation(); recordBtn.style.transform = "translateX(-50%) scale(0.88)"; });
+  recordBtn.addEventListener("pointerup",   ()  => { recordBtn.style.transform = "translateX(-50%)"; });
+  recordBtn.addEventListener("pointerleave",()  => { recordBtn.style.transform = "translateX(-50%)"; });
+  recordBtn.addEventListener("mousedown",   (e) => e.stopPropagation());
 
-  const startBtn    = mkBtn("circle",      "Start Recording", false);
-  const stopBtn     = mkBtn("square",      "Stop",            true);
-  const playPauseBtn = mkBtn("play",       "Play",            false);
-  const acceptBtn   = mkBtn("check",       "Accept",          false);
-  const discardBtn  = mkBtn("rotate-ccw",  "Re-record",       false);
+  // Review controls (shown after recording stops)
+  const playPauseBtn = mkOverlayBtn("play",      "Play");
+  const acceptBtn    = mkOverlayBtn("check",     "Accept");
+  const discardBtn   = mkOverlayBtn("rotate-ccw","Re-record");
 
-  overlay.append(startBtn, stopBtn, playPauseBtn, acceptBtn, discardBtn);
-  videoWrap.append(placeholder, video, recBadge, encodingOverlay, overlay);
+  const reviewOverlay = document.createElement("div");
+  reviewOverlay.style.cssText = "position:absolute;bottom:12px;left:0;right:0;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;";
+  reviewOverlay.append(playPauseBtn, acceptBtn, discardBtn);
 
-  // Device selector row — [cam icon] [cam select] [mic icon] [mic select]
+  videoWrap.append(placeholder, video, recBadge, encodingOverlay, recordBtn, reviewOverlay);
+
+  // Device selector row
   const videoSel = mkSelect();
   const audioSel = mkSelect();
   const deviceRow = document.createElement("div");
@@ -163,7 +170,6 @@ export default function VideoCapture(container, props) {
 
   function syncPlayPauseBtn() {
     const isPaused = video.paused || video.ended;
-    // Swap icon: remove first child (svg), insert fresh one
     playPauseBtn.removeChild(playPauseBtn.firstChild);
     playPauseBtn.insertBefore(mkIcon(isPaused ? "play" : "pause", 14), playPauseBtn.firstChild);
     playPauseBtn.querySelector("span").textContent = isPaused ? "Play" : "Pause";
@@ -176,19 +182,18 @@ export default function VideoCapture(container, props) {
   // ── Render ───────────────────────────────────────────────────────────────
 
   function render() {
-    placeholder.hidden   = isStreaming || hasRecording;
-    video.hidden         = !isStreaming && !hasRecording;
-    startBtn.hidden      = isRecording || hasRecording;
-    startBtn.disabled    = !isStreaming;
-    stopBtn.hidden       = !isRecording;
-    playPauseBtn.hidden  = !hasRecording;
-    acceptBtn.hidden     = !hasRecording;
-    discardBtn.hidden    = !hasRecording;
-    recBadge.hidden      = !isRecording;
-    const devicesLocked       = isRecording || hasRecording;
-    videoSel.disabled         = devicesLocked;
-    audioSel.disabled         = devicesLocked;
-    deviceRow.style.opacity   = devicesLocked ? "0.4" : "1";
+    placeholder.hidden      = isStreaming || hasRecording;
+    video.hidden            = !isStreaming && !hasRecording;
+    recordBtn.hidden        = hasRecording;
+    recordBtn.disabled      = !isStreaming && !isRecording;
+    recordBtn.style.opacity = (isStreaming || isRecording) ? "1" : "0.4";
+    reviewOverlay.hidden    = !hasRecording;
+    recBadge.hidden         = !isRecording;
+
+    const devicesLocked          = isRecording || hasRecording;
+    videoSel.disabled            = devicesLocked;
+    audioSel.disabled            = devicesLocked;
+    deviceRow.style.opacity      = devicesLocked ? "0.4" : "1";
     deviceRow.style.pointerEvents = devicesLocked ? "none" : "";
   }
 
@@ -210,7 +215,6 @@ export default function VideoCapture(container, props) {
       }
       repopulate(videoSel, devices.filter((d) => d.kind === "videoinput"));
       repopulate(audioSel, devices.filter((d) => d.kind === "audioinput"));
-      // Sync selects to the tracks the stream is actually using
       if (stream) {
         const vs = stream.getVideoTracks()[0]?.getSettings?.()?.deviceId;
         const as = stream.getAudioTracks()[0]?.getSettings?.()?.deviceId;
@@ -260,6 +264,10 @@ export default function VideoCapture(container, props) {
     recorder.onstop = onStop;
     recorder.start(100);
     isRecording = true;
+    // Morph dot to stop square
+    innerDot.style.borderRadius = "3px";
+    innerDot.style.width = "18px";
+    innerDot.style.height = "18px";
     render();
     timer = setInterval(() => { elapsed++; recBadge.textContent = `● REC ${fmtTime(elapsed)}`; }, 1000);
   }
@@ -283,6 +291,10 @@ export default function VideoCapture(container, props) {
     isStreaming = false;
     isRecording = false;
     hasRecording = true;
+    // Reset dot back to circle for next time
+    innerDot.style.borderRadius = "50%";
+    innerDot.style.width = "20px";
+    innerDot.style.height = "20px";
     render();
   }
 
@@ -299,10 +311,8 @@ export default function VideoCapture(container, props) {
     acceptBtn.disabled = true;
     discardBtn.disabled = true;
     playPauseBtn.disabled = true;
-    // rAF ensures overlay paints before the WebSocket send starts
     requestAnimationFrame(() => {
       _emitSeq++;
-      // Ask Python for an upload URL; Python responds with state:"upload_ready"
       onChange?.({ state: "requesting_upload_url", _mime: mime, _emitSeq });
     });
   }
@@ -312,13 +322,8 @@ export default function VideoCapture(container, props) {
     _uploading = true;
     fetch(uploadUrl, { method: "PUT", body: blob })
       .then((r) => { if (!r.ok) throw new Error(r.statusText); })
-      .then(() => {
-        onChange?.({ state: "accepted", _emitSeq });
-      })
-      .catch(() => {
-        _uploading = false;
-        hideEncodingOverlay();
-      });
+      .then(() => { onChange?.({ state: "accepted", _emitSeq }); })
+      .catch(() => { _uploading = false; hideEncodingOverlay(); });
   }
 
   function discard() {
@@ -336,6 +341,11 @@ export default function VideoCapture(container, props) {
   function togglePlayPause() {
     if (video.paused || video.ended) { video.currentTime = 0; video.play().catch(() => {}); }
     else video.pause();
+  }
+
+  function toggleRecord() {
+    if (isRecording) stopRecording();
+    else startRecording();
   }
 
   // ── handleUpdate ─────────────────────────────────────────────────────────
@@ -368,19 +378,17 @@ export default function VideoCapture(container, props) {
 
   // ── Wire up & init ────────────────────────────────────────────────────────
 
-  startBtn.addEventListener("click",    startRecording);
-  stopBtn.addEventListener("click",     stopRecording);
+  recordBtn.addEventListener("click",    toggleRecord);
   playPauseBtn.addEventListener("click", togglePlayPause);
-  acceptBtn.addEventListener("click",   accept);
-  discardBtn.addEventListener("click",  discard);
-  videoSel.addEventListener("change",   switchDevices);
-  audioSel.addEventListener("change",   switchDevices);
+  acceptBtn.addEventListener("click",    accept);
+  discardBtn.addEventListener("click",   discard);
+  videoSel.addEventListener("change",    switchDevices);
+  audioSel.addEventListener("change",    switchDevices);
   navigator.mediaDevices.addEventListener("devicechange", populateDevices);
 
   container._vcInst = { handleUpdate, cleanup, wrapper };
 
   startCamera();
-
   render();
   return { cleanup, update: handleUpdate };
 }

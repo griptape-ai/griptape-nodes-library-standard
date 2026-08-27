@@ -6,17 +6,12 @@ import json
 import logging
 from copy import deepcopy
 from enum import StrEnum
-from typing import Any, ClassVar
+from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import (
-    Parameter,
-    ParameterGroup,
-    ParameterList,
-    ParameterMessage,
-    ParameterMode,
-)
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -26,7 +21,6 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
@@ -38,20 +32,26 @@ logger = logging.getLogger("griptape_nodes")
 __all__ = ["Veo3VideoGeneration"]
 
 
-class ModelName(StrEnum):
-    VEO_3_1 = "Veo 3.1"
-    VEO_3_1_FAST = "Veo 3.1 Fast"
-
-
 class ModelId(StrEnum):
     VEO_3_1_GENERATE_001 = "veo-3.1-generate-001"
     VEO_3_1_FAST_GENERATE_001 = "veo-3.1-fast-generate-001"
 
 
-# Model mapping from human-friendly names to API model IDs
-MODEL_MAPPING = {
-    ModelName.VEO_3_1.value: ModelId.VEO_3_1_GENERATE_001,
-    ModelName.VEO_3_1_FAST.value: ModelId.VEO_3_1_FAST_GENERATE_001,
+# Migrates values saved before the dropdown stored the provider's own model id (old
+# display labels and catalog keys), plus Veo 3.0's retired spellings. Google returns
+# 404 for the 3.0 endpoints, so a saved workflow referencing one (by label, catalog
+# key, or provider id) migrates to its 3.1 replacement rather than calling through.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Veo 3.0": ModelId.VEO_3_1_GENERATE_001.value,
+    "Veo 3.0 Fast": ModelId.VEO_3_1_FAST_GENERATE_001.value,
+    "Veo 3.1": ModelId.VEO_3_1_GENERATE_001.value,
+    "Veo 3.1 Fast": ModelId.VEO_3_1_FAST_GENERATE_001.value,
+    "gtc_veo_3_0": ModelId.VEO_3_1_GENERATE_001.value,
+    "gtc_veo_3_0_fast": ModelId.VEO_3_1_FAST_GENERATE_001.value,
+    "gtc_veo_3_1": ModelId.VEO_3_1_GENERATE_001.value,
+    "gtc_veo_3_1_fast": ModelId.VEO_3_1_FAST_GENERATE_001.value,
+    "veo-3.0-fast-generate-001": ModelId.VEO_3_1_FAST_GENERATE_001.value,
+    "veo-3.0-generate-001": ModelId.VEO_3_1_GENERATE_001.value,
 }
 
 
@@ -87,56 +87,31 @@ class Veo3VideoGeneration(GriptapeProxyNode):
     SERVICE_NAME = "Griptape"
     API_KEY_NAME = "GT_CLOUD_API_KEY"
 
-    # Retired provider endpoints and their replacements. Google returns 404 for these, so a
-    # saved workflow referencing one is migrated on load rather than allowed to call through.
-    # Keyed by the friendly name the dropdown stored, and by the provider ID, which reaches
-    # model_id when a caller feeds one into the input rather than picking from the dropdown.
-    DEPRECATED_MODELS: ClassVar[dict[str, str]] = {
-        "Veo 3.0": ModelName.VEO_3_1.value,
-        "veo-3.0-generate-001": ModelName.VEO_3_1.value,
-        "Veo 3.0 Fast": ModelName.VEO_3_1_FAST.value,
-        "veo-3.0-fast-generate-001": ModelName.VEO_3_1_FAST.value,
-    }
-
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
         # INPUTS / PROPERTIES
-        self.add_parameter(
-            ParameterString(
-                name="model_id",
-                default_value=ModelName.VEO_3_1.value,
-                tooltip="Model id to call via proxy",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={
-                    "display_name": "model",
-                },
-                traits={
-                    Options(
-                        choices=[
-                            ModelName.VEO_3_1.value,
-                            ModelName.VEO_3_1_FAST.value,
-                        ]
-                    )
-                },
-            )
+        model_id_param = ParameterString(
+            name="model_id",
+            default_value=ModelId.VEO_3_1_GENERATE_001.value,
+            tooltip="Model id to call via proxy",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={
+                "display_name": "model",
+            },
         )
-
-        self.add_node_element(
-            ParameterMessage(
-                name="model_deprecation_notice",
-                title="Model Deprecation Notice",
-                variant="info",
-                value="",
-                traits={
-                    Button(
-                        full_width=True,
-                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
-                    )
-                },
-                button_text="Dismiss",
-                hide=True,
-            )
+        self.add_parameter(model_id_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_id_param,
+            model_choices=[
+                ModelId.VEO_3_1_GENERATE_001.value,
+                ModelId.VEO_3_1_FAST_GENERATE_001.value,
+            ],
+            default_model=ModelId.VEO_3_1_GENERATE_001.value,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -320,37 +295,21 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         # Set initial parameter visibility based on default model
         self._initialize_parameter_visibility()
 
-    def _map_api_model_id(self, friendly_name: str) -> ModelId | str:
-        """Map friendly model name to API model ID."""
-        mapped_model = MODEL_MAPPING.get(friendly_name, friendly_name)
+    def _map_api_model_id(self, model_id: str) -> ModelId | str:
+        """Coerce the stored model id (already the provider's own id) to a `ModelId`.
 
+        Returns the raw string unchanged when it names no known `ModelId`, so an
+        unrecognized selection still reaches the API rather than being dropped.
+        """
         try:
-            return ModelId(mapped_model)
+            return ModelId(model_id)
         except ValueError:
-            return mapped_model
+            return model_id
 
     def _initialize_parameter_visibility(self) -> None:
         """Initialize parameter visibility based on default model selection."""
-        default_model = self.get_parameter_value("model_id") or ModelName.VEO_3_1.value
+        default_model = self.get_parameter_value("model_id") or ModelId.VEO_3_1_GENERATE_001.value
         self._update_parameter_visibility_for_model(default_model)
-
-    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
-        """Migrate deprecated model selections to their replacement."""
-        if parameter.name == "model_id" and isinstance(value, str) and value in self.DEPRECATED_MODELS:
-            replacement = self.DEPRECATED_MODELS[value]
-            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
-            if message is None:
-                raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
-            message.value = (
-                f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. "
-                "Please save your workflow to apply this change."
-            )
-            self.show_message_by_name("model_deprecation_notice")
-            value = replacement
-        elif parameter.name == "model_id" and isinstance(value, str):
-            self.hide_message_by_name("model_deprecation_notice")
-
-        return super().before_value_set(parameter, value)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to show/hide dependent parameters."""
@@ -450,7 +409,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
 
         return {
             "prompt": self.get_parameter_value("prompt") or "",
-            "model_id": self.get_parameter_value("model_id") or ModelName.VEO_3_1.value,
+            "model_id": self.get_parameter_value("model_id") or ModelId.VEO_3_1_GENERATE_001.value,
             "negative_prompt": self.get_parameter_value("negative_prompt") or "",
             "image": self.get_parameter_value("start_frame"),
             "last_frame": self.get_parameter_value("last_frame"),
@@ -466,7 +425,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         }
 
     def _get_api_model_id(self) -> str:
-        model_id = self.get_parameter_value("model_id") or ModelName.VEO_3_1.value
+        model_id = self.get_parameter_value("model_id") or ModelId.VEO_3_1_GENERATE_001.value
         api_model_id = self._map_api_model_id(model_id)
         return api_model_id.value if isinstance(api_model_id, ModelId) else api_model_id
 
@@ -484,11 +443,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             ModelId.VEO_3_1_GENERATE_001,
             ModelId.VEO_3_1_FAST_GENERATE_001,
         }:
-            msg = (
-                f"{self.name}: lastFrame parameter is only supported by "
-                f"{ModelName.VEO_3_1.value} and {ModelName.VEO_3_1_FAST.value} models. "
-                f"Current model: {model_id}"
-            )
+            msg = f"{self.name}: lastFrame parameter is only supported by Veo 3.1 and Veo 3.1 Fast models."
             raise ValueError(msg)
 
         # referenceImages are only supported by veo-3.1-generate-001
@@ -496,10 +451,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         has_reference_images = reference_images and len(reference_images) > 0
         if has_reference_images:
             if api_model_id != ModelId.VEO_3_1_GENERATE_001:
-                msg = (
-                    f"{self.name}: referenceImages parameter is only supported by "
-                    f"{ModelName.VEO_3_1.value} model. Current model: {model_id}"
-                )
+                msg = f"{self.name}: referenceImages parameter is only supported by Veo 3.1 model."
                 raise ValueError(msg)
 
             # When referenceImages are provided, duration must be 8 seconds

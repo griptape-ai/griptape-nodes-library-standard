@@ -62,7 +62,7 @@ top_level_unique_values_dict = {
     ),
     "a9e76088-3628-49dd-a8f3-90770d373ac5": pickle.loads(b"\x80\x04\x89."),
     "5aeee4a2-df96-4242-a89b-212197c089df": pickle.loads(
-        b"\x80\x04\x95\x0f\x00\x00\x00\x00\x00\x00\x00\x8c\x0bgpt-image-1\x94."
+        b"\x80\x04\x95\x18\x00\x00\x00\x00\x00\x00\x00\x8c\x14gtc_gpt_image_1_mini\x94."
     ),
     "6917b7b2-3920-459c-8fea-abc6f0606377": pickle.loads(
         b"\x80\x04\x95\r\x00\x00\x00\x00\x00\x00\x00\x8c\t1024x1024\x94."
@@ -72,7 +72,7 @@ top_level_unique_values_dict = {
     ),
     "db0986d8-c34b-49ab-b5c1-c580c3e72e88": pickle.loads(b"\x80\x04\x88."),
     "3edb549c-973b-4d00-adc6-6f9d8ffe7482": pickle.loads(
-        b"\x80\x04\x95\x0b\x00\x00\x00\x00\x00\x00\x00\x8c\x07gpt-4.1\x94."
+        b"\x80\x04\x95\x0f\x00\x00\x00\x00\x00\x00\x00\x8c\x0bgtc_gpt_4_1\x94."
     ),
     "be36c573-4ae9-482c-86a2-d17a0b555d05": pickle.loads(b"\x80\x04\x95\x04\x00\x00\x00\x00\x00\x00\x00\x8c\x00\x94."),
     "d557d7ff-9186-4bc4-95a3-03d11d88901d": pickle.loads(b"\x80\x04]\x94."),

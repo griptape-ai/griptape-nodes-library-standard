@@ -8,6 +8,7 @@ from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -37,16 +38,35 @@ MAX_IMAGE_DIMENSION = 8192  # Any image wider than this will be >4MP anyways
 # Output format options
 OUTPUT_FORMAT_OPTIONS = ["jpeg", "png"]
 
-# Model mapping from user-friendly names to API model IDs
-MODEL_MAPPING = {
-    "Flux.2 [pro]": "flux-2-pro",
+# Model options, in catalog order
+MODEL_OPTIONS = [
+    "flux-2-pro",
+    "flux-2-flex",
+    "flux-2-max",
+    "flux-2-klein-4b",
+    "flux-2-klein-9b",
+]
+DEFAULT_MODEL = MODEL_OPTIONS[0]
+
+# Migrates values saved before this dropdown stored the provider's own model id (friendly
+# labels and catalog keys alike).
+LEGACY_MODEL_VALUES = {
+    "FLUX.2 [flex]": "flux-2-flex",
+    "FLUX.2 [klein] 4B": "flux-2-klein-4b",
+    "FLUX.2 [klein] 9B": "flux-2-klein-9b",
+    "FLUX.2 [max]": "flux-2-max",
+    "FLUX.2 [pro]": "flux-2-pro",
     "Flux.2 [flex]": "flux-2-flex",
-    "Flux.2 [max]": "flux-2-max",
     "Flux.2 [klein] 4B": "flux-2-klein-4b",
     "Flux.2 [klein] 9B": "flux-2-klein-9b",
+    "Flux.2 [max]": "flux-2-max",
+    "Flux.2 [pro]": "flux-2-pro",
+    "gtc_flux_2_flex": "flux-2-flex",
+    "gtc_flux_2_klein_4b": "flux-2-klein-4b",
+    "gtc_flux_2_klein_9b": "flux-2-klein-9b",
+    "gtc_flux_2_max": "flux-2-max",
+    "gtc_flux_2_pro": "flux-2-pro",
 }
-MODEL_OPTIONS = list(MODEL_MAPPING.keys())
-DEFAULT_MODEL = MODEL_OPTIONS[0]
 
 # Safety tolerance options
 SAFETY_TOLERANCE_OPTIONS = ["least restrictive", "moderate", "most restrictive"]
@@ -89,14 +109,21 @@ class Flux2ImageGeneration(GriptapeProxyNode):
         self.description = "Generate images using Flux models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value=DEFAULT_MODEL,
-                tooltip="Select the Flux model to use",
-                allow_output=False,
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value=DEFAULT_MODEL,
+            tooltip="Select the Flux model to use",
+            allow_output=False,
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model=DEFAULT_MODEL,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Core parameters
@@ -261,27 +288,15 @@ class Flux2ImageGeneration(GriptapeProxyNode):
                 self.set_parameter_value("input_images", updated_list)
 
         if parameter.name == "model":
-            # Map friendly name to API model ID
-            model_value = str(value) if value is not None else ""
-            api_model_id = MODEL_MAPPING.get(model_value, model_value)
+            # The provider's own model id decides whether flex-only fields (steps,
+            # guidance) apply.
+            api_model_id = self._get_selected_model_id()
             if api_model_id == "flux-2-flex":
                 self.show_parameter_by_name("steps")
                 self.show_parameter_by_name("guidance")
             else:
                 self.hide_parameter_by_name("steps")
                 self.hide_parameter_by_name("guidance")
-
-    def _get_api_model_id(self) -> str:
-        """Get the API model ID for this generation.
-
-        Maps friendly model names to API model IDs.
-
-        Returns:
-            str: The API model ID to use in the API request
-        """
-        model = self.get_parameter_value("model") or DEFAULT_MODEL
-        model_str = str(model) if model is not None else DEFAULT_MODEL
-        return MODEL_MAPPING.get(model_str, model_str)
 
     def _parse_safety_tolerance(self, value: str | None) -> int:
         """Parse safety tolerance integer from preset string value.
@@ -363,7 +378,7 @@ class Flux2ImageGeneration(GriptapeProxyNode):
         }
 
         # Add steps and guidance for flex model
-        api_model_id = self._get_api_model_id()
+        api_model_id = self._get_selected_model_id()
         if api_model_id == "flux-2-flex":
             payload["steps"] = self.get_parameter_value("steps") or MAX_STEPS_FLEX
             payload["guidance"] = self.get_parameter_value("guidance") or DEFAULT_GUIDANCE_FLEX

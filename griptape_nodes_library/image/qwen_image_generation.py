@@ -9,6 +9,7 @@ from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -33,6 +34,14 @@ SIZE_OPTIONS = ["1328*1328", "1664*928", "1472*1140", "1140*1472", "928*1664"]
 
 # Model options
 MODEL_OPTIONS = ["qwen-image", "qwen-image-plus"]
+
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Qwen Image": "qwen-image",
+    "Qwen Image Plus": "qwen-image-plus",
+    "gtc_qwen_image": "qwen-image",
+    "gtc_qwen_image_plus": "qwen-image-plus",
+}
 
 # Response status constants
 STATUS_FAILED = "Failed"
@@ -73,16 +82,23 @@ class QwenImageGeneration(GriptapeProxyNode):
         self.description = "Generate images using Qwen models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            Parameter(
-                name="model",
-                input_types=["str"],
-                type="str",
-                default_value="qwen-image",
-                tooltip="Select the Qwen model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = Parameter(
+            name="model",
+            input_types=["str"],
+            type="str",
+            default_value="qwen-image",
+            tooltip="Select the Qwen model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model="qwen-image",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Core parameters
@@ -187,9 +203,6 @@ class QwenImageGeneration(GriptapeProxyNode):
             raise ValueError(msg)
         return api_key
 
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or ""
-
     async def _build_payload(self) -> dict[str, Any]:
         params = self._get_parameters()
 
@@ -198,7 +211,7 @@ class QwenImageGeneration(GriptapeProxyNode):
 
         # Flatten structure - parameters should be at top level for MultiModalConversation.call()
         payload = {
-            "model": params["model"],
+            "model": self._get_selected_model_id(),
             "messages": [{"role": "user", "content": content}],
             "size": params["size"],
             "prompt_extend": params["prompt_upsampling"],

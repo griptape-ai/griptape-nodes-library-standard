@@ -6,6 +6,7 @@ import pytest
 import pytest_asyncio
 from dotenv import load_dotenv
 from griptape_nodes.bootstrap.workflow_executors.local_workflow_executor import LocalWorkflowExecutor
+from griptape_nodes.retained_mode.engine import Engine
 from griptape_nodes.retained_mode.events.object_events import ClearAllObjectStateRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.managers.settings import LIBRARIES_TO_REGISTER_KEY
@@ -16,8 +17,12 @@ load_dotenv()
 
 
 @pytest.fixture(scope="session")
-def griptape_nodes() -> GriptapeNodes:
-    """Initialize GriptapeNodes before tests and clean up afterwards."""
+def griptape_nodes() -> Engine:
+    """Initialize the engine before tests and clean up afterwards.
+
+    `GriptapeNodes()` resolves to the current `Engine` rather than building a facade,
+    so the fixture is typed as what it actually hands back.
+    """
     return GriptapeNodes()
 
 

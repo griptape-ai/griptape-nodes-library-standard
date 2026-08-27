@@ -8,6 +8,7 @@ from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -38,6 +39,12 @@ OUTPUT_FORMAT_OPTIONS = ["jpeg", "png"]
 
 # Model options
 MODEL_OPTIONS = ["flux-kontext-pro"]
+
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "FLUX Kontext Pro": "flux-kontext-pro",
+    "gtc_flux_kontext_pro": "flux-kontext-pro",
+}
 
 # Safety tolerance options
 SAFETY_TOLERANCE_OPTIONS = ["least restrictive", "moderate", "most restrictive"]
@@ -83,14 +90,21 @@ class FluxImageGeneration(GriptapeProxyNode):
         super().__init__(**kwargs)
         self.category = "API Nodes"
         self.description = "Generate images using Flux models via API (supports user-provided API keys via proxy)"
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="flux-kontext-pro",
-                tooltip="Select the Flux model to use",
-                allow_output=False,
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="flux-kontext-pro",
+            tooltip="Select the Flux model to use",
+            allow_output=False,
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model="flux-kontext-pro",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Core parameters
@@ -258,9 +272,6 @@ class FluxImageGeneration(GriptapeProxyNode):
 
     def preprocess(self) -> None:
         self._seed_parameter.preprocess()
-
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or "flux-kontext-pro"
 
     async def _build_payload(self) -> dict[str, Any]:
         params = self._get_parameters()

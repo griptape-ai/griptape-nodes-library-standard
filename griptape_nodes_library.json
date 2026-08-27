@@ -29,8 +29,8 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.84.0",
-    "engine_version": "0.96.0",
+    "library_version": "0.85.0",
+    "engine_version": "0.97.0",
     "tags": [
       "Griptape",
       "AI"
@@ -49,6 +49,7 @@
         "asteval>=1.0.8",
         "color-matcher",
         "zstandard>=0.22.0",
+          "tokenizers>=0.22.0,<0.23",
         "lxml>=5.0.0"
       ]
     },
@@ -737,6 +738,24 @@
                 "family": "Topaz",
                 "provider_model_id": "topaz-tool",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_video_slp_2_5": {
+                "display_name": "Topaz Starlight Precise 2.5",
+                "family": "Topaz",
+                "provider_model_id": "topaz-video-slp-2.5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_video_slp_2_6": {
+                "display_name": "Topaz Starlight Precise 2.6",
+                "family": "Topaz",
+                "provider_model_id": "topaz-video-slp-2.6",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_video_ast_2": {
+                "display_name": "Topaz Astra 2",
+                "family": "Topaz",
+                "provider_model_id": "topaz-video-ast-2",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
           },
@@ -911,6 +930,18 @@
                 "display_name": "LTX 2.3 Fast",
                 "family": "LTX",
                 "provider_model_id": "ltx-2-3-fast",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_ltx_2_5_pro": {
+                "display_name": "LTX 2.5 Pro",
+                "family": "LTX",
+                "provider_model_id": "ltx-2-5-pro",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_ltx_2_5_fast": {
+                "display_name": "LTX 2.5 Fast",
+                "family": "LTX",
+                "provider_model_id": "ltx-2-5-fast",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
@@ -1257,6 +1288,11 @@
       "name": "VideoCapture",
       "path": "widgets/VideoCapture/VideoCapture.js",
       "description": "Webcam video capture widget — live preview, record with audio, review playback, then accept before running."
+    },
+    {
+      "name": "WebcamCapture",
+      "path": "widgets/WebcamCapture/WebcamCapture.js",
+      "description": "Webcam snapshot widget — live camera preview, capture a frame, review, then accept to output an ImageUrlArtifact."
     }
   ],
   "categories": [
@@ -2764,7 +2800,9 @@
               "gtc_ltx_2_pro",
               "gtc_ltx_2_fast",
               "gtc_ltx_2_3_pro",
-              "gtc_ltx_2_3_fast"
+              "gtc_ltx_2_3_fast",
+              "gtc_ltx_2_5_pro",
+              "gtc_ltx_2_5_fast"
             ]
           }
         ]
@@ -2793,7 +2831,9 @@
               "gtc_ltx_2_pro",
               "gtc_ltx_2_fast",
               "gtc_ltx_2_3_pro",
-              "gtc_ltx_2_3_fast"
+              "gtc_ltx_2_3_fast",
+              "gtc_ltx_2_5_pro",
+              "gtc_ltx_2_5_fast"
             ]
           }
         ]
@@ -2820,7 +2860,9 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_ltx_2_pro",
-              "gtc_ltx_2_3_pro"
+              "gtc_ltx_2_3_pro",
+              "gtc_ltx_2_5_pro",
+              "gtc_ltx_2_5_fast"
             ]
           }
         ]
@@ -2875,6 +2917,38 @@
             "model_ids": [
               "gtc_ltx_2_pro",
               "gtc_ltx_2_3_pro"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "TopazVideoUpscale",
+      "file_path": "griptape_nodes_library/video/topaz_video_upscale.py",
+      "metadata": {
+        "category": "video",
+        "description": "Upscale a video using Topaz Starlight Precise or Astra 2 generative upscaling via the Griptape model proxy.",
+        "display_name": "Topaz Video Upscale",
+        "icon": "Sparkles",
+        "group": "edit",
+        "tags": [
+          "video",
+          "upscale",
+          "enhance",
+          "generative",
+          "ai",
+          "api",
+          "topaz",
+          "starlight",
+          "astra"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_topaz_video_slp_2_5",
+              "gtc_topaz_video_slp_2_6",
+              "gtc_topaz_video_ast_2"
             ]
           }
         ]
@@ -6966,13 +7040,14 @@
       "file_path": "griptape_nodes_library/image/topaz_image_enhance.py",
       "metadata": {
         "category": "image",
-        "description": "Enhance images using Topaz Labs models via Griptape model proxy. Supports enhance, denoise, and sharpen operations.",
+        "description": "Enhance and upscale images using Topaz Labs models via Griptape model proxy. Supports enhance, upscale, denoise, and sharpen operations.",
         "display_name": "Topaz Image Enhance",
         "icon": "Sparkles",
         "group": "edit",
         "tags": [
           "image",
           "enhance",
+          "upscale",
           "ai",
           "api",
           "topaz"

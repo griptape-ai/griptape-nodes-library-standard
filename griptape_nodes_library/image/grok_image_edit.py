@@ -6,6 +6,7 @@ from typing import Any, ClassVar
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -41,29 +42,42 @@ class GrokImageEdit(GriptapeProxyNode):
         - result_details (str): Details about the generation result or error
     """
 
-    MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
-        "Grok Imagine Image": "grok-imagine-image",
-    }
-
     MIN_IMAGES: ClassVar[int] = 1
     MAX_IMAGES: ClassVar[int] = 10
     QUALITY_OPTIONS: ClassVar[list[str]] = ["low", "medium", "high"]
 
     RESOLUTION_OPTIONS: ClassVar[list[str]] = ["1k", "2k"]
 
+    # Migrates values saved before this dropdown stored the provider's own model id.
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
+        "Grok Imagine Image": "grok-imagine-image",
+        "gtc_grok_imagine_image": "grok-imagine-image",
+        # Folded in from GrokImageGeneration's retired DEPRECATED_MODELS dict; this
+        # node's own removed _supports_quality check compared against the same value.
+        "Grok 2 Image": "grok-imagine-image",
+        "grok-2-image-1212": "grok-imagine-image",
+    }
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.category = "API Nodes"
         self.description = "Edit images using Grok image models via Griptape model proxy"
 
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="Grok Imagine Image",
-                tooltip="Select the Grok image model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["Grok Imagine Image"])},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="grok-imagine-image",
+            tooltip="Select the Grok image model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=["grok-imagine-image"],
+            default_model="grok-imagine-image",
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -152,26 +166,6 @@ class GrokImageEdit(GriptapeProxyNode):
             result_details_placeholder="Editing status and details will appear here.",
             parameter_group_initially_collapsed=True,
         )
-        self._initialize_parameter_visibility()
-
-    def _initialize_parameter_visibility(self) -> None:
-        model_name = self.get_parameter_value("model") or "Grok Imagine Image"
-        if self._supports_quality(model_name):
-            self.show_parameter_by_name("quality")
-        else:
-            self.hide_parameter_by_name("quality")
-
-    @staticmethod
-    def _supports_quality(model_name: str) -> bool:
-        return model_name != "Grok 2 Image"
-
-    def after_value_set(self, parameter: Any, value: Any) -> None:
-        if parameter.name == "model":
-            if self._supports_quality(value):
-                self.show_parameter_by_name("quality")
-            else:
-                self.hide_parameter_by_name("quality")
-        return super().after_value_set(parameter, value)
 
     @staticmethod
     def _has_media_value(value: Any) -> bool:
@@ -223,18 +217,9 @@ class GrokImageEdit(GriptapeProxyNode):
                 self.hide_parameter_by_name(param_name)
 
     def _get_api_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "Grok Imagine Image"
-        base_model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
-        return f"{base_model_id}:edit"
-
-    def _get_payload_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "Grok Imagine Image"
-        return self.MODEL_NAME_MAP.get(model_name, model_name)
-
-    def _get_catalog_model_id(self) -> str:
-        # The catalog declares the bare provider id (no `:edit` suffix), so
-        # resolve the declaration against the un-suffixed id.
-        return self._get_payload_model_id()
+        # Decorate the resolved provider id with the URL-path operation suffix the
+        # proxy expects; the catalog declares the bare id (see _get_catalog_model_id).
+        return f"{self._get_selected_model_id()}:edit"
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []
@@ -257,18 +242,17 @@ class GrokImageEdit(GriptapeProxyNode):
         prompt = (self.get_parameter_value("prompt") or "").strip()
         n_value = int(self.get_parameter_value("n") or 1)
         resolution = self.get_parameter_value("resolution") or "1k"
-        api_model_id = self._get_payload_model_id()
+        api_model_id = self._get_selected_model_id()
         image_data_uri = await self._prepare_image_data_uri(self.get_parameter_value("image"))
 
         payload: dict[str, Any] = {
             "model": api_model_id,
             "prompt": prompt,
             "n": n_value,
+            "quality": self.get_parameter_value("quality") or "medium",
             "resolution": resolution,
             "response_format": "url",
         }
-        if self._supports_quality(self.get_parameter_value("model") or "Grok Imagine Image"):
-            payload["quality"] = self.get_parameter_value("quality") or "medium"
 
         if image_data_uri:
             payload["image"] = {"url": image_data_uri}
