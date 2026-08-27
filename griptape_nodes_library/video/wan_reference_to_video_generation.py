@@ -22,7 +22,6 @@ from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -443,14 +442,6 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
             "watermark": watermark,
             "seed": self._seed_parameter.get_seed(),
         }
-
-    def _validate_api_key(self) -> str:
-        api_key = resolve_proxy_api_key(self.API_KEY_NAME)
-        if not api_key:
-            self._set_safe_defaults()
-            msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
-            raise ValueError(msg)
-        return api_key
 
     async def _build_payload(self) -> dict[str, Any]:
         params = self._get_parameters()
