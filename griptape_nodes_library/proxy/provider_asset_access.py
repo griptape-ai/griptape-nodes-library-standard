@@ -188,15 +188,16 @@ def missing_proxy_credential_message(credential: ProxyCredential, *, attempted: 
     return message
 
 
-def _credential_source_label(credential: ProxyCredential) -> str:
-    """Name ``credential.source`` for a user-facing message, without exposing the debug override.
+def _credential_subject(credential: ProxyCredential) -> str:
+    """Build the subject naming which credential was rejected, for a user-facing 401 message.
 
-    Mirrors :func:`missing_proxy_credential_message`'s rule: ``PROXY_API_KEY_ENV_VAR`` is a debug
-    override, not a credential users configure, so it is never named.
+    Names ``credential.source`` when it is the License or API key secret. Omits the "from X"
+    clause for ``PROXY_API_KEY_ENV_VAR`` or an unset source, since it is a debug override, not a
+    credential users configure.
     """
-    if credential.source == PROXY_API_KEY_ENV_VAR:
-        return "the configured credential"
-    return credential.source or "the configured credential"
+    if credential.source in (None, PROXY_API_KEY_ENV_VAR):
+        return "The Griptape Cloud credential"
+    return f"The Griptape Cloud credential from {credential.source}"
 
 
 def _read_secret(secret_name: str) -> str | None:
@@ -293,10 +294,7 @@ def check_provider_asset_access() -> ProviderAssetAccess:
     if status == httpx.codes.UNAUTHORIZED:
         return ProviderAssetAccess(
             outcome=ProviderAssetAccessOutcome.INDETERMINATE,
-            detail=(
-                f"The Griptape Cloud credential from {_credential_source_label(credential)} was "
-                "rejected (HTTP 401). Verify that it is valid."
-            ),
+            detail=f"{_credential_subject(credential)} was rejected (HTTP 401). Verify that it is valid.",
         )
 
     # Server error or any other unexpected status — surface it as-is, do not claim no-access.

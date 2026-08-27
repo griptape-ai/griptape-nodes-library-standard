@@ -98,6 +98,18 @@ def test_401_does_not_name_the_debug_override(monkeypatch: pytest.MonkeyPatch) -
     assert PROXY_API_KEY_ENV_VAR not in result.detail
 
 
+def test_401_debug_override_message_has_no_from_clause(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A named credential still gets "from X" (see test_401_names_the_api_key_credential); the
+    # override must not produce a redundant "credential from the configured credential" sentence.
+    _stub_get(
+        monkeypatch,
+        _FakeResponse(401, "token_not_valid"),
+        credential=ProxyCredential(value="k", source=PROXY_API_KEY_ENV_VAR),
+    )
+    result = check_provider_asset_access()
+    assert result.detail == "The Griptape Cloud credential was rejected (HTTP 401). Verify that it is valid."
+
+
 @pytest.mark.parametrize("status", [500, 502, 503])
 def test_server_error_is_indeterminate_not_denied(monkeypatch: pytest.MonkeyPatch, status: int) -> None:
     # A server error must NOT be reported as "no access" — it should surface the real failure.
@@ -149,6 +161,17 @@ def test_resolve_prefers_proxy_env_override(monkeypatch: pytest.MonkeyPatch) -> 
     assert resolve_proxy_credential().value == "env-override"
 
 
+def test_resolve_records_the_proxy_env_override_as_the_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Nothing else connects real resolution to the sanitizing behavior the 401 message depends
+    # on: the override must actually land as `.source` when both other secrets are absent.
+    monkeypatch.setenv(PROXY_API_KEY_ENV_VAR, "env-override")
+    _stub_secrets(monkeypatch, {LICENSE_SECRET_NAME: None, API_KEY_NAME: None})
+    credential = resolve_proxy_credential()
+    assert credential.value == "env-override"
+    assert credential.source == PROXY_API_KEY_ENV_VAR
+    assert credential.blank_sources == ()
+
+
 def test_resolve_prefers_license_over_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     # With no env override, a configured License wins over the API key.
     monkeypatch.delenv(PROXY_API_KEY_ENV_VAR, raising=False)
@@ -184,6 +207,16 @@ def test_resolve_skips_blank_api_key_and_records_it(monkeypatch: pytest.MonkeyPa
     credential = resolve_proxy_credential()
     assert credential.value is None
     assert credential.blank_sources == (API_KEY_NAME,)
+
+
+def test_resolve_skips_blank_license_and_records_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Mirror of the above with no API key configured at all: a blank License alone must still be
+    # recorded rather than silently resolving to "nothing configured".
+    monkeypatch.delenv(PROXY_API_KEY_ENV_VAR, raising=False)
+    _stub_secrets(monkeypatch, {LICENSE_SECRET_NAME: "", API_KEY_NAME: None})
+    credential = resolve_proxy_credential()
+    assert credential.value is None
+    assert credential.blank_sources == (LICENSE_SECRET_NAME,)
 
 
 def test_resolve_treats_whitespace_only_secret_as_blank(monkeypatch: pytest.MonkeyPatch) -> None:
