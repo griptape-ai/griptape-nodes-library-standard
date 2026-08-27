@@ -175,9 +175,9 @@ def missing_proxy_credential_message(credential: ProxyCredential, *, attempted: 
     if credential.blank_sources:
         names = ", ".join(credential.blank_sources)
         if len(credential.blank_sources) == 1:
-            message += f" {names} is set to a blank value, which does not count as configured."
+            message += f" {names} is set to a blank value."
         else:
-            message += f" {names} are set to blank values, which do not count as configured."
+            message += f" {names} are set to blank values."
     return message
 
 
