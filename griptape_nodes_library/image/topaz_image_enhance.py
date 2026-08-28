@@ -22,7 +22,6 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key
 from griptape_nodes_library.utils.image_utils import get_image_dimensions_from_artifact
 
 logger = logging.getLogger("griptape_nodes")
@@ -1063,14 +1062,6 @@ class TopazImageEnhance(GriptapeProxyNode):
                 params[param_name] = self.get_parameter_value(param_name)
 
         return params
-
-    def _validate_api_key(self) -> str:
-        api_key = resolve_proxy_api_key(self.API_KEY_NAME)
-        if not api_key:
-            self._set_safe_defaults()
-            msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
-            raise ValueError(msg)
-        return api_key
 
     def _get_api_model_id(self) -> str:
         operation = self.get_parameter_value("operation") or "enhance"

@@ -15,7 +15,6 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key
 from griptape_nodes_library.utils.image_utils import extract_image_url
 
 logger = logging.getLogger("griptape_nodes")
@@ -128,14 +127,6 @@ class OmnihumanSubjectDetection(GriptapeProxyNode):
             await super()._process_generation()
         finally:
             self._public_image_url_parameter.delete_uploaded_artifact()
-
-    def _validate_api_key(self) -> str:
-        """Validate that the API key is available."""
-        api_key = resolve_proxy_api_key(self.API_KEY_NAME)
-        if not api_key:
-            msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
-            raise ValueError(msg)
-        return api_key
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []

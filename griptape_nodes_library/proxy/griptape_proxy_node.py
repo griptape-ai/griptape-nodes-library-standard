@@ -21,7 +21,11 @@ from griptape_nodes.exe_types.param_types.parameter_button import ParameterButto
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
-from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key, resolve_proxy_base
+from griptape_nodes_library.proxy.provider_asset_access import (
+    missing_proxy_credential_message,
+    resolve_proxy_base,
+    resolve_proxy_credential,
+)
 from griptape_nodes_library.proxy.proxy_api_key_providers import get_proxy_api_key_provider_config
 from griptape_nodes_library.proxy.proxy_auth_provider_parameter import ProxyAuthProviderParameter
 from griptape_nodes_library.utils.model_invocation import declare_model_invocation
@@ -344,23 +348,24 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         return self._get_api_model_id()
 
     def _validate_api_key(self) -> str:
-        """Validate and return the API key.
+        """Validate and return the credential used for proxy requests.
 
-        GT_CLOUD_PROXY_API_KEY overrides the key used for proxy requests
-        without affecting other engine systems that use GT_CLOUD_API_KEY.
+        Resolution spans GT_CLOUD_PROXY_API_KEY, the Griptape Nodes License, and
+        GT_CLOUD_API_KEY (see `resolve_proxy_credential`), so the failure message names every
+        credential the proxy accepts rather than only the last one checked.
 
         Returns:
-            str: The API key
+            str: The credential to send as the bearer token
 
         Raises:
-            ValueError: If API key is missing
+            ValueError: If no source holds a usable credential
         """
-        api_key = resolve_proxy_api_key(self.API_KEY_NAME)
-        if not api_key:
+        credential = resolve_proxy_credential(self.API_KEY_NAME)
+        if not credential.value:
             self._set_safe_defaults()
-            msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
+            msg = missing_proxy_credential_message(credential, attempted=f"run {self.name}")
             raise ValueError(msg)
-        return api_key
+        return credential.value
 
     def _log(self, message: str) -> None:
         """Log a message with error suppression."""
