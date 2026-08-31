@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import base64
+import io
+
 import pytest
 from griptape.artifacts import ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode
 from griptape_nodes.traits.options import Options
+from PIL import Image
 
 from griptape_nodes_library.assets import (
     ASSET_KIND_AUDIO,
@@ -196,6 +200,24 @@ def test_switching_task_coerces_out_of_range_ratio_and_duration() -> None:
 
     assert node.get_parameter_value("ratio") == "adaptive"
     assert node.get_parameter_value("duration") == SMART_DURATION
+
+
+def test_narrowed_choices_recover_after_a_save_reload_cycle() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("task", SeedanceTask.FIRST_LAST_FRAME)
+
+    # A saved workflow replays the merged ui_options into the parameter's stored dict on load,
+    # where "simple_dropdown" shadows whatever choices the trait carries afterwards. Reproduce
+    # that stored state, then widen the choices by switching back to an unconstrained task.
+    for parameter_name in ("ratio", "duration"):
+        parameter = _parameter_by_name(node, parameter_name)
+        parameter.ui_options = dict(parameter.ui_options)
+
+    node.set_parameter_value("task", SeedanceTask.TEXT_TO_VIDEO)
+
+    assert _option_choices(node, "ratio") == list(ALL_RATIO_CHOICES)
+    assert _option_choices(node, "duration") == list(ALL_DURATION_CHOICES)
+    assert _parameter_by_name(node, "ratio").ui_options["simple_dropdown"] == list(ALL_RATIO_CHOICES)
 
 
 # --- Resolution ------------------------------------------------------------------------------
@@ -465,6 +487,61 @@ async def test_1080p_reaches_the_payload_verbatim() -> None:
     payload = await node._build_payload()
 
     assert payload["resolution"] == "1080p"
+
+
+def _image_data_uri(width: int, height: int) -> str:
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), color=(90, 120, 60)).save(buffer, format="JPEG", quality=90)
+    return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode()
+
+
+def _decode_image_size(data_uri: str) -> tuple[int, int]:
+    _, _, encoded = data_uri.partition(";base64,")
+    with Image.open(io.BytesIO(base64.b64decode(encoded))) as img:
+        return img.size
+
+
+@pytest.mark.asyncio
+async def test_oversized_frame_is_downscaled_to_the_provider_cap() -> None:
+    # Seedance rejects input images whose width or height exceeds 6000px (the 2.5 backend fails
+    # the whole task; 2.0's downscales silently), so the node downscales before sending.
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("task", SeedanceTask.FIRST_LAST_FRAME)
+    node.set_parameter_value("prompt", "Drone Shot")
+    node.set_parameter_value("first_frame", ImageUrlArtifact(_image_data_uri(6500, 2000)))
+
+    payload = await node._build_payload()
+
+    frame_uri = payload["content"][1]["image_url"]["url"]
+    assert _decode_image_size(frame_uri) == (6000, 1846)
+
+
+@pytest.mark.asyncio
+async def test_within_limit_frame_bytes_pass_through_unchanged() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("task", SeedanceTask.FIRST_LAST_FRAME)
+    node.set_parameter_value("prompt", "Drone Shot")
+    within_limit_uri = _image_data_uri(1280, 720)
+    node.set_parameter_value("first_frame", ImageUrlArtifact(within_limit_uri))
+
+    payload = await node._build_payload()
+
+    assert payload["content"][1]["image_url"]["url"] == within_limit_uri
+
+
+@pytest.mark.asyncio
+async def test_undecodable_image_data_uri_passes_through_unchanged() -> None:
+    # Seedance accepts formats PIL has no codec for (HEIC/HEIF), so bytes PIL cannot decode must
+    # be sent unchanged rather than blocked by the downscale check.
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("task", SeedanceTask.FIRST_LAST_FRAME)
+    node.set_parameter_value("prompt", "Drone Shot")
+    heic_like_uri = "data:image/heic;base64," + base64.b64encode(b"not decodable by PIL").decode()
+    node.set_parameter_value("first_frame", ImageUrlArtifact(heic_like_uri))
+
+    payload = await node._build_payload()
+
+    assert payload["content"][1]["image_url"]["url"] == heic_like_uri
 
 
 @pytest.mark.asyncio
