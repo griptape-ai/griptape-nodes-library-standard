@@ -1,8 +1,14 @@
+from __future__ import annotations
+
 import ast
 import re
+from typing import TYPE_CHECKING
 
 import requests
 from griptape.artifacts import BaseArtifact, ErrorArtifact
+
+if TYPE_CHECKING:
+    from griptape_nodes.exe_types.node_types import BaseNode
 
 
 def _parse_griptape_cloud_error_message(error: str) -> str:
@@ -27,6 +33,21 @@ def _parse_griptape_cloud_error_message(error: str) -> str:
     except (SyntaxError, ValueError, KeyError):
         pass
     return error
+
+
+def raise_if_cancelled(node: BaseNode) -> None:
+    """Report a cancelled node's run as a cancellation, before anything reads its output.
+
+    A node that cooperatively cancels returns without producing output, so the usual
+    `try_throw_error(agent.output)` that follows reads a structure whose output task never
+    ran. `Structure.output` raises `ValueError: Structure's output Task has no output` for
+    that, which describes the symptom and not the cause — it is the error users actually
+    see after cancelling, and it has sent several reports looking in the wrong place. Call
+    this on the cancellation path so the run ends saying what happened to it.
+    """
+    if node.is_cancellation_requested:
+        msg = f"{node.name} was cancelled before it produced a result."
+        raise RuntimeError(msg)
 
 
 def try_throw_error(agent_output: BaseArtifact) -> None:

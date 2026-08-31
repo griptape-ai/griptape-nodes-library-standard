@@ -60,7 +60,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
-from griptape_nodes_library.utils.error_utils import try_throw_error
+from griptape_nodes_library.utils.error_utils import raise_if_cancelled, try_throw_error
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
@@ -912,6 +912,10 @@ class Agent(ControlNode):
             self.append_value_to_parameter("logs", "[Started processing agent..]\n")
             yield lambda: self._process(agent, prompt)
             self.append_value_to_parameter("logs", "\n[Finished processing agent.]\n")
+            # _process() returns early on cancellation, leaving the agent with no output.
+            # Report that as a cancellation rather than letting agent.output below raise
+            # "Structure's output Task has no output", which names the wrong cause.
+            raise_if_cancelled(self)
             try_throw_error(agent.output)
             # Settle the output field to the final answer only — not the [Verified tool use: ...]
             # block we prepend to memory for downstream agents.  _process() saves the raw answer
