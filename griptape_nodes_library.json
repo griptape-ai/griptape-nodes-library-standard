@@ -2888,7 +2888,6 @@
           {
             "type": "model_usage",
             "model_ids": [
-              "gtc_ltx_2_pro",
               "gtc_ltx_2_3_pro"
             ]
           }
