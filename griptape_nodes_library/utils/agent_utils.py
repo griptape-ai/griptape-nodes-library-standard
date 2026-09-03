@@ -16,7 +16,7 @@ from griptape.rules import Rule, Ruleset
 from griptape.tasks import PromptTask
 from griptape_nodes.drivers.cloud_models import ProviderID
 
-from griptape_nodes_library.utils.cloud_credential_utils import resolve_cloud_api_key
+from griptape_nodes_library.utils.cloud_credential_utils import missing_credential_message, resolve_cloud_api_key
 
 
 # ---------------------------------------------------------------------------
@@ -68,33 +68,37 @@ driver, or an image-generation driver on a swapped task.
 """
 
 
-def _restored_cloud_credentials(agent_core_dict: dict) -> dict:
-    """Return a copy of the agent dict with Griptape Cloud ``api_key``s re-injected.
+def _restored_cloud_credentials(agent_core_dict: dict, *, require_credential: bool) -> dict:
+    """Return the agent dict with a freshly resolved ``api_key`` on every Cloud driver.
 
-    ``api_key`` on every ``GriptapeCloud*`` driver is not marked serializable, so
+    ``api_key`` on a ``GriptapeCloud*`` driver is not marked serializable, so
     ``to_dict()`` drops it and ``from_dict()`` refills it from the attrs default -- a
-    bare ``os.environ["GT_CLOUD_API_KEY"]`` read that never consults the License. A
-    chained agent would therefore authenticate as whatever ``GT_CLOUD_API_KEY`` happens
-    to hold rather than as the credential the upstream node resolved: a 402 (or 401) on
-    the downstream node for anyone whose env key points at a different org than their
-    License, and a ``KeyError`` when no env key is set at all.
+    bare ``os.environ["GT_CLOUD_API_KEY"]`` read that never consults the License.
+    Injecting the value *before* ``from_dict()`` is what fixes that: attrs takes the
+    supplied value and never evaluates the environment-reading default, so the
+    no-key-set ``KeyError`` is covered along with the wrong-key 401/402.
 
-    Injecting the credential into the dict *before* ``from_dict()`` covers both: attrs
-    takes the supplied value and never evaluates the environment-reading default. This
-    is the Griptape Cloud counterpart to :func:`restore_provider_driver`, which repairs
-    the same stripped-``api_key`` problem for non-GTC providers.
+    Never mutates ``agent_core_dict``: a saved workflow pickles the upstream node's
+    parameter value verbatim, so repairing in place would persist a License JWT to
+    disk. The return is a copy when a Cloud driver was found and ``agent_core_dict``
+    itself otherwise.
 
-    An unresolved credential (``""``) is injected too, rather than left absent: absent
-    means attrs evaluates its ``os.environ[...]`` default and raises ``KeyError``, and
-    ``from_dict()`` also runs at *connect* time (see ``ReplaceItemInAgentMemory``), where
-    ``validate_before_workflow_run`` has not fired and cannot report the missing
-    credential. ``""`` defers the failure to that user-facing check instead.
+    Args:
+        agent_core_dict: Serialized agent, as produced by ``Agent.to_dict()``.
+        require_credential: Raise when a Cloud driver is present and no credential
+            resolves, instead of injecting ``""``. True for callers that go on to send
+            a request, so the missing credential is reported here rather than as a bare
+            401 from Cloud -- see :func:`unwrap_agent`.
 
-    Copies rather than repairing in place. The dict handed to ``unwrap_agent`` is the
-    upstream node's own parameter value, and a saved workflow pickles that value
-    verbatim -- mutating it would persist a License JWT into the workflow file.
+    Raises:
+        KeyError: ``require_credential`` and no License or API key is set.
     """
+    if not _iter_cloud_driver_dicts(agent_core_dict):
+        return agent_core_dict
     api_key = resolve_cloud_api_key()
+    if not api_key and require_credential:
+        msg = missing_credential_message("use the incoming agent's Griptape Cloud driver")
+        raise KeyError(msg)
     result = copy.deepcopy(agent_core_dict)
     for driver_dict in _iter_cloud_driver_dicts(result):
         driver_dict["api_key"] = api_key
@@ -105,10 +109,10 @@ def _iter_cloud_driver_dicts(node: Any) -> list[dict]:
     """Collect every serialized ``GriptapeCloud*`` driver dict nested under ``node``.
 
     Walks the structure instead of reaching for ``tasks[].prompt_driver`` so a Cloud
-    driver in any position is repaired. Non-GTC drivers are left alone: they are
-    rebuilt from the wrapper's ``provider`` blob by :func:`restore_provider_driver`,
-    a Griptape Cloud credential must not be written onto a third-party endpoint's
-    driver, and ``from_dict()`` rejects an ``api_key`` kwarg on a driver without one.
+    driver in any position is repaired -- a conversation-memory driver hits the same
+    stripped-``api_key`` problem. Non-GTC drivers are left alone: they are rebuilt from
+    the wrapper's ``provider`` blob by :func:`restore_provider_driver`, and
+    ``from_dict()`` rejects an ``api_key`` kwarg on a driver without one.
     """
     found: list[dict] = []
     if isinstance(node, dict):
@@ -123,7 +127,7 @@ def _iter_cloud_driver_dicts(node: Any) -> list[dict]:
     return found
 
 
-def unwrap_agent(value: dict) -> tuple[dict, list, list]:
+def unwrap_agent(value: dict, *, require_credential: bool = True) -> tuple[dict, list, list]:
     """Return (agent_core_dict, tool_configs, ruleset_configs).
 
     Handles both the new wrapper format {"agent": {...}, "tools": [...], "rulesets": [...]}
@@ -131,16 +135,31 @@ def unwrap_agent(value: dict) -> tuple[dict, list, list]:
     Returns ({}, [], []) for non-dict input.
 
     Griptape Cloud drivers in the returned dict carry a freshly resolved ``api_key``
-    (see :func:`_restored_cloud_credentials`), so callers deserializing with
-    ``from_dict()`` get the License-first credential rather than a raw environment read.
-    The returned agent dict is a copy in that case; ``value`` itself is never modified.
+    (see :func:`_restored_cloud_credentials`), so a caller deserializing with
+    ``from_dict()`` gets the License-first credential rather than a raw environment
+    read. ``value`` is never modified.
+
+    Args:
+        value: The upstream node's ``agent`` parameter value.
+        require_credential: Raise a user-facing ``KeyError`` when the agent carries a
+            Griptape Cloud driver and no credential resolves. The default suits any
+            caller that goes on to send a request: a connected agent bypasses the
+            node's own ``validate_before_workflow_run`` credential check
+            (``ProviderSelectionComponent.uses_griptape_cloud_driver`` returns ``False``
+            once ``agent`` is connected), and several consumers define no such check at
+            all, so the unwrap is where a missing credential is known and can still be
+            named. Pass ``False`` from paths that only read or rewrite the wire dict --
+            they should not fail for want of a credential they never use.
+
+    Raises:
+        KeyError: ``require_credential`` and no License or API key is set.
     """
     if not isinstance(value, dict):
         return {}, [], []
     if "agent" in value and "tools" in value:
-        agent_core_dict = _restored_cloud_credentials(value["agent"])
+        agent_core_dict = _restored_cloud_credentials(value["agent"], require_credential=require_credential)
         return agent_core_dict, value.get("tools", []), value.get("rulesets", [])
-    return _restored_cloud_credentials(value), [], []
+    return _restored_cloud_credentials(value, require_credential=require_credential), [], []
 
 
 def _ollama_host_from_base_url(base_url: str) -> str | None:

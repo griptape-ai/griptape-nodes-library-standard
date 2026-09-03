@@ -35,7 +35,9 @@ class DisplayAgentMemory(ControlNode):
         if agent_value is None:
             return None
 
-        agent_core_dict, _, _ = unwrap_agent(agent_value)
+        # Read-only: this node sends no request, so a missing Cloud credential
+        # must not stop it displaying memory.
+        agent_core_dict, _, _ = unwrap_agent(agent_value, require_credential=False)
         memory = agent_core_dict.get("conversation_memory")
         if not isinstance(memory, dict):
             return None
