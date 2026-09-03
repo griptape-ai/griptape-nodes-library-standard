@@ -57,17 +57,50 @@ logger = logging.getLogger("griptape_nodes")
 # ---------------------------------------------------------------------------
 
 
+GRIPTAPE_CLOUD_DRIVER_TYPE = "GriptapeCloudPromptDriver"
+"""The ``type`` tag griptape writes for the Griptape Cloud prompt driver in ``to_dict()``."""
+
+
+def _restore_cloud_credential(agent_core_dict: dict) -> None:
+    """Re-resolve ``api_key`` on any serialized Griptape Cloud prompt driver, in place.
+
+    ``GriptapeCloudPromptDriver.api_key`` is not marked serializable, so ``to_dict()``
+    drops it and ``from_dict()`` refills it from the attrs default -- a bare
+    ``os.environ["GT_CLOUD_API_KEY"]`` read that never consults the License. A chained
+    agent would therefore authenticate as whatever ``GT_CLOUD_API_KEY`` happens to hold
+    rather than as the credential the upstream node resolved: a 402 (or 401) on the
+    downstream node for anyone whose env key points at a different org than their
+    License, and a ``KeyError`` when no env key is set at all.
+
+    Injecting the credential into the dict *before* ``from_dict()`` covers both: attrs
+    takes the supplied value and never evaluates the environment-reading default. This
+    is the Griptape Cloud counterpart to :func:`restore_provider_driver`, which repairs
+    the same stripped-``api_key`` problem for non-GTC providers.
+    """
+    for task in agent_core_dict.get("tasks", []):
+        driver = task.get("prompt_driver")
+        if isinstance(driver, dict) and driver.get("type") == GRIPTAPE_CLOUD_DRIVER_TYPE:
+            driver["api_key"] = resolve_cloud_api_key()
+
+
 def unwrap_agent(value: dict) -> tuple[dict, list, list]:
     """Return (agent_core_dict, tool_configs, ruleset_configs).
 
     Handles both the new wrapper format {"agent": {...}, "tools": [...], "rulesets": [...]}
     and the old raw griptape dict (backward compatibility — returns empty lists).
     Returns ({}, [], []) for non-dict input.
+
+    Griptape Cloud prompt drivers in the returned dict carry a freshly resolved
+    ``api_key`` (see :func:`_restore_cloud_credential`), so callers deserializing with
+    ``from_dict()`` get the License-first credential rather than a raw environment read.
     """
     if not isinstance(value, dict):
         return {}, [], []
     if "agent" in value and "tools" in value:
-        return value["agent"], value.get("tools", []), value.get("rulesets", [])
+        agent_core_dict = value["agent"]
+        _restore_cloud_credential(agent_core_dict)
+        return agent_core_dict, value.get("tools", []), value.get("rulesets", [])
+    _restore_cloud_credential(value)
     return value, [], []
 
 
