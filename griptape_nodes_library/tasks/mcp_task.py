@@ -2,23 +2,34 @@ import time
 from typing import Any
 
 from griptape.artifacts import BaseArtifact
+from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.events import ActionChunkEvent, FinishStructureRunEvent, StartStructureRunEvent, TextChunkEvent
 from griptape.rules import Rule, Ruleset
 from griptape.structures import Agent
 from griptape.tasks import PromptTask
 from griptape.tools import MCPTool
-from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
-from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
+from griptape_nodes.drivers.cloud_models import MODEL_CHOICES, MODEL_CHOICES_ARGS
+from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterList, ParameterMode
+from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, SuccessFailureNode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.retained_mode.events.agent_events import ProviderConfig
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent
-from griptape_nodes_library.utils.agent_utils import build_tools, restore_provider_driver, unwrap_agent, wrap_agent
+from griptape_nodes_library.utils.agent_utils import (
+    build_prompt_driver,
+    build_tools,
+    restore_provider_driver,
+    unwrap_agent,
+    wrap_agent,
+)
 from griptape_nodes_library.utils.cloud_credential_utils import resolve_cloud_api_key
+from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
 from griptape_nodes_library.utils.mcp_utils import (
     create_mcp_tool,
     get_available_mcp_servers,
@@ -26,7 +37,13 @@ from griptape_nodes_library.utils.mcp_utils import (
     validate_mcp_server,
 )
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
+from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
+_GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
+
+# The model the node falls back to when nothing has been selected. Unchanged from when the
+# model was hardcoded, so a workflow saved before the dropdown existed keeps running the
+# same model it always did.
 DEFAULT_MODEL = "gpt-4.1"
 
 
@@ -84,6 +101,47 @@ class MCPTaskNode(SuccessFailureNode):
                 tooltip="Optional agent to use - helpful if you want to continue interaction with an existing agent.",
             )
         )
+
+        # Provider + model selectors for the agent this node runs when no `agent` is connected.
+        # Wired exactly as the Agent node wires its own: the ProviderSelectionComponent installs
+        # the Options + refresh Button traits on `model_provider`, and the ModelAccessComponent
+        # owns those traits on `model`, decorates each row with the caller's license entitlement,
+        # and gates the selection at execute time. Both are hidden while an agent is connected,
+        # since that agent carries its own driver.
+        model_provider_param = Parameter(
+            name="model_provider",
+            type="str",
+            default_value="griptape_cloud",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            tooltip="Choose a provider. Refresh to see all configured providers.",
+            ui_options={"display_name": "provider"},
+        )
+        self.add_parameter(model_provider_param)
+
+        model_param = Parameter(
+            name="model",
+            type="str",
+            input_types=["str", "Prompt Model Config"],
+            default_value=DEFAULT_MODEL,
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            tooltip="Choose a model, or connect a Prompt Model Configuration",
+            ui_options={"display_name": "prompt model"},
+        )
+        self.add_parameter(model_param)
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_CHOICES,
+            default_model=DEFAULT_MODEL,
+            deprecated_values=CLOUD_LEGACY_MODEL_VALUES,
+        )
+        self._provider_selection = ProviderSelectionComponent(
+            node=self,
+            model_provider_param=model_provider_param,
+            model_access=self._model_access,
+            default_model=DEFAULT_MODEL,
+        )
+
         self.add_parameter(
             ParameterInt(
                 name="max_subtasks",
@@ -157,6 +215,68 @@ class MCPTaskNode(SuccessFailureNode):
             msg = f"{self.name}: Failed to reload MCP servers: {e}"
             logger.error(msg)
 
+    def _refresh_models_button(
+        self, button: Button, button_details: ButtonDetailsMessagePayload
+    ) -> NodeMessageResult | None:
+        """Refresh the model dropdown for the currently selected provider."""
+        return self._provider_selection._refresh_models_button(button, button_details)
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        """Keep the model dropdown's denial badge and choices in step with the selection."""
+        super().after_value_set(parameter, value)
+        self._model_access.on_value_set(parameter, value)
+        if parameter.name == "model_provider":
+            self._provider_selection.on_provider_changed(str(value))
+
+    def after_incoming_connection(
+        self, source_node: BaseNode, source_parameter: Parameter, target_parameter: Parameter
+    ) -> None:
+        # A connected agent carries its own prompt driver, so the node's own selectors no
+        # longer decide anything -- hide them rather than leave a stale choice on display.
+        if target_parameter.name == "agent":
+            self._provider_selection.hide()
+
+        if target_parameter.name == "model" and source_parameter.name == "prompt_model_config":
+            # A connected Prompt Model Config supplies the driver, so the dropdown is no
+            # longer a choice. Drop the Options trait (defensively, so reconnecting stays
+            # idempotent) and switch the parameter to input-only, mirroring the Agent node.
+            options_traits = target_parameter.find_elements_by_type(Options)
+            if options_traits:
+                target_parameter.remove_trait(trait_type=options_traits[0])
+
+            target_parameter.type = source_parameter.type
+            target_parameter.allowed_modes = {ParameterMode.INPUT}
+
+            ui_options = target_parameter.ui_options
+            ui_options["display_name"] = source_parameter.ui_options.get("display_name", source_parameter.name)
+            target_parameter.ui_options = ui_options
+
+        return super().after_incoming_connection(source_node, source_parameter, target_parameter)
+
+    def after_incoming_connection_removed(
+        self, source_node: BaseNode, source_parameter: Parameter, target_parameter: Parameter
+    ) -> None:
+        if target_parameter.name == "agent":
+            self._provider_selection.show()
+
+        if target_parameter.name == "model":
+            # Reset the parameter type and re-enable PROPERTY so the user can set it again.
+            target_parameter.type = "str"
+            target_parameter.allowed_modes = {ParameterMode.INPUT, ParameterMode.PROPERTY}
+
+            default_model = self._model_access.pick_permitted_default() or DEFAULT_MODEL
+            target_parameter.set_default_value(default_model)
+            target_parameter.default_value = default_model
+            ui_options = target_parameter.ui_options
+            ui_options["display_name"] = "prompt model"
+            target_parameter.ui_options = ui_options
+            self.set_parameter_value("model", default_model)
+            # The connect hook stripped the Options trait; the component reinstalls its
+            # Options trait, per-row license decoration, and badge.
+            self._model_access.reinstall_options()
+
+        return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
+
     def validate_before_node_run(self) -> list[Exception] | None:
         """Validate node parameters before execution."""
         exceptions = []
@@ -203,6 +323,20 @@ class MCPTaskNode(SuccessFailureNode):
         self._clear_execution_status()
         self._set_failure_output_values()
         self.publish_update_to_parameter("output", "")
+
+        # OFFER_MODEL gate on the dropdown, re-queried against live policy so a selection
+        # that was permitted when the node was built but has since been denied stops here --
+        # before the MCP server connection below, which is the expensive part. Skipped when an
+        # agent is connected (it brings its own driver, so the hidden dropdown value is stale)
+        # and when the provider is not Griptape Cloud (its models are outside the catalog the
+        # policy gates). Routed through the status parameters rather than raised, matching how
+        # this node reports every other failure; INVOKE_MODEL still gates the actual call.
+        if self._provider_selection.uses_griptape_cloud_driver():
+            denial = self._model_access.selection_denial()
+            if denial is not None:
+                self._set_status_results(was_successful=False, result_details=f"FAILURE: {denial.reason()}")
+                logger.error(f"{self.name}: {denial.reason()}")
+                return
 
         # Get parameter values
         mcp_server_name = self.get_parameter_value("mcp_server_name")
@@ -292,6 +426,13 @@ class MCPTaskNode(SuccessFailureNode):
             else:
                 driver = self._create_driver()
                 agent = Agent()
+                if not self._provider_selection.uses_griptape_cloud_driver():
+                    # A third-party provider's models are outside the Griptape Cloud catalog and
+                    # the license gate does not apply to them, so record the provider config for
+                    # the output wrapper the way the Agent node does -- griptape strips api_key
+                    # from a non-Cloud driver during serialization, so a downstream node can only
+                    # rebuild the driver from this.
+                    self._provider = self._selected_provider_config()
         except Exception as e:
             msg = f"{self.name}: Failed to get or create agent: {e}"
             logger.error(f"MCPTaskNode '{self.name}': {msg}")
@@ -347,11 +488,13 @@ class MCPTaskNode(SuccessFailureNode):
             raise TypeError(msg)
         prompt_driver = task.prompt_driver
 
-        # License-policy gate immediately before the framework driver call. MCPTaskNode has no
-        # user-facing model dropdown -- the model is either the fixed default declared below
-        # (no upstream agent connected) or comes from a connected agent's own driver, whose
-        # model identity that agent's own node is responsible for gating. Either way, the
-        # declaration below is this node's own gate on the actual invocation.
+        # License-policy gate immediately before the framework driver call, reading the model
+        # off whatever driver actually ended up installed -- the node's own `model` parameter is
+        # not a trustworthy source, since it keeps its last dropdown value (hidden, not cleared)
+        # while a connected agent supplies the real driver. The util resolves the provider model
+        # id to its stable catalog key (via this node's `model_usage`) before declaring. This is
+        # the fail-closed backstop behind the dropdown's OFFER_MODEL gate, and the only gate for
+        # a model that never came from the dropdown at all.
         require_model_invocation_sync(self, prompt_driver.model)
 
         if prompt_driver.stream:
@@ -377,12 +520,49 @@ class MCPTaskNode(SuccessFailureNode):
 
         return agent
 
-    def _create_driver(self, model: str = DEFAULT_MODEL) -> GriptapeCloudPromptDriver:
-        """Create a GriptapeCloudPromptDriver."""
+    def _selected_provider_config(self) -> dict[str, str]:
+        """The provider dict a downstream node needs to rebuild this node's non-Cloud driver."""
+        provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
+        providers = self._provider_selection._fetch_providers()
+        provider_config = next((p for p in providers if p.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
+        return {
+            "name": provider_name,
+            "type": provider_config.type,
+            "base_url": provider_config.base_url or "",
+            "api_key": self._provider_selection.resolve_provider_api_key(provider_config),
+        }
+
+    def _create_driver(self) -> BasePromptDriver:
+        """Build the prompt driver for the selected provider and model.
+
+        A connected Prompt Model Config is the driver, so it is used as-is. Otherwise the
+        model comes from the dropdown: Griptape Cloud gets a `GriptapeCloudPromptDriver`
+        with the family's own arg preset (stream setting, structured-output strategy), and
+        a third-party provider gets whatever driver `build_prompt_driver` picks for its type.
+        """
+        model_input = self.get_parameter_value("model")
+        if isinstance(model_input, BasePromptDriver):
+            return model_input
+
+        provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
+        if provider_name != "griptape_cloud":
+            provider_config = self._selected_provider_config()
+            return build_prompt_driver(
+                provider_type=provider_config["type"],
+                model=str(model_input),
+                base_url=provider_config["base_url"],
+                api_key=provider_config["api_key"],
+            )
+
+        # A model outside the Cloud catalog cannot be resolved to a catalog key, so the
+        # license gate would fail closed on it. Fall back to the declared default instead.
+        model = model_input if model_input in self._model_access.model_choices else DEFAULT_MODEL
+        args = next((choice["args"] for choice in MODEL_CHOICES_ARGS if choice["name"] == model), {})
+        args = {key: value for key, value in args.items() if value is not None}
         return GriptapeCloudPromptDriver(
-            model=model,
+            model=str(model),
             api_key=resolve_cloud_api_key(),
-            stream=True,
+            **args,
         )
 
     def _set_success_output_values(self, result: Agent) -> None:
