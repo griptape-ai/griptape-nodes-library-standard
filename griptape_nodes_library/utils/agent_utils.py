@@ -5,8 +5,9 @@ wire and rebuilt fresh at the point of use.  Every node that produces or
 consumes an Agent value imports from here so the logic lives in one place.
 """
 
+import copy
 import logging
-from typing import cast
+from typing import Any, cast
 
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
 from griptape.drivers.prompt.ollama import OllamaPromptDriver
@@ -57,30 +58,69 @@ logger = logging.getLogger("griptape_nodes")
 # ---------------------------------------------------------------------------
 
 
-GRIPTAPE_CLOUD_DRIVER_TYPE = "GriptapeCloudPromptDriver"
-"""The ``type`` tag griptape writes for the Griptape Cloud prompt driver in ``to_dict()``."""
+GRIPTAPE_CLOUD_DRIVER_PREFIX = "GriptapeCloud"
+"""``type`` tag prefix griptape writes for its Griptape Cloud drivers in ``to_dict()``.
+
+Matched as a prefix rather than against ``GriptapeCloudPromptDriver`` alone because
+every ``GriptapeCloud*`` driver declares ``api_key`` the same unserializable way, and
+a serialized agent can carry more than the prompt driver -- a conversation-memory
+driver, or an image-generation driver on a swapped task.
+"""
 
 
-def _restore_cloud_credential(agent_core_dict: dict) -> None:
-    """Re-resolve ``api_key`` on any serialized Griptape Cloud prompt driver, in place.
+def _restored_cloud_credentials(agent_core_dict: dict) -> dict:
+    """Return a copy of the agent dict with Griptape Cloud ``api_key``s re-injected.
 
-    ``GriptapeCloudPromptDriver.api_key`` is not marked serializable, so ``to_dict()``
-    drops it and ``from_dict()`` refills it from the attrs default -- a bare
-    ``os.environ["GT_CLOUD_API_KEY"]`` read that never consults the License. A chained
-    agent would therefore authenticate as whatever ``GT_CLOUD_API_KEY`` happens to hold
-    rather than as the credential the upstream node resolved: a 402 (or 401) on the
-    downstream node for anyone whose env key points at a different org than their
+    ``api_key`` on every ``GriptapeCloud*`` driver is not marked serializable, so
+    ``to_dict()`` drops it and ``from_dict()`` refills it from the attrs default -- a
+    bare ``os.environ["GT_CLOUD_API_KEY"]`` read that never consults the License. A
+    chained agent would therefore authenticate as whatever ``GT_CLOUD_API_KEY`` happens
+    to hold rather than as the credential the upstream node resolved: a 402 (or 401) on
+    the downstream node for anyone whose env key points at a different org than their
     License, and a ``KeyError`` when no env key is set at all.
 
     Injecting the credential into the dict *before* ``from_dict()`` covers both: attrs
     takes the supplied value and never evaluates the environment-reading default. This
     is the Griptape Cloud counterpart to :func:`restore_provider_driver`, which repairs
     the same stripped-``api_key`` problem for non-GTC providers.
+
+    An unresolved credential (``""``) is injected too, rather than left absent: absent
+    means attrs evaluates its ``os.environ[...]`` default and raises ``KeyError``, and
+    ``from_dict()`` also runs at *connect* time (see ``ReplaceItemInAgentMemory``), where
+    ``validate_before_workflow_run`` has not fired and cannot report the missing
+    credential. ``""`` defers the failure to that user-facing check instead.
+
+    Copies rather than repairing in place. The dict handed to ``unwrap_agent`` is the
+    upstream node's own parameter value, and a saved workflow pickles that value
+    verbatim -- mutating it would persist a License JWT into the workflow file.
     """
-    for task in agent_core_dict.get("tasks", []):
-        driver = task.get("prompt_driver")
-        if isinstance(driver, dict) and driver.get("type") == GRIPTAPE_CLOUD_DRIVER_TYPE:
-            driver["api_key"] = resolve_cloud_api_key()
+    api_key = resolve_cloud_api_key()
+    result = copy.deepcopy(agent_core_dict)
+    for driver_dict in _iter_cloud_driver_dicts(result):
+        driver_dict["api_key"] = api_key
+    return result
+
+
+def _iter_cloud_driver_dicts(node: Any) -> list[dict]:
+    """Collect every serialized ``GriptapeCloud*`` driver dict nested under ``node``.
+
+    Walks the structure instead of reaching for ``tasks[].prompt_driver`` so a Cloud
+    driver in any position is repaired. Non-GTC drivers are left alone: they are
+    rebuilt from the wrapper's ``provider`` blob by :func:`restore_provider_driver`,
+    a Griptape Cloud credential must not be written onto a third-party endpoint's
+    driver, and ``from_dict()`` rejects an ``api_key`` kwarg on a driver without one.
+    """
+    found: list[dict] = []
+    if isinstance(node, dict):
+        type_tag = node.get("type")
+        if isinstance(type_tag, str) and type_tag.startswith(GRIPTAPE_CLOUD_DRIVER_PREFIX):
+            found.append(node)
+        for value in node.values():
+            found.extend(_iter_cloud_driver_dicts(value))
+    elif isinstance(node, list):
+        for item in node:
+            found.extend(_iter_cloud_driver_dicts(item))
+    return found
 
 
 def unwrap_agent(value: dict) -> tuple[dict, list, list]:
@@ -90,18 +130,17 @@ def unwrap_agent(value: dict) -> tuple[dict, list, list]:
     and the old raw griptape dict (backward compatibility — returns empty lists).
     Returns ({}, [], []) for non-dict input.
 
-    Griptape Cloud prompt drivers in the returned dict carry a freshly resolved
-    ``api_key`` (see :func:`_restore_cloud_credential`), so callers deserializing with
+    Griptape Cloud drivers in the returned dict carry a freshly resolved ``api_key``
+    (see :func:`_restored_cloud_credentials`), so callers deserializing with
     ``from_dict()`` get the License-first credential rather than a raw environment read.
+    The returned agent dict is a copy in that case; ``value`` itself is never modified.
     """
     if not isinstance(value, dict):
         return {}, [], []
     if "agent" in value and "tools" in value:
-        agent_core_dict = value["agent"]
-        _restore_cloud_credential(agent_core_dict)
+        agent_core_dict = _restored_cloud_credentials(value["agent"])
         return agent_core_dict, value.get("tools", []), value.get("rulesets", [])
-    _restore_cloud_credential(value)
-    return value, [], []
+    return _restored_cloud_credentials(value), [], []
 
 
 def _ollama_host_from_base_url(base_url: str) -> str | None:

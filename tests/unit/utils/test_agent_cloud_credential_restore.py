@@ -1,12 +1,14 @@
 """Griptape Cloud credential survival across the Agent wire format.
 
-``GriptapeCloudPromptDriver.api_key`` is not serializable, so a chained agent's
+``api_key`` on every ``GriptapeCloud*`` driver is not serializable, so a chained agent's
 credential does not survive ``to_dict()``/``from_dict()`` and is silently re-read from
 ``GT_CLOUD_API_KEY``. ``unwrap_agent`` re-resolves it (License first) before the caller
 deserializes; these tests pin that behaviour and the failure modes it removes.
 """
 
 from __future__ import annotations
+
+import copy
 
 import pytest
 
@@ -123,6 +125,56 @@ def test_non_dict_and_taskless_input_do_not_raise(monkeypatch: pytest.MonkeyPatc
     # A task with no prompt_driver at all (e.g. a non-PromptTask first task).
     agent_core_dict, _, _ = unwrap_agent({"agent": {"tasks": [{"type": "ToolkitTask"}]}, "tools": []})
     assert agent_core_dict["tasks"][0] == {"type": "ToolkitTask"}
+
+
+def test_caller_dict_is_not_mutated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The credential must not be written back into the node's parameter value.
+
+    ``unwrap_agent`` receives the upstream node's own ``agent`` parameter value, and a
+    saved workflow pickles that value verbatim into the workflow file. Repairing it in
+    place would persist a License JWT to disk, and would leak it into the wrapper the
+    node re-emits downstream.
+    """
+    _stub_resolved_credential(monkeypatch, _LICENSE)
+    wrapper = wrap_agent(_cloud_agent_dict(), [], [])
+    before = copy.deepcopy(wrapper)
+
+    agent_core_dict, _, _ = unwrap_agent(wrapper)
+
+    assert wrapper == before
+    assert "api_key" not in wrapper["agent"]["tasks"][0]["prompt_driver"]
+    # ...while the returned copy does carry it.
+    assert agent_core_dict["tasks"][0]["prompt_driver"]["api_key"] == _LICENSE
+
+
+def test_legacy_raw_dict_caller_is_not_mutated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same guarantee on the legacy path, which used to return ``value`` itself."""
+    _stub_resolved_credential(monkeypatch, _LICENSE)
+    agent_dict = _cloud_agent_dict()
+    before = copy.deepcopy(agent_dict)
+
+    unwrap_agent(agent_dict)
+
+    assert agent_dict == before
+
+
+def test_nested_cloud_drivers_are_restored(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every ``GriptapeCloud*`` driver is repaired, not just ``tasks[].prompt_driver``.
+
+    They all declare ``api_key`` the same unserializable way, so a Cloud
+    conversation-memory driver hits the identical 401/402/KeyError on rebuild.
+    """
+    _stub_resolved_credential(monkeypatch, _LICENSE)
+    agent_dict = _cloud_agent_dict()
+    agent_dict["conversation_memory"] = {
+        "type": "ConversationMemory",
+        "conversation_memory_driver": {"type": "GriptapeCloudConversationMemoryDriver", "alias": "thread-alias"},
+    }
+
+    agent_core_dict, _, _ = unwrap_agent(wrap_agent(agent_dict, [], []))
+
+    assert agent_core_dict["tasks"][0]["prompt_driver"]["api_key"] == _LICENSE
+    assert agent_core_dict["conversation_memory"]["conversation_memory_driver"]["api_key"] == _LICENSE
 
 
 def test_round_trip_through_griptape_uses_restored_credential(monkeypatch: pytest.MonkeyPatch) -> None:
