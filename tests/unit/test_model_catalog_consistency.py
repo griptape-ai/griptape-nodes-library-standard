@@ -42,7 +42,8 @@ from griptape_nodes_library.config.prompt.openai_prompt import MODEL_CHOICES as 
 from griptape_nodes_library.image.create_image import MODEL_CHOICES as GENERATE_IMAGE_MODEL_CHOICES
 from griptape_nodes_library.image.describe_image import GTC_VISION_MODEL_CHOICES as DESCRIBE_IMAGE_MODEL_CHOICES
 from griptape_nodes_library.tasks.base_task import MODEL_CHOICES as TASK_MODEL_CHOICES
-from griptape_nodes_library.tasks.mcp_task import DEFAULT_MODEL as MCP_TASK_DEFAULT_MODEL, MCP_TASK_MODEL_CHOICES
+from griptape_nodes_library.tasks.mcp_task import DEFAULT_MODEL as MCP_TASK_DEFAULT_MODEL
+from griptape_nodes_library.tasks.mcp_task import MCP_TASK_MODEL_CHOICES
 from griptape_nodes_library.text.random_text import MODEL as RANDOM_TEXT_MODEL
 
 LIBRARY_JSON = Path(__file__).parents[2] / "griptape_nodes_library.json"
