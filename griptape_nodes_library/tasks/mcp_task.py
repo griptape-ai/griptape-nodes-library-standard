@@ -44,7 +44,7 @@ _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_
 # The model the node falls back to when nothing has been selected. Unchanged from when the
 # model was hardcoded, so a workflow saved before the dropdown existed keeps running the
 # same model it always did.
-DEFAULT_MODEL = "gpt-4.1"
+DEFAULT_MODEL = "claude-sonnet-5"
 
 
 def _create_ruleset_from_rules_string(rules_string: str | None, server_name: str) -> Ruleset | None:
