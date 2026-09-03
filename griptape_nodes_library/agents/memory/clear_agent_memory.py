@@ -27,7 +27,9 @@ class ClearAgentMemory(ControlNode):
         if agent_value is None:
             return
 
-        agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_value)
+        # Rewrites memory on the wire dict without running the agent, so a missing
+        # Cloud credential must not stop the clear.
+        agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_value, require_credential=False)
         agent = GtAgent().from_dict(agent_core_dict)
         if agent is None or agent.conversation_memory is None:
             return
