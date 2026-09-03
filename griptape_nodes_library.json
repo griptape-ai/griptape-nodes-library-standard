@@ -228,6 +228,36 @@
           "openai": {
             "display_name": "OpenAI",
             "models": {
+              "gtc_gpt_5_6_sol": {
+                "display_name": "GPT-5.6 Sol",
+                "family": "GPT",
+                "provider_model_id": "gpt-5.6-sol",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_5_6_terra": {
+                "display_name": "GPT-5.6 Terra",
+                "family": "GPT",
+                "provider_model_id": "gpt-5.6-terra",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_5_6_luna": {
+                "display_name": "GPT-5.6 Luna",
+                "family": "GPT",
+                "provider_model_id": "gpt-5.6-luna",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_5_5": {
+                "display_name": "GPT-5.5",
+                "family": "GPT",
+                "provider_model_id": "gpt-5.5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_5_4": {
+                "display_name": "GPT-5.4",
+                "family": "GPT",
+                "provider_model_id": "gpt-5.4",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
               "gtc_gpt_5_2": {
                 "display_name": "GPT-5.2",
                 "family": "GPT",
@@ -2071,6 +2101,11 @@
               "gtc_gemini_2_5_pro",
               "gtc_gemini_2_5_flash",
               "gtc_gemini_2_5_flash_lite",
+              "gtc_gpt_5_6_sol",
+              "gtc_gpt_5_6_terra",
+              "gtc_gpt_5_6_luna",
+              "gtc_gpt_5_5",
+              "gtc_gpt_5_4",
               "gtc_gpt_5_2",
               "gtc_gpt_5_2_chat",
               "gtc_gpt_5_1",
@@ -4384,6 +4419,11 @@
               "gtc_gemini_2_5_pro",
               "gtc_gemini_2_5_flash",
               "gtc_gemini_2_5_flash_lite",
+              "gtc_gpt_5_6_sol",
+              "gtc_gpt_5_6_terra",
+              "gtc_gpt_5_6_luna",
+              "gtc_gpt_5_5",
+              "gtc_gpt_5_4",
               "gtc_gpt_5_2",
               "gtc_gpt_5_2_chat",
               "gtc_gpt_5_1",
@@ -4571,6 +4611,11 @@
           {
             "type": "model_usage",
             "model_ids": [
+              "gtc_gpt_5_6_sol",
+              "gtc_gpt_5_6_terra",
+              "gtc_gpt_5_6_luna",
+              "gtc_gpt_5_5",
+              "gtc_gpt_5_4",
               "gtc_gpt_5_2",
               "gtc_gpt_5_1",
               "gtc_gpt_5",
@@ -4647,6 +4692,11 @@
               "gtc_gemini_2_5_pro",
               "gtc_gemini_2_5_flash",
               "gtc_gemini_2_5_flash_lite",
+              "gtc_gpt_5_6_sol",
+              "gtc_gpt_5_6_terra",
+              "gtc_gpt_5_6_luna",
+              "gtc_gpt_5_5",
+              "gtc_gpt_5_4",
               "gtc_gpt_5_2",
               "gtc_gpt_5_1",
               "gtc_gpt_5",
