@@ -9,7 +9,7 @@ from griptape.rules import Rule, Ruleset
 from griptape.structures import Agent
 from griptape.tasks import PromptTask
 from griptape.tools import MCPTool
-from griptape_nodes.drivers.cloud_models import MODEL_CHOICES, MODEL_CHOICES_ARGS
+from griptape_nodes.drivers.cloud_models import MODEL_CHOICES_ARGS
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
@@ -41,10 +41,39 @@ from griptape_nodes_library.utils.provider_selection_component import ProviderSe
 
 _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
 
-# The model the node falls back to when nothing has been selected. Unchanged from when the
-# model was hardcoded, so a workflow saved before the dropdown existed keeps running the
-# same model it always did.
-DEFAULT_MODEL = "claude-sonnet-5"
+# Curated subset of the Cloud chat catalog for the MCP task node. Not every Cloud
+# model works reliably with tool-calling, so this list is narrower than the full
+# MODEL_CHOICES_ARGS the Agent node offers.
+MCP_TASK_MODEL_CHOICES = [
+    "claude-sonnet-5",
+    "claude-opus-5",
+    "claude-haiku-4-5",
+    "gemini-3.6-flash",
+    "gemini-3.1-pro",
+    "gemini-3-flash",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-5.2",
+    "gpt-5.2-chat",
+    "gpt-5.1",
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "gpt-4.1-nano",
+    "gpt-4o",
+    "deepseek-v3",
+]
+
+DEFAULT_MODEL = MCP_TASK_MODEL_CHOICES[0]
+
+_MCP_TASK_CHOICES_SET = set(MCP_TASK_MODEL_CHOICES)
+# Only keep legacy migration entries whose target is still in the curated list.
+MCP_TASK_LEGACY_MODEL_VALUES = {k: v for k, v in CLOUD_LEGACY_MODEL_VALUES.items() if v in _MCP_TASK_CHOICES_SET}
 
 
 def _create_ruleset_from_rules_string(rules_string: str | None, server_name: str) -> Ruleset | None:
@@ -131,9 +160,9 @@ class MCPTaskNode(SuccessFailureNode):
         self._model_access = ModelAccessComponent(
             node=self,
             parameter=model_param,
-            model_choices=MODEL_CHOICES,
+            model_choices=MCP_TASK_MODEL_CHOICES,
             default_model=DEFAULT_MODEL,
-            deprecated_values=CLOUD_LEGACY_MODEL_VALUES,
+            deprecated_values=MCP_TASK_LEGACY_MODEL_VALUES,
         )
         self._provider_selection = ProviderSelectionComponent(
             node=self,

@@ -42,7 +42,7 @@ from griptape_nodes_library.config.prompt.openai_prompt import MODEL_CHOICES as 
 from griptape_nodes_library.image.create_image import MODEL_CHOICES as GENERATE_IMAGE_MODEL_CHOICES
 from griptape_nodes_library.image.describe_image import GTC_VISION_MODEL_CHOICES as DESCRIBE_IMAGE_MODEL_CHOICES
 from griptape_nodes_library.tasks.base_task import MODEL_CHOICES as TASK_MODEL_CHOICES
-from griptape_nodes_library.tasks.mcp_task import DEFAULT_MODEL as MCP_TASK_DEFAULT_MODEL
+from griptape_nodes_library.tasks.mcp_task import DEFAULT_MODEL as MCP_TASK_DEFAULT_MODEL, MCP_TASK_MODEL_CHOICES
 from griptape_nodes_library.text.random_text import MODEL as RANDOM_TEXT_MODEL
 
 LIBRARY_JSON = Path(__file__).parents[2] / "griptape_nodes_library.json"
@@ -98,7 +98,7 @@ def _provider(library: dict[str, Any], provider_id: str) -> dict[str, Any]:
     return catalog["providers"][provider_id]
 
 
-@pytest.mark.parametrize("class_name", ["Agent", "GriptapeCloudPrompt", "MCPTaskNode"])
+@pytest.mark.parametrize("class_name", ["Agent", "GriptapeCloudPrompt"])
 def test_chat_node_model_usage_matches_static_choices(class_name: str) -> None:
     """The chat model list in Python and the models the node declares must agree.
 
@@ -148,6 +148,7 @@ def test_mcp_task_default_model_is_one_of_the_models_it_declares() -> None:
         ("CoherePrompt", COHERE_PROMPT_MODEL_CHOICES),
         ("GroqPrompt", GROQ_PROMPT_MODEL_CHOICES),
         ("NimPrompt", NIM_PROMPT_MODEL_CHOICES),
+        ("MCPTaskNode", MCP_TASK_MODEL_CHOICES),
         ("Askulator", TASK_MODEL_CHOICES),
         ("DateAndTime", TASK_MODEL_CHOICES),
         ("EvaluateTextResult", TASK_MODEL_CHOICES),
