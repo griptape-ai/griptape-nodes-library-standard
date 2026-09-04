@@ -10,7 +10,7 @@ from griptape.structures import Agent
 from griptape.tasks import PromptTask
 from griptape.tools import MCPTool
 from griptape_nodes.drivers.cloud_models import MODEL_CHOICES_ARGS
-from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
@@ -29,7 +29,7 @@ from griptape_nodes_library.utils.agent_utils import (
     wrap_agent,
 )
 from griptape_nodes_library.utils.cloud_credential_utils import resolve_cloud_api_key
-from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
+from griptape_nodes_library.utils.cloud_legacy_models import cloud_legacy_values_for
 from griptape_nodes_library.utils.mcp_utils import (
     create_mcp_tool,
     get_available_mcp_servers,
@@ -71,9 +71,7 @@ MCP_TASK_MODEL_CHOICES = [
 
 DEFAULT_MODEL = MCP_TASK_MODEL_CHOICES[0]
 
-_MCP_TASK_CHOICES_SET = set(MCP_TASK_MODEL_CHOICES)
-# Only keep legacy migration entries whose target is still in the curated list.
-MCP_TASK_LEGACY_MODEL_VALUES = {k: v for k, v in CLOUD_LEGACY_MODEL_VALUES.items() if v in _MCP_TASK_CHOICES_SET}
+MCP_TASK_LEGACY_MODEL_VALUES = cloud_legacy_values_for(MCP_TASK_MODEL_CHOICES)
 
 
 def _create_ruleset_from_rules_string(rules_string: str | None, server_name: str) -> Ruleset | None:
@@ -243,12 +241,6 @@ class MCPTaskNode(SuccessFailureNode):
         except Exception as e:
             msg = f"{self.name}: Failed to reload MCP servers: {e}"
             logger.error(msg)
-
-    def _refresh_models_button(
-        self, button: Button, button_details: ButtonDetailsMessagePayload
-    ) -> NodeMessageResult | None:
-        """Refresh the model dropdown for the currently selected provider."""
-        return self._provider_selection._refresh_models_button(button, button_details)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Keep the model dropdown's denial badge and choices in step with the selection."""
@@ -455,7 +447,7 @@ class MCPTaskNode(SuccessFailureNode):
             else:
                 driver = self._create_driver()
                 agent = Agent()
-                if not self._provider_selection.uses_griptape_cloud_driver():
+                if (self.get_parameter_value("model_provider") or "griptape_cloud") != "griptape_cloud":
                     # A third-party provider's models are outside the Griptape Cloud catalog and
                     # the license gate does not apply to them, so record the provider config for
                     # the output wrapper the way the Agent node does -- griptape strips api_key

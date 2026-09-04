@@ -1,10 +1,4 @@
-"""Tests that `MCPTaskNode` exposes the model its hidden agent runs.
-
-The node runs its prompt through an agent that never appears in the node's UI.
-That agent's model used to be a module constant, so a caller whose license
-denied it had no way to point the node at a model they were allowed to use.
-The node now carries the same provider + model selectors the Agent node does,
-wired through `ProviderSelectionComponent` and `ModelAccessComponent`.
+"""Tests for `MCPTaskNode` model selection: wiring, driver dispatch, and policy gates.
 
 These tests cover the node's own wiring and the two gates around the selection.
 The components' own behaviour is covered by the engine suite, and the shared
@@ -91,10 +85,10 @@ class TestDropdownWiring:
         assert provider_param.find_elements_by_type(Button)
 
     def test_dropdown_offers_more_than_the_default(self, mcp_task_node: MCPTaskNode) -> None:
-        """The gap the node had was a single-model dropdown, so one choice is not enough.
+        """The dropdown must offer more than one model.
 
-        A dropdown that offers only the model the license denies leaves the caller
-        exactly where they started.
+        A dropdown that offers only one model leaves a caller whose license denies
+        that model with no alternative to select.
         """
         choices = mcp_task_node._model_access.model_choices
         assert DEFAULT_MODEL in choices
