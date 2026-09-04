@@ -282,7 +282,7 @@ class TestInvokeModelDenialStopsHardcodedModelNodes:
 
         run_stream_calls: list[Any] = []
         monkeypatch.setattr(Agent, "run_stream", _fake_run_stream(run_stream_calls))
-        authorization_hook(_deny_hook(CheckpointAction.INVOKE_MODEL, "gtc_gpt_4_1"))
+        authorization_hook(_deny_hook(CheckpointAction.INVOKE_MODEL, "gtc_claude_sonnet_5"))
 
         agent, driver, tools, rulesets = node._setup_agent()
         assert agent is not None
