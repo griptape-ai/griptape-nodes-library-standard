@@ -447,7 +447,9 @@ class MCPTaskNode(SuccessFailureNode):
             else:
                 driver = self._create_driver()
                 agent = Agent()
-                if (self.get_parameter_value("model_provider") or "griptape_cloud") != "griptape_cloud":
+                provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
+                model_is_driver = isinstance(self.get_parameter_value("model"), BasePromptDriver)
+                if provider_name != "griptape_cloud" and not model_is_driver:
                     # A third-party provider's models are outside the Griptape Cloud catalog and
                     # the license gate does not apply to them, so record the provider config for
                     # the output wrapper the way the Agent node does -- griptape strips api_key
