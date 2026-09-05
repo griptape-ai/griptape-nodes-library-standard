@@ -28,8 +28,8 @@ LIBRARY_ROOT = Path(__file__).parents[3] / "griptape_nodes_library"
 # the set and fail. Reverting `omnihuman_video_generation.py` to inline was tried too, and
 # this test did fail, which is what confines the gap to this single file.
 #
-# `test_proxy_node_keeps_exactly_its_two_inline_header_dicts` below closes it, by naming the
-# two functions allowed to build a header inline rather than just the file.
+# `test_proxy_node_keeps_exactly_its_two_inline_header_dicts` below closes it, by counting how
+# many inline header dicts each function in that file builds rather than just checking the file.
 #
 # What this cannot see: a node that hands an `api_key` to a framework driver
 # (`GriptapeCloudPromptDriver`, `GriptapeCloudImageGenerationDriver`,
