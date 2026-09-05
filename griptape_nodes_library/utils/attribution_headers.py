@@ -53,19 +53,8 @@ def build_attribution_headers(bearer_token: str) -> dict[str, str]:
             through poll and cancel rather than rebuilding it, so a value that must
             differ between those three requests cannot be added here.
     """
-    # L2 adds ``X-Griptape-Attribution`` to this dict. One line, covering every billable
-    # call at once, is the whole reason this module exists -- so build the value here
-    # rather than letting call sites pass it in, which would be the N-site edit again.
-    # The value comes from a vendored ``utils/attribution.py`` helper that dispatches
-    # ``GetAttributionContextRequest`` and returns ``{}`` on any error, so a failure to
-    # attribute never fails the call.
-    #
-    # Open question for whoever lands it: the payload carries node type and node id, and
-    # the engine cannot look them up from here. ``ContextManager.node()`` is pushed only
-    # on serialize/deserialize paths -- four sites in ``node_manager.py``, two in
-    # ``flow_manager.py``, none during execution -- so ``has_current_node()`` is False at
-    # the moment this runs. If the request needs them, give this function a named ``node``
-    # (or ``node_type``/``node_id``) parameter rather than a general escape hatch: keyword-only
-    # with a default, so it breaks no existing caller, and typed so it cannot quietly
-    # overwrite ``Authorization``.
+    # L2 adds ``X-Griptape-Attribution`` to this dict -- one line, covering every billable
+    # call at once, which is the whole reason this module exists. Where the value comes from,
+    # and whether the engine can supply node identity at the moment this runs, are open and
+    # tracked in https://github.com/griptape-ai/griptape-nodes-library-standard/issues/595.
     return {"Authorization": f"Bearer {bearer_token}", "Content-Type": "application/json"}

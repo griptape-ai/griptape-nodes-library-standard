@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from collections import Counter
 from pathlib import Path
 
 from griptape_nodes_library.utils.attribution_headers import build_attribution_headers
@@ -101,28 +102,32 @@ def test_only_the_header_factory_builds_an_authorization_header() -> None:
     assert _files_building_an_authorization_header() == AUTHORIZATION_HEADER_OWNERS
 
 
-# The two inline dicts `griptape_proxy_node.py` is allowed to keep, named rather than counted
-# so a failure says which function grew a third one. Both re-read a generation that was
-# already paid for at submit, so there is no fresh usage to attribute:
+# The two inline dicts `griptape_proxy_node.py` is allowed to keep, counted per function so
+# that a failure both names the offender and catches a second dict added inside a function
+# already on the list. Names alone would inherit the presence-not-count blind spot this test
+# exists to fix, one level down. Both re-read a generation that was already paid for at
+# submit, so there is no fresh usage to attribute:
 # `_fetch_generation_result` retrieves a finished result, `_refresh_async` backs the Refresh
 # button. Anything else in this file that needs an Authorization header is making a billable
 # call and belongs in the factory.
-INLINE_HEADER_FUNCTIONS = {"_fetch_generation_result", "_refresh_async"}
+INLINE_HEADER_FUNCTIONS = {"_fetch_generation_result": 1, "_refresh_async": 1}
 
 
-def _functions_building_an_authorization_header(path: Path) -> set[str]:
-    """Names of the functions in `path` that build an Authorization header inline."""
+def _authorization_headers_by_function(path: Path) -> Counter[str]:
+    """How many Authorization headers each function in `path` builds inline."""
     tree = ast.parse(path.read_text())
     scopes = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-    names: set[str] = set()
+    counts: Counter[str] = Counter()
     for node in ast.walk(tree):
         # Narrowing to the two shapes the predicate matches is also what gives `node` a `lineno`.
         if not isinstance(node, (ast.Dict, ast.Subscript)) or not _builds_an_authorization_header(node):
             continue
         enclosing = [f for f in scopes if f.lineno <= node.lineno <= (f.end_lineno or f.lineno)]
         # Innermost wins, so a nested def is not reported under the function it sits in.
-        names.add(min(enclosing, key=lambda f: (f.end_lineno or f.lineno) - f.lineno).name if enclosing else "<module>")
-    return names
+        counts[
+            min(enclosing, key=lambda f: (f.end_lineno or f.lineno) - f.lineno).name if enclosing else "<module>"
+        ] += 1
+    return counts
 
 
 def test_proxy_node_keeps_exactly_its_two_inline_header_dicts() -> None:
@@ -130,9 +135,11 @@ def test_proxy_node_keeps_exactly_its_two_inline_header_dicts() -> None:
 
     `griptape_proxy_node.py` earns its place in `AUTHORIZATION_HEADER_OWNERS` from the two
     non-billable dicts alone, so moving `_process_generation` back off the factory leaves that
-    test green -- confirmed by trying it. Naming the functions is what catches it.
+    test green -- confirmed by trying it. Counting per function is what catches it, and counting
+    rather than naming is what also catches a second dict added inside one of the two functions
+    already on the list -- the same presence-not-count blind spot, one level down. Both reverts
+    confirmed to fail here.
     """
     assert (
-        _functions_building_an_authorization_header(LIBRARY_ROOT / "proxy" / "griptape_proxy_node.py")
-        == INLINE_HEADER_FUNCTIONS
+        _authorization_headers_by_function(LIBRARY_ROOT / "proxy" / "griptape_proxy_node.py") == INLINE_HEADER_FUNCTIONS
     )
