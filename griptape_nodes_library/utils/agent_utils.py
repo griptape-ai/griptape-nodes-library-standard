@@ -17,6 +17,7 @@ from griptape.tasks import PromptTask
 from griptape_nodes.drivers.cloud_models import ProviderID
 
 from griptape_nodes_library.utils.cloud_credential_utils import missing_credential_message, resolve_cloud_api_key
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 
 # ---------------------------------------------------------------------------
@@ -367,6 +368,11 @@ def build_tool_from_config(config: dict) -> object:
             api_key = resolve_cloud_api_key()
             bucket_id = config.get("bucket_id", "")
             driver = GriptapeCloudFileManagerDriver(api_key=api_key, bucket_id=bucket_id)
+            # This driver declares `headers` as `init=False`, so unlike every other Cloud
+            # driver it cannot take the kwarg -- assign after construction. The bucket GET in
+            # its `__attrs_post_init__` has already gone out unattributed by this point; that
+            # request consumes no credits, so there is nothing to attribute.
+            driver.headers = build_griptape_cloud_headers(api_key, attribution=True)
         else:
             workdir = GriptapeNodes.ConfigManager().get_config_value("workspace_directory")
             driver = LocalFileManagerDriver(workdir=workdir)
