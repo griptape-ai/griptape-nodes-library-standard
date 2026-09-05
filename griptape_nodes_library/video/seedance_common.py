@@ -43,6 +43,7 @@ from griptape_nodes_library.media import (
     prepare_media_data_uri,
 )
 from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.utils.attribution_headers import build_attribution_headers
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -311,10 +312,6 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
 
     # --- Provider private-asset registration (Griptape auth only) ---------------------------
 
-    def _proxy_headers(self) -> dict[str, str]:
-        """Bearer headers for the GTC proxy (same auth as the generation requests)."""
-        return {"Authorization": f"Bearer {self._validate_api_key()}", "Content-Type": "application/json"}
-
     async def _append_private_asset(self, ref: Any, *, expected_kind: str, label: str) -> str:
         """Resolve a private-asset reference to an `asset://{asset_id}` URL.
 
@@ -331,7 +328,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             raise ValueError(msg)
 
         public_url = self._resolve_public_url_for_asset(ref, asset_kind=expected_kind)
-        headers = self._proxy_headers()
+        headers = build_attribution_headers(self._validate_api_key())
         asset_id = await self._create_provider_asset(public_url, expected_kind, headers)
         return f"asset://{asset_id}"
 

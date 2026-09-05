@@ -12,6 +12,7 @@ from griptape_nodes_library.proxy.provider_asset_access import (
     LICENSE_SECRET_NAME,
     PROXY_API_KEY_ENV_VAR,
 )
+from griptape_nodes_library.utils.attribution_headers import build_attribution_headers
 from griptape_nodes_library.video.omnihuman_subject_detection import OmnihumanSubjectDetection
 
 LIBRARY_ROOT = Path(__file__).parents[2] / "griptape_nodes_library"
@@ -86,3 +87,18 @@ def test_missing_credential_error_reports_a_blank_api_key(monkeypatch: pytest.Mo
         node._validate_api_key()
 
     assert f"{API_KEY_NAME} is set to a blank value" in str(error.value)
+
+
+def test_proxy_headers_carry_the_resolved_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The exact dict a billable proxy call sends, composed the way its three call sites compose it.
+
+    The missing-credential path is covered by
+    `test_missing_credential_error_names_every_accepted_credential`, which exercises the
+    same `_validate_api_key` these sites now call directly.
+    """
+    _stub_secrets(monkeypatch, {LICENSE_SECRET_NAME: None, API_KEY_NAME: "gt-cloud-key"})
+    node = GoogleImageGeneration(name="Google Nano Banana Image Generation")
+
+    headers = build_attribution_headers(node._validate_api_key())
+
+    assert headers == {"Authorization": "Bearer gt-cloud-key", "Content-Type": "application/json"}
