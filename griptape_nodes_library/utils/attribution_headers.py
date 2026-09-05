@@ -35,7 +35,7 @@ from __future__ import annotations
 __all__ = ["build_attribution_headers"]
 
 
-def build_attribution_headers(bearer_token: str, *, extra: dict[str, str] | None = None) -> dict[str, str]:
+def build_attribution_headers(bearer_token: str) -> dict[str, str]:
     """Return the headers for one Griptape Cloud request.
 
     The single place ``Authorization`` is spelled, so a header the platform wants on
@@ -46,9 +46,6 @@ def build_attribution_headers(bearer_token: str, *, extra: dict[str, str] | None
             useful error names which credential sources were checked and only the caller
             knows that. Every caller today arrives through
             :meth:`GriptapeProxyNode._validate_api_key`, which raises first.
-        extra: Per-request headers, merged last so a caller can also override a default.
-            A dict rather than ``**kwargs`` because the one real case,
-            ``X-GTC-PROXY-AUTH-INFO``, is not a valid Python identifier.
 
     Returns:
         dict[str, str]: A fresh dict; callers may mutate it freely. Note that
@@ -56,7 +53,19 @@ def build_attribution_headers(bearer_token: str, *, extra: dict[str, str] | None
             through poll and cancel rather than rebuilding it, so a value that must
             differ between those three requests cannot be added here.
     """
-    headers = {"Authorization": f"Bearer {bearer_token}", "Content-Type": "application/json"}
-    if extra:
-        headers.update(extra)
-    return headers
+    # L2 adds ``X-Griptape-Attribution`` to this dict. One line, covering every billable
+    # call at once, is the whole reason this module exists -- so build the value here
+    # rather than letting call sites pass it in, which would be the N-site edit again.
+    # The value comes from a vendored ``utils/attribution.py`` helper that dispatches
+    # ``GetAttributionContextRequest`` and returns ``{}`` on any error, so a failure to
+    # attribute never fails the call.
+    #
+    # Open question for whoever lands it: the payload carries node type and node id, and
+    # the engine cannot look them up from here. ``ContextManager.node()`` is pushed only
+    # on serialize/deserialize paths -- four sites in ``node_manager.py``, two in
+    # ``flow_manager.py``, none during execution -- so ``has_current_node()`` is False at
+    # the moment this runs. If the request needs them, give this function a named ``node``
+    # (or ``node_type``/``node_id``) parameter rather than a general escape hatch: keyword-only
+    # with a default, so it breaks no existing caller, and typed so it cannot quietly
+    # overwrite ``Authorization``.
+    return {"Authorization": f"Bearer {bearer_token}", "Content-Type": "application/json"}

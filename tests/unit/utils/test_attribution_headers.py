@@ -19,14 +19,16 @@ LIBRARY_ROOT = Path(__file__).parents[3] / "griptape_nodes_library"
 # `provider_asset_access.py` probes asset access, and `griptape_proxy_node.py` re-reads a
 # generation already paid for in `_fetch_generation_result` and `_refresh_async`.
 #
-# `griptape_proxy_node.py` is the weak entry, and knowingly so: it also calls the factory
-# from `_process_generation`, so listing it here means this test can no longer tell its two
-# intended inline dicts from a third one added later beside them. Nothing else in the set
-# has that problem -- the other three never touch the factory. If a check on that file is
-# wanted, it needs to count the literals, not just their presence.
+# `griptape_proxy_node.py` is the one entry this test cannot fully police, because it both
+# calls the factory (`_process_generation`) and keeps two intended inline dicts. Membership
+# here is therefore satisfied by the inline dicts alone: reverting `_process_generation` to
+# an inline copy was tried, and the entire suite stayed green. The other four entries have no
+# such gap -- none of them touches the factory, so removing their call would drop them from
+# the set and fail. Reverting `omnihuman_video_generation.py` to inline was tried too, and
+# this test did fail, which is what confines the gap to this single file.
 #
-# Set equality still holds the line elsewhere both ways: a new file building a header
-# inline fails this test, and so does moving a billable call *out* of the factory.
+# `test_proxy_node_keeps_exactly_its_two_inline_header_dicts` below closes it, by naming the
+# two functions allowed to build a header inline rather than just the file.
 #
 # What this cannot see: a node that hands an `api_key` to a framework driver
 # (`GriptapeCloudPromptDriver`, `GriptapeCloudImageGenerationDriver`,
@@ -46,20 +48,6 @@ def test_default_headers_are_bearer_and_json() -> None:
     assert build_attribution_headers("tok") == {"Authorization": "Bearer tok", "Content-Type": "application/json"}
 
 
-def test_extra_headers_are_merged() -> None:
-    """X-GTC-PROXY-AUTH-INFO rides in per request rather than being read off the node."""
-    headers = build_attribution_headers("tok", extra={"X-GTC-PROXY-AUTH-INFO": "user-provider-key"})
-    assert headers["X-GTC-PROXY-AUTH-INFO"] == "user-provider-key"
-    assert headers["Authorization"] == "Bearer tok"
-
-
-def test_extra_can_override_a_default() -> None:
-    """`extra` merges last, so a caller with an unusual body type is not blocked on a new knob."""
-    assert build_attribution_headers("tok", extra={"Content-Type": "multipart/form-data"})["Content-Type"] == (
-        "multipart/form-data"
-    )
-
-
 def test_each_call_returns_a_fresh_dict() -> None:
     """Call sites mutate what they get back (`_submit_generation` adds the BYOK header)."""
     first = build_attribution_headers("tok")
@@ -67,8 +55,8 @@ def test_each_call_returns_a_fresh_dict() -> None:
     assert "X-Mutated" not in build_attribution_headers("tok")
 
 
-def _files_building_an_authorization_header() -> set[Path]:
-    """Files that name an Authorization header key in a dict literal or a subscript store.
+def _builds_an_authorization_header(node: ast.AST) -> bool:
+    """Whether `node` names an Authorization header key in a dict literal or a subscript store.
 
     A dict literal is how every inline copy was written before centralization; a subscript
     store (``headers["Authorization"] = ...``) is the natural way someone would re-add one
@@ -85,25 +73,66 @@ def _files_building_an_authorization_header() -> set[Path]:
     leaves -- a token hardcoded as a literal -- is a credential-in-source problem rather
     than an attribution one, and is not what this test is looking for.
     """
-    matches: set[Path] = set()
-    for path in sorted(LIBRARY_ROOT.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text())):
-            # `keys` holds None for `**spread` entries; None is not an ast.Constant, so it drops out.
-            if isinstance(node, ast.Dict) and any(
-                isinstance(key, ast.Constant) and key.value == "Authorization" and not isinstance(value, ast.Constant)
-                for key, value in zip(node.keys, node.values, strict=True)
-            ):
-                matches.add(path)
-            elif (
-                isinstance(node, ast.Subscript)
-                and isinstance(node.ctx, ast.Store)
-                and isinstance(node.slice, ast.Constant)
-                and node.slice.value == "Authorization"
-            ):
-                matches.add(path)
-    return matches
+    if isinstance(node, ast.Dict):
+        # `keys` holds None for `**spread` entries; None is not an ast.Constant, so it drops out.
+        return any(
+            isinstance(key, ast.Constant) and key.value == "Authorization" and not isinstance(value, ast.Constant)
+            for key, value in zip(node.keys, node.values, strict=True)
+        )
+    return (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.ctx, ast.Store)
+        and isinstance(node.slice, ast.Constant)
+        and node.slice.value == "Authorization"
+    )
+
+
+def _files_building_an_authorization_header() -> set[Path]:
+    """Library files that build an Authorization header, by any of the shapes above."""
+    return {
+        path
+        for path in sorted(LIBRARY_ROOT.rglob("*.py"))
+        if any(_builds_an_authorization_header(node) for node in ast.walk(ast.parse(path.read_text())))
+    }
 
 
 def test_only_the_header_factory_builds_an_authorization_header() -> None:
     """An inline copy silently opts its call site out of every future shared header."""
     assert _files_building_an_authorization_header() == AUTHORIZATION_HEADER_OWNERS
+
+
+# The two inline dicts `griptape_proxy_node.py` is allowed to keep, named rather than counted
+# so a failure says which function grew a third one. Both re-read a generation that was
+# already paid for at submit, so there is no fresh usage to attribute:
+# `_fetch_generation_result` retrieves a finished result, `_refresh_async` backs the Refresh
+# button. Anything else in this file that needs an Authorization header is making a billable
+# call and belongs in the factory.
+INLINE_HEADER_FUNCTIONS = {"_fetch_generation_result", "_refresh_async"}
+
+
+def _functions_building_an_authorization_header(path: Path) -> set[str]:
+    """Names of the functions in `path` that build an Authorization header inline."""
+    tree = ast.parse(path.read_text())
+    scopes = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        # Narrowing to the two shapes the predicate matches is also what gives `node` a `lineno`.
+        if not isinstance(node, (ast.Dict, ast.Subscript)) or not _builds_an_authorization_header(node):
+            continue
+        enclosing = [f for f in scopes if f.lineno <= node.lineno <= (f.end_lineno or f.lineno)]
+        # Innermost wins, so a nested def is not reported under the function it sits in.
+        names.add(min(enclosing, key=lambda f: (f.end_lineno or f.lineno) - f.lineno).name if enclosing else "<module>")
+    return names
+
+
+def test_proxy_node_keeps_exactly_its_two_inline_header_dicts() -> None:
+    """The file-level test cannot see a third dict added here, because this file is an owner.
+
+    `griptape_proxy_node.py` earns its place in `AUTHORIZATION_HEADER_OWNERS` from the two
+    non-billable dicts alone, so moving `_process_generation` back off the factory leaves that
+    test green -- confirmed by trying it. Naming the functions is what catches it.
+    """
+    assert (
+        _functions_building_an_authorization_header(LIBRARY_ROOT / "proxy" / "griptape_proxy_node.py")
+        == INLINE_HEADER_FUNCTIONS
+    )
