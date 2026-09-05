@@ -26,8 +26,11 @@ dispatches to the provider.
 
 The "one line here" claim covers calls this library makes over HTTP itself. A node
 that hands an ``api_key`` to a framework driver (``GriptapeCloudPromptDriver``,
-``GriptapeCloudImageGenerationDriver``) gets its ``Authorization`` header built
-inside ``griptape``, and a header added here never reaches it.
+``GriptapeCloudImageGenerationDriver``, ``GriptapeCloudFileManagerDriver``) gets its
+``Authorization`` header built inside ``griptape``, and a header added here never
+reaches it. :mod:`griptape_nodes_library.utils.cloud_driver_auth` bridges that by passing
+this dict in as the driver's ``headers``, so those sites still resolve to one line here --
+except on deserialization, where ``griptape`` drops both fields entirely. See that module.
 """
 
 from __future__ import annotations

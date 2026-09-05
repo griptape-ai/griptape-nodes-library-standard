@@ -34,7 +34,7 @@ LIBRARY_ROOT = Path(__file__).parents[3] / "griptape_nodes_library"
 # What this cannot see: a node that hands an `api_key` to a framework driver
 # (`GriptapeCloudPromptDriver`, `GriptapeCloudImageGenerationDriver`,
 # `GriptapeCloudFileManagerDriver`) never spells the header itself -- the driver builds it
-# inside `griptape`. Those sites are billable and are tracked separately.
+# inside `griptape`. Those sites are billable, and `test_cloud_driver_auth.py` polices them.
 AUTHORIZATION_HEADER_OWNERS = {
     LIBRARY_ROOT / "utils" / "attribution_headers.py",
     LIBRARY_ROOT / "config" / "prompt" / "griptape_cloud_prompt.py",

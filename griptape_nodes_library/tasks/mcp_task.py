@@ -18,7 +18,7 @@ from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent
 from griptape_nodes_library.utils.agent_utils import build_tools, restore_provider_driver, unwrap_agent, wrap_agent
-from griptape_nodes_library.utils.cloud_credential_utils import resolve_cloud_api_key
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.mcp_utils import (
     create_mcp_tool,
     get_available_mcp_servers,
@@ -381,8 +381,8 @@ class MCPTaskNode(SuccessFailureNode):
         """Create a GriptapeCloudPromptDriver."""
         return GriptapeCloudPromptDriver(
             model=model,
-            api_key=resolve_cloud_api_key(),
             stream=True,
+            **cloud_driver_auth(),
         )
 
     def _set_success_output_values(self, result: Agent) -> None:

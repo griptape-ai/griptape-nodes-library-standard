@@ -21,6 +21,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.ffmpeg_utils import (
     build_video_segment_cmd,
     detect_video_properties,
@@ -207,7 +208,7 @@ class SplitVideo(SuccessFailureNode):
             raise ValueError(error_msg)
 
         prompt_driver = GriptapeCloudPromptDriver(
-            model=MODEL, api_key=api_key, stream=True, structured_output_strategy="tool"
+            model=MODEL, stream=True, structured_output_strategy="tool", **cloud_driver_auth(api_key)
         )
         agent = GriptapeAgent()
         agent.add_task(PromptTask(prompt_driver=prompt_driver))
