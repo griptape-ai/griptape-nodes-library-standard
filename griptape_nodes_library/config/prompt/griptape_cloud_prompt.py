@@ -24,6 +24,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
 
 # --- Constants ---
@@ -132,8 +133,9 @@ class GriptapeCloudPrompt(BasePrompt):
         # --- Prepare Griptape Cloud Specific Arguments ---
         specific_args = {}
 
-        # Retrieve the mandatory API key.
-        specific_args["api_key"] = resolve_cloud_api_key()
+        # Retrieve the mandatory API key, alongside the headers that carry attribution.
+        # Neither is touched by the MODEL_CHOICES_ARGS override loop below.
+        specific_args.update(cloud_driver_auth())
 
         # Get the upstream provider's id for the selected model.
         provider_model_id = self._get_selected_model_id()

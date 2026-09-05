@@ -1,7 +1,6 @@
 from typing import Any
 
 from griptape.drivers import DuckDuckGoWebSearchDriver, ExaWebSearchDriver, GoogleWebSearchDriver
-from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.structures import Agent, Structure
 from griptape.tasks import PromptTask
 from griptape.tools import WebSearchTool
@@ -150,7 +149,10 @@ class SearchWeb(BaseTask):
         task = PromptTask(
             tools=[tool],
             reflect_on_tool_use=self.get_parameter_value("summarize"),
-            prompt_driver=GriptapeCloudPromptDriver(model=model, stream=True),
+            # BaseTask.create_driver resolves the Cloud credential License-first and attaches
+            # attribution; a bare constructor here fell back to os.environ and 401d for a
+            # license-only user.
+            prompt_driver=self.create_driver(model),
         )
 
         agent = Agent(tasks=[task])

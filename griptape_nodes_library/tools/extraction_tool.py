@@ -8,6 +8,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
@@ -25,7 +26,10 @@ class StructuredDataExtractor(BaseTool):
 
         # Set default prompt driver if none provided
         if not prompt_driver:
-            prompt_driver = GriptapeCloudPromptDriver(model="gpt-4o")
+            # Without an explicit credential attrs falls back to os.environ["GT_CLOUD_API_KEY"],
+            # which the engine plants as "" -- so a license-only user passed validation below
+            # and then got a 401 from an empty bearer.
+            prompt_driver = GriptapeCloudPromptDriver(model="gpt-4o", **cloud_driver_auth())
 
         # Create the appropriate extraction engine based on type
         engine = None

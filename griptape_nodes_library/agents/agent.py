@@ -59,6 +59,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
@@ -753,8 +754,8 @@ class Agent(ControlNode):
         include_details = self.get_parameter_value("include_details")
         default_prompt_driver = GriptapeCloudPromptDriver(
             model=DEFAULT_MODEL,
-            api_key=resolve_cloud_api_key(),
             stream=True,
+            **cloud_driver_auth(),
         )
 
         # Initialize the logs parameter
@@ -870,8 +871,8 @@ class Agent(ControlNode):
                 args = {k: v for k, v in args.items() if v is not None}
                 prompt_driver = GriptapeCloudPromptDriver(
                     model=model_input,
-                    api_key=resolve_cloud_api_key(),
                     **args,
+                    **cloud_driver_auth(),
                 )
             else:
                 # Non-Griptape-Cloud provider: resolve config and pick the right driver.
