@@ -21,6 +21,12 @@ from griptape_nodes.exe_types.param_types.parameter_button import ParameterButto
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
+from griptape_nodes_library.proxy.hosted_artifacts import (
+    HostedArtifact,
+    HostedArtifactError,
+    artifact_download_headers,
+    fetch_hosted_artifacts,
+)
 from griptape_nodes_library.proxy.provider_asset_access import (
     missing_proxy_credential_message,
     resolve_proxy_base,
@@ -103,6 +109,10 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # Compute API base once; GT_CLOUD_PROXY_BASE_URL overrides just the proxy
         # without affecting other engine systems that use GT_CLOUD_BASE_URL.
         self._proxy_base = resolve_proxy_base()
+        # Hosted artifact lists, keyed by generation id. Cleared when a run or a Refresh
+        # starts so a presigned URL is never reused past its short lifetime, while a node
+        # reading several artifacts of one generation still lists them once.
+        self._hosted_artifact_lists: dict[str, list[HostedArtifact]] = {}
         self._user_auth_info: str | None = None
         self._api_key_provider: ProxyAuthProviderParameter | None = None
         self._initialize_api_key_provider()
@@ -253,9 +263,15 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         """Parse the model-specific result data and set output parameters.
 
-        This method must be implemented by subclasses to parse the result data
-        from GET /api/proxy/v2/generations/{generation_id}/result and set the
+        This method must be implemented by subclasses to read whatever the
+        provider reported alongside its media (ids, text, seeds, timings) from
+        GET /api/proxy/v2/generations/{generation_id}/result and set the
         appropriate output parameters.
+
+        Generated media does not come from here: the proxy hosts it and lists it
+        in one shape for every model, so a subclass reaches it with
+        ``_save_generated_media`` or ``_load_generated_media`` rather than
+        locating a provider URL or a base64 blob in ``result_json``.
 
         Args:
             result_json: The JSON response from the /result endpoint
@@ -911,6 +927,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # applies to this run is requested after the run starts and also cancels the
         # asyncio task, which the poll loop's CancelledError path handles.
         self.clear_cancellation()
+        self._hosted_artifact_lists.clear()
         self.parameter_output_values["generation_id"] = ""
         self.parameter_output_values["generation_status"] = ""
 
@@ -1058,6 +1075,10 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             )
             return
 
+        # Artifact URLs are short-lived, so a Refresh lists them again rather than
+        # reusing what an earlier run or Refresh saw.
+        self._hosted_artifact_lists.clear()
+
         try:
             api_key = self._validate_api_key()
         except ValueError as e:
@@ -1082,8 +1103,130 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """Async processing entry point."""
         await self._process_generation()
 
+    async def _hosted_artifacts(self, generation_id: str) -> list[HostedArtifact]:
+        """List the media the proxy hosts for a generation, in index order.
+
+        Args:
+            generation_id: The generation to list artifacts for.
+
+        Returns:
+            The hosted artifacts, empty when the proxy hosted none.
+
+        Raises:
+            HostedArtifactError: If the list cannot be read.
+        """
+        cached = self._hosted_artifact_lists.get(generation_id)
+        if cached is not None:
+            return cached
+
+        artifacts = await fetch_hosted_artifacts(self._proxy_base, generation_id, self._validate_api_key())
+        self._hosted_artifact_lists[generation_id] = artifacts
+        self._log(f"Generation {generation_id} has {len(artifacts)} hosted artifact(s)")
+        return artifacts
+
+    async def _hosted_artifact(
+        self, generation_id: str, *, kind: str | None = None, position: int = 0
+    ) -> HostedArtifact:
+        """The nth hosted artifact of a kind, in the order the provider reported them.
+
+        Args:
+            generation_id: The generation to read from.
+            kind: An ``ArtifactKind`` to filter by, or None for any kind.
+            position: Which matching artifact to take, 0 for the first.
+
+        Returns:
+            The matching artifact.
+
+        Raises:
+            HostedArtifactError: If no such artifact is hosted.
+        """
+        artifacts = await self._hosted_artifacts(generation_id)
+        matching = [artifact for artifact in artifacts if kind is None or artifact.kind == kind]
+        if position < len(matching):
+            return matching[position]
+
+        hosted = ", ".join(f"{artifact.index}:{artifact.kind}" for artifact in artifacts) or "none"
+        wanted = f"{kind} artifact" if kind else "artifact"
+        msg = f"Generation {generation_id} hosts no {wanted} at position {position} (hosted artifacts: {hosted})."
+        raise HostedArtifactError(msg)
+
+    async def _download_artifact(self, artifact: HostedArtifact) -> bytes:
+        """Download one hosted artifact's bytes."""
+        headers = artifact_download_headers(artifact.url, self._validate_api_key())
+        return await self._download_bytes_from_url(artifact.url, headers=headers)
+
+    async def _load_generated_media(self, generation_id: str, *, kind: str | None = None, position: int = 0) -> bytes:
+        """Download one piece of the generation's hosted media.
+
+        For nodes that need the bytes themselves, e.g. to name several files or to
+        feed the media into something other than the node's output file. Nodes that
+        just save media to their output file use ``_save_generated_media``.
+
+        Raises:
+            HostedArtifactError: If no such artifact is hosted.
+            httpx.HTTPError: If the download fails.
+        """
+        artifact = await self._hosted_artifact(generation_id, kind=kind, position=position)
+        self._log(f"Downloading hosted artifact {artifact.index} ({artifact.kind}) of generation {generation_id}")
+        return await self._download_artifact(artifact)
+
+    async def _save_generated_media(
+        self,
+        generation_id: str,
+        output_param: str,
+        artifact_factory: Callable[[str, str], Any],
+        *,
+        kind: str | None = None,
+        position: int = 0,
+        media_kind: str = "video",
+        action: str = "generated",
+    ) -> bool:
+        """Save one piece of the generation's hosted media to project storage.
+
+        On success sets ``output_param`` to the artifact ``artifact_factory``
+        produces and reports success. On any failure clears that parameter and
+        reports failure: a generation that completed (and was billed) upstream but
+        whose media cannot be retrieved is a failure, not a success.
+
+        Args:
+            generation_id: The generation whose media to save.
+            output_param: Name of the output parameter to set with the saved artifact.
+            artifact_factory: Callable taking (value, name) and returning a ``*UrlArtifact``.
+            kind: An ``ArtifactKind`` to filter by, or None for any kind.
+            position: Which matching artifact to take, 0 for the first.
+            media_kind: Human-readable media type for log and status messages.
+            action: Past-tense verb describing what the node produced (e.g. "generated",
+                "edited", "extended"), used in the success message.
+
+        Returns:
+            Whether the media was saved. Callers that report their own status only do
+            so when this is True, so a failure here is not overwritten by a success.
+        """
+        try:
+            media_bytes = await self._load_generated_media(generation_id, kind=kind, position=position)
+            dest = self._output_file.build_file()
+            saved = await dest.awrite_bytes(media_bytes)
+        except Exception as e:
+            logger.error("%s failed to retrieve %s: %s", self.name, media_kind, e)
+            self.parameter_output_values[output_param] = None
+            self._set_status_results(
+                was_successful=False,
+                result_details=(
+                    f"{self.name} generation completed upstream but the {media_kind} could not be retrieved: {e}"
+                ),
+            )
+            return False
+
+        self.parameter_output_values[output_param] = artifact_factory(saved.location, saved.name)
+        logger.info("%s saved %s as %s", self.name, media_kind, saved.name)
+        self._set_status_results(
+            was_successful=True,
+            result_details=f"{media_kind.capitalize()} {action} successfully and saved as {saved.name}.",
+        )
+        return True
+
     @staticmethod
-    async def _download_bytes_from_url(url: str) -> bytes:
+    async def _download_bytes_from_url(url: str, *, headers: dict[str, str] | None = None) -> bytes:
         """Download bytes from a URL, retrying once on transient failures.
 
         Transient failures (timeouts, connection errors, and 5xx responses) are
@@ -1094,6 +1237,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         Args:
             url: The URL to download from
+            headers: Optional request headers, e.g. the credential a proxy-hosted
+                artifact URL needs.
 
         Returns:
             bytes: The downloaded bytes.
@@ -1105,7 +1250,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         for attempt in range(1, attempts + 1):
             try:
                 async with httpx.AsyncClient() as client:
-                    resp = await client.get(url, timeout=120)
+                    resp = await client.get(url, headers=headers, timeout=120)
                     resp.raise_for_status()
                     return resp.content
             except httpx.HTTPStatusError as e:
