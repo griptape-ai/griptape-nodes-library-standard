@@ -19,7 +19,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.video_utils import get_video_duration
 
 logger = logging.getLogger("griptape_nodes")
@@ -311,19 +311,12 @@ class WanAnimateGeneration(GriptapeProxyNode):
             self._set_status_results(was_successful=False, result_details=error_details)
             return
 
-        await self._handle_completion(result_json, generation_id)
-
-    async def _handle_completion(self, last_json: dict[str, Any] | None, generation_id: str | None = None) -> None:
-        extracted_url = self._extract_video_url(last_json)
-        if not extracted_url:
-            self.parameter_output_values["video"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details="Generation completed but no video URL was found in the response.",
-            )
-            return
-
-        await self._download_and_save(extracted_url, "video", lambda v, n: VideoUrlArtifact(value=v, name=n))
+        await self._save_generated_media(
+            generation_id,
+            "video",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+        )
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
         """Extract error details from API response."""
@@ -409,47 +402,4 @@ class WanAnimateGeneration(GriptapeProxyNode):
         task_status = response_json.get("task_status")
         if isinstance(task_status, str):
             return task_status
-        return None
-
-    @staticmethod
-    def _extract_video_url(obj: dict[str, Any] | None) -> str | None:
-        """Extract the generated video URL from a WAN Animate response.
-
-        DashScope's documented shape (``wan2.2-animate-mix`` / ``-move``) is::
-
-            {
-              "request_id": "...",
-              "output": {
-                "task_status": "SUCCEEDED",
-                "results": {"video_url": "https://..."}
-              },
-              "usage": {...}
-            }
-
-        Older / sibling WAN endpoints have used ``output.video_url`` directly,
-        a top-level ``results.video_url`` (shape kept for backwards compat),
-        and a top-level ``video_url``. We probe each location in turn so a
-        documented response shift across model versions keeps working.
-        """
-        if not obj:
-            return None
-
-        def _is_http_url(value: Any) -> bool:
-            return isinstance(value, str) and value.startswith("http")
-
-        output = obj.get("output")
-        if isinstance(output, dict):
-            results = output.get("results")
-            if isinstance(results, dict) and _is_http_url(results.get("video_url")):
-                return results["video_url"]
-            if _is_http_url(output.get("video_url")):
-                return output["video_url"]
-
-        results = obj.get("results")
-        if isinstance(results, dict) and _is_http_url(results.get("video_url")):
-            return results["video_url"]
-
-        if _is_http_url(obj.get("video_url")):
-            return obj["video_url"]
-
         return None
