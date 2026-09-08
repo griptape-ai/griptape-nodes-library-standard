@@ -26,7 +26,7 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 from PIL import Image
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode, HostedArtifact
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -480,50 +480,47 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         with suppress(Exception):
             logger.info(message)
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        """Parse the result and set output parameters.
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        """Save the hosted images.
 
         Args:
-            result_json: The JSON response from the /result endpoint
+            _result_json: The JSON response from the /result endpoint
             generation_id: The generation ID for this request
         """
-        # Extract image data
-        data = result_json.get("data", [])
-        if not data:
-            self._log("No image data in result")
+        try:
+            artifacts = await self._hosted_artifacts(generation_id)
+        except Exception as e:
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=f"{self.name} generation completed but no image data was found in the response.",
+                result_details=f"{self.name} generation completed but its images could not be listed: {e}",
             )
             return
 
-        # Process all images from the response
-        image_artifacts = []
-        failed_urls = []
-        for idx, image_data in enumerate(data):
-            image_url = image_data.get("url")
-            if not image_url:
-                self._log(f"No URL found for image {idx}")
-                continue
+        image_artifact_refs = [artifact for artifact in artifacts if artifact.kind == ArtifactKind.IMAGE]
+        if not image_artifact_refs:
+            self._set_safe_defaults()
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"{self.name} generation completed but no images were hosted.",
+            )
+            return
 
-            artifact = await self._save_single_image_from_url(image_url, generation_id, idx)
-            if artifact:
-                image_artifacts.append(artifact)
+        image_artifacts = []
+        failures = []
+        for idx, artifact in enumerate(image_artifact_refs):
+            saved = await self._save_single_hosted_image(artifact, idx)
+            if saved:
+                image_artifacts.append(saved)
             else:
-                failed_urls.append(image_url)
+                failures.append(idx)
 
         if not image_artifacts:
-            self._log("No images could be saved")
             self._set_safe_defaults()
-            if failed_urls:
-                details = (
-                    f"{self.name} generation completed upstream but the image(s) could not be retrieved. "
-                    f"Provider URL(s) (may be temporary): {', '.join(failed_urls)}"
-                )
-            else:
-                details = f"{self.name} generation completed but no image URLs were found in the response."
-            self._set_status_results(was_successful=False, result_details=details)
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"{self.name} generation completed upstream but the image(s) could not be retrieved.",
+            )
             return
 
         # Show the appropriate number of image output parameters based on actual image count
@@ -758,22 +755,19 @@ class SeedreamImageGeneration(GriptapeProxyNode):
 
             self._log(f"Request payload: {_json.dumps(sanitized_payload, indent=2)}")
 
-    async def _save_single_image_from_url(
-        self, image_url: str, generation_id: str | None = None, index: int = 0
-    ) -> ImageUrlArtifact | None:
-        """Download and save a single image from the provided URL.
+    async def _save_single_hosted_image(self, artifact: HostedArtifact, index: int) -> ImageUrlArtifact | None:
+        """Download and save a single hosted image.
 
         Args:
-            image_url: URL of the image to download
-            generation_id: Optional generation ID for filename
-            index: Index of the image in multi-image response
+            artifact: The hosted artifact to download.
+            index: Index of the image in the multi-image response.
 
         Returns:
             ImageUrlArtifact with saved image, or None if download/save fails
         """
         try:
-            self._log(f"Downloading image {index} from URL")
-            image_bytes = await self._download_bytes_from_url(image_url)
+            self._log(f"Downloading image {index} from hosted artifact")
+            image_bytes = await self._download_artifact(artifact)
 
             dest = self._output_file.build_file(_index=index)
             saved = await dest.awrite_bytes(image_bytes)
@@ -782,9 +776,8 @@ class SeedreamImageGeneration(GriptapeProxyNode):
 
         except Exception as e:
             # A billed generation whose image cannot be retrieved is a failure, not a
-            # silent success. Return None so this image is not counted as saved; the
-            # caller reports failure and surfaces the provider URL for manual retrieval.
-            self._log(f"Failed to retrieve image {index} from {image_url}: {e}")
+            # silent success. Return None so this image is not counted as saved.
+            self._log(f"Failed to retrieve image {index}: {e}")
             return None
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:
