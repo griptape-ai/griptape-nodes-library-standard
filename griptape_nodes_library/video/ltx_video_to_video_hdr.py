@@ -16,7 +16,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from static_ffmpeg import run  # type: ignore[import-untyped]
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.ffmpeg_utils import describe_ffmpeg_failure
 
 logger = logging.getLogger("griptape_nodes")
@@ -251,40 +251,15 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         # from the decoded video, so the request payload only carries video_uri.
         return {"video_uri": video_data_uri}
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        zip_bytes = result_json.get("raw_bytes")
-        if not isinstance(zip_bytes, (bytes, bytearray)):
-            msg = f"{self.name} generation completed but no ZIP data received."
-            raise TypeError(msg)
-
-        await self._handle_completion_async(bytes(zip_bytes), generation_id)
-
-    async def _handle_completion_async(self, zip_bytes: bytes, generation_id: str) -> None:
-        """Save the EXR-frames ZIP to storage and surface its path."""
-        if not zip_bytes:
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no ZIP data received.",
-            )
-            return
-
-        try:
-            dest = self._output_file.build_file()
-            saved = await dest.awrite_bytes(zip_bytes)
-            self.parameter_output_values["project_path"] = saved.location
-            logger.info("%s saved EXR-frames ZIP as %s", self.name, saved.name)
-            self._set_status_results(
-                was_successful=True,
-                result_details=f"HDR upscale successful. EXR frames ZIP saved as {saved.name}.",
-            )
-        except (OSError, PermissionError) as e:
-            logger.error("%s failed to save ZIP to storage: %s", self.name, e)
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"HDR upscale completed but failed to save ZIP to storage: {e}",
-            )
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        """Save the hosted EXR-frames ZIP. LTX HDR returns the archive as the response body itself."""
+        await self._save_generated_media(
+            generation_id,
+            "project_path",
+            lambda v, _n: v,
+            kind=ArtifactKind.ARCHIVE,
+            media_kind="archive",
+        )
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:  # noqa: C901, PLR0912
         if not response_json:
