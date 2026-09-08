@@ -56,5 +56,5 @@ def build_attribution_headers(bearer_token: str) -> dict[str, str]:
     # L2 adds ``X-Griptape-Attribution`` to this dict -- one line, covering every billable
     # call at once, which is the whole reason this module exists. Where the value comes from,
     # and whether the engine can supply node identity at the moment this runs, are open and
-    # tracked in https://github.com/griptape-ai/griptape-nodes-library-standard/issues/595.
+    # tracked in https://github.com/griptape-ai/griptape-nodes-library-standard/issues/601.
     return {"Authorization": f"Bearer {bearer_token}", "Content-Type": "application/json"}
