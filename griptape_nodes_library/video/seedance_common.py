@@ -43,7 +43,7 @@ from griptape_nodes_library.media import (
     prepare_media_data_uri,
 )
 from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.utils.attribution_headers import build_attribution_headers
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -328,7 +328,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             raise ValueError(msg)
 
         public_url = self._resolve_public_url_for_asset(ref, asset_kind=expected_kind)
-        headers = build_attribution_headers(self._validate_api_key())
+        headers = build_griptape_cloud_headers(self._validate_api_key(), attribution=True)
         asset_id = await self._create_provider_asset(public_url, expected_kind, headers)
         return f"asset://{asset_id}"
 
