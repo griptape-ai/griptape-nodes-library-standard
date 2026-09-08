@@ -747,13 +747,12 @@ wheels = [
 
 [[package]]
 name = "griptape-nodes-library-standard"
-version = "0.81.0"
+version = "0.86.0"
 source = { editable = "." }
 dependencies = [
     { name = "asteval" },
     { name = "color-matcher" },
     { name = "griptape", extra = ["drivers-prompt-amazon-bedrock", "drivers-prompt-anthropic", "drivers-prompt-cohere", "drivers-prompt-ollama", "drivers-web-scraper-trafilatura", "drivers-web-search-duckduckgo", "drivers-web-search-exa", "loaders-image", "loaders-pdf"] },
-    { name = "griptape-nodes-engine" },
     { name = "jmespath" },
     { name = "json-repair" },
     { name = "json-schema-to-pydantic" },
@@ -769,6 +768,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "griptape-nodes-engine" },
     { name = "lxml-stubs" },
     { name = "pyright" },
     { name = "pytest" },
@@ -781,7 +781,6 @@ requires-dist = [
     { name = "asteval", specifier = ">=1.0.8" },
     { name = "color-matcher" },
     { name = "griptape", extras = ["drivers-prompt-amazon-bedrock", "drivers-prompt-anthropic", "drivers-prompt-cohere", "drivers-prompt-ollama", "drivers-web-scraper-trafilatura", "drivers-web-search-duckduckgo", "drivers-web-search-exa", "loaders-image", "loaders-pdf"], specifier = ">=1.9.4" },
-    { name = "griptape-nodes-engine", specifier = ">=0.99.0" },
     { name = "jmespath", specifier = ">=1.0.1" },
     { name = "json-repair", specifier = ">=0.46.1" },
     { name = "json-schema-to-pydantic", specifier = ">=0.4.6" },
@@ -797,6 +796,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "griptape-nodes-engine", specifier = ">=0.99.0" },
     { name = "lxml-stubs", specifier = ">=0.5.1" },
     { name = "pyright", specifier = ">=1.1.396" },
     { name = "pytest" },
