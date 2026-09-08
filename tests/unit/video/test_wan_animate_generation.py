@@ -230,68 +230,6 @@ async def test_build_payload_raises_when_video_dict_has_no_value(monkeypatch: py
         await node._build_payload()
 
 
-class TestExtractVideoUrl:
-    """DashScope's documented WAN Animate response nests the result URL under
-    ``output.results.video_url``. Older/sibling response shapes expose it at
-    other locations; the extractor must keep working across all of them so
-    successful generations don't silently produce "no video URL was found".
-    """
-
-    helper = staticmethod(WanAnimateGeneration._extract_video_url)
-
-    def test_dashscope_documented_shape(self) -> None:
-        # https://help.aliyun.com/zh/model-studio/wan2-2-animate-mix-api
-        response = {
-            "request_id": "a67f8716-18ef-447c-a286-xxxxxx",
-            "output": {
-                "task_id": "0385dc79-5ff8-4d82-bcb6-xxxxxx",
-                "task_status": "SUCCEEDED",
-                "submit_time": "2025-09-18 15:32:00.105",
-                "scheduled_time": "2025-09-18 15:32:15.066",
-                "end_time": "2025-09-18 15:34:41.898",
-                "results": {"video_url": "https://dashscope.example/result.mp4"},
-            },
-            "usage": {"video_duration": 5.2, "video_ratio": "standard"},
-        }
-        assert self.helper(response) == "https://dashscope.example/result.mp4"
-
-    def test_falls_back_to_output_video_url(self) -> None:
-        # Earlier WAN Animate response variants put video_url directly on output.
-        assert self.helper({"output": {"video_url": "https://example.com/foo.mp4"}}) == "https://example.com/foo.mp4"
-
-    def test_falls_back_to_top_level_results_video_url(self) -> None:
-        assert self.helper({"results": {"video_url": "https://example.com/foo.mp4"}}) == "https://example.com/foo.mp4"
-
-    def test_falls_back_to_top_level_video_url(self) -> None:
-        assert self.helper({"video_url": "https://example.com/foo.mp4"}) == "https://example.com/foo.mp4"
-
-    def test_nested_results_takes_precedence(self) -> None:
-        # When DashScope returns the documented shape ``output.results.video_url``
-        # we must use that and not any stale value at older locations.
-        response = {
-            "output": {
-                "results": {"video_url": "https://example.com/nested.mp4"},
-                "video_url": "https://example.com/old.mp4",
-            },
-            "video_url": "https://example.com/top.mp4",
-        }
-        assert self.helper(response) == "https://example.com/nested.mp4"
-
-    def test_returns_none_for_none(self) -> None:
-        assert self.helper(None) is None
-
-    def test_returns_none_for_empty_dict(self) -> None:
-        assert self.helper({}) is None
-
-    def test_returns_none_for_non_http_url(self) -> None:
-        assert self.helper({"output": {"results": {"video_url": "ftp://example.com/foo.mp4"}}}) is None
-
-    def test_returns_none_when_results_is_not_dict(self) -> None:
-        # The Wan I2V endpoint puts results at the top level as a dict; if a
-        # caller hands us a list shape we must not crash.
-        assert self.helper({"output": {"results": ["not-a-dict"]}}) is None
-
-
 class TestExtractStatus:
     """DashScope nests ``task_status`` under ``output``. ``_extract_status``
     must look there first; otherwise FAILED tasks fall through to the

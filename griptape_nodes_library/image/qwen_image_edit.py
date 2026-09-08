@@ -19,7 +19,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -347,25 +347,14 @@ class QwenImageEdit(GriptapeProxyNode):
 
             logger.info("Request payload: %s", json.dumps(sanitized_payload, indent=2))
 
-    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
-        """Handle Qwen synchronous response and extract image.
+    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
+        """Handle Qwen response and save the hosted image.
 
         Response shape:
         {
             "status_code": 200,
             "request_id": "...",
-            "output": {
-                "choices": [
-                    {
-                        "message": {
-                            "content": [
-                                {"image": "https://..."},
-                                {"image": "https://..."}
-                            ]
-                        }
-                    }
-                ]
-            }
+            ...
         }
         """
         # Extract request_id for generation_id
@@ -381,62 +370,14 @@ class QwenImageEdit(GriptapeProxyNode):
             self._set_status_results(was_successful=False, result_details=error_details)
             return
 
-        try:
-            choices = result_json.get("choices", [])
-            choice = choices[0]
-            message = choice.get("message", {})
-            content = message.get("content", [])
-            first_content_item = content[0]
-            image_url = first_content_item.get("image")
-        except Exception as e:
-            logger.error("Failed to extract image URL from response: %s", e)
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details="Editing completed but failed to extract image URL from the response.",
-            )
-            return
-
-        if image_url:
-            await self._save_image_from_url(image_url)
-        else:
-            logger.warning("No image URL found in content")
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details="Editing completed but no image URL was found in the response.",
-            )
-
-    async def _save_image_from_url(self, image_url: str) -> None:
-        """Download and save the image from the provided URL.
-
-        A billed generation whose image cannot be retrieved is a failure, not a
-        silent success; the provider URL is surfaced so the user can retrieve it
-        manually.
-        """
-        try:
-            logger.info("Downloading image from URL")
-            image_bytes = await File(image_url).aread_bytes()
-            if not image_bytes:
-                msg = "downloaded image was empty"
-                raise ValueError(msg)  # noqa: TRY301
-            dest = self._output_file.build_file()
-            saved = await dest.awrite_bytes(image_bytes)
-            self.parameter_output_values["image_url"] = ImageUrlArtifact(saved.location)
-            logger.info("Saved image as %s", saved.name)
-            self._set_status_results(
-                was_successful=True, result_details=f"Image edited successfully and saved as {saved.name}."
-            )
-        except Exception as e:
-            logger.error("Failed to retrieve image from %s: %s", image_url, e)
-            self.parameter_output_values["image_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=(
-                    f"{self.name} generation completed upstream but the image could not be retrieved: {e}. "
-                    f"Provider URL (may be temporary): {image_url}"
-                ),
-            )
+        await self._save_generated_media(
+            generation_id,
+            "image_url",
+            lambda v, _n: ImageUrlArtifact(v),
+            kind=ArtifactKind.IMAGE,
+            media_kind="image",
+            action="edited",
+        )
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
         """Extract error details from API response.

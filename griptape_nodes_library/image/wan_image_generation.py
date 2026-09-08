@@ -12,10 +12,9 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.files.file import File
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -247,61 +246,32 @@ class WanImageGeneration(GriptapeProxyNode):
             else:
                 self.hide_parameter_by_name(param_name)
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        """Parse the Wan image generation result and save images.
-
-        The proxy client returns the full DashScope response. Image URLs are at:
-        output.choices[*].message.content[*].image
-        """
-        # Extract image URLs from all choices
-        output = result_json.get("output", {})
-        choices = output.get("choices", [])
-
-        if not choices:
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        """Save the hosted images. DashScope may return more than one, in order."""
+        hosted_images = [a for a in await self._hosted_artifacts(generation_id) if a.kind == ArtifactKind.IMAGE]
+        if not hosted_images:
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details="Generation completed but no choices found in the response.",
+                result_details="Generation completed but no images were hosted for this generation.",
             )
             return
 
-        # Collect image URLs from all choices
-        image_urls: list[str] = []
-        for choice in choices:
-            message = choice.get("message", {})
-            content_items = message.get("content", [])
-            for item in content_items:
-                if isinstance(item, dict) and item.get("image"):
-                    image_urls.append(item["image"])
-
-        if not image_urls:
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details="Generation completed but no image URLs were found in the response.",
-            )
-            return
-
-        # Download and save all images
         image_artifacts: list[ImageUrlArtifact] = []
-        failed_urls: list[str] = []
-        for index, url in enumerate(image_urls):
-            artifact = await self._save_single_image_from_url(url, index)
+        failed = 0
+        for index in range(len(hosted_images)):
+            artifact = await self._save_single_generated_image(generation_id, index)
             if artifact:
                 image_artifacts.append(artifact)
             else:
-                failed_urls.append(url)
+                failed += 1
 
         if not image_artifacts:
             self._set_safe_defaults()
-            if failed_urls:
-                details = (
-                    f"{self.name} generation completed upstream but the image(s) could not be retrieved. "
-                    f"Provider URL(s) (may be temporary): {', '.join(failed_urls)}"
-                )
-            else:
-                details = "Generation completed but no images could be saved."
-            self._set_status_results(was_successful=False, result_details=details)
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"{self.name} generation completed upstream but the image(s) could not be retrieved.",
+            )
             return
 
         # Show the appropriate number of image output parameters
@@ -315,29 +285,26 @@ class WanImageGeneration(GriptapeProxyNode):
         # Set success status
         count = len(image_artifacts)
         filenames = [artifact.name for artifact in image_artifacts]
-        if count == 1:
+        if failed:
+            details = f"Generated {count} of {count + failed} images successfully: {', '.join(filenames)}."
+        elif count == 1:
             details = f"Image generated successfully and saved as {filenames[0]}."
         else:
             details = f"Generated {count} images successfully: {', '.join(filenames)}."
         self._set_status_results(was_successful=True, result_details=details)
 
-    async def _save_single_image_from_url(self, image_url: str, index: int = 0) -> ImageUrlArtifact | None:
-        """Download and save a single image from the provided URL.
+    async def _save_single_generated_image(self, generation_id: str, index: int) -> ImageUrlArtifact | None:
+        """Download and save one hosted image by position.
 
         Args:
-            image_url: URL of the image to download
-            index: Index of the image in multi-image response
+            generation_id: The generation whose hosted images to read.
+            index: Position of the image among the generation's hosted images.
 
         Returns:
-            ImageUrlArtifact with saved image, or None if download/save fails
+            ImageUrlArtifact with saved image, or None if the image cannot be retrieved.
         """
         try:
-            logger.info("Downloading image %d from URL", index)
-            image_bytes = await File(image_url).aread_bytes()
-            if not image_bytes:
-                msg = "downloaded image was empty"
-                raise ValueError(msg)  # noqa: TRY301
-
+            image_bytes = await self._load_generated_media(generation_id, kind=ArtifactKind.IMAGE, position=index)
             dest = self._output_file.build_file(_index=index)
             saved = await dest.awrite_bytes(image_bytes)
             logger.info("Saved image %d as %s", index, saved.name)
@@ -345,8 +312,8 @@ class WanImageGeneration(GriptapeProxyNode):
         except Exception as e:
             # A billed generation whose image cannot be retrieved is a failure, not a
             # silent success. Return None so this image is not counted as saved; the
-            # caller reports failure and surfaces the provider URL for manual retrieval.
-            logger.error("Failed to retrieve image %d from %s: %s", index, image_url, e)
+            # caller reports failure.
+            logger.error("Failed to retrieve hosted image %d for generation %s: %s", index, generation_id, e)
             return None
 
     def _set_safe_defaults(self) -> None:
