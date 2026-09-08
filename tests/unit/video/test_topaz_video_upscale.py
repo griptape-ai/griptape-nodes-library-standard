@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
+from griptape_nodes_library.proxy import ArtifactKind
 from griptape_nodes_library.utils.ffmpeg_utils import (
     ColorDetails,
     Dimensions,
@@ -525,19 +526,21 @@ def test_every_model_has_a_registered_family() -> None:
 
 
 @pytest.mark.asyncio
-async def test_parse_result_downloads_from_the_documented_shape(monkeypatch: pytest.MonkeyPatch) -> None:
-    # `download.url` is Topaz's documented shape for a completed generation.
+async def test_parse_result_saves_the_hosted_video(monkeypatch: pytest.MonkeyPatch) -> None:
     node = _node()
     captured: dict = {}
 
-    async def fake_download_and_save(self, download_url, *_args, **_kwargs) -> None:  # noqa: ARG001
-        captured["url"] = download_url
+    async def fake_save_generated_media(self, generation_id, output_param, _factory, **kwargs) -> bool:  # noqa: ARG001
+        captured["generation_id"] = generation_id
+        captured["output_param"] = output_param
+        captured["kind"] = kwargs.get("kind")
+        return True
 
-    monkeypatch.setattr(TopazVideoUpscale, "_download_and_save", fake_download_and_save)
+    monkeypatch.setattr(TopazVideoUpscale, "_save_generated_media", fake_save_generated_media)
 
-    await node._parse_result({"status": "complete", "download": {"url": "https://topaz.example/out.mp4"}}, "gen-1")
+    await node._parse_result({}, "gen-1")
 
-    assert captured["url"] == "https://topaz.example/out.mp4"
+    assert captured == {"generation_id": "gen-1", "output_param": "video_output", "kind": ArtifactKind.VIDEO}
 
 
 # -- UI reactions ------------------------------------------------------------
