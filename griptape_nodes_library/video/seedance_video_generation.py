@@ -19,7 +19,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -362,25 +362,19 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
             logger.debug("%s failed to load frame from %s: %s", self.name, frame_url, e)
             return None
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        """Parse the result and set output parameters.
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        """Save the hosted video.
 
         Args:
-            result_json: The JSON response from the /result endpoint
+            _result_json: The JSON response from the /result endpoint
             generation_id: The generation ID for this request
         """
-        # Extract video URL from the response
-        extracted_url = self._extract_video_url(result_json)
-        if not extracted_url:
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no video URL was found in the response.",
-            )
-            return
-
-        # Download and save video
-        await self._download_and_save(extracted_url, "video_url", lambda v, n: VideoUrlArtifact(value=v, name=n))
+        await self._save_generated_media(
+            generation_id,
+            "video_url",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+        )
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:
         """Extract error message from failed/errored generation response.
@@ -430,27 +424,3 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         self.parameter_output_values["generation_id"] = ""
         self.parameter_output_values["provider_response"] = None
         self.parameter_output_values["video_url"] = None
-
-    @staticmethod
-    def _extract_video_url(obj: dict[str, Any] | None) -> str | None:
-        if not obj:
-            return None
-        # Heuristic search for a URL in common places
-        # 1) direct fields
-        for key in ("url", "video_url", "output_url"):
-            val = obj.get(key) if isinstance(obj, dict) else None
-            if isinstance(val, str) and val.startswith("http"):
-                return val
-        # 2) nested known containers (Seedance returns content.video_url)
-        for key in ("result", "data", "output", "outputs", "content", "task_result"):
-            nested = obj.get(key) if isinstance(obj, dict) else None
-            if isinstance(nested, dict):
-                url = SeedanceVideoGeneration._extract_video_url(nested)
-                if url:
-                    return url
-            elif isinstance(nested, list):
-                for item in nested:
-                    url = SeedanceVideoGeneration._extract_video_url(item if isinstance(item, dict) else None)
-                    if url:
-                        return url
-        return None
