@@ -278,8 +278,8 @@ class TripoMultiviewTo3DGeneration(GriptapeProxyNode):
 
         return payload
 
-    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
-        await parse_tripo_task_result(self, result_json)
+    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
+        await parse_tripo_task_result(self, result_json, generation_id)
 
     def _set_safe_defaults(self) -> None:
         self.parameter_output_values["generation_id"] = ""

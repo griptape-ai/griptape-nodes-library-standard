@@ -28,8 +28,8 @@ def _install_fake_client(monkeypatch: pytest.MonkeyPatch, get_impl: Any) -> None
         async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
             return None
 
-        async def get(self, url: str, timeout: int) -> _FakeResponse:
-            return await get_impl(url, timeout)
+        async def get(self, url: str, timeout: int, headers: dict[str, str] | None = None) -> _FakeResponse:
+            return await get_impl(url, timeout, headers)
 
     monkeypatch.setattr("griptape_nodes_library.proxy.griptape_proxy_node.httpx.AsyncClient", FakeAsyncClient)
 
@@ -43,7 +43,7 @@ def _install_fake_client(monkeypatch: pytest.MonkeyPatch, get_impl: Any) -> None
 async def test_download_retries_once_on_transient_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = 0
 
-    async def get_impl(_url: str, _timeout: int) -> _FakeResponse:
+    async def get_impl(_url: str, _timeout: int, _headers: dict[str, str] | None) -> _FakeResponse:
         nonlocal calls
         calls += 1
         if calls == 1:
@@ -62,7 +62,7 @@ async def test_download_retries_once_on_transient_then_succeeds(monkeypatch: pyt
 async def test_download_does_not_retry_on_client_error(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = 0
 
-    async def get_impl(_url: str, _timeout: int) -> _FakeResponse:
+    async def get_impl(_url: str, _timeout: int, _headers: dict[str, str] | None) -> _FakeResponse:
         nonlocal calls
         calls += 1
         return _FakeResponse(status_code=403)
@@ -80,7 +80,7 @@ async def test_download_does_not_retry_on_client_error(monkeypatch: pytest.Monke
 async def test_download_retries_once_on_server_error_then_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = 0
 
-    async def get_impl(_url: str, _timeout: int) -> _FakeResponse:
+    async def get_impl(_url: str, _timeout: int, _headers: dict[str, str] | None) -> _FakeResponse:
         nonlocal calls
         calls += 1
         return _FakeResponse(status_code=503)
@@ -98,7 +98,7 @@ async def test_download_retries_once_on_server_error_then_raises(monkeypatch: py
 async def test_download_and_save_failure_reports_unsuccessful_and_surfaces_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def get_impl(_url: str, _timeout: int) -> _FakeResponse:
+    async def get_impl(_url: str, _timeout: int, _headers: dict[str, str] | None) -> _FakeResponse:
         return _FakeResponse(status_code=403)
 
     _install_fake_client(monkeypatch, get_impl)
@@ -119,7 +119,7 @@ async def test_download_and_save_failure_reports_unsuccessful_and_surfaces_url(
 
 @pytest.mark.asyncio
 async def test_download_and_save_success_saves_and_reports_successful(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def get_impl(_url: str, _timeout: int) -> _FakeResponse:
+    async def get_impl(_url: str, _timeout: int, _headers: dict[str, str] | None) -> _FakeResponse:
         return _FakeResponse(content=b"image-bytes")
 
     _install_fake_client(monkeypatch, get_impl)
