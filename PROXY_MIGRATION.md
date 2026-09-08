@@ -29,7 +29,35 @@ POST /api/proxy/models/{model_id}
 
 3. When COMPLETED: GET /api/proxy/v2/generations/{generation_id}/result
    → Returns same response format as V1 would have returned
+
+4. GET /api/proxy/v2/generations/{generation_id}/artifacts
+   → Lists the generated media the proxy hosts, one shape for every model
 ```
+
+## Hosted Artifacts
+
+The proxy pulls whatever media a provider produced into Griptape storage and lists
+it at `/artifacts`:
+
+```json
+{
+  "artifacts": [
+    {"index": 0, "kind": "audio", "content_type": "audio/mpeg", "size_bytes": 19688, "url": "https://..."}
+  ]
+}
+```
+
+A node reads its media from there rather than locating a provider URL or a base64
+blob in the result payload. That keeps every node's media handling identical and
+frees it from provider URLs that expire minutes after a task completes.
+
+The list is ordered and an index is a stable public handle, so a model producing
+several pieces of media (a mesh plus a preview, a video plus its last frame)
+always reports them in the same order. `kind` is one of `ArtifactKind`: `video`,
+`image`, `audio`, `model_3d`, `archive`, `other`.
+
+`_parse_result` is then only for what the provider reported *alongside* its media:
+ids, text, seeds, timings, credits charged.
 
 ## BaseProxyNode Benefits
 
@@ -93,10 +121,14 @@ async def _build_payload(self) -> dict[str, Any]:
     }
 
 async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-    """Parse the result and set output parameters."""
-    # Extract data from result_json
-    # Set self.parameter_output_values[...]
-    # Call self._set_status_results(was_successful=True/False, ...)
+    """Save the hosted media and read whatever the provider reported beside it."""
+    await self._save_generated_media(
+        generation_id,
+        "image_url",
+        lambda v, n: ImageUrlArtifact(value=v, name=n),
+        kind=ArtifactKind.IMAGE,
+        media_kind="image",
+    )
 
 def _set_safe_defaults(self) -> None:
     """Clear output parameters on error."""
@@ -215,36 +247,36 @@ async def aprocess(self) -> None:
         self._public_artifact_url_parameter.delete_uploaded_artifact()
 ```
 
-### Multiple Output Images
+### Multiple Output Media
+
+`position` picks within a kind, in the order the provider reported them:
 
 ```python
-async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-    images = result_json.get("images", [])
-
-    for idx, image_data in enumerate(images):
-        url = image_data.get("url")
-        artifact = await self._save_single_image(url, generation_id, idx)
-        # Store in appropriate output parameter
+async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+    for position in range(self.get_parameter_value("image_count")):
+        await self._save_generated_media(
+            generation_id,
+            f"image_{position}",
+            lambda v, n: ImageUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.IMAGE,
+            position=position,
+            media_kind="image",
+        )
 ```
 
 ### Downloading and Saving Media
 
-```python
-# Download using httpx (async)
-async def _download_bytes_from_url(url: str) -> bytes | None:
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, timeout=120)
-            resp.raise_for_status()
-            return resp.content
-    except Exception:
-        return None
+`_save_generated_media` writes to the node's `_output_file` and sets its status.
+A node that needs the bytes themselves (several files with computed names, or
+media fed somewhere other than the output file) uses `_load_generated_media`:
 
-# Save with generation_id
-filename = f"node_name_{generation_id}.{extension}"
-static_files_manager = GriptapeNodes.StaticFilesManager()
-saved_url = static_files_manager.save_static_file(bytes_data, filename)
+```python
+model_bytes = await self._load_generated_media(generation_id, kind=ArtifactKind.MODEL_3D)
 ```
+
+Both report a failure when the media cannot be retrieved: a generation that
+completed (and was billed) upstream but whose output is unavailable is a failure,
+not a silent success.
 
 ## Key Improvements
 
