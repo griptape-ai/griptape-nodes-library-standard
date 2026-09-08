@@ -796,11 +796,14 @@ async def test_parse_result_saves_last_frame_when_requested(monkeypatch: pytest.
     node = Seedance25VideoGeneration(name="Seedance25")
     node.set_parameter_value("return_last_frame", True)
 
-    downloaded: list[str] = []
+    saved_media_calls: list[str] = []
 
-    async def fake_download_and_save(self, url, output_param, artifact_factory, **kwargs) -> None:
-        downloaded.append(url)
-        self.parameter_output_values[output_param] = artifact_factory(url, "video.mp4")
+    async def fake_save_generated_media(self, generation_id, output_param, artifact_factory, **kwargs) -> bool:
+        saved_media_calls.append(generation_id)
+        self.parameter_output_values[output_param] = artifact_factory("https://hosted.example/output.mp4", "video.mp4")
+        return True
+
+    downloaded: list[str] = []
 
     async def fake_download_bytes(url: str) -> bytes:
         downloaded.append(url)
@@ -817,21 +820,17 @@ async def test_parse_result_saves_last_frame_when_requested(monkeypatch: pytest.
             saved_bytes.append(data)
             return FakeSavedFile()
 
-    monkeypatch.setattr(Seedance25VideoGeneration, "_download_and_save", fake_download_and_save)
+    monkeypatch.setattr(Seedance25VideoGeneration, "_save_generated_media", fake_save_generated_media)
     monkeypatch.setattr(Seedance25VideoGeneration, "_download_bytes_from_url", staticmethod(fake_download_bytes))
     monkeypatch.setattr(node._last_frame_file, "build_file", lambda **kwargs: FakeDestination())
 
     await node._parse_result(
-        {
-            "content": {
-                "video_url": "https://public.example/output.mp4",
-                "last_frame_url": "https://public.example/output_last.png",
-            }
-        },
+        {"content": {"last_frame_url": "https://public.example/output_last.png"}},
         "generation-1",
     )
 
-    assert downloaded == ["https://public.example/output.mp4", "https://public.example/output_last.png"]
+    assert saved_media_calls == ["generation-1"]
+    assert downloaded == ["https://public.example/output_last.png"]
     assert saved_bytes == [b"last-frame-bytes"]
     assert node.parameter_output_values["last_frame_url"].value == "project://seedance_2_5_last_frame.png"
 
@@ -840,22 +839,18 @@ async def test_parse_result_saves_last_frame_when_requested(monkeypatch: pytest.
 async def test_parse_result_skips_last_frame_when_not_requested(monkeypatch: pytest.MonkeyPatch) -> None:
     node = Seedance25VideoGeneration(name="Seedance25")
 
-    async def fake_download_and_save(self, url, output_param, artifact_factory, **kwargs) -> None:
-        self.parameter_output_values[output_param] = artifact_factory(url, "video.mp4")
+    async def fake_save_generated_media(self, generation_id, output_param, artifact_factory, **kwargs) -> bool:
+        self.parameter_output_values[output_param] = artifact_factory("https://hosted.example/output.mp4", "video.mp4")
+        return True
 
     def fail_if_called(url: str) -> bytes:
         raise AssertionError("the last frame must not be downloaded unless return_last_frame is set")
 
-    monkeypatch.setattr(Seedance25VideoGeneration, "_download_and_save", fake_download_and_save)
+    monkeypatch.setattr(Seedance25VideoGeneration, "_save_generated_media", fake_save_generated_media)
     monkeypatch.setattr(Seedance25VideoGeneration, "_download_bytes_from_url", staticmethod(fail_if_called))
 
     await node._parse_result(
-        {
-            "content": {
-                "video_url": "https://public.example/output.mp4",
-                "last_frame_url": "https://public.example/output_last.png",
-            }
-        },
+        {"content": {"last_frame_url": "https://public.example/output_last.png"}},
         "generation-1",
     )
 
@@ -868,35 +863,44 @@ async def test_failed_last_frame_download_does_not_fail_the_run(monkeypatch: pyt
     node = Seedance25VideoGeneration(name="Seedance25")
     node.set_parameter_value("return_last_frame", True)
 
-    async def fake_download_and_save(self, url, output_param, artifact_factory, **kwargs) -> None:
-        self.parameter_output_values[output_param] = artifact_factory(url, "video.mp4")
+    async def fake_save_generated_media(self, generation_id, output_param, artifact_factory, **kwargs) -> bool:
+        self.parameter_output_values[output_param] = artifact_factory("https://hosted.example/output.mp4", "video.mp4")
+        return True
 
     async def failing_download(url: str) -> bytes:
         msg = "410 Gone"
         raise RuntimeError(msg)
 
-    monkeypatch.setattr(Seedance25VideoGeneration, "_download_and_save", fake_download_and_save)
+    monkeypatch.setattr(Seedance25VideoGeneration, "_save_generated_media", fake_save_generated_media)
     monkeypatch.setattr(Seedance25VideoGeneration, "_download_bytes_from_url", staticmethod(failing_download))
 
     await node._parse_result(
-        {
-            "content": {
-                "video_url": "https://public.example/output.mp4",
-                "last_frame_url": "https://public.example/output_last.png",
-            }
-        },
+        {"content": {"last_frame_url": "https://public.example/output_last.png"}},
         "generation-1",
     )
 
-    assert node.parameter_output_values["video_url"].value == "https://public.example/output.mp4"
+    assert node.parameter_output_values["video_url"].value == "https://hosted.example/output.mp4"
     assert "last_frame_url" not in node.parameter_output_values
 
 
 @pytest.mark.asyncio
-async def test_parse_result_reports_failure_when_no_video_url() -> None:
+async def test_parse_result_skips_last_frame_when_video_is_not_hosted(monkeypatch: pytest.MonkeyPatch) -> None:
     node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("return_last_frame", True)
+
+    async def fake_save_generated_media(self, generation_id, output_param, artifact_factory, **kwargs) -> bool:
+        self.parameter_output_values[output_param] = None
+        self._set_status_results(was_successful=False, result_details="no video hosted")
+        return False
+
+    def fail_if_called(url: str) -> bytes:
+        raise AssertionError("the last frame must not be downloaded when the video was not saved")
+
+    monkeypatch.setattr(Seedance25VideoGeneration, "_save_generated_media", fake_save_generated_media)
+    monkeypatch.setattr(Seedance25VideoGeneration, "_download_bytes_from_url", staticmethod(fail_if_called))
 
     await node._parse_result({"content": {}}, "generation-1")
 
     assert node.parameter_output_values["video_url"] is None
     assert node.parameter_output_values["was_successful"] is False
+    assert "last_frame_url" not in node.parameter_output_values
