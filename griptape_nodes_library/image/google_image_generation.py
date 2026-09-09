@@ -5,9 +5,7 @@ import base64
 import json
 import logging
 from typing import Any, ClassVar
-from urllib.parse import urljoin
 
-import httpx
 from griptape.artifacts import ImageArtifact
 from griptape.artifacts.image_url_artifact import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
@@ -408,41 +406,6 @@ class GoogleImageGeneration(GriptapeProxyNode):
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         await self._handle_response(result_json, generation_id)
-
-    async def _submit_request_and_process(self, params: dict[str, Any], headers: dict[str, str]) -> None:
-        post_url = urljoin(self._proxy_base, f"models/{params['model']}")
-        payload = params
-
-        msg = f"{self.name} submitting request to proxy model={params['model']}"
-        logger.info(msg)
-
-        try:
-            async with httpx.AsyncClient() as client:
-                post_resp = await client.post(post_url, json=payload, headers=headers, timeout=None)
-                post_resp.raise_for_status()
-                response_json = post_resp.json()
-        except httpx.HTTPStatusError as e:
-            self._set_safe_defaults()
-            msg = f"{self.name} proxy POST error status={e.response.status_code} headers={dict(e.response.headers)} body={e.response.text}"
-            logger.info(msg)
-            try:
-                error_json = e.response.json()
-                error_details = self._extract_error_details(error_json)
-                msg = f"{self.name} {error_details}"
-            except Exception:
-                msg = f"{self.name} proxy POST error: {e.response.status_code} - {e.response.text}"
-            raise RuntimeError(msg) from e
-        except Exception as e:
-            self._set_safe_defaults()
-            msg = f"{self.name} proxy POST request failed: {e}"
-            logger.info(msg)
-            raise RuntimeError(msg) from e
-
-        msg = f"{self.name} received response from API"
-        logger.info(msg)
-
-        # Process the response immediately
-        await self._handle_response(response_json, "")
 
     async def _handle_response(self, response_json: dict[str, Any] | None, generation_id: str) -> None:
         """Parse Gemini API response structure for text; images come from hosted artifacts."""
