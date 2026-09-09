@@ -12,10 +12,9 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.files.file import File
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -227,9 +226,14 @@ class GrokImageGeneration(GriptapeProxyNode):
 
         return payload
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        data = result_json.get("data", [])
-        if not data:
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        try:
+            hosted = [a for a in await self._hosted_artifacts(generation_id) if a.kind == ArtifactKind.IMAGE]
+        except Exception as e:
+            logger.warning("%s no hosted images: %s", self.name, e)
+            hosted = []
+
+        if not hosted:
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
@@ -238,27 +242,14 @@ class GrokImageGeneration(GriptapeProxyNode):
             return
 
         image_artifacts: list[ImageUrlArtifact] = []
-        failed_urls: list[str] = []
-        for idx, image_data in enumerate(data):
-            image_url = image_data.get("url")
-            if not image_url:
-                continue
-
-            artifact = await self._save_single_image_from_url(image_url, generation_id, idx)
+        for position in range(len(hosted)):
+            artifact = await self._save_single_image(generation_id, position)
             if artifact:
                 image_artifacts.append(artifact)
-            else:
-                failed_urls.append(image_url)
 
         if not image_artifacts:
             self._set_safe_defaults()
-            if failed_urls:
-                details = (
-                    f"{self.name} generation completed upstream but the image(s) could not be retrieved. "
-                    f"Provider URL(s) (may be temporary): {', '.join(failed_urls)}"
-                )
-            else:
-                details = f"{self.name} generation completed but no image URLs were found in the response."
+            details = f"{self.name} generation completed upstream but the image(s) could not be retrieved."
             self._set_status_results(was_successful=False, result_details=details)
             return
 
@@ -281,22 +272,15 @@ class GrokImageGeneration(GriptapeProxyNode):
             param_name = "image_url" if i == 1 else f"image_url_{i}"
             self.parameter_output_values[param_name] = None
 
-    async def _save_single_image_from_url(
-        self, image_url: str, generation_id: str | None = None, index: int = 0
-    ) -> ImageUrlArtifact | None:
+    async def _save_single_image(self, generation_id: str, position: int) -> ImageUrlArtifact | None:
         try:
-            image_bytes = await File(image_url).aread_bytes()
-            if not image_bytes:
-                msg = "downloaded image was empty"
-                raise ValueError(msg)  # noqa: TRY301
-
+            image_bytes = await self._load_generated_media(generation_id, kind=ArtifactKind.IMAGE, position=position)
             dest = self._output_file.build_file()
             saved = await dest.awrite_bytes(image_bytes)
             return ImageUrlArtifact(value=saved.location, name=saved.name)
         except Exception as e:
             # A billed generation whose image cannot be retrieved is a failure, not a
-            # silent success. Return None so this image is not counted as saved; the
-            # caller reports failure and surfaces the provider URL for manual retrieval.
+            # silent success. Return None so this image is not counted as saved.
             with suppress(Exception):
-                logger.warning("%s failed to retrieve image %s from %s: %s", self.name, index, image_url, e)
+                logger.warning("%s failed to retrieve image %s: %s", self.name, position, e)
             return None
