@@ -14,10 +14,10 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.three_d._tripo_utils import (
+    DEFAULT_MODEL_VERSION,
     TripoCapability,
     TripoEndpoint,
     add_model_version_parameter,
-    default_version,
     parse_tripo_task_result,
     supports,
 )
@@ -207,7 +207,7 @@ class TripoMultiviewTo3DGeneration(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
 
-        self._update_parameter_visibility_for_model(default_version(TRIPO_ENDPOINT))
+        self._update_parameter_visibility_for_model(DEFAULT_MODEL_VERSION)
 
     def _update_parameter_visibility_for_model(self, model_version: str) -> None:
         if supports(TRIPO_ENDPOINT, model_version, TripoCapability.TEXTURE):
@@ -259,7 +259,7 @@ class TripoMultiviewTo3DGeneration(GriptapeProxyNode):
             )
             raise ValueError(msg)
 
-        model_version = self.get_parameter_value("model_version") or default_version(TRIPO_ENDPOINT)
+        model_version = self.get_parameter_value("model_version") or DEFAULT_MODEL_VERSION
         payload: dict[str, Any] = {
             "images": images,
             "model_version": model_version,

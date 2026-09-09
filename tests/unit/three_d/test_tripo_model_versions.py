@@ -24,7 +24,6 @@ from griptape_nodes_library.three_d._tripo_utils import (
     TripoCapability,
     TripoEndpoint,
     badge_message,
-    default_version,
     dropdown_row_data,
     migrate_version,
     supports,
@@ -143,7 +142,6 @@ def test_every_node_defaults_to_the_shared_version(endpoint: TripoEndpoint) -> N
     node = _make_node(endpoint)
 
     assert node.get_parameter_value("model_version") == DEFAULT_MODEL_VERSION
-    assert default_version(endpoint) == DEFAULT_MODEL_VERSION
     assert DEFAULT_MODEL_VERSION in LIVE_VERSIONS[endpoint]
 
 

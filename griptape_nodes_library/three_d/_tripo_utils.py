@@ -142,6 +142,9 @@ MODEL_VERSIONS: tuple[TripoModelVersion, ...] = (
     ),
 )
 
+# One default for every endpoint, so two Tripo nodes in the same workflow don't start on
+# models from different families. `_raise_if_misconfigured` enforces that each endpoint
+# actually offers it.
 DEFAULT_MODEL_VERSION = "v3.1-20260211"
 
 # Versions Tripo has deprecated, mapped to the current version a stored value becomes.
@@ -171,15 +174,6 @@ DEPRECATED_VERSIONS: dict[TripoEndpoint, dict[str, str]] = {
 def versions_for(endpoint: TripoEndpoint) -> tuple[TripoModelVersion, ...]:
     """The live versions this endpoint generates on, in display order."""
     return tuple(version for version in MODEL_VERSIONS if endpoint in version.endpoints)
-
-
-def default_version(endpoint: TripoEndpoint) -> str:
-    """The version a fresh node selects.
-
-    Shared across endpoints so two Tripo nodes in one workflow don't start on
-    models from different families.
-    """
-    return DEFAULT_MODEL_VERSION
 
 
 def version_choices(endpoint: TripoEndpoint) -> list[str]:
@@ -283,7 +277,7 @@ def add_model_version_parameter(node: GriptapeProxyNode, endpoint: TripoEndpoint
 
     parameter = ParameterString(
         name="model_version",
-        default_value=default_version(endpoint),
+        default_value=DEFAULT_MODEL_VERSION,
         tooltip="Tripo model version. See badge for details on what each version supports.",
         allow_output=False,
         traits={Options(choices=version_choices(endpoint))},
