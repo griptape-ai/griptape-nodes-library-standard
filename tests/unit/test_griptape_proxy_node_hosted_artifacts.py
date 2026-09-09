@@ -12,6 +12,7 @@ from griptape_nodes_library.proxy.hosted_artifacts import (
     artifact_download_headers,
     fetch_hosted_artifacts,
 )
+from griptape_nodes_library.proxy.provider_asset_access import ProxyCredential
 
 PROXY_BASE = "https://cloud.griptape.ai/api/proxy/v2/"
 GENERATION_ID = "gen-abc"
@@ -66,7 +67,8 @@ def _install_list_client(monkeypatch: pytest.MonkeyPatch, payload: Any, calls: l
 
 def _build_node(monkeypatch: pytest.MonkeyPatch) -> tuple[Flux2ImageGeneration, list[dict[str, Any]]]:
     monkeypatch.setattr(
-        "griptape_nodes_library.proxy.griptape_proxy_node.resolve_proxy_api_key", lambda _name: "test-key"
+        "griptape_nodes_library.proxy.griptape_proxy_node.resolve_proxy_credential",
+        lambda _name: ProxyCredential(value="test-key", source="GT_CLOUD_API_KEY"),
     )
 
     node = Flux2ImageGeneration(name="Flux2")
