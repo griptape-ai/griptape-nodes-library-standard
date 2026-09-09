@@ -28,29 +28,47 @@ LIBRARY_ROOT = Path(griptape_nodes_library.__file__).parent
 
 _TOKEN = "gt-the-credential"  # noqa: S105
 
-# Files allowed to construct a Cloud driver without spreading `cloud_driver_auth()`, and why.
-# Each still has to reference the helper somewhere -- an exemption is a different shape, not a
-# pass. Verified below, so an entry cannot quietly become a hole.
+# Constructions allowed to skip the `cloud_driver_auth()` spread: `(file, function) -> (how
+# many, why)`. Keyed by function and counted, because either alone leaks wider than intended --
+# by file the exemption would also cover `agent_utils.build_prompt_driver`, one `ProviderID`
+# branch from a Cloud driver of its own; by function it would still cover a *second* construction
+# inside `build_tool_from_config`, whose ~120-line `tool_type` dispatch is the likeliest thing
+# here to grow one. Each exempt function must also reach the helper itself -- an exemption is a
+# different shape, not a pass. All three are verified below.
 UNSPREAD_CONSTRUCTIONS = {
-    LIBRARY_ROOT
-    / "config"
-    / "prompt"
-    / "griptape_cloud_prompt.py": "**all_kwargs; helper lands via specific_args.update()",
-    LIBRARY_ROOT
-    / "config"
-    / "image"
-    / "griptape_cloud_image_driver.py": "**all_kwargs; helper lands via specific_args.update()",
-    LIBRARY_ROOT / "utils" / "agent_utils.py": "FileManagerDriver rejects headers=; assigned after construction",
+    (
+        LIBRARY_ROOT / "config" / "prompt" / "griptape_cloud_prompt.py",
+        "process",
+    ): (1, "**all_kwargs; helper lands via specific_args.update()"),
+    (
+        LIBRARY_ROOT / "config" / "image" / "griptape_cloud_image_driver.py",
+        "process",
+    ): (1, "**all_kwargs; helper lands via specific_args.update()"),
+    (
+        LIBRARY_ROOT / "utils" / "agent_utils.py",
+        "build_tool_from_config",
+    ): (1, "FileManagerDriver rejects headers=; assigned after construction"),
 }
 
 
-def _cloud_driver_constructions() -> dict[Path, list[tuple[int, bool]]]:
-    """Every Cloud driver construction in the library: `{path: [(lineno, spreads_the_helper)]}`.
+def _enclosing_function(scopes: list[ast.FunctionDef | ast.AsyncFunctionDef], lineno: int) -> str:
+    """Name of the innermost function containing `lineno`, so a nested def reports as itself."""
+    enclosing = [f for f in scopes if f.lineno <= lineno <= (f.end_lineno or f.lineno)]
+    if not enclosing:
+        return "<module>"
+    return min(enclosing, key=lambda f: (f.end_lineno or f.lineno) - f.lineno).name
+
+
+def _cloud_driver_constructions() -> dict[tuple[Path, str], list[tuple[int, bool]]]:
+    """Every Cloud driver construction: `{(path, function): [(lineno, spreads_the_helper)]}`.
+
+    Keyed by enclosing function to match `UNSPREAD_CONSTRUCTIONS`; the lineno is carried only so
+    a failure can name the line, and is never what an exemption matches on.
 
     Aliases are resolved from the `ImportFrom` binding rather than matched by name, because
     `griptape_cloud_prompt.py` imports the class `as GtGriptapeCloudPromptDriver`.
     """
-    found: dict[Path, list[tuple[int, bool]]] = {}
+    found: dict[tuple[Path, str], list[tuple[int, bool]]] = {}
     for path in sorted(LIBRARY_ROOT.rglob("*.py")):
         tree = ast.parse(path.read_text())
         bound = {
@@ -60,6 +78,7 @@ def _cloud_driver_constructions() -> dict[Path, list[tuple[int, bool]]]:
             for alias in node.names
             if alias.name.startswith("GriptapeCloud") and alias.name.endswith("Driver")
         }
+        scopes = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
                 continue
@@ -71,7 +90,7 @@ def _cloud_driver_constructions() -> dict[Path, list[tuple[int, bool]]]:
                 and getattr(kw.value.func, "id", None) == "cloud_driver_auth"
                 for kw in node.keywords
             )
-            found.setdefault(path, []).append((node.lineno, spreads))
+            found.setdefault((path, _enclosing_function(scopes, node.lineno)), []).append((node.lineno, spreads))
     return found
 
 
@@ -141,29 +160,46 @@ def test_every_cloud_driver_construction_carries_attribution() -> None:
     an unconverted site looks exactly like a converted one from the outside.
     """
     unspread = {
-        f"{path.relative_to(LIBRARY_ROOT)}:{lineno}"
-        for path, calls in _cloud_driver_constructions().items()
+        f"{path.relative_to(LIBRARY_ROOT)}:{lineno} ({function})"
+        for (path, function), calls in _cloud_driver_constructions().items()
         for lineno, spreads in calls
-        if not spreads and path not in UNSPREAD_CONSTRUCTIONS
+        if not spreads and (path, function) not in UNSPREAD_CONSTRUCTIONS
     }
 
     assert unspread == set()
 
 
 def test_every_exemption_still_reaches_the_helper() -> None:
-    """An exemption is a different shape, not a pass -- so each one must still name the helper."""
-    for path, reason in UNSPREAD_CONSTRUCTIONS.items():
-        source = path.read_text()
-        reaches = "cloud_driver_auth" in source or "build_griptape_cloud_headers" in source
-        assert reaches, f"{path.relative_to(LIBRARY_ROOT)} is exempt ({reason}) but never builds the headers"
+    """An exemption is a different shape, not a pass -- so each one must still name the helper.
+
+    Scoped to the exempt function, not its file: a sibling function's use of the helper says
+    nothing about whether *this* construction is attributed.
+    """
+    for (path, function), (_expected, reason) in UNSPREAD_CONSTRUCTIONS.items():
+        tree = ast.parse(path.read_text())
+        scopes = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+        names = {
+            node.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Name) and _enclosing_function(scopes, node.lineno) == function
+        }
+        reaches = bool(names & {"cloud_driver_auth", "build_griptape_cloud_headers"})
+        assert reaches, f"{path.relative_to(LIBRARY_ROOT)}:{function} is exempt ({reason}) but never builds the headers"
 
 
-def test_exemptions_are_only_for_sites_that_need_them() -> None:
-    """An exempt file that has started spreading the helper everywhere should leave the list."""
-    for path in UNSPREAD_CONSTRUCTIONS:
-        calls = _cloud_driver_constructions().get(path, [])
-        assert any(not spreads for _, spreads in calls), (
-            f"{path.relative_to(LIBRARY_ROOT)} no longer needs its exemption; drop it"
+def test_exemptions_cover_exactly_the_constructions_they_were_written_for() -> None:
+    """Too few and the exemption is stale; too many and it is silently covering a new site.
+
+    The second half bites: a driver added to an already-exempt function inherits its pass, falls
+    back to `os.environ["GT_CLOUD_API_KEY"]` -- which the engine plants as `""` -- and bills
+    unattributed behind a 401, with no server-side metric for either.
+    """
+    for (path, function), (expected, reason) in UNSPREAD_CONSTRUCTIONS.items():
+        calls = _cloud_driver_constructions().get((path, function), [])
+        unspread = [lineno for lineno, spreads in calls if not spreads]
+        assert len(unspread) == expected, (
+            f"{path.relative_to(LIBRARY_ROOT)}:{function} is exempt for {expected} construction(s) "
+            f"({reason}) but has {len(unspread)} at lines {unspread}"
         )
 
 

@@ -10,27 +10,27 @@ from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_c
 LIBRARY_ROOT = Path(__file__).parents[3] / "griptape_nodes_library"
 
 # Every Griptape Cloud header build in the library, and whether the call it belongs to incurs
-# spend. Keyed by enclosing function so a failure names the offender, and a second call added
-# inside a listed function still fails.
+# spend. Keyed by enclosing function so a failure names the offender; one flag per call, in source
+# order, so a second call in a listed function lengthens the tuple instead of overwriting the
+# first one's answer.
 #
 # The `False` entries consume no credits, so there is nothing to attribute: two model/bucket
 # listings, an asset-access probe, and the proxy's two re-reads of a generation already paid
 # for at submit. Flipping any `True` here to `False` is how spend silently stops being
 # attributed, which is why the map is asserted whole rather than as an allowlist.
-# The two `utils/` entries are the framework-driver bridge: a node that hands an `api_key` to a
-# `griptape` driver never spells the header itself, so `cloud_driver_auth` passes this dict in as
-# the driver's `headers`. `test_cloud_driver_auth.py` polices the construction sites themselves.
+# The two `utils/` entries are the framework-driver bridge, where `cloud_driver_auth` passes this
+# dict in as the driver's `headers`; `test_cloud_driver_auth.py` polices those construction sites.
 CLOUD_HEADER_CALLS = {
-    ("config/prompt/griptape_cloud_prompt.py", "_list_models"): False,
-    ("proxy/griptape_proxy_node.py", "_fetch_generation_result"): False,
-    ("proxy/griptape_proxy_node.py", "_process_generation"): True,
-    ("proxy/griptape_proxy_node.py", "_refresh_async"): False,
-    ("proxy/provider_asset_access.py", "check_provider_asset_access"): False,
-    ("tools/file_manager_tool.py", "get_bucket_list"): False,
-    ("utils/agent_utils.py", "build_tool_from_config"): True,
-    ("utils/cloud_driver_auth.py", "cloud_driver_auth"): True,
-    ("video/omnihuman_video_generation.py", "_auto_detect_masks"): True,
-    ("video/seedance_common.py", "_append_private_asset"): True,
+    ("config/prompt/griptape_cloud_prompt.py", "_list_models"): (False,),
+    ("proxy/griptape_proxy_node.py", "_fetch_generation_result"): (False,),
+    ("proxy/griptape_proxy_node.py", "_process_generation"): (True,),
+    ("proxy/griptape_proxy_node.py", "_refresh_async"): (False,),
+    ("proxy/provider_asset_access.py", "check_provider_asset_access"): (False,),
+    ("tools/file_manager_tool.py", "get_bucket_list"): (False,),
+    ("utils/agent_utils.py", "build_tool_from_config"): (True,),
+    ("utils/cloud_driver_auth.py", "cloud_driver_auth"): (True,),
+    ("video/omnihuman_video_generation.py", "_auto_detect_masks"): (True,),
+    ("video/seedance_common.py", "_append_private_asset"): (True,),
 }
 
 
@@ -53,7 +53,7 @@ def test_attribution_must_be_stated() -> None:
     Defaulting to `False` would make an unattributed billable call the quiet outcome, and the
     platform emits no metric for a missing header -- the failure would be invisible on both
     ends. Defaulting to `True` only trades that for over-reporting, which is recoverable but
-    still guesses. Eight call sites make stating it free.
+    still guesses. Ten call sites make stating it free.
     """
     with pytest.raises(TypeError):
         build_griptape_cloud_headers("tok")  # type: ignore[call-arg]  # pyright: ignore[reportCallIssue]
@@ -99,9 +99,14 @@ def test_only_the_factory_builds_an_authorization_header() -> None:
     assert builders == {"utils/griptape_cloud_headers.py"}
 
 
-def _cloud_header_calls() -> dict[tuple[str, str], bool | None]:
-    """Every `build_griptape_cloud_headers` call, keyed by file and enclosing function."""
-    found: dict[tuple[str, str], bool | None] = {}
+def _cloud_header_calls() -> dict[tuple[str, str], tuple[bool | None, ...]]:
+    """Every `build_griptape_cloud_headers` call: `{(file, function): (flag, per, call)}`.
+
+    Accumulated rather than assigned, so two calls in one function stay two entries -- assigning
+    would let the second inherit the first's recorded answer, and an unattributed billable call
+    is invisible from the server.
+    """
+    found: dict[tuple[str, str], tuple[bool | None, ...]] = {}
     for path in sorted(LIBRARY_ROOT.rglob("*.py")):
         tree = ast.parse(path.read_text())
         scopes = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
@@ -123,7 +128,8 @@ def _cloud_header_calls() -> dict[tuple[str, str], bool | None]:
                 ),
                 None,
             )
-            found[(path.relative_to(LIBRARY_ROOT).as_posix(), name)] = flag
+            key = (path.relative_to(LIBRARY_ROOT).as_posix(), name)
+            found[key] = (*found.get(key, ()), flag)
     return found
 
 
