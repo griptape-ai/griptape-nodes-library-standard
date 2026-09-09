@@ -395,7 +395,13 @@ class SelectFromGrid(ControlNode):
                 resolved = File(path).resolve()
             except Exception:
                 resolved = path
-            macro_path = MacroPath(ParsedMacro(resolved), {})
+            try:
+                macro_path = MacroPath(ParsedMacro(resolved), {})
+            except MacroSyntaxError:
+                # A legal filename can carry an unbalanced brace ("photo{1.png"),
+                # which fails macro parsing before AND after resolution. No
+                # preview then; the caller falls back to a direct file URL.
+                return ""
         try:
             result = await GriptapeNodes.ahandle_request(
                 GetPreviewForArtifactRequest(
