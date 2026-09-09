@@ -450,6 +450,21 @@ def test_round_trip_attribution_reaches_the_rebuilt_driver(monkeypatch: pytest.M
             False,
         ),
         ("griptape.drivers.ruleset.griptape_cloud:GriptapeCloudRulesetDriver", {"ruleset_id": "a-ruleset"}, False),
+        pytest.param(
+            "griptape.drivers.vector.griptape_cloud:GriptapeCloudVectorStoreDriver",
+            {"knowledge_base_id": "a-knowledge-base"},
+            True,
+            marks=pytest.mark.xfail(
+                raises=TypeError,
+                strict=True,
+                reason=(
+                    "Upstream: `embedding_driver` is `serializable=True, init=False`, so "
+                    "`to_dict()` emits a key `from_dict()` then rejects. Fails with or without "
+                    "the injection. Strict, so an upstream fix reports here instead of passing "
+                    "unnoticed."
+                ),
+            ),
+        ),
     ],
 )
 def test_every_cloud_driver_type_the_walk_matches_stays_loadable(
@@ -465,6 +480,11 @@ def test_every_cloud_driver_type_the_walk_matches_stays_loadable(
     and `Ruleset`'s driver are themselves unserializable, so `Agent.to_dict()` never puts either
     dict on the wire. Which is exactly why this is worth pinning -- the safety of an ungated
     injection would rest on an upstream serialization flag that is not ours to hold still.
+
+    The vector store driver is the case that shows why: it is in the injected set, and it does
+    not survive its own round trip, for a reason that has nothing to do with `headers`. Listed
+    as an `xfail` rather than omitted, because omitting it is what let the set and this test
+    disagree -- the set says the walk writes to it, and only this case says whether it loads.
     """
     module_name, class_name = driver_class_path.split(":")
     driver_class = getattr(import_module(module_name), class_name)
