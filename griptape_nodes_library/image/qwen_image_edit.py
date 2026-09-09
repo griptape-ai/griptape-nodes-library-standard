@@ -378,6 +378,23 @@ class QwenImageEdit(GriptapeProxyNode):
             media_kind="image",
             action="edited",
         )
+        await self._warn_on_unsurfaced_images(generation_id)
+
+    async def _warn_on_unsurfaced_images(self, generation_id: str) -> None:
+        """Log when Qwen produced more images than this node exposes.
+
+        The node asks for one edit per input image and has a single ``image_url``
+        output, so a multi-image edit is billed for images nothing can read. Saying so
+        beats dropping them in silence.
+        """
+        with suppress(Exception):
+            hosted = [a for a in await self._hosted_artifacts(generation_id) if a.kind == ArtifactKind.IMAGE]
+            if len(hosted) > 1:
+                logger.warning(
+                    "%s: the generation hosts %d images but this node surfaces one; the rest are unread",
+                    self.name,
+                    len(hosted),
+                )
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
         """Extract error details from API response.

@@ -587,7 +587,7 @@ class Rodin23DGeneration(GriptapeProxyNode):
             )
             return
 
-        if len(hosted) != len(files_with_url):
+        if len(hosted) > len(files_with_url):
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
@@ -597,6 +597,30 @@ class Rodin23DGeneration(GriptapeProxyNode):
                 ),
             )
             return
+
+        # A short list is the proxy's documented truncation: it hosts a prefix of what
+        # the client reported and gives up the rest, so pairing by position stays
+        # correct and the files that did arrive are still worth saving.
+        dropped = len(files_with_url) - len(hosted)
+        if dropped:
+            logger.warning(
+                "%s: the proxy hosts %d of Rodin's %d file(s); saving what arrived",
+                self.name,
+                len(hosted),
+                len(files_with_url),
+            )
+            files_with_url = files_with_url[: len(hosted)]
+            received_names = [f.get("name", "") for f in files_with_url]
+            if not any(name.lower().endswith(f".{requested_format}") for name in received_names):
+                self._set_safe_defaults()
+                self._set_status_results(
+                    was_successful=False,
+                    result_details=(
+                        f"Rodin returned a .{requested_format} file but the proxy hosted only "
+                        f"{len(hosted)} of {len(hosted) + dropped} file(s), none of them that one."
+                    ),
+                )
+                return
 
         preview_name = next(
             (name for name in received_names if name.lower().endswith(".webp")),

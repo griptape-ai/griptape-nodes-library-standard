@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import suppress
 from enum import StrEnum
 from typing import Any
 
@@ -299,6 +300,18 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
             lambda v, n: VideoUrlArtifact(value=v, name=n),
             kind=ArtifactKind.VIDEO,
         )
+
+        # Gemini reports one video per generation step, and this node exposes a single
+        # video_url, so a multi-step generation would be billed for videos nothing can
+        # read. Say so rather than dropping them in silence.
+        with suppress(Exception):
+            hosted = [a for a in await self._hosted_artifacts(generation_id) if a.kind == ArtifactKind.VIDEO]
+            if len(hosted) > 1:
+                logger.warning(
+                    "%s: the generation hosts %d videos but this node surfaces one; the rest are unread",
+                    self.name,
+                    len(hosted),
+                )
 
     def _set_safe_defaults(self) -> None:
         """Set safe default values for all outputs on error."""
