@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import logging
 import re
 from contextlib import suppress
@@ -21,7 +20,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -541,9 +540,14 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
         return payload
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        data = result_json.get("data", [])
-        if not data:
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        try:
+            hosted = [a for a in await self._hosted_artifacts(generation_id) if a.kind == ArtifactKind.IMAGE]
+        except Exception as e:
+            logger.warning("%s no hosted images: %s", self.name, e)
+            hosted = []
+
+        if not hosted:
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
@@ -552,15 +556,17 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             return
 
         image_artifacts: list[ImageUrlArtifact] = []
-        for idx, image_data in enumerate(data, start=1):
-            b64_json = image_data.get("b64_json")
-            if not isinstance(b64_json, str) or not b64_json:
-                logger.warning("%s response item %s did not include b64_json", self.name, idx)
+        for position in range(len(hosted)):
+            try:
+                image_bytes = await self._load_generated_media(
+                    generation_id, kind=ArtifactKind.IMAGE, position=position
+                )
+                dest = self._output_file.build_file(_index=position + 1)
+                saved = await dest.awrite_bytes(image_bytes)
+            except Exception as e:
+                logger.warning("%s failed to save generated image %s: %s", self.name, position + 1, e)
                 continue
-
-            artifact = await self._save_single_image_from_base64(b64_json, index=idx)
-            if artifact is not None:
-                image_artifacts.append(artifact)
+            image_artifacts.append(ImageUrlArtifact(value=saved.location, name=saved.name))
 
         if not image_artifacts:
             self._set_safe_defaults()
@@ -591,16 +597,6 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         for i in range(1, self.MAX_IMAGES + 1):
             param_name = "image_url" if i == 1 else f"image_url_{i}"
             self.parameter_output_values[param_name] = None
-
-    async def _save_single_image_from_base64(self, b64_json: str, *, index: int) -> ImageUrlArtifact | None:
-        try:
-            image_bytes = base64.b64decode(b64_json)
-            dest = self._output_file.build_file(_index=index)
-            saved = await dest.awrite_bytes(image_bytes)
-            return ImageUrlArtifact(value=saved.location, name=saved.name)
-        except Exception as e:
-            logger.warning("%s failed to save generated image %s: %s", self.name, index, e)
-            return None
 
     async def _build_input_images_payload(self) -> list[dict[str, str]]:
         input_images = self._get_input_images_value()
