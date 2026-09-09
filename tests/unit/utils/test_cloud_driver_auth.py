@@ -204,12 +204,16 @@ def test_exemptions_cover_exactly_the_constructions_they_were_written_for() -> N
 
 
 def test_driver_credentials_are_not_serialized() -> None:
-    """The gap `cloud_driver_auth` cannot close, pinned so it is not mistaken for covered.
+    """The gap `cloud_driver_auth` cannot close, pinned so the workaround is not mistaken for a fix.
 
-    Neither field carries `serializable` metadata, so `Agent.from_dict` rebuilds a Cloud driver
-    from `os.environ` with no attribution header. Every node that deserializes an agent is still
-    unattributed. Tracked in griptape-nodes-library-standard#595; if this starts failing, the
-    upstream fix has landed and those sites can be revisited.
+    Neither field carries `serializable` metadata, so `Agent.from_dict` alone rebuilds a Cloud
+    driver from `os.environ` with no attribution header. `agent_utils._restored_cloud_credentials`
+    covers the deserializing nodes by re-injecting both before `from_dict` runs -- a repair at
+    load, which is the right layer: marking either field serializable would write the raw
+    credential into every saved workflow JSON on disk.
+
+    If this starts failing, upstream has changed its mind about that, and the security of every
+    saved workflow needs re-examining before the injection is dropped.
     """
     for driver_class in (GriptapeCloudPromptDriver, GriptapeCloudImageGenerationDriver):
         fields = {f.name: f for f in attrs.fields(driver_class)}

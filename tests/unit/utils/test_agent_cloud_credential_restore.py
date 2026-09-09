@@ -1,19 +1,27 @@
-"""Griptape Cloud credential survival across the Agent wire format.
+"""Griptape Cloud credentials and attribution surviving the Agent wire format.
 
-``api_key`` on every ``GriptapeCloud*`` driver is not serializable, so a chained agent's
-credential does not survive ``to_dict()``/``from_dict()`` and is silently re-read from
-``GT_CLOUD_API_KEY``. ``unwrap_agent`` re-resolves it (License first) before the caller
-deserializes; these tests pin that behaviour and the failure modes it removes.
+Neither ``api_key`` nor ``headers`` is serializable on a ``GriptapeCloud*`` driver, so a
+chained agent loses both across ``to_dict()``/``from_dict()``: the credential is silently
+re-read from ``GT_CLOUD_API_KEY``, and the attribution header is rebuilt as bare
+``Authorization``. ``unwrap_agent`` restores both before the caller deserializes; these
+tests pin that behaviour and the failure modes it removes.
+
+The two halves fail differently. A wrong credential announces itself as a 401 or 402; a
+missing attribution header does not announce itself at all, because Cloud emits a metric
+only for a *malformed* header. That asymmetry is why the attribution tests below assert
+the exact dict rather than merely that a header is present.
 """
 
 from __future__ import annotations
 
 import copy
+from importlib import import_module
 
 import pytest
 
 import griptape_nodes_library.utils.agent_utils as agent_utils
 from griptape_nodes_library.utils.agent_utils import unwrap_agent, wrap_agent
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 _LICENSE = "header.payload.signature"
 """A Griptape Nodes License is a JWT: three dot-separated segments."""
@@ -325,3 +333,151 @@ def test_reader_round_trip_survives_a_missing_credential(monkeypatch: pytest.Mon
     rebuilt = GtAgent().from_dict(agent_core_dict)
 
     assert rebuilt.tasks[0].prompt_driver.api_key == ""
+
+
+# ---------------------------------------------------------------------------
+# Attribution headers
+# ---------------------------------------------------------------------------
+
+
+def test_cloud_driver_gets_attribution_headers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`headers` is as unserializable as `api_key`, and its loss is the silent one.
+
+    A rebuilt driver falls back to an `Authorization`-only header, which Cloud accepts and bills
+    against `<system-defaults>`. No degradation metric fires for a *missing* attribution header --
+    only for a malformed one -- so the under-reporting is invisible from the server side.
+    """
+    _stub_resolved_credential(monkeypatch, _LICENSE)
+
+    agent_core_dict, _, _ = unwrap_agent(wrap_agent(_cloud_agent_dict(), [], []))
+
+    assert agent_core_dict["tasks"][0]["prompt_driver"]["headers"] == build_griptape_cloud_headers(
+        _LICENSE, attribution=True
+    )
+
+
+def test_headers_are_not_handed_to_a_driver_that_rejects_them(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The conversation-memory driver declares `headers` as `init=False`; the kwarg is a TypeError.
+
+    So the walk gates on the type tag rather than injecting into everything it matched. See
+    `test_every_cloud_driver_type_the_walk_matches_stays_loadable` for why that matters even
+    though griptape does not currently serialize this driver.
+    """
+    _stub_resolved_credential(monkeypatch, _LICENSE)
+    agent_dict = _cloud_agent_dict()
+    agent_dict["conversation_memory"] = {
+        "type": "ConversationMemory",
+        "conversation_memory_driver": {"type": "GriptapeCloudConversationMemoryDriver", "alias": "thread-alias"},
+    }
+
+    agent_core_dict, _, _ = unwrap_agent(wrap_agent(agent_dict, [], []))
+
+    memory_driver = agent_core_dict["conversation_memory"]["conversation_memory_driver"]
+    assert "headers" not in memory_driver
+    # ...but the credential still reaches it, and its own default builds `Authorization` from that.
+    assert memory_driver["api_key"] == _LICENSE
+
+
+def test_non_cloud_driver_gets_no_headers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A BYOK driver must not be handed a Griptape Cloud bearer token in a header, either."""
+    _stub_resolved_credential(monkeypatch, _LICENSE)
+    agent_dict = {
+        "type": "Agent",
+        "tasks": [{"type": "PromptTask", "prompt_driver": {"type": "OpenAiChatPromptDriver", "model": "gpt-4.1"}}],
+    }
+
+    agent_core_dict, _, _ = unwrap_agent(wrap_agent(agent_dict, [], []))
+
+    assert "headers" not in agent_core_dict["tasks"][0]["prompt_driver"]
+
+
+def test_reader_path_injects_headers_without_a_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`require_credential=False` still attributes, with the same empty bearer `api_key` gets.
+
+    The read-only paths send nothing, so the empty token is inert; keeping the injection
+    unconditional means there is one code path to reason about rather than two.
+    """
+    _stub_resolved_credential(monkeypatch, "")
+
+    agent_core_dict, _, _ = unwrap_agent(wrap_agent(_cloud_agent_dict(), [], []), require_credential=False)
+
+    assert agent_core_dict["tasks"][0]["prompt_driver"]["headers"] == build_griptape_cloud_headers("", attribution=True)
+
+
+def test_header_settable_tags_match_the_installed_griptape() -> None:
+    """Pins the upstream partition the gate is derived from, so a change to it is visible.
+
+    The split is an upstream inconsistency, not a design: the prompt and image drivers declare
+    `headers` as `kw_only=True` while the conversation-memory and ruleset drivers declare it
+    `init=False`. If griptape settles the difference this fails, and the excluded drivers start
+    being attributed with no change to `agent_utils`.
+    """
+    assert agent_utils._HEADER_SETTABLE_CLOUD_DRIVER_TAGS == {  # noqa: SLF001
+        "GriptapeCloudImageGenerationDriver",
+        "GriptapeCloudPromptDriver",
+        "GriptapeCloudVectorStoreDriver",
+    }
+
+
+def test_round_trip_attribution_reaches_the_rebuilt_driver(monkeypatch: pytest.MonkeyPatch) -> None:
+    """End-to-end against real griptape: the header the driver will send carries the tags."""
+    from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
+    from griptape.structures import Agent as GtAgent
+
+    monkeypatch.setenv("GT_CLOUD_API_KEY", _OTHER_ORG_KEY)
+    _stub_resolved_credential(monkeypatch, _LICENSE)
+
+    upstream = GtAgent(prompt_driver=GriptapeCloudPromptDriver(model="gpt-4.1", api_key=_LICENSE, stream=True))
+    wrapper = wrap_agent(upstream.to_dict(), [], [])
+
+    rebuilt = GtAgent().from_dict(unwrap_agent(wrapper)[0])
+
+    assert rebuilt.tasks[0].prompt_driver.headers == build_griptape_cloud_headers(_LICENSE, attribution=True)
+
+
+@pytest.mark.parametrize(
+    ("driver_class_path", "kwargs", "attributed"),
+    [
+        ("griptape.drivers.prompt.griptape_cloud:GriptapeCloudPromptDriver", {"model": "gpt-4.1"}, True),
+        (
+            "griptape.drivers.image_generation.griptape_cloud:GriptapeCloudImageGenerationDriver",
+            {"model": "dall-e-3"},
+            True,
+        ),
+        (
+            "griptape.drivers.memory.conversation.griptape_cloud:GriptapeCloudConversationMemoryDriver",
+            {"alias": "thread-alias"},
+            False,
+        ),
+        ("griptape.drivers.ruleset.griptape_cloud:GriptapeCloudRulesetDriver", {"ruleset_id": "a-ruleset"}, False),
+    ],
+)
+def test_every_cloud_driver_type_the_walk_matches_stays_loadable(
+    driver_class_path: str, kwargs: dict, attributed: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Whatever the walk writes into a driver dict, that driver's own class must be able to load it.
+
+    The walk matches on the ``GriptapeCloud`` prefix, so it cannot assume a prompt driver. An
+    ungated `headers` injection is a `TypeError` out of `from_dict()` for the two drivers that
+    declare the field `init=False` -- a crash where there was working code, not a missing header.
+
+    That crash is latent rather than live today: `ConversationMemory.conversation_memory_driver`
+    and `Ruleset`'s driver are themselves unserializable, so `Agent.to_dict()` never puts either
+    dict on the wire. Which is exactly why this is worth pinning -- the safety of an ungated
+    injection would rest on an upstream serialization flag that is not ours to hold still.
+    """
+    module_name, class_name = driver_class_path.split(":")
+    driver_class = getattr(import_module(module_name), class_name)
+    _stub_resolved_credential(monkeypatch, _LICENSE)
+    agent_dict = {"type": "Agent", "some_driver": driver_class(api_key=_LICENSE, **kwargs).to_dict()}
+
+    restored, _, _ = unwrap_agent(agent_dict)
+    rebuilt = driver_class.from_dict(restored["some_driver"])
+
+    expected = (
+        build_griptape_cloud_headers(_LICENSE, attribution=True)
+        if attributed
+        else {"Authorization": f"Bearer {_LICENSE}"}
+    )
+    assert rebuilt.headers == expected
+    assert rebuilt.api_key == _LICENSE

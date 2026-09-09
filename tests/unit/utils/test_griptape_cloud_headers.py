@@ -18,8 +18,11 @@ LIBRARY_ROOT = Path(__file__).parents[3] / "griptape_nodes_library"
 # listings, an asset-access probe, and the proxy's two re-reads of a generation already paid
 # for at submit. Flipping any `True` here to `False` is how spend silently stops being
 # attributed, which is why the map is asserted whole rather than as an allowlist.
-# The two `utils/` entries are the framework-driver bridge, where `cloud_driver_auth` passes this
-# dict in as the driver's `headers`; `test_cloud_driver_auth.py` polices those construction sites.
+# The `utils/` entries hand the dict to a `griptape` driver rather than to `requests`, by three
+# different routes: `cloud_driver_auth` spreads it into a constructor, `build_tool_from_config`
+# assigns it after construction, and `_restored_cloud_credentials` writes it into a serialized
+# driver dict for `from_dict` to pick up. `test_cloud_driver_auth.py` polices the first two --
+# it reads construction sites, so it is blind to the third.
 CLOUD_HEADER_CALLS = {
     ("config/prompt/griptape_cloud_prompt.py", "_list_models"): (False,),
     ("proxy/griptape_proxy_node.py", "_fetch_generation_result"): (False,),
@@ -27,6 +30,7 @@ CLOUD_HEADER_CALLS = {
     ("proxy/griptape_proxy_node.py", "_refresh_async"): (False,),
     ("proxy/provider_asset_access.py", "check_provider_asset_access"): (False,),
     ("tools/file_manager_tool.py", "get_bucket_list"): (False,),
+    ("utils/agent_utils.py", "_restored_cloud_credentials"): (True,),
     ("utils/agent_utils.py", "build_tool_from_config"): (True,),
     ("utils/cloud_driver_auth.py", "cloud_driver_auth"): (True,),
     ("video/omnihuman_video_generation.py", "_auto_detect_masks"): (True,),
