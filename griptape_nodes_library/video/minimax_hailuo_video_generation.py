@@ -18,7 +18,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import prepare_media_data_uri
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -379,29 +379,12 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         self.parameter_output_values["provider_response"] = result_json
-        await self._handle_completion_async(result_json, generation_id)
-
-    async def _handle_completion_async(self, response_json: dict[str, Any], generation_id: str) -> None:
-        """Handle successful completion by downloading and saving the video."""
-        file_obj = response_json.get("file")
-        if not isinstance(file_obj, dict):
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no file object found in response.",
-            )
-            return
-
-        download_url = file_obj.get("download_url")
-        if not download_url:
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no download_url found in response.",
-            )
-            return
-
-        await self._download_and_save(download_url, "video_url", lambda v, n: VideoUrlArtifact(value=v, name=n))
+        await self._save_generated_media(
+            generation_id,
+            "video_url",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+        )
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:
         if not response_json:
