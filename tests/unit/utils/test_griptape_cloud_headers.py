@@ -103,6 +103,34 @@ def test_only_the_factory_builds_an_authorization_header() -> None:
     assert builders == {"utils/griptape_cloud_headers.py"}
 
 
+def _calls_named(tree: ast.AST, name: str) -> list[ast.Call]:
+    """Every call to `name` in `tree`, in source order.
+
+    Sorted, because `ast.walk` is breadth-first and its order is therefore not reading order:
+    a call nested inside an `if` is yielded *before* a shallower call on a later line. The
+    flag tuples below are positional, so collecting them in walk order would have the map
+    disagree with the file it describes -- and disagree only for a function with more than one
+    call, which is the single case the tuple exists to handle. `col_offset` orders a line that
+    holds two calls.
+    """
+    return sorted(
+        (node for node in ast.walk(tree) if isinstance(node, ast.Call) and getattr(node.func, "id", None) == name),
+        key=lambda node: (node.lineno, node.col_offset),
+    )
+
+
+def test_calls_are_collected_in_source_order() -> None:
+    """Pins the sort in `_calls_named`, which is invisible until a function grows a second call.
+
+    Shaped like the one function most likely to grow one: a billable build inside a branch,
+    then a free build after it. Unsorted, this records `(False, True)` -- the exact inversion
+    that would have `CLOUD_HEADER_CALLS` mis-describe which of the two calls spends.
+    """
+    source = "def f():\n    if cond:\n        a = b(1)\n    c = b(2)\n"
+
+    assert [ast.unparse(call) for call in _calls_named(ast.parse(source), "b")] == ["b(1)", "b(2)"]
+
+
 def _cloud_header_calls() -> dict[tuple[str, str], tuple[bool | None, ...]]:
     """Every `build_griptape_cloud_headers` call: `{(file, function): (flag, per, call)}`.
 
@@ -114,9 +142,7 @@ def _cloud_header_calls() -> dict[tuple[str, str], tuple[bool | None, ...]]:
     for path in sorted(LIBRARY_ROOT.rglob("*.py")):
         tree = ast.parse(path.read_text())
         scopes = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call) or getattr(node.func, "id", None) != "build_griptape_cloud_headers":
-                continue
+        for node in _calls_named(tree, "build_griptape_cloud_headers"):
             enclosing = [f for f in scopes if f.lineno <= node.lineno <= (f.end_lineno or f.lineno)]
             # Innermost wins, so a nested def is not reported under the function it sits in.
             name = min(enclosing, key=lambda f: (f.end_lineno or f.lineno) - f.lineno).name if enclosing else "<module>"

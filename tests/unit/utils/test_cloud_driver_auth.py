@@ -63,7 +63,8 @@ def _cloud_driver_constructions() -> dict[tuple[Path, str], list[tuple[int, bool
     """Every Cloud driver construction: `{(path, function): [(lineno, spreads_the_helper)]}`.
 
     Keyed by enclosing function to match `UNSPREAD_CONSTRUCTIONS`; the lineno is carried only so
-    a failure can name the line, and is never what an exemption matches on.
+    a failure can name the line, and is never what an exemption matches on. Ordered by line, so
+    a failure that names several reads in the order the file does.
 
     Aliases are resolved from the `ImportFrom` binding rather than matched by name, because
     `griptape_cloud_prompt.py` imports the class `as GtGriptapeCloudPromptDriver`.
@@ -79,11 +80,18 @@ def _cloud_driver_constructions() -> dict[tuple[Path, str], list[tuple[int, bool
             if alias.name.startswith("GriptapeCloud") and alias.name.endswith("Driver")
         }
         scopes = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-                continue
-            if node.func.id not in bound:
-                continue
+        # Sorted, because `ast.walk` is breadth-first: a construction nested inside an `if` is
+        # yielded before a shallower one on a later line, so a failure message would name the
+        # lines in an order the reader cannot find in the file.
+        constructions = sorted(
+            (
+                n
+                for n in ast.walk(tree)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in bound
+            ),
+            key=lambda n: (n.lineno, n.col_offset),
+        )
+        for node in constructions:
             spreads = any(
                 kw.arg is None
                 and isinstance(kw.value, ast.Call)
