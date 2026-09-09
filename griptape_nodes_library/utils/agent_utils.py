@@ -370,8 +370,11 @@ def build_tool_from_config(config: dict) -> object:
             driver = GriptapeCloudFileManagerDriver(api_key=api_key, bucket_id=bucket_id)
             # This driver declares `headers` as `init=False`, so unlike every other Cloud
             # driver it cannot take the kwarg -- assign after construction. The bucket GET in
-            # its `__attrs_post_init__` has already gone out unattributed by this point; that
-            # request consumes no credits, so there is nothing to attribute.
+            # its `__attrs_post_init__` has already gone out by then; it consumes no credits.
+            #
+            # The one dict also serves the free asset listing and the metered create/upload. A
+            # single flag cannot answer both, so it answers the expensive one: over-reporting is
+            # recoverable, under-reporting is invisible on both ends.
             driver.headers = build_griptape_cloud_headers(api_key, attribution=True)
         else:
             workdir = GriptapeNodes.ConfigManager().get_config_value("workspace_directory")

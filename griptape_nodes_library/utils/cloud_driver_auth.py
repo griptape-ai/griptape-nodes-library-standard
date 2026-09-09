@@ -21,17 +21,21 @@ engine's default ``secrets_to_register``, so the driver authenticates with an em
 and Cloud answers 401 -- without ever consulting the License the user does have. The two
 kwargs have to travel together.
 
-The extra ``Content-Type: application/json`` that rides along from the factory is inert
-here. ``requests.PreparedRequest.prepare_body`` sets that header only ``if content_type
-and ("content-type" not in self.headers)``, so on every ``json=``-carrying driver path the
-value we send is byte-identical to the one ``requests`` would have computed.
+The extra ``Content-Type: application/json`` from the factory is inert on the ``json=``-carrying
+driver paths: ``requests.PreparedRequest.prepare_body`` sets that header only ``if content_type
+and ("content-type" not in self.headers)``, so what we send is byte-identical to what ``requests``
+would have computed. The exception is ``GriptapeCloudFileManagerDriver``, which reuses one dict
+for its bodyless requests too -- the asset-listing ``GET`` and the ``/asset-urls/{key}`` ``POST``
+behind every load and save now carry a ``Content-Type`` they did not before. Meaningless rather
+than wrong, since neither declares a body. The ``__attrs_post_init__`` bucket probe is unaffected:
+it fires during construction, before ``build_tool_from_config`` can assign the dict.
 
 Two gaps this cannot close, both tracked in
 https://github.com/griptape-ai/griptape-nodes-library-standard/issues/595:
 
 - ``GriptapeCloudFileManagerDriver`` declares ``headers`` as ``init=False``, so it rejects
   the kwarg outright. That site assigns after construction instead; see
-  :func:`griptape_nodes_library.utils.agent_utils.build_tool`.
+  :func:`griptape_nodes_library.utils.agent_utils.build_tool_from_config`.
 - Neither ``api_key`` nor ``headers`` carries ``serializable`` metadata, so
   ``Agent.from_dict`` rebuilds a Cloud driver from ``os.environ`` with no attribution
   header at all. Every site that deserializes an agent is therefore still unattributed,

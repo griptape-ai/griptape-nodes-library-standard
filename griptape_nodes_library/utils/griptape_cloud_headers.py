@@ -11,8 +11,10 @@ Callers resolve the credential and this builds: folding resolution in would make
 ``utils`` import ``proxy``, which already imports ``utils``.
 
 Nodes that hand an ``api_key`` to a framework driver (``GriptapeCloudPromptDriver``,
-``GriptapeCloudImageGenerationDriver``) get their ``Authorization`` built inside
-``griptape``, so a header added here never reaches them.
+``GriptapeCloudImageGenerationDriver``, ``GriptapeCloudFileManagerDriver``) get their
+``Authorization`` built inside ``griptape``. :mod:`griptape_nodes_library.utils.cloud_driver_auth`
+is the bridge: it passes this dict in as the driver's ``headers``, replacing the framework's own.
+``Agent.from_dict`` still rebuilds a driver from ``os.environ`` with no headers at all (#595).
 """
 
 from __future__ import annotations
