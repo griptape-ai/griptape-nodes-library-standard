@@ -1,9 +1,9 @@
 """The three Tripo nodes share one model-version table, and it matches the live API.
 
 Every version and capability asserted here was probed against Tripo through the
-Griptape proxy: a version Tripo has retired answers with code 2015 and no
-generation, so a retired version left in a dropdown offers only a guaranteed
-failure. The retirements are per endpoint -- `v1.4-20240625` still generates on
+Griptape proxy: a version Tripo has deprecated answers with code 2015 and no
+generation, so a deprecated version left in a dropdown offers only a guaranteed
+failure. The deprecations are per endpoint -- `v1.4-20240625` still generates on
 text and image while multiview rejects it -- which is why the table keys them by
 endpoint rather than globally.
 
@@ -31,6 +31,9 @@ from griptape_nodes_library.three_d._tripo_utils import (
     version_choices,
     versions_for,
 )
+from griptape_nodes_library.three_d._tripo_utils import (
+    DEPRECATED_VERSIONS as REGISTRY_DEPRECATED_VERSIONS,
+)
 from griptape_nodes_library.three_d.tripo_image_to_3d_generation import TripoImageTo3DGeneration
 from griptape_nodes_library.three_d.tripo_multiview_to_3d_generation import TripoMultiviewTo3DGeneration
 from griptape_nodes_library.three_d.tripo_text_to_3d_generation import TripoTextTo3DGeneration
@@ -40,7 +43,7 @@ if TYPE_CHECKING:
 
 # What the live probe found each endpoint generates on. An explicit table rather
 # than a re-derivation of the registry, so a future edit that quietly drops a
-# working version or revives a retired one fails here.
+# working version or revives a deprecated one fails here.
 LIVE_VERSIONS: dict[TripoEndpoint, list[str]] = {
     TripoEndpoint.TEXT: [
         "P1-20260311",
@@ -64,8 +67,8 @@ LIVE_VERSIONS: dict[TripoEndpoint, list[str]] = {
     ],
 }
 
-# Retired by Tripo (code 2015), with the live version a stored value becomes.
-RETIRED_VERSIONS: dict[TripoEndpoint, dict[str, str]] = {
+# Deprecated by Tripo (code 2015), with the live version a stored value becomes.
+DEPRECATED_VERSIONS: dict[TripoEndpoint, dict[str, str]] = {
     TripoEndpoint.TEXT: {"Turbo-v1.0-20250506": "v3.1-20260211", "v2.0-20240919": "v2.5-20250123"},
     TripoEndpoint.IMAGE: {"Turbo-v1.0-20250506": "v3.1-20260211", "v2.0-20240919": "v2.5-20250123"},
     TripoEndpoint.MULTIVIEW: {"v2.0-20240919": "v2.5-20250123", "v1.4-20240625": "v3.1-20260211"},
@@ -104,30 +107,30 @@ def test_node_dropdown_rows_offer_only_live_versions(endpoint: TripoEndpoint) ->
     rows = _offered_rows(_make_node(endpoint))
 
     assert [row["name"] for row in rows] == LIVE_VERSIONS[endpoint]
-    for retired in RETIRED_VERSIONS[endpoint]:
-        assert retired not in {row["name"] for row in rows}, f"{retired} can only fail; it must not be offered"
+    for deprecated in DEPRECATED_VERSIONS[endpoint]:
+        assert deprecated not in {row["name"] for row in rows}, f"{deprecated} can only fail; it must not be offered"
 
 
 @pytest.mark.parametrize("endpoint", ENDPOINTS)
-def test_retired_versions_stay_assignable_so_saved_workflows_can_migrate(endpoint: TripoEndpoint) -> None:
+def test_deprecated_versions_stay_assignable_so_saved_workflows_can_migrate(endpoint: TripoEndpoint) -> None:
     """`Options` snaps an out-of-choices value to choices[0], which would lose the migration."""
     choices = version_choices(endpoint)
 
-    for retired in RETIRED_VERSIONS[endpoint]:
-        assert retired in choices
+    for deprecated in DEPRECATED_VERSIONS[endpoint]:
+        assert deprecated in choices
 
 
 @pytest.mark.parametrize("endpoint", ENDPOINTS)
-def test_retired_value_migrates_to_a_live_version_on_assignment(endpoint: TripoEndpoint) -> None:
-    for retired, expected in RETIRED_VERSIONS[endpoint].items():
+def test_deprecated_value_migrates_to_a_current_version_on_assignment(endpoint: TripoEndpoint) -> None:
+    for deprecated, expected in DEPRECATED_VERSIONS[endpoint].items():
         node = _make_node(endpoint)
-        node.set_parameter_value("model_version", retired)
+        node.set_parameter_value("model_version", deprecated)
 
         assert node.get_parameter_value("model_version") == expected
 
 
 def test_v1_4_survives_where_it_still_generates() -> None:
-    """v1.4 is retired on multiview only, so the other endpoints must keep it selectable."""
+    """v1.4 is deprecated on multiview only, so the other endpoints must keep it selectable."""
     for endpoint in (TripoEndpoint.TEXT, TripoEndpoint.IMAGE):
         node = _make_node(endpoint)
         node.set_parameter_value("model_version", "v1.4-20240625")
@@ -190,18 +193,34 @@ def test_badge_documents_every_offered_version(endpoint: TripoEndpoint) -> None:
 
     for version in versions_for(endpoint):
         assert version.value in message
-    for retired in RETIRED_VERSIONS[endpoint]:
-        assert retired not in message
+    for deprecated in DEPRECATED_VERSIONS[endpoint]:
+        assert deprecated not in message
 
 
 @pytest.mark.parametrize("endpoint", ENDPOINTS)
-def test_registry_retirement_table_is_coherent(endpoint: TripoEndpoint) -> None:
-    """Mirrors ModelAccessComponent's preconditions: targets are live, keys are not."""
+def test_registry_deprecation_table_is_coherent(endpoint: TripoEndpoint) -> None:
+    """Mirrors ModelAccessComponent's preconditions: targets are current, keys are not."""
     live = set(LIVE_VERSIONS[endpoint])
 
-    for retired, replacement in RETIRED_VERSIONS[endpoint].items():
-        assert replacement in live, f"{retired} migrates to {replacement}, which this endpoint does not offer"
-        assert retired not in live, f"{retired} is both retired and offered"
+    for deprecated, replacement in DEPRECATED_VERSIONS[endpoint].items():
+        assert replacement in live, f"{deprecated} migrates to {replacement}, which this endpoint does not offer"
+        assert deprecated not in live, f"{deprecated} is both deprecated and offered"
+
+
+def test_a_replacement_that_is_not_offered_raises_at_construction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A mistyped replacement would otherwise snap to choices[0] and silently change the model."""
+    monkeypatch.setitem(REGISTRY_DEPRECATED_VERSIONS, TripoEndpoint.IMAGE, {"v2.0-20240919": "v9.9-not-a-version"})
+
+    with pytest.raises(ValueError, match="not offered on this endpoint"):
+        TripoImageTo3DGeneration(name="TripoImage")
+
+
+def test_a_deprecated_key_that_is_still_offered_raises_at_construction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A version cannot be both migrated away from and offered as a fresh choice."""
+    monkeypatch.setitem(REGISTRY_DEPRECATED_VERSIONS, TripoEndpoint.IMAGE, {"v2.5-20250123": "v3.1-20260211"})
+
+    with pytest.raises(ValueError, match="already a current choice"):
+        TripoImageTo3DGeneration(name="TripoImage")
 
 
 def test_geometry_quality_is_gated_to_the_h3_line() -> None:
@@ -321,8 +340,8 @@ async def test_text_payload_gates_negative_prompt_and_geometry_quality() -> None
 
 
 @pytest.mark.asyncio
-async def test_retired_stored_version_never_reaches_the_proxy() -> None:
-    """A workflow saved on a retired version generates on its replacement instead of failing."""
+async def test_deprecated_stored_version_never_reaches_the_proxy() -> None:
+    """A workflow saved on a deprecated version generates on its replacement instead of failing."""
     node = TripoTextTo3DGeneration(name="TripoText")
     node.set_parameter_value("prompt", "a small red cube")
     node.set_parameter_value("model_version", "Turbo-v1.0-20250506")
