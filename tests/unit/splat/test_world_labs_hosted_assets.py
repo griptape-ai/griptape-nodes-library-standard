@@ -25,6 +25,7 @@ class _FakeArtifact:
 @pytest.fixture
 def node(monkeypatch: pytest.MonkeyPatch) -> WorldLabsWorldGeneration:
     instance = WorldLabsWorldGeneration.__new__(WorldLabsWorldGeneration)
+    instance.name = "WorldLabs"  # type: ignore[misc]
     monkeypatch.setattr(instance, "_log", lambda *_args, **_kwargs: None, raising=False)
     monkeypatch.setattr(instance, "get_parameter_value", lambda _name: None, raising=False)
     instance.parameter_output_values = {}  # type: ignore[assignment]
@@ -56,14 +57,50 @@ def test_expected_asset_slots_is_empty_for_no_assets() -> None:
 
 
 @pytest.mark.asyncio
-async def test_parse_assets_reports_mismatch_without_guessing(
+async def test_parse_assets_saves_the_prefix_the_proxy_hosted(
     node: WorldLabsWorldGeneration, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     assets = {"mesh": {"collider_mesh_url": "https://c"}, "imagery": {"pano_url": "https://d"}}
 
     async def fake_hosted_artifacts(_generation_id: str) -> list[_FakeArtifact]:
-        # Only one artifact hosted, but the payload declares two assets.
+        # The proxy truncates a set by dropping its tail, so one hosted artifact for two
+        # declared assets is the mesh, and saving it beats discarding it.
         return [_FakeArtifact(index=0, kind="model_3d")]
+
+    async def fake_download_artifact(_artifact: _FakeArtifact) -> bytes:
+        return b"mesh-bytes"
+
+    class _SavedFile:
+        location = "project/files/collider_mesh.glb"
+        name = "collider_mesh.glb"
+
+    class _Dest:
+        async def awrite_bytes(self, _data: bytes) -> _SavedFile:
+            return _SavedFile()
+
+    monkeypatch.setattr(node, "_hosted_artifacts", fake_hosted_artifacts, raising=False)
+    monkeypatch.setattr(node, "_download_artifact", fake_download_artifact, raising=False)
+    monkeypatch.setattr(
+        "griptape_nodes_library.splat.world_labs_world_generation.ProjectFileDestination.from_situation",
+        staticmethod(lambda *, filename, situation: _Dest()),  # noqa: ARG005
+    )
+
+    saved = await node._parse_assets(assets, "world-1", "gen-1")
+
+    assert saved is True
+    assert node.parameter_output_values["mesh"].value == "project/files/collider_mesh.glb"
+    assert node.parameter_output_values.get("panorama") is None
+
+
+@pytest.mark.asyncio
+async def test_parse_assets_refuses_more_hosted_than_declared(
+    node: WorldLabsWorldGeneration, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assets = {"mesh": {"collider_mesh_url": "https://c"}}
+
+    async def fake_hosted_artifacts(_generation_id: str) -> list[_FakeArtifact]:
+        # More hosted than declared means the two lists cannot be paired by position.
+        return [_FakeArtifact(index=0, kind="model_3d"), _FakeArtifact(index=1, kind="image")]
 
     monkeypatch.setattr(node, "_hosted_artifacts", fake_hosted_artifacts, raising=False)
 
@@ -75,8 +112,8 @@ async def test_parse_assets_reports_mismatch_without_guessing(
 
     assert saved is False
     assert status_calls[0]["was_successful"] is False
-    assert "2 asset(s)" in status_calls[0]["result_details"]
-    assert "hosts 1" in status_calls[0]["result_details"]
+    assert "1 asset(s)" in status_calls[0]["result_details"]
+    assert "hosts 2" in status_calls[0]["result_details"]
 
 
 @pytest.mark.asyncio

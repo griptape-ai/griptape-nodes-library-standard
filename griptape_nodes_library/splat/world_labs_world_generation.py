@@ -788,9 +788,10 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         project files: none of World Labs's provider URLs are handed downstream, since
         they expire.
 
-        Returns False (after reporting failure) when the hosted list does not match
-        the assets the response declared, since guessing which bytes are which would
-        mislabel a file.
+        Returns False (after reporting failure) when the proxy hosts more media than the
+        response declared, since guessing which bytes are which would mislabel a file. A
+        short list is the proxy's documented truncation, which drops a tail: the assets
+        that did arrive still pair correctly by position and are saved.
         """
         slots = self._expected_asset_slots(assets)
         try:
@@ -803,7 +804,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
             )
             return False
 
-        if len(hosted) != len(slots):
+        if len(hosted) > len(slots):
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
@@ -813,6 +814,17 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
                 ),
             )
             return False
+
+        dropped = [output_key for output_key, _filename in slots[len(hosted) :]]
+        if dropped:
+            logger.warning(
+                "%s: the proxy hosts %d of %d asset(s); %s left unsaved",
+                self.name,
+                len(hosted),
+                len(slots),
+                ", ".join(dropped),
+            )
+            slots = slots[: len(hosted)]
 
         output_file_value = self.get_parameter_value("output_file") or "splat_full_res.spz"
         output_path = Path(output_file_value)
