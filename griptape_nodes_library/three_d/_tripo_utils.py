@@ -142,13 +142,20 @@ MODEL_VERSIONS: tuple[TripoModelVersion, ...] = (
     ),
 )
 
+# One default for every endpoint, so two Tripo nodes in the same workflow don't start on
+# models from different families. `_raise_if_misconfigured` enforces that each endpoint
+# actually offers it.
 DEFAULT_MODEL_VERSION = "v3.1-20260211"
 
-# Versions Tripo has retired, mapped to the live version a stored value becomes.
-# Tripo answers a retired version with code 2015 and no generation, so leaving one
-# selectable only offers a guaranteed failure. Keyed per endpoint because retirement
+# Versions Tripo has deprecated, mapped to the current version a stored value becomes.
+# Same shape and contract as ``ModelAccessComponent``'s ``deprecated_values``: a key is
+# accepted wherever a value is assigned, migrated to its canonical choice, and never
+# offered as a fresh selection.
+#
+# Tripo answers a deprecated version with code 2015 and no generation, so leaving one
+# selectable only offers a guaranteed failure. Keyed per endpoint because deprecation
 # is per endpoint: v1.4 still generates on text and image.
-_RETIRED_VERSIONS: dict[TripoEndpoint, dict[str, str]] = {
+DEPRECATED_VERSIONS: dict[TripoEndpoint, dict[str, str]] = {
     TripoEndpoint.TEXT: {
         "Turbo-v1.0-20250506": DEFAULT_MODEL_VERSION,
         "v2.0-20240919": "v2.5-20250123",
@@ -169,29 +176,16 @@ def versions_for(endpoint: TripoEndpoint) -> tuple[TripoModelVersion, ...]:
     return tuple(version for version in MODEL_VERSIONS if endpoint in version.endpoints)
 
 
-def default_version(endpoint: TripoEndpoint) -> str:
-    """The version a fresh node selects.
-
-    Shared across endpoints so two Tripo nodes in one workflow don't start on
-    models from different families.
-    """
-    offered = {version.value for version in versions_for(endpoint)}
-    if DEFAULT_MODEL_VERSION not in offered:
-        msg = f"{DEFAULT_MODEL_VERSION} is not offered on {endpoint}"
-        raise ValueError(msg)
-    return DEFAULT_MODEL_VERSION
-
-
 def version_choices(endpoint: TripoEndpoint) -> list[str]:
-    """Values the ``model_version`` parameter accepts, live plus retired.
+    """Values the ``model_version`` parameter accepts, current plus deprecated.
 
     ``Options`` rewrites an assigned value that is outside ``choices`` to
-    ``choices[0]``, so a retired value has to be here for a saved workflow's stored
-    value to survive long enough for ``migrate_version`` to translate it. Retired
+    ``choices[0]``, so a deprecated value has to be here for a saved workflow's stored
+    value to survive long enough for ``migrate_version`` to translate it. Deprecated
     values are deliberately absent from ``dropdown_row_data``, which is what the UI
     offers.
     """
-    return [version.value for version in versions_for(endpoint)] + list(_RETIRED_VERSIONS[endpoint])
+    return [version.value for version in versions_for(endpoint)] + list(DEPRECATED_VERSIONS[endpoint])
 
 
 def dropdown_row_data(endpoint: TripoEndpoint) -> list[dict[str, str]]:
@@ -218,10 +212,46 @@ def supports(endpoint: TripoEndpoint, model_version: str, capability: TripoCapab
 
 
 def migrate_version(endpoint: TripoEndpoint, value: Any) -> str | None:
-    """The live version a retired ``value`` becomes, or None if it needs no migration."""
-    if isinstance(value, str):
-        return _RETIRED_VERSIONS[endpoint].get(value)
-    return None
+    """The canonical version ``value`` migrates to if it is a deprecated key, else None.
+
+    Non-``str`` input returns None: a connected upstream value isn't a dropdown token
+    this table covers.
+    """
+    if not isinstance(value, str):
+        return None
+    return DEPRECATED_VERSIONS[endpoint].get(value)
+
+
+def _raise_if_misconfigured(endpoint: TripoEndpoint) -> None:
+    """Raise on any table misuse, so a bad edit fails loudly instead of shipping.
+
+    Mirrors ``ModelAccessComponent``'s preconditions: every deprecated value must
+    migrate to a current choice, no deprecated key may itself still be offered, and
+    the default must be a current choice. Without this a mistyped replacement snaps
+    the parameter to ``choices[0]`` on load, silently changing the model a saved
+    workflow generates on.
+    """
+    choice_set = {version.value for version in versions_for(endpoint)}
+    deprecated = DEPRECATED_VERSIONS[endpoint]
+
+    problems = []
+    invalid_values = sorted({canonical for canonical in deprecated.values() if canonical not in choice_set})
+    if invalid_values:
+        problems.append(f"value(s) not offered on this endpoint: {', '.join(repr(v) for v in invalid_values)}")
+    colliding_keys = sorted(legacy for legacy in deprecated if legacy in choice_set)
+    if colliding_keys:
+        problems.append(f"key(s) already a current choice: {', '.join(repr(k) for k in colliding_keys)}")
+    if problems:
+        msg = f"Tripo {endpoint} DEPRECATED_VERSIONS is invalid: {'; '.join(problems)}."
+        raise ValueError(msg)
+
+    if DEFAULT_MODEL_VERSION not in choice_set:
+        msg = (
+            f"Tripo {endpoint} declares DEFAULT_MODEL_VERSION {DEFAULT_MODEL_VERSION!r}, which this "
+            "endpoint does not offer. Point it at a current version -- a deprecated one belongs in "
+            "DEPRECATED_VERSIONS, not the default."
+        )
+        raise ValueError(msg)
 
 
 def badge_message(endpoint: TripoEndpoint) -> str:
@@ -241,11 +271,13 @@ def add_model_version_parameter(node: GriptapeProxyNode, endpoint: TripoEndpoint
     Installs the migration as a converter rather than in ``before_value_set``:
     ``set_parameter_value`` runs converters on every assignment path including
     workflow load, which passes ``skip_before_value_set=True`` and so is the one
-    path a stored retired value would otherwise slip through untranslated.
+    path a stored deprecated value would otherwise slip through untranslated.
     """
+    _raise_if_misconfigured(endpoint)
+
     parameter = ParameterString(
         name="model_version",
-        default_value=default_version(endpoint),
+        default_value=DEFAULT_MODEL_VERSION,
         tooltip="Tripo model version. See badge for details on what each version supports.",
         allow_output=False,
         traits={Options(choices=version_choices(endpoint))},
@@ -262,10 +294,6 @@ def add_model_version_parameter(node: GriptapeProxyNode, endpoint: TripoEndpoint
         }
     )
     parameter.add_converter(lambda value: migrate_version(endpoint, value) or value)
-
-    migrated = migrate_version(endpoint, node.get_parameter_value(parameter.name))
-    if migrated is not None:
-        node.set_parameter_value(parameter.name, migrated, initial_setup=True)
 
     return parameter
 
