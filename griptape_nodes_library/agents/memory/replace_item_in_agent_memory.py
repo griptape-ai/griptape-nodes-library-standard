@@ -69,7 +69,10 @@ class ReplaceItemInAgentMemory(ControlNode):
         if agent_value is None:
             return None
 
-        agent_core_dict, _, _ = unwrap_agent(agent_value)
+        # Also reached at connect time from _update_memory_choices(), which only lists
+        # the memory runs — nothing here sends a request, so a missing Cloud credential
+        # must not raise.
+        agent_core_dict, _, _ = unwrap_agent(agent_value, require_credential=False)
         agent = GtAgent().from_dict(agent_core_dict)
         if agent is None or agent.conversation_memory is None:
             return None
@@ -273,7 +276,9 @@ class ReplaceItemInAgentMemory(ControlNode):
         )
 
         agent_value = self.get_parameter_value("agent")
-        _, tool_configs, ruleset_configs = unwrap_agent(agent_value) if isinstance(agent_value, dict) else ({}, [], [])
+        _, tool_configs, ruleset_configs = (
+            unwrap_agent(agent_value, require_credential=False) if isinstance(agent_value, dict) else ({}, [], [])
+        )
         provider = agent_value.get("provider") if isinstance(agent_value, dict) else None
         updated = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs, provider=provider)
         self.parameter_output_values["agent"] = updated

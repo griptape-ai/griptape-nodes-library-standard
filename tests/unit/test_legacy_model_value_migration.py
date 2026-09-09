@@ -71,6 +71,7 @@ NODE_TYPES_WITH_MODEL_ACCESS: list[str] = [
     "LTXVideoExtend",
     "LTXVideoRetake",
     "LTXVideoToVideoHDR",
+    "MCPTaskNode",
     "MinimaxHailuoVideoGeneration",
     "NimPrompt",
     "OmnihumanSubjectDetection",

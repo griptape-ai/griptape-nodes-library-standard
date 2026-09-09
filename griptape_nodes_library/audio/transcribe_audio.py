@@ -331,7 +331,10 @@ class TranscribeAudio(GriptapeProxyNode):
         try:
             agent_input = self.get_parameter_value("agent")
             if isinstance(agent_input, dict):
-                agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_input)
+                # Transcription is already done by this point and the agent is never run
+                # here, so a missing Cloud credential must not fail threading memory
+                # through — the proxy reports its own credential gap.
+                agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_input, require_credential=False)
                 agent = GtAgent().from_dict(agent_core_dict)
             else:
                 agent = GtAgent()

@@ -16,6 +16,7 @@ from griptape_nodes.exe_types.param_types import parameter_image
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.events.os_events import FileIOFailureReason
 from griptape_nodes.traits.options import Options
+from PIL import Image
 
 from griptape_nodes_library.assets import (
     ASSET_KIND_AUDIO,
@@ -484,6 +485,31 @@ async def test_many_reference_images_stay_out_of_the_payload(
     assert "base64" not in json.dumps(payload)
 
 
+@pytest.mark.asyncio
+async def test_oversized_file_reference_image_is_downscaled_not_uploaded(
+    monkeypatch: pytest.MonkeyPatch, upload_env, tmp_path
+) -> None:
+    # An image over Seedance's 6000px cap fails server-side no matter how it is delivered (the 2.5
+    # backend rejects the task; 2.0's downscales silently), so it is downscaled and inlined instead
+    # of uploaded at full size. Measuring is a header-only PIL read: the file must still never be
+    # read through File.aread_data_uri.
+    reference_image = tmp_path / "huge.png"
+    Image.new("RGB", (6500, 500)).save(reference_image, format="PNG")
+    node = _multimodal_node_with_reference_images([ImageUrlArtifact(str(reference_image))])
+
+    async def fail_if_called(self: File, fallback_mime: str = "application/octet-stream") -> str:
+        raise AssertionError("reference images that name a file must not be read inline as base64")
+
+    monkeypatch.setattr(File, "aread_data_uri", fail_if_called)
+
+    payload = await node._build_payload()
+    image_entries = [item for item in payload["content"] if item["type"] == "image_url"]
+
+    assert len(image_entries) == 1
+    assert image_entries[0]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert len(upload_env.uploaded_keys) == 0
+
+
 def test_private_asset_accepts_a_public_http_url(upload_env) -> None:
     # Provider asset registration needs a URL the provider can fetch, and plain http on a real
     # domain qualifies. Requiring https here rejected an input that registers fine, because the
@@ -649,6 +675,24 @@ def test_seedance_2_mini_omits_4k_resolution_choice() -> None:
     assert "4k" not in choices
     assert "1080p" not in choices
     assert choices == ["480p", "720p"]
+
+
+def test_resolution_choices_recover_after_a_save_reload_cycle() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0 Fast")
+    resolution_param = _parameter_by_name(node, "resolution")
+    assert resolution_param.find_elements_by_type(Options)[0].choices == ["480p", "720p"]
+
+    # A saved workflow replays the merged ui_options into the parameter's stored dict on load,
+    # where "simple_dropdown" shadows whatever choices the trait carries afterwards. Reproduce
+    # that stored state, then widen the choices by switching to the model with the full range.
+    resolution_param.ui_options = dict(resolution_param.ui_options)
+
+    node.set_parameter_value("model_id", "Seedance 2.0")
+
+    choices = resolution_param.find_elements_by_type(Options)[0].choices
+    assert choices == ["480p", "720p", "1080p", "4k"]
+    assert resolution_param.ui_options["simple_dropdown"] == ["480p", "720p", "1080p", "4k"]
 
 
 @pytest.mark.parametrize("model_id", [SEEDANCE_2_0_FAST_MODEL_ID, SEEDANCE_2_0_MINI_MODEL_ID])

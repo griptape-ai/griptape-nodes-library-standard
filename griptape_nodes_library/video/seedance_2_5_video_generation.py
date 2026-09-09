@@ -586,10 +586,15 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         if parameter is None:
             return
 
-        existing_traits = parameter.find_elements_by_type(Options)
-        if existing_traits:
-            parameter.remove_trait(trait_type=existing_traits[0])
-        parameter.add_trait(Options(choices=choices))
+        options_traits = parameter.find_elements_by_type(Options)
+        if not options_traits:
+            return
+        options_traits[0].choices = choices
+        # A saved workflow replays ui_options into the parameter's stored dict on load, where
+        # "simple_dropdown" shadows the trait's choices. Writing the key through ui_options keeps
+        # the stored copy in sync (and notifies the UI); updating the trait alone leaves the
+        # dropdown stuck at the save-time choices after a reload.
+        parameter.update_ui_options_key("simple_dropdown", choices)
 
         if self.get_parameter_value(parameter_name) not in choices:
             self.set_parameter_value(parameter_name, fallback)

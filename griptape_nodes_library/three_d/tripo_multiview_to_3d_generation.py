@@ -13,50 +13,34 @@ from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.three_d._tripo_utils import parse_tripo_task_result
+from griptape_nodes_library.three_d._tripo_utils import (
+    DEFAULT_MODEL_VERSION,
+    TripoCapability,
+    TripoEndpoint,
+    add_model_version_parameter,
+    parse_tripo_task_result,
+    supports,
+)
 
 __all__ = ["TripoMultiviewTo3DGeneration"]
 
 
 TRIPO_MODEL_ID = "tripo-multiview-to-3d"
+TRIPO_ENDPOINT = TripoEndpoint.MULTIVIEW
 
 # Slot order Tripo expects for multiview_to_model. Front is mandatory; at least
 # two views must be provided ("Do not use less than two images to generate").
 SLOT_PARAM_NAMES = ["front_image", "left_image", "back_image", "right_image"]
 MIN_IMAGES = 2
 
-MODEL_VERSION_OPTIONS = [
-    "P1-20260311",
-    "v2.5-20250123",
-    "v2.0-20240919",
-    "v1.4-20240625",
-]
-DEFAULT_MODEL_VERSION = "P1-20260311"
-
 TEXTURE_QUALITY_OPTIONS = ["standard", "detailed"]
 DEFAULT_TEXTURE_QUALITY = "standard"
 
+GEOMETRY_QUALITY_OPTIONS = ["standard", "detailed"]
+DEFAULT_GEOMETRY_QUALITY = "standard"
+
 TEXTURE_ALIGNMENT_OPTIONS = ["original_image", "geometry"]
 DEFAULT_TEXTURE_ALIGNMENT = "original_image"
-
-# Parameters only available on certain model versions
-TEXTURE_PARAMS_SUPPORTED_VERSIONS = {
-    "P1-20260311",
-    "v2.5-20250123",
-    "v2.0-20240919",
-}
-TEXTURE_ALIGNMENT_SUPPORTED_VERSIONS = {
-    "P1-20260311",
-    "v2.5-20250123",
-    "v2.0-20240919",
-}
-
-_MODEL_VERSION_BADGE = (
-    "**P1-20260311** — Premium flagship model (default)\n"
-    "**v2.5-20250123** / **v2.0-20240919** — Standard quality\n"
-    "**v1.4-20240625** — Legacy; basic parameters only\n\n"
-    "[Model docs](https://docs.tripo3d.ai/model-generation/multiview-to-model-p1-20260311.html)"
-)
 
 
 class TripoMultiviewTo3DGeneration(GriptapeProxyNode):
@@ -75,6 +59,7 @@ class TripoMultiviewTo3DGeneration(GriptapeProxyNode):
         - texture (bool): Generate textures
         - pbr (bool): Produce a PBR material
         - texture_quality (str): "standard" or "detailed" (HD)
+        - geometry_quality (str): "standard" or "detailed" (v3.0/v3.1 only)
         - texture_alignment (str): "original_image" or "geometry"
 
     Outputs:
@@ -121,20 +106,7 @@ class TripoMultiviewTo3DGeneration(GriptapeProxyNode):
             )
         )
 
-        model_version_param = ParameterString(
-            name="model_version",
-            default_value=DEFAULT_MODEL_VERSION,
-            tooltip="Tripo model version. See badge for details on what each version supports.",
-            allow_output=False,
-            traits={Options(choices=MODEL_VERSION_OPTIONS)},
-            ui_options={"display_name": "Model Version"},
-        )
-        model_version_param.set_badge(
-            variant="info",
-            title="Model Versions",
-            message=_MODEL_VERSION_BADGE,
-        )
-        self.add_parameter(model_version_param)
+        add_model_version_parameter(self, TRIPO_ENDPOINT)
 
         self.add_parameter(
             ParameterBool(
@@ -164,6 +136,17 @@ class TripoMultiviewTo3DGeneration(GriptapeProxyNode):
                 allow_output=False,
                 traits={Options(choices=TEXTURE_QUALITY_OPTIONS)},
                 ui_options={"display_name": "Texture Quality"},
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
+                name="geometry_quality",
+                default_value=DEFAULT_GEOMETRY_QUALITY,
+                tooltip="Geometry quality (v3.0 and v3.1 only). 'detailed' costs more.",
+                allow_output=False,
+                traits={Options(choices=GEOMETRY_QUALITY_OPTIONS)},
+                ui_options={"display_name": "Geometry Quality"},
             )
         )
 
@@ -227,7 +210,7 @@ class TripoMultiviewTo3DGeneration(GriptapeProxyNode):
         self._update_parameter_visibility_for_model(DEFAULT_MODEL_VERSION)
 
     def _update_parameter_visibility_for_model(self, model_version: str) -> None:
-        if model_version in TEXTURE_PARAMS_SUPPORTED_VERSIONS:
+        if supports(TRIPO_ENDPOINT, model_version, TripoCapability.TEXTURE):
             self.show_parameter_by_name("texture")
             self.show_parameter_by_name("pbr")
             self.show_parameter_by_name("texture_quality")
@@ -236,7 +219,12 @@ class TripoMultiviewTo3DGeneration(GriptapeProxyNode):
             self.hide_parameter_by_name("pbr")
             self.hide_parameter_by_name("texture_quality")
 
-        if model_version in TEXTURE_ALIGNMENT_SUPPORTED_VERSIONS:
+        if supports(TRIPO_ENDPOINT, model_version, TripoCapability.GEOMETRY_QUALITY):
+            self.show_parameter_by_name("geometry_quality")
+        else:
+            self.hide_parameter_by_name("geometry_quality")
+
+        if supports(TRIPO_ENDPOINT, model_version, TripoCapability.TEXTURE_ALIGNMENT):
             self.show_parameter_by_name("texture_alignment")
         else:
             self.hide_parameter_by_name("texture_alignment")
@@ -277,12 +265,15 @@ class TripoMultiviewTo3DGeneration(GriptapeProxyNode):
             "model_version": model_version,
         }
 
-        if model_version in TEXTURE_PARAMS_SUPPORTED_VERSIONS:
+        if supports(TRIPO_ENDPOINT, model_version, TripoCapability.TEXTURE):
             payload["texture"] = bool(self.get_parameter_value("texture"))
             payload["pbr"] = bool(self.get_parameter_value("pbr"))
             payload["texture_quality"] = self.get_parameter_value("texture_quality") or DEFAULT_TEXTURE_QUALITY
 
-        if model_version in TEXTURE_ALIGNMENT_SUPPORTED_VERSIONS:
+        if supports(TRIPO_ENDPOINT, model_version, TripoCapability.GEOMETRY_QUALITY):
+            payload["geometry_quality"] = self.get_parameter_value("geometry_quality") or DEFAULT_GEOMETRY_QUALITY
+
+        if supports(TRIPO_ENDPOINT, model_version, TripoCapability.TEXTURE_ALIGNMENT):
             payload["texture_alignment"] = self.get_parameter_value("texture_alignment") or DEFAULT_TEXTURE_ALIGNMENT
 
         return payload

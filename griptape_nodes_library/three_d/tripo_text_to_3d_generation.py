@@ -14,7 +14,14 @@ from griptape_nodes.exe_types.param_types.parameter_three_d import Parameter3D
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.three_d._tripo_utils import parse_tripo_task_result
+from griptape_nodes_library.three_d._tripo_utils import (
+    DEFAULT_MODEL_VERSION,
+    TripoCapability,
+    TripoEndpoint,
+    add_model_version_parameter,
+    parse_tripo_task_result,
+    supports,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -22,43 +29,13 @@ __all__ = ["TripoTextTo3DGeneration"]
 
 
 TRIPO_MODEL_ID = "tripo-text-to-3d"
-
-MODEL_VERSION_OPTIONS = [
-    "P1-20260311",
-    "Turbo-v1.0-20250506",
-    "v3.1-20260211",
-    "v3.0-20250812",
-    "v2.5-20250123",
-    "v2.0-20240919",
-    "v1.4-20240625",
-]
-DEFAULT_MODEL_VERSION = "v3.1-20260211"
+TRIPO_ENDPOINT = TripoEndpoint.TEXT
 
 TEXTURE_QUALITY_OPTIONS = ["standard", "detailed"]
 DEFAULT_TEXTURE_QUALITY = "standard"
 
 GEOMETRY_QUALITY_OPTIONS = ["standard", "detailed"]
 DEFAULT_GEOMETRY_QUALITY = "standard"
-
-# Parameters only available on certain model versions
-GEOMETRY_QUALITY_SUPPORTED_VERSIONS = {"v3.0-20250812", "v3.1-20260211"}
-TEXTURE_PARAMS_SUPPORTED_VERSIONS = {
-    "P1-20260311",
-    "Turbo-v1.0-20250506",
-    "v3.1-20260211",
-    "v3.0-20250812",
-    "v2.5-20250123",
-    "v2.0-20240919",
-}
-
-_MODEL_VERSION_BADGE = (
-    "**P1-20260311** — Premium flagship model\n"
-    "**Turbo-v1.0-20250506** — Fastest generation\n"
-    "**v3.1-20260211** / **v3.0-20250812** — High quality with geometry control (default)\n"
-    "**v2.5-20250123** / **v2.0-20240919** — Standard quality\n"
-    "**v1.4-20240625** — Legacy; prompt only\n\n"
-    "[Model docs](https://docs.tripo3d.ai/model-generation/text-to-model-p1-20260311.html)"
-)
 
 
 class TripoTextTo3DGeneration(GriptapeProxyNode):
@@ -106,20 +83,7 @@ class TripoTextTo3DGeneration(GriptapeProxyNode):
             )
         )
 
-        model_version_param = ParameterString(
-            name="model_version",
-            default_value=DEFAULT_MODEL_VERSION,
-            tooltip="Tripo model version. See badge for details on what each version supports.",
-            allow_output=False,
-            traits={Options(choices=MODEL_VERSION_OPTIONS)},
-            ui_options={"display_name": "Model Version"},
-        )
-        model_version_param.set_badge(
-            variant="info",
-            title="Model Versions",
-            message=_MODEL_VERSION_BADGE,
-        )
-        self.add_parameter(model_version_param)
+        add_model_version_parameter(self, TRIPO_ENDPOINT)
 
         self.add_parameter(
             ParameterBool(
@@ -213,18 +177,21 @@ class TripoTextTo3DGeneration(GriptapeProxyNode):
             logger.info(message)
 
     def _update_parameter_visibility_for_model(self, model_version: str) -> None:
-        if model_version in TEXTURE_PARAMS_SUPPORTED_VERSIONS:
+        if supports(TRIPO_ENDPOINT, model_version, TripoCapability.TEXTURE):
             self.show_parameter_by_name("texture")
             self.show_parameter_by_name("pbr")
             self.show_parameter_by_name("texture_quality")
-            self.show_parameter_by_name("negative_prompt")
         else:
             self.hide_parameter_by_name("texture")
             self.hide_parameter_by_name("pbr")
             self.hide_parameter_by_name("texture_quality")
+
+        if supports(TRIPO_ENDPOINT, model_version, TripoCapability.NEGATIVE_PROMPT):
+            self.show_parameter_by_name("negative_prompt")
+        else:
             self.hide_parameter_by_name("negative_prompt")
 
-        if model_version in GEOMETRY_QUALITY_SUPPORTED_VERSIONS:
+        if supports(TRIPO_ENDPOINT, model_version, TripoCapability.GEOMETRY_QUALITY):
             self.show_parameter_by_name("geometry_quality")
         else:
             self.hide_parameter_by_name("geometry_quality")
@@ -248,15 +215,17 @@ class TripoTextTo3DGeneration(GriptapeProxyNode):
             "model_version": model_version,
         }
 
-        if model_version in TEXTURE_PARAMS_SUPPORTED_VERSIONS:
+        if supports(TRIPO_ENDPOINT, model_version, TripoCapability.TEXTURE):
             payload["texture"] = bool(self.get_parameter_value("texture"))
             payload["pbr"] = bool(self.get_parameter_value("pbr"))
             payload["texture_quality"] = self.get_parameter_value("texture_quality") or DEFAULT_TEXTURE_QUALITY
+
+        if supports(TRIPO_ENDPOINT, model_version, TripoCapability.NEGATIVE_PROMPT):
             negative_prompt = (self.get_parameter_value("negative_prompt") or "").strip()
             if negative_prompt:
                 payload["negative_prompt"] = negative_prompt
 
-        if model_version in GEOMETRY_QUALITY_SUPPORTED_VERSIONS:
+        if supports(TRIPO_ENDPOINT, model_version, TripoCapability.GEOMETRY_QUALITY):
             payload["geometry_quality"] = self.get_parameter_value("geometry_quality") or DEFAULT_GEOMETRY_QUALITY
 
         return payload
