@@ -149,9 +149,9 @@ class SearchWeb(BaseTask):
         task = PromptTask(
             tools=[tool],
             reflect_on_tool_use=self.get_parameter_value("summarize"),
-            # BaseTask.create_driver resolves the Cloud credential License-first and attaches
-            # attribution; a bare constructor here fell back to os.environ and 401d for a
-            # license-only user.
+            # Not a bare GriptapeCloudPromptDriver: create_driver resolves the credential
+            # License-first and attaches attribution. The bare constructor reads os.environ,
+            # which the engine plants as "", so a license-only user gets a 401.
             prompt_driver=self.create_driver(model),
         )
 

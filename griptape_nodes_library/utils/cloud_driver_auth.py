@@ -30,16 +30,16 @@ behind every load and save now carry a ``Content-Type`` they did not before. Mea
 than wrong, since neither declares a body. The ``__attrs_post_init__`` bucket probe is unaffected:
 it fires during construction, before ``build_tool_from_config`` can assign the dict.
 
-Two gaps this cannot close, both tracked in
-https://github.com/griptape-ai/griptape-nodes-library-standard/issues/595:
+Two sites the spread does not reach, each covered elsewhere rather than here:
 
 - ``GriptapeCloudFileManagerDriver`` declares ``headers`` as ``init=False``, so it rejects
   the kwarg outright. That site assigns after construction instead; see
   :func:`griptape_nodes_library.utils.agent_utils.build_tool_from_config`.
-- Neither ``api_key`` nor ``headers`` carries ``serializable`` metadata, so
-  ``Agent.from_dict`` rebuilds a Cloud driver from ``os.environ`` with no attribution
-  header at all. Every site that deserializes an agent is therefore still unattributed,
-  and no amount of care at the construction sites reaches them.
+- A node that rebuilds an agent from a saved dict calls no constructor at all. Neither
+  ``api_key`` nor ``headers`` is serializable, so ``from_dict`` would refill both from the
+  attrs defaults; :func:`griptape_nodes_library.utils.agent_utils._restored_cloud_credentials`
+  writes both into the serialized dict first -- for the driver types that accept them -- so
+  what attrs builds is what this module would have.
 """
 
 from __future__ import annotations
