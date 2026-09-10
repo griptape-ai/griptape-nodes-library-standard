@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import griptape_nodes_library.proxy.provider_asset_access as access_module
+import griptape_nodes_library.utils.griptape_cloud_headers as headers_module
 from griptape_nodes_library.image.google_image_generation import GoogleImageGeneration
 from griptape_nodes_library.proxy.provider_asset_access import (
     API_KEY_NAME,
@@ -95,10 +96,19 @@ def test_proxy_headers_carry_the_resolved_credential(monkeypatch: pytest.MonkeyP
     The missing-credential path is covered by
     `test_missing_credential_error_names_every_accepted_credential`, which exercises the
     same `_validate_api_key` these sites now call directly.
+
+    Attribution is stubbed to a fixed value rather than left live: what the engine answers
+    depends on which project is open, and this assertion is only worth having if it is exact.
+    What the helper does with each kind of answer is `tests/unit/utils/test_attribution.py`.
     """
     _stub_secrets(monkeypatch, {LICENSE_SECRET_NAME: None, API_KEY_NAME: "gt-cloud-key"})
+    monkeypatch.setattr(headers_module, "attribution_header", lambda: {"X-Griptape-Attribution": "an-envelope"})
     node = GoogleImageGeneration(name="Google Nano Banana Image Generation")
 
     headers = build_griptape_cloud_headers(node._validate_api_key(), attribution=True)
 
-    assert headers == {"Authorization": "Bearer gt-cloud-key", "Content-Type": "application/json"}
+    assert headers == {
+        "Authorization": "Bearer gt-cloud-key",
+        "Content-Type": "application/json",
+        "X-Griptape-Attribution": "an-envelope",
+    }

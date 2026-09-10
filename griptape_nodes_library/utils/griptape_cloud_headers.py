@@ -21,6 +21,8 @@ into the serialized dict before ``from_dict`` reads it.
 
 from __future__ import annotations
 
+from griptape_nodes_library.utils.attribution import attribution_header
+
 __all__ = ["build_griptape_cloud_headers"]
 
 
@@ -31,9 +33,12 @@ def build_griptape_cloud_headers(bearer_token: str, *, attribution: bool) -> dic
         bearer_token: The already-resolved credential. Not validated here, because the
             useful error names which credential sources were checked and only the caller
             knows that.
-        attribution: Whether this call incurs spend. The two branches return the same dict
-            today; the attribution header itself lands under #601, and this is the seam it
-            lands on. Pass ``False`` only for a request that consumes no credits.
+        attribution: Whether this call incurs spend. ``True`` asks the engine which project
+            the spend belongs to and adds the header naming it -- see
+            :func:`~griptape_nodes_library.utils.attribution.attribution_header`, which
+            answers ``{}`` rather than raising when it cannot, so a call is never failed to
+            protect a reporting field. Pass ``False`` only for a request that consumes no
+            credits: there is no spend to attribute, and the header would assert otherwise.
 
     Returns:
         dict[str, str]: A fresh dict; callers may mutate it freely.
@@ -41,4 +46,10 @@ def build_griptape_cloud_headers(bearer_token: str, *, attribution: bool) -> dic
             through poll and cancel, so a value that must differ between those three
             requests cannot be added here.
     """
-    return {"Authorization": f"Bearer {bearer_token}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Bearer {bearer_token}", "Content-Type": "application/json"}
+    if attribution:
+        # Merged here rather than passed in by callers: a parameter would put the header
+        # back in the hands of the eleven call sites, which is the edit this module exists
+        # to prevent. `{}` when the engine has no answer, so the merge is a no-op.
+        headers |= attribution_header()
+    return headers
