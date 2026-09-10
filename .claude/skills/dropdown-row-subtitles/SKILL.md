@@ -1,16 +1,18 @@
 ---
 name: dropdown-row-subtitles
-description: Add per-row subtitle text and/or icons to an Options dropdown via update_ui_options, so each choice shows a name, a secondary description line, and optionally a Lucide icon.
+description: Add per-row display labels, subtitle text, and/or icons to an Options dropdown via update_ui_options, so each choice shows a readable label over a secondary description line, optionally with a Lucide icon, while still storing the raw value.
 argument-hint: <parameter-name> <where-descriptions-come-from>
 allowed-tools: Read Edit Grep Glob
 disable-model-invocation: false
 ---
 
-# Dropdown Row Subtitles (and Icons)
+# Dropdown Row Labels, Subtitles, and Icons
 
-A pattern for enriching an `Options` dropdown so each row shows a **name**, a secondary **subtitle** (description), and/or a **Lucide icon**. These are pushed via `update_ui_options` after the parameter is registered — they are not part of the `Options` trait itself.
+A pattern for enriching an `Options` dropdown so each row shows a readable **label**, a secondary **subtitle** (description), and/or a **Lucide icon**. These are pushed via `update_ui_options` after the parameter is registered — they are not part of the `Options` trait itself.
 
 Real examples:
+- Labels + subtitles: `griptape_nodes_library/three_d/_tripo_utils.py` — model versions whose wire values are dated build strings
+- Labels + subtitles + icons: `griptape_nodes/exe_types/param_components/model_access_component.py` — catalog display names over provider model ids
 - Subtitles: `griptape_nodes_library/utils/situation_utils.py` — situation dropdown on save nodes
 - Icons + subtitles: `griptape_nodes_library/variables/set_variable.py` — variable picker with download-state icons
 - Icons + subtitles: `griptape_nodes/exe_types/param_components/huggingface/huggingface_model_parameter.py`
@@ -29,11 +31,26 @@ The UI renders rich rows by combining feature flags with a `"data"` list:
 Both flags can be used together. Each entry in `"data"` is a dict with some or all of:
 
 ```python
-{"name": str, "subtitle": str, "icon": str}
+{"name": str, "label": str, "subtitle": str, "icon": str}
 # "icon" is a Lucide icon name, e.g. "check-circle", "download", "loader"
 ```
 
 The `"name"` values must match the `Options(choices=[...])` list exactly — the UI pairs them by name.
+
+### `label` vs `name`
+
+`"label"` is the text the user reads; `"name"` stays the value the parameter stores, the payload sends, and provenance metadata records. Use a label whenever the stored value is a machine string a person should not have to decode (a dated build id, a prefixed vendor slug).
+
+```python
+{"name": "dola-seedream-5-0-pro-260628", "label": "Seedream 5.0 Pro", "subtitle": "dola-seedream-5-0-pro-260628"}
+```
+
+Two behaviors differ from `subtitle` and `icon`:
+
+- **`label` needs no feature flag.** It renders whenever present, in both the collapsed control and the open row. There is no `dropdown_row_labels`.
+- **Search matches both.** Typing either the label or the raw name finds the row, so users who know the wire value keep their muscle memory.
+
+Putting the raw value in `subtitle` alongside the label keeps it visible in the open list. Skip that when there is no label, or the row just prints its name twice.
 
 ---
 
@@ -52,17 +69,20 @@ No special import is needed for `update_ui_options` — it is a method on every 
 
 ### 1. Build the data list
 
-Include whichever keys you need — all three are optional but `"name"` should always be present:
+Include whichever keys you need — `"label"`, `"subtitle"`, and `"icon"` are all optional, but `"name"` should always be present:
 
 ```python
 def _build_row_data(
     names: list[str],
+    labels: dict[str, str] | None = None,
     descriptions: dict[str, str] | None = None,
     icons: dict[str, str] | None = None,
 ) -> list[dict[str, str]]:
     rows = []
     for n in names:
         row: dict[str, str] = {"name": n}
+        if labels and n in labels:
+            row["label"] = labels[n]
         if descriptions:
             row["subtitle"] = descriptions.get(n, "")
         if icons:
@@ -119,6 +139,7 @@ def _on_refresh(self, _button, button_details):
 
 ## What NOT to Do
 
+- **Don't** put a display label in `"name"`. That is the stored value: a label there gets written into saved workflows, sent to the provider, and recorded in the provenance metadata embedded in generated PNGs. Put readable text in `"label"` and leave `"name"` the raw value.
 - **Don't** put descriptions or icons inside `Options(choices=...)` — `Options` only accepts a flat `list[str]`.
 - **Don't** call `update_ui_options` before `add_parameter` — the parameter must be registered first.
 - **Don't** forget the feature flags (`"dropdown_row_subtitles": True`, `"dropdown_row_icons": True`) — without them the `"data"` key is silently ignored and rows render as plain text.
