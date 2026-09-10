@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import griptape_nodes_library.utils.griptape_cloud_headers as headers_module
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 LIBRARY_ROOT = Path(__file__).parents[3] / "griptape_nodes_library"
@@ -38,17 +39,46 @@ CLOUD_HEADER_CALLS = {
 }
 
 
-@pytest.mark.parametrize("attribution", [True, False])
-def test_headers_are_bearer_and_json(attribution: bool) -> None:
-    """Pins the exact dict every Cloud call sends, so a new shared header shows up in a diff.
+_BASE_HEADERS = {"Authorization": "Bearer tok", "Content-Type": "application/json"}
 
-    Both branches are identical today; the attribution header lands on the `True` branch
-    under #601, at which point this test is what records the difference.
+
+def test_a_call_that_does_not_spend_sends_only_bearer_and_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`False` must not even ask -- the engine round trip is skipped, not just its result.
+
+    There is nothing to attribute on a control-plane call, and the ~2s bound the helper carries
+    is not worth paying to be told so. The stub fails rather than returns, so a merge moved
+    outside the `if` is caught here instead of showing up as latency on a model listing.
     """
-    assert build_griptape_cloud_headers("tok", attribution=attribution) == {
-        "Authorization": "Bearer tok",
-        "Content-Type": "application/json",
+    monkeypatch.setattr(
+        headers_module,
+        "attribution_header",
+        lambda: pytest.fail("asked the engine to attribute a call that spends nothing"),
+    )
+
+    assert build_griptape_cloud_headers("tok", attribution=False) == _BASE_HEADERS
+
+
+def test_a_call_that_spends_carries_what_the_engine_answered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The whole point of #601, in one assertion: the header rides along with the credential."""
+    monkeypatch.setattr(headers_module, "attribution_header", lambda: {"X-Griptape-Attribution": "an-envelope"})
+
+    assert build_griptape_cloud_headers("tok", attribution=True) == {
+        **_BASE_HEADERS,
+        "X-Griptape-Attribution": "an-envelope",
     }
+
+
+def test_an_unattributable_call_still_sends_everything_else(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`{}` from the helper is the fallback, so it has to be a no-op rather than a hole.
+
+    This is the shape of every failure the helper absorbs -- no engine, a timeout, a declined
+    answer -- and each one has to leave a working Cloud request behind. Cloud reports nothing
+    for a missing attribution header, so the cost is a reporting field; dropping `Authorization`
+    alongside it would cost the user the call.
+    """
+    monkeypatch.setattr(headers_module, "attribution_header", lambda: {})
+
+    assert build_griptape_cloud_headers("tok", attribution=True) == _BASE_HEADERS
 
 
 def test_attribution_must_be_stated() -> None:
