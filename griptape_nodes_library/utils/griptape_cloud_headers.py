@@ -60,15 +60,16 @@ def build_griptape_cloud_headers(bearer_token: str, *, attribution: bool) -> dic
             credits: there is no spend to attribute, and the header would assert otherwise.
 
     Returns:
-        dict[str, str]: A fresh dict; callers may mutate it freely.
-            :meth:`GriptapeProxyNode._process_generation` threads the dict it gets back
-            through poll and cancel, so a value that must differ between those three
-            requests cannot be added here.
+        dict[str, str]: A fresh dict; callers may mutate it freely -- and one per request,
+            not one per node run. A caller whose requests differ in what they attribute
+            builds twice rather than threading one dict through both; see
+            :meth:`GriptapeProxyNode._process_generation`, which pairs an attributed submit
+            with an unattributed poll.
     """
     headers = _base_headers(bearer_token)
     if attribution:
         # Merged here rather than passed in by callers: a parameter would put the header
-        # back in the hands of the eleven call sites, which is the edit this module exists
+        # back in the hands of the thirteen call sites, which is the edit this module exists
         # to prevent. `{}` when the engine has no answer, so the merge is a no-op.
         headers |= attribution_header()
     return headers

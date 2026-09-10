@@ -217,9 +217,15 @@ class RandomText(DataNode):
             )
         )
 
-        # Initialize the agent
+        # Built on first use, not here. `_generate_with_agent` already lazy-initializes, and
+        # `__init__` is the wrong place for this one: the Cloud driver now resolves an
+        # attribution header, which is a round trip to the engine on every drop of this node --
+        # including the `character` and `word` selections, which never reach the agent at all.
+        # The header would also be the one that was current at construction, and this node
+        # holds its driver for its whole life, so a project switch afterwards would keep
+        # billing the old project. Deferring also stops a missing credential from raising out
+        # of the constructor, where it fails node creation rather than the run that needs it.
         self.agent = None
-        self._initialize_agent()
 
     def _initialize_agent(self) -> None:
         """Initialize the Griptape Agent for text generation."""
