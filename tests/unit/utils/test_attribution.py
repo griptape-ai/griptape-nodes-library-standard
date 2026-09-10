@@ -11,9 +11,13 @@ about what this code does with an answer.
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import textwrap
 import threading
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -98,10 +102,10 @@ def test_a_raising_dispatch_sends_no_header(monkeypatch: pytest.MonkeyPatch) -> 
 def test_a_wedged_engine_costs_the_bound_and_not_the_call(monkeypatch: pytest.MonkeyPatch) -> None:
     """The timeout has to be a real ceiling on the caller, not just on the answer.
 
-    Two ways to get this wrong, and the test is shaped to catch the second. Omitting the bound
-    inherits the engine's 30s forwarded-request timeout. Keeping the bound but shutting the pool
-    down with `wait=True` -- which the `with` form spells invisibly -- returns the timeout to the
-    caller and then blocks in `finally` until the worker finishes, reinstating the same 30s.
+    Omitting the bound inherits the engine's 30s forwarded-request timeout, and this catches
+    that. It does not catch every way the bound can be given back -- the one it cannot see is
+    `test_a_wedged_engine_does_not_outlive_the_process` below, which needs a real interpreter
+    exit.
 
     The bound is patched down so the suite does not pay it; the assertion below is that the
     caller returns while the engine is still busy, which is the property, not the number.
@@ -128,6 +132,50 @@ def test_a_wedged_engine_costs_the_bound_and_not_the_call(monkeypatch: pytest.Mo
         assert elapsed < 2
     finally:
         released.set()
+
+
+def test_a_wedged_engine_does_not_outlive_the_process() -> None:
+    """The bound has to hold at interpreter exit too, which is where a thread pool quietly voids it.
+
+    `ThreadPoolExecutor` registers every worker it starts with
+    `concurrent.futures.thread._python_exit`, and that handler `join()`s all of them at shutdown
+    no matter how the pool was closed -- `shutdown(wait=False)` returns immediately but detaches
+    nothing. With the worker still blocked on a wedged engine, quitting then waits out the full
+    30s transport timeout that the caller-side bound just finished escaping. The cost is not
+    removed, only moved: a hung node becomes a hung quit, somewhere the timing assertions above
+    cannot see it. A daemon thread is never joined, which is why this module does not use a pool.
+
+    Only a real interpreter exit can show this, hence the subprocess. The child wedges the engine
+    for far longer than it bounds the call, so the two outcomes are unmistakable: measured here,
+    a pool exits in ~30s and a daemon thread in ~0.3s.
+    """
+    child = textwrap.dedent("""
+        import time
+        import griptape_nodes_library.utils.attribution as attribution
+
+        class _Wedged:
+            @staticmethod
+            def handle_request(_request):
+                time.sleep(30)
+
+        attribution.GriptapeNodes = _Wedged
+        attribution._TIMEOUT_SECONDS = 0.05
+        assert attribution.attribution_header() == {}
+    """)
+
+    started = time.monotonic()
+    completed = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", child],
+        cwd=Path(__file__).parents[3],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    elapsed = time.monotonic() - started
+
+    assert completed.returncode == 0, completed.stderr
+    assert elapsed < 10, f"the process took {elapsed:.1f}s to exit; the orphaned worker was joined"
 
 
 def test_the_request_is_dispatched_bare_and_silently(monkeypatch: pytest.MonkeyPatch) -> None:
