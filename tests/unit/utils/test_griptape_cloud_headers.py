@@ -23,16 +23,19 @@ LIBRARY_ROOT = Path(__file__).parents[3] / "griptape_nodes_library"
 # first one's answer.
 #
 # The `False` entries consume no credits, so there is nothing to attribute: a bucket listing,
-# an asset-access probe, and the proxy's reads of a generation already paid
-# for at submit, including its hosted media.
-# Flipping any `True` here to `False` is how spend silently stops being
-# attributed, which is why the map is asserted whole rather than as an allowlist.
+# an asset-access probe, the proxy's reads of a generation already paid for at submit,
+# including its hosted media, and the poll/cancel dict `_process_generation` builds alongside its
+# billable one.
+# Flipping any `True` here to `False` is how spend silently stops being attributed, which is why
+# the map is asserted whole rather than as an allowlist. The reverse matters too: `(True, False)`
+# collapsing back to `(True,)` means the poll loop went back to reusing the submit's attributed
+# dict, which is invisible on the wire and caught by no other test.
 # The `utils/` entries hand the dict to a `griptape` driver rather than to `requests`.
 # `test_cloud_driver_auth.py` reads construction sites, so it covers the first two but is blind
 # to `_restored_cloud_credentials`, which writes into a serialized dict for `from_dict`.
 CLOUD_HEADER_CALLS = {
     ("proxy/griptape_proxy_node.py", "_fetch_generation_result"): (False,),
-    ("proxy/griptape_proxy_node.py", "_process_generation"): (True,),
+    ("proxy/griptape_proxy_node.py", "_process_generation"): (True, False),
     ("proxy/griptape_proxy_node.py", "_refresh_async"): (False,),
     ("proxy/hosted_artifacts.py", "artifact_download_headers"): (False,),
     ("proxy/hosted_artifacts.py", "fetch_hosted_artifacts"): (False,),
@@ -42,7 +45,7 @@ CLOUD_HEADER_CALLS = {
     ("utils/agent_utils.py", "build_tool_from_config"): (True,),
     ("utils/cloud_driver_auth.py", "cloud_driver_auth"): (True,),
     ("video/omnihuman_video_generation.py", "_auto_detect_masks"): (True,),
-    ("video/seedance_common.py", "_append_private_asset"): (True,),
+    ("video/seedance_common.py", "_append_private_asset"): (True, False),
 }
 
 # The two spellings of the factory. Which one a call site must use is a structural rule,
