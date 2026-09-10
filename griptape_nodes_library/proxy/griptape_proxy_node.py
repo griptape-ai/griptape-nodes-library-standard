@@ -20,6 +20,7 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy.provider_asset_access import (
     missing_proxy_credential_message,
@@ -44,6 +45,10 @@ STATUS_ERRORED = "ERRORED"
 STATUS_FAILED = "FAILED"
 STATUS_COMPLETED = "COMPLETED"
 STATUS_TIMED_OUT = "TIMED_OUT"
+# Local placeholder for a status response that names no status at all. Never published:
+# `generation_status` is reconciled against the cloud, so it only ever carries a status the
+# cloud actually reported (plus our own TIMED_OUT marker).
+STATUS_UNKNOWN = "unknown"
 
 # Number of HTTP client errors (4xx) that indicate a permanent failure not worth retrying.
 HTTP_CLIENT_ERROR_MIN = 400
@@ -55,6 +60,16 @@ DOWNLOAD_RETRY_DELAY_SECONDS = 1.0
 HTTP_BAD_REQUEST = 400
 # Cancellation is cleanup on the way out of a cancelled node, so it gets a short timeout.
 CANCEL_REQUEST_TIMEOUT_SECONDS = 10
+# Upper bound on polling, and the meaning of `timeout=0`. This is also the `timeout`
+# parameter's max_val, so 0 means "the longest this node is allowed to wait" rather than
+# literally forever, which guarantees the poll loop always terminates and always reaches
+# the code that reports a recoverable generation ID.
+#
+# Note what this does and does not buy: at 24 hours, a user who sets `timeout=0` still
+# holds a concurrency slot far longer than any org would want. Bounding the loop does not
+# make slot-holding safe — it makes it recoverable, because the loop now always reaches
+# the timeout path that leaves a published generation ID behind.
+MAX_TIMEOUT_SECONDS = 86400
 
 
 class CancelOutcome(StrEnum):
@@ -66,6 +81,100 @@ class CancelOutcome(StrEnum):
     ALREADY_STARTED = "already_started"
     # The cancel request never got an answer; the generation's fate is unknown.
     UNKNOWN = "unknown"
+
+
+def _loop_time() -> float:
+    """Monotonic event-loop time.
+
+    Wrapped in a module-level function so tests can substitute a controllable clock without
+    monkeypatching the stdlib `asyncio` module globally.
+    """
+    return asyncio.get_running_loop().time()
+
+
+# Shortest dropdown value worth treating as the varying part of a model id. A one- or
+# two-character value ("2", "v3") occurs inside ids by coincidence, and substituting over a
+# coincidence manufactures candidate ids the node cannot actually produce.
+MIN_SUBSTITUTABLE_CHOICE_LENGTH = 3
+# The characters that delimit one segment of a model id from the next, in every id this
+# library uses: `topaz-denoise`, `kling:motion-control`, `grok/flux-2-pro`.
+MODEL_ID_SEGMENT_DELIMITERS = "-:/"
+
+
+def _bare_model_id(model_id: str) -> str:
+    """Normalize a model id for comparison: case-folded, unpadded, no leading/trailing slash."""
+    return model_id.strip().lower().strip("/")
+
+
+def _model_ids_match(left: str, right: str) -> bool:
+    """Whether two normalized model ids name the same model.
+
+    Three forms of the same id have to compare equal, because the id the node holds and the id
+    the cloud reports are produced by different layers:
+
+    * exactly equal;
+    * one is a provider-prefixed form of the other (``grok/flux-2-pro`` vs ``flux-2-pro``) —
+      deliberately segment-aligned rather than comparing final path segments, since
+      ``kling/v2-1/master`` and ``wan/v2-2/master`` are different models that share a
+      final ``master``;
+    * one carries an operation suffix the other omits (``grok-imagine-video:generate`` vs
+      ``grok-imagine-video``). The suffix is only dropped from a side that *has* one against a
+      side that does not: dropping it from both would collapse ``kling:motion-control`` and
+      ``kling:video-extend`` — the library's only two colon-bearing ids — onto ``kling`` and
+      make the check a no-op between exactly the two nodes it exists to separate.
+    """
+    if not left or not right:
+        return False
+    if left == right or left.endswith(f"/{right}") or right.endswith(f"/{left}"):
+        return True
+    left_head, _, left_suffix = left.partition(":")
+    right_head, _, right_suffix = right.partition(":")
+    if bool(left_suffix) == bool(right_suffix):
+        return False
+    return _model_ids_match(left_head, right_head)
+
+
+def _model_id_family(model_id: str) -> str:
+    """The part of a model id a node's own dropdown cannot vary: everything but the last segment.
+
+    Used only for nodes that cannot enumerate their model family, and only as a fallback after
+    exact matching and dropdown substitution have both failed. Dropping the final segment is what
+    lets ``topaz-video-slp-2.6`` and ``topaz-video-slp-2.5`` — the same node, one version
+    dropdown apart — compare equal, while keeping ``gemini-omni-flash-preview`` out of
+    ``gemini-3-pro-image``'s family and every cross-provider paste refused. Ids with no
+    delimiter have no family and fall through to exact matching, which is what a single
+    hardcoded id wants anyway.
+    """
+    head, delimiter, _tail = _rpartition_any(model_id, MODEL_ID_SEGMENT_DELIMITERS)
+    return head if delimiter else ""
+
+
+def _contains_whole_segment(model_id: str, candidate: str) -> bool:
+    """Whether ``candidate`` occurs in ``model_id`` bounded by segment delimiters or the ends.
+
+    ``topaz-denoise`` contains the operation ``denoise`` as a whole segment; it does not contain
+    ``enoise``, and ``flux-2-pro`` does not contain ``ro``. Bounding the match is what keeps
+    substitution from splicing a dropdown value into the middle of an unrelated segment.
+    """
+    if not candidate:
+        return False
+    start = model_id.find(candidate)
+    while start != -1:
+        end = start + len(candidate)
+        before_ok = start == 0 or model_id[start - 1] in MODEL_ID_SEGMENT_DELIMITERS
+        after_ok = end == len(model_id) or model_id[end] in MODEL_ID_SEGMENT_DELIMITERS
+        if before_ok and after_ok:
+            return True
+        start = model_id.find(candidate, start + 1)
+    return False
+
+
+def _rpartition_any(value: str, delimiters: str) -> tuple[str, str, str]:
+    """``str.rpartition`` against whichever of ``delimiters`` occurs last in ``value``."""
+    index = max((value.rfind(delimiter) for delimiter in delimiters), default=-1)
+    if index < 0:
+        return "", "", value
+    return value[:index], value[index], value[index + 1 :]
 
 
 class GriptapeProxyNode(SuccessFailureNode, ABC):
@@ -119,10 +228,14 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             ParameterInt(
                 name="timeout",
                 default_value=default_timeout,
-                tooltip="Polling timeout in seconds. Set to 0 for no timeout.",
+                tooltip=(
+                    "Polling timeout in seconds — how long this node waits for the generation before giving up "
+                    "and leaving it recoverable via Refresh. 0 means wait as long as this node is allowed to "
+                    "(24 hours). Giving up does not cancel the generation on Griptape Cloud."
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 min_val=0,
-                max_val=86400,
+                max_val=MAX_TIMEOUT_SECONDS,
             )
         )
 
@@ -154,11 +267,22 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             ParameterString(
                 name="generation_id",
                 default_value="",
-                tooltip="Griptape Cloud generation ID. Preserved across timeouts and failures so the result can be recovered via the Refresh button.",
-                allowed_modes={ParameterMode.OUTPUT},
-                settable=False,
-                hide=True,
-                hide_property=True,
+                tooltip=(
+                    "Griptape Cloud generation ID. Preserved across timeouts and failures so the result can be "
+                    "recovered via the Refresh button. You can also paste an ID copied from the editor's generation "
+                    "tray and click Refresh to pull that generation's result onto this node — for binary results "
+                    "this is the only way to retrieve them, since the editor cannot rehydrate raw bytes itself."
+                ),
+                # PROPERTY (settable, visible) is what makes adoption possible: a user who
+                # lost the session that owned a generation can paste its ID here and click
+                # Refresh. OUTPUT is retained so the node still reports the ID it submitted.
+                # Being settable has a consequence worth knowing before touching any of this:
+                # the engine unresolves the node and everything downstream of it on any
+                # non-output set, so the paste that precedes Refresh invalidates the graph. That
+                # is why `_retire_adopted_generation_id` pops `parameter_values` directly
+                # instead of routing through `set_parameter_value` — "fixing" it into a proper
+                # setter would unresolve downstream nodes in the middle of our own execution.
+                allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT},
             )
         )
         status_group.add_child(
@@ -484,6 +608,102 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             error_message = self._extract_error_message(error_json)
             return f"{self.name}: {error_message}"
 
+    @staticmethod
+    def _reported_status(status_json: dict[str, Any]) -> str | None:
+        """The status the cloud actually reported, or None if it named none.
+
+        Distinguishing "no status" from a status matters because ``generation_status`` is
+        reconciled against the cloud: publishing our own :data:`STATUS_UNKNOWN` sentinel
+        would replace a good RUNNING badge with a neutral one on a single malformed response.
+        Callers use the return value directly when publishing and fall back to the sentinel
+        only for logging and local branching.
+        """
+        status = status_json.get("status")
+        if isinstance(status, str) and status:
+            return status
+        return None
+
+    def _publish_one(self, name: str, value: str) -> None:
+        """Record one generation output value and push it to the editor immediately.
+
+        Both channels matter and they are not the same. ``parameter_output_values`` is what
+        downstream nodes read and what the editor displays; assigning to it also emits an
+        ``AlterElementEvent`` for the displayed value. ``publish_update_to_parameter`` emits
+        a ``ParameterValueUpdateEvent``, which is the channel the editor's generation tray
+        registers on. A value that must reach the tray has to go through both, which is why
+        every write in this class goes through here.
+
+        The output write comes first and is unconditional: publishing is telemetry, and a
+        failure to notify the editor must never be the reason a paid generation fails.
+
+        Neither channel is deduplicated, so an unchanged status is re-announced on every poll —
+        one event per poll interval for as long as the node waits. That is intentional: the
+        output-value channel *is* change-gated by the engine, so an editor that connects
+        part-way through a generation would otherwise see nothing at all until the status next
+        changed, which for a long QUEUED job is the whole point of the tray. The volume is
+        bounded by :data:`MAX_TIMEOUT_SECONDS` over the poll interval and is a rounding error
+        next to the generation itself.
+        """
+        self.parameter_output_values[name] = value
+        if self.get_parameter_by_name(name) is None:
+            return
+        with suppress(Exception):
+            self.publish_update_to_parameter(name, value)
+
+    def _publish_generation_state(self, *, generation_id: str | None = None, status: str | None = None) -> None:
+        """Record generation identity/status and push them to the editor now.
+
+        ``parameter_output_values`` is only flushed to downstream nodes when the node
+        resolves, and the tray's channel is not written at all. A node that polls for an
+        hour and then never resolves — because the session died — therefore never tells
+        anyone which generation it started, which is precisely how a batch of paid
+        generations became unreachable. Publishing on arrival is what makes the ID survive
+        the session that created it.
+
+        ``COMPLETED`` is dropped entirely here, on both channels. The editor reads
+        ``COMPLETED`` as "the node has the result, stop offering recovery", so announcing it
+        before the result is on the node would hide the recovery affordance for a result the
+        node does not yet hold. Nothing needs the intermediate value — leaving
+        ``generation_status`` at the last non-terminal status until ``_parse_result``
+        succeeds is also the more honest badge. Use :meth:`_publish_generation_completed`.
+
+        Args:
+            generation_id: The generation ID to record, or None to leave it unchanged.
+            status: The status to record, or None to leave it unchanged.
+        """
+        if generation_id is not None:
+            self._publish_one("generation_id", generation_id)
+        if status is not None and status != STATUS_COMPLETED:
+            self._publish_one("generation_status", status)
+
+    def _publish_generation_completed(self, generation_id: str | None = None) -> None:
+        """Announce ``COMPLETED``, once the result is actually on the node.
+
+        Ordering is load-bearing: the editor stops offering result recovery as soon as it
+        sees ``COMPLETED``. Call this only after ``_parse_result`` has succeeded, so the
+        affordance disappears exactly when it stops being needed.
+
+        A node that has reported failure is refused here rather than trusted to the caller.
+        "``_parse_result`` returned" is not the same as "the result is on the node": the most
+        likely post-billing failure in this library — a media download that dies part-way — is
+        *reported*, not raised (see ``_download_and_save``), so both callers would otherwise
+        announce ``COMPLETED`` for a node holding nothing. ``_execution_succeeded`` is the same
+        signal the engine routes control flow on and is only ever written by
+        ``_set_status_results``, so this makes the badge agree with the node's own verdict.
+
+        Args:
+            generation_id: The cloud generation ID to re-assert alongside the status.
+                ``_parse_result`` runs between the ID being published and this call, and
+                some subclasses overwrite ``generation_id`` there with a provider-side task
+                id — a value that 404s when the editor reconciles it against the cloud.
+                This parameter means the cloud generation ID, so restore it last.
+        """
+        if generation_id:
+            self._publish_one("generation_id", generation_id)
+        if self._execution_succeeded is False:
+            return
+        self._publish_one("generation_status", STATUS_COMPLETED)
+
     def _handle_terminal_status(self, status: str, result_json: dict[str, Any]) -> tuple[bool, dict[str, Any] | None]:
         """Handle terminal generation statuses.
 
@@ -499,8 +719,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             logger.error("%s: Generation failed with status: %s", self.name, status)
             logger.error("%s: Error response: %s", self.name, result_json)
             self._set_safe_defaults()
-            self.parameter_output_values["generation_id"] = generation_id
-            self.parameter_output_values["generation_status"] = status
+            self._publish_generation_state(generation_id=generation_id, status=status)
             error_message = self._extract_error_message(result_json)
             logger.error("%s: Extracted error message: %s", self.name, error_message)
             if not error_message:
@@ -513,8 +732,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         if status == STATUS_CANCELLED:
             logger.info("%s: Generation cancelled.", self.name)
             self._set_safe_defaults()
-            self.parameter_output_values["generation_id"] = generation_id
-            self.parameter_output_values["generation_status"] = status
+            self._publish_generation_state(generation_id=generation_id, status=status)
             status_detail = result_json.get("status_detail", {})
             details = ""
             if isinstance(status_detail, dict):
@@ -530,13 +748,46 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         return False, None
 
     def _resolve_timeout_seconds(self) -> int:
+        """Resolve the polling timeout in seconds.
+
+        ``0`` is clamped to :data:`MAX_TIMEOUT_SECONDS` rather than meaning "poll forever",
+        so the loop always terminates and always reaches the code that leaves a recoverable
+        generation ID behind. A 24-hour ceiling does not by itself stop a node from holding
+        a concurrency slot for a punishing length of time; it stops the node from holding one
+        *with no way out*, and the caller loses nothing by us giving up, because the result
+        stays recoverable via Refresh.
+        """
         try:
             value = self.get_parameter_value("timeout")
         except Exception:
             value = None
         if value is None:
             return self.DEFAULT_MAX_ATTEMPTS * self.DEFAULT_POLL_INTERVAL
-        return max(0, int(value))
+        seconds = max(0, int(value))
+        if seconds == 0:
+            return MAX_TIMEOUT_SECONDS
+        return min(seconds, MAX_TIMEOUT_SECONDS)
+
+    @staticmethod
+    def _polling_exhausted(attempt: int, max_attempts: int, deadline: float) -> bool:
+        """Whether polling should stop, by either of its two independent bounds.
+
+        Attempt-counting alone does not bound elapsed time: every iteration costs the HTTP
+        request — up to 60s when a poll hangs — *plus* ``poll_interval``, so the old
+        attempt cap let a 600s ``timeout`` keep a node polling for over two hours. The
+        deadline bounds the time the user actually asked for, while the attempt cap keeps
+        the loop finite regardless of the clock. Both live here so the loop's three exit
+        checks cannot drift apart.
+
+        Args:
+            attempt: Number of poll attempts completed so far.
+            max_attempts: Maximum number of attempts permitted.
+            deadline: Event-loop monotonic time after which polling must stop.
+
+        Returns:
+            bool: True when either bound has been reached.
+        """
+        return attempt >= max_attempts or _loop_time() >= deadline
 
     async def _request_generation_cancel(self, generation_id: str, headers: dict[str, str]) -> CancelOutcome:
         """POST the proxy's cancel endpoint for a generation.
@@ -565,10 +816,15 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # Both the accepted and the rejected response report the generation's status, and
         # the proxy is authoritative about it — record it so `generation_status` reflects
         # where the work actually ended up rather than the last status polling happened to see.
+        #
+        # Published rather than assigned, because this runs on a cancellation unwind: the node
+        # is not going to resolve, and `parameter_output_values` alone is only flushed when it
+        # does. A cancel that reports COMPLETED is dropped by `_publish_generation_state` like
+        # any other, which is right here too — the node does not hold that result.
         with suppress(Exception):
             reported_status = response.json().get("status")
             if reported_status:
-                self.parameter_output_values["generation_status"] = reported_status
+                self._publish_generation_state(status=reported_status)
 
         # A generation that has already left the queue cannot be cancelled. That is the
         # expected answer whenever the work was picked up quickly, so it is reported as
@@ -606,6 +862,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         about, so each outcome gets its own message. The generation_id is preserved so
         a generation that outlived the cancel can still be recovered via Refresh.
 
+        The ID is *published*, not just assigned. This method's own ALREADY_STARTED and
+        UNKNOWN messages tell the user to click Refresh to retrieve a generation that is
+        still running and still billing — and this runs on a cancellation unwind, where the
+        node never resolves and so `parameter_output_values` is never flushed. Assigning
+        alone would leave the ID nowhere the editor can see it, which is the exact way paid
+        generations were lost before.
+
         Args:
             generation_id: The generation the cancel was requested for
             outcome: What the cancel request achieved
@@ -635,7 +898,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         logger.info("%s: %s", self.name, details)
         self._set_safe_defaults()
-        self.parameter_output_values["generation_id"] = generation_id
+        # After `_set_safe_defaults()`, which blanks the ID — same ordering as every other
+        # recovery path in this class.
+        self._publish_generation_state(generation_id=generation_id)
         self._set_status_results(was_successful=False, result_details=details)
 
     async def _poll_generation_status(self, generation_id: str, headers: dict[str, str]) -> dict[str, Any] | None:
@@ -651,8 +916,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         get_url = urljoin(self._proxy_base, f"generations/{generation_id}")
         poll_interval = self.DEFAULT_POLL_INTERVAL
         timeout_s = self._resolve_timeout_seconds()
-        # None means unbounded (timeout=0 set by user)
-        max_attempts = max(1, (timeout_s + poll_interval - 1) // poll_interval) if timeout_s > 0 else None
+        # Two independent bounds; whichever trips first ends polling. See _polling_exhausted.
+        max_attempts = max(1, (timeout_s + poll_interval - 1) // poll_interval)
+        deadline = _loop_time() + timeout_s
 
         attempt = 0
         try:
@@ -665,6 +931,12 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                         await self._cancel_generation_best_effort(generation_id, headers)
                         return None
 
+                    # Checked here as well as after each attempt: the post-attempt checks run
+                    # before the sleep, so without this the loop can overshoot `timeout` by a
+                    # whole request plus a whole interval (~65s) on its final pass.
+                    if attempt > 0 and self._polling_exhausted(attempt, max_attempts, deadline):
+                        break
+
                     try:
                         self._log(f"Polling attempt #{attempt + 1} for generation {generation_id}")
 
@@ -672,9 +944,18 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                         response.raise_for_status()
                         result_json = response.json()
 
-                        status = result_json.get("status", "unknown")
+                        reported_status = self._reported_status(result_json)
+                        status = reported_status or STATUS_UNKNOWN
                         self._log(f"Status: {status}")
-                        self.parameter_output_values["generation_status"] = status
+                        # Publish every intermediate status so the editor can track this
+                        # generation even if the node never resolves. COMPLETED is withheld
+                        # here and announced after _parse_result — see _publish_generation_state.
+                        #
+                        # An absent status is not a status: `generation_status` is reconciled
+                        # against the cloud, so publishing our own "unknown" sentinel would
+                        # replace a good RUNNING badge with a neutral one on a single malformed
+                        # response. Leave the last status the cloud actually reported standing.
+                        self._publish_generation_state(status=reported_status)
 
                         is_terminal, terminal_result = self._handle_terminal_status(status, result_json)
                         if is_terminal:
@@ -682,8 +963,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
                         attempt += 1
 
-                        # Timeout reached (only when max_attempts is set)
-                        if max_attempts is not None and attempt >= max_attempts:
+                        if self._polling_exhausted(attempt, max_attempts, deadline):
                             break
 
                         # Still processing (QUEUED or RUNNING), wait before next poll
@@ -692,18 +972,20 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                     except httpx.HTTPStatusError as e:
                         self._log(f"HTTP error while polling: {e.response.status_code} - {e.response.text}")
                         attempt += 1
-                        if max_attempts is not None and attempt >= max_attempts:
+                        if self._polling_exhausted(attempt, max_attempts, deadline):
                             self._set_safe_defaults()
                             error_msg = f"Failed to poll generation status: HTTP {e.response.status_code}"
+                            self._publish_generation_state(generation_id=generation_id, status=STATUS_TIMED_OUT)
                             self._set_status_results(was_successful=False, result_details=error_msg)
                             return None
                         await asyncio.sleep(poll_interval)
                     except Exception as e:
                         self._log(f"Error while polling: {e}")
                         attempt += 1
-                        if max_attempts is not None and attempt >= max_attempts:
+                        if self._polling_exhausted(attempt, max_attempts, deadline):
                             self._set_safe_defaults()
                             error_msg = f"Failed to poll generation status: {e}"
+                            self._publish_generation_state(generation_id=generation_id, status=STATUS_TIMED_OUT)
                             self._set_status_results(was_successful=False, result_details=error_msg)
                             return None
                         await asyncio.sleep(poll_interval)
@@ -716,11 +998,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 await self._cancel_generation_best_effort(generation_id, headers)
             raise
 
-        # Timeout reached — preserve generation_id so the user can recover via Refresh
+        # Timeout reached — preserve generation_id so the user can recover via Refresh.
+        # The generation is deliberately NOT cancelled here: the proxy only honours cancel
+        # while a generation is QUEUED, and anything still running at this point is billed
+        # either way, so cancelling would discard a result the user has already paid for.
         self._log("Polling timed out waiting for result")
         self._set_safe_defaults()
-        self.parameter_output_values["generation_id"] = generation_id
-        self.parameter_output_values["generation_status"] = STATUS_TIMED_OUT
+        self._publish_generation_state(generation_id=generation_id, status=STATUS_TIMED_OUT)
         self._set_status_results(
             was_successful=False,
             result_details=(
@@ -746,7 +1030,26 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         try:
             api_key = self._validate_api_key()
         except ValueError as e:
-            self._handle_api_key_validation_error(e)
+            # Same restore as the two transport branches below, and for the same reason: the
+            # generation is COMPLETED and billed by the time this method runs. Reached when the
+            # key is rotated or cleared between the final status poll and the result fetch.
+            #
+            # `finally` rather than a parameter on the handler, because twelve subclasses
+            # override `_handle_api_key_validation_error` with the two-argument signature and
+            # never call `super()`; passing a keyword through would raise `TypeError` on exactly
+            # this path for those nodes. `finally` also satisfies both halves of the ordering
+            # constraint on its own: it runs after the handler's `_set_safe_defaults()` has
+            # blanked the ID, and it still runs when `_handle_failure_exception` re-raises
+            # because the Failed output is unconnected. It restores the ID for the overriding
+            # subclasses too, which their own handlers would never have done.
+            try:
+                self._handle_api_key_validation_error(e)
+            finally:
+                # Suppressed only in the `finally`: an exception raised from here would replace
+                # the in-flight error the handler is re-raising, so the user would see an
+                # unrelated failure and the flow would route on it.
+                with suppress(Exception):
+                    self._publish_generation_state(generation_id=generation_id)
             return None
 
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -755,15 +1058,23 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             async with httpx.AsyncClient() as client:
                 response = await client.get(result_url, headers=headers, timeout=300)
                 response.raise_for_status()
+        # Both failure branches restore the generation ID after `_set_safe_defaults()` blanks
+        # it. This is the likeliest of all the recovery paths to actually fire — a plain
+        # network failure part-way through a large media download — and the generation is
+        # COMPLETED and billed by the time we get here, so losing the ID would strand paid
+        # work. `generation_status` is deliberately left at the last status the cloud
+        # reported rather than COMPLETED: the node does not have the result.
         except httpx.HTTPStatusError as e:
             self._log(f"HTTP error fetching result: {e.response.status_code} - {e.response.text}")
             self._set_safe_defaults()
+            self._publish_generation_state(generation_id=generation_id)
             error_msg = f"Failed to fetch generation result: HTTP {e.response.status_code}"
             self._set_status_results(was_successful=False, result_details=error_msg)
             return None
         except Exception as e:
             self._log(f"Error fetching result: {e}")
             self._set_safe_defaults()
+            self._publish_generation_state(generation_id=generation_id)
             error_msg = f"Failed to fetch generation result: {e}"
             self._set_status_results(was_successful=False, result_details=error_msg)
             return None
@@ -781,7 +1092,12 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             return {"raw_bytes": response.content}
 
     def _handle_api_key_validation_error(self, e: ValueError) -> None:
-        """Handle API key validation errors."""
+        """Handle API key validation errors.
+
+        The signature is fixed by twelve subclasses that override this method without calling
+        ``super()``, so the result-fetch caller restores ``generation_id`` around the call rather
+        than through a parameter here — see :meth:`_fetch_generation_result`.
+        """
         self._set_safe_defaults()
         self._set_status_results(was_successful=False, result_details=str(e))
         logger.error("%s API key validation failed: %s", self.name, e)
@@ -812,10 +1128,29 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._set_status_results(was_successful=False, result_details=str(e))
         self._handle_failure_exception(e)
 
-    def _handle_result_parsing_error(self, e: Exception) -> None:
-        """Handle result parsing errors."""
+    def _handle_result_parsing_error(self, e: Exception, *, generation_id: str | None = None) -> None:
+        """Handle result parsing errors.
+
+        Args:
+            e: The exception raised by ``_parse_result``.
+            generation_id: The generation whose result failed to parse, restored *after*
+                ``_set_safe_defaults()`` has blanked it. Ordering is the whole point: every
+                subclass's ``_set_safe_defaults`` sets ``generation_id`` to ``""``, so a
+                caller that publishes the ID before calling this loses it again immediately,
+                and Refresh then reports that the node has no generation to recover. The
+                generation itself ran and was billed — only our parsing of it failed.
+
+                No status accompanies it, deliberately. ``generation_status`` mirrors the
+                cloud's vocabulary, in which ``ERRORED`` means "an internal failure; nothing
+                is billed" — the opposite of what happened here. Leaving the last
+                cloud-reported status in place keeps the badge honest and, being short of
+                ``COMPLETED``, keeps recovery on offer. The parse failure itself is reported
+                through ``result_details``.
+        """
         self._log(f"Error parsing result: {e}")
         self._set_safe_defaults()
+        if generation_id:
+            self._publish_generation_state(generation_id=generation_id)
         error_msg = f"Failed to parse generation result: {e}"
         self._set_status_results(was_successful=False, result_details=error_msg)
         self._handle_failure_exception(e)
@@ -881,9 +1216,24 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._handle_submission_error(e)
             return None
 
-        # Store generation_id so the Refresh affordance can recover the result on timeout/failure.
-        # Subclasses declare a `generation_id` output parameter; writing here surfaces the value to the UI.
-        self.parameter_output_values["generation_id"] = generation_id
+        # Publish the generation ID the moment we have one, before polling starts. This is
+        # the single most important write in the class: until the editor has the ID, the
+        # generation is billable work that nothing can point at, and a session that dies
+        # mid-poll takes the only reference to it with it. Publishing (rather than writing
+        # parameter_output_values, which is flushed only at node-resolve) is what makes the
+        # ID survive a node that never resolves.
+        #
+        # The status is the one value published here that the cloud did not report: a
+        # just-submitted generation is queued, and the tray needs something to show for the
+        # interval before the first poll can replace it with a reconciled status.
+        #
+        # Retiring any pasted ID happens *here*, against the new ID, not at the top of the run:
+        # a run that fails before this point (denied model, bad payload, submission error) must
+        # leave the user's pasted ID intact, since it is the only pointer they have to the work
+        # they were trying to recover. From this line on the new generation is the one that
+        # needs recovering, so the paste has to go — including when polling later times out.
+        self._retire_adopted_generation_id()
+        self._publish_generation_state(generation_id=generation_id, status=STATUS_QUEUED)
 
         # Poll for completion
         status_response = await self._poll_generation_status(generation_id, headers)
@@ -902,7 +1252,11 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         4. Status polling
         5. Result fetching and parsing
         """
-        # Clear execution status at the start
+        # Clear execution status at the start. Publish the cleared state too, so a re-run
+        # retires the previous generation from the editor's tray instead of leaving a stale
+        # ID that reconciles against work this node no longer represents. Only the *published*
+        # state is cleared here; a pasted ID survives until there is a new one to replace it
+        # with — see `_retire_adopted_generation_id`'s call site in `_submit_and_poll`.
         self._clear_execution_status()
         # A node's cancellation flag is only cleared by BaseNode.clear_node(), which the
         # flow's cancel path does not reach for a node cancelled mid-resolution — so the
@@ -911,8 +1265,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # applies to this run is requested after the run starts and also cancels the
         # asyncio task, which the poll loop's CancelledError path handles.
         self.clear_cancellation()
-        self.parameter_output_values["generation_id"] = ""
-        self.parameter_output_values["generation_status"] = ""
+        self._publish_generation_state(generation_id="", status="")
 
         try:
             self._prepare_user_auth_info()
@@ -941,9 +1294,21 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         # Parse model-specific result
         try:
-            await self._parse_result(result_json, generation_id)
+            landed = await self._parse_result_onto_node(result_json, generation_id)
         except Exception as e:
-            self._handle_result_parsing_error(e)
+            # The handler restores and publishes the ID itself, after its own
+            # `_set_safe_defaults()` call and before `_handle_failure_exception` re-raises.
+            # See `_handle_result_parsing_error` for why both orderings matter.
+            self._handle_result_parsing_error(e, generation_id=generation_id)
+            return
+
+        # Only now is it true that the node has the result, which is what COMPLETED tells
+        # the editor. The ID is re-asserted either way because `_parse_result` may have
+        # overwritten it — see `_publish_generation_completed`.
+        if not landed:
+            self._publish_generation_state(generation_id=generation_id)
+            return
+        self._publish_generation_completed(generation_id)
 
     def _on_refresh_clicked(self, _button: Any, _details: Any) -> None:
         """Sync entry point for the Refresh button — bridges into the async refresh flow.
@@ -988,6 +1353,32 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             )
         return None
 
+    async def _parse_result_onto_node(self, result_json: dict[str, Any], generation_id: str) -> bool:
+        """Run the subclass's ``_parse_result`` and report whether the result actually landed.
+
+        Subclasses signal a *reported* failure — one they handled and explained rather than
+        raised — by calling ``_set_status_results(was_successful=False)``, which is the only
+        writer of ``_execution_succeeded``. Clearing that verdict first is what makes the return
+        value describe this parse and not a previous run: ``_process_generation`` clears it at the
+        top, but the Refresh path never does, and refresh sets it on nearly every branch.
+
+        A subclass that reports nothing is treated as having succeeded, which is the behaviour
+        every caller had before this seam existed.
+
+        Args:
+            result_json: The result payload to hand to ``_parse_result``.
+            generation_id: The cloud generation ID, passed through unchanged.
+
+        Returns:
+            bool: True when the node holds the result, False when the subclass reported failure.
+
+        Raises:
+            Exception: Whatever ``_parse_result`` raises, for the callers' own handlers.
+        """
+        self._execution_succeeded = None
+        await self._parse_result(result_json, generation_id)
+        return self._execution_succeeded is not False
+
     async def _refresh_completed(self, generation_id: str) -> None:
         """Fetch and parse the result onto the node."""
         result_json = await self._fetch_generation_result(generation_id)
@@ -1000,14 +1391,22 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         if "provider_response" in self.parameter_output_values:
             self.parameter_output_values["provider_response"] = result_json
         try:
-            await self._parse_result(result_json, generation_id)
+            landed = await self._parse_result_onto_node(result_json, generation_id)
         except Exception as e:
-            self._handle_result_parsing_error(e)
+            self._handle_result_parsing_error(e, generation_id=generation_id)
             self._set_status_results(
                 was_successful=False,
                 result_details=f"Generation `{generation_id}` completed, but parsing the result failed: {e}",
             )
             return
+        if not landed:
+            # The subclass reported the failure and named the cause (typically a provider URL the
+            # user can still fetch by hand), so leave its message standing rather than overwrite
+            # it with a success line. Re-assert the ID so Refresh stays available.
+            self._publish_generation_state(generation_id=generation_id)
+            return
+        # The result is on the node now, so COMPLETED is finally true to publish.
+        self._publish_generation_completed(generation_id)
         self._set_status_results(
             was_successful=True,
             result_details=f"Refreshed: generation `{generation_id}` completed and result was retrieved.",
@@ -1045,17 +1444,343 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             ),
         )
 
+    def _retire_adopted_generation_id(self) -> None:
+        """Drop a pasted generation ID when this node submits a generation of its own.
+
+        Adoption has to be one-shot. A pasted ID lands in ``parameter_values``, which nothing
+        else in this class ever writes, so without this it would outrank the node's own
+        ``generation_id`` *forever* — and `_refresh_async` would then overwrite the real ID
+        with the stale pasted one. Concretely: paste `gen-OLD` and refresh; run the node, so
+        `gen-NEW` is submitted and billed and then times out; click Refresh, and the node
+        fetches `gen-OLD` and destroys its only pointer to `gen-NEW`. That reproduces the
+        original incident through the very mechanism meant to fix it, and the stale value
+        persists into the saved workflow file.
+
+        ``parameter_values`` is popped directly rather than going through
+        ``set_parameter_value``, which would fire the value-changed machinery (and, on the
+        request path, unresolve downstream nodes) in the middle of our own execution.
+        """
+        with suppress(Exception):
+            self.parameter_values.pop("generation_id", None)
+
+    def _resolve_refresh_generation_id(self) -> str:
+        """Resolve which generation ID the Refresh button should act on.
+
+        The property value wins. A user adopting a generation types the ID into the
+        property, which lands in ``parameter_values``, not ``parameter_output_values`` — so
+        reading only the output value (as this flow originally did) would silently refresh
+        the node's own last generation instead of the one that was pasted. The output value
+        remains the fallback for the ordinary post-timeout case, where the node submitted
+        the generation itself and the property was never touched.
+
+        The precedence is safe only because ``_retire_adopted_generation_id`` clears the
+        property whenever this node submits a generation, which keeps a paste from
+        outranking the node's own work indefinitely.
+
+        Returns:
+            str: The generation ID to refresh, or "" if none is available.
+        """
+        with suppress(Exception):
+            pasted = self.get_parameter_value("generation_id")
+            if pasted and str(pasted).strip():
+                return str(pasted).strip()
+        return (self.parameter_output_values.get("generation_id") or "").strip()
+
+    def _with_shadowing_note(self, refusal: str) -> str:
+        """Add a way out when a refused paste is hiding a generation this node submitted.
+
+        Every refusal path returns without clearing the pasted value, and the paste outranks the
+        node's own ``generation_id`` — so a user who pasted a malformed or foreign ID onto a node
+        that has since timed out cannot reach their own generation by clicking Refresh again, and
+        nothing in the message says why. Naming the shadowed ID makes the field's precedence
+        visible at the moment it starts costing something.
+
+        Args:
+            refusal: The refusal message to extend.
+
+        Returns:
+            str: The message, with a note appended when a different ID is being shadowed.
+        """
+        own = (self.parameter_output_values.get("generation_id") or "").strip()
+        if not own or own == self._resolve_refresh_generation_id():
+            return refusal
+        return (
+            f"{refusal} Clear the `generation_id` field to refresh the generation this node "
+            f"submitted (`{own}`) instead."
+        )
+
+    @staticmethod
+    def _unusable_generation_id_reason(generation_id: str) -> str | None:
+        """Reject a pasted value that would not address a generation, before it reaches a URL.
+
+        Every ID is interpolated into ``generations/{id}`` and resolved with ``urljoin``, and
+        making ``generation_id`` settable means this value is now user-typed rather than
+        whatever the API handed back. ``urljoin`` resolves dot segments and honours ``?``/``#``,
+        so a paste that includes a whole URL, a trailing query string, or ``../`` silently
+        addresses a *different* endpoint with the user's key attached instead of failing with
+        something a user can act on.
+
+        Deliberately a denylist of the characters that change the request target rather than an
+        allowlist of ID shapes: the asymmetry that governs the model check governs this one too
+        — refusing a legitimate ID blocks the only route by which a binary result can be
+        recovered, so the check may only reject input that could not have addressed a generation
+        in the first place.
+
+        Args:
+            generation_id: The already-stripped candidate ID.
+
+        Returns:
+            str | None: An error message if the value cannot be an ID, else None.
+        """
+        # `%` is here because `urljoin` passes percent-escapes through undecoded, so whether
+        # `%2e%2e%2f` redirects depends on gateway behaviour this library cannot see. Real IDs are
+        # UUIDs, so rejecting `%` costs nothing.
+        offending = {char for char in "/\\?#%" if char in generation_id}
+        if any(char.isspace() for char in generation_id):
+            offending.add("whitespace")
+        if not offending:
+            # A value made only of dots contains none of the above and still walks the path:
+            # `..` resolves to the collection endpoint, `.` to `generations/`.
+            if set(generation_id) == {"."}:
+                return (
+                    f"`{generation_id}` does not look like a generation ID (it is only dots). Paste just the ID "
+                    f"from the editor's generation tray, without any surrounding URL or punctuation."
+                )
+            return None
+        return (
+            f"`{generation_id}` does not look like a generation ID (it contains "
+            f"{', '.join(f'`{char}`' for char in sorted(offending))}). Paste just the ID from the editor's "
+            f"generation tray, without any surrounding URL or punctuation."
+        )
+
+    def _extract_generation_model_id(self, status_json: dict[str, Any]) -> str:
+        """Pull the model ID out of a generation status response, if it reports one.
+
+        ``model_id`` is the field the proxy spec defines (and marks required) for a
+        generation's model, so it is consulted first. The other keys are accepted because this
+        library also runs against cloud deployments predating that spec, which is also why the
+        caller treats an absent model as "cannot tell" rather than as a mismatch. Order
+        matters: ``model`` is the key subclasses put a *friendly* label under in the request
+        payload, so letting it win over the authoritative field would feed a display name into
+        the comparison and manufacture a mismatch.
+
+        Ordering is not enough on its own, though — the fallback keys exist precisely for
+        deployments that send no ``model_id``, and on those the label is all that is left. So a
+        value that cannot be an API id at all is treated as naming no model rather than as
+        naming a foreign one: ``TopazImageEnhance`` sends ``"model": "Standard V2"`` and
+        ``TopazVideoUpscale`` sends ``"Starlight Precise 2.6"``, and refusing on an echo of
+        either would block recovery of the user's own generation.
+
+        Args:
+            status_json: The JSON response from the generation status endpoint.
+
+        Returns:
+            str: The reported model ID, or "" if the response does not name one.
+        """
+        for key in ("model_id", "model", "provider_model_id"):
+            value = status_json.get(key)
+            if isinstance(value, dict):
+                value = value.get("model_id") or value.get("id") or value.get("name")
+            if value and isinstance(value, str) and not any(char.isspace() for char in value):
+                return value
+        return ""
+
+    def _supported_model_ids(self) -> set[str]:
+        """Every API model id whose results this node's ``_parse_result`` can interpret.
+
+        Result-shape compatibility is a property of the node *class*, not of whichever model
+        the dropdown currently names: an ``LTXImageToVideoGeneration`` parses ``ltx-2-fast``
+        and ``ltx-2-pro`` results identically. Comparing against only the current selection
+        refuses a perfectly recoverable generation because an unrelated dropdown happens to
+        have moved — and there is no other node type to send the user to, on the one route by
+        which a raw-bytes result can reach them at all.
+
+        The model-access component's ``model_choices`` is the node's list of *declared* models
+        and stores provider model ids directly, so it is exactly the right set and is already
+        the single source of truth for what a node can run. "Declared", not "permitted": an
+        OFFER_MODEL denial decorates a dropdown row and gates execution, it does not remove the
+        choice — which is what keeps a licence downgrade from making a node unable to recover a
+        generation it ran before the downgrade. Nodes without a component fall back to their
+        current ids, which is why the caller loosens the comparison for them.
+
+        Every lookup is best-effort: the whole check exists to *widen* what Refresh accepts, so
+        a subclass raising here must degrade to "cannot tell" (an empty set fails open) rather
+        than take down the only route by which a binary result can be recovered.
+
+        Returns:
+            set[str]: Un-normalized candidate model ids, including this node's current API and
+                catalog ids where those can be resolved.
+        """
+        candidates: set[str] = set()
+
+        def offer(value: Any) -> None:
+            # Guards the *return* of every source, not just the call: the annotations promise
+            # `str` but nothing enforces them, and a `None` reaching the comparison would raise
+            # inside `_refresh_model_mismatch` — on the refresh worker thread, where it surfaces
+            # as no status at all rather than as a message the user can act on.
+            if isinstance(value, str) and value.strip():
+                candidates.add(value.strip())
+
+        for get_id in (self._get_api_model_id, self._get_catalog_model_id):
+            with suppress(Exception):
+                offer(get_id())
+        if self._model_access is not None:
+            with suppress(Exception):
+                for choice in self._model_access.model_choices:
+                    offer(choice)
+        with suppress(Exception):
+            for model_id in self._dropdown_derived_model_ids():
+                offer(model_id)
+        return candidates
+
+    def _dropdown_derived_model_ids(self) -> set[str]:
+        """Every API model id this node's own dropdowns could produce, by substitution.
+
+        Some subclasses build their API id by interpolating a dropdown value
+        (``TopazImageEnhance`` returns ``f"topaz-{operation}"`` over nine operations) and have no
+        ``ModelAccessComponent`` to enumerate, so ``_supported_model_ids`` would otherwise
+        collapse to whatever the dropdown names *right now* — the exact basis the adoption check
+        is documented not to use. Submit with ``enhance``, time out, move the dropdown, and your
+        own billed generation becomes unrecoverable.
+
+        Recovering the set by substitution is what lets the family fallback in
+        :meth:`_refresh_model_mismatch` stay narrow. The alternative — widening that fallback far
+        enough to cover nine operations, three of them hyphenated — also widened it for the nine
+        single-hardcoded-id subclasses that gain nothing from it, and started accepting
+        ``gemini-3-pro-image`` results on a ``gemini-omni-flash-preview`` node.
+
+        Deliberately conservative, because a wrong candidate loosens the guard: a choice only
+        substitutes when the node's *current* value for that dropdown appears in the current API
+        id as a whole segment, and short values are skipped, so a coincidental match
+        (``aspect_ratio`` of ``"2"`` inside ``flux-2-pro``) does not manufacture ids the node
+        cannot produce.
+
+        Returns:
+            set[str]: API ids reachable by moving one dropdown, empty when the id is not
+                dropdown-derived.
+        """
+        current = self._get_api_model_id()
+        if not current:
+            return set()
+
+        derived: set[str] = set()
+        for parameter in self.parameters:
+            options = parameter.find_elements_by_type(Options)
+            if not options:
+                continue
+            selected = self.get_parameter_value(parameter.name)
+            if not isinstance(selected, str) or len(selected) < MIN_SUBSTITUTABLE_CHOICE_LENGTH:
+                continue
+            # Only a dropdown whose value is *part* of the id is a template. When the value is the
+            # whole id the node is not interpolating anything — the dropdown already enumerates
+            # every model, `model_choices` already contributes them, and substituting would just
+            # re-add the choice list, which for a model dropdown also carries display labels
+            # (`FLUX.2 [pro]`) and catalog keys (`gtc_flux_2_pro`) alongside the provider ids.
+            if selected == current or not _contains_whole_segment(current, selected):
+                continue
+            for trait in options:
+                for choice in trait.choices:
+                    if isinstance(choice, str) and choice and not any(char.isspace() for char in choice):
+                        derived.add(current.replace(selected, choice))
+        derived.discard(current)
+        return derived
+
+    def _refresh_model_mismatch(self, status_json: dict[str, Any]) -> str | None:
+        """Check that an adopted generation is one this node can actually interpret.
+
+        Only a matching ``_parse_result`` knows how to rehydrate a given model's result
+        shape, so pointing a node at an unrelated model's generation would at best fail
+        confusingly and at worst write a mis-parsed result onto the node. Two deliberate
+        biases, both because a false refusal is worse than a false accept here — a false
+        accept surfaces as a parse error, while a false refusal blocks the only route by
+        which a binary result can be recovered at all:
+
+        * fail open when the response names no model;
+        * compare against :meth:`_supported_model_ids`, the node's whole model family,
+          rather than just its current selection;
+        * for nodes that cannot enumerate that family, ignore the final id segment.
+
+        Args:
+            status_json: The JSON response from the generation status endpoint.
+
+        Returns:
+            str | None: An error message if the models definitely disagree, else None.
+        """
+        reported = self._extract_generation_model_id(status_json)
+        if not reported:
+            return None
+
+        expected = {_bare_model_id(candidate) for candidate in self._supported_model_ids()} - {""}
+        if not expected:
+            return None
+
+        reported_bare = _bare_model_id(reported)
+        if any(_model_ids_match(reported_bare, candidate) for candidate in expected):
+            return None
+
+        # A node with no `ModelAccessComponent` cannot enumerate its declared models, so its
+        # candidate set is only as good as what `_supported_model_ids` could reconstruct. Ignoring
+        # the final segment covers the remaining case that reconstruction cannot: a version
+        # dropdown whose values are *friendly labels* mapped to ids elsewhere
+        # (`"Starlight Precise 2.6"` -> `topaz-video-slp-2.6`), where there is no substring to
+        # substitute. `topaz-video-slp-2.5` and `topaz-video-slp-2.6` are one such dropdown apart.
+        #
+        # Kept to one segment because the widening is not free: every id in a family shares a
+        # prefix, so a rule that drops more starts accepting foreign models
+        # (`gemini-3-pro-image` on a `gemini-omni-flash-preview` node) for the nine subclasses
+        # here whose id is a single hardcoded string and which gain nothing from any widening at
+        # all. Cross-provider pastes — the actual footgun — are refused under either rule.
+        if self._model_access is None:
+            reported_family = _model_id_family(reported_bare)
+            if reported_family and any(reported_family == _model_id_family(candidate) for candidate in expected):
+                return None
+
+        return (
+            f"This generation was produced by model `{reported_bare}`, which this node cannot interpret, "
+            f"so refresh was not performed. This node can read results from: "
+            f"{self._advertised_model_ids(expected)}. Try a node that runs `{reported_bare}` instead."
+        )
+
+    def _advertised_model_ids(self, expected: set[str]) -> str:
+        """The model list to name in a refusal, formatted for the message.
+
+        Prefers the dropdown's own choices where there are any, because the point of the message
+        is to name something the user can act on: ``expected`` is a union that also carries
+        catalog ids and URL-path forms the dropdown never shows. Ids are listed with any operation
+        suffix intact for the same reason — advertising `kling` rather than `kling:motion-control`
+        names nothing a user could select.
+        """
+        listed: set[str] = set()
+        if self._model_access is not None:
+            with suppress(Exception):
+                listed = {choice.strip() for choice in self._model_access.model_choices if isinstance(choice, str)}
+        listed = {choice for choice in listed if choice} or expected
+        return ", ".join(f"`{name}`" for name in sorted(listed))
+
     async def _refresh_async(self) -> None:
         """Re-check the generation status and pull the result if it has completed.
 
         A single GET to /generations/{id}; never re-enters the polling loop.
+
+        Deliberately ungated by model-access policy, unlike ``_submit_and_poll``: this path
+        invokes nothing and bills nothing, it retrieves a result the org has already paid for.
+        Refusing here would strand paid work whenever a licence changed between submission and
+        recovery, which is the exact failure this whole flow exists to prevent.
         """
-        generation_id = (self.parameter_output_values.get("generation_id") or "").strip()
+        generation_id = self._resolve_refresh_generation_id()
         if not generation_id:
             self._set_status_results(
                 was_successful=False,
-                result_details="No generation ID is available on this node yet. Run the node first to submit a generation.",
+                result_details=(
+                    "No generation ID is available on this node yet. Run the node to submit a generation, or paste "
+                    "an existing generation ID into `generation_id` and click Refresh."
+                ),
             )
+            return
+
+        unusable = self._unusable_generation_id_reason(generation_id)
+        if unusable is not None:
+            self._set_status_results(was_successful=False, result_details=self._with_shadowing_note(unusable))
             return
 
         try:
@@ -1069,8 +1794,17 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         if status_json is None:
             return
 
-        status = status_json.get("status", "unknown")
-        self.parameter_output_values["generation_status"] = status
+        mismatch = self._refresh_model_mismatch(status_json)
+        if mismatch is not None:
+            self._set_status_results(was_successful=False, result_details=self._with_shadowing_note(mismatch))
+            return
+
+        reported_status = self._reported_status(status_json)
+        status = reported_status or STATUS_UNKNOWN
+        # Record the ID we actually acted on, so an adopted generation is tracked by the
+        # editor exactly like one this node submitted. An absent status is not published —
+        # see the same guard in _poll_generation_status.
+        self._publish_generation_state(generation_id=generation_id, status=reported_status)
 
         if status == STATUS_COMPLETED:
             await self._refresh_completed(generation_id)
