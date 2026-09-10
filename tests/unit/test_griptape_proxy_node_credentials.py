@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,7 @@ from griptape_nodes_library.proxy.provider_asset_access import (
     LICENSE_SECRET_NAME,
     PROXY_API_KEY_ENV_VAR,
 )
-from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers_async
 from griptape_nodes_library.video.omnihuman_subject_detection import OmnihumanSubjectDetection
 
 LIBRARY_ROOT = Path(__file__).parents[2] / "griptape_nodes_library"
@@ -100,12 +101,19 @@ def test_proxy_headers_carry_the_resolved_credential(monkeypatch: pytest.MonkeyP
     Attribution is stubbed to a fixed value rather than left live: what the engine answers
     depends on which project is open, and this assertion is only worth having if it is exact.
     What the helper does with each kind of answer is `tests/unit/utils/test_attribution.py`.
+
+    The async spelling, because all three of those sites are coroutines and take that one --
+    `test_the_spelling_matches_the_caller` is what holds them there.
     """
     _stub_secrets(monkeypatch, {LICENSE_SECRET_NAME: None, API_KEY_NAME: "gt-cloud-key"})
-    monkeypatch.setattr(headers_module, "attribution_header", lambda: {"X-Griptape-Attribution": "an-envelope"})
+
+    async def _attribution() -> dict[str, str]:
+        return {"X-Griptape-Attribution": "an-envelope"}
+
+    monkeypatch.setattr(headers_module, "attribution_header_async", _attribution)
     node = GoogleImageGeneration(name="Google Nano Banana Image Generation")
 
-    headers = build_griptape_cloud_headers(node._validate_api_key(), attribution=True)
+    headers = asyncio.run(build_griptape_cloud_headers_async(node._validate_api_key(), attribution=True))
 
     assert headers == {
         "Authorization": "Bearer gt-cloud-key",
