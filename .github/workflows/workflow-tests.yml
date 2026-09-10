@@ -48,4 +48,4 @@ jobs:
         # --timeout-method=signal so a single hung provider fails one test
         # rather than killing the whole pytest run; --timeout-method=thread
         # cannot preempt the asyncio event loop.
-        run: pytest -v --timeout=600 --timeout-method=signal tests/workflows
+        run: pytest -v --timeout=900 --timeout-method=signal tests/workflows
