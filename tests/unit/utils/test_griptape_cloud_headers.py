@@ -147,7 +147,7 @@ def test_attribution_must_be_stated(factory: Callable[..., Any]) -> None:
     Defaulting to `False` would make an unattributed billable call the quiet outcome, and the
     platform emits no metric for a missing header -- the failure would be invisible on both
     ends. Defaulting to `True` only trades that for over-reporting, which is recoverable but
-    still guesses. Eleven call sites make stating it free.
+    still guesses. Thirteen call sites make stating it free.
     """
     with pytest.raises(TypeError):
         _headers(factory, "tok")
@@ -282,6 +282,15 @@ def test_the_spelling_matches_the_caller() -> None:
     Exceptionless on purpose, `attribution=False` sites included. That flag describes today's
     endpoint, and flipping one is a one-word edit; a coroutine left on the sync spelling because
     it happens not to spend today is a loop stall waiting for an unrelated change to arm it.
+
+    Lexical `async def` is the whole rule, and it is narrower than "runs on the event loop".
+    A node's `process()` runs on the loop too -- `BaseNode.aprocess` calls it directly, and for
+    a generator `process()` only the *yielded* callable reaches `asyncio.to_thread`; the body up
+    to the first yield does not. So a sync `cloud_driver_auth()` in a plain `process()` parks the
+    loop exactly as the case above does, and this test reports it correct. Closing that gap means
+    an async sibling for `cloud_driver_auth` and an `async def process()` at each site, which is
+    a change to the nodes rather than to the check -- until then, read a pass here as "no
+    coroutine blocks", not as "nothing blocks".
     """
     mismatched = set()
     for path in sorted(LIBRARY_ROOT.rglob("*.py")):
