@@ -36,6 +36,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.cloud_legacy_models import cloud_legacy_values_for
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
@@ -356,8 +357,8 @@ class DescribeImage(ControlNode):
 
         default_prompt_driver = GriptapeCloudPromptDriver(
             model=DEFAULT_MODEL,
-            api_key=resolve_cloud_api_key(),
             stream=False,  # TODO: enable once https://github.com/griptape-ai/griptape-cloud/issues/1593 is resolved
+            **cloud_driver_auth(),
         )
 
         output_schema = self.get_parameter_value("output_schema")
@@ -438,8 +439,8 @@ class DescribeImage(ControlNode):
                 model_input = DEFAULT_MODEL
             prompt_driver = GriptapeCloudPromptDriver(
                 model=model_input,
-                api_key=resolve_cloud_api_key(),
                 stream=False,  # TODO: enable once https://github.com/griptape-ai/griptape-cloud/issues/1593 is resolved
+                **cloud_driver_auth(),
             )
             agent = GtAgent(prompt_driver=prompt_driver, output_schema=pydantic_schema)
         else:

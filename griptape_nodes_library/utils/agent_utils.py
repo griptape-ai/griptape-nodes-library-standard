@@ -9,14 +9,21 @@ import copy
 import logging
 from typing import Any, cast
 
+import attrs
+from griptape.drivers.image_generation.griptape_cloud import GriptapeCloudImageGenerationDriver
+from griptape.drivers.memory.conversation.griptape_cloud import GriptapeCloudConversationMemoryDriver
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
+from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.drivers.prompt.ollama import OllamaPromptDriver
 from griptape.drivers.prompt.openai import OpenAiChatPromptDriver
+from griptape.drivers.ruleset.griptape_cloud import GriptapeCloudRulesetDriver
+from griptape.drivers.vector.griptape_cloud import GriptapeCloudVectorStoreDriver
 from griptape.rules import Rule, Ruleset
 from griptape.tasks import PromptTask
 from griptape_nodes.drivers.cloud_models import ProviderID
 
 from griptape_nodes_library.utils.cloud_credential_utils import missing_credential_message, resolve_cloud_api_key
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 
 # ---------------------------------------------------------------------------
@@ -61,22 +68,65 @@ logger = logging.getLogger("griptape_nodes")
 GRIPTAPE_CLOUD_DRIVER_PREFIX = "GriptapeCloud"
 """``type`` tag prefix griptape writes for its Griptape Cloud drivers in ``to_dict()``.
 
-Matched as a prefix rather than against ``GriptapeCloudPromptDriver`` alone because
-every ``GriptapeCloud*`` driver declares ``api_key`` the same unserializable way, and
-a serialized agent can carry more than the prompt driver -- a conversation-memory
-driver, or an image-generation driver on a swapped task.
+Matched as a prefix rather than against ``GriptapeCloudPromptDriver`` alone because every
+``GriptapeCloud*`` driver declares ``api_key`` the same unserializable way, so any of them that
+does reach the wire hits the identical 401/402/``KeyError`` on rebuild.
+
+Only the prompt driver is reachable through ``Agent.to_dict()`` today: the conversation-memory
+and ruleset drivers hang off fields that are themselves unserializable. The prefix keeps the
+walk from depending on that -- which of the family griptape happens to serialize is upstream's
+call, not a property this repo should encode.
+"""
+
+
+_HEADER_SETTABLE_CLOUD_DRIVER_TAGS: frozenset[str] = frozenset(
+    driver.__name__
+    for driver in (
+        GriptapeCloudConversationMemoryDriver,
+        GriptapeCloudImageGenerationDriver,
+        GriptapeCloudPromptDriver,
+        GriptapeCloudRulesetDriver,
+        GriptapeCloudVectorStoreDriver,
+    )
+    if attrs.fields_dict(driver)["headers"].init
+)
+"""``type`` tags whose driver accepts a ``headers`` kwarg, and so can be handed attribution.
+
+Derived from the installed ``griptape`` rather than written out, because the drivers disagree:
+the conversation-memory and ruleset drivers declare ``headers`` as ``init=False`` where the
+prompt and image drivers make it ``kw_only=True``. Passing the kwarg to one of the former raises
+``TypeError`` out of ``from_dict()`` -- a crash where there was working code, not a missed
+header.
+
+That crash is latent, not live: those two drivers hang off fields that are themselves
+unserializable (``ConversationMemory.conversation_memory_driver``, ``Ruleset``'s driver), so
+``Agent.to_dict()`` never puts either dict on the wire for the walk to find. The gate is here
+because the alternative is a correctness argument that rests on an upstream serialization flag
+nobody here controls -- and :func:`_iter_cloud_driver_dicts` deliberately matches the whole
+``GriptapeCloud*`` family rather than the prompt driver alone.
+
+Deriving the set rather than hardcoding it means an upstream fix to the ``init`` inconsistency
+starts attributing those drivers with no change here. What the exclusion costs meanwhile is
+bounded: both call metadata endpoints (``/threads``, ``/rulesets``) rather than running a model.
 """
 
 
 def _restored_cloud_credentials(agent_core_dict: dict, *, require_credential: bool) -> dict:
-    """Return the agent dict with a freshly resolved ``api_key`` on every Cloud driver.
+    """Return the agent dict with a fresh ``api_key`` and attribution headers on every Cloud driver.
 
-    ``api_key`` on a ``GriptapeCloud*`` driver is not marked serializable, so
-    ``to_dict()`` drops it and ``from_dict()`` refills it from the attrs default -- a
-    bare ``os.environ["GT_CLOUD_API_KEY"]`` read that never consults the License.
-    Injecting the value *before* ``from_dict()`` is what fixes that: attrs takes the
-    supplied value and never evaluates the environment-reading default, so the
-    no-key-set ``KeyError`` is covered along with the wrong-key 401/402.
+    Neither ``api_key`` nor ``headers`` is marked serializable on a ``GriptapeCloud*``
+    driver, so ``to_dict()`` drops both and ``from_dict()`` refills them from the attrs
+    defaults -- a bare ``os.environ["GT_CLOUD_API_KEY"]`` read that never consults the
+    License, and an ``Authorization``-only header carrying no attribution at all.
+    Injecting both *before* ``from_dict()`` is what fixes that: attrs takes the supplied
+    values and never evaluates the defaults, so the no-key-set ``KeyError`` is covered
+    along with the wrong-key 401/402, and a chained agent bills against its own tags
+    rather than against ``<system-defaults>``.
+
+    Attribution is the half with no server-side backstop: Cloud emits a metric when a
+    header is malformed but nothing at all when one is missing, so an unrepaired agent
+    under-reports invisibly. ``headers`` goes only to the driver types that accept the
+    kwarg -- see :data:`_HEADER_SETTABLE_CLOUD_DRIVER_TAGS`.
 
     Never mutates ``agent_core_dict``: a saved workflow pickles the upstream node's
     parameter value verbatim, so repairing in place would persist a License JWT to
@@ -102,6 +152,8 @@ def _restored_cloud_credentials(agent_core_dict: dict, *, require_credential: bo
     result = copy.deepcopy(agent_core_dict)
     for driver_dict in _iter_cloud_driver_dicts(result):
         driver_dict["api_key"] = api_key
+        if driver_dict.get("type") in _HEADER_SETTABLE_CLOUD_DRIVER_TAGS:
+            driver_dict["headers"] = build_griptape_cloud_headers(api_key, attribution=True)
     return result
 
 
@@ -134,10 +186,11 @@ def unwrap_agent(value: dict, *, require_credential: bool = True) -> tuple[dict,
     and the old raw griptape dict (backward compatibility — returns empty lists).
     Returns ({}, [], []) for non-dict input.
 
-    Griptape Cloud drivers in the returned dict carry a freshly resolved ``api_key``
-    (see :func:`_restored_cloud_credentials`), so a caller deserializing with
-    ``from_dict()`` gets the License-first credential rather than a raw environment
-    read. ``value`` is never modified.
+    Griptape Cloud drivers in the returned dict carry a freshly resolved ``api_key`` and
+    attribution headers (see :func:`_restored_cloud_credentials`), so a caller
+    deserializing with ``from_dict()`` gets the License-first credential rather than a raw
+    environment read, and its spend is attributed rather than pooled into
+    ``<system-defaults>``. ``value`` is never modified.
 
     Args:
         value: The upstream node's ``agent`` parameter value.
@@ -367,6 +420,14 @@ def build_tool_from_config(config: dict) -> object:
             api_key = resolve_cloud_api_key()
             bucket_id = config.get("bucket_id", "")
             driver = GriptapeCloudFileManagerDriver(api_key=api_key, bucket_id=bucket_id)
+            # This driver declares `headers` as `init=False`, so unlike every other Cloud
+            # driver it cannot take the kwarg -- assign after construction. The bucket GET in
+            # its `__attrs_post_init__` has already gone out by then; it consumes no credits.
+            #
+            # The one dict also serves the free asset listing and the metered create/upload. A
+            # single flag cannot answer both, so it answers the expensive one: over-reporting is
+            # recoverable, under-reporting is invisible on both ends.
+            driver.headers = build_griptape_cloud_headers(api_key, attribution=True)
         else:
             workdir = GriptapeNodes.ConfigManager().get_config_value("workspace_directory")
             driver = LocalFileManagerDriver(workdir=workdir)

@@ -28,7 +28,7 @@ from griptape_nodes_library.utils.agent_utils import (
     unwrap_agent,
     wrap_agent,
 )
-from griptape_nodes_library.utils.cloud_credential_utils import resolve_cloud_api_key
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.cloud_legacy_models import cloud_legacy_values_for
 from griptape_nodes_library.utils.mcp_utils import (
     create_mcp_tool,
@@ -584,8 +584,8 @@ class MCPTaskNode(SuccessFailureNode):
         args = {key: value for key, value in args.items() if value is not None}
         return GriptapeCloudPromptDriver(
             model=str(model),
-            api_key=resolve_cloud_api_key(),
             **args,
+            **cloud_driver_auth(),
         )
 
     def _set_success_output_values(self, result: Agent) -> None:
