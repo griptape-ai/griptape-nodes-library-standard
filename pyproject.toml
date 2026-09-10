@@ -55,7 +55,10 @@ line-ending = "auto"
 
 [dependency-groups]
 dev = [
-  "griptape-nodes-engine>=0.99.0",
+  # 0.101.0 carries GetAttributionContextRequest; utils/attribution.py imports it at module
+  # scope, so an older engine is an ImportError rather than a degraded build. Dev-group only
+  # -- the library never ships the engine -- so this binds local runs and CI, not users.
+  "griptape-nodes-engine>=0.101.0",
   "pyright>=1.1.396",
   "pytest-asyncio>=0.21.0",
   "ruff>=0.8.0",
