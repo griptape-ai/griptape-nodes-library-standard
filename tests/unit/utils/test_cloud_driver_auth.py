@@ -191,7 +191,11 @@ def test_every_exemption_still_reaches_the_helper() -> None:
             for node in ast.walk(tree)
             if isinstance(node, ast.Name) and _enclosing_function(scopes, node.lineno) == function
         }
-        reaches = bool(names & {"cloud_driver_auth", "build_griptape_cloud_headers"})
+        # Either spelling of the factory counts: which one an exempt function needs is decided
+        # by whether it is a coroutine, and policed in `test_griptape_cloud_headers.py`.
+        reaches = bool(
+            names & {"cloud_driver_auth", "build_griptape_cloud_headers", "build_griptape_cloud_headers_async"}
+        )
         assert reaches, f"{path.relative_to(LIBRARY_ROOT)}:{function} is exempt ({reason}) but never builds the headers"
 
 

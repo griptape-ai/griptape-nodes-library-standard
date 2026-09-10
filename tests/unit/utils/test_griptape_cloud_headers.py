@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import ast
+import asyncio
+import inspect
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 import griptape_nodes_library.utils.griptape_cloud_headers as headers_module
-from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
+from griptape_nodes_library.utils.griptape_cloud_headers import (
+    build_griptape_cloud_headers,
+    build_griptape_cloud_headers_async,
+)
 
 LIBRARY_ROOT = Path(__file__).parents[3] / "griptape_nodes_library"
 
@@ -38,37 +45,85 @@ CLOUD_HEADER_CALLS = {
     ("video/seedance_common.py", "_append_private_asset"): (True,),
 }
 
+# The two spellings of the factory. Which one a call site must use is a structural rule,
+# checked by `test_the_spelling_matches_the_caller` rather than recorded per site above:
+# an `async def` takes the async one, everything else the sync one, no exceptions.
+SYNC_FACTORY = "build_griptape_cloud_headers"
+ASYNC_FACTORY = "build_griptape_cloud_headers_async"
+
+# Everything that parks its thread on the engine, and what a coroutine should do instead.
+# `cloud_driver_auth` is here because it wraps the sync factory: it is not a header build, so the
+# map above never sees it, and a coroutine calling it stalls the loop with nothing in this file
+# pointing at the reason.
+BLOCKING_IN_A_COROUTINE = {
+    SYNC_FACTORY: f"call {ASYNC_FACTORY}",
+    "cloud_driver_auth": f"give it an async sibling over {ASYNC_FACTORY} first",
+}
 
 _BASE_HEADERS = {"Authorization": "Bearer tok", "Content-Type": "application/json"}
 
+# Every behavioural claim below is asserted against both spellings. They are one function
+# with two calling conventions, and the async one is the copy that gets forgotten -- a
+# divergence would show up as an attribution header the coroutine call sites, which are the
+# billable ones, quietly stop sending.
+_FACTORIES = pytest.mark.parametrize(
+    "factory", [build_griptape_cloud_headers, build_griptape_cloud_headers_async], ids=["sync", "async"]
+)
 
-def test_a_call_that_does_not_spend_sends_only_bearer_and_json(monkeypatch: pytest.MonkeyPatch) -> None:
+
+def _headers(factory: Callable[..., Any], *args: Any, **kwargs: Any) -> dict[str, str]:
+    """Call whichever spelling `factory` is, and return the dict."""
+    built = factory(*args, **kwargs)
+    return asyncio.run(built) if inspect.iscoroutine(built) else built
+
+
+def _stub_attribution(monkeypatch: pytest.MonkeyPatch, answer: dict[str, str] | None) -> None:
+    """Replace both lookups. `None` fails the test instead of answering."""
+
+    def _sync() -> dict[str, str]:
+        if answer is None:
+            pytest.fail("asked the engine to attribute a call that spends nothing")
+        return answer
+
+    async def _async() -> dict[str, str]:
+        return _sync()
+
+    monkeypatch.setattr(headers_module, "attribution_header", _sync)
+    monkeypatch.setattr(headers_module, "attribution_header_async", _async)
+
+
+@_FACTORIES
+def test_a_call_that_does_not_spend_sends_only_bearer_and_json(
+    factory: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`False` must not even ask -- the engine round trip is skipped, not just its result.
 
     There is nothing to attribute on a control-plane call, and the ~2s bound the helper carries
     is not worth paying to be told so. The stub fails rather than returns, so a merge moved
     outside the `if` is caught here instead of showing up as latency on a model listing.
     """
-    monkeypatch.setattr(
-        headers_module,
-        "attribution_header",
-        lambda: pytest.fail("asked the engine to attribute a call that spends nothing"),
-    )
+    _stub_attribution(monkeypatch, None)
 
-    assert build_griptape_cloud_headers("tok", attribution=False) == _BASE_HEADERS
+    assert _headers(factory, "tok", attribution=False) == _BASE_HEADERS
 
 
-def test_a_call_that_spends_carries_what_the_engine_answered(monkeypatch: pytest.MonkeyPatch) -> None:
+@_FACTORIES
+def test_a_call_that_spends_carries_what_the_engine_answered(
+    factory: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The whole point of #601, in one assertion: the header rides along with the credential."""
-    monkeypatch.setattr(headers_module, "attribution_header", lambda: {"X-Griptape-Attribution": "an-envelope"})
+    _stub_attribution(monkeypatch, {"X-Griptape-Attribution": "an-envelope"})
 
-    assert build_griptape_cloud_headers("tok", attribution=True) == {
+    assert _headers(factory, "tok", attribution=True) == {
         **_BASE_HEADERS,
         "X-Griptape-Attribution": "an-envelope",
     }
 
 
-def test_an_unattributable_call_still_sends_everything_else(monkeypatch: pytest.MonkeyPatch) -> None:
+@_FACTORIES
+def test_an_unattributable_call_still_sends_everything_else(
+    factory: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`{}` from the helper is the fallback, so it has to be a no-op rather than a hole.
 
     This is the shape of every failure the helper absorbs -- no engine, a timeout, a declined
@@ -76,28 +131,32 @@ def test_an_unattributable_call_still_sends_everything_else(monkeypatch: pytest.
     for a missing attribution header, so the cost is a reporting field; dropping `Authorization`
     alongside it would cost the user the call.
     """
-    monkeypatch.setattr(headers_module, "attribution_header", lambda: {})
+    _stub_attribution(monkeypatch, {})
 
-    assert build_griptape_cloud_headers("tok", attribution=True) == _BASE_HEADERS
+    assert _headers(factory, "tok", attribution=True) == _BASE_HEADERS
 
 
-def test_attribution_must_be_stated() -> None:
+@_FACTORIES
+def test_attribution_must_be_stated(factory: Callable[..., Any]) -> None:
     """No default, so a new call site cannot inherit one by omission.
 
     Defaulting to `False` would make an unattributed billable call the quiet outcome, and the
     platform emits no metric for a missing header -- the failure would be invisible on both
     ends. Defaulting to `True` only trades that for over-reporting, which is recoverable but
-    still guesses. Ten call sites make stating it free.
+    still guesses. Eleven call sites make stating it free.
     """
     with pytest.raises(TypeError):
-        build_griptape_cloud_headers("tok")  # type: ignore[call-arg]  # pyright: ignore[reportCallIssue]
+        _headers(factory, "tok")
 
 
-def test_each_call_returns_a_fresh_dict() -> None:
+@_FACTORIES
+def test_each_call_returns_a_fresh_dict(factory: Callable[..., Any], monkeypatch: pytest.MonkeyPatch) -> None:
     """Call sites mutate what they get back (`_submit_generation` adds the BYOK header)."""
-    first = build_griptape_cloud_headers("tok", attribution=True)
+    _stub_attribution(monkeypatch, {})
+
+    first = _headers(factory, "tok", attribution=True)
     first["X-Mutated"] = "yes"
-    assert "X-Mutated" not in build_griptape_cloud_headers("tok", attribution=True)
+    assert "X-Mutated" not in _headers(factory, "tok", attribution=True)
 
 
 def _builds_an_authorization_header(node: ast.AST) -> bool:
@@ -133,8 +192,8 @@ def test_only_the_factory_builds_an_authorization_header() -> None:
     assert builders == {"utils/griptape_cloud_headers.py"}
 
 
-def _calls_named(tree: ast.AST, name: str) -> list[ast.Call]:
-    """Every call to `name` in `tree`, in source order.
+def _calls_named(tree: ast.AST, *names: str) -> list[ast.Call]:
+    """Every call to any of `names` in `tree`, in source order.
 
     Sorted, because `ast.walk` is breadth-first and its order is therefore not reading order:
     a call nested inside an `if` is yielded *before* a shallower call on a later line. The
@@ -144,7 +203,7 @@ def _calls_named(tree: ast.AST, name: str) -> list[ast.Call]:
     holds two calls.
     """
     return sorted(
-        (node for node in ast.walk(tree) if isinstance(node, ast.Call) and getattr(node.func, "id", None) == name),
+        (node for node in ast.walk(tree) if isinstance(node, ast.Call) and getattr(node.func, "id", None) in names),
         key=lambda node: (node.lineno, node.col_offset),
     )
 
@@ -162,7 +221,11 @@ def test_calls_are_collected_in_source_order() -> None:
 
 
 def _cloud_header_calls() -> dict[tuple[str, str], tuple[bool | None, ...]]:
-    """Every `build_griptape_cloud_headers` call: `{(file, function): (flag, per, call)}`.
+    """Every header build in the library: `{(file, function): (flag, per, call)}`.
+
+    Both spellings are collected into the one map, because whether a call spends is the same
+    question either way -- and because collecting only the sync name would have every site
+    converted to the async factory silently drop out of the map that exists to hold them.
 
     Accumulated rather than assigned, so two calls in one function stay two entries -- assigning
     would let the second inherit the first's recorded answer, and an unattributed billable call
@@ -172,7 +235,7 @@ def _cloud_header_calls() -> dict[tuple[str, str], tuple[bool | None, ...]]:
     for path in sorted(LIBRARY_ROOT.rglob("*.py")):
         tree = ast.parse(path.read_text())
         scopes = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-        for node in _calls_named(tree, "build_griptape_cloud_headers"):
+        for node in _calls_named(tree, SYNC_FACTORY, ASYNC_FACTORY):
             enclosing = [f for f in scopes if f.lineno <= node.lineno <= (f.end_lineno or f.lineno)]
             # Innermost wins, so a nested def is not reported under the function it sits in.
             name = min(enclosing, key=lambda f: (f.end_lineno or f.lineno) - f.lineno).name if enclosing else "<module>"
@@ -196,3 +259,41 @@ def _cloud_header_calls() -> dict[tuple[str, str], tuple[bool | None, ...]]:
 def test_every_cloud_call_declares_whether_it_spends() -> None:
     """A new call site, or a flipped flag, has to be argued for here rather than merged quietly."""
     assert _cloud_header_calls() == CLOUD_HEADER_CALLS
+
+
+def test_the_spelling_matches_the_caller() -> None:
+    """An `async def` takes the async factory; everything else takes the sync one.
+
+    The sync spelling inside a coroutine is the bug this split exists to prevent: the
+    attribution lookup blocks its thread, so on an event loop it stops every other task
+    scheduled there for the length of an engine round trip -- and for the whole ~2s bound when
+    the engine is wedged. Nothing about the call site looks wrong, and nothing fails; the node
+    just goes quiet, which is why this is checked structurally instead of left to review.
+
+    Enforced in both directions. `await` outside a coroutine is a syntax error, so the reverse
+    case cannot ship as written -- but a sync helper that grew the async spelling and an
+    `asyncio.run` around it would be a thread-blocking call wearing the non-blocking name, and
+    this names it.
+
+    Exceptionless on purpose, `attribution=False` sites included. That flag describes today's
+    endpoint, and flipping one is a one-word edit; a coroutine left on the sync spelling because
+    it happens not to spend today is a loop stall waiting for an unrelated change to arm it.
+    """
+    mismatched = set()
+    for path in sorted(LIBRARY_ROOT.rglob("*.py")):
+        tree = ast.parse(path.read_text())
+        scopes = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+        for node in _calls_named(tree, ASYNC_FACTORY, *BLOCKING_IN_A_COROUTINE):
+            enclosing = [f for f in scopes if f.lineno <= node.lineno <= (f.end_lineno or f.lineno)]
+            # Innermost wins: a plain `def` nested in an `async def` blocks only its own thread.
+            scope = min(enclosing, key=lambda f: (f.end_lineno or f.lineno) - f.lineno) if enclosing else None
+            called = node.func.id  # type: ignore[union-attr]  # pyright: ignore[reportAttributeAccessIssue]
+            if isinstance(scope, ast.AsyncFunctionDef):
+                complaint = BLOCKING_IN_A_COROUTINE.get(called, "")
+            else:
+                complaint = f"only a coroutine should call {ASYNC_FACTORY}" if called == ASYNC_FACTORY else ""
+            if complaint:
+                where = f"{path.relative_to(LIBRARY_ROOT).as_posix()}:{node.lineno}"
+                mismatched.add(f"{where} ({scope.name if scope else '<module>'}) calls {called} -- {complaint}")
+
+    assert mismatched == set()
