@@ -199,9 +199,21 @@ def _calls_named(tree: ast.AST, *names: str) -> list[ast.Call]:
     Sorted because `ast.walk` is breadth-first: a call nested inside an `if` is yielded before a
     shallower one on a later line. The flag tuples below are positional, so walk order would
     have the map disagree with the file. `col_offset` orders two calls on one line.
+
+    `Attribute` funcs count as well as `Name` ones: `headers_module.build_griptape_cloud_headers(...)`
+    is the same call site as the bare name, and reading only `.id` would let a site written that
+    way miss `CLOUD_HEADER_CALLS` entirely -- a call the collector never saw is not an absence the
+    whole-map assert can catch.
     """
+
+    def called(node: ast.Call) -> str | None:
+        func = node.func
+        if isinstance(func, ast.Name):
+            return func.id
+        return func.attr if isinstance(func, ast.Attribute) else None
+
     return sorted(
-        (node for node in ast.walk(tree) if isinstance(node, ast.Call) and getattr(node.func, "id", None) in names),
+        (node for node in ast.walk(tree) if isinstance(node, ast.Call) and called(node) in names),
         key=lambda node: (node.lineno, node.col_offset),
     )
 
@@ -215,6 +227,20 @@ def test_calls_are_collected_in_source_order() -> None:
     source = "def f():\n    if cond:\n        a = b(1)\n    c = b(2)\n"
 
     assert [ast.unparse(call) for call in _calls_named(ast.parse(source), "b")] == ["b(1)", "b(2)"]
+
+
+def test_a_module_qualified_call_is_collected_too() -> None:
+    """The guardrails are whole-map assertions, so a call they never collect is a silent pass.
+
+    A site spelled `headers_module.build_griptape_cloud_headers(...)` would be absent from
+    `CLOUD_HEADER_CALLS` rather than wrong in it, and absent from the spelling check rather
+    than mismatched -- both tests would stay green while the call shipped unattributed or
+    blocking. Two test files in this repo already use the alias import, so this is the
+    spelling a new site is most likely to reach for.
+    """
+    source = "def f():\n    m.b(1)\n    b(2)\n    other.c(3)\n"
+
+    assert [ast.unparse(call) for call in _calls_named(ast.parse(source), "b")] == ["m.b(1)", "b(2)"]
 
 
 def _cloud_header_calls() -> dict[tuple[str, str], tuple[bool | None, ...]]:
@@ -292,7 +318,8 @@ def test_the_spelling_matches_the_caller() -> None:
             enclosing = [f for f in scopes if f.lineno <= node.lineno <= (f.end_lineno or f.lineno)]
             # Innermost wins: a plain `def` nested in an `async def` blocks only its own thread.
             scope = min(enclosing, key=lambda f: (f.end_lineno or f.lineno) - f.lineno) if enclosing else None
-            called = node.func.id  # type: ignore[union-attr]  # pyright: ignore[reportAttributeAccessIssue]
+            func = node.func
+            called = func.id if isinstance(func, ast.Name) else func.attr  # type: ignore[union-attr]  # pyright: ignore[reportAttributeAccessIssue]
             if isinstance(scope, ast.AsyncFunctionDef):
                 complaint = BLOCKING_IN_A_COROUTINE.get(called, "")
             else:
