@@ -33,7 +33,8 @@ into another library's `utils/` directory.
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
+import queue
+import threading
 
 from griptape_nodes.retained_mode.events.budget_events import (
     GetAttributionContextRequest,
@@ -44,6 +45,8 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["attribution_header"]
+
+_UNATTRIBUTED = "Could not resolve the Griptape Cloud attribution header; billing this call unattributed."
 
 # Bounds this module's contribution to the latency of every billable Cloud call. The
 # engine's own bound is far looser: on a worker the request is forwarded to the
@@ -64,34 +67,57 @@ def attribution_header() -> dict[str, str]:
             Merging ``{}`` is what makes an unattributed call the fallback rather than a
             failed one.
     """
+    answers: queue.Queue[object] = queue.Queue(maxsize=1)
+
+    def _ask() -> None:
+        try:
+            answers.put(GriptapeNodes.handle_request(GetAttributionContextRequest()))
+        except Exception as error:  # noqa: BLE001
+            # Carried back rather than logged here, so the caller reports the cause on the
+            # one path that has given up on it. Nothing else reads this queue.
+            answers.put(error)
+
     # Dispatched off-thread purely for the timeout: the call sites are a mix of sync and
     # async, so `asyncio.wait_for` is unavailable to a helper that has to serve both.
     # `handle_request` documents itself as safe on arbitrary threads; the one cost of a
-    # library-owned pool is losing the broadcast-suppression ContextVar, and this request
+    # library-owned thread is losing the broadcast-suppression ContextVar, and this request
     # suppresses its own broadcast anyway, so there is nothing left to leak.
-    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="griptape-attribution")
+    #
+    # `daemon=True`, and a bare thread rather than a `ThreadPoolExecutor`, because of what
+    # happens at interpreter exit. A pool registers its workers with
+    # `concurrent.futures.thread._python_exit`, which `join()`s every one of them no matter
+    # how the pool was shut down -- `shutdown(wait=False)` does not detach anything. So on
+    # the timeout path, where the worker is still blocked on the engine, quitting would
+    # block until the engine's 30s transport gave up: the same 30s this timeout exists to
+    # escape, moved from a hung node to a hung quit. A daemon thread is never joined.
     try:
-        result = pool.submit(GriptapeNodes.handle_request, GetAttributionContextRequest()).result(
-            timeout=_TIMEOUT_SECONDS
+        threading.Thread(target=_ask, name="griptape-attribution", daemon=True).start()
+        answer = answers.get(timeout=_TIMEOUT_SECONDS)
+    except queue.Empty:
+        # No traceback worth printing -- `Empty` carries nothing the message does not.
+        logger.warning(
+            "Griptape Cloud attribution did not answer within %ss; billing this call unattributed.", _TIMEOUT_SECONDS
         )
-    except Exception:
-        # Deliberately broad. The caller is one line away from spending real credits, and
-        # there is no exception from here worth propagating into that -- see the module
-        # docstring. `TimeoutError` arrives on this path too.
-        logger.warning("Could not resolve the Griptape Cloud attribution header; billing this call unattributed.")
         return {}
-    finally:
-        # Never `wait=True`, and never the `with` form, which is `wait=True` spelled
-        # invisibly: on the timeout path the worker is still blocked on the engine, so
-        # waiting for it would reinstate exactly the 30s bound this timeout exists to
-        # escape. The orphaned thread ends when the engine's own transport gives up.
-        pool.shutdown(wait=False)
+    except Exception:
+        # Deliberately broad, and reached when the thread itself could not be started. The
+        # caller is one line away from spending real credits, and there is no exception from
+        # here worth propagating into that -- see the module docstring.
+        logger.warning(_UNATTRIBUTED, exc_info=True)
+        return {}
 
-    if not isinstance(result, GetAttributionContextResultSuccess):
+    if isinstance(answer, BaseException):
+        # Cloud emits no metric for a *missing* header, so this log line is the only place a
+        # permanently broken client is distinguishable from a momentarily slow one. Without
+        # the cause attached, every billable call reports the same unactionable sentence.
+        logger.warning(_UNATTRIBUTED, exc_info=answer)
+        return {}
+
+    if not isinstance(answer, GetAttributionContextResultSuccess):
         # The engine declining to describe the spend, rather than anything going wrong.
         # Debug, not warning: an engine with no project open answers this way routinely.
-        logger.debug("Griptape Cloud attribution unavailable: %s", type(result).__name__)
+        logger.debug("Griptape Cloud attribution unavailable: %s", type(answer).__name__)
         return {}
 
     # Verbatim, including a tagless envelope. See the module docstring.
-    return {result.header_name: result.header_value}
+    return {answer.header_name: answer.header_value}
