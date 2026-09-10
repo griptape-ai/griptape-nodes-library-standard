@@ -231,7 +231,7 @@ async def test_submit_and_poll_gates_on_denial(monkeypatch: pytest.MonkeyPatch) 
     hook = _deny_hook(CheckpointAction.OFFER_MODEL, "gtc_sora_2_pro")
     GriptapeNodes.EventManager().add_authorization_hook(hook)
     try:
-        result = await node._submit_and_poll({})
+        result = await node._submit_and_poll({}, poll_headers={})
     finally:
         GriptapeNodes.EventManager().remove_authorization_hook(hook)
 
@@ -243,7 +243,7 @@ async def test_submit_and_poll_gates_on_denial(monkeypatch: pytest.MonkeyPatch) 
 
     # Mirror case: with the hook removed, the same selection is permitted again
     # and the flow reaches `_build_payload` and then `_submit_generation`.
-    await node._submit_and_poll({})
+    await node._submit_and_poll({}, poll_headers={})
 
     assert len(build_calls) == 1
     assert len(submit_calls) == 1

@@ -469,8 +469,14 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             raise ValueError(msg)
 
         public_url = self._resolve_public_url_for_asset(ref, asset_kind=expected_kind)
-        headers = await build_griptape_cloud_headers_async(self._validate_api_key(), attribution=True)
-        asset_id = await self._create_provider_asset(public_url, expected_kind, headers)
+        api_key = self._validate_api_key()
+        create_headers = await build_griptape_cloud_headers_async(api_key, attribution=True)
+        # Built separately rather than reused: the status poll below spends nothing, so it has
+        # nothing to attribute. Free to build -- `attribution=False` skips the engine round trip.
+        poll_headers = await build_griptape_cloud_headers_async(api_key, attribution=False)
+        asset_id = await self._create_provider_asset(
+            public_url, expected_kind, create_headers, poll_headers=poll_headers
+        )
         return f"asset://{asset_id}"
 
     def _resolve_public_url_for_asset(self, ref: Any, *, asset_kind: str) -> str:
@@ -588,8 +594,20 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
 
         return public_url
 
-    async def _create_provider_asset(self, public_url: str, asset_kind: str, headers: dict[str, str]) -> str:
-        """POST proxy/v2/assets and poll to ACTIVE; return the provider asset id."""
+    async def _create_provider_asset(
+        self, public_url: str, asset_kind: str, headers: dict[str, str], *, poll_headers: dict[str, str]
+    ) -> str:
+        """POST proxy/v2/assets and poll to ACTIVE; return the provider asset id.
+
+        Args:
+            public_url: Publicly fetchable URL the provider will pull the media from.
+            asset_kind: The provider's asset type for the reference being registered.
+            headers: Headers for the registering POST -- attributed.
+            poll_headers: Headers for the status GETs -- not attributed; polling is free, so
+                there is no spend for it to name. Keyword-only because the two dicts are
+                otherwise interchangeable here, and swapping them fails silently in the
+                direction that mis-bills.
+        """
         create_url = urljoin(self._proxy_base, "assets")
         payload = {
             "url": public_url,
@@ -613,7 +631,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         if not provider_asset_id:
             msg = f"{self.name}: CreateProviderAsset returned no provider_asset_id."
             raise RuntimeError(msg)
-        return await self._poll_provider_asset(str(provider_asset_id), headers)
+        return await self._poll_provider_asset(str(provider_asset_id), poll_headers)
 
     async def _poll_provider_asset(self, provider_asset_id: str, headers: dict[str, str]) -> str:
         """Poll GET proxy/v2/assets/<id> until ACTIVE; return the provider asset id.
@@ -621,6 +639,12 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         Transient errors (a network blip, a 5xx, or the eventual-consistency 404 right after the
         asset id is minted) are logged and retried until attempts are exhausted, mirroring the
         base class's generation poll. Only a terminal status (FAILED/DELETED) fails immediately.
+
+        Args:
+            provider_asset_id: The provider asset id returned by the registering POST.
+            headers: HTTP headers including Authorization, built with `attribution=False` --
+                these GETs cost nothing, and the POST that preceded them already attributed
+                the registration.
         """
         get_url = urljoin(self._proxy_base, f"assets/{provider_asset_id}")
         async with httpx.AsyncClient() as client:
