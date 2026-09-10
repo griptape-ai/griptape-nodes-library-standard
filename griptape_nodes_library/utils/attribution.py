@@ -83,9 +83,20 @@ def _start_asking(deliver: Callable[[object], None]) -> None:
     """Run :func:`_dispatch` on a thread the interpreter will never wait for.
 
     Off-thread purely for the timeout, and `handle_request` documents itself as safe on
-    arbitrary threads. The one cost of a library-owned thread is losing the
-    broadcast-suppression ContextVar, and this request suppresses its own broadcast anyway,
-    so there is nothing left to leak.
+    arbitrary threads. Two things follow the dispatch onto this thread rather than staying on
+    the caller's, and neither is free:
+
+    - The broadcast-suppression ContextVar does not cross, so a suppressed request would
+      over-broadcast. Inert here: this request suppresses its own broadcast anyway.
+    - Every `handle_request` ends in `_flush_tracked_parameter_changes`, which walks every
+      node in the graph and clears each one's tracked-parameter list --
+      `RESULT_TYPES_THAT_SKIP_FLUSH` is empty, so no request opts out. That whole-graph
+      mutation now runs here. The sync spelling is safe by construction, because its caller's
+      thread is parked in `queue.get` for the duration; the async one is not, so an
+      `AlterElementEvent` appended on the loop while this thread is mid-flush can be cleared
+      before it emits. Left as the engine's invariant rather than worked around: it is the
+      documented consequence of a contract that sanctions arbitrary threads, and every other
+      cross-thread caller shares it.
 
     `daemon=True`, and a bare thread rather than a pool, because of what happens at
     interpreter exit. `ThreadPoolExecutor` registers its workers with
