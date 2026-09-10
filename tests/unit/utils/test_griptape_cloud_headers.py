@@ -23,9 +23,13 @@ LIBRARY_ROOT = Path(__file__).parents[3] / "griptape_nodes_library"
 # first one's answer.
 #
 # The `False` entries consume no credits, so there is nothing to attribute: two model/bucket
-# listings, an asset-access probe, and the proxy's two re-reads of a generation already paid
-# for at submit. Flipping any `True` here to `False` is how spend silently stops being
-# attributed, which is why the map is asserted whole rather than as an allowlist.
+# listings, an asset-access probe, the proxy's two re-reads of a generation already paid for at
+# submit, and the poll/cancel dict `_process_generation` builds alongside its billable one.
+# Flipping any `True` here to `False` is how spend silently stops being attributed, which is why
+# the map is asserted whole rather than as an allowlist. The reverse matters too: `(True, False)`
+# for `_process_generation` collapsing back to `(True,)` means the poll loop went back to reusing
+# the submit's attributed dict, which is invisible on the wire and free of any test failure but
+# this one.
 # The `utils/` entries hand the dict to a `griptape` driver rather than to `requests`, by three
 # different routes: `cloud_driver_auth` spreads it into a constructor, `build_tool_from_config`
 # assigns it after construction, and `_restored_cloud_credentials` writes it into a serialized
@@ -34,7 +38,7 @@ LIBRARY_ROOT = Path(__file__).parents[3] / "griptape_nodes_library"
 CLOUD_HEADER_CALLS = {
     ("config/prompt/griptape_cloud_prompt.py", "_list_models"): (False,),
     ("proxy/griptape_proxy_node.py", "_fetch_generation_result"): (False,),
-    ("proxy/griptape_proxy_node.py", "_process_generation"): (True,),
+    ("proxy/griptape_proxy_node.py", "_process_generation"): (True, False),
     ("proxy/griptape_proxy_node.py", "_refresh_async"): (False,),
     ("proxy/provider_asset_access.py", "check_provider_asset_access"): (False,),
     ("tools/file_manager_tool.py", "get_bucket_list"): (False,),
@@ -42,7 +46,7 @@ CLOUD_HEADER_CALLS = {
     ("utils/agent_utils.py", "build_tool_from_config"): (True,),
     ("utils/cloud_driver_auth.py", "cloud_driver_auth"): (True,),
     ("video/omnihuman_video_generation.py", "_auto_detect_masks"): (True,),
-    ("video/seedance_common.py", "_append_private_asset"): (True,),
+    ("video/seedance_common.py", "_append_private_asset"): (True, False),
 }
 
 # The two spellings of the factory. Which one a call site must use is a structural rule,

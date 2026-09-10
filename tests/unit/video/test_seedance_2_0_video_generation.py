@@ -768,7 +768,9 @@ async def test_build_payload_registers_private_asset_reference_for_seedance_2_0(
 
     registered: list[tuple[str, str]] = []
 
-    async def fake_create_provider_asset(self, public_url: str, asset_kind: str, headers: dict[str, str]) -> str:
+    async def fake_create_provider_asset(
+        self, public_url: str, asset_kind: str, headers: dict[str, str], *, poll_headers: dict[str, str]
+    ) -> str:
         registered.append((public_url, asset_kind))
         return "generated-asset-id"
 
