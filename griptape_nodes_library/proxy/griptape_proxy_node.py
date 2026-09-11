@@ -1114,6 +1114,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         Raises:
             HostedArtifactError: If the list cannot be read.
+            ValueError: If no credential is available to authenticate the read.
         """
         cached = self._hosted_artifact_lists.get(generation_id)
         if cached is not None:
@@ -1139,6 +1140,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         Raises:
             HostedArtifactError: If no such artifact is hosted.
+            ValueError: If no credential is available to authenticate the read.
         """
         artifacts = await self._hosted_artifacts(generation_id)
         matching = [artifact for artifact in artifacts if kind is None or artifact.kind == kind]
@@ -1164,6 +1166,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         Raises:
             HostedArtifactError: If no such artifact is hosted.
+            ValueError: If no credential is available to authenticate the download.
             httpx.HTTPError: If the download fails.
         """
         artifact = await self._hosted_artifact(generation_id, kind=kind, position=position)
@@ -1267,51 +1270,3 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # Unreachable: the loop either returns or raises on the final attempt.
         msg = f"Failed to download from {url}"
         raise httpx.HTTPError(msg)
-
-    async def _download_and_save(
-        self,
-        url: str,
-        output_param: str,
-        artifact_factory: Callable[[str, str], Any],
-        *,
-        media_kind: str = "video",
-        action: str = "generated",
-    ) -> None:
-        """Download media from a provider URL, save it to project storage, and set status.
-
-        On success, saves the bytes via ``self._output_file`` and sets the given
-        output parameter to the artifact produced by ``artifact_factory``. On any
-        download or save failure, clears the output parameter and reports failure
-        with an actionable message that names the provider URL, so the user can
-        retrieve the asset manually. A generation that completed (and was billed)
-        upstream but whose output cannot be retrieved is a failure, not a success.
-
-        Args:
-            url: The provider URL to download from.
-            output_param: Name of the output parameter to set with the saved artifact.
-            artifact_factory: Callable taking (value, name) and returning a ``*UrlArtifact``.
-            media_kind: Human-readable media type for log and status messages.
-            action: Past-tense verb describing what the node produced (e.g. "generated",
-                "edited", "extended"), used in the success message.
-        """
-        try:
-            logger.info("%s downloading %s from provider URL", self.name, media_kind)
-            media_bytes = await self._download_bytes_from_url(url)
-            dest = self._output_file.build_file()
-            saved = await dest.awrite_bytes(media_bytes)
-            self.parameter_output_values[output_param] = artifact_factory(saved.location, saved.name)
-            logger.info("%s saved %s as %s", self.name, media_kind, saved.name)
-            self._set_status_results(
-                was_successful=True,
-                result_details=f"{media_kind.capitalize()} {action} successfully and saved as {saved.name}.",
-            )
-        except Exception as e:
-            logger.error("%s failed to retrieve %s: %s", self.name, media_kind, e)
-            self.parameter_output_values[output_param] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=(
-                    f"{self.name} generation completed upstream but the {media_kind} could not be retrieved: {e}. "
-                    f"Provider URL (may be temporary): {url}"
-                ),
-            )
