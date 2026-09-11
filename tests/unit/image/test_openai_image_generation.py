@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -20,6 +19,7 @@ from griptape_nodes_library.image.openai_image_generation import (
     OpenAiImageGeneration,
 )
 from griptape_nodes_library.proxy.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy.hosted_artifacts import HostedArtifact
 
 LIBRARY_NAME = "Griptape Nodes Library"
 
@@ -337,7 +337,7 @@ async def test_reference_upload_scratch_parameters_removed_after_generation(
 
 
 @pytest.mark.asyncio
-async def test_parse_result_saves_base64_images(
+async def test_parse_result_saves_hosted_images(
     node: OpenAiImageGeneration, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     class FakeDestination:
@@ -355,14 +355,21 @@ async def test_parse_result_saves_base64_images(
 
     image_1_bytes = b"image-one"
     image_2_bytes = b"image-two"
-    result_json = {
-        "data": [
-            {"b64_json": base64.b64encode(image_1_bytes).decode("utf-8")},
-            {"b64_json": base64.b64encode(image_2_bytes).decode("utf-8")},
-        ]
-    }
 
-    await node._parse_result(result_json, "gen_123")
+    async def fake_hosted_artifacts(_generation_id: str) -> list[HostedArtifact]:
+        return [
+            HostedArtifact(index=0, kind="image", url="https://example/0.png"),
+            HostedArtifact(index=1, kind="image", url="https://example/1.png"),
+        ]
+
+    async def fake_load_generated_media(_generation_id: str, *, kind: str | None = None, position: int = 0) -> bytes:
+        assert kind == "image"
+        return image_1_bytes if position == 0 else image_2_bytes
+
+    monkeypatch.setattr(node, "_hosted_artifacts", fake_hosted_artifacts)
+    monkeypatch.setattr(node, "_load_generated_media", fake_load_generated_media)
+
+    await node._parse_result({}, "gen_123")
 
     first_artifact = node.parameter_output_values["image_url"]
     second_artifact = node.parameter_output_values["image_url_2"]

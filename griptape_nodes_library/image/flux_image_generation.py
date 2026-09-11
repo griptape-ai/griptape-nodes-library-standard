@@ -19,7 +19,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -348,50 +348,15 @@ class FluxImageGeneration(GriptapeProxyNode):
 
             self._log(f"Request payload: {json.dumps(sanitized_payload, indent=2)}")
 
-    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
-        sample_url = result_json.get("result", {}).get("sample")
-        if sample_url:
-            await self._save_image_from_url(sample_url)
-            return
-
-        self._log("No sample URL found in result")
-        self._set_safe_defaults()
-        self._set_status_results(
-            was_successful=False,
-            result_details="Generation completed but no image URL was found in the response.",
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        """Save the hosted image."""
+        await self._save_generated_media(
+            generation_id,
+            "image_url",
+            lambda v, _n: ImageUrlArtifact(v),
+            kind=ArtifactKind.IMAGE,
+            media_kind="image",
         )
-
-    async def _save_image_from_url(self, image_url: str) -> None:
-        """Download and save the image from the provided URL.
-
-        A billed generation whose image cannot be retrieved is a failure, not a
-        silent success. On any download or save failure the output is cleared and
-        the provider URL is surfaced in the status so the user can retrieve it
-        manually.
-        """
-        try:
-            self._log("Downloading image from URL")
-            image_bytes = await File(image_url).aread_bytes()
-            if not image_bytes:
-                msg = "downloaded image was empty"
-                raise ValueError(msg)  # noqa: TRY301
-            dest = self._output_file.build_file()
-            saved = await dest.awrite_bytes(image_bytes)
-            self.parameter_output_values["image_url"] = ImageUrlArtifact(saved.location)
-            self._log(f"Saved image as {saved.name}")
-            self._set_status_results(
-                was_successful=True, result_details=f"Image generated successfully and saved as {saved.name}."
-            )
-        except Exception as e:
-            self._log(f"Failed to retrieve image from {image_url}: {e}")
-            self.parameter_output_values["image_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=(
-                    f"{self.name} generation completed upstream but the image could not be retrieved: {e}. "
-                    f"Provider URL (may be temporary): {image_url}"
-                ),
-            )
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
         """Extract error details from API response.

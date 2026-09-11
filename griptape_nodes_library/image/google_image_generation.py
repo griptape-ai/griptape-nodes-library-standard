@@ -5,9 +5,7 @@ import base64
 import json
 import logging
 from typing import Any, ClassVar
-from urllib.parse import urljoin
 
-import httpx
 from griptape.artifacts import ImageArtifact
 from griptape.artifacts.image_url_artifact import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
@@ -22,7 +20,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.image_utils import shrink_image_to_size
 
 logger = logging.getLogger("griptape_nodes")
@@ -406,46 +404,11 @@ class GoogleImageGeneration(GriptapeProxyNode):
     async def _build_payload(self) -> dict[str, Any]:
         return await self._get_parameters()
 
-    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
-        await self._handle_response(result_json)
+    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
+        await self._handle_response(result_json, generation_id)
 
-    async def _submit_request_and_process(self, params: dict[str, Any], headers: dict[str, str]) -> None:
-        post_url = urljoin(self._proxy_base, f"models/{params['model']}")
-        payload = params
-
-        msg = f"{self.name} submitting request to proxy model={params['model']}"
-        logger.info(msg)
-
-        try:
-            async with httpx.AsyncClient() as client:
-                post_resp = await client.post(post_url, json=payload, headers=headers, timeout=None)
-                post_resp.raise_for_status()
-                response_json = post_resp.json()
-        except httpx.HTTPStatusError as e:
-            self._set_safe_defaults()
-            msg = f"{self.name} proxy POST error status={e.response.status_code} headers={dict(e.response.headers)} body={e.response.text}"
-            logger.info(msg)
-            try:
-                error_json = e.response.json()
-                error_details = self._extract_error_details(error_json)
-                msg = f"{self.name} {error_details}"
-            except Exception:
-                msg = f"{self.name} proxy POST error: {e.response.status_code} - {e.response.text}"
-            raise RuntimeError(msg) from e
-        except Exception as e:
-            self._set_safe_defaults()
-            msg = f"{self.name} proxy POST request failed: {e}"
-            logger.info(msg)
-            raise RuntimeError(msg) from e
-
-        msg = f"{self.name} received response from API"
-        logger.info(msg)
-
-        # Process the response immediately
-        await self._handle_response(response_json)
-
-    async def _handle_response(self, response_json: dict[str, Any] | None) -> None:
-        """Parse Gemini API response structure and extract images and text."""
+    async def _handle_response(self, response_json: dict[str, Any] | None, generation_id: str) -> None:
+        """Parse Gemini API response structure for text; images come from hosted artifacts."""
         if not response_json:
             self._set_safe_defaults()
             self._set_status_results(
@@ -463,68 +426,43 @@ class GoogleImageGeneration(GriptapeProxyNode):
             )
             return
 
-        image_artifacts = []
         text_outputs = []
+        for candidate in candidates:
+            self._process_candidate(candidate, text_outputs)
 
-        for candidate_idx, candidate in enumerate(candidates):
-            self._process_candidate(candidate, candidate_idx, image_artifacts, text_outputs)
-
+        image_artifacts = await self._save_images(generation_id)
         self._store_results(image_artifacts, text_outputs)
 
-    def _process_candidate(
-        self,
-        candidate: dict[str, Any],
-        candidate_idx: int,
-        image_artifacts: list[ImageUrlArtifact],
-        text_outputs: list[str],
-    ) -> None:
-        """Process a single candidate and extract images and text."""
+    def _process_candidate(self, candidate: dict[str, Any], text_outputs: list[str]) -> None:
+        """Collect a candidate's text parts. Image parts are read from hosted artifacts."""
         content = candidate.get("content", {})
-        parts = content.get("parts", [])
+        for part in content.get("parts", []):
+            if "text" in part:
+                text_outputs.append(part["text"])
 
-        for part_idx, part in enumerate(parts):
-            self._process_part(part, candidate_idx, part_idx, image_artifacts, text_outputs)
-
-    def _process_part(
-        self,
-        part: dict[str, Any],
-        candidate_idx: int,
-        part_idx: int,
-        image_artifacts: list[ImageUrlArtifact],
-        text_outputs: list[str],
-    ) -> None:
-        """Process a single part and extract text or image data."""
-        if "text" in part:
-            text_outputs.append(part["text"])
-
-        inline_data = part.get("inlineData")
-        if inline_data:
-            self._process_inline_image(inline_data, candidate_idx, part_idx, image_artifacts)
-
-    def _process_inline_image(
-        self,
-        inline_data: dict[str, Any],
-        candidate_idx: int,
-        part_idx: int,
-        image_artifacts: list[ImageUrlArtifact],
-    ) -> None:
-        """Process inline image data and save to static storage."""
-        base64_data = inline_data.get("data", "")
-
-        if not base64_data:
-            return
-
+    async def _save_images(self, generation_id: str) -> list[ImageUrlArtifact]:
+        """Save every hosted image, in provider order."""
         try:
-            image_bytes = base64.b64decode(base64_data)
-            dest = self._output_file.build_file()
-            saved = dest.write_bytes(image_bytes)
-            image_artifacts.append(ImageUrlArtifact(value=saved.location, name=saved.name))
-
-            msg = f"{self.name} saved image from candidate {candidate_idx + 1}, part {part_idx + 1}"
-            logger.info(msg)
+            hosted = [a for a in await self._hosted_artifacts(generation_id) if a.kind == ArtifactKind.IMAGE]
         except Exception as e:
-            msg = f"{self.name} failed to process image from candidate {candidate_idx + 1}: {e}"
-            logger.info(msg)
+            logger.info("%s no hosted images: %s", self.name, e)
+            return []
+
+        image_artifacts = []
+        for position in range(len(hosted)):
+            try:
+                image_bytes = await self._load_generated_media(
+                    generation_id, kind=ArtifactKind.IMAGE, position=position
+                )
+                dest = self._output_file.build_file()
+                saved = await dest.awrite_bytes(image_bytes)
+            except Exception as e:
+                logger.info("%s failed to save image %s: %s", self.name, position, e)
+                continue
+            image_artifacts.append(ImageUrlArtifact(value=saved.location, name=saved.name))
+            logger.info("%s saved image %s", self.name, saved.name)
+
+        return image_artifacts
 
     def _store_results(self, image_artifacts: list[ImageUrlArtifact], text_outputs: list[str]) -> None:
         """Store image and text results and set status."""

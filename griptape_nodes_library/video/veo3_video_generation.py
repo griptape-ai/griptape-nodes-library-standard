@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import base64
 import json
 import logging
 from copy import deepcopy
@@ -25,7 +23,7 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -688,13 +686,23 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         else:
             return sanitized
 
-    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
+    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         rai_filtered_count = result_json.get("response", {}).get("raiMediaFilteredCount", 0)
         if rai_filtered_count > 0:
             logger.warning("%s: %s video(s) filtered by RAI", self.name, rai_filtered_count)
 
-        videos_array = result_json.get("response", {}).get("videos", [])
-        if not videos_array:
+        try:
+            hosted = [a for a in await self._hosted_artifacts(generation_id) if a.kind == ArtifactKind.VIDEO]
+        except Exception as e:
+            logger.warning("%s: No videos in result: %s", self.name, e)
+            self._set_safe_defaults()
+            self._set_status_results(
+                was_successful=False,
+                result_details="Generation completed but no videos received",
+            )
+            return
+
+        if not hosted:
             logger.warning("%s: No videos in result", self.name)
             self._set_safe_defaults()
             self._set_status_results(
@@ -703,7 +711,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             )
             return
 
-        video_artifacts = await self._process_videos_from_result(videos_array)
+        video_artifacts = await self._save_videos(generation_id, len(hosted))
         if not video_artifacts:
             logger.warning("%s: No videos could be processed", self.name)
             self._set_safe_defaults()
@@ -715,53 +723,25 @@ class Veo3VideoGeneration(GriptapeProxyNode):
 
         self._set_video_output_parameters(video_artifacts)
 
-    async def _process_videos_from_result(
-        self,
-        videos_array: list[dict[str, Any]],
-    ) -> list[VideoUrlArtifact]:
-        """Process all videos from the result array.
-
-        Returns a list of VideoUrlArtifact objects.
-        """
+    async def _save_videos(self, generation_id: str, count: int) -> list[VideoUrlArtifact]:
+        """Save each hosted video, in provider order, indexed for its output parameter."""
         video_artifacts = []
 
-        for idx, video_data in enumerate(videos_array, start=1):
-            artifact = await self._process_single_video(video_data, idx)
-            if artifact:
-                video_artifacts.append(artifact)
+        for position in range(count):
+            try:
+                video_bytes = await self._load_generated_media(
+                    generation_id, kind=ArtifactKind.VIDEO, position=position
+                )
+                dest = self._output_file.build_file(_index=position + 1)
+                saved = await dest.awrite_bytes(video_bytes)
+            except Exception as e:
+                logger.error("%s: Failed to process video %s: %s", self.name, position + 1, e)
+                continue
+
+            logger.info("%s: Saved video %s as %s", self.name, position + 1, saved.name)
+            video_artifacts.append(VideoUrlArtifact(value=saved.location, name=saved.name))
 
         return video_artifacts
-
-    async def _process_single_video(
-        self,
-        video_data: dict[str, Any],
-        idx: int,
-    ) -> VideoUrlArtifact | None:
-        """Process a single video from base64 data.
-
-        Returns a VideoUrlArtifact or None if processing failed.
-        """
-        try:
-            base64_data = video_data.get("bytesBase64Encoded")
-
-            if not base64_data:
-                logger.warning("%s: Video %s missing base64 data", self.name, idx)
-                return None
-
-            # Decode base64
-            video_bytes = await asyncio.to_thread(base64.b64decode, base64_data)
-
-            # Save using project file parameter with indexed filename
-            dest = self._output_file.build_file(_index=idx)
-            saved = await dest.awrite_bytes(video_bytes)
-
-            logger.info("%s: Saved video %s as %s (%s bytes)", self.name, idx, saved.name, len(video_bytes))
-
-            return VideoUrlArtifact(value=saved.location, name=saved.name)
-
-        except Exception as e:
-            logger.error("%s: Failed to process video %s: %s", self.name, idx, e)
-            return None
 
     def _set_video_output_parameters(self, video_artifacts: list[VideoUrlArtifact]) -> None:
         """Set output parameters for all generated videos."""

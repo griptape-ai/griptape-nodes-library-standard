@@ -63,7 +63,6 @@ __all__ = [
     "coerce_video_url",
     "downscale_oversized_image_data_uri",
     "downscale_oversized_image_file",
-    "extract_video_url",
     "normalize_audio_data_uri_subtype",
     "parse_provider_response",
     "summarize_media_input",
@@ -239,28 +238,6 @@ def coerce_video_url(val: Any) -> str | None:
     except Exception:  # noqa: S110
         pass
 
-    return None
-
-
-def extract_video_url(obj: dict[str, Any] | None) -> str | None:
-    """Find the first http(s) video URL anywhere in a provider result payload."""
-    if not obj:
-        return None
-    for key in ("url", "video_url", "output_url"):
-        val = obj.get(key) if isinstance(obj, dict) else None
-        if isinstance(val, str) and val.startswith("http"):
-            return val
-    for key in ("result", "data", "output", "outputs", "content", "task_result"):
-        nested = obj.get(key) if isinstance(obj, dict) else None
-        if isinstance(nested, dict):
-            url = extract_video_url(nested)
-            if url:
-                return url
-        elif isinstance(nested, list):
-            for item in nested:
-                url = extract_video_url(item if isinstance(item, dict) else None)
-                if url:
-                    return url
     return None
 
 
