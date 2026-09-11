@@ -276,7 +276,10 @@ model_bytes = await self._load_generated_media(generation_id, kind=ArtifactKind.
 
 Both report a failure when the media cannot be retrieved: a generation that
 completed (and was billed) upstream but whose output is unavailable is a failure,
-not a silent success.
+not a silent success. `_save_generated_media` reports it itself by calling
+`_set_status_results`; `_load_generated_media` only raises, so a caller must wrap
+it (as `_parse_result`'s own exception handling in `_process_generation` and
+`_refresh_completed` does) for that failure to reach the node's status.
 
 ## Key Improvements
 
