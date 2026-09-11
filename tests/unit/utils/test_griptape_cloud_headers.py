@@ -435,3 +435,63 @@ def test_no_coroutine_reaches_a_sync_build_indirectly() -> None:
     }
 
     assert blocked == set(COROUTINES_THAT_BLOCK_TRANSITIVELY)
+
+
+# Every sync `process()` that reaches a sync Cloud header build, and the shortest route it
+# takes. These park the engine's event loop exactly as the coroutines above do, and for the
+# same duration: `BaseNode.aprocess` calls `self.process()` on the loop, and for a generator
+# `process()` only the callables it *yields* reach `to_thread` -- the body between yields is
+# resumed by `result.send()`, back on the loop. Every build listed here sits in that body, the
+# generators included, so `async def` is the wrong test for the stall and this map is the
+# other half of `COROUTINES_THAT_BLOCK_TRANSITIVELY` rather than a softer version of it.
+#
+# Recorded rather than fixed for the same reason as that map: the fix is an async sibling for
+# the helper each one calls, and `cloud_driver_auth` has none yet. What the count buys in the
+# meantime is visibility -- a build site is a call to a helper's helper, and nothing at the
+# `process()` level names it. Asserted whole so a seventeenth arrives as a failing test.
+#
+# A route through `unwrap_agent` fires once per Griptape Cloud driver dict in the agent, and
+# fires even on the paths passing `require_credential=False`: that flag governs whether a
+# missing credential raises, not whether `_restored_cloud_credentials` runs. The two memory
+# nodes are the sharp end of that -- they rewrite the agent's wire dict and send no request at
+# all, so they park the loop for attribution with nothing to attribute.
+SYNC_PROCESS_BODIES_THAT_BLOCK = {
+    "agents/agent.py:730 (process)": "cloud_driver_auth; build_tools; unwrap_agent -- three routes, each its own round trip",
+    "agents/memory/clear_agent_memory.py:25 (process)": "unwrap_agent -> _restored_cloud_credentials; rewrites memory, sends nothing",
+    "agents/memory/replace_item_in_agent_memory.py:233 (process)": "unwrap_agent -> _restored_cloud_credentials; rewrites memory, sends nothing",
+    "config/image/griptape_cloud_image_driver.py:65 (process)": "cloud_driver_auth",
+    "config/prompt/griptape_cloud_prompt.py:111 (process)": "cloud_driver_auth",
+    "image/create_image.py:198 (process)": "cloud_driver_auth; unwrap_agent -> _restored_cloud_credentials",
+    "image/describe_image.py:342 (process)": "cloud_driver_auth; build_tools; unwrap_agent -- three routes",
+    "number/askulator.py:92 (process)": "create_driver -> cloud_driver_auth",
+    "tasks/mcp_task.py:342 (process)": "_setup_agent -> _create_driver -> cloud_driver_auth",
+    "text/date_and_time.py:80 (process)": "create_driver -> cloud_driver_auth",
+    "text/evaluate_text_result.py:163 (process)": "create_driver -> cloud_driver_auth",
+    "text/random_text.py:337 (process)": "_get_random_selection -> _generate_with_agent -> _initialize_agent -> cloud_driver_auth",
+    "text/scrape_web.py:40 (process)": "create_driver -> cloud_driver_auth",
+    "text/search_web.py:132 (process)": "create_driver -> cloud_driver_auth",
+    "text/summarize_text_task.py:46 (process)": "create_driver -> cloud_driver_auth",
+    "tools/extraction_tool.py:18 (process)": "cloud_driver_auth",
+}
+
+
+def test_no_sync_process_body_reaches_a_build_unrecorded() -> None:
+    """The sync half of the loop-stall census, asserted whole.
+
+    `test_no_coroutine_reaches_a_sync_build_indirectly` catches the `async def` spellings and
+    is blind to these, because a sync `process()` reads as ordinary blocking code: that the
+    engine runs it on the loop is a fact about the caller, not about anything visible here.
+
+    Filtered on the literal name `process` rather than resolved through
+    `_sync_helpers_that_build`'s unique-name rule, which would drop every one of these:
+    `process` is defined once per node and so is never unique. Safe in this direction, because
+    the only thing being asked of the name is that it is the node entry point.
+    """
+    reaching = _sync_helpers_that_build()
+    blocking = {
+        f"{path}:{lineno} ({name})"
+        for (path, lineno), (name, is_async, calls) in _library_functions().items()
+        if not is_async and name == "process" and (calls & reaching)
+    }
+
+    assert blocking == set(SYNC_PROCESS_BODIES_THAT_BLOCK)
