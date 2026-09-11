@@ -26,7 +26,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from PIL import Image
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers_async
 from griptape_nodes_library.utils.image_utils import (
     extract_image_url,
     resize_image_for_resolution,
@@ -406,7 +406,7 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
 
     async def _auto_detect_masks(self, image_url: str) -> list[str]:
         """Automatically detect masks by calling the subject detection API."""
-        headers = build_griptape_cloud_headers(self._validate_api_key(), attribution=True)
+        headers = await build_griptape_cloud_headers_async(self._validate_api_key(), attribution=True)
 
         # Build payload for subject detection
         provider_params = {

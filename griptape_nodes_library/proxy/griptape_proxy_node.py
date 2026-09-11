@@ -20,6 +20,7 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.retained_mode.events.budget_events import ATTRIBUTION_HEADER_NAME
 
 from griptape_nodes_library.proxy.provider_asset_access import (
     missing_proxy_credential_message,
@@ -28,7 +29,7 @@ from griptape_nodes_library.proxy.provider_asset_access import (
 )
 from griptape_nodes_library.proxy.proxy_api_key_providers import get_proxy_api_key_provider_config
 from griptape_nodes_library.proxy.proxy_auth_provider_parameter import ProxyAuthProviderParameter
-from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers_async
 from griptape_nodes_library.utils.model_invocation import declare_model_invocation
 
 if TYPE_CHECKING:
@@ -374,16 +375,29 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             logger.info(message)
 
     def _log_auth_header_summary(self, context: str, headers: dict[str, str]) -> None:
+        """Report what this call is authenticating and billing as, without printing either.
+
+        Attribution is included because its absence is otherwise invisible: the Cloud emits no
+        metric for a missing header, so an unattributed billable call looks exactly like an
+        attributed one from both ends. The length is carried rather than just the presence flag
+        because it separates the two shapes E1 can send -- a tagless `{"v": 1}` envelope encodes
+        to 12 characters, and anything longer names a project. The value itself is not logged:
+        it is a base64 payload this node has no business decoding, and the engine's own result
+        carries the project chain in structured form for anyone who needs it.
+        """
         authorization = headers.get("Authorization", "")
         auth_scheme, _, auth_value = authorization.partition(" ")
         proxy_auth_info = headers.get("X-GTC-PROXY-AUTH-INFO", "")
+        attribution = headers.get(ATTRIBUTION_HEADER_NAME, "")
         self._log(
             f"{context} auth headers: "
             f"authorization_present={bool(authorization)}, "
             f"authorization_scheme={auth_scheme or 'missing'}, "
             f"authorization_value_length={len(auth_value)}, "
             f"proxy_auth_info_present={bool(proxy_auth_info)}, "
-            f"proxy_auth_info_length={len(proxy_auth_info)}"
+            f"proxy_auth_info_length={len(proxy_auth_info)}, "
+            f"attribution_present={bool(attribution)}, "
+            f"attribution_value_length={len(attribution)}"
         )
 
     def _elide_base64_in_payload(self, payload: dict[str, Any]) -> str:
@@ -642,9 +656,14 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     async def _poll_generation_status(self, generation_id: str, headers: dict[str, str]) -> dict[str, Any] | None:
         """Poll generation status until terminal state is reached.
 
+        Polling costs nothing, so these requests carry no attribution header: the header
+        names what a call bills against, and there is no spend here to name. The submit that
+        preceded this already attributed the whole generation. The same dict travels on to
+        `_cancel_generation_best_effort`, which is likewise free.
+
         Args:
             generation_id: The generation ID to poll
-            headers: HTTP headers including Authorization
+            headers: HTTP headers including Authorization, built with `attribution=False`
 
         Returns:
             dict | None: The final status response, or None if polling failed
@@ -751,7 +770,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             return None
 
         # Retrieves a generation already paid for, so there is no fresh spend to attribute.
-        headers = build_griptape_cloud_headers(api_key, attribution=False)
+        headers = await build_griptape_cloud_headers_async(api_key, attribution=False)
         self._log_auth_header_summary("Fetching generation result", headers)
         try:
             async with httpx.AsyncClient() as client:
@@ -822,11 +841,22 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._set_status_results(was_successful=False, result_details=error_msg)
         self._handle_failure_exception(e)
 
-    async def _submit_and_poll(self, headers: dict[str, str]) -> tuple[str, dict[str, Any]] | None:
+    async def _submit_and_poll(
+        self, submit_headers: dict[str, str], *, poll_headers: dict[str, str]
+    ) -> tuple[str, dict[str, Any]] | None:
         """Submit generation request and poll for completion.
 
+        The two dicts differ only in attribution, and taking both rather than one is what
+        keeps that difference a decision instead of an accident: a single dict would have
+        the five poll GETs and the cancel inherit the submit's attribution by reuse, which
+        `CLOUD_HEADER_CALLS` could not see and no reader would think to question.
+        `poll_headers` is keyword-only because the two are otherwise interchangeable at the
+        call site, and swapping them fails silently in the direction that mis-bills.
+
         Args:
-            headers: HTTP headers including Authorization
+            submit_headers: Headers for the billable POST -- attributed.
+            poll_headers: Headers for the status GETs and any cancel -- not attributed;
+                see `_poll_generation_status`.
 
         Returns:
             tuple | None: (generation_id, status_response) if successful, None otherwise
@@ -871,7 +901,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         # Submit request to get generation ID
         try:
-            generation_id = await self._submit_generation(payload, headers, api_model_id)
+            generation_id = await self._submit_generation(payload, submit_headers, api_model_id)
             if not generation_id:
                 self._set_safe_defaults()
                 self._set_status_results(
@@ -888,7 +918,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self.parameter_output_values["generation_id"] = generation_id
 
         # Poll for completion
-        status_response = await self._poll_generation_status(generation_id, headers)
+        status_response = await self._poll_generation_status(generation_id, poll_headers)
         if not status_response:
             return None
 
@@ -918,13 +948,18 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         try:
             self._prepare_user_auth_info()
-            headers = build_griptape_cloud_headers(self._validate_api_key(), attribution=True)
+            api_key = self._validate_api_key()
+            submit_headers = await build_griptape_cloud_headers_async(api_key, attribution=True)
+            # Built separately rather than reused: polling and cancelling spend nothing, so
+            # there is nothing for them to attribute. Free to build -- `attribution=False`
+            # skips the engine round trip that the attributed build pays for.
+            poll_headers = await build_griptape_cloud_headers_async(api_key, attribution=False)
         except ValueError as e:
             self._handle_api_key_validation_error(e)
             return
 
         # Submit and poll
-        result = await self._submit_and_poll(headers)
+        result = await self._submit_and_poll(submit_headers, poll_headers=poll_headers)
         if not result:
             return
 
@@ -1065,7 +1100,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             return
 
         # Re-reads a generation already paid for, so there is no fresh spend to attribute.
-        headers = build_griptape_cloud_headers(api_key, attribution=False)
+        headers = await build_griptape_cloud_headers_async(api_key, attribution=False)
         status_json = await self._fetch_status_for_refresh(generation_id, headers)
         if status_json is None:
             return

@@ -411,6 +411,14 @@ def test_header_settable_tags_match_the_installed_griptape() -> None:
     `headers` as `kw_only=True` while the conversation-memory and ruleset drivers declare it
     `init=False`. If griptape settles the difference this fails, and the excluded drivers start
     being attributed with no change to `agent_utils`.
+
+    That is not a neutral widening, which is why this pin is worth its upkeep. The three settable
+    drivers issue only inference and query requests, so everything they send is spend worth
+    naming. The two excluded ones do plain CRUD -- `requests.request(method, ...)` against thread
+    and ruleset endpoints -- none of which is metered. Letting them in would attribute free calls,
+    the same over-reporting the proxy and Seedance poll loops were split apart to avoid. If this
+    fails, decide whether those drivers should be attributed at all before widening the literal
+    to make it pass.
     """
     assert agent_utils._HEADER_SETTABLE_CLOUD_DRIVER_TAGS == {  # noqa: SLF001
         "GriptapeCloudImageGenerationDriver",
