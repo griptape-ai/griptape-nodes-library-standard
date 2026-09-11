@@ -748,11 +748,12 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
 
     @staticmethod
     def _expected_asset_slots(assets: dict[str, Any]) -> list[tuple[str, str]]:
-        """The (output key, filename) pairs the proxy hosts, in the client's fixed order.
+        """The (output key, filename) pairs the proxy hosts, in the order it lists them.
 
-        Mirrors ``clients/worldlabs.py``'s ``extract_artifact_refs`` exactly (splats by
-        ascending resolution, then the collider mesh, then the panorama, each skipped
-        when absent), so position i here is position i in the hosted artifact list.
+        The artifact list carries no filenames, so this order is the whole basis for
+        deciding which bytes are which: splats by ascending resolution, then the
+        collider mesh, then the panorama, each skipped when absent. Position i here is
+        position i in the hosted artifact list.
         """
         slots: list[tuple[str, str]] = []
 
@@ -780,7 +781,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         return slots
 
     async def _parse_assets(self, assets: dict[str, Any], world_id: str, generation_id: str) -> bool:
-        """Save the world's hosted assets, matched positionally to the client's fixed order.
+        """Save the world's hosted assets, matched positionally to the order above.
 
         The artifact list carries no filename, so each asset's name is one this node
         assigns; its bytes come from the hosted artifact at the same position.
@@ -790,8 +791,8 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
 
         Returns False (after reporting failure) when the proxy hosts more media than the
         response declared, since guessing which bytes are which would mislabel a file. A
-        short list is the proxy's documented truncation, which drops a tail: the assets
-        that did arrive still pair correctly by position and are saved.
+        short list is truncation, which drops a tail: the assets that did arrive still
+        pair correctly by position and are saved.
         """
         slots = self._expected_asset_slots(assets)
         try:

@@ -598,9 +598,9 @@ class Rodin23DGeneration(GriptapeProxyNode):
             )
             return
 
-        # A short list is the proxy's documented truncation: it hosts a prefix of what
-        # the client reported and gives up the rest, so pairing by position stays
-        # correct and the files that did arrive are still worth saving.
+        # A short list is truncation: the proxy hosts a prefix of what the client
+        # reported and gives up the rest, so pairing by position stays correct and the
+        # files that did arrive are still worth saving.
         dropped = len(files_with_url) - len(hosted)
         if dropped:
             logger.warning(
