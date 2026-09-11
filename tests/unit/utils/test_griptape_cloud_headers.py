@@ -377,12 +377,17 @@ class _Reach(NamedTuple):
     once in the whole library resolves anywhere (`everywhere`); a name defined once within a
     single file resolves only for calls made from that file (`in_file`), which is what keeps
     `agents/memory/`'s two `_get_agent` definitions from being confused for each other. A name
-    defined twice inside one file resolves nowhere and is dropped -- there are none today, and
-    the rule is here so that adding one fails loudly rather than resolving arbitrarily.
+    defined twice inside one file resolves nowhere, so it lands in `dropped` rather than in
+    either bucket -- picking one of the two definitions would be a guess about which ran.
+    There are none today, and `test_every_reached_name_resolves` is what keeps it that way.
     """
 
     everywhere: frozenset[str]
     in_file: frozenset[tuple[str, str]]
+    # Reached names neither bucket resolves. Not a reach result: carried so that the drop is
+    # assertable rather than invisible, since a dropped name takes everything it reaches out
+    # of the closure with it and the census just comes back shorter.
+    dropped: frozenset[tuple[str, str]]
 
     def reached_from(self, path: str, calls: frozenset[str]) -> bool:
         return bool(calls & self.everywhere) or any((path, call) in self.in_file for call in calls)
@@ -410,9 +415,9 @@ def _sync_helpers_that_attribute() -> _Reach:
             return reach._replace(everywhere=reach.everywhere | {name})
         if per_file[(path, name)] == 1:
             return reach._replace(in_file=reach.in_file | {(path, name)})
-        return reach
+        return reach._replace(dropped=reach.dropped | {(path, name)})
 
-    reach = _Reach(frozenset(), frozenset())
+    reach = _Reach(frozenset(), frozenset(), frozenset())
     for (path, _), function in functions.items():
         if function.attributes and not function.is_async:
             reach = classify(reach, path, function.name)
@@ -506,6 +511,16 @@ def test_no_coroutine_reaches_a_sync_build_indirectly() -> None:
 #
 # Listed rather than derived: `BaseNode` defines these, a node overrides the ones it needs, and
 # nothing in this library marks them as engine-called. A hook that never appears costs nothing.
+#
+# Deliberately short of the whole hook surface. `BaseNode` declares 73 public methods and the
+# engine calls most of them on its loop, so this set is the hooks nodes in *this* library
+# override -- not a claim about which methods the engine can reach. The known next tier is the
+# control hooks: `get_next_control_output` (`parallel_resolution.py:301`, called bare from
+# `async def handle_done_nodes`), plus `initialize_spotlight`, `advance_parameter` and
+# `after_node_deleted`. All four are overridden today, in `execution/` and `engine/`, and none
+# of those overrides reaches a build. Naming a hook here buys nothing until something does, so
+# the trigger for growing the set is a node that reaches a build through one, not a sweep of
+# `BaseNode`.
 LOOP_ENTRY_POINTS = frozenset(
     {
         "__init__",
@@ -608,3 +623,17 @@ def test_a_free_build_is_not_a_stall() -> None:
 
     assert not (free_builders & reach.everywhere)
     assert not {name for _, name in reach.in_file} & free_builders
+
+
+def test_every_reached_name_resolves() -> None:
+    """A name the closure cannot resolve shortens the census without failing anything else.
+
+    `_Reach` resolves a bare name two ways, and a function defined twice inside the file that
+    calls it satisfies neither: it is not library-unique, and its own file cannot say which of
+    the two definitions the call meant. Dropping it is the right answer to that ambiguity and
+    the wrong one to leave quiet -- everything the dropped function reaches leaves the closure
+    with it, so the two census maps come back short and still agree with themselves. That is
+    the same shape as the under-count the library-unique-only rule produced before the per-file
+    bucket existed, one resolution rule further in, and nothing else in this file would see it.
+    """
+    assert _sync_helpers_that_attribute().dropped == set()
