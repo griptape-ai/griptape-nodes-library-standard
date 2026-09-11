@@ -9,9 +9,16 @@ from typing import TYPE_CHECKING, Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import (
+    NodeMessageResult,
+    Parameter,
+    ParameterGroup,
+    ParameterMessage,
+    ParameterMode,
+)
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
@@ -21,13 +28,32 @@ from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.image_utils import dict_to_image_url_artifact, load_pil_from_url
+from griptape_nodes_library.video._sora_migration import (
+    SEEDANCE_TARGET,
+    VEO_TARGET,
+    MigrationTarget,
+    migrate_sora_node,
+)
 
 if TYPE_CHECKING:
+    from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
     from PIL import Image
 
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["SoraVideoGeneration"]
+
+# OpenAI announced this on 2026-03-24 and carried it out on 2026-09-24, retiring the Videos
+# API alongside sora-2, sora-2-pro, and their dated snapshots without naming a successor.
+# https://developers.openai.com/api/docs/deprecations#2026-03-24-sora-2-video-generation-models-and-videos-api
+SORA_RETIREMENT_DATE = "2026-09-24"
+
+RETIREMENT_MESSAGE = (
+    f"OpenAI is deprecating Sora on {SORA_RETIREMENT_DATE} and has named no "
+    "successor, so this node cannot generate video after that date.\n\n"
+    "Use one of the buttons below to migrate to a still-supported video generation node. "
+    "Your prompt, start frame, connections, and canvas position carry over, and this node is removed."
+)
 
 # Size options for different models, keyed by the provider's own model id
 SIZE_OPTIONS = {
@@ -45,7 +71,17 @@ LEGACY_MODEL_VALUES: dict[str, str] = {
 
 
 class SoraVideoGeneration(GriptapeProxyNode):
-    """Generate a video using Sora 2 models via Griptape Cloud model proxy.
+    """Deprecated placeholder for Sora 2 video generation.
+
+    OpenAI is removing the Videos API and every Sora 2 model on 2026-09-24, after which no
+    configuration of this node can succeed. It keeps its full parameter surface anyway: saved
+    workflows set these parameters by name on load, so dropping them would break loading for the
+    whole workflow rather than just this node.
+
+    Submission is left to fail against the provider rather than being refused here, so what the
+    artist sees is the real response. The deprecation message and the two migrate buttons are the
+    part that has to be explained up front; the buttons rebuild the node as a video node that
+    still works, carrying over values and connections. See `_sora_migration` for the mappings.
 
     Inputs:
         - prompt (str): Text prompt for the video (required)
@@ -72,7 +108,42 @@ class SoraVideoGeneration(GriptapeProxyNode):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.category = "API Nodes"
-        self.description = "Generate video via Sora 2 through Griptape Cloud model proxy"
+        self.description = (
+            f"Deprecated: OpenAI removes Sora 2 on {SORA_RETIREMENT_DATE}. Migrate to another video node."
+        )
+
+        # Added first so the deprecation and its remedy are the first things on the node,
+        # ahead of the settings that will stop working.
+        self.add_node_element(
+            ParameterMessage(
+                name="retirement_message",
+                title=f"Sora 2 is deprecated and stops working on {SORA_RETIREMENT_DATE}",
+                value=RETIREMENT_MESSAGE,
+                variant="error",
+            )
+        )
+        self.add_parameter(
+            ParameterButton(
+                name="migrate_to_veo",
+                label=f"Migrate to {VEO_TARGET.display_name}",
+                icon="replace",
+                variant="default",
+                full_width=True,
+                tooltip="Google Veo 3.1. Closest match: same prompt and start frame, with generated audio.",
+                on_click=self._on_migrate_to_veo_clicked,
+            )
+        )
+        self.add_parameter(
+            ParameterButton(
+                name="migrate_to_seedance",
+                label=f"Migrate to {SEEDANCE_TARGET.display_name}",
+                icon="replace",
+                variant="default",
+                full_width=True,
+                tooltip="ByteDance Seedance 2.0. Supports longer clip durations Veo does not.",
+                on_click=self._on_migrate_to_seedance_clicked,
+            )
+        )
 
         # INPUTS / PROPERTIES
         model_param = ParameterString(
@@ -225,6 +296,29 @@ class SoraVideoGeneration(GriptapeProxyNode):
 
     async def aprocess(self) -> None:
         await self._process_generation()
+
+    def _on_migrate_to_veo_clicked(
+        self,
+        button: Button,  # noqa: ARG002
+        button_details: ButtonDetailsMessagePayload,  # noqa: ARG002
+    ) -> NodeMessageResult:
+        return self._migrate(VEO_TARGET)
+
+    def _on_migrate_to_seedance_clicked(
+        self,
+        button: Button,  # noqa: ARG002
+        button_details: ButtonDetailsMessagePayload,  # noqa: ARG002
+    ) -> NodeMessageResult:
+        return self._migrate(SEEDANCE_TARGET)
+
+    def _migrate(self, target: MigrationTarget) -> NodeMessageResult:
+        try:
+            outcome = migrate_sora_node(self, target)
+        except RuntimeError as e:
+            # Nothing was created or rewired on this path, so the graph is untouched.
+            return NodeMessageResult(success=False, details=str(e), altered_workflow_state=False)
+        self._log(f"Migrated '{self.name}' to '{outcome.new_node_name}' ({outcome.display_name})")
+        return NodeMessageResult(success=True, details=outcome.summary())
 
     def _get_parameters(self) -> dict[str, Any]:
         seconds_value = self.get_parameter_value("seconds")
