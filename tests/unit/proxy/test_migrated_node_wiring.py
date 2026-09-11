@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 import pytest
@@ -68,15 +69,22 @@ def _declared_parameter_names(tree: ast.Module) -> set[str]:
     return names
 
 
+class _KindForm(StrEnum):
+    """How a call spelled its ``kind=`` argument, which decides how to verify it."""
+
+    NONE_LITERAL = "none_literal"
+    ENUM_MEMBER = "enum_member"
+    STRING_LITERAL = "string_literal"
+    UNRECOGNIZED = "unrecognized"
+
+
 @dataclass
 class _HostedMediaCall:
     lineno: int
     method: str
     output_param: str | None
-    # None: no kind= passed. "none_literal": kind=None. "enum_member": kind=ArtifactKind.X,
-    # checkable via kind_member. "string_literal": kind="...", checkable via kind_literal.
-    # "unrecognized": kind= is a variable or expression this check cannot verify.
-    kind_form: str | None
+    # None when the call passes no kind= at all.
+    kind_form: _KindForm | None
     kind_member: str | None = None
     kind_literal: str | None = None
 
@@ -97,7 +105,7 @@ def _hosted_media_calls(tree: ast.Module) -> list[_HostedMediaCall]:
             if isinstance(second_arg, ast.Constant) and isinstance(second_arg.value, str):
                 output_param = second_arg.value
 
-        kind_form: str | None = None
+        kind_form: _KindForm | None = None
         kind_member: str | None = None
         kind_literal: str | None = None
         for keyword in node.keywords:
@@ -109,15 +117,15 @@ def _hosted_media_calls(tree: ast.Module) -> list[_HostedMediaCall]:
                 and isinstance(value.value, ast.Name)
                 and value.value.id == "ArtifactKind"
             ):
-                kind_form = "enum_member"
+                kind_form = _KindForm.ENUM_MEMBER
                 kind_member = value.attr
             elif isinstance(value, ast.Constant) and value.value is None:
-                kind_form = "none_literal"
+                kind_form = _KindForm.NONE_LITERAL
             elif isinstance(value, ast.Constant) and isinstance(value.value, str):
-                kind_form = "string_literal"
+                kind_form = _KindForm.STRING_LITERAL
                 kind_literal = value.value
             else:
-                kind_form = "unrecognized"
+                kind_form = _KindForm.UNRECOGNIZED
 
         calls.append(
             _HostedMediaCall(
@@ -154,22 +162,22 @@ def test_hosted_media_calls_name_real_parameters_and_kinds(module_path: Path) ->
             )
 
         # A kind= that is neither absent, None, an ArtifactKind member, nor a string matching
-        # one must fail rather than skip silently -- an unchecked form defeats the point of
-        # this test just as surely as a wrong value would.
+        # one must fail rather than skip silently. An unchecked form defeats the point of this
+        # test just as surely as a wrong value would.
         match call.kind_form:
-            case None | "none_literal":
+            case None | _KindForm.NONE_LITERAL:
                 pass
-            case "enum_member":
+            case _KindForm.ENUM_MEMBER:
                 assert hasattr(ArtifactKind, call.kind_member or ""), (
                     f"{module_path.name}:{call.lineno} calls {call.method} with kind=ArtifactKind."
                     f"{call.kind_member}, which is not a real ArtifactKind member"
                 )
-            case "string_literal":
+            case _KindForm.STRING_LITERAL:
                 assert call.kind_literal in kind_values, (
                     f"{module_path.name}:{call.lineno} calls {call.method} with kind={call.kind_literal!r}, "
                     f"which is not a real ArtifactKind value"
                 )
-            case "unrecognized":
+            case _KindForm.UNRECOGNIZED:
                 pytest.fail(
                     f"{module_path.name}:{call.lineno} calls {call.method} with a kind= this check cannot "
                     f"verify statically. Use kind=ArtifactKind.<MEMBER>, or give this module its own "
