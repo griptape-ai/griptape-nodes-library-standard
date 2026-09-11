@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import collections
 import inspect
 from collections.abc import Callable
 from pathlib import Path
@@ -310,14 +311,19 @@ def test_the_spelling_matches_the_caller() -> None:
     endpoint, and flipping one is a one-word edit; a coroutine left on the sync spelling because
     it happens not to spend today is a loop stall waiting for an unrelated change to arm it.
 
-    Lexical `async def` is the whole rule, and it is narrower than "runs on the event loop".
-    A node's `process()` runs on the loop too -- `BaseNode.aprocess` calls it directly, and for
-    a generator `process()` only the *yielded* callable reaches `asyncio.to_thread`; the body up
-    to the first yield does not. So a sync `cloud_driver_auth()` in a plain `process()` parks the
-    loop exactly as the case above does, and this test reports it correct. Closing that gap means
-    an async sibling for `cloud_driver_auth` and an `async def process()` at each site, which is
-    a change to the nodes rather than to the check -- until then, read a pass here as "no
-    coroutine blocks", not as "nothing blocks".
+    Direct calls only, and lexical `async def` only. Two gaps follow, and neither is this
+    test's to close:
+
+    A coroutine that reaches the sync builder through a sync helper passes here, because the
+    name in the body is the helper's. `test_no_coroutine_reaches_a_sync_build_indirectly` below
+    is the companion that walks those hops, and it holds the two sites that already do.
+
+    "Runs on the event loop" is wider than `async def`. A node's `process()` runs there too --
+    `BaseNode.aprocess` calls it directly, and for a generator `process()` only the *yielded*
+    callable reaches `asyncio.to_thread`; the body up to the first yield does not. So a sync
+    `cloud_driver_auth()` in a plain `process()` parks the loop exactly as the case above does,
+    and neither test sees it. Closing that means an async sibling for `cloud_driver_auth` and an
+    `async def process()` at each site, which is a change to the nodes rather than to the check.
     """
     mismatched = set()
     for path in sorted(LIBRARY_ROOT.rglob("*.py")):
@@ -338,3 +344,94 @@ def test_the_spelling_matches_the_caller() -> None:
                 mismatched.add(f"{where} ({scope.name if scope else '<module>'}) calls {called} -- {complaint}")
 
     assert mismatched == set()
+
+
+# Coroutines that reach a sync Cloud header build through a sync helper, and why each is still
+# here. Every one parks the engine event loop for the length of an engine round trip -- on a
+# worker, a forwarded request to the orchestrator, and the full `_TIMEOUT_SECONDS` when the
+# orchestrator is wedged. Recorded rather than fixed because the fix is not in this layer: each
+# needs an async sibling for the helper it calls, and `cloud_driver_auth` has none yet.
+COROUTINES_THAT_BLOCK_TRANSITIVELY = {
+    "audio/transcribe_audio.py:313 (_parse_result)": "unwrap_agent -> _restored_cloud_credentials, once per Cloud driver dict in the agent",
+    "video/split_video.py:539 (aprocess)": "_parse_timecodes -> _parse_timecodes_with_agent -> cloud_driver_auth",
+}
+
+
+def _sync_helpers_that_build() -> set[str]:
+    """Sync function names that reach a Cloud header build, directly or through another one.
+
+    Unique names only. This is a bare-name call graph with no receiver types, so a name defined
+    twice in the library cannot be resolved to the definition a given call reaches -- counting it
+    would pull in every same-named method in the tree. Skipping it is the safe direction for a
+    guardrail whose failure mode is a false alarm on 100+ innocent coroutines; the cost is that a
+    helper sharing its name with something else goes unwatched, which is what
+    `test_the_spelling_matches_the_caller` catches at the direct hop.
+    """
+    seen_once = collections.Counter(
+        function.name
+        for path in sorted(LIBRARY_ROOT.rglob("*.py"))
+        for function in ast.walk(ast.parse(path.read_text()))
+        if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef))
+    )
+    unique = {name for name, count in seen_once.items() if count == 1}
+
+    helpers = {SYNC_FACTORY, "cloud_driver_auth"}
+    while True:
+        grown = helpers | {
+            name
+            for _, (name, is_async, calls) in _library_functions().items()
+            if not is_async and name in unique and (calls & helpers)
+        }
+        if grown == helpers:
+            return helpers
+        helpers = grown
+
+
+def _library_functions() -> dict[tuple[str, int], tuple[str, bool, set[str]]]:
+    """`{(file, lineno): (name, is_async, names it calls)}`, one entry per function.
+
+    Calls made inside a nested `def` are attributed to that def, not to the function it sits in
+    -- a sync closure defined in a coroutine blocks only whichever thread runs it.
+    """
+    functions: dict[tuple[str, int], tuple[str, bool, set[str]]] = {}
+    for path in sorted(LIBRARY_ROOT.rglob("*.py")):
+        tree = ast.parse(path.read_text())
+        for function in ast.walk(tree):
+            if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            nested = [
+                f
+                for f in ast.walk(function)
+                if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef)) and f is not function
+            ]
+            inside_nested = {line for f in nested for line in range(f.lineno, (f.end_lineno or f.lineno) + 1)}
+            calls = {
+                name
+                for node in ast.walk(function)
+                if isinstance(node, ast.Call) and node.lineno not in inside_nested
+                if (name := getattr(node.func, "id", None) or getattr(node.func, "attr", None))
+            }
+            key = (path.relative_to(LIBRARY_ROOT).as_posix(), function.lineno)
+            functions[key] = (function.name, isinstance(function, ast.AsyncFunctionDef), calls)
+    return functions
+
+
+def test_no_coroutine_reaches_a_sync_build_indirectly() -> None:
+    """A sync helper between the coroutine and the builder hides the stall from the direct check.
+
+    `test_the_spelling_matches_the_caller` reads the names in the body, so
+    `async def _parse_result` calling `unwrap_agent` looks clean -- the blocking build is two
+    hops down. The stall is the same one either way: the loop stops until the engine answers,
+    and on a worker that is a round trip to the orchestrator.
+
+    Asserted whole rather than as a floor, so a coroutine that stops blocking has to be removed
+    from the map here. A stale entry would leave the next added site looking accounted for.
+    """
+    reaching = _sync_helpers_that_build()
+    blocked = {
+        f"{path}:{lineno} ({name})"
+        for (path, lineno), (name, is_async, calls) in _library_functions().items()
+        if is_async and (calls & reaching)
+    }
+
+    assert blocked == set(COROUTINES_THAT_BLOCK_TRANSITIVELY)
