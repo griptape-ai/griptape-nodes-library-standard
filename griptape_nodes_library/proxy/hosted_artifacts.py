@@ -10,6 +10,13 @@ completes.
 The list is ordered and an artifact's index is its stable public handle, so a
 model that produces several pieces of media (a mesh plus a preview, a video plus
 its last frame) always reports them in the same order.
+
+The list can be shorter than the media a provider reported. The proxy hosts a
+leading prefix and gives up the rest once a generation exceeds its artifact count
+or time budget, so a short list drops a tail rather than leaving a gap. A node
+that pairs artifacts to names by position therefore stays correct on a short
+list, while a list longer than the response declared means the pairing itself is
+wrong and the node should refuse instead of guessing.
 """
 
 from __future__ import annotations
@@ -94,8 +101,8 @@ class HostedArtifact:
 
         Returns None for an entry without an index or a URL, since neither can be
         guessed and an artifact missing either cannot be fetched. Logs when this
-        happens: a caller treats a short list as the proxy's documented truncation,
-        so a malformed entry must not look identical to that in the logs.
+        happens: a caller treats a short list as truncation, so a malformed entry
+        must not look identical to that in the logs.
         """
         if not isinstance(payload, dict):
             logger.warning("Hosted artifact entry was not an object, dropping it: %s", _bounded_repr(payload))
