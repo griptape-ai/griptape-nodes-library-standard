@@ -217,29 +217,25 @@ class RandomText(DataNode):
             )
         )
 
-    def _build_agent(self) -> GtAgent:
-        """Build a Griptape Agent for one generation.
+        # Initialize the agent
+        self.agent = None
+        self._initialize_agent()
 
-        Per call, and never cached, which is what the rest of this library does
-        (`create_image`, `describe_image`, `agents/agent.py`, `tasks/base_task`). It matters
-        more here than it reads: `cloud_driver_auth` resolves the Cloud attribution header and
-        bakes it into the driver, so an agent kept on the node would pin whichever project was
-        current when it was first built -- and would pin a *failed* lookup just as durably,
-        billing every later run of that node unattributed with nothing to say so. It was worse
-        still in `__init__`, where the engine round trip landed on every drop of the node,
-        including the `character` and `word` selections that never reach an agent, and a
-        missing credential failed node creation rather than the run that needed one.
-        """
+    def _initialize_agent(self) -> None:
+        """Initialize the Griptape Agent for text generation."""
         api_key = resolve_cloud_api_key()
         if not api_key:
             msg = missing_credential_message("generate random text")
             raise KeyError(msg)
 
         prompt_driver = GriptapeCloudPromptDriver(model=MODEL, stream=True, **cloud_driver_auth(api_key))
-        return GtAgent(prompt_driver=prompt_driver)
+        self.agent = GtAgent(prompt_driver=prompt_driver)
 
     def _generate_with_agent(self, selection_type: str, seed: int | None) -> str:
         """Generate random content using the Griptape Agent."""
+        if not self.agent:
+            self._initialize_agent()
+
         # Create appropriate prompt based on selection type
         if selection_type == "sentence":
             prompt = f"Generate a random, grammatically correct sentence. Use seed {seed} for reproducibility. Return only the sentence and nothing else."
@@ -251,17 +247,18 @@ class RandomText(DataNode):
             # For character and word, fall back to simple random generation
             return self._generate_simple_content(selection_type)
 
-        # License-policy gate immediately before the framework driver call. RandomText has
-        # no user-facing model selection (MODEL is a fixed constant), so there is no
-        # dropdown to gate with ModelAccessComponent -- this declaration is the sole gate.
-        # Ahead of `_build_agent` so a denied invocation costs neither a credential lookup
-        # nor the attribution round trip that building the driver now pays for.
-        require_model_invocation_sync(self, MODEL)
+        # Run the agent
+        if self.agent:
+            # License-policy gate immediately before the framework driver call. RandomText has
+            # no user-facing model selection (MODEL is a fixed constant), so there is no
+            # dropdown to gate with ModelAccessComponent -- this declaration is the sole gate.
+            require_model_invocation_sync(self, MODEL)
 
-        result = self._build_agent().run(prompt)
-        if isinstance(result, BaseArtifact):
-            return result.output.value
-        return str(result.output.value)
+            result = self.agent.run(prompt)
+            if isinstance(result, BaseArtifact):
+                return result.output.value
+            return str(result.output.value)
+        return ""
 
     def _generate_simple_content(self, selection_type: str) -> str:
         """Generate simple random content for characters and words."""
