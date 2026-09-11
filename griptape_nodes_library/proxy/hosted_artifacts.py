@@ -45,6 +45,20 @@ ARTIFACT_LIST_TIMEOUT_SECONDS = 30
 _PROXY_ARTIFACT_ROUTE = re.compile(r"/api/proxy/v2/generations/[^/]+/artifacts/\d+/?$")
 
 
+# Hosted-list entries are logged at most this many characters when dropped as
+# malformed: enough to identify which entry it was, not enough for a proxy bug
+# that returns an oversized or deeply nested payload to flood the logs.
+_MALFORMED_ENTRY_LOG_LIMIT = 200
+
+
+def _bounded_repr(value: Any, limit: int = _MALFORMED_ENTRY_LOG_LIMIT) -> str:
+    """repr() of value, truncated so a single log line stays bounded in size."""
+    text = repr(value)
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}..."
+
+
 class HostedArtifactError(RuntimeError):
     """Raised when a generation's hosted media cannot be listed or located."""
 
@@ -80,18 +94,17 @@ class HostedArtifact:
 
         Returns None for an entry without an index or a URL, since neither can be
         guessed and an artifact missing either cannot be fetched. Logs when this
-        happens: a caller now treats a short list as the proxy's documented
-        truncation, so a malformed entry must not look identical to that in the
-        logs.
+        happens: a caller treats a short list as the proxy's documented truncation,
+        so a malformed entry must not look identical to that in the logs.
         """
         if not isinstance(payload, dict):
-            logger.warning("Hosted artifact entry was not an object, dropping it: %r", payload)
+            logger.warning("Hosted artifact entry was not an object, dropping it: %s", _bounded_repr(payload))
             return None
 
         index = payload.get("index")
         url = payload.get("url")
         if not isinstance(index, int) or not isinstance(url, str) or not url:
-            logger.warning("Hosted artifact entry has no usable index or url, dropping it: %r", payload)
+            logger.warning("Hosted artifact entry has no usable index or url, dropping it: %s", _bounded_repr(payload))
             return None
 
         return cls(
