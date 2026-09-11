@@ -144,6 +144,25 @@ async def test_fetch_warns_about_a_dropped_entry_and_still_returns_the_rest(
 
 
 @pytest.mark.asyncio
+async def test_fetch_bounds_a_dropped_entrys_size_in_the_log(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A malformed entry from a misbehaving proxy could be arbitrarily large; the log
+    # line must stay bounded rather than dumping it whole.
+    oversized_note = "x" * 10_000
+    payload = {"artifacts": [{"index": 0, "kind": "image", "note": oversized_note}]}
+    _install_list_client(monkeypatch, payload, [])
+
+    with caplog.at_level(logging.WARNING, logger="griptape_nodes"):
+        artifacts = await fetch_hosted_artifacts(PROXY_BASE, GENERATION_ID, "test-key")
+
+    assert artifacts == []
+    dropped_lines = [record.message for record in caplog.records if "dropping it" in record.message]
+    assert dropped_lines
+    assert all(len(line) < len(oversized_note) for line in dropped_lines)
+
+
+@pytest.mark.asyncio
 async def test_unexpected_payload_shape_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_list_client(monkeypatch, {"unexpected": True}, [])
 
