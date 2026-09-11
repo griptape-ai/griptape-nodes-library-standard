@@ -1187,9 +1187,11 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """Save one piece of the generation's hosted media to project storage.
 
         On success sets ``output_param`` to the artifact ``artifact_factory``
-        produces and reports success. On any failure clears that parameter and
-        reports failure: a generation that completed (and was billed) upstream but
-        whose media cannot be retrieved is a failure, not a success.
+        produces and reports success. On a retrieval or write failure clears that
+        parameter and reports failure: a generation that completed (and was billed)
+        upstream but whose media cannot be retrieved is a failure, not a success.
+        A failure in ``artifact_factory`` itself is not caught here and propagates
+        to the caller.
 
         Args:
             generation_id: The generation whose media to save.
@@ -1204,6 +1206,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Returns:
             Whether the media was saved. Callers that report their own status only do
             so when this is True, so a failure here is not overwritten by a success.
+
+        Raises:
+            Exception: If ``artifact_factory`` raises.
         """
         try:
             media_bytes = await self._load_generated_media(generation_id, kind=kind, position=position)
