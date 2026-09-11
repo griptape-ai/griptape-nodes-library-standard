@@ -98,14 +98,10 @@ def _start_asking(deliver: Callable[[object], None]) -> None:
       documented consequence of a contract that sanctions arbitrary threads, and every other
       cross-thread caller shares it.
 
-    `daemon=True`, and a bare thread rather than a pool, because of what happens at
-    interpreter exit. `ThreadPoolExecutor` registers its workers with
-    `concurrent.futures.thread._python_exit`, which `join()`s every one of them no matter how
-    the pool was shut down -- `shutdown(wait=False)` does not detach anything. On the timeout
-    path the worker is still blocked on the engine, so quitting would block until the engine's
-    30s transport gave up: the same 30s this timeout exists to escape, moved from a hung node
-    to a hung quit. This rules out `asyncio.to_thread` for the async variant too, since that
-    runs on the event loop's default pool and `asyncio.run` joins it on the way out.
+    `daemon=True`, and a bare thread rather than a pool or `asyncio.to_thread`, because a
+    pooled worker is joined at interpreter exit however the pool was closed. That turns a hung
+    node into a hung quit -- the bound voided somewhere no timing assertion can see it.
+    `test_a_wedged_engine_does_not_outlive_the_process` carries the mechanism and the numbers.
     """
     threading.Thread(target=_dispatch, args=(deliver,), name="griptape-attribution", daemon=True).start()
 
