@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import httpx
@@ -124,6 +125,25 @@ async def test_fetch_orders_by_index_and_skips_unfetchable_entries(monkeypatch: 
 
 
 @pytest.mark.asyncio
+async def test_fetch_warns_about_a_dropped_entry_and_still_returns_the_rest(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    payload = {
+        "artifacts": [
+            {"index": 0, "kind": "model_3d", "url": "https://example/0.glb"},
+            {"index": 2, "kind": "image"},
+        ]
+    }
+    _install_list_client(monkeypatch, payload, [])
+
+    with caplog.at_level(logging.WARNING, logger="griptape_nodes"):
+        artifacts = await fetch_hosted_artifacts(PROXY_BASE, GENERATION_ID, "test-key")
+
+    assert [artifact.index for artifact in artifacts] == [0]
+    assert any("dropping it" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_unexpected_payload_shape_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_list_client(monkeypatch, {"unexpected": True}, [])
 
@@ -217,3 +237,38 @@ async def test_save_reports_failure_when_nothing_is_hosted(monkeypatch: pytest.M
     assert node.parameter_output_values["image_url"] is None
     assert status_calls[0]["was_successful"] is False
     assert "could not be retrieved" in status_calls[0]["result_details"]
+
+
+@pytest.mark.asyncio
+async def test_process_generation_clears_a_stale_artifact_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A presigned artifact URL is short-lived, so a run must not reuse the list an
+    # earlier run or Refresh saw.
+    node, _status_calls = _build_node(monkeypatch)
+    node._hosted_artifact_lists[GENERATION_ID] = ["stale"]  # type: ignore[list-item]
+
+    def _raise(*_args: Any, **_kwargs: Any) -> str:
+        raise ValueError("no key")
+
+    monkeypatch.setattr(node, "_validate_api_key", _raise, raising=False)
+
+    with pytest.raises(ValueError, match="no key"):
+        await node._process_generation()
+
+    assert node._hosted_artifact_lists == {}
+
+
+@pytest.mark.asyncio
+async def test_refresh_async_clears_a_stale_artifact_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    node, status_calls = _build_node(monkeypatch)
+    node.parameter_output_values["generation_id"] = GENERATION_ID
+    node._hosted_artifact_lists[GENERATION_ID] = ["stale"]  # type: ignore[list-item]
+
+    def _raise(*_args: Any, **_kwargs: Any) -> str:
+        raise ValueError("no key")
+
+    monkeypatch.setattr(node, "_validate_api_key", _raise, raising=False)
+
+    await node._refresh_async()
+
+    assert node._hosted_artifact_lists == {}
+    assert status_calls[0]["was_successful"] is False
