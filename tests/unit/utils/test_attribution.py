@@ -180,12 +180,14 @@ def test_a_wedged_engine_does_not_outlive_the_process(call: str) -> None:
     The async parameter is not a formality: `asyncio.to_thread` is the obvious way to write that
     wait and is a pool in disguise -- it dispatches to the running loop's default
     `ThreadPoolExecutor`, which `asyncio.run` joins in `shutdown_default_executor` on its way
-    out. Measured while writing this, that spelling took 30.1s to exit and the loop's own
-    `asyncio.run` accounted for 30.0s of it. Only this parameter would have caught that.
+    out. Only this parameter would have caught that.
 
     Only a real interpreter exit can show any of it, hence the subprocess. The child wedges the
-    engine for far longer than it bounds the call, so the two outcomes are unmistakable: measured
-    here, a pool exits in ~30s and a daemon thread in ~0.3s.
+    engine for far longer than it bounds the call, so the two outcomes are unmistakable rather
+    than a close call: measured against both mutants, a pool and an `asyncio.to_thread` each
+    exit in ~30s -- the wedge's full duration -- and a daemon thread in ~0.3s. Quoted to the
+    second on purpose; the tenths are sampling noise on top of a 30s sleep, and pinning them is
+    how two copies of this number came to disagree.
     """
     child = textwrap.dedent(f"""
         import asyncio
