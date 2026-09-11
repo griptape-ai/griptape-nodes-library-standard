@@ -79,14 +79,19 @@ class HostedArtifact:
         """Build an artifact from one entry of the list endpoint's response.
 
         Returns None for an entry without an index or a URL, since neither can be
-        guessed and an artifact missing either cannot be fetched.
+        guessed and an artifact missing either cannot be fetched. Logs when this
+        happens: a caller now treats a short list as the proxy's documented
+        truncation, so a malformed entry must not look identical to that in the
+        logs.
         """
         if not isinstance(payload, dict):
+            logger.warning("Hosted artifact entry was not an object, dropping it: %r", payload)
             return None
 
         index = payload.get("index")
         url = payload.get("url")
         if not isinstance(index, int) or not isinstance(url, str) or not url:
+            logger.warning("Hosted artifact entry has no usable index or url, dropping it: %r", payload)
             return None
 
         return cls(
