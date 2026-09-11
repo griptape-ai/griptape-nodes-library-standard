@@ -6,7 +6,7 @@ import collections
 import inspect
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import pytest
 
@@ -318,12 +318,12 @@ def test_the_spelling_matches_the_caller() -> None:
     name in the body is the helper's. `test_no_coroutine_reaches_a_sync_build_indirectly` below
     is the companion that walks those hops, and it holds the two sites that already do.
 
-    "Runs on the event loop" is wider than `async def`. A node's `process()` runs there too --
-    `BaseNode.aprocess` calls it directly, and for a generator `process()` only the *yielded*
-    callable reaches `asyncio.to_thread`; the body up to the first yield does not. So a sync
-    `cloud_driver_auth()` in a plain `process()` parks the loop exactly as the case above does,
-    and neither test sees it. Closing that means an async sibling for `cloud_driver_auth` and an
-    `async def process()` at each site, which is a change to the nodes rather than to the check.
+    "Runs on the event loop" is wider than `async def`. A node's `process()` runs there too, as
+    do its `__init__` and its value and connection hooks, so a sync `cloud_driver_auth()` in any
+    of them parks the loop exactly as the case above does.
+    `test_no_sync_entry_point_reaches_a_build_unrecorded` is the companion that counts those;
+    closing them means an async sibling for `cloud_driver_auth` and an async entry point at each
+    site, which is a change to the nodes rather than to the check.
     """
     mismatched = set()
     for path in sorted(LIBRARY_ROOT.rglob("*.py")):
@@ -357,43 +357,83 @@ COROUTINES_THAT_BLOCK_TRANSITIVELY = {
 }
 
 
-def _sync_helpers_that_build() -> set[str]:
-    """Sync function names that reach a Cloud header build, directly or through another one.
+class _Function(NamedTuple):
+    """One function definition: its name, whether it is a coroutine, and what it reaches."""
 
-    Unique names only. This is a bare-name call graph with no receiver types, so a name defined
-    twice in the library cannot be resolved to the definition a given call reaches -- counting it
-    would pull in every same-named method in the tree. Skipping it is the safe direction for a
-    guardrail whose failure mode is a false alarm on 100+ innocent coroutines; the cost is that a
-    helper sharing its name with something else goes unwatched, which is what
-    `test_the_spelling_matches_the_caller` catches at the direct hop.
+    name: str
+    is_async: bool
+    calls: frozenset[str]
+    # Whether the body itself calls the *sync* factory with `attribution=True`. That is the
+    # only build that dispatches: `build_griptape_cloud_headers` guards `attribution_header()`
+    # behind `if attribution`, so an `attribution=False` site returns a plain dict and touches
+    # the engine not at all, and the async factory awaits rather than parking the loop.
+    attributes: bool
+
+
+class _Reach(NamedTuple):
+    """Function names that reach an attributing sync build, split by how each one resolves.
+
+    Two buckets because this is a bare-name call graph with no receiver types. A name defined
+    once in the whole library resolves anywhere (`everywhere`); a name defined once within a
+    single file resolves only for calls made from that file (`in_file`), which is what keeps
+    `agents/memory/`'s two `_get_agent` definitions from being confused for each other. A name
+    defined twice inside one file resolves nowhere and is dropped -- there are none today, and
+    the rule is here so that adding one fails loudly rather than resolving arbitrarily.
     """
-    seen_once = collections.Counter(
-        function.name
-        for path in sorted(LIBRARY_ROOT.rglob("*.py"))
-        for function in ast.walk(ast.parse(path.read_text()))
-        if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef))
-    )
-    unique = {name for name, count in seen_once.items() if count == 1}
 
-    helpers = {SYNC_FACTORY, "cloud_driver_auth"}
+    everywhere: frozenset[str]
+    in_file: frozenset[tuple[str, str]]
+
+    def reached_from(self, path: str, calls: frozenset[str]) -> bool:
+        return bool(calls & self.everywhere) or any((path, call) in self.in_file for call in calls)
+
+
+def _sync_helpers_that_attribute() -> _Reach:
+    """Sync functions that reach an attributing build, directly or through another one.
+
+    Seeded on the *sites that attribute* rather than on the factory's name, which is the
+    difference between this and a call graph rooted at `build_griptape_cloud_headers`. Rooting
+    it at the name counts `_list_models`, `get_bucket_list` and `check_provider_asset_access`,
+    all three of which build with `attribution=False` and therefore dispatch nothing. That
+    over-count is invisible while the consumer only asks about `process` bodies -- none of the
+    three is reachable from one -- and produces four bogus entries the moment the consumer asks
+    about lifecycle hooks, where all three are reached from an `__init__` or an
+    `after_value_set`. The seed is the honest root: a stall starts where a dispatch does.
+    """
+    functions = _library_functions()
+    by_name = collections.Counter(function.name for function in functions.values())
+    unique = {name for name, count in by_name.items() if count == 1}
+    per_file = collections.Counter((path, function.name) for (path, _), function in functions.items())
+
+    def classify(reach: _Reach, path: str, name: str) -> _Reach:
+        if name in unique:
+            return reach._replace(everywhere=reach.everywhere | {name})
+        if per_file[(path, name)] == 1:
+            return reach._replace(in_file=reach.in_file | {(path, name)})
+        return reach
+
+    reach = _Reach(frozenset(), frozenset())
+    for (path, _), function in functions.items():
+        if function.attributes and not function.is_async:
+            reach = classify(reach, path, function.name)
+
     while True:
-        grown = helpers | {
-            name
-            for _, (name, is_async, calls) in _library_functions().items()
-            if not is_async and name in unique and (calls & helpers)
-        }
-        if grown == helpers:
-            return helpers
-        helpers = grown
+        grown = reach
+        for (path, _), function in functions.items():
+            if not function.is_async and reach.reached_from(path, function.calls):
+                grown = classify(grown, path, function.name)
+        if grown == reach:
+            return reach
+        reach = grown
 
 
-def _library_functions() -> dict[tuple[str, int], tuple[str, bool, set[str]]]:
-    """`{(file, lineno): (name, is_async, names it calls)}`, one entry per function.
+def _library_functions() -> dict[tuple[str, int], _Function]:
+    """`{(file, lineno): _Function}`, one entry per function definition.
 
     Calls made inside a nested `def` are attributed to that def, not to the function it sits in
     -- a sync closure defined in a coroutine blocks only whichever thread runs it.
     """
-    functions: dict[tuple[str, int], tuple[str, bool, set[str]]] = {}
+    functions: dict[tuple[str, int], _Function] = {}
     for path in sorted(LIBRARY_ROOT.rglob("*.py")):
         tree = ast.parse(path.read_text())
         for function in ast.walk(tree):
@@ -405,14 +445,24 @@ def _library_functions() -> dict[tuple[str, int], tuple[str, bool, set[str]]]:
                 if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef)) and f is not function
             ]
             inside_nested = {line for f in nested for line in range(f.lineno, (f.end_lineno or f.lineno) + 1)}
+            own = [
+                node for node in ast.walk(function) if isinstance(node, ast.Call) and node.lineno not in inside_nested
+            ]
             calls = {
-                name
-                for node in ast.walk(function)
-                if isinstance(node, ast.Call) and node.lineno not in inside_nested
-                if (name := getattr(node.func, "id", None) or getattr(node.func, "attr", None))
+                name for node in own if (name := getattr(node.func, "id", None) or getattr(node.func, "attr", None))
             }
+            attributes = any(
+                (getattr(node.func, "id", None) or getattr(node.func, "attr", None)) == SYNC_FACTORY
+                and any(
+                    kw.arg == "attribution" and isinstance(kw.value, ast.Constant) and kw.value.value is True
+                    for kw in node.keywords
+                )
+                for node in own
+            )
             key = (path.relative_to(LIBRARY_ROOT).as_posix(), function.lineno)
-            functions[key] = (function.name, isinstance(function, ast.AsyncFunctionDef), calls)
+            functions[key] = _Function(
+                function.name, isinstance(function, ast.AsyncFunctionDef), frozenset(calls), attributes
+            )
     return functions
 
 
@@ -427,38 +477,82 @@ def test_no_coroutine_reaches_a_sync_build_indirectly() -> None:
     Asserted whole rather than as a floor, so a coroutine that stops blocking has to be removed
     from the map here. A stale entry would leave the next added site looking accounted for.
     """
-    reaching = _sync_helpers_that_build()
+    reach = _sync_helpers_that_attribute()
     blocked = {
-        f"{path}:{lineno} ({name})"
-        for (path, lineno), (name, is_async, calls) in _library_functions().items()
-        if is_async and (calls & reaching)
+        f"{path}:{lineno} ({function.name})"
+        for (path, lineno), function in _library_functions().items()
+        if function.is_async and reach.reached_from(path, function.calls)
     }
 
     assert blocked == set(COROUTINES_THAT_BLOCK_TRANSITIVELY)
 
 
-# Every sync `process()` that reaches a sync Cloud header build, and the shortest route it
-# takes. These park the engine's event loop exactly as the coroutines above do, and for the
-# same duration: `BaseNode.aprocess` calls `self.process()` on the loop, and for a generator
-# `process()` only the callables it *yields* reach `to_thread` -- the body between yields is
-# resumed by `result.send()`, back on the loop. Every build listed here sits in that body, the
-# generators included, so `async def` is the wrong test for the stall and this map is the
-# other half of `COROUTINES_THAT_BLOCK_TRANSITIVELY` rather than a softer version of it.
+# The node methods the engine calls on its own event loop, and the request that gets each one
+# there. `process` is the familiar one; the rest are why this map is keyed on "entry point"
+# rather than on `process`, since a stall costs the same wherever the loop is parked.
+#
+#   process                      `BaseNode.aprocess` calls it directly (node_types.py:1165), and
+#                                for a generator `process` only the *yielded* callable reaches
+#                                `to_thread` -- the body between yields is resumed by
+#                                `result.send()`, back on the loop.
+#   __init__                     construction, via the `CreateNodeRequest` handler, which is a
+#                                plain `def` and so runs wherever it was dispatched from
+#                                (`event_manager.py:1301` is a bare `return callback(request)`).
+#   before/after_value_set       `set_parameter_value` (node_types.py:1034), reached bare -- no
+#                                `to_thread` -- from `async def _hydrate_and_run_node_inner`
+#                                (`node_manager.py:3379`) on every hydrated parameter.
+#   the connection hooks         the connection request handlers, dispatched as above.
+#   validate_before_*_run        the pre-run validation pass, likewise.
+#
+# Listed rather than derived: `BaseNode` defines these, a node overrides the ones it needs, and
+# nothing in this library marks them as engine-called. A hook that never appears costs nothing.
+LOOP_ENTRY_POINTS = frozenset(
+    {
+        "__init__",
+        "process",
+        "before_value_set",
+        "after_value_set",
+        "before_incoming_connection",
+        "after_incoming_connection",
+        "before_outgoing_connection",
+        "after_outgoing_connection",
+        "before_incoming_connection_removed",
+        "after_incoming_connection_removed",
+        "before_outgoing_connection_removed",
+        "after_outgoing_connection_removed",
+        "after_settings_changed",
+        "validate_before_node_run",
+        "validate_before_workflow_run",
+    }
+)
+
+# Every sync entry point that reaches an attributing build, and the shortest route it takes.
+# These park the engine's event loop exactly as the coroutines above do, and for the same
+# duration, so `async def` is the wrong test for the stall: this map is the other half of
+# `COROUTINES_THAT_BLOCK_TRANSITIVELY` rather than a softer version of it.
 #
 # Recorded rather than fixed for the same reason as that map: the fix is an async sibling for
 # the helper each one calls, and `cloud_driver_auth` has none yet. What the count buys in the
 # meantime is visibility -- a build site is a call to a helper's helper, and nothing at the
-# `process()` level names it. Asserted whole so a seventeenth arrives as a failing test.
+# entry point names it. Asserted whole so a twenty-third arrives as a failing test.
 #
 # A route through `unwrap_agent` fires once per Griptape Cloud driver dict in the agent, and
 # fires even on the paths passing `require_credential=False`: that flag governs whether a
-# missing credential raises, not whether `_restored_cloud_credentials` runs. The two memory
-# nodes are the sharp end of that -- they rewrite the agent's wire dict and send no request at
-# all, so they park the loop for attribution with nothing to attribute.
-SYNC_PROCESS_BODIES_THAT_BLOCK = {
+# missing credential raises, not whether `_restored_cloud_credentials` runs. The four memory
+# nodes are the sharp end of that -- they read or rewrite the agent's wire dict and send no
+# request at all, so they park the loop for attribution with nothing to attribute.
+#
+# `random_text.py:178` is the one that is not paid per run. Constructing a `RandomText` builds
+# its agent eagerly, so the round trip lands on every construction -- deserializing a saved
+# workflow included, where a node the user never runs still waits on the engine.
+SYNC_ENTRY_POINTS_THAT_BLOCK = {
     "agents/agent.py:730 (process)": "cloud_driver_auth; build_tools; unwrap_agent -- three routes, each its own round trip",
     "agents/memory/clear_agent_memory.py:25 (process)": "unwrap_agent -> _restored_cloud_credentials; rewrites memory, sends nothing",
+    "agents/memory/display_agent_memory.py:83 (process)": "_get_memory_dict -> unwrap_agent; reads memory, sends nothing",
+    "agents/memory/replace_item_in_agent_memory.py:170 (after_incoming_connection)": "_update_memory_choices -> _get_agent -> unwrap_agent; on every connection made",
+    "agents/memory/replace_item_in_agent_memory.py:196 (after_value_set)": "_update_memory_choices -> _get_agent -> unwrap_agent; on every agent value set",
     "agents/memory/replace_item_in_agent_memory.py:233 (process)": "unwrap_agent -> _restored_cloud_credentials; rewrites memory, sends nothing",
+    "agents/memory/summarize_agent_memory.py:62 (process)": "_get_agent -> unwrap_agent",
     "config/image/griptape_cloud_image_driver.py:65 (process)": "cloud_driver_auth",
     "config/prompt/griptape_cloud_prompt.py:111 (process)": "cloud_driver_auth",
     "image/create_image.py:198 (process)": "cloud_driver_auth; unwrap_agent -> _restored_cloud_credentials",
@@ -467,6 +561,8 @@ SYNC_PROCESS_BODIES_THAT_BLOCK = {
     "tasks/mcp_task.py:342 (process)": "_setup_agent -> _create_driver -> cloud_driver_auth",
     "text/date_and_time.py:80 (process)": "create_driver -> cloud_driver_auth",
     "text/evaluate_text_result.py:163 (process)": "create_driver -> cloud_driver_auth",
+    "text/random_text.py:178 (__init__)": "_initialize_agent -> cloud_driver_auth; once per construction, run or not",
+    "text/random_text.py:309 (after_value_set)": "_get_random_selection -> _generate_with_agent -> _initialize_agent -> cloud_driver_auth",
     "text/random_text.py:337 (process)": "_get_random_selection -> _generate_with_agent -> _initialize_agent -> cloud_driver_auth",
     "text/scrape_web.py:40 (process)": "create_driver -> cloud_driver_auth",
     "text/search_web.py:132 (process)": "create_driver -> cloud_driver_auth",
@@ -475,23 +571,40 @@ SYNC_PROCESS_BODIES_THAT_BLOCK = {
 }
 
 
-def test_no_sync_process_body_reaches_a_build_unrecorded() -> None:
+def test_no_sync_entry_point_reaches_a_build_unrecorded() -> None:
     """The sync half of the loop-stall census, asserted whole.
 
     `test_no_coroutine_reaches_a_sync_build_indirectly` catches the `async def` spellings and
-    is blind to these, because a sync `process()` reads as ordinary blocking code: that the
+    is blind to these, because a sync entry point reads as ordinary blocking code: that the
     engine runs it on the loop is a fact about the caller, not about anything visible here.
 
-    Filtered on the literal name `process` rather than resolved through
-    `_sync_helpers_that_build`'s unique-name rule, which would drop every one of these:
-    `process` is defined once per node and so is never unique. Safe in this direction, because
-    the only thing being asked of the name is that it is the node entry point.
+    Filtered on `LOOP_ENTRY_POINTS` rather than resolved through the reach closure's own
+    resolution rule, which would drop most of these: `process` is defined once per node, and
+    the hooks likewise, so neither is ever library-unique. Safe in this direction, because the
+    only thing being asked of the name is that the engine is the one calling it.
     """
-    reaching = _sync_helpers_that_build()
+    reach = _sync_helpers_that_attribute()
     blocking = {
-        f"{path}:{lineno} ({name})"
-        for (path, lineno), (name, is_async, calls) in _library_functions().items()
-        if not is_async and name == "process" and (calls & reaching)
+        f"{path}:{lineno} ({function.name})"
+        for (path, lineno), function in _library_functions().items()
+        if not function.is_async and function.name in LOOP_ENTRY_POINTS and reach.reached_from(path, function.calls)
     }
 
-    assert blocking == set(SYNC_PROCESS_BODIES_THAT_BLOCK)
+    assert blocking == set(SYNC_ENTRY_POINTS_THAT_BLOCK)
+
+
+def test_a_free_build_is_not_a_stall() -> None:
+    """Pins the flag-awareness of the seed, which is otherwise invisible in the maps above.
+
+    A census rooted at the factory's name rather than at the attributing call sites reports
+    four entry points that dispatch nothing -- two `__init__`s reaching `_list_models` and
+    `get_bucket_list`, and the `seedance_human_reference_asset` probe pair reaching
+    `check_provider_asset_access`. All four build with `attribution=False`. They are the
+    difference between a map that says where the loop stalls and one that says where a dict
+    gets built, and nothing else in this file would notice the seed drifting back.
+    """
+    reach = _sync_helpers_that_attribute()
+    free_builders = {"_list_models", "get_bucket_list", "check_provider_asset_access"}
+
+    assert not (free_builders & reach.everywhere)
+    assert not {name for _, name in reach.in_file} & free_builders
