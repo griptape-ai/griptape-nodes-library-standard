@@ -31,8 +31,10 @@ _CHECKED_METHODS = ("_save_generated_media", "_load_generated_media")
 def _migrated_modules() -> list[Path]:
     """Every module under image/video/audio/three_d that calls the hosted-media helpers.
 
-    Excludes rodin_2_3d_generation.py and world_labs_world_generation.py, which pair
-    hosted artifacts to files positionally instead and have their own dedicated tests.
+    Excludes rodin_2_3d_generation.py, world_labs_world_generation.py, and
+    seedream_image_generation.py, which pair hosted artifacts to files or
+    dynamically-named parameters positionally instead of through these helpers.
+    Each of the three has its own dedicated unit test.
     """
     modules = []
     for sub in ("image", "video", "audio", "three_d"):
@@ -71,8 +73,12 @@ class _HostedMediaCall:
     lineno: int
     method: str
     output_param: str | None
-    kind_member: str | None
-    kind_is_checkable: bool
+    # None: no kind= passed. "none_literal": kind=None. "enum_member": kind=ArtifactKind.X,
+    # checkable via kind_member. "string_literal": kind="...", checkable via kind_literal.
+    # "unrecognized": kind= is a variable or expression this check cannot verify.
+    kind_form: str | None
+    kind_member: str | None = None
+    kind_literal: str | None = None
 
 
 def _hosted_media_calls(tree: ast.Module) -> list[_HostedMediaCall]:
@@ -91,8 +97,9 @@ def _hosted_media_calls(tree: ast.Module) -> list[_HostedMediaCall]:
             if isinstance(second_arg, ast.Constant) and isinstance(second_arg.value, str):
                 output_param = second_arg.value
 
+        kind_form: str | None = None
         kind_member: str | None = None
-        kind_is_checkable = False
+        kind_literal: str | None = None
         for keyword in node.keywords:
             if keyword.arg != "kind":
                 continue
@@ -102,16 +109,24 @@ def _hosted_media_calls(tree: ast.Module) -> list[_HostedMediaCall]:
                 and isinstance(value.value, ast.Name)
                 and value.value.id == "ArtifactKind"
             ):
-                kind_is_checkable = True
+                kind_form = "enum_member"
                 kind_member = value.attr
+            elif isinstance(value, ast.Constant) and value.value is None:
+                kind_form = "none_literal"
+            elif isinstance(value, ast.Constant) and isinstance(value.value, str):
+                kind_form = "string_literal"
+                kind_literal = value.value
+            else:
+                kind_form = "unrecognized"
 
         calls.append(
             _HostedMediaCall(
                 lineno=node.lineno,
                 method=method,
                 output_param=output_param,
+                kind_form=kind_form,
                 kind_member=kind_member,
-                kind_is_checkable=kind_is_checkable,
+                kind_literal=kind_literal,
             )
         )
 
@@ -128,6 +143,7 @@ def test_hosted_media_calls_name_real_parameters_and_kinds(module_path: Path) ->
     assert calls, f"{module_path.name} was selected as migrated but has no _save/_load_generated_media call"
 
     declared_params = _declared_parameter_names(tree)
+    kind_values = {member.value for member in ArtifactKind}
 
     for call in calls:
         if call.output_param is not None:
@@ -137,8 +153,28 @@ def test_hosted_media_calls_name_real_parameters_and_kinds(module_path: Path) ->
                 f"(declared: {sorted(declared_params)})"
             )
 
-        if call.kind_is_checkable:
-            assert hasattr(ArtifactKind, call.kind_member or ""), (
-                f"{module_path.name}:{call.lineno} calls {call.method} with kind=ArtifactKind."
-                f"{call.kind_member}, which is not a real ArtifactKind member"
-            )
+        # A kind= that is neither absent, None, an ArtifactKind member, nor a string matching
+        # one must fail rather than skip silently -- an unchecked form defeats the point of
+        # this test just as surely as a wrong value would.
+        match call.kind_form:
+            case None | "none_literal":
+                pass
+            case "enum_member":
+                assert hasattr(ArtifactKind, call.kind_member or ""), (
+                    f"{module_path.name}:{call.lineno} calls {call.method} with kind=ArtifactKind."
+                    f"{call.kind_member}, which is not a real ArtifactKind member"
+                )
+            case "string_literal":
+                assert call.kind_literal in kind_values, (
+                    f"{module_path.name}:{call.lineno} calls {call.method} with kind={call.kind_literal!r}, "
+                    f"which is not a real ArtifactKind value"
+                )
+            case "unrecognized":
+                pytest.fail(
+                    f"{module_path.name}:{call.lineno} calls {call.method} with a kind= this check cannot "
+                    f"verify statically. Use kind=ArtifactKind.<MEMBER>, or give this module its own "
+                    f"dedicated test."
+                )
+            case _:
+                msg = f"Unknown kind form: {call.kind_form!r}"
+                raise ValueError(msg)
