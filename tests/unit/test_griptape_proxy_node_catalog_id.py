@@ -87,7 +87,7 @@ SUFFIXED_NODES = [
     (LTXImageToVideoGeneration, "ltx-2-5-fast", "ltx-2-5-fast:image-to-video"),
     (LTXAudioToVideoGeneration, "ltx-2-5-fast", "ltx-2-5-fast:audio-to-video"),
     (LTXVideoExtend, "ltx-2-3-pro", "ltx-2-3-pro:extend"),
-    (LTXVideoRetake, "ltx-2-pro", "ltx-2-pro:retake"),
+    (LTXVideoRetake, "ltx-2-3-pro", "ltx-2-3-pro:retake"),
     (LTXVideoToVideoHDR, "ltx-2-3-pro", "ltx-2-3-pro:video-to-video-hdr"),
     (KlingTextToVideoGeneration, "kling-v3", "kling-v3:text2video"),
     (KlingImageToVideoGeneration, "kling-v3", "kling-v3:image2video"),
