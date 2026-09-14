@@ -104,6 +104,40 @@ async def test_parse_result_saves_a_single_image_as_image_url(
 
 
 @pytest.mark.asyncio
+async def test_parse_result_notes_partial_failures_but_still_reports_success(
+    node: SeedreamImageGeneration, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # One of three images fails to download. The two that saved are a real generation
+    # result the user was billed for, so this stays a success -- but the loss must be
+    # named in result_details rather than passed over in silence.
+    artifacts = [
+        HostedArtifact(index=0, kind="image", url="https://example/0.png"),
+        HostedArtifact(index=1, kind="image", url="https://example/1.png"),
+        HostedArtifact(index=2, kind="image", url="https://example/2.png"),
+    ]
+
+    async def fake_hosted_artifacts(_generation_id: str) -> list[HostedArtifact]:
+        return artifacts
+
+    async def fake_download_artifact(artifact: HostedArtifact) -> bytes:
+        if artifact.index == 1:
+            msg = "network error"
+            raise RuntimeError(msg)
+        return b"image-bytes"
+
+    monkeypatch.setattr(node, "_hosted_artifacts", fake_hosted_artifacts)
+    monkeypatch.setattr(node, "_download_artifact", fake_download_artifact)
+    _stub_output_file(node, monkeypatch, tmp_path)
+
+    await node._parse_result({}, "gen-1")
+
+    assert node.parameter_output_values["was_successful"] is True
+    assert "1 image(s) could not be retrieved" in node.parameter_output_values["result_details"]
+    assert node.parameter_output_values["image_url"] is not None
+    assert node.parameter_output_values["image_url_2"] is not None
+
+
+@pytest.mark.asyncio
 async def test_parse_result_reports_failure_and_clears_images_when_retrieval_fails(
     node: SeedreamImageGeneration, monkeypatch: pytest.MonkeyPatch
 ) -> None:
