@@ -5,6 +5,7 @@ import base64
 import io
 import logging
 from contextlib import suppress
+from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
@@ -43,13 +44,15 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["SoraVideoGeneration"]
 
-# OpenAI announced this on 2026-03-24 and carried it out on 2026-09-24, retiring the Videos
+# OpenAI announced this on 2026-03-24 and carries it out on 2026-09-24, retiring the Videos
 # API alongside sora-2, sora-2-pro, and their dated snapshots without naming a successor.
 # https://developers.openai.com/api/docs/deprecations#2026-03-24-sora-2-video-generation-models-and-videos-api
-SORA_RETIREMENT_DATE = "2026-09-24"
+SORA_RETIREMENT_DATE = date(2026, 9, 24)
+# Spelled-out month, so no reader has to guess whether 09-24 is day-month or month-day.
+SORA_RETIREMENT_DATE_TEXT = SORA_RETIREMENT_DATE.strftime("%d %B %Y")
 
 RETIREMENT_MESSAGE = (
-    f"OpenAI is deprecating Sora on {SORA_RETIREMENT_DATE} and has named no "
+    f"OpenAI is deprecating Sora on {SORA_RETIREMENT_DATE_TEXT} and has named no "
     "successor, so this node cannot generate video after that date.\n\n"
     "Use one of the buttons below to migrate to a still-supported video generation node. "
     "Your prompt, start frame, connections, and canvas position carry over, and this node is removed."
@@ -109,7 +112,7 @@ class SoraVideoGeneration(GriptapeProxyNode):
         super().__init__(**kwargs)
         self.category = "API Nodes"
         self.description = (
-            f"Deprecated: OpenAI removes Sora 2 on {SORA_RETIREMENT_DATE}. Migrate to another video node."
+            f"Deprecated: OpenAI removes Sora 2 on {SORA_RETIREMENT_DATE_TEXT}. Migrate to another video node."
         )
 
         # Added first so the deprecation and its remedy are the first things on the node,
@@ -117,7 +120,7 @@ class SoraVideoGeneration(GriptapeProxyNode):
         self.add_node_element(
             ParameterMessage(
                 name="retirement_message",
-                title=f"Sora 2 is deprecated and stops working on {SORA_RETIREMENT_DATE}",
+                title=f"Sora 2 is deprecated and stops working on {SORA_RETIREMENT_DATE_TEXT}",
                 value=RETIREMENT_MESSAGE,
                 variant="error",
             )

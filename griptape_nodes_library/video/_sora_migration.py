@@ -16,6 +16,7 @@ from griptape_nodes.retained_mode.events.connection_events import (
     CreateConnectionRequest,
     CreateConnectionResultSuccess,
     DeleteConnectionRequest,
+    DeleteConnectionResultSuccess,
 )
 from griptape_nodes.retained_mode.events.node_events import (
     CreateNodeRequest,
@@ -234,8 +235,13 @@ def migrate_sora_node(source_node: BaseNode, target: MigrationTarget) -> Migrati
 
     # Free the downstream input slots before reconnecting: an input parameter holds one
     # incoming connection, so the Sora node has to let go before the replacement can take over.
-    for source_param, target_node_name, target_param in outgoing:
-        GriptapeNodes.handle_request(
+    # A slot that refuses to release cannot be reconnected, so the two outcomes are kept apart
+    # and only the released ones are offered to the replacement.
+    released: list[tuple[str, str, str]] = []
+    unreleased: list[tuple[str, str, str]] = []
+    for connection in outgoing:
+        source_param, target_node_name, target_param = connection
+        result = GriptapeNodes.handle_request(
             DeleteConnectionRequest(
                 source_node_name=source_name,
                 source_parameter_name=source_param,
@@ -243,8 +249,19 @@ def migrate_sora_node(source_node: BaseNode, target: MigrationTarget) -> Migrati
                 target_parameter_name=target_param,
             )
         )
+        if isinstance(result, DeleteConnectionResultSuccess):
+            released.append(connection)
+        else:
+            unreleased.append(connection)
 
-    dropped = _reconnect(new_name, source_node, incoming, outgoing, target)
+    dropped = _reconnect(new_name, source_node, incoming, released, target)
+    # Name the real cause. Left to fail in `_reconnect`, these would be reported as though the
+    # target had rejected the connection, sending the artist to look at the wrong node.
+    dropped.extend(
+        f"{source_name}.{sora_param} -> {downstream_node}.{downstream_param} "
+        f"(the existing connection could not be released)"
+        for sora_param, downstream_node, downstream_param in unreleased
+    )
 
     GriptapeNodes.handle_request(DeleteNodeRequest(node_name=source_name))
 
@@ -345,10 +362,18 @@ def _reconnect(
     new_name: str,
     source_node: BaseNode,
     incoming: list[tuple[str, str, str]],
-    outgoing: list[tuple[str, str, str]],
+    released_outgoing: list[tuple[str, str, str]],
     target: MigrationTarget,
 ) -> list[str]:
     """Rebuild the Sora node's connections on the replacement.
+
+    Args:
+        new_name: The replacement node.
+        source_node: The Sora node being replaced, for naming connections in the report.
+        incoming: Snapshotted incoming connections.
+        released_outgoing: Outgoing connections whose downstream input slot has been freed.
+            Slots that would not release are reported by the caller, which knows why.
+        target: The node type being migrated to.
 
     Returns:
         Descriptions of the connections that could not be rebuilt.
@@ -368,7 +393,7 @@ def _reconnect(
         if not isinstance(result, CreateConnectionResultSuccess):
             dropped.append(f"{upstream_node}.{upstream_param} -> {source_node.name}.{sora_param}")
 
-    for sora_param, downstream_node, downstream_param in outgoing:
+    for sora_param, downstream_node, downstream_param in released_outgoing:
         new_param = target.parameter_renames.get(sora_param, sora_param)
         result = GriptapeNodes.handle_request(
             CreateConnectionRequest(

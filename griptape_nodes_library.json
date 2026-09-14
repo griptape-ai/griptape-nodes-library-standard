@@ -3100,7 +3100,7 @@
       "file_path": "griptape_nodes_library/video/sora_video_generation.py",
       "metadata": {
         "category": "video",
-        "description": "Deprecated: OpenAI removes Sora 2 on 2026-09-24. Migrate to Veo 3.1 or Seedance 2.0 video generation.",
+        "description": "Deprecated: OpenAI removes Sora 2 on 24 September 2026. Migrate to Veo 3.1 or Seedance 2.0 video generation.",
         "display_name": "Sora 2 Video Generation",
         "icon": "Sparkles",
         "group": "create",
@@ -3115,7 +3115,7 @@
           "deprecated"
         ],
         "deprecation": {
-          "deprecation_message": "OpenAI removes the Videos API and all Sora 2 models on 2026-09-24 without naming a successor. Open the node and use its migrate buttons to rebuild it as Veo 3.1 Video Generation or Seedance 2.0 Video Generation, carrying over values and connections.",
+          "deprecation_message": "OpenAI removes the Videos API and all Sora 2 models on 24 September 2026 without naming a successor. Open the node and use its migrate buttons to rebuild it as Veo 3.1 Video Generation or Seedance 2.0 Video Generation, carrying over values and connections.",
           "removal_version": "0.88.0"
         },
         "declarations": [

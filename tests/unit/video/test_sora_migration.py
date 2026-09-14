@@ -12,7 +12,12 @@ from collections.abc import Generator
 from typing import Any
 
 import pytest
-from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest, CreateConnectionResultSuccess
+from griptape_nodes.retained_mode.events.connection_events import (
+    CreateConnectionRequest,
+    CreateConnectionResultSuccess,
+    DeleteConnectionRequest,
+    DeleteConnectionResultFailure,
+)
 from griptape_nodes.retained_mode.events.flow_events import (
     CreateFlowRequest,
     CreateFlowResultSuccess,
@@ -250,3 +255,72 @@ class TestCarriesOverConnections:
 
         incoming = _incoming(downstream)
         assert incoming == {(outcome.new_node_name, "video_url", "video")}
+
+    def test_a_fully_wired_node_migrates_with_nothing_dropped(self, sora: SoraVideoGeneration, flow: str) -> None:
+        """Every edge of a realistically wired node has to land, including a fan-out output.
+
+        Reconnection is gated on the release succeeding, so a whole graph is exercised at once:
+        a single-connection test would not catch a release that reports success by some other
+        type and quietly takes its connection out of the reconnect set.
+        """
+        prompt_src = _create("DisplayText", flow)
+        frame_src = _create("DisplayText", flow)
+        control_src = _create("DisplayText", flow)
+        video_a = _create("DisplayVideo", flow)
+        video_b = _create("DisplayVideo", flow)
+        details_sink = _create("DisplayText", flow)
+        id_sink = _create("DisplayText", flow)
+        failure_sink = _create("DisplayText", flow)
+
+        _connect(prompt_src, "text", sora.name, "prompt")
+        _connect(frame_src, "text", sora.name, "start_frame")
+        _connect(control_src, "exec_out", sora.name, "exec_in")
+        # video_url fans out to two sinks; each needs its own release before reconnecting.
+        _connect(sora.name, "video_url", video_a, "video")
+        _connect(sora.name, "video_url", video_b, "video")
+        _connect(sora.name, "exec_out", video_a, "exec_in")
+        _connect(sora.name, "result_details", details_sink, "text")
+        _connect(sora.name, "generation_id", id_sink, "text")
+        _connect(sora.name, "failure", failure_sink, "exec_in")
+
+        outcome = migrate_sora_node(sora, VEO_TARGET)
+        new_name = outcome.new_node_name
+
+        assert outcome.dropped_connections == []
+        assert _incoming(new_name) == {
+            (prompt_src, "text", "prompt"),
+            (frame_src, "text", "start_frame"),
+            (control_src, "exec_out", "exec_in"),
+        }
+        assert _outgoing(new_name) == {
+            ("video_url", video_a, "video"),
+            ("video_url", video_b, "video"),
+            ("exec_out", video_a, "exec_in"),
+            ("result_details", details_sink, "text"),
+            ("generation_id", id_sink, "text"),
+            ("failure", failure_sink, "exec_in"),
+        }
+        # Nothing may be left pointing at the deleted node.
+        assert _incoming(video_a) == {(new_name, "video_url", "video"), (new_name, "exec_out", "exec_in")}
+        assert _incoming(video_b) == {(new_name, "video_url", "video")}
+
+    def test_a_slot_that_will_not_release_is_reported_as_such(
+        self, sora: SoraVideoGeneration, flow: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failed release must not be reported as the target rejecting the connection."""
+        downstream = _create("DisplayVideo", flow)
+        _connect(sora.name, "video_url", downstream, "video")
+
+        real_handle_request = GriptapeNodes.handle_request
+
+        def refuse_deletes(request: Any, *args: Any, **kwargs: Any) -> Any:
+            if isinstance(request, DeleteConnectionRequest):
+                return DeleteConnectionResultFailure(result_details="refused by test")
+            return real_handle_request(request, *args, **kwargs)
+
+        monkeypatch.setattr(GriptapeNodes, "handle_request", refuse_deletes)
+        outcome = migrate_sora_node(sora, VEO_TARGET)
+
+        assert outcome.dropped_connections == [
+            f"{sora.name}.video_url -> {downstream}.video (the existing connection could not be released)"
+        ]
