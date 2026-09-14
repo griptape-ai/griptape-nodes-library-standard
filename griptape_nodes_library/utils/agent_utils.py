@@ -68,14 +68,10 @@ logger = logging.getLogger("griptape_nodes")
 GRIPTAPE_CLOUD_DRIVER_PREFIX = "GriptapeCloud"
 """``type`` tag prefix griptape writes for its Griptape Cloud drivers in ``to_dict()``.
 
-Matched as a prefix rather than against ``GriptapeCloudPromptDriver`` alone because every
-``GriptapeCloud*`` driver declares ``api_key`` the same unserializable way, so any of them that
-does reach the wire hits the identical 401/402/``KeyError`` on rebuild.
-
-Only the prompt driver is reachable through ``Agent.to_dict()`` today: the conversation-memory
-and ruleset drivers hang off fields that are themselves unserializable. The prefix keeps the
-walk from depending on that -- which of the family griptape happens to serialize is upstream's
-call, not a property this repo should encode.
+Matched as a prefix rather than against ``GriptapeCloudPromptDriver`` alone: every
+``GriptapeCloud*`` driver declares ``api_key`` the same unserializable way, so any that reaches
+the wire fails identically on rebuild. Only the prompt driver is serializable today, but which
+of the family griptape serializes is upstream's call.
 """
 
 
@@ -92,46 +88,29 @@ _HEADER_SETTABLE_CLOUD_DRIVER_TAGS: frozenset[str] = frozenset(
 )
 """``type`` tags whose driver accepts a ``headers`` kwarg, and so can be handed attribution.
 
-Derived from the installed ``griptape`` rather than written out, because the drivers disagree:
-the conversation-memory and ruleset drivers declare ``headers`` as ``init=False`` where the
-prompt and image drivers make it ``kw_only=True``. Passing the kwarg to one of the former raises
-``TypeError`` out of ``from_dict()`` -- a crash where there was working code, not a missed
-header.
+Derived from the installed ``griptape`` because the drivers disagree: the conversation-memory
+and ruleset drivers declare ``headers`` as ``init=False`` where the prompt and image drivers
+make it ``kw_only=True``. Passing the kwarg to one of the former raises ``TypeError`` out of
+``from_dict()`` -- a crash where there was working code.
 
-That crash is latent, not live: those two drivers hang off fields that are themselves
-unserializable (``ConversationMemory.conversation_memory_driver``, ``Ruleset``'s driver), so
-``Agent.to_dict()`` never puts either dict on the wire for the walk to find. The gate is here
-because the alternative is a correctness argument that rests on an upstream serialization flag
-nobody here controls -- and :func:`_iter_cloud_driver_dicts` deliberately matches the whole
-``GriptapeCloud*`` family rather than the prompt driver alone.
-
-Deriving the set rather than hardcoding it means an upstream fix to the ``init`` inconsistency
-starts attributing those drivers with no change here. What the exclusion costs meanwhile is
-bounded: both call metadata endpoints (``/threads``, ``/rulesets``) rather than running a model.
+Neither is reachable through ``Agent.to_dict()`` today, so the exclusion costs nothing yet;
+deriving the set means an upstream fix starts attributing them with no change here.
 """
 
 
 def _restored_cloud_credentials(agent_core_dict: dict, *, require_credential: bool) -> dict:
     """Return the agent dict with a fresh ``api_key`` and attribution headers on every Cloud driver.
 
-    Neither ``api_key`` nor ``headers`` is marked serializable on a ``GriptapeCloud*``
-    driver, so ``to_dict()`` drops both and ``from_dict()`` refills them from the attrs
-    defaults -- a bare ``os.environ["GT_CLOUD_API_KEY"]`` read that never consults the
-    License, and an ``Authorization``-only header carrying no attribution at all.
-    Injecting both *before* ``from_dict()`` is what fixes that: attrs takes the supplied
-    values and never evaluates the defaults, so the no-key-set ``KeyError`` is covered
-    along with the wrong-key 401/402, and a chained agent bills against its own tags
-    rather than against ``<system-defaults>``.
+    ``to_dict()`` drops both fields and ``from_dict()`` refills them from the attrs defaults
+    -- a bare ``os.environ["GT_CLOUD_API_KEY"]`` read that never consults the License, and a
+    header carrying no attribution. Injecting both *before* ``from_dict()`` means attrs never
+    evaluates those defaults. Attribution is the half with no server-side backstop: Cloud emits
+    a metric for a malformed header and nothing at all for a missing one. ``headers`` goes only
+    to the driver types that accept the kwarg -- see :data:`_HEADER_SETTABLE_CLOUD_DRIVER_TAGS`.
 
-    Attribution is the half with no server-side backstop: Cloud emits a metric when a
-    header is malformed but nothing at all when one is missing, so an unrepaired agent
-    under-reports invisibly. ``headers`` goes only to the driver types that accept the
-    kwarg -- see :data:`_HEADER_SETTABLE_CLOUD_DRIVER_TAGS`.
-
-    Never mutates ``agent_core_dict``: a saved workflow pickles the upstream node's
-    parameter value verbatim, so repairing in place would persist a License JWT to
-    disk. The return is a copy when a Cloud driver was found and ``agent_core_dict``
-    itself otherwise.
+    Never mutates ``agent_core_dict``: a saved workflow pickles the upstream node's parameter
+    value verbatim, so repairing in place would persist a License JWT to disk. Returns a copy
+    when a Cloud driver was found, ``agent_core_dict`` itself otherwise.
 
     Args:
         agent_core_dict: Serialized agent, as produced by ``Agent.to_dict()``.

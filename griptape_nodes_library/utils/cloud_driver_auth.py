@@ -1,45 +1,27 @@
 """Attach Griptape Cloud attribution to a ``griptape`` framework driver.
 
-Most billable calls in this library are HTTP requests the library issues itself, and
-those take their headers from :func:`build_griptape_cloud_headers`. The exception is a node
-that constructs a framework driver -- ``GriptapeCloudPromptDriver``,
-``GriptapeCloudImageGenerationDriver``, ``GriptapeCloudFileManagerDriver`` -- and hands it
-an ``api_key``. That driver builds its own ``Authorization`` header inside ``griptape``,
-so a header added to the factory never reaches the wire. This module is the bridge.
+Calls this library issues itself take their headers from
+:func:`build_griptape_cloud_headers`. A node that instead hands an ``api_key`` to a framework
+driver cannot: the driver builds its own ``Authorization`` header inside ``griptape``, so a
+factory header never reaches the wire. ``headers=`` is the way in.
 
-Passing ``headers=`` is the extension point, but it comes with a trap, and that trap is
-why this returns both kwargs rather than letting each site spell them. The drivers
-declare::
+**Both kwargs have to travel together.** attrs evaluates the default of every field the caller
+omits, and ``api_key`` defaults to ``os.environ["GT_CLOUD_API_KEY"]`` -- which a booted engine
+plants as ``""`` via ``register_all_secrets``. A site passing only ``headers=`` therefore
+authenticates with an empty bearer and takes a 401, never consulting the user's License.
 
-    api_key: str = field(default=Factory(lambda: os.environ["GT_CLOUD_API_KEY"]))
-    headers: dict = field(default=Factory(lambda self: {...}, takes_self=True), kw_only=True)
+The factory's ``Content-Type`` is inert here: ``requests`` would set it anyway for a ``json=``
+body. The exception is ``GriptapeCloudFileManagerDriver``'s bodyless requests, which now carry
+one -- meaningless rather than wrong, since neither declares a body.
 
-attrs evaluates the default of every field the caller omits, so a site passing only
-``headers=`` still runs ``os.environ["GT_CLOUD_API_KEY"]``. On a booted engine that lookup
-does not even raise: ``register_all_secrets`` plants ``GT_CLOUD_API_KEY=""`` from the
-engine's default ``secrets_to_register``, so the driver authenticates with an empty bearer
-and Cloud answers 401 -- without ever consulting the License the user does have. The two
-kwargs have to travel together.
+Two sites this does not reach, both covered elsewhere:
 
-The extra ``Content-Type: application/json`` from the factory is inert on the ``json=``-carrying
-driver paths: ``requests.PreparedRequest.prepare_body`` sets that header only ``if content_type
-and ("content-type" not in self.headers)``, so what we send is byte-identical to what ``requests``
-would have computed. The exception is ``GriptapeCloudFileManagerDriver``, which reuses one dict
-for its bodyless requests too -- the asset-listing ``GET`` and the ``/asset-urls/{key}`` ``POST``
-behind every load and save now carry a ``Content-Type`` they did not before. Meaningless rather
-than wrong, since neither declares a body. The ``__attrs_post_init__`` bucket probe is unaffected:
-it fires during construction, before ``build_tool_from_config`` can assign the dict.
-
-Two sites the spread does not reach, each covered elsewhere rather than here:
-
-- ``GriptapeCloudFileManagerDriver`` declares ``headers`` as ``init=False``, so it rejects
-  the kwarg outright. That site assigns after construction instead; see
-  :func:`griptape_nodes_library.utils.agent_utils.build_tool_from_config`.
-- A node that rebuilds an agent from a saved dict calls no constructor at all. Neither
-  ``api_key`` nor ``headers`` is serializable, so ``from_dict`` would refill both from the
-  attrs defaults; :func:`griptape_nodes_library.utils.agent_utils._restored_cloud_credentials`
-  writes both into the serialized dict first -- for the driver types that accept them -- so
-  what attrs builds is what this module would have.
+- ``GriptapeCloudFileManagerDriver`` declares ``headers`` ``init=False`` and rejects the kwarg;
+  :func:`griptape_nodes_library.utils.agent_utils.build_tool_from_config` assigns it after
+  construction.
+- An agent rebuilt from a saved dict calls no constructor;
+  :func:`griptape_nodes_library.utils.agent_utils._restored_cloud_credentials` writes both
+  values into the serialized dict before ``from_dict``.
 """
 
 from __future__ import annotations
