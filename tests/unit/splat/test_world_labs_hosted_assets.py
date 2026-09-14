@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from griptape_nodes_library.proxy.hosted_artifacts import HostedArtifactError
 from griptape_nodes_library.splat.world_labs_world_generation import WorldLabsWorldGeneration
 
 
@@ -114,6 +115,32 @@ async def test_parse_assets_refuses_more_hosted_than_declared(
     assert status_calls[0]["was_successful"] is False
     assert "1 asset(s)" in status_calls[0]["result_details"]
     assert "hosts 2" in status_calls[0]["result_details"]
+
+
+@pytest.mark.asyncio
+async def test_parse_assets_reports_failure_rather_than_mispair_on_an_untrustworthy_list(
+    node: WorldLabsWorldGeneration, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A gap or a dropped entry makes _hosted_artifacts raise rather than return a list
+    # this node could slice-and-zip against the wrong bytes; the existing try/except
+    # around _hosted_artifacts must turn that into a failure, not a mispair.
+    assets = {"mesh": {"collider_mesh_url": "https://c"}, "imagery": {"pano_url": "https://d"}}
+
+    async def fake_hosted_artifacts(_generation_id: str) -> list[_FakeArtifact]:
+        raise HostedArtifactError("surviving indices [0, 2]")
+
+    monkeypatch.setattr(node, "_hosted_artifacts", fake_hosted_artifacts, raising=False)
+
+    status_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(node, "_set_status_results", lambda **kwargs: status_calls.append(kwargs), raising=False)
+    monkeypatch.setattr(node, "_set_safe_defaults", lambda: None, raising=False)
+
+    saved = await node._parse_assets(assets, "world-1", "gen-1")
+
+    assert saved is False
+    assert status_calls[0]["was_successful"] is False
+    assert node.parameter_output_values.get("mesh") is None
+    assert node.parameter_output_values.get("panorama") is None
 
 
 @pytest.mark.asyncio
