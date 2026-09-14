@@ -1134,15 +1134,21 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Args:
             generation_id: The generation to read from.
             kind: An ``ArtifactKind`` to filter by, or None for any kind.
-            position: Which matching artifact to take, 0 for the first.
+            position: Which matching artifact to take, 0 for the first. Must be
+                nonnegative.
 
         Returns:
             The matching artifact.
 
         Raises:
-            HostedArtifactError: If no such artifact is hosted.
+            HostedArtifactError: If no such artifact is hosted, or if position is
+                negative.
             ValueError: If no credential is available to authenticate the read.
         """
+        if position < 0:
+            msg = f"position must be nonnegative, got {position}."
+            raise HostedArtifactError(msg)
+
         artifacts = await self._hosted_artifacts(generation_id)
         matching = [artifact for artifact in artifacts if kind is None or artifact.kind == kind]
         if position < len(matching):
