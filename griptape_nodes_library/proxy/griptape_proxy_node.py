@@ -111,8 +111,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # without affecting other engine systems that use GT_CLOUD_BASE_URL.
         self._proxy_base = resolve_proxy_base()
         # Hosted artifact lists, keyed by generation id. Cleared when a run or a Refresh
-        # starts so a presigned URL is never reused past its short lifetime, while a node
-        # reading several artifacts of one generation still lists them once.
+        # starts so a stale list is not reused across them, while a node reading several
+        # artifacts of one generation still lists them once.
         self._hosted_artifact_lists: dict[str, list[HostedArtifact]] = {}
         self._user_auth_info: str | None = None
         self._api_key_provider: ProxyAuthProviderParameter | None = None
@@ -1016,6 +1016,10 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             return
         if "provider_response" in self.parameter_output_values:
             self.parameter_output_values["provider_response"] = result_json
+        # Reset before parsing so a prior run's leftover True/False cannot leak into
+        # this decision; _parse_result reports its own failure (e.g. media it could
+        # not retrieve) and that must not be overwritten with a success below.
+        self._execution_succeeded = None
         try:
             await self._parse_result(result_json, generation_id)
         except Exception as e:
@@ -1024,6 +1028,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 was_successful=False,
                 result_details=f"Generation `{generation_id}` completed, but parsing the result failed: {e}",
             )
+            return
+        if self._execution_succeeded is False:
             return
         self._set_status_results(
             was_successful=True,
