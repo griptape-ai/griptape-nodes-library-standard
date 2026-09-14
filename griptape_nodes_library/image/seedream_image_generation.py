@@ -543,6 +543,8 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             details = f"Image generated successfully and saved as {filenames[0]}."
         else:
             details = f"Generated {count} images successfully: {', '.join(filenames)}."
+        if failures:
+            details += f" {len(failures)} image(s) could not be retrieved."
         self._set_status_results(was_successful=True, result_details=details)
 
     def validate_before_node_run(self) -> list[Exception] | None:
