@@ -43,6 +43,14 @@ ARTIFACT_LIST_TIMEOUT_SECONDS = 30
 # streaming route has this path shape, and it is the only URL that gets an
 # Authorization header: a presigned URL refuses a request carrying a second auth
 # mechanism.
+#
+# Inferring the auth requirement from the URL is a workaround: the list does not
+# state which of the two kinds a URL is. The token also goes only to the proxy's
+# own host, which assumes artifact URLs share that host. That holds by default,
+# but a deployment can serve them from elsewhere (PROXY_ARTIFACT_BASE_URL) while
+# still handing out streaming URLs (PROXY_ARTIFACT_URL_MODE), and the token would
+# then be withheld from a route that requires it. The fix belongs in the list:
+# state each URL's auth requirement rather than leaving callers to guess.
 _PROXY_ARTIFACT_ROUTE = re.compile(r"/api/proxy/v2/generations/[^/]+/artifacts/\d+/?$")
 
 
