@@ -5,11 +5,12 @@ The proxy lists the media it hosts for a generation at
 kind, content type, size, and a URL. Nodes read their media from there instead of
 digging a URL or a base64 blob out of each provider's own response payload.
 
-The list is ordered by index. ``fetch_hosted_artifacts`` refuses a list it cannot
-trust a caller to pair by position: a dropped or missing entry, a gap, or a
-duplicate index all raise rather than return something a caller could mispair. A
-list longer than what the caller expects means the pairing itself is wrong; the
-caller should refuse rather than guess.
+The proxy orders the list by index, indexes from 0 with no gaps or duplicates, and
+truncates only by dropping a tail, never a middle entry. A short list is therefore
+always a safe prefix to pair by position.
+
+``fetch_hosted_artifacts`` still checks this on every call, as defense in depth: a
+deployed proxy can lag this client, and artifact hosting is deployment-configurable.
 """
 
 from __future__ import annotations
@@ -129,8 +130,8 @@ async def fetch_hosted_artifacts(proxy_base: str, generation_id: str, api_key: s
         proxy did not host.
 
     Raises:
-        HostedArtifactError: If the list cannot be read, or if it cannot be trusted
-            for positional pairing (a dropped entry, a gap, or a duplicate index).
+        HostedArtifactError: If the list cannot be read, or if it fails the
+            defense-in-depth check in ``_require_trustworthy_prefix``.
     """
     url = urljoin(proxy_base, f"generations/{generation_id}/artifacts")
     headers = {"Authorization": f"Bearer {api_key}"}
@@ -155,6 +156,7 @@ async def fetch_hosted_artifacts(proxy_base: str, generation_id: str, api_key: s
     parsed = [HostedArtifact.from_payload(entry) for entry in entries]
     dropped_count = sum(1 for artifact in parsed if artifact is None)
     artifacts = [artifact for artifact in parsed if artifact is not None]
+    # Sorted defensively; does not rely on the proxy's own ordering.
     artifacts.sort(key=lambda artifact: artifact.index)
     _require_trustworthy_prefix(artifacts, dropped_count, generation_id)
     return artifacts
@@ -163,20 +165,21 @@ async def fetch_hosted_artifacts(proxy_base: str, generation_id: str, api_key: s
 def _require_trustworthy_prefix(artifacts: list[HostedArtifact], dropped_count: int, generation_id: str) -> None:
     """Raise unless the list is safely a leading prefix a caller may pair by position.
 
-    A caller that pairs artifacts to names by position (see the module docstring)
-    depends on a short list always being a dropped tail, never a gap. Three things
-    break that guarantee, and any one of them makes the list untrustworthy:
+    The proxy's own contract already guarantees this. This check is defense in
+    depth: a deployed proxy can lag this client, and artifact hosting is
+    deployment-configurable, so a dropped entry, a gap, or a duplicate index is
+    rejected rather than trusted:
 
     - An entry was dropped (by ``HostedArtifact.from_payload``): if the dropped entry
       held the highest index, the survivors look exactly like a legitimate tail
-      truncation, so a drop anywhere must be treated as untrustworthy, not just a
-      drop that visibly leaves a gap.
+      truncation, so a drop anywhere is treated as untrustworthy, not just a drop
+      that visibly leaves a gap.
     - The surviving indices skip a value (a gap).
     - The surviving indices repeat a value (a duplicate).
 
-    Deliberately does not require the first index to be 0: nothing in this repository
-    verifies that the proxy indexes from 0, and asserting it risks rejecting a
-    correct list at runtime on an unverifiable assumption.
+    Checks contiguity rather than requiring the first index to be 0: contiguity is
+    the property positional pairing actually needs, so the check asks for nothing
+    more.
     """
     indices = [artifact.index for artifact in artifacts]
     has_duplicate = len(set(indices)) != len(indices)
@@ -198,6 +201,11 @@ def artifact_download_headers(url: str, api_key: str, proxy_base: str) -> dict[s
     own host: the bearer token is only ever sent to the proxy itself.
     """
     parsed = urlparse(url)
+    # This assumes an artifact URL needing the token shares the proxy's own host,
+    # which holds by default but not if a deployment points artifact hosting at a
+    # different host (for example a CDN) while still requiring the token there.
+    # The real fix is for the artifact envelope to state each URL's own auth
+    # requirement rather than the client inferring it from the URL's shape.
     if parsed.netloc == urlparse(proxy_base).netloc and _PROXY_ARTIFACT_ROUTE.search(parsed.path):
         return {"Authorization": f"Bearer {api_key}"}
     return {}
