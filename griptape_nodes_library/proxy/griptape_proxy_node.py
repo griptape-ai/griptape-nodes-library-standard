@@ -1155,7 +1155,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
     async def _download_artifact(self, artifact: HostedArtifact) -> bytes:
         """Download one hosted artifact's bytes."""
-        headers = artifact_download_headers(artifact.url, self._validate_api_key())
+        headers = artifact_download_headers(artifact.url, self._validate_api_key(), self._proxy_base)
         return await self._download_bytes_from_url(artifact.url, headers=headers)
 
     async def _load_generated_media(self, generation_id: str, *, kind: str | None = None, position: int = 0) -> bytes:

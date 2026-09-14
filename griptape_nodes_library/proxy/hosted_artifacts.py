@@ -1,22 +1,15 @@
 """Generated media the Griptape Cloud proxy hosts for a completed generation.
 
-The proxy pulls whatever media a provider produced into Griptape storage and
-lists it at ``GET proxy/v2/generations/{id}/artifacts`` in one shape for every
-model: index, kind, content type, size, and a URL. Nodes read their media from
-there rather than each digging it out of its provider's own response payload,
-which also frees them from provider URLs that expire minutes after a task
-completes.
+The proxy lists the media it hosts for a generation at
+``GET proxy/v2/generations/{id}/artifacts``, in one shape for every model: index,
+kind, content type, size, and a URL. Nodes read their media from there instead of
+digging a URL or a base64 blob out of each provider's own response payload.
 
-The list is ordered and an artifact's index is its stable public handle, so a
-model that produces several pieces of media (a mesh plus a preview, a video plus
-its last frame) always reports them in the same order.
-
-The list can be shorter than the media a provider reported. The proxy hosts a
-leading prefix and gives up the rest once a generation exceeds its artifact count
-or time budget, so a short list drops a tail rather than leaving a gap. A node
-that pairs artifacts to names by position therefore stays correct on a short
-list, while a list longer than the response declared means the pairing itself is
-wrong and the node should refuse instead of guessing.
+The list is ordered by index. ``fetch_hosted_artifacts`` refuses a list it cannot
+trust a caller to pair by position: a dropped or missing entry, a gap, or a
+duplicate index all raise rather than return something a caller could mispair. A
+list longer than what the caller expects means the pairing itself is wrong; the
+caller should refuse rather than guess.
 """
 
 from __future__ import annotations
@@ -136,7 +129,8 @@ async def fetch_hosted_artifacts(proxy_base: str, generation_id: str, api_key: s
         proxy did not host.
 
     Raises:
-        HostedArtifactError: If the list cannot be read.
+        HostedArtifactError: If the list cannot be read, or if it cannot be trusted
+            for positional pairing (a dropped entry, a gap, or a duplicate index).
     """
     url = urljoin(proxy_base, f"generations/{generation_id}/artifacts")
     headers = {"Authorization": f"Bearer {api_key}"}
@@ -158,17 +152,52 @@ async def fetch_hosted_artifacts(proxy_base: str, generation_id: str, api_key: s
         msg = f"Artifact list for generation {generation_id} was not in the expected shape: {payload!r}"
         raise HostedArtifactError(msg)
 
-    artifacts = [artifact for artifact in (HostedArtifact.from_payload(entry) for entry in entries) if artifact]
+    parsed = [HostedArtifact.from_payload(entry) for entry in entries]
+    dropped_count = sum(1 for artifact in parsed if artifact is None)
+    artifacts = [artifact for artifact in parsed if artifact is not None]
     artifacts.sort(key=lambda artifact: artifact.index)
+    _require_trustworthy_prefix(artifacts, dropped_count, generation_id)
     return artifacts
 
 
-def artifact_download_headers(url: str, api_key: str) -> dict[str, str]:
+def _require_trustworthy_prefix(artifacts: list[HostedArtifact], dropped_count: int, generation_id: str) -> None:
+    """Raise unless the list is safely a leading prefix a caller may pair by position.
+
+    A caller that pairs artifacts to names by position (see the module docstring)
+    depends on a short list always being a dropped tail, never a gap. Three things
+    break that guarantee, and any one of them makes the list untrustworthy:
+
+    - An entry was dropped (by ``HostedArtifact.from_payload``): if the dropped entry
+      held the highest index, the survivors look exactly like a legitimate tail
+      truncation, so a drop anywhere must be treated as untrustworthy, not just a
+      drop that visibly leaves a gap.
+    - The surviving indices skip a value (a gap).
+    - The surviving indices repeat a value (a duplicate).
+
+    Deliberately does not require the first index to be 0: nothing in this repository
+    verifies that the proxy indexes from 0, and asserting it risks rejecting a
+    correct list at runtime on an unverifiable assumption.
+    """
+    indices = [artifact.index for artifact in artifacts]
+    has_duplicate = len(set(indices)) != len(indices)
+    has_gap = len(indices) > 1 and any(b - a != 1 for a, b in zip(indices, indices[1:], strict=False))
+    if dropped_count or has_gap or has_duplicate:
+        msg = (
+            f"Artifact list for generation {generation_id} cannot be trusted for positional "
+            f"pairing: {dropped_count} entr{'y' if dropped_count == 1 else 'ies'} dropped, "
+            f"surviving indices {indices}."
+        )
+        raise HostedArtifactError(msg)
+
+
+def artifact_download_headers(url: str, api_key: str, proxy_base: str) -> dict[str, str]:
     """Headers to fetch an artifact URL with.
 
     Empty for a presigned storage URL, which authenticates itself and rejects a
-    request that also carries a bearer token.
+    request that also carries a bearer token, or for any URL not on the proxy's
+    own host: the bearer token is only ever sent to the proxy itself.
     """
-    if _PROXY_ARTIFACT_ROUTE.search(urlparse(url).path):
+    parsed = urlparse(url)
+    if parsed.netloc == urlparse(proxy_base).netloc and _PROXY_ARTIFACT_ROUTE.search(parsed.path):
         return {"Authorization": f"Bearer {api_key}"}
     return {}
