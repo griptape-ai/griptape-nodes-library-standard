@@ -249,12 +249,15 @@ async def aprocess(self) -> None:
 
 ### Multiple Output Media
 
-`position` picks within a kind, in the order the provider reported them:
+`position` picks within a kind, in the order the provider reported them.
+`_save_generated_media` returns `False` on failure and does not raise, so check
+each call rather than let a later position's success overwrite an earlier
+failure:
 
 ```python
 async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
     for position in range(self.get_parameter_value("image_count")):
-        await self._save_generated_media(
+        saved = await self._save_generated_media(
             generation_id,
             f"image_{position}",
             lambda v, n: ImageUrlArtifact(value=v, name=n),
@@ -262,6 +265,8 @@ async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) 
             position=position,
             media_kind="image",
         )
+        if not saved:
+            return
 ```
 
 ### Downloading and Saving Media
@@ -276,10 +281,12 @@ model_bytes = await self._load_generated_media(generation_id, kind=ArtifactKind.
 
 Both report a failure when the media cannot be retrieved: a generation that
 completed (and was billed) upstream but whose output is unavailable is a failure,
-not a silent success. `_save_generated_media` reports it itself by calling
-`_set_status_results`; `_load_generated_media` only raises, so a caller must wrap
-it (as `_parse_result`'s own exception handling in `_process_generation` and
-`_refresh_completed` does) for that failure to reach the node's status.
+not a silent success. `_save_generated_media` sets that failure itself, via
+`_set_status_results`, and returns `False`; a caller with follow-on work must
+check that return value before doing more (see "Multiple Output Media" above).
+`_load_generated_media` only raises, so its failure reaches the node's status
+through `_parse_result`'s own exception handling in `_process_generation` and
+`_refresh_completed`.
 
 ## Key Improvements
 
