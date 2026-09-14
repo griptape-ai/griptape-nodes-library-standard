@@ -362,7 +362,14 @@ class SoraVideoGeneration(GriptapeProxyNode):
 
         return json_data
 
-    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
+        status = str(result_json.get("status") or "").lower()
+        if status in {"failed", "error"}:
+            self._set_safe_defaults()
+            error_details = self._extract_error_message(result_json)
+            self._set_status_results(was_successful=False, result_details=error_details)
+            return
+
         await self._save_generated_media(
             generation_id,
             "video_url",
