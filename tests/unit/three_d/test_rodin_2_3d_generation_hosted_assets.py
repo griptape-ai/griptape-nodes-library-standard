@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from griptape_nodes_library.proxy.hosted_artifacts import HostedArtifactError
 from griptape_nodes_library.three_d.rodin_2_3d_generation import Rodin23DGeneration
 
 
@@ -109,6 +110,32 @@ async def test_save_model_files_refuses_more_hosted_than_reported(
 
     assert status_calls[-1]["was_successful"] is False
     assert "refusing to guess" in status_calls[-1]["result_details"]
+    assert node.parameter_output_values["model_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_save_model_files_reports_failure_rather_than_mispair_on_an_untrustworthy_list(
+    node: Rodin23DGeneration, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A gap or a dropped entry makes fetch_hosted_artifacts raise rather than return a
+    # list this node could slice-and-zip against the wrong bytes; _save_model_files's
+    # existing try/except around _hosted_artifacts must turn that into a failure, not
+    # a mispair.
+    files = [
+        {"name": "model.glb", "url": "https://a"},
+        {"name": "texture.png", "url": "https://b"},
+        {"name": "preview.webp", "url": "https://c"},
+    ]
+
+    async def fake_hosted_artifacts(_generation_id: str) -> list[_FakeArtifact]:
+        raise HostedArtifactError("surviving indices [0, 2]")
+
+    monkeypatch.setattr(node, "_hosted_artifacts", fake_hosted_artifacts, raising=False)
+    status_calls = _stub_status(node, monkeypatch)
+
+    await node._save_model_files(files, {"geometry_file_format": "glb"}, "gen-1")
+
+    assert status_calls[-1]["was_successful"] is False
     assert node.parameter_output_values["model_url"] is None
 
 

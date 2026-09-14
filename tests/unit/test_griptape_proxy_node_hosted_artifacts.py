@@ -99,20 +99,26 @@ def _install_output_file(node: Flux2ImageGeneration) -> None:
 def test_presigned_url_is_fetched_without_a_bearer_token() -> None:
     # A presigned URL carries its own credentials and refuses a request that also
     # sends an Authorization header.
-    assert artifact_download_headers(PRESIGNED_URL, "test-key") == {}
+    assert artifact_download_headers(PRESIGNED_URL, "test-key", PROXY_BASE) == {}
 
 
 def test_streaming_route_is_fetched_with_a_bearer_token() -> None:
-    assert artifact_download_headers(STREAMING_URL, "test-key") == {"Authorization": "Bearer test-key"}
+    assert artifact_download_headers(STREAMING_URL, "test-key", PROXY_BASE) == {"Authorization": "Bearer test-key"}
+
+
+def test_streaming_route_shape_on_a_foreign_host_is_fetched_without_a_bearer_token() -> None:
+    # The bearer token authenticates to the proxy; it must never be sent to another
+    # host, even one whose path happens to match the proxy's streaming-route shape.
+    foreign_url = "https://evil.example.com/api/proxy/v2/generations/gen-abc/artifacts/0"
+    assert artifact_download_headers(foreign_url, "test-key", PROXY_BASE) == {}
 
 
 @pytest.mark.asyncio
-async def test_fetch_orders_by_index_and_skips_unfetchable_entries(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_fetch_orders_by_index(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = {
         "artifacts": [
             {"index": 1, "kind": "image", "url": "https://example/1.webp", "content_type": "image/webp"},
             {"index": 0, "kind": "model_3d", "url": "https://example/0.glb", "size_bytes": 12},
-            {"index": 2, "kind": "image"},
         ]
     }
     _install_list_client(monkeypatch, payload, [])
@@ -125,9 +131,29 @@ async def test_fetch_orders_by_index_and_skips_unfetchable_entries(monkeypatch: 
 
 
 @pytest.mark.asyncio
-async def test_fetch_warns_about_a_dropped_entry_and_still_returns_the_rest(
+async def test_fetch_succeeds_on_a_genuine_tail_truncation(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The proxy hosting a prefix of what a provider produced (indices 0, 1 of an
+    # expected 3) is a trustworthy short list: nothing was dropped, and the surviving
+    # indices are consecutive.
+    payload = {
+        "artifacts": [
+            {"index": 0, "kind": "model_3d", "url": "https://example/0.glb"},
+            {"index": 1, "kind": "image", "url": "https://example/1.webp"},
+        ]
+    }
+    _install_list_client(monkeypatch, payload, [])
+
+    artifacts = await fetch_hosted_artifacts(PROXY_BASE, GENERATION_ID, "test-key")
+
+    assert [artifact.index for artifact in artifacts] == [0, 1]
+
+
+@pytest.mark.asyncio
+async def test_fetch_raises_when_an_entry_is_dropped(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
+    # A dropped interior entry can look exactly like a legitimate tail truncation
+    # once the malformed entry held the highest index, so any drop is untrustworthy.
     payload = {
         "artifacts": [
             {"index": 0, "kind": "model_3d", "url": "https://example/0.glb"},
@@ -136,11 +162,26 @@ async def test_fetch_warns_about_a_dropped_entry_and_still_returns_the_rest(
     }
     _install_list_client(monkeypatch, payload, [])
 
-    with caplog.at_level(logging.WARNING, logger="griptape_nodes"):
-        artifacts = await fetch_hosted_artifacts(PROXY_BASE, GENERATION_ID, "test-key")
+    with caplog.at_level(logging.WARNING, logger="griptape_nodes"), pytest.raises(HostedArtifactError, match="dropped"):
+        await fetch_hosted_artifacts(PROXY_BASE, GENERATION_ID, "test-key")
 
-    assert [artifact.index for artifact in artifacts] == [0]
     assert any("dropping it" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_fetch_raises_on_a_gap_with_no_dropped_entry(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Both entries are individually well-formed, but index 1 is simply absent: a
+    # gap the proxy itself reported, not a client-side drop.
+    payload = {
+        "artifacts": [
+            {"index": 0, "kind": "model_3d", "url": "https://example/0.glb"},
+            {"index": 2, "kind": "image", "url": "https://example/2.webp"},
+        ]
+    }
+    _install_list_client(monkeypatch, payload, [])
+
+    with pytest.raises(HostedArtifactError, match=r"\[0, 2\]"):
+        await fetch_hosted_artifacts(PROXY_BASE, GENERATION_ID, "test-key")
 
 
 @pytest.mark.asyncio
@@ -153,10 +194,9 @@ async def test_fetch_bounds_a_dropped_entrys_size_in_the_log(
     payload = {"artifacts": [{"index": 0, "kind": "image", "note": oversized_note}]}
     _install_list_client(monkeypatch, payload, [])
 
-    with caplog.at_level(logging.WARNING, logger="griptape_nodes"):
-        artifacts = await fetch_hosted_artifacts(PROXY_BASE, GENERATION_ID, "test-key")
+    with caplog.at_level(logging.WARNING, logger="griptape_nodes"), pytest.raises(HostedArtifactError):
+        await fetch_hosted_artifacts(PROXY_BASE, GENERATION_ID, "test-key")
 
-    assert artifacts == []
     dropped_lines = [record.message for record in caplog.records if "dropping it" in record.message]
     assert dropped_lines
     assert all(len(line) < len(oversized_note) for line in dropped_lines)
@@ -214,6 +254,16 @@ async def test_missing_kind_reports_what_is_hosted(monkeypatch: pytest.MonkeyPat
 
     with pytest.raises(HostedArtifactError, match="0:image"):
         await node._hosted_artifact(GENERATION_ID, kind=ArtifactKind.VIDEO)
+
+
+@pytest.mark.asyncio
+async def test_negative_position_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = {"artifacts": [{"index": 0, "kind": "image", "url": "https://example/0.png"}]}
+    _install_list_client(monkeypatch, payload, [])
+    node, _status_calls = _build_node(monkeypatch)
+
+    with pytest.raises(HostedArtifactError, match="nonnegative"):
+        await node._hosted_artifact(GENERATION_ID, kind=ArtifactKind.IMAGE, position=-1)
 
 
 @pytest.mark.asyncio
@@ -291,3 +341,85 @@ async def test_refresh_async_clears_a_stale_artifact_list(monkeypatch: pytest.Mo
 
     assert node._hosted_artifact_lists == {}
     assert status_calls[0]["was_successful"] is False
+
+
+def _record_status_and_execution(node: Flux2ImageGeneration) -> list[dict[str, Any]]:
+    # Unlike _build_node's recorder, this also updates _execution_succeeded, matching
+    # the real _set_status_results, so _refresh_completed's tri-state check can be
+    # exercised against how the fake reports status.
+    status_calls: list[dict[str, Any]] = []
+
+    def _set_status_results(*, was_successful: bool, result_details: str) -> None:
+        status_calls.append({"was_successful": was_successful, "result_details": result_details})
+        node._execution_succeeded = was_successful
+
+    node._set_status_results = _set_status_results  # type: ignore[method-assign]
+    return status_calls
+
+
+@pytest.mark.asyncio
+async def test_refresh_completed_keeps_a_reported_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A Refresh must not paper over a _parse_result failure (e.g. media it could not
+    # retrieve) with the unconditional success _refresh_completed used to report.
+    node, _ = _build_node(monkeypatch)
+    status_calls = _record_status_and_execution(node)
+
+    async def _fetch_generation_result(_generation_id: str) -> dict[str, Any]:
+        return {"status": "COMPLETED"}
+
+    async def _parse_result(_result_json: dict[str, Any], _generation_id: str) -> None:
+        node._set_status_results(was_successful=False, result_details="media could not be retrieved")
+
+    monkeypatch.setattr(node, "_fetch_generation_result", _fetch_generation_result, raising=False)
+    monkeypatch.setattr(node, "_parse_result", _parse_result, raising=False)
+
+    await node._refresh_completed(GENERATION_ID)
+
+    assert len(status_calls) == 1
+    assert status_calls[0]["was_successful"] is False
+
+
+@pytest.mark.asyncio
+async def test_refresh_completed_reports_a_reported_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    node, _ = _build_node(monkeypatch)
+    status_calls = _record_status_and_execution(node)
+
+    async def _fetch_generation_result(_generation_id: str) -> dict[str, Any]:
+        return {"status": "COMPLETED"}
+
+    async def _parse_result(_result_json: dict[str, Any], _generation_id: str) -> None:
+        node._set_status_results(was_successful=True, result_details="saved")
+
+    monkeypatch.setattr(node, "_fetch_generation_result", _fetch_generation_result, raising=False)
+    monkeypatch.setattr(node, "_parse_result", _parse_result, raising=False)
+
+    await node._refresh_completed(GENERATION_ID)
+
+    assert status_calls[-1]["was_successful"] is True
+
+
+@pytest.mark.asyncio
+async def test_refresh_completed_reports_success_when_parse_result_reports_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression guard: _execution_succeeded is None both before this run and after
+    # _clear_execution_status, so a _parse_result that never calls _set_status_results
+    # itself (most of them delegate to _save_generated_media, whose own success path
+    # is the terminal statement) must still result in a reported success, not a
+    # swallowed one.
+    node, _ = _build_node(monkeypatch)
+    status_calls = _record_status_and_execution(node)
+
+    async def _fetch_generation_result(_generation_id: str) -> dict[str, Any]:
+        return {"status": "COMPLETED"}
+
+    async def _parse_result(_result_json: dict[str, Any], _generation_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(node, "_fetch_generation_result", _fetch_generation_result, raising=False)
+    monkeypatch.setattr(node, "_parse_result", _parse_result, raising=False)
+
+    await node._refresh_completed(GENERATION_ID)
+
+    assert len(status_calls) == 1
+    assert status_calls[0]["was_successful"] is True
