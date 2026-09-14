@@ -6,10 +6,9 @@ re-read from ``GT_CLOUD_API_KEY``, and the attribution header is rebuilt as bare
 ``Authorization``. ``unwrap_agent`` restores both before the caller deserializes; these
 tests pin that behaviour and the failure modes it removes.
 
-The two halves fail differently. A wrong credential announces itself as a 401 or 402; a
-missing attribution header does not announce itself at all, because Cloud emits a metric
-only for a *malformed* header. That asymmetry is why the attribution tests below assert
-the exact dict rather than merely that a header is present.
+The two halves fail differently: a wrong credential announces itself as a 401 or 402, while a
+missing attribution header announces nothing at all -- Cloud emits a metric only for a
+*malformed* one. Hence the exact-dict assertions below.
 """
 
 from __future__ import annotations
@@ -343,9 +342,8 @@ def test_reader_round_trip_survives_a_missing_credential(monkeypatch: pytest.Mon
 def test_cloud_driver_gets_attribution_headers(monkeypatch: pytest.MonkeyPatch) -> None:
     """`headers` is as unserializable as `api_key`, and its loss is the silent one.
 
-    A rebuilt driver falls back to an `Authorization`-only header, which Cloud accepts and bills
-    against `<system-defaults>`. No degradation metric fires for a *missing* attribution header --
-    only for a malformed one -- so the under-reporting is invisible from the server side.
+    A rebuilt driver falls back to `Authorization` alone, which Cloud accepts and bills against
+    `<system-defaults>` with no metric -- invisible from the server side.
     """
     _stub_resolved_credential(monkeypatch, _LICENSE)
 
@@ -359,9 +357,7 @@ def test_cloud_driver_gets_attribution_headers(monkeypatch: pytest.MonkeyPatch) 
 def test_headers_are_not_handed_to_a_driver_that_rejects_them(monkeypatch: pytest.MonkeyPatch) -> None:
     """The conversation-memory driver declares `headers` as `init=False`; the kwarg is a TypeError.
 
-    So the walk gates on the type tag rather than injecting into everything it matched. See
-    `test_every_cloud_driver_type_the_walk_matches_stays_loadable` for why that matters even
-    though griptape does not currently serialize this driver.
+    So the walk gates on the type tag rather than injecting into everything it matched.
     """
     _stub_resolved_credential(monkeypatch, _LICENSE)
     agent_dict = _cloud_agent_dict()
@@ -394,8 +390,8 @@ def test_non_cloud_driver_gets_no_headers(monkeypatch: pytest.MonkeyPatch) -> No
 def test_reader_path_injects_headers_without_a_credential(monkeypatch: pytest.MonkeyPatch) -> None:
     """`require_credential=False` still attributes, with the same empty bearer `api_key` gets.
 
-    The read-only paths send nothing, so the empty token is inert; keeping the injection
-    unconditional means there is one code path to reason about rather than two.
+    The read-only paths send nothing, so the empty token is inert, and one unconditional
+    injection is one code path to reason about rather than two.
     """
     _stub_resolved_credential(monkeypatch, "")
 
@@ -407,10 +403,9 @@ def test_reader_path_injects_headers_without_a_credential(monkeypatch: pytest.Mo
 def test_header_settable_tags_match_the_installed_griptape() -> None:
     """Pins the upstream partition the gate is derived from, so a change to it is visible.
 
-    The split is an upstream inconsistency, not a design: the prompt and image drivers declare
-    `headers` as `kw_only=True` while the conversation-memory and ruleset drivers declare it
-    `init=False`. If griptape settles the difference this fails, and the excluded drivers start
-    being attributed with no change to `agent_utils`.
+    The prompt, image and vector drivers declare `headers` `kw_only=True`; conversation-memory
+    and ruleset declare it `init=False`. If griptape settles that, this fails and the excluded
+    drivers start being attributed with no change to `agent_utils`.
     """
     assert agent_utils._HEADER_SETTABLE_CLOUD_DRIVER_TAGS == {  # noqa: SLF001
         "GriptapeCloudImageGenerationDriver",
@@ -472,19 +467,13 @@ def test_every_cloud_driver_type_the_walk_matches_stays_loadable(
 ) -> None:
     """Whatever the walk writes into a driver dict, that driver's own class must be able to load it.
 
-    The walk matches on the ``GriptapeCloud`` prefix, so it cannot assume a prompt driver. An
-    ungated `headers` injection is a `TypeError` out of `from_dict()` for the two drivers that
-    declare the field `init=False` -- a crash where there was working code, not a missing header.
+    The walk matches on the ``GriptapeCloud`` prefix, so an ungated `headers` injection is a
+    `TypeError` out of `from_dict()` for the two drivers declaring the field `init=False` -- a
+    crash where there was working code. Latent today, since `Agent.to_dict()` serializes
+    neither, but that is an upstream flag and not ours to hold still.
 
-    That crash is latent rather than live today: `ConversationMemory.conversation_memory_driver`
-    and `Ruleset`'s driver are themselves unserializable, so `Agent.to_dict()` never puts either
-    dict on the wire. Which is exactly why this is worth pinning -- the safety of an ungated
-    injection would rest on an upstream serialization flag that is not ours to hold still.
-
-    The vector store driver is the case that shows why: it is in the injected set, and it does
-    not survive its own round trip, for a reason that has nothing to do with `headers`. Listed
-    as an `xfail` rather than omitted, because omitting it is what let the set and this test
-    disagree -- the set says the walk writes to it, and only this case says whether it loads.
+    The vector store case is `xfail`ed rather than omitted: the set says the walk writes to it,
+    and only this case says whether it loads.
     """
     module_name, class_name = driver_class_path.split(":")
     driver_class = getattr(import_module(module_name), class_name)

@@ -11,18 +11,16 @@ LIBRARY_ROOT = Path(__file__).parents[3] / "griptape_nodes_library"
 
 # Every Griptape Cloud header build in the library, and whether the call it belongs to incurs
 # spend. Keyed by enclosing function so a failure names the offender; one flag per call, in source
-# order, so a second call in a listed function lengthens the tuple instead of overwriting the
+# order, so a second call in a listed function lengthens the tuple rather than overwriting the
 # first one's answer.
 #
 # The `False` entries consume no credits, so there is nothing to attribute: two model/bucket
 # listings, an asset-access probe, and the proxy's two re-reads of a generation already paid
 # for at submit. Flipping any `True` here to `False` is how spend silently stops being
 # attributed, which is why the map is asserted whole rather than as an allowlist.
-# The `utils/` entries hand the dict to a `griptape` driver rather than to `requests`, by three
-# different routes: `cloud_driver_auth` spreads it into a constructor, `build_tool_from_config`
-# assigns it after construction, and `_restored_cloud_credentials` writes it into a serialized
-# driver dict for `from_dict` to pick up. `test_cloud_driver_auth.py` polices the first two --
-# it reads construction sites, so it is blind to the third.
+# The `utils/` entries hand the dict to a `griptape` driver rather than to `requests`.
+# `test_cloud_driver_auth.py` reads construction sites, so it covers the first two but is blind
+# to `_restored_cloud_credentials`, which writes into a serialized dict for `from_dict`.
 CLOUD_HEADER_CALLS = {
     ("config/prompt/griptape_cloud_prompt.py", "_list_models"): (False,),
     ("proxy/griptape_proxy_node.py", "_fetch_generation_result"): (False,),
@@ -106,12 +104,9 @@ def test_only_the_factory_builds_an_authorization_header() -> None:
 def _calls_named(tree: ast.AST, name: str) -> list[ast.Call]:
     """Every call to `name` in `tree`, in source order.
 
-    Sorted, because `ast.walk` is breadth-first and its order is therefore not reading order:
-    a call nested inside an `if` is yielded *before* a shallower call on a later line. The
-    flag tuples below are positional, so collecting them in walk order would have the map
-    disagree with the file it describes -- and disagree only for a function with more than one
-    call, which is the single case the tuple exists to handle. `col_offset` orders a line that
-    holds two calls.
+    Sorted because `ast.walk` is breadth-first: a call nested inside an `if` is yielded before a
+    shallower one on a later line. The flag tuples below are positional, so walk order would
+    have the map disagree with the file. `col_offset` orders two calls on one line.
     """
     return sorted(
         (node for node in ast.walk(tree) if isinstance(node, ast.Call) and getattr(node.func, "id", None) == name),
@@ -122,9 +117,8 @@ def _calls_named(tree: ast.AST, name: str) -> list[ast.Call]:
 def test_calls_are_collected_in_source_order() -> None:
     """Pins the sort in `_calls_named`, which is invisible until a function grows a second call.
 
-    Shaped like the one function most likely to grow one: a billable build inside a branch,
-    then a free build after it. Unsorted, this records `(False, True)` -- the exact inversion
-    that would have `CLOUD_HEADER_CALLS` mis-describe which of the two calls spends.
+    Unsorted, this records `(b(2), b(1))` -- the inversion that would have `CLOUD_HEADER_CALLS`
+    mis-describe which of the two calls spends.
     """
     source = "def f():\n    if cond:\n        a = b(1)\n    c = b(2)\n"
 
@@ -134,9 +128,8 @@ def test_calls_are_collected_in_source_order() -> None:
 def _cloud_header_calls() -> dict[tuple[str, str], tuple[bool | None, ...]]:
     """Every `build_griptape_cloud_headers` call: `{(file, function): (flag, per, call)}`.
 
-    Accumulated rather than assigned, so two calls in one function stay two entries -- assigning
-    would let the second inherit the first's recorded answer, and an unattributed billable call
-    is invisible from the server.
+    Accumulated rather than assigned: assigning would let a second call in one function inherit
+    the first's recorded answer.
     """
     found: dict[tuple[str, str], tuple[bool | None, ...]] = {}
     for path in sorted(LIBRARY_ROOT.rglob("*.py")):
