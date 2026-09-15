@@ -559,7 +559,9 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             )
             return
 
-        image_artifacts: list[ImageUrlArtifact] = []
+        # Slots follow provider order: a failed download leaves its slot empty instead of
+        # pulling later images forward, so image_url_N always holds the Nth hosted image.
+        saved_by_position: list[ImageUrlArtifact | None] = []
         for position in range(len(hosted)):
             try:
                 image_bytes = await self._load_generated_media(
@@ -569,9 +571,11 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                 saved = await dest.awrite_bytes(image_bytes)
             except Exception as e:
                 logger.warning("%s failed to save generated image %s: %s", self.name, position + 1, e)
+                saved_by_position.append(None)
                 continue
-            image_artifacts.append(ImageUrlArtifact(value=saved.location, name=saved.name))
+            saved_by_position.append(ImageUrlArtifact(value=saved.location, name=saved.name))
 
+        image_artifacts = [artifact for artifact in saved_by_position if artifact is not None]
         if not image_artifacts:
             self._set_safe_defaults()
             self._set_status_results(
@@ -580,13 +584,20 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             )
             return
 
-        self._show_image_output_parameters(len(image_artifacts))
-        for idx, artifact in enumerate(image_artifacts, start=1):
+        self._show_image_output_parameters(len(saved_by_position))
+        for idx, artifact in enumerate(saved_by_position, start=1):
             param_name = "image_url" if idx == 1 else f"image_url_{idx}"
             self.parameter_output_values[param_name] = artifact
 
         filenames = [artifact.name for artifact in image_artifacts if artifact.name]
-        if len(image_artifacts) == 1:
+        missing = [str(idx) for idx, artifact in enumerate(saved_by_position, start=1) if artifact is None]
+        if missing:
+            saved_list = f": {', '.join(filenames)}" if filenames else ""
+            details = (
+                f"Saved {len(image_artifacts)} of {len(saved_by_position)} images{saved_list}. "
+                f"Image(s) {', '.join(missing)} could not be retrieved; their output slots are empty."
+            )
+        elif len(image_artifacts) == 1:
             details = f"Image generated successfully and saved as {filenames[0] if filenames else generation_id}."
         else:
             details = (

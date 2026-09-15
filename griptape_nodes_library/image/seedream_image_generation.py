@@ -506,15 +506,13 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             )
             return
 
-        image_artifacts = []
-        failures = []
-        for idx, artifact in enumerate(image_artifact_refs):
-            saved = await self._save_single_hosted_image(artifact, idx)
-            if saved:
-                image_artifacts.append(saved)
-            else:
-                failures.append(idx)
+        # Slots follow provider order: a failed download leaves its slot empty instead of
+        # pulling later images forward, so image_url_N always holds the Nth hosted image.
+        saved_by_position = [
+            await self._save_single_hosted_image(artifact, idx) for idx, artifact in enumerate(image_artifact_refs)
+        ]
 
+        image_artifacts = [artifact for artifact in saved_by_position if artifact is not None]
         if not image_artifacts:
             self._set_safe_defaults()
             self._set_status_results(
@@ -523,14 +521,13 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             )
             return
 
-        # Show the appropriate number of image output parameters based on actual image count
-        self._show_image_output_parameters(len(image_artifacts))
+        self._show_image_output_parameters(len(saved_by_position))
 
         # These parameters are PROPERTY|OUTPUT, so the stored value backs what the editor renders
         # while the output value feeds downstream nodes. Setting only the output leaves the stored
         # value empty and the image shows as a placeholder until a reload rehydrates it. This is
         # the same set/publish/output sequence ExecutionStatusComponent uses for its own params.
-        for idx, artifact in enumerate(image_artifacts, start=1):
+        for idx, artifact in enumerate(saved_by_position, start=1):
             param_name = "image_url" if idx == 1 else f"image_url_{idx}"
             self.set_parameter_value(param_name, artifact)
             self.publish_update_to_parameter(param_name, artifact)
@@ -539,12 +536,16 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         # Set success status
         count = len(image_artifacts)
         filenames = [artifact.name for artifact in image_artifacts]
-        if count == 1:
+        missing = [str(idx) for idx, artifact in enumerate(saved_by_position, start=1) if artifact is None]
+        if missing:
+            details = (
+                f"Saved {count} of {len(saved_by_position)} images: {', '.join(filenames)}. "
+                f"Image(s) {', '.join(missing)} could not be retrieved; their output slots are empty."
+            )
+        elif count == 1:
             details = f"Image generated successfully and saved as {filenames[0]}."
         else:
             details = f"Generated {count} images successfully: {', '.join(filenames)}."
-        if failures:
-            details += f" {len(failures)} image(s) could not be retrieved."
         self._set_status_results(was_successful=True, result_details=details)
 
     def validate_before_node_run(self) -> list[Exception] | None:
