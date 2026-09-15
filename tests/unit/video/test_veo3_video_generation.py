@@ -5,7 +5,7 @@ output-file index.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -63,7 +63,7 @@ async def test_save_videos_maps_position_to_a_one_based_output_index(
     assert [request["position"] for request in requests] == [0, 1]
     assert all(request["kind"] == ArtifactKind.VIDEO for request in requests)
     assert all(request["generation_id"] == "gen-1" for request in requests)
-    assert node._output_file.built_indexes == [1, 2]
+    assert cast("_FakeOutputFile", node._output_file).built_indexes == [1, 2]
     assert [artifact.name for artifact in video_artifacts] == ["video_1.mp4", "video_2.mp4"]
 
 
@@ -83,5 +83,5 @@ async def test_save_videos_skips_a_failed_position_and_keeps_the_rest(
 
     video_artifacts = await node._save_videos("gen-1", 2)
 
-    assert node._output_file.built_indexes == [2]
+    assert cast("_FakeOutputFile", node._output_file).built_indexes == [2]
     assert [artifact.name for artifact in video_artifacts] == ["video_2.mp4"]
