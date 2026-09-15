@@ -257,15 +257,13 @@ class WanImageGeneration(GriptapeProxyNode):
             )
             return
 
-        image_artifacts: list[ImageUrlArtifact] = []
-        failed = 0
-        for index in range(len(hosted_images)):
-            artifact = await self._save_single_generated_image(generation_id, index)
-            if artifact:
-                image_artifacts.append(artifact)
-            else:
-                failed += 1
+        # Slots follow provider order: a failed download leaves its slot empty instead of
+        # pulling later images forward, so image_url_N always holds the Nth hosted image.
+        saved_by_position = [
+            await self._save_single_generated_image(generation_id, index) for index in range(len(hosted_images))
+        ]
 
+        image_artifacts = [artifact for artifact in saved_by_position if artifact is not None]
         if not image_artifacts:
             self._set_safe_defaults()
             self._set_status_results(
@@ -274,19 +272,19 @@ class WanImageGeneration(GriptapeProxyNode):
             )
             return
 
-        # Show the appropriate number of image output parameters
-        self._show_image_output_parameters(len(image_artifacts))
+        self._show_image_output_parameters(len(saved_by_position))
 
-        # Set individual image output parameters
-        for idx, artifact in enumerate(image_artifacts, start=1):
-            param_name = f"image_url_{idx}"
-            self.parameter_output_values[param_name] = artifact
+        for idx, artifact in enumerate(saved_by_position, start=1):
+            self.parameter_output_values[f"image_url_{idx}"] = artifact
 
-        # Set success status
         count = len(image_artifacts)
         filenames = [artifact.name for artifact in image_artifacts]
-        if failed:
-            details = f"Generated {count} of {count + failed} images successfully: {', '.join(filenames)}."
+        missing = [str(idx) for idx, artifact in enumerate(saved_by_position, start=1) if artifact is None]
+        if missing:
+            details = (
+                f"Saved {count} of {len(saved_by_position)} images: {', '.join(filenames)}. "
+                f"Image(s) {', '.join(missing)} could not be retrieved; their output slots are empty."
+            )
         elif count == 1:
             details = f"Image generated successfully and saved as {filenames[0]}."
         else:

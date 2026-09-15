@@ -278,26 +278,31 @@ class GrokImageEdit(GriptapeProxyNode):
             )
             return
 
-        image_artifacts: list[ImageUrlArtifact] = []
-        for position in range(len(hosted)):
-            artifact = await self._save_single_image(generation_id, position)
-            if artifact:
-                image_artifacts.append(artifact)
+        # Slots follow provider order: a failed download leaves its slot empty instead of
+        # pulling later images forward, so image_url_N always holds the Nth hosted image.
+        saved_by_position = [await self._save_single_image(generation_id, position) for position in range(len(hosted))]
 
+        image_artifacts = [artifact for artifact in saved_by_position if artifact is not None]
         if not image_artifacts:
             self._set_safe_defaults()
             details = f"{self.name} generation completed upstream but the image(s) could not be retrieved."
             self._set_status_results(was_successful=False, result_details=details)
             return
 
-        self._show_image_output_parameters(len(image_artifacts))
+        self._show_image_output_parameters(len(saved_by_position))
 
-        for idx, artifact in enumerate(image_artifacts, start=1):
+        for idx, artifact in enumerate(saved_by_position, start=1):
             param_name = "image_url" if idx == 1 else f"image_url_{idx}"
             self.parameter_output_values[param_name] = artifact
 
         filenames = [artifact.name for artifact in image_artifacts]
-        if len(image_artifacts) == 1:
+        missing = [str(idx) for idx, artifact in enumerate(saved_by_position, start=1) if artifact is None]
+        if missing:
+            details = (
+                f"Edited {len(image_artifacts)} of {len(saved_by_position)} images: {', '.join(filenames)}. "
+                f"Image(s) {', '.join(missing)} could not be retrieved; their output slots are empty."
+            )
+        elif len(image_artifacts) == 1:
             details = f"Image edited successfully and saved as {filenames[0]}."
         else:
             details = f"Edited {len(image_artifacts)} images successfully: {', '.join(filenames)}."

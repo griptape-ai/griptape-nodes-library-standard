@@ -712,7 +712,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             return
 
         video_artifacts = await self._save_videos(generation_id, len(hosted))
-        if not video_artifacts:
+        if not any(video_artifacts):
             logger.warning("%s: No videos could be processed", self.name)
             self._set_safe_defaults()
             self._set_status_results(
@@ -723,9 +723,13 @@ class Veo3VideoGeneration(GriptapeProxyNode):
 
         self._set_video_output_parameters(video_artifacts)
 
-    async def _save_videos(self, generation_id: str, count: int) -> list[VideoUrlArtifact]:
-        """Save each hosted video, in provider order, indexed for its output parameter."""
-        video_artifacts = []
+    async def _save_videos(self, generation_id: str, count: int) -> list[VideoUrlArtifact | None]:
+        """Save each hosted video, in provider order, indexed for its output parameter.
+
+        A video that cannot be saved yields None so it keeps its slot instead of pulling
+        later videos forward.
+        """
+        video_artifacts: list[VideoUrlArtifact | None] = []
 
         for position in range(count):
             try:
@@ -736,6 +740,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
                 saved = await dest.awrite_bytes(video_bytes)
             except Exception as e:
                 logger.error("%s: Failed to process video %s: %s", self.name, position + 1, e)
+                video_artifacts.append(None)
                 continue
 
             logger.info("%s: Saved video %s as %s", self.name, position + 1, saved.name)
@@ -743,19 +748,25 @@ class Veo3VideoGeneration(GriptapeProxyNode):
 
         return video_artifacts
 
-    def _set_video_output_parameters(self, video_artifacts: list[VideoUrlArtifact]) -> None:
+    def _set_video_output_parameters(self, video_artifacts: list[VideoUrlArtifact | None]) -> None:
         """Set output parameters for all generated videos."""
-        # Show appropriate number of output parameters
         self._show_video_output_parameters(len(video_artifacts))
 
-        # Set individual output parameters
+        # Slots follow provider order, so video_url_N always holds the Nth hosted video
+        # and an unsaved video leaves its slot empty.
         for idx, artifact in enumerate(video_artifacts, start=1):
             param_name = "video_url" if idx == 1 else f"video_url_{idx}"
             self.parameter_output_values[param_name] = artifact
 
-        # Set success status
-        video_count = len(video_artifacts)
-        result_message = f"Generated {video_count} video{'s' if video_count > 1 else ''} successfully"
+        saved_count = sum(1 for artifact in video_artifacts if artifact is not None)
+        missing = [str(idx) for idx, artifact in enumerate(video_artifacts, start=1) if artifact is None]
+        if missing:
+            result_message = (
+                f"Saved {saved_count} of {len(video_artifacts)} videos. "
+                f"Video(s) {', '.join(missing)} could not be retrieved; their output slots are empty."
+            )
+        else:
+            result_message = f"Generated {saved_count} video{'s' if saved_count > 1 else ''} successfully"
         self._set_status_results(
             was_successful=True,
             result_details=result_message,

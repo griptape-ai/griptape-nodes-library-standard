@@ -104,17 +104,18 @@ async def test_parse_result_saves_a_single_image_as_image_url(
 
 
 @pytest.mark.asyncio
-async def test_parse_result_notes_partial_failures_but_still_reports_success(
+async def test_parse_result_keeps_a_failed_image_slot_empty_and_still_reports_success(
     node: SeedreamImageGeneration, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     # One of three images fails to download. The two that saved are a real generation
-    # result the user was billed for, so this stays a success -- but the loss must be
-    # named in result_details rather than passed over in silence.
+    # result the user was billed for, so this stays a success -- but the failed image
+    # keeps its own slot, and the loss is named in result_details.
     artifacts = [
         HostedArtifact(index=0, kind="image", url="https://example/0.png"),
         HostedArtifact(index=1, kind="image", url="https://example/1.png"),
         HostedArtifact(index=2, kind="image", url="https://example/2.png"),
     ]
+    image_bytes = {0: b"image-one", 2: b"image-three"}
 
     async def fake_hosted_artifacts(_generation_id: str) -> list[HostedArtifact]:
         return artifacts
@@ -123,7 +124,7 @@ async def test_parse_result_notes_partial_failures_but_still_reports_success(
         if artifact.index == 1:
             msg = "network error"
             raise RuntimeError(msg)
-        return b"image-bytes"
+        return image_bytes[artifact.index]
 
     monkeypatch.setattr(node, "_hosted_artifacts", fake_hosted_artifacts)
     monkeypatch.setattr(node, "_download_artifact", fake_download_artifact)
@@ -132,9 +133,10 @@ async def test_parse_result_notes_partial_failures_but_still_reports_success(
     await node._parse_result({}, "gen-1")
 
     assert node.parameter_output_values["was_successful"] is True
-    assert "1 image(s) could not be retrieved" in node.parameter_output_values["result_details"]
-    assert node.parameter_output_values["image_url"] is not None
-    assert node.parameter_output_values["image_url_2"] is not None
+    assert "Image(s) 2 could not be retrieved" in node.parameter_output_values["result_details"]
+    assert Path(node.parameter_output_values["image_url"].value).read_bytes() == b"image-one"
+    assert node.parameter_output_values["image_url_2"] is None
+    assert Path(node.parameter_output_values["image_url_3"].value).read_bytes() == b"image-three"
 
 
 @pytest.mark.asyncio
