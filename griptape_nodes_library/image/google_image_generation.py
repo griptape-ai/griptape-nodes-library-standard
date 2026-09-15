@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 import logging
+from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact
@@ -35,6 +36,17 @@ MAX_HUMAN_IMAGES = 5
 
 # Maximum image size in bytes (7MB)
 MAX_IMAGE_SIZE_BYTES = 7 * 1024 * 1024
+
+
+@dataclass
+class _SavedImages:
+    """The images saved from a generation, and why any are missing."""
+
+    artifacts: list[ImageUrlArtifact] = field(default_factory=list)
+    # Set when the artifact list itself could not be read, which is a different cause
+    # from a generation that hosted no images.
+    listing_error: str | None = None
+    unretrieved: int = 0
 
 
 class GoogleImageGeneration(GriptapeProxyNode):
@@ -430,8 +442,8 @@ class GoogleImageGeneration(GriptapeProxyNode):
         for candidate in candidates:
             self._process_candidate(candidate, text_outputs)
 
-        image_artifacts = await self._save_images(generation_id)
-        self._store_results(image_artifacts, text_outputs)
+        saved = await self._save_images(generation_id)
+        self._store_results(saved, text_outputs)
 
     def _process_candidate(self, candidate: dict[str, Any], text_outputs: list[str]) -> None:
         """Collect a candidate's text parts. Image parts are read from hosted artifacts."""
@@ -440,15 +452,21 @@ class GoogleImageGeneration(GriptapeProxyNode):
             if "text" in part:
                 text_outputs.append(part["text"])
 
-    async def _save_images(self, generation_id: str) -> list[ImageUrlArtifact]:
-        """Save every hosted image, in provider order."""
+    async def _save_images(self, generation_id: str) -> _SavedImages:
+        """Save every hosted image, in provider order.
+
+        Keeps the three ways this can come back short apart, since they are three
+        different causes for a user to chase: the list could not be read, the
+        generation hosted nothing, or the bytes could not be downloaded.
+        """
         try:
             hosted = [a for a in await self._hosted_artifacts(generation_id) if a.kind == ArtifactKind.IMAGE]
         except Exception as e:
-            logger.info("%s no hosted images: %s", self.name, e)
-            return []
+            logger.warning("%s hosted images could not be listed: %s", self.name, e)
+            return _SavedImages(artifacts=[], listing_error=str(e))
 
         image_artifacts = []
+        unretrieved = 0
         for position in range(len(hosted)):
             try:
                 image_bytes = await self._load_generated_media(
@@ -457,29 +475,37 @@ class GoogleImageGeneration(GriptapeProxyNode):
                 dest = self._output_file.build_file()
                 saved = await dest.awrite_bytes(image_bytes)
             except Exception as e:
-                logger.info("%s failed to save image %s: %s", self.name, position, e)
+                logger.warning("%s failed to save image %s: %s", self.name, position, e)
+                unretrieved += 1
                 continue
             image_artifacts.append(ImageUrlArtifact(value=saved.location, name=saved.name))
             logger.info("%s saved image %s", self.name, saved.name)
 
-        return image_artifacts
+        return _SavedImages(artifacts=image_artifacts, unretrieved=unretrieved)
 
-    def _store_results(self, image_artifacts: list[ImageUrlArtifact], text_outputs: list[str]) -> None:
+    def _store_results(self, saved: _SavedImages, text_outputs: list[str]) -> None:
         """Store image and text results and set status."""
         self.parameter_output_values["text"] = "\n".join(text_outputs) if text_outputs else ""
 
-        if image_artifacts:
-            self.parameter_output_values["all_images"] = image_artifacts
-            self.parameter_output_values["image"] = image_artifacts[0]
-            count = len(image_artifacts)
+        if saved.artifacts:
+            self.parameter_output_values["all_images"] = saved.artifacts
+            self.parameter_output_values["image"] = saved.artifacts[0]
+            count = len(saved.artifacts)
             details = f"{self.name} generated {count} image{'s' if count > 1 else ''} successfully."
+            if saved.unretrieved:
+                details += f" {saved.unretrieved} image(s) could not be retrieved."
             if text_outputs:
                 details += "\n\nModel commentary:\n" + "\n".join(text_outputs)
             self._set_status_results(was_successful=True, result_details=details)
         else:
             self.parameter_output_values["image"] = None
             self.parameter_output_values["all_images"] = []
-            details = f"{self.name} no images found in response."
+            if saved.listing_error:
+                details = f"{self.name} generation completed but its images could not be listed: {saved.listing_error}"
+            elif saved.unretrieved:
+                details = f"{self.name} generation completed upstream but the image(s) could not be retrieved."
+            else:
+                details = f"{self.name} no images were hosted."
             if text_outputs:
                 details += "\n\nModel text output:\n" + "\n".join(text_outputs)
             self._set_status_results(was_successful=False, result_details=details)
