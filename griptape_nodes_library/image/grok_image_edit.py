@@ -263,14 +263,18 @@ class GrokImageEdit(GriptapeProxyNode):
         try:
             hosted = [a for a in await self._hosted_artifacts(generation_id) if a.kind == ArtifactKind.IMAGE]
         except Exception as e:
-            logger.warning("%s no hosted images: %s", self.name, e)
-            hosted = []
+            self._set_safe_defaults()
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"{self.name} generation completed but its images could not be listed: {e}",
+            )
+            return
 
         if not hosted:
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=f"{self.name} generation completed but no image data was found in the response.",
+                result_details=f"{self.name} generation completed but no images were hosted.",
             )
             return
 

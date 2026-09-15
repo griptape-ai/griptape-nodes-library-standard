@@ -694,11 +694,11 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         try:
             hosted = [a for a in await self._hosted_artifacts(generation_id) if a.kind == ArtifactKind.VIDEO]
         except Exception as e:
-            logger.warning("%s: No videos in result: %s", self.name, e)
+            logger.warning("%s: hosted videos could not be listed: %s", self.name, e)
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details="Generation completed but no videos received",
+                result_details=f"Generation completed but its videos could not be listed: {e}",
             )
             return
 

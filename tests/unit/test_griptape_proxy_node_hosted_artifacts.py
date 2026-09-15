@@ -185,6 +185,22 @@ async def test_fetch_raises_on_a_gap_with_no_dropped_entry(monkeypatch: pytest.M
 
 
 @pytest.mark.asyncio
+async def test_fetch_raises_on_a_head_truncated_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Contiguous but starting at 1: a swept or missing index 0 shifts every artifact
+    # one slot off the position a caller pairs it with.
+    payload = {
+        "artifacts": [
+            {"index": 1, "kind": "model_3d", "url": "https://example/1.glb"},
+            {"index": 2, "kind": "image", "url": "https://example/2.webp"},
+        ]
+    }
+    _install_list_client(monkeypatch, payload, [])
+
+    with pytest.raises(HostedArtifactError, match=r"\[1, 2\]"):
+        await fetch_hosted_artifacts(PROXY_BASE, GENERATION_ID, "test-key")
+
+
+@pytest.mark.asyncio
 async def test_fetch_bounds_a_dropped_entrys_size_in_the_log(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
