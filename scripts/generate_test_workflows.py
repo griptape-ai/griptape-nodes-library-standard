@@ -1154,6 +1154,7 @@ MANUAL_FLOW_INPUTS: dict[str, dict] = {
     "test_seedance_2_0.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_seedance_2_0_fast.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_seedance_2_5.py": {"Start Flow": {"prompt": "A ball bouncing"}},
+    "test_ltx_text_to_video_generation_2_5.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_openai_image_generation_wide.py": {"Start Flow": {"prompt": "A red circle"}},
     "test_openai_image_generation_tall.py": {"Start Flow": {"prompt": "A red circle"}},
 }
