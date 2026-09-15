@@ -733,7 +733,8 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
 
         # Parse assets
         assets = world.get("assets") or {}
-        if not await self._parse_assets(assets, world_id, generation_id):
+        unsaved = await self._parse_assets(assets, world_id, generation_id)
+        if unsaved is None:
             return
 
         # Extract caption
@@ -741,9 +742,12 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         if caption:
             self.parameter_output_values["caption"] = caption
 
+        details = f"Successfully generated 3D world: {world_id}"
+        if unsaved:
+            details += f". {len(unsaved)} asset(s) could not be retrieved: {', '.join(unsaved)}"
         self._set_status_results(
             was_successful=True,
-            result_details=f"Successfully generated 3D world: {world_id}",
+            result_details=details,
         )
 
     @staticmethod
@@ -780,7 +784,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
 
         return slots
 
-    async def _parse_assets(self, assets: dict[str, Any], world_id: str, generation_id: str) -> bool:
+    async def _parse_assets(self, assets: dict[str, Any], world_id: str, generation_id: str) -> list[str] | None:
         """Save the world's hosted assets, matched positionally to the order above.
 
         The artifact list carries no filename, so each asset's name is one this node
@@ -789,12 +793,15 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         project files: none of World Labs's provider URLs are handed downstream, since
         they expire.
 
-        Returns False (after reporting failure) when the proxy hosts more media than the
-        response declared, since guessing which bytes are which would mislabel a file. A
-        short list is truncation, which drops a tail: the assets that did arrive still
-        pair correctly by position and are saved.
+        Returns the output keys that were declared but not saved, so the caller can note a
+        partial world, or None (after reporting failure) when nothing usable landed: the
+        proxy hosting more media than the response declared, since guessing which bytes
+        are which would mislabel a file, or every declared asset failing to save, since a
+        billed world whose assets cannot be retrieved is a failure rather than a success
+        with empty outputs. A short list is truncation, which drops a tail: the assets
+        that did arrive still pair correctly by position and are saved.
         """
-        slots = self._expected_asset_slots(assets)
+        declared = self._expected_asset_slots(assets)
         try:
             hosted = await self._hosted_artifacts(generation_id)
         except Exception as e:
@@ -803,29 +810,30 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
                 was_successful=False,
                 result_details=f"World generated but its assets could not be listed: {e}",
             )
-            return False
+            return None
 
-        if len(hosted) > len(slots):
+        if len(hosted) > len(declared):
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
                 result_details=(
-                    f"World `{world_id}` declared {len(slots)} asset(s) but the proxy hosts {len(hosted)}; "
+                    f"World `{world_id}` declared {len(declared)} asset(s) but the proxy hosts {len(hosted)}; "
                     f"refusing to guess which bytes belong to which asset."
                 ),
             )
-            return False
+            return None
 
-        dropped = [output_key for output_key, _filename in slots[len(hosted) :]]
+        slots = declared[: len(hosted)]
+        dropped = [output_key for output_key, _filename in declared[len(hosted) :]]
+        unsaved = list(dropped)
         if dropped:
             logger.warning(
                 "%s: the proxy hosts %d of %d asset(s); %s left unsaved",
                 self.name,
                 len(hosted),
-                len(slots),
+                len(declared),
                 ", ".join(dropped),
             )
-            slots = slots[: len(hosted)]
 
         output_file_value = self.get_parameter_value("output_file") or "splat_full_res.spz"
         output_path = Path(output_file_value)
@@ -851,8 +859,10 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         for (output_key, _artifact, _dest), result in zip(jobs, results, strict=True):
             if isinstance(result, BaseException):
                 self._log(f"Asset job for {output_key} raised: {result}")
+                unsaved.append(output_key)
                 continue
             if not result:
+                unsaved.append(output_key)
                 continue
 
             match output_key:
@@ -871,6 +881,16 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
                         meta={"resolution": resolution, "world_id": world_id, "format": "spz"},
                     )
 
+        if declared and len(unsaved) == len(declared):
+            self._set_safe_defaults()
+            self._set_status_results(
+                was_successful=False,
+                result_details=(
+                    f"World `{world_id}` was generated but none of its {len(declared)} asset(s) could be retrieved."
+                ),
+            )
+            return None
+
         # Thumbnail is not part of the proxy's hosted artifact set; the provider URL
         # is passed straight through.
         if assets.get("thumbnail_url"):
@@ -878,7 +898,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
                 value=assets["thumbnail_url"], meta={"type": "thumbnail", "world_id": world_id}
             )
 
-        return True
+        return unsaved
 
     def _set_safe_defaults(self) -> None:
         """Clear output parameters on failure."""

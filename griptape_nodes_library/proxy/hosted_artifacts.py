@@ -184,15 +184,14 @@ def _require_trustworthy_prefix(artifacts: list[HostedArtifact], dropped_count: 
       that visibly leaves a gap.
     - The surviving indices skip a value (a gap).
     - The surviving indices repeat a value (a duplicate).
-
-    Checks contiguity rather than requiring the first index to be 0: contiguity is
-    the property positional pairing actually needs, so the check asks for nothing
-    more.
+    - The surviving indices start above 0: the list lost its head, so every
+      artifact sits one or more slots off the position a caller pairs it with.
     """
     indices = [artifact.index for artifact in artifacts]
     has_duplicate = len(set(indices)) != len(indices)
     has_gap = len(indices) > 1 and any(b - a != 1 for a, b in zip(indices, indices[1:], strict=False))
-    if dropped_count or has_gap or has_duplicate:
+    is_head_truncated = bool(indices) and indices[0] != 0
+    if dropped_count or has_gap or has_duplicate or is_head_truncated:
         msg = (
             f"Artifact list for generation {generation_id} cannot be trusted for positional "
             f"pairing: {dropped_count} entr{'y' if dropped_count == 1 else 'ies'} dropped, "
