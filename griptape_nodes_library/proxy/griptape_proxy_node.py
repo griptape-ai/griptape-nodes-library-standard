@@ -10,7 +10,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
@@ -1252,8 +1252,12 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Transient failures (timeouts, connection errors, and 5xx responses) are
         retried a single time after a short delay. Permanent failures (4xx, e.g.
         an expired or missing provider URL) are raised immediately, since
-        retrying cannot help. The underlying exception is propagated so callers
-        can surface an actionable reason rather than a bare ``None``.
+        retrying cannot help.
+
+        A raised HTTP status error carries the URL's scheme, host, and path but
+        not its query string: a presigned artifact URL carries its credential
+        there, and ``Response.raise_for_status()`` otherwise bakes the full URL,
+        credential included, into the message callers log and show the user.
 
         Args:
             url: The URL to download from
@@ -1266,6 +1270,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Raises:
             httpx.HTTPError: If the download fails (after a retry for transient errors).
         """
+        parsed_url = urlparse(url)
+        redacted_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
         attempts = 2
         for attempt in range(1, attempts + 1):
             try:
@@ -1275,15 +1281,15 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                     return resp.content
             except httpx.HTTPStatusError as e:
                 # 4xx are permanent (expired/missing URL); do not retry.
-                if HTTP_CLIENT_ERROR_MIN <= e.response.status_code < HTTP_CLIENT_ERROR_MAX:
-                    raise
-                if attempt >= attempts:
-                    raise
+                is_client_error = HTTP_CLIENT_ERROR_MIN <= e.response.status_code < HTTP_CLIENT_ERROR_MAX
+                if is_client_error or attempt >= attempts:
+                    msg = f"Download failed: HTTP {e.response.status_code} for {redacted_url}"
+                    raise httpx.HTTPStatusError(msg, request=e.request, response=e.response) from e
             except (httpx.TimeoutException, httpx.TransportError):
                 if attempt >= attempts:
                     raise
             await asyncio.sleep(DOWNLOAD_RETRY_DELAY_SECONDS)
 
         # Unreachable: the loop either returns or raises on the final attempt.
-        msg = f"Failed to download from {url}"
+        msg = f"Failed to download from {redacted_url}"
         raise httpx.HTTPError(msg)

@@ -9,15 +9,21 @@ from griptape_nodes_library.image.flux_2_image_generation import Flux2ImageGener
 
 
 class _FakeResponse:
-    def __init__(self, *, status_code: int = 200, content: bytes = b"data") -> None:
+    def __init__(
+        self, *, status_code: int = 200, content: bytes = b"data", url: str = "https://provider.example/asset"
+    ) -> None:
         self.status_code = status_code
         self.content = content
+        self._url = url
 
     def raise_for_status(self) -> None:
         if httpx.codes.is_error(self.status_code):
-            request = httpx.Request("GET", "https://provider.example/asset")
+            request = httpx.Request("GET", self._url)
             response = httpx.Response(self.status_code, request=request)
-            raise httpx.HTTPStatusError("error", request=request, response=response)
+            # Real raise_for_status(), not a hand-written HTTPStatusError: its
+            # auto-generated message bakes in the full request URL, which is what
+            # the leak-redaction test below needs to reproduce.
+            response.raise_for_status()
 
 
 def _install_fake_client(monkeypatch: pytest.MonkeyPatch, get_impl: Any) -> None:
@@ -92,3 +98,24 @@ async def test_download_retries_once_on_server_error_then_raises(monkeypatch: py
 
     # 5xx is transient; one retry (2 attempts total) before giving up.
     assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_download_error_redacts_a_presigned_urls_query_string(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A presigned artifact URL's credential lives in its query string.
+    # httpx.Response.raise_for_status() bakes the full URL into its message, so
+    # the raised error must be re-sanitized rather than propagated as-is.
+    secret = "X-Amz-Signature=DEADBEEFSECRET&X-Amz-Credential=AKIAEXAMPLE"
+    presigned_url = f"https://blob.example.com/gen/1/video.mp4?{secret}"
+
+    async def get_impl(_url: str, _timeout: int, _headers: dict[str, str] | None) -> _FakeResponse:
+        return _FakeResponse(status_code=403, url=presigned_url)
+
+    _install_fake_client(monkeypatch, get_impl)
+
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        await Flux2ImageGeneration._download_bytes_from_url(presigned_url)
+
+    assert secret not in str(exc_info.value)
+    assert "blob.example.com" in str(exc_info.value)
+    assert "403" in str(exc_info.value)
