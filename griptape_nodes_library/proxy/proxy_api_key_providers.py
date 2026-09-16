@@ -145,6 +145,7 @@ _NODE_PROVIDER_CONFIGS = {
     "SeedreamImageGeneration": SEED,
     "SoraVideoGeneration": OPENAI,
     "TopazImageEnhance": TOPAZ,
+    "TopazVideoConvertHdr": TOPAZ,
     "TopazVideoUpscale": TOPAZ,
     "TranscribeAudio": OPENAI,
     "TripoImageTo3DGeneration": TRIPO,
