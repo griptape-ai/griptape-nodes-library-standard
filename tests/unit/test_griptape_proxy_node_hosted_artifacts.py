@@ -201,6 +201,23 @@ async def test_fetch_raises_on_a_head_truncated_list(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.asyncio
+async def test_fetch_raises_on_a_duplicate_index(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Two well-formed entries claim the same index, so pairing by position is
+    # ambiguous. Sorting surfaces the duplicate as a zero delta, so has_gap fires
+    # alongside has_duplicate: this pins the rejection, not one branch of it.
+    payload = {
+        "artifacts": [
+            {"index": 0, "kind": "model_3d", "url": "https://example/0.glb"},
+            {"index": 0, "kind": "image", "url": "https://example/0.webp"},
+        ]
+    }
+    _install_list_client(monkeypatch, payload, [])
+
+    with pytest.raises(HostedArtifactError, match="cannot be trusted for positional pairing"):
+        await fetch_hosted_artifacts(PROXY_BASE, GENERATION_ID, "test-key")
+
+
+@pytest.mark.asyncio
 async def test_fetch_bounds_a_dropped_entrys_size_in_the_log(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
