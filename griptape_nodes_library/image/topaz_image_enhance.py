@@ -21,7 +21,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.image_utils import get_image_dimensions_from_artifact
 
 logger = logging.getLogger("griptape_nodes")
@@ -1286,47 +1286,16 @@ class TopazImageEnhance(GriptapeProxyNode):
 
             self._log(f"Request payload: {json.dumps(sanitized_payload, indent=2)}")
 
-    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
-        image_bytes = result_json.get("raw_bytes")
-        if isinstance(image_bytes, (bytes, bytearray)):
-            await self._handle_binary_image_response(bytes(image_bytes))
-            return
-
-        sample_url = result_json.get("result", {}).get("sample")
-        if sample_url:
-            await self._download_and_save(
-                sample_url,
-                "image_output",
-                lambda v, n: ImageUrlArtifact(value=v, name=n),
-                media_kind="image",
-                action="processed",
-            )
-            return
-
-        self._log("No sample URL found in result")
-        self._set_safe_defaults()
-        self._set_status_results(
-            was_successful=False,
-            result_details="Processing completed but no image URL was found in the response.",
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        """Save the hosted image."""
+        await self._save_generated_media(
+            generation_id,
+            "image_output",
+            lambda v, n: ImageUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.IMAGE,
+            media_kind="image",
+            action="processed",
         )
-
-    async def _handle_binary_image_response(self, image_bytes: bytes) -> None:
-        """Handle binary image data returned directly from the API."""
-        try:
-            dest = self._output_file.build_file()
-            saved = await dest.awrite_bytes(image_bytes)
-            self.parameter_output_values["image_output"] = ImageUrlArtifact(value=saved.location, name=saved.name)
-            self._log(f"Saved binary image as {saved.name}")
-            self._set_status_results(
-                was_successful=True, result_details=f"Image processed successfully and saved as {saved.name}."
-            )
-        except Exception as e:
-            self._log(f"Failed to save binary image: {e}")
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"Image processing succeeded but failed to save: {e}",
-            )
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
         """Extract error details from API response."""

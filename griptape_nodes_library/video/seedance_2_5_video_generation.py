@@ -27,10 +27,10 @@ from griptape_nodes_library.assets import (
     get_provider_asset_kind,
     is_provider_asset_reference,
 )
+from griptape_nodes_library.proxy import ArtifactKind
 from griptape_nodes_library.video.seedance_common import (
     SeedanceProxyNode,
     coerce_video_url,
-    extract_video_url,
 )
 
 logger = logging.getLogger("griptape_nodes")
@@ -997,17 +997,17 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         return coerced_url
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        """Parse the result and set output parameters."""
-        extracted_url = extract_video_url(result_json)
-        if not extracted_url:
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no video URL was found in the response.",
-            )
-            return
+        """Save the hosted video, then the last frame the provider returned beside it.
 
-        await self._download_and_save(extracted_url, "video_url", lambda v, n: VideoUrlArtifact(value=v, name=n))
+        Only the video is hosted by the proxy; the last frame stays on provider parsing.
+        """
+        if not await self._save_generated_media(
+            generation_id,
+            "video_url",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+        ):
+            return
 
         if self.get_parameter_value("return_last_frame"):
             await self._save_last_frame(result_json)

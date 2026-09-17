@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -20,6 +19,7 @@ from griptape_nodes_library.image.openai_image_generation import (
     OpenAiImageGeneration,
 )
 from griptape_nodes_library.proxy.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy.hosted_artifacts import HostedArtifact
 
 LIBRARY_NAME = "Griptape Nodes Library"
 
@@ -337,7 +337,7 @@ async def test_reference_upload_scratch_parameters_removed_after_generation(
 
 
 @pytest.mark.asyncio
-async def test_parse_result_saves_base64_images(
+async def test_parse_result_saves_hosted_images(
     node: OpenAiImageGeneration, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     class FakeDestination:
@@ -355,14 +355,21 @@ async def test_parse_result_saves_base64_images(
 
     image_1_bytes = b"image-one"
     image_2_bytes = b"image-two"
-    result_json = {
-        "data": [
-            {"b64_json": base64.b64encode(image_1_bytes).decode("utf-8")},
-            {"b64_json": base64.b64encode(image_2_bytes).decode("utf-8")},
-        ]
-    }
 
-    await node._parse_result(result_json, "gen_123")
+    async def fake_hosted_artifacts(_generation_id: str) -> list[HostedArtifact]:
+        return [
+            HostedArtifact(index=0, kind="image", url="https://example/0.png"),
+            HostedArtifact(index=1, kind="image", url="https://example/1.png"),
+        ]
+
+    async def fake_load_generated_media(_generation_id: str, *, kind: str | None = None, position: int = 0) -> bytes:
+        assert kind == "image"
+        return image_1_bytes if position == 0 else image_2_bytes
+
+    monkeypatch.setattr(node, "_hosted_artifacts", fake_hosted_artifacts)
+    monkeypatch.setattr(node, "_load_generated_media", fake_load_generated_media)
+
+    await node._parse_result({}, "gen_123")
 
     first_artifact = node.parameter_output_values["image_url"]
     second_artifact = node.parameter_output_values["image_url_2"]
@@ -372,6 +379,47 @@ async def test_parse_result_saves_base64_images(
     assert Path(first_artifact.value).read_bytes() == image_1_bytes
     assert Path(second_artifact.value).read_bytes() == image_2_bytes
     assert node.parameter_output_values["was_successful"] is True
+
+
+@pytest.mark.asyncio
+async def test_parse_result_keeps_a_failed_image_slot_empty(
+    node: OpenAiImageGeneration, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # image_url_N must stay pinned to the Nth hosted image: a mid-list download failure
+    # leaves that slot empty instead of pulling image 3 into image_url_2's place.
+    class FakeDestination:
+        def __init__(self, path: Path) -> None:
+            self.path = path
+
+        async def awrite_bytes(self, data: bytes) -> SimpleNamespace:
+            self.path.write_bytes(data)
+            return SimpleNamespace(location=str(self.path), name=self.path.name)
+
+    monkeypatch.setattr(
+        node._output_file,
+        "build_file",
+        lambda _index=1, **_kwargs: FakeDestination(tmp_path / f"openai_image_{_index}.png"),
+    )
+
+    async def fake_hosted_artifacts(_generation_id: str) -> list[HostedArtifact]:
+        return [HostedArtifact(index=i, kind="image", url=f"https://example/{i}.png") for i in range(3)]
+
+    async def fake_load_generated_media(_generation_id: str, *, kind: str | None = None, position: int = 0) -> bytes:  # noqa: ARG001
+        if position == 1:
+            msg = "not hosted"
+            raise RuntimeError(msg)
+        return f"image-{position}".encode()
+
+    monkeypatch.setattr(node, "_hosted_artifacts", fake_hosted_artifacts)
+    monkeypatch.setattr(node, "_load_generated_media", fake_load_generated_media)
+
+    await node._parse_result({}, "gen_123")
+
+    assert Path(node.parameter_output_values["image_url"].value).read_bytes() == b"image-0"
+    assert node.parameter_output_values["image_url_2"] is None
+    assert Path(node.parameter_output_values["image_url_3"].value).read_bytes() == b"image-2"
+    assert node.parameter_output_values["was_successful"] is True
+    assert "Image(s) 2 could not be retrieved" in node.parameter_output_values["result_details"]
 
 
 def _background_choices(node: OpenAiImageGeneration) -> list[str]:

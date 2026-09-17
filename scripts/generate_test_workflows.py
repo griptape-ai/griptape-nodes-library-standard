@@ -29,6 +29,9 @@ TEXT_PROMPT_CONFIGS = [
     ("LTXTextToVideoGeneration", "prompt", "video_url", "A ball bouncing", "ltx_text_to_video_generation"),
     ("WanTextToVideoGeneration", "prompt", "video_url", "A ball bouncing", "wan_text_to_video_generation"),
     ("MinimaxHailuoVideoGeneration", "prompt", "video_url", "A ball bouncing", "minimax_hailuo_video_generation"),
+    ("SeedanceVideoGeneration", "prompt", "video_url", "A ball bouncing", "seedance_video_generation"),
+    ("GeminiOmniFlashGeneration", "prompt", "video_url", "A ball bouncing", "gemini_omni_flash_generation"),
+    ("KlingOmniVideoGeneration", "prompt", "video_url", "A ball bouncing", "kling_omni_video_generation"),
     # 3D generation
     ("TripoTextTo3DGeneration", "prompt", "model_url", "A simple chair", "tripo_text_to_3d_generation"),
     # Audio generation
@@ -223,6 +226,19 @@ ADVANCED_CONFIGS = [
     },
     {
         "template": "image_and_text_list",
+        "node_type": "QwenImageEdit",
+        "image_in": "images",
+        "image_in_input_types": ["ImageArtifact", "ImageUrlArtifact", "str"],
+        "image_in_type": "ImageArtifact",
+        "image_in_output_type": "ImageArtifact",
+        "image_in_tooltip": "List of 1-6 images to edit",
+        "text_param": "editing_instruction",
+        "text_value": "Make it blue",
+        "output_param": "image_url",
+        "suffix": "qwen_image_edit",
+    },
+    {
+        "template": "image_and_text_list",
         "node_type": "Rodin23DGeneration",
         "image_in": "input_images",
         "image_in_input_types": [
@@ -287,6 +303,22 @@ ADVANCED_CONFIGS = [
         "output_param": "video_url",
         "suffix": "ltx_video_retake",
     },
+    {
+        "template": "video_and_prompt",
+        "node_type": "LTXVideoExtend",
+        "video_in": "video",
+        "prompt_value": "A ball bouncing",
+        "output_param": "video_url",
+        "suffix": "ltx_video_extend",
+    },
+    {
+        "template": "video_and_prompt",
+        "node_type": "WanReferenceToVideoGeneration",
+        "video_in": "reference_video_1",
+        "prompt_value": "A ball bouncing",
+        "output_param": "video",
+        "suffix": "wan_reference_to_video_generation",
+    },
     # image_to_video — CreateColorBars provides an image; prompt_param=None means no prompt needed
     {
         "template": "image_to_video",
@@ -314,6 +346,102 @@ ADVANCED_CONFIGS = [
         "prompt_value": None,
         "output_param": "video",
         "suffix": "wan_image_to_video_generation",
+    },
+    # prompt_only — prompt set on the node, leaving room for a preset alongside it
+    {
+        "template": "prompt_only",
+        "node_type": "WorldLabsWorldGeneration",
+        "prompt_param": "text_prompt",
+        "prompt_value": "A quiet garden courtyard",
+        # Draft model: cheapest world that still yields a full hosted artifact set.
+        "set_params": {"model": "marble-1.0-draft"},
+        "output_param": "splat_100k",
+        "suffix": "world_labs_world_generation",
+    },
+    {
+        "template": "prompt_only",
+        "node_type": "Veo3VideoGeneration",
+        "prompt_param": "prompt",
+        "prompt_value": "A ball bouncing",
+        # Two samples, asserted on the second output: proves hosted position 1 lands in
+        # video_url_2 rather than overwriting the first video.
+        "set_params": {"sample_count": 2},
+        "output_param": "video_url_2",
+        "suffix": "veo3_video_generation_two_samples",
+    },
+    {
+        "template": "prompt_only",
+        "node_type": "Seedance25VideoGeneration",
+        "prompt_param": "prompt",
+        "prompt_value": "A ball bouncing",
+        # Last frame asserted, so the hosted list pairs a video and an image by position.
+        "set_params": {"return_last_frame": True},
+        "output_param": "last_frame_url",
+        "suffix": "seedance_2_5_last_frame_artifact",
+    },
+    # audio_and_prompt — ElevenLabs speech feeds an audio input
+    {
+        "template": "audio_and_prompt",
+        "node_type": "LTXAudioToVideoGeneration",
+        "audio_in": "audio",
+        # Long enough to clear LTX's two-second minimum on the driving audio.
+        "audio_text": "Testing a longer line of speech so the generated clip runs past two seconds.",
+        "prompt_value": "A ball bouncing",
+        "output_param": "video_url",
+        "suffix": "ltx_audio_to_video_generation",
+    },
+    # image_and_audio — a generated portrait plus ElevenLabs speech
+    {
+        "template": "image_and_audio",
+        "node_type": "OmnihumanVideoGeneration",
+        "image_in": "image_url",
+        "audio_in": "audio_url",
+        "audio_text": "Testing a longer line of speech so the generated clip runs past two seconds.",
+        # OmniHuman animates a face, so color bars cannot stand in for the image.
+        "image_source_prompt": "Close up photorealistic photo of one person's face and shoulders, looking straight into the camera, evenly lit, plain gray background",
+        "prompt_param": "prompt",
+        "prompt_value": "The person speaks to the camera",
+        "output_param": "video_url",
+        "suffix": "omnihuman_video_generation",
+    },
+    # image_and_video — a generated character image plus an LTX driving video
+    {
+        "template": "image_and_video",
+        "node_type": "KlingMotionControl",
+        "image_in": "reference_image",
+        "video_in": "reference_video",
+        "image_source_prompt": "Full body photo of one person standing, plain background",
+        "video_prompt": "A person waving both arms, full body, fixed camera",
+        "prompt_param": "prompt",
+        "prompt_value": "The person waves",
+        "output_param": "video_url",
+        "suffix": "kling_motion_control",
+    },
+    {
+        "template": "image_and_video",
+        "node_type": "WanAnimateGeneration",
+        "image_in": "image_url",
+        "video_in": "video_url",
+        "image_source_prompt": "Full body photo of one person standing, plain background",
+        "video_prompt": "A person waving both arms, full body, fixed camera",
+        "prompt_param": None,
+        "prompt_value": None,
+        "output_param": "video",
+        "suffix": "wan_animate_generation",
+    },
+    # video_id_chain — the node extends another node's video by provider id, not by file
+    {
+        "template": "video_id_chain",
+        "node_type": "KlingVideoExtension",
+        "id_in": "video_id",
+        "source_node_type": "KlingTextToVideoGeneration",
+        "source_output": "kling_video_id",
+        "source_prompt": "A ball bouncing",
+        # Kling only extends videos from its older models; kling-v3 rejects the request.
+        "source_set_params": {"model_name": "kling-v1-6"},
+        "prompt_value": "The ball keeps bouncing",
+        "output_param": "video_url",
+        "suffix": "kling_video_extension",
     },
 ]
 
@@ -663,6 +791,120 @@ def _body_image_to_video(cfg: dict) -> str:
     return "\n".join(parts)
 
 
+def _image_source_node_type(cfg: dict) -> str:
+    """Node type that supplies a config's image input."""
+    return "GenerateImage" if cfg.get("image_source_prompt") else "CreateColorBars"
+
+
+def _image_source_parts(cfg: dict) -> tuple[list[str], str]:
+    """Lines creating the image source, plus the output parameter it feeds from.
+
+    Color bars cost nothing, so they are the default. A config naming an
+    image_source_prompt gets a generated image instead, for a provider that needs
+    real subject matter (a face, a body) rather than a test pattern.
+    """
+    prompt = cfg.get("image_source_prompt")
+    if prompt:
+        return [
+            _create_node("source_node", "GenerateImage", "Generate Image"),
+            _set_param("source_node", "prompt", prompt),
+        ], "output"
+    return [_create_node("source_node", "CreateColorBars", "Create Color Bars")], "image"
+
+
+def _audio_source_parts(cfg: dict) -> list[str]:
+    """Lines creating the ElevenLabs speech node that supplies an audio input."""
+    return [
+        _create_node("audio_node", "ElevenLabsTextToSpeechGeneration", "Eleven Labs Text To Speech Generation"),
+        _set_param("audio_node", "text", cfg["audio_text"]),
+    ]
+
+
+def _video_source_parts(cfg: dict) -> list[str]:
+    """Lines creating the LTX node that supplies a video input."""
+    return [
+        _create_node("ltx_node", "LTXTextToVideoGeneration", "LTX Text To Video Generation"),
+        _set_param("ltx_node", "prompt", cfg["video_prompt"]),
+    ]
+
+
+def _body_prompt_only(cfg: dict) -> str:
+    parts = [
+        "with GriptapeNodes.ContextManager().flow(flow_name):",
+        _create_node("gen_node", cfg["node_type"], cfg["node_type"]),
+        _common_utility_nodes(),
+        _set_param("gen_node", cfg["prompt_param"], cfg["prompt_value"]),
+    ]
+    if cfg.get("set_params"):
+        parts.append(_set_params("gen_node", cfg["set_params"]))
+    parts.append(_tail_connections(cfg["output_param"]))
+    return "\n".join(parts)
+
+
+def _body_audio_and_prompt(cfg: dict) -> str:
+    parts = ["with GriptapeNodes.ContextManager().flow(flow_name):"]
+    parts += _audio_source_parts(cfg)
+    parts += [
+        _create_node("gen_node", cfg["node_type"], cfg["node_type"]),
+        _common_utility_nodes(),
+        _connect("audio_node", "audio_url", "gen_node", cfg["audio_in"]),
+        _set_param("gen_node", "prompt", cfg["prompt_value"]),
+        _tail_connections(cfg["output_param"]),
+    ]
+    return "\n".join(parts)
+
+
+def _body_image_and_audio(cfg: dict) -> str:
+    image_parts, image_out = _image_source_parts(cfg)
+    parts = ["with GriptapeNodes.ContextManager().flow(flow_name):", *image_parts]
+    parts += _audio_source_parts(cfg)
+    parts += [
+        _create_node("gen_node", cfg["node_type"], cfg["node_type"]),
+        _common_utility_nodes(),
+        _connect("source_node", image_out, "gen_node", cfg["image_in"]),
+        _connect("audio_node", "audio_url", "gen_node", cfg["audio_in"]),
+    ]
+    if cfg.get("prompt_param"):
+        parts.append(_set_param("gen_node", cfg["prompt_param"], cfg["prompt_value"]))
+    parts.append(_tail_connections(cfg["output_param"]))
+    return "\n".join(parts)
+
+
+def _body_image_and_video(cfg: dict) -> str:
+    image_parts, image_out = _image_source_parts(cfg)
+    parts = ["with GriptapeNodes.ContextManager().flow(flow_name):", *image_parts]
+    parts += _video_source_parts(cfg)
+    parts += [
+        _create_node("gen_node", cfg["node_type"], cfg["node_type"]),
+        _common_utility_nodes(),
+        _connect("source_node", image_out, "gen_node", cfg["image_in"]),
+        _connect("ltx_node", "video_url", "gen_node", cfg["video_in"]),
+    ]
+    if cfg.get("prompt_param"):
+        parts.append(_set_param("gen_node", cfg["prompt_param"], cfg["prompt_value"]))
+    parts.append(_tail_connections(cfg["output_param"]))
+    return "\n".join(parts)
+
+
+def _body_video_id_chain(cfg: dict) -> str:
+    source_type = cfg["source_node_type"]
+    parts = [
+        "with GriptapeNodes.ContextManager().flow(flow_name):",
+        _create_node("source_node", source_type, source_type),
+        _create_node("gen_node", cfg["node_type"], cfg["node_type"]),
+        _common_utility_nodes(),
+        _set_param("source_node", "prompt", cfg["source_prompt"]),
+    ]
+    if cfg.get("source_set_params"):
+        parts.append(_set_params("source_node", cfg["source_set_params"]))
+    parts += [
+        _connect("source_node", cfg["source_output"], "gen_node", cfg["id_in"]),
+        _set_param("gen_node", "prompt", cfg["prompt_value"]),
+        _tail_connections(cfg["output_param"]),
+    ]
+    return "\n".join(parts)
+
+
 _BODY_BUILDERS = {
     "no_input": _body_no_input,
     "single_image": _body_single_image,
@@ -672,6 +914,11 @@ _BODY_BUILDERS = {
     "video_input": _body_video_input,
     "video_and_prompt": _body_video_and_prompt,
     "image_to_video": _body_image_to_video,
+    "prompt_only": _body_prompt_only,
+    "audio_and_prompt": _body_audio_and_prompt,
+    "image_and_audio": _body_image_and_audio,
+    "image_and_video": _body_image_and_video,
+    "video_id_chain": _body_video_id_chain,
 }
 
 # ---------------------------------------------------------------------------
@@ -688,6 +935,37 @@ _NODE_TYPES_USED = {
     "video_and_prompt": '["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "LTXTextToVideoGeneration"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
     "image_to_video": '["Griptape Nodes Testing Library", "AssertFileExists"], ["Griptape Nodes Library", "CreateColorBars"], ["Griptape Nodes Library", "EndFlow"], ["Griptape Nodes Library", "{NodeType}"], ["Griptape Nodes Library", "ToText"]',
 }
+
+
+def _source_node_types(cfg: dict) -> list[str]:
+    """Node types a config's body pulls in beyond the node under test."""
+    match cfg["template"]:
+        case "prompt_only":
+            return []
+        case "audio_and_prompt":
+            return ["ElevenLabsTextToSpeechGeneration"]
+        case "image_and_audio":
+            return [_image_source_node_type(cfg), "ElevenLabsTextToSpeechGeneration"]
+        case "image_and_video":
+            return [_image_source_node_type(cfg), "LTXTextToVideoGeneration"]
+        case "video_id_chain":
+            return [cfg["source_node_type"]]
+        case _:
+            msg = f"Template has no source node types declared: {cfg['template']!r}"
+            raise ValueError(msg)
+
+
+def _node_types_used(cfg: dict) -> str:
+    """The header's node_types_used list for a config."""
+    template = cfg["template"]
+    if template in _NODE_TYPES_USED:
+        return "[" + _NODE_TYPES_USED[template].replace("{NodeType}", cfg["node_type"]) + "]"
+
+    library_types = sorted({cfg["node_type"], "EndFlow", "ToText", *_source_node_types(cfg)}, key=str.lower)
+    entries = ['["Griptape Nodes Testing Library", "AssertFileExists"]']
+    entries += [f'["Griptape Nodes Library", "{node_type}"]' for node_type in library_types]
+    return "[" + ", ".join(entries) + "]"
+
 
 WORKFLOW_TEMPLATE = """\
 # /// script
@@ -839,10 +1117,9 @@ def generate_text_prompt_workflow(node_type: str, prompt_param: str, output_para
 
 def generate_advanced_workflow(cfg: dict) -> str:
     template = cfg["template"]
-    node_type = cfg["node_type"]
     suffix = cfg["suffix"]
 
-    node_types_list = "[" + _NODE_TYPES_USED[template].replace("{NodeType}", node_type) + "]"
+    node_types_list = _node_types_used(cfg)
 
     body = _BODY_BUILDERS[template](cfg)
 
@@ -877,6 +1154,7 @@ MANUAL_FLOW_INPUTS: dict[str, dict] = {
     "test_seedance_2_0.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_seedance_2_0_fast.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_seedance_2_5.py": {"Start Flow": {"prompt": "A ball bouncing"}},
+    "test_ltx_text_to_video_generation_2_5.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_openai_image_generation_wide.py": {"Start Flow": {"prompt": "A red circle"}},
     "test_openai_image_generation_tall.py": {"Start Flow": {"prompt": "A red circle"}},
 }
