@@ -118,6 +118,70 @@ def parse_hex_color(color: str) -> tuple[int, int, int]:
     return (int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16))
 
 
+def unassociate_alpha(image: Image.Image) -> Image.Image:
+    """Divide an RGBA image's colour channels by its alpha, yielding straight alpha.
+
+    Premultiplied (associated) colour has already been scaled by alpha, so it must be
+    divided back out before PIL's compositing and resampling, both of which assume
+    straight alpha. Fully transparent pixels have no recoverable colour and are left
+    black.
+    """
+    if image.mode != "RGBA":
+        return image
+
+    rgba = np.asarray(image, dtype=np.float32)
+    alpha = rgba[..., 3:4] / 255.0
+    # np.where evaluates both branches, so guard the divisor to keep the zero-alpha
+    # case from emitting a runtime warning.
+    rgb = np.where(alpha > 0, rgba[..., :3] / np.where(alpha > 0, alpha, 1.0), 0.0)
+    straight = np.concatenate([rgb.clip(0, 255), rgba[..., 3:4]], axis=-1)
+    return Image.fromarray(straight.round().astype(np.uint8), mode="RGBA")
+
+
+def resize_rgba(image: Image.Image, size: tuple[int, int]) -> Image.Image:
+    """Resize an image, premultiplying first when it carries alpha.
+
+    Resampling straight-alpha colour averages the colour of transparent pixels into
+    opaque neighbours, which fringes soft edges with whatever happened to sit in the
+    transparent RGB. Premultiplying weights each pixel's contribution by its own
+    alpha, so transparent pixels contribute nothing.
+    """
+    if image.size == size:
+        return image.copy()
+    if image.mode != "RGBA":
+        return image.resize(size, Image.Resampling.LANCZOS)
+
+    rgba = np.asarray(image, dtype=np.float32)
+    alpha = rgba[..., 3:4] / 255.0
+    premultiplied = np.concatenate([rgba[..., :3] * alpha, rgba[..., 3:4]], axis=-1)
+    resized = Image.fromarray(premultiplied.round().clip(0, 255).astype(np.uint8), mode="RGBA").resize(
+        size, Image.Resampling.LANCZOS
+    )
+    return unassociate_alpha(resized)
+
+
+def scale_alpha(image: Image.Image, opacity: float) -> Image.Image:
+    """Scale an image's alpha channel by `opacity`, adding one if it has none."""
+    rgba = image.convert("RGBA") if image.mode != "RGBA" else image.copy()
+    if opacity >= 1.0:
+        return rgba
+    rgba.putalpha(rgba.getchannel("A").point([int(a * opacity + 0.5) for a in range(256)]))
+    return rgba
+
+
+def composite_over(base: Image.Image, overlay: Image.Image, position: tuple[int, int]) -> Image.Image:
+    """Composite `overlay` over `base` at `position` using Porter-Duff "over".
+
+    `Image.paste` with a mask blends toward the overlay's colour while also writing the
+    overlay's alpha into the base, which both mis-weights semi-transparent pixels and
+    punches holes in an opaque base. Compositing through a full-size transparent canvas
+    keeps the operation associative, so stacking many layers stays correct.
+    """
+    canvas = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    canvas.paste(overlay, position)
+    return Image.alpha_composite(base if base.mode == "RGBA" else base.convert("RGBA"), canvas)
+
+
 def create_background_image(width: int, height: int, background_color: str, *, transparent_bg: bool) -> Image.Image:
     """Create background image with specified color and transparency."""
     if transparent_bg:
