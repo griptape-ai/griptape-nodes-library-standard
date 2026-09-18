@@ -31,13 +31,19 @@ MAX_VIDEO_DURATION = 21
 MIN_RETAKE_DURATION = 2.0
 RETAKE_SEGMENT_LENGTH = 2
 
+# Retake is only offered on ltx-2-3-pro: the provider retired ltx-2-pro and now
+# rejects it with "Invalid input for 'model': Invalid model".
+DEFAULT_MODEL = "ltx-2-3-pro"
+
 # Migrates values saved before the dropdown stored the provider's own model id: old
-# display labels and catalog keys.
+# display labels and catalog keys. `ltx-2-pro` and its label migrate here too now
+# that the provider no longer serves it.
 LEGACY_MODEL_VALUES = {
-    "LTX 2 Pro": "ltx-2-pro",
-    "LTX 2.3 Pro": "ltx-2-3-pro",
-    "gtc_ltx_2_3_pro": "ltx-2-3-pro",
-    "gtc_ltx_2_pro": "ltx-2-pro",
+    "LTX 2 Pro": DEFAULT_MODEL,
+    "LTX 2.3 Pro": DEFAULT_MODEL,
+    "gtc_ltx_2_3_pro": DEFAULT_MODEL,
+    "gtc_ltx_2_pro": DEFAULT_MODEL,
+    "ltx-2-pro": DEFAULT_MODEL,
 }
 
 SUPPORTED_RESOLUTIONS = ("1920x1080", "2560x1440", "3840x2160")
@@ -53,7 +59,7 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
         - prompt (str): Text describing what should happen in the retake segment (max 5000 chars)
         - resolution (str): Output resolution (1920x1080, 2560x1440, or 3840x2160); auto-detected from input video
         - mode (str): What to replace - audio only, video only, or both (default: both)
-        - model (str): Model to use (LTX 2 Pro or LTX 2.3 Pro)
+        - model (str): Model to use (LTX 2.3 Pro)
         (Always polls for result: 5s interval, 20 min timeout)
 
     Outputs:
@@ -73,10 +79,10 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
 
         # INPUTS / PROPERTIES
 
-        # Model parameter (retake supports pro-tier LTX models)
+        # Model parameter — retake is only offered on ltx-2-3-pro per the pricing page.
         model_param = ParameterString(
             name="model",
-            default_value="ltx-2-pro",
+            default_value=DEFAULT_MODEL,
             tooltip="Model to use for video retake",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -86,8 +92,8 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
         self._model_access = ModelAccessComponent(
             node=self,
             parameter=model_param,
-            model_choices=["ltx-2-pro", "ltx-2-3-pro"],
-            default_model="ltx-2-pro",
+            model_choices=[DEFAULT_MODEL],
+            default_model=DEFAULT_MODEL,
             deprecated_values=LEGACY_MODEL_VALUES,
         )
         self.add_parameter(
@@ -371,7 +377,7 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
     def _get_parameters(self) -> dict[str, Any]:
         return {
             "prompt": self.get_parameter_value("prompt") or "",
-            "model": self.get_parameter_value("model") or "ltx-2-pro",
+            "model": self.get_parameter_value("model") or DEFAULT_MODEL,
             "retake_segment": self.get_parameter_value("retake_segment") or [0.0, 2.0],
             "mode": self.get_parameter_value("mode") or "replace_audio_and_video",
             "resolution": self.get_parameter_value("resolution") or DEFAULT_RESOLUTION,

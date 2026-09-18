@@ -874,6 +874,7 @@ def generate_advanced_workflow(cfg: dict) -> str:
 # (e.g. tests with custom workflow setup like model_id selection). Keep these in
 # sync with the corresponding hand-written test_*.py files in tests/integration/.
 MANUAL_FLOW_INPUTS: dict[str, dict] = {
+    "test_ltx_text_to_video_generation_2_5.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_seedance_2_0.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_seedance_2_0_fast.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_seedance_2_5.py": {"Start Flow": {"prompt": "A ball bouncing"}},
