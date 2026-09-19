@@ -21,6 +21,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
@@ -216,8 +217,8 @@ class GenerateImage(ControlNode):
         if not agent_input:
             prompt_driver = GriptapeCloudPromptDriver(
                 model="gpt-4o",
-                api_key=resolve_cloud_api_key(),
                 stream=True,
+                **cloud_driver_auth(),
             )
             agent = GtAgent(prompt_driver=prompt_driver)
         else:
@@ -276,16 +277,16 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
             driver = GriptapeCloudImageGenerationDriver(
                 model=model_input,
                 image_size=self.get_parameter_value("image_size"),
-                api_key=resolve_cloud_api_key(),
                 # Don't retry on HTTP errors, we want to fail fast.
                 ignored_exception_types=(requests.exceptions.HTTPError,),
+                **cloud_driver_auth(),
             )
         else:
             driver = GriptapeCloudImageGenerationDriver(
                 model=DEFAULT_MODEL,
                 image_size=self.get_parameter_value("image_size"),
-                api_key=resolve_cloud_api_key(),
                 ignored_exception_types=(requests.HTTPError,),
+                **cloud_driver_auth(),
             )
 
         kwargs["image_generation_driver"] = driver
