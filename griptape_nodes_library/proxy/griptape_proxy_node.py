@@ -28,6 +28,7 @@ from griptape_nodes_library.proxy.provider_asset_access import (
 )
 from griptape_nodes_library.proxy.proxy_api_key_providers import get_proxy_api_key_provider_config
 from griptape_nodes_library.proxy.proxy_auth_provider_parameter import ProxyAuthProviderParameter
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 from griptape_nodes_library.utils.model_invocation import declare_model_invocation
 
 if TYPE_CHECKING:
@@ -749,7 +750,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._handle_api_key_validation_error(e)
             return None
 
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        # Retrieves a generation already paid for, so there is no fresh spend to attribute.
+        headers = build_griptape_cloud_headers(api_key, attribution=False)
         self._log_auth_header_summary("Fetching generation result", headers)
         try:
             async with httpx.AsyncClient() as client:
@@ -916,12 +918,10 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         try:
             self._prepare_user_auth_info()
-            api_key = self._validate_api_key()
+            headers = build_griptape_cloud_headers(self._validate_api_key(), attribution=True)
         except ValueError as e:
             self._handle_api_key_validation_error(e)
             return
-
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
         # Submit and poll
         result = await self._submit_and_poll(headers)
@@ -1064,7 +1064,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._set_status_results(was_successful=False, result_details=f"Cannot refresh: {e}")
             return
 
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        # Re-reads a generation already paid for, so there is no fresh spend to attribute.
+        headers = build_griptape_cloud_headers(api_key, attribution=False)
         status_json = await self._fetch_status_for_refresh(generation_id, headers)
         if status_json is None:
             return

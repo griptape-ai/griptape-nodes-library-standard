@@ -25,6 +25,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 # --- Constants ---
 
@@ -206,7 +207,7 @@ class GriptapeCloudPrompt(BasePrompt):
         # Fetch the list of available models from the Griptape Cloud API.
         response = requests.get(
             CHAT_MODELS_URL,
-            headers={"Authorization": f"Bearer {resolve_cloud_api_key()}"},
+            headers=build_griptape_cloud_headers(resolve_cloud_api_key(), attribution=False),
             timeout=10,
         )
         response.raise_for_status()
