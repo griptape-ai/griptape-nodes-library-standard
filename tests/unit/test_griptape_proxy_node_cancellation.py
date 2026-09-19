@@ -209,3 +209,57 @@ async def test_completed_generation_is_not_cancelled(harness: Harness) -> None:
     assert result is not None
     assert result["status"] == "COMPLETED"
     assert FakeAsyncClient.cancel_urls == []
+
+
+class _Published:
+    """Records what the node pushed to the editor, in order."""
+
+    def __init__(self, node: Any) -> None:
+        self.calls: list[tuple[str, Any]] = []
+        node.publish_update_to_parameter = self._record  # type: ignore[method-assign]
+
+    def _record(self, parameter_name: str, value: Any) -> None:
+        self.calls.append((parameter_name, value))
+
+    def values_for(self, parameter_name: str) -> list[Any]:
+        return [value for name, value in self.calls if name == parameter_name]
+
+
+@pytest.mark.asyncio
+async def test_cancel_publishes_generation_id_rather_than_only_assigning_it(harness: Harness) -> None:
+    """A cancelled node must push the ID to the editor, not just into parameter_output_values.
+
+    Cancellation is precisely the path where the node never resolves, and
+    `parameter_output_values` is only flushed when it does. The ALREADY_STARTED message tells
+    the user to click Refresh to retrieve a generation that is still running and still
+    billing, so an ID that never reaches the editor makes that instruction impossible to
+    follow — the original lost-generation bug, on the cancel path.
+    """
+    FakeAsyncClient.cancel_status_code = HTTP_BAD_REQUEST
+    FakeAsyncClient.cancel_reported_status = "RUNNING"
+    published = _Published(harness.node)
+    harness.node.request_cancellation()
+
+    await harness.node._poll_generation_status("gen-7", HEADERS)
+
+    assert published.values_for("generation_id") == ["gen-7"]
+    assert published.values_for("generation_status")[-1] == "RUNNING"
+
+
+@pytest.mark.asyncio
+async def test_cancel_does_not_publish_completed_for_a_result_the_node_lacks(harness: Harness) -> None:
+    """A generation that completed between the last poll and the cancel POST is not announced COMPLETED.
+
+    The editor reads COMPLETED as "the node has the result, stop offering recovery", and here
+    it does not have it — nothing parsed the result. The ID must still be published so the
+    result stays recoverable.
+    """
+    FakeAsyncClient.cancel_status_code = HTTP_BAD_REQUEST
+    FakeAsyncClient.cancel_reported_status = "COMPLETED"
+    published = _Published(harness.node)
+    harness.node.request_cancellation()
+
+    await harness.node._poll_generation_status("gen-8", HEADERS)
+
+    assert "COMPLETED" not in published.values_for("generation_status")
+    assert published.values_for("generation_id") == ["gen-8"]
