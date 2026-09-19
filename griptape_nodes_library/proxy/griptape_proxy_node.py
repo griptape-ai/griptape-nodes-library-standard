@@ -375,16 +375,6 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             logger.info(message)
 
     def _log_auth_header_summary(self, context: str, headers: dict[str, str]) -> None:
-        """Report what this call is authenticating and billing as, without printing either.
-
-        Attribution is included because its absence is otherwise invisible: the Cloud emits no
-        metric for a missing header, so an unattributed billable call looks exactly like an
-        attributed one from both ends. The length is carried rather than just the presence flag
-        because it separates the two shapes E1 can send -- a tagless `{"v": 1}` envelope encodes
-        to 12 characters, and anything longer names a project. The value itself is not logged:
-        it is a base64 payload this node has no business decoding, and the engine's own result
-        carries the project chain in structured form for anyone who needs it.
-        """
         authorization = headers.get("Authorization", "")
         auth_scheme, _, auth_value = authorization.partition(" ")
         proxy_auth_info = headers.get("X-GTC-PROXY-AUTH-INFO", "")

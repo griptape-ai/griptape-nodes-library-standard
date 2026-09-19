@@ -1,40 +1,27 @@
 """Ask the engine which project the impending Griptape Cloud spend belongs to.
 
-Griptape Cloud meters credits against a budget, and the budget is keyed by project.
-Cloud holds no project model of its own, so the request has to carry the answer in a
-header naming the project chain the spend belongs to. Only the engine knows that chain,
-and only at the moment of the call -- which is what this module asks it, once per Cloud
-request, on behalf of
-:mod:`~griptape_nodes_library.utils.griptape_cloud_headers`.
+Cloud meters credits against a budget keyed by project but holds no project model of its
+own, so each billable request carries the project chain in a header. Only the engine
+knows that chain, and only at the moment of the call. This module asks it, once per Cloud
+request, for :mod:`~griptape_nodes_library.utils.griptape_cloud_headers`.
 
-The ask is a round trip to the engine, so it comes in two spellings:
-:func:`attribution_header` for synchronous callers and :func:`attribution_header_async`
-for the coroutines, which are most of the billable ones. They answer identically and
-share a bound; all that differs is whether the wait parks the calling thread. Keep them
-that way -- the interpretation of an answer lives in one place below precisely so a fix
-cannot land on one spelling and miss the other.
+The ask is a round trip, so it comes in two spellings -- :func:`attribution_header` for
+synchronous callers, :func:`attribution_header_async` for coroutines. They answer
+identically and share a bound; only the wait differs. Keep them that way: an answer is
+interpreted in one place below so a fix cannot land on one spelling and miss the other.
 
-Two properties matter more than the header itself.
+Two invariants:
 
-**Attribution never fails a call.** Every path out of here that is not a clear answer
-returns ``{}``, so a Cloud request that would have succeeded still does. Sending spend
-unattributed is a reporting problem; failing the user's generation to protect a
-reporting field would be a worse trade, and one they did not ask for.
+- **Attribution never fails a call.** Every path out of here that is not a clear answer
+  returns ``{}``. Unattributed spend is a reporting problem; a failed generation is worse.
+- **The value is passed through, never built.** Whatever the engine returns goes on the
+  wire byte-for-byte, including a tagless ``{"v": 1}`` -- a legal answer meaning "no
+  project is open". This module never manufactures that envelope when it has no answer:
+  a timeout is nobody saying anything, which on the wire is no header.
 
-**The value is passed through, never built.** Whatever the engine hands back goes on the
-wire byte-for-byte -- this module does no JSON, no base64, and no inspection. A payload
-of ``{"v": 1}`` with no tags is well-formed and legal, and means "this client attributes,
-and no project is open"; the engine is entitled to say that, and dropping it would
-silently downgrade a true statement to no statement. What this module must never do is
-*manufacture* that envelope when it has no answer at all. A timeout is not the engine
-saying "no project" -- it is nobody saying anything, and the honest wire representation
-of nobody saying anything is no header.
-
-This file is the canonical implementation. Other node libraries cannot import across
-each other's Python packages, so any library that needs this behavior vendors this file
-verbatim rather than depending on it. Keep this module free of dependencies beyond the
-engine package (`griptape_nodes.*`) and the standard library so it can be copied as-is
-into another library's `utils/` directory.
+This file is the canonical implementation. Node libraries cannot import across each
+other's Python packages, so a library needing this behavior vendors it verbatim -- keep
+it free of dependencies beyond `griptape_nodes.*` and the standard library.
 """
 
 from __future__ import annotations
