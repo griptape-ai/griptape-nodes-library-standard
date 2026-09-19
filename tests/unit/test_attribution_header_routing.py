@@ -11,8 +11,8 @@ Both sites here build the pair in one function and hand the halves to different 
 
 - `_process_generation` -> `_submit_and_poll`, where the submit POST spends and the status
   GETs do not, plus the `/result` GET that `_fetch_generation_result` builds for itself.
-- `_append_private_asset` -> `_create_provider_asset`, where the registering POST spends and
-  the asset-status GETs do not.
+- `_append_private_asset`, where the `_create_provider_asset` POST spends and the
+  `_poll_provider_asset` GETs do not.
 
 The tests run the real call chain against a recording client and read the headers off the
 wire, so a swapped argument fails rather than a re-assertion of the same source line.

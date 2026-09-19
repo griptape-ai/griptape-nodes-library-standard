@@ -653,13 +653,16 @@ async def test_build_payload_registers_private_asset_references(monkeypatch: pyt
 
     registered: list[tuple[str, str]] = []
 
-    async def fake_create_provider_asset(
-        self, public_url: str, asset_kind: str, headers: dict[str, str], *, poll_headers: dict[str, str]
-    ) -> str:
+    async def fake_create_provider_asset(self, public_url: str, asset_kind: str, headers: dict[str, str]) -> str:
         registered.append((public_url, asset_kind))
+        return "provider-asset-id"
+
+    async def fake_poll_provider_asset(self, provider_asset_id: str, headers: dict[str, str]) -> str:
+        assert provider_asset_id == "provider-asset-id"
         return "generated-asset-id"
 
     monkeypatch.setattr(Seedance25VideoGeneration, "_create_provider_asset", fake_create_provider_asset)
+    monkeypatch.setattr(Seedance25VideoGeneration, "_poll_provider_asset", fake_poll_provider_asset)
     monkeypatch.setattr(Seedance25VideoGeneration, "_validate_api_key", lambda self: "test-key")
 
     payload = await node._build_payload()
