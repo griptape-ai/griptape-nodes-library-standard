@@ -1,6 +1,6 @@
 """Guard the model id the declaration/permission layer resolves against.
 
-`GriptapeProxyNode._submit_and_poll` declares the impending invocation by
+`GriptapeProxyNode._begin_generation` declares the impending invocation by
 matching `_get_catalog_model_id()` against the catalog's `model_id` (via
 `resolve_catalog_model_id`, which resolves a provider id to its catalog key).
 By default `_get_catalog_model_id()` returns the model dropdown's stored value

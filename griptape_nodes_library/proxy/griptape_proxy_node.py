@@ -112,7 +112,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # Assigned by subclasses whose model selection is a license-filtered dropdown:
         # they construct a `ModelAccessComponent` over their model parameter and store it
         # here, which is what wires the dropdown into `after_value_set`,
-        # `_get_api_model_id`, `_get_catalog_model_id`, and the `_submit_and_poll` gate.
+        # `_get_api_model_id`, `_get_catalog_model_id`, and the `_begin_generation` gate.
         # Stays None on the subclasses bound to a single model.
         self._model_access: ModelAccessComponent | None = None
 
@@ -202,7 +202,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         reporting the denial here stops a missing prompt or image from being the only
         thing an artist hears about when the real blocker is the license. `super()`
         also resets the status parameters, so it must run either way.
-        `_submit_and_poll` re-checks the selection for execution paths that skip
+        `_begin_generation` re-checks the selection for execution paths that skip
         validation entirely.
         """
         exceptions = super().validate_before_node_run() or []
@@ -831,25 +831,14 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._set_status_results(was_successful=False, result_details=error_msg)
         self._handle_failure_exception(e)
 
-    async def _submit_and_poll(
-        self, submit_headers: dict[str, str], *, poll_headers: dict[str, str]
-    ) -> tuple[str, dict[str, Any]] | None:
-        """Submit generation request and poll for completion.
-
-        The two dicts differ only in attribution, and taking both rather than one is what
-        keeps that difference a decision instead of an accident: a single dict would have
-        the five poll GETs and the cancel inherit the submit's attribution by reuse, which
-        `CLOUD_HEADER_CALLS` could not see and no reader would think to question.
-        `poll_headers` is keyword-only because the two are otherwise interchangeable at the
-        call site, and swapping them fails silently in the direction that mis-bills.
+    async def _begin_generation(self, headers: dict[str, str]) -> str | None:
+        """Gate the model, declare the invocation, and submit; return the generation id.
 
         Args:
-            submit_headers: Headers for the billable POST -- attributed.
-            poll_headers: Headers for the status GETs and any cancel -- not attributed;
-                see `_poll_generation_status`.
+            headers: Headers for the billable POST -- attributed; this is the call that spends.
 
         Returns:
-            tuple | None: (generation_id, status_response) if successful, None otherwise
+            str | None: The generation id to poll, or None if the run was stopped before it.
         """
         # Re-check the dropdown selection against the license policy: it may have
         # been permitted when the node was built and denied since. Both gates run
@@ -891,7 +880,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         # Submit request to get generation ID
         try:
-            generation_id = await self._submit_generation(payload, submit_headers, api_model_id)
+            generation_id = await self._submit_generation(payload, headers, api_model_id)
             if not generation_id:
                 self._set_safe_defaults()
                 self._set_status_results(
@@ -907,12 +896,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # Subclasses declare a `generation_id` output parameter; writing here surfaces the value to the UI.
         self.parameter_output_values["generation_id"] = generation_id
 
-        # Poll for completion
-        status_response = await self._poll_generation_status(generation_id, poll_headers)
-        if not status_response:
-            return None
-
-        return generation_id, status_response
+        return generation_id
 
     async def _process_generation(self) -> None:
         """Main processing logic that orchestrates the generation flow.
@@ -948,12 +932,12 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._handle_api_key_validation_error(e)
             return
 
-        # Submit and poll
-        result = await self._submit_and_poll(submit_headers, poll_headers=poll_headers)
-        if not result:
+        generation_id = await self._begin_generation(submit_headers)
+        if not generation_id:
             return
 
-        generation_id, _status_response = result
+        if not await self._poll_generation_status(generation_id, poll_headers):
+            return
 
         # Fetch and parse result
         result_json = await self._fetch_generation_result(generation_id)
