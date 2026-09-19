@@ -5,7 +5,7 @@ Every proxy node under ``griptape_nodes_library`` that offers a choice of
 models constructs a ``ModelAccessComponent`` over its ``model``/``model_id``
 parameter and stores it on ``self._model_access``: the component owns the
 ``Options`` + refresh ``Button`` traits, decorates each row with the caller's
-license entitlement, and gates ``_submit_and_poll`` against the current policy.
+license entitlement, and gates ``_begin_generation`` against the current policy.
 These tests cover that wiring and the runtime gate across every node that
 installs it; the component's own behavior is covered in the engine test suite.
 """
@@ -193,14 +193,14 @@ def test_denied_model_row_carries_denial_icon(
 
 
 @pytest.mark.asyncio
-async def test_submit_and_poll_gates_on_denial(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`_submit_and_poll` re-checks the selection against the current policy.
+async def test_begin_generation_gates_on_denial(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`_begin_generation` re-checks the selection against the current policy.
 
     Construct the node BEFORE registering the deny hook, so the component's
     constructor-time snapshot is clean and doesn't relocate the stored value
     off the about-to-be-denied selection. Only one representative node
     (SoraVideoGeneration) is exercised here: the gate itself lives in
-    `GriptapeProxyNode._submit_and_poll`, shared by every adopting node, so this
+    `GriptapeProxyNode._begin_generation`, shared by every adopting node, so this
     isn't re-checked per node.
 
     The gate must also run ahead of `_build_payload`. On the nodes that hand the
@@ -221,8 +221,7 @@ async def test_submit_and_poll_gates_on_denial(monkeypatch: pytest.MonkeyPatch) 
 
     async def fake_submit_generation(payload: dict[str, Any], headers: dict[str, str], api_model_id: str) -> None:
         submit_calls.append({"payload": payload, "headers": headers, "api_model_id": api_model_id})
-        # None short-circuits `_submit_and_poll` before it reaches the poll loop,
-        # which this test has no interest in exercising.
+        # None short-circuits `_begin_generation` before it returns a generation id.
         return None
 
     monkeypatch.setattr(node, "_build_payload", fake_build_payload)
@@ -231,7 +230,7 @@ async def test_submit_and_poll_gates_on_denial(monkeypatch: pytest.MonkeyPatch) 
     hook = _deny_hook(CheckpointAction.OFFER_MODEL, "gtc_sora_2_pro")
     GriptapeNodes.EventManager().add_authorization_hook(hook)
     try:
-        result = await node._submit_and_poll({})
+        result = await node._begin_generation({})
     finally:
         GriptapeNodes.EventManager().remove_authorization_hook(hook)
 
@@ -243,7 +242,7 @@ async def test_submit_and_poll_gates_on_denial(monkeypatch: pytest.MonkeyPatch) 
 
     # Mirror case: with the hook removed, the same selection is permitted again
     # and the flow reaches `_build_payload` and then `_submit_generation`.
-    await node._submit_and_poll({})
+    await node._begin_generation({})
 
     assert len(build_calls) == 1
     assert len(submit_calls) == 1
@@ -300,7 +299,7 @@ def test_validation_reports_denial_alongside_input_checks(
     param_name: str,
     authorization_hook: Callable[[AuthorizationHook], None],
 ) -> None:
-    """A denied model surfaces during validation, not only from `_submit_and_poll`.
+    """A denied model surfaces during validation, not only from `_begin_generation`.
 
     Nodes whose own input checks live in `validate_before_node_run` would otherwise
     report nothing but "requires a prompt" to an artist whose real blocker is the

@@ -20,6 +20,7 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.retained_mode.events.budget_events import ATTRIBUTION_HEADER_NAME
 
 from griptape_nodes_library.proxy.provider_asset_access import (
     missing_proxy_credential_message,
@@ -28,7 +29,7 @@ from griptape_nodes_library.proxy.provider_asset_access import (
 )
 from griptape_nodes_library.proxy.proxy_api_key_providers import get_proxy_api_key_provider_config
 from griptape_nodes_library.proxy.proxy_auth_provider_parameter import ProxyAuthProviderParameter
-from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers_async
 from griptape_nodes_library.utils.model_invocation import declare_model_invocation
 
 if TYPE_CHECKING:
@@ -111,7 +112,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # Assigned by subclasses whose model selection is a license-filtered dropdown:
         # they construct a `ModelAccessComponent` over their model parameter and store it
         # here, which is what wires the dropdown into `after_value_set`,
-        # `_get_api_model_id`, `_get_catalog_model_id`, and the `_submit_and_poll` gate.
+        # `_get_api_model_id`, `_get_catalog_model_id`, and the `_begin_generation` gate.
         # Stays None on the subclasses bound to a single model.
         self._model_access: ModelAccessComponent | None = None
 
@@ -201,7 +202,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         reporting the denial here stops a missing prompt or image from being the only
         thing an artist hears about when the real blocker is the license. `super()`
         also resets the status parameters, so it must run either way.
-        `_submit_and_poll` re-checks the selection for execution paths that skip
+        `_begin_generation` re-checks the selection for execution paths that skip
         validation entirely.
         """
         exceptions = super().validate_before_node_run() or []
@@ -377,13 +378,16 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         authorization = headers.get("Authorization", "")
         auth_scheme, _, auth_value = authorization.partition(" ")
         proxy_auth_info = headers.get("X-GTC-PROXY-AUTH-INFO", "")
+        attribution = headers.get(ATTRIBUTION_HEADER_NAME, "")
         self._log(
             f"{context} auth headers: "
             f"authorization_present={bool(authorization)}, "
             f"authorization_scheme={auth_scheme or 'missing'}, "
             f"authorization_value_length={len(auth_value)}, "
             f"proxy_auth_info_present={bool(proxy_auth_info)}, "
-            f"proxy_auth_info_length={len(proxy_auth_info)}"
+            f"proxy_auth_info_length={len(proxy_auth_info)}, "
+            f"attribution_present={bool(attribution)}, "
+            f"attribution_value_length={len(attribution)}"
         )
 
     def _elide_base64_in_payload(self, payload: dict[str, Any]) -> str:
@@ -642,9 +646,14 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     async def _poll_generation_status(self, generation_id: str, headers: dict[str, str]) -> dict[str, Any] | None:
         """Poll generation status until terminal state is reached.
 
+        Polling costs nothing, so these requests carry no attribution header: the header
+        names what a call bills against, and there is no spend here to name. The submit that
+        preceded this already attributed the whole generation. The same dict travels on to
+        `_cancel_generation_best_effort`, which is likewise free.
+
         Args:
             generation_id: The generation ID to poll
-            headers: HTTP headers including Authorization
+            headers: HTTP headers including Authorization, built with `attribution=False`
 
         Returns:
             dict | None: The final status response, or None if polling failed
@@ -751,7 +760,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             return None
 
         # Retrieves a generation already paid for, so there is no fresh spend to attribute.
-        headers = build_griptape_cloud_headers(api_key, attribution=False)
+        headers = await build_griptape_cloud_headers_async(api_key, attribution=False)
         self._log_auth_header_summary("Fetching generation result", headers)
         try:
             async with httpx.AsyncClient() as client:
@@ -822,14 +831,14 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._set_status_results(was_successful=False, result_details=error_msg)
         self._handle_failure_exception(e)
 
-    async def _submit_and_poll(self, headers: dict[str, str]) -> tuple[str, dict[str, Any]] | None:
-        """Submit generation request and poll for completion.
+    async def _begin_generation(self, headers: dict[str, str]) -> str | None:
+        """Gate the model, declare the invocation, and submit; return the generation id.
 
         Args:
-            headers: HTTP headers including Authorization
+            headers: Headers for the billable POST -- attributed; this is the call that spends.
 
         Returns:
-            tuple | None: (generation_id, status_response) if successful, None otherwise
+            str | None: The generation id to poll, or None if the run was stopped before it.
         """
         # Re-check the dropdown selection against the license policy: it may have
         # been permitted when the node was built and denied since. Both gates run
@@ -887,12 +896,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # Subclasses declare a `generation_id` output parameter; writing here surfaces the value to the UI.
         self.parameter_output_values["generation_id"] = generation_id
 
-        # Poll for completion
-        status_response = await self._poll_generation_status(generation_id, headers)
-        if not status_response:
-            return None
-
-        return generation_id, status_response
+        return generation_id
 
     async def _process_generation(self) -> None:
         """Main processing logic that orchestrates the generation flow.
@@ -918,17 +922,22 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         try:
             self._prepare_user_auth_info()
-            headers = build_griptape_cloud_headers(self._validate_api_key(), attribution=True)
+            api_key = self._validate_api_key()
+            submit_headers = await build_griptape_cloud_headers_async(api_key, attribution=True)
+            # Built separately rather than reused: polling and cancelling spend nothing, so
+            # there is nothing for them to attribute. Free to build -- `attribution=False`
+            # skips the engine round trip that the attributed build pays for.
+            poll_headers = await build_griptape_cloud_headers_async(api_key, attribution=False)
         except ValueError as e:
             self._handle_api_key_validation_error(e)
             return
 
-        # Submit and poll
-        result = await self._submit_and_poll(headers)
-        if not result:
+        generation_id = await self._begin_generation(submit_headers)
+        if not generation_id:
             return
 
-        generation_id, _status_response = result
+        if not await self._poll_generation_status(generation_id, poll_headers):
+            return
 
         # Fetch and parse result
         result_json = await self._fetch_generation_result(generation_id)
@@ -1065,7 +1074,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             return
 
         # Re-reads a generation already paid for, so there is no fresh spend to attribute.
-        headers = build_griptape_cloud_headers(api_key, attribution=False)
+        headers = await build_griptape_cloud_headers_async(api_key, attribution=False)
         status_json = await self._fetch_status_for_refresh(generation_id, headers)
         if status_json is None:
             return
