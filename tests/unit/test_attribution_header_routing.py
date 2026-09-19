@@ -9,8 +9,9 @@ header, so nothing on either end reports it.
 
 Both sites here build the pair in one function and hand the halves to different requests:
 
-- `_process_generation` -> `_submit_and_poll`, where the submit POST spends and the status
-  GETs do not, plus the `/result` GET that `_fetch_generation_result` builds for itself.
+- `_process_generation`, where the `_begin_generation` POST spends and the
+  `_poll_generation_status` GETs do not, plus the `/result` GET that
+  `_fetch_generation_result` builds for itself.
 - `_append_private_asset`, where the `_create_provider_asset` POST spends and the
   `_poll_provider_asset` GETs do not.
 
