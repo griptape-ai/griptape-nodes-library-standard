@@ -36,7 +36,6 @@ from griptape_nodes_library.utils.image_utils import (
 )
 from griptape_nodes_library.utils.video_utils import (
     detect_video_format,
-    dict_to_video_url_artifact,
     to_video_artifact,
     validate_url,
 )
@@ -655,10 +654,9 @@ class VideoColorMatch(SuccessFailureNode):
         transfer_method = self.get_parameter_value("transfer_method") or "ffmpeg-haldclut"
 
         try:
-            # Convert inputs to artifacts if needed
-            if isinstance(target_video, dict):
-                target_video = dict_to_video_url_artifact(target_video)
-
+            # Convert inputs to artifacts if needed. target_video is already an
+            # artifact via the parameter's to_video_artifact converter; reference_image
+            # has no such converter, so it can still arrive as a dict.
             if isinstance(ref_image, dict):
                 ref_image = dict_to_image_url_artifact(ref_image)
 

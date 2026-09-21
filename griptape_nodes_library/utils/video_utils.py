@@ -113,9 +113,23 @@ def dict_to_video_url_artifact(video_dict: dict, video_format: str | None = None
 
 
 def to_video_artifact(video: Any | dict) -> Any:
-    """Convert a video or a dictionary to a VideoArtifact."""
+    """Convert a video or a dictionary to a VideoArtifact.
+
+    Used as a parameter converter, so it runs on whatever a connection delivers.
+    `ParameterVideo` accepts any input type, meaning a dict that isn't a video at
+    all can legitimately arrive here. Those are returned unchanged rather than
+    raised on, leaving the node's own validation to report the type mismatch;
+    raising here would surface a bare KeyError/base64 error at connect time.
+    """
     if isinstance(video, dict):
-        return dict_to_video_url_artifact(video)
+        try:
+            return dict_to_video_url_artifact(video)
+        except (KeyError, ValueError, TypeError):
+            # Not a shape dict_to_video_url_artifact understands (missing "value",
+            # non-video "type" whose value isn't base64). An OSError from writing the
+            # decoded payload is a real failure and deliberately still propagates.
+            logger.debug("Input dict is not a video artifact dict; leaving it for validation to reject.")
+            return video
     return video
 
 
