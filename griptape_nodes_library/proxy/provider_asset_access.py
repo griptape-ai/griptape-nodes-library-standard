@@ -24,6 +24,7 @@ import httpx
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.utils.cloud_credential_utils import missing_credential_message
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -253,7 +254,7 @@ def check_provider_asset_access() -> ProviderAssetAccess:
         )
 
     url = urljoin(resolve_proxy_base(), f"assets/{_PROBE_ASSET_ID}")
-    headers = {"Authorization": f"Bearer {credential.value}"}
+    headers = build_griptape_cloud_headers(credential.value, attribution=False)
     try:
         response = httpx.get(url, headers=headers, timeout=_ACCESS_CHECK_TIMEOUT)
     except Exception as e:  # network/timeout — cause is real but not a no-access signal.

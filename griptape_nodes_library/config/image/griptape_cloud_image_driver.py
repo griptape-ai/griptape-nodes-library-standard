@@ -9,6 +9,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 
 # --- Constants ---
 
@@ -75,8 +76,8 @@ class GriptapeCloudImage(BaseImageDriver):
         # --- Prepare Griptape Cloud Specific Arguments ---
         specific_args = {}
 
-        # Retrieve the mandatory API key.
-        specific_args["api_key"] = resolve_cloud_api_key()
+        # Retrieve the mandatory API key, alongside the headers that carry attribution.
+        specific_args.update(cloud_driver_auth())
 
         # The provider's own id for the selected model.
         specific_args["model"] = self._get_selected_model_id()
