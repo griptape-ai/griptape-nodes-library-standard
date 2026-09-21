@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 import griptape_nodes_library.video.wan_animate_generation as wan_animate_module
 from griptape_nodes_library.video.wan_animate_generation import WanAnimateGeneration
+
+
+def _resolved_path(value: Any) -> Any:
+    """The path a media parameter yields, whether it holds a bare string or a UrlArtifact.
+
+    Both are consumable by `File()` and the public-URL helper, and which one a
+    parameter ends up holding depends on whether the engine hydrated the incoming
+    dict at set time or the node coerced it later.
+    """
+    return getattr(value, "value", value)
 
 
 def _stub_video_duration(monkeypatch: pytest.MonkeyPatch, seconds: float = 4.0) -> None:
@@ -199,9 +211,12 @@ async def test_build_payload_normalizes_serialized_artifact_dicts(monkeypatch: p
 
     # The dict was unwrapped to its inner string before duration probing.
     assert seen_duration_url == ["/abs/path/reference.mp4"]
-    # Both parameters are now plain strings the upload helpers can consume.
-    assert node.get_parameter_value("image_url") == "/abs/path/source.png"
-    assert node.get_parameter_value("video_url") == "/abs/path/reference.mp4"
+    # Neither parameter still holds a dict; both resolve to the path the upload
+    # helpers need. The assertion is on the resolved path rather than a bare string
+    # because the dict may be gone before the node sees it — a media parameter
+    # hydrates a serialized artifact dict when the value is set.
+    assert _resolved_path(node.get_parameter_value("image_url")) == "/abs/path/source.png"
+    assert _resolved_path(node.get_parameter_value("video_url")) == "/abs/path/reference.mp4"
     assert payload["input"] == {
         "image_url": "https://public.example/source.png",
         "video_url": "https://public.example/reference.mp4",
