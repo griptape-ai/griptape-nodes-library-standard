@@ -182,6 +182,39 @@ def composite_over(base: Image.Image, overlay: Image.Image, position: tuple[int,
     return Image.alpha_composite(base if base.mode == "RGBA" else base.convert("RGBA"), canvas)
 
 
+def premultiply_rgba(image: Image.Image, *, invert: bool = False) -> Image.Image:
+    """Multiply an RGBA image's RGB channels by its alpha (straight → premultiplied).
+
+    With invert=True the factor is (1 - alpha) instead, which premultiplies by the
+    complement — useful for edge matting where opaque areas should be darkened rather
+    than transparent ones.  The alpha channel is left unchanged in both cases.
+    """
+    rgba = image if image.mode == "RGBA" else image.convert("RGBA")
+    arr = np.asarray(rgba, dtype=np.float32)
+    alpha = arr[..., 3:4] / 255.0
+    factor = (1.0 - alpha) if invert else alpha
+    rgb = np.clip(np.round(arr[..., :3] * factor), 0.0, 255.0)
+    result = np.concatenate([rgb, arr[..., 3:4]], axis=-1)
+    return Image.fromarray(result.astype(np.uint8), mode="RGBA")
+
+
+def unpremultiply_rgba(image: Image.Image, *, invert: bool = False) -> Image.Image:
+    """Divide an RGBA image's RGB channels by its alpha (premultiplied → straight).
+
+    With invert=True the divisor is (1 - alpha) instead.  Pixels where the divisor is
+    zero are left black.  The alpha channel is left unchanged in both cases.
+    """
+    rgba = image if image.mode == "RGBA" else image.convert("RGBA")
+    arr = np.asarray(rgba, dtype=np.float32)
+    alpha = arr[..., 3:4] / 255.0
+    factor = (1.0 - alpha) if invert else alpha
+    safe = np.where(factor > 0, factor, 1.0)
+    rgb = np.where(factor > 0, arr[..., :3] / safe, 0.0)
+    rgb = np.clip(np.round(rgb), 0.0, 255.0)
+    result = np.concatenate([rgb, arr[..., 3:4]], axis=-1)
+    return Image.fromarray(result.astype(np.uint8), mode="RGBA")
+
+
 def create_background_image(width: int, height: int, background_color: str, *, transparent_bg: bool) -> Image.Image:
     """Create background image with specified color and transparency."""
     if transparent_bg:
