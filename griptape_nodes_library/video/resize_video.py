@@ -74,6 +74,7 @@ class ResizeVideo(ControlNode):
                 name="video",
                 allowed_modes={ParameterMode.INPUT},
                 tooltip="The video to resize",
+                converters=[to_video_artifact],
             )
         )
 

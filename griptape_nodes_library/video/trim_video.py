@@ -39,6 +39,7 @@ class TrimVideo(SuccessFailureNode):
                 name="video",
                 allowed_modes={ParameterMode.INPUT},
                 tooltip="The video to trim",
+                converters=[to_video_artifact],
             )
         )
 

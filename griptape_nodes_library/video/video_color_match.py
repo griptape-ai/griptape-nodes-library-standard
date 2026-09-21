@@ -109,7 +109,7 @@ class VideoColorMatch(SuccessFailureNode):
                 ui_options={
                     "expander": True,
                 },
-                converters=[self._convert_video_input],
+                converters=[to_video_artifact],
             )
         )
 
@@ -187,12 +187,6 @@ class VideoColorMatch(SuccessFailureNode):
             result_details_placeholder="Details on the color matching will be presented here.",
             parameter_group_initially_collapsed=True,
         )
-
-    def _convert_video_input(self, value: Any) -> Any:
-        """Convert video input (dict or VideoUrlArtifact) to VideoUrlArtifact."""
-        if isinstance(value, dict):
-            return dict_to_video_url_artifact(value)
-        return value
 
     def _set_progress_bar_visibility(self, *, visible: bool) -> None:
         """Set the visibility of the progress bar parameter.

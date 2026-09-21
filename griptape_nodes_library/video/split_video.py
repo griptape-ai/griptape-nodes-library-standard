@@ -75,6 +75,7 @@ class SplitVideo(SuccessFailureNode):
                 name="video",
                 allowed_modes={ParameterMode.INPUT},
                 tooltip="The video to split",
+                converters=[to_video_artifact],
             )
         )
 

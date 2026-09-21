@@ -25,7 +25,6 @@ from griptape_nodes_library.utils.ffmpeg_utils import describe_ffmpeg_failure
 from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.video_utils import (
     detect_video_format,
-    dict_to_video_url_artifact,
     to_video_artifact,
     validate_url,
 )
@@ -66,7 +65,7 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
                     "expander": True,
                     "display_name": "Video or Path to Video",
                 },
-                converters=[self._convert_video_input],
+                converters=[to_video_artifact],
             )
         )
 
@@ -284,16 +283,6 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
         except Exception:
             # If any other error, assume no audio
             return False
-
-    def _convert_video_input(self, value: Any) -> Any:
-        """Convert video input (dict or VideoUrlArtifact) to VideoUrlArtifact.
-
-        Note: String paths are automatically normalized to VideoUrlArtifact
-        by ParameterVideo's normalize_video_input converter (runs before this).
-        """
-        if isinstance(value, dict):
-            return dict_to_video_url_artifact(value)
-        return value
 
     def _validate_video_input(self) -> list[Exception] | None:
         """Common video input validation."""
