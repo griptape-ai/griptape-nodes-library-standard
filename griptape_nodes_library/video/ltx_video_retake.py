@@ -40,8 +40,34 @@ LEGACY_MODEL_VALUES = {
     "gtc_ltx_2_pro": "ltx-2-pro",
 }
 
-SUPPORTED_RESOLUTIONS = ("1920x1080", "2560x1440", "3840x2160")
+# The retake endpoint accepts 1080p in either orientation and nothing else; a request
+# naming any other resolution is rejected before generation starts. Landscape leads so
+# that `Options` snaps a resolution saved from a wider list back to a value the endpoint
+# takes, rather than carrying it through to a failed generation.
+SUPPORTED_RESOLUTIONS = ("1920x1080", "1080x1920")
 DEFAULT_RESOLUTION = "1920x1080"
+PORTRAIT_RESOLUTION = "1080x1920"
+
+# A rotation this far from a quarter turn counts as one, covering the float noise a
+# display matrix can carry.
+_ROTATION_TOLERANCE_DEGREES = 45
+
+
+def _is_quarter_turned(video_stream: dict[str, Any]) -> bool:
+    """Whether a display matrix rotates the stream onto its side.
+
+    Phone footage is commonly stored landscape with a 90 or 270 degree rotation that
+    players apply, so the stored `width`/`height` describe a portrait video the wrong
+    way round. Only quarter turns swap the two; 180 leaves the orientation alone.
+    """
+    for side_data in video_stream.get("side_data_list") or []:
+        rotation = side_data.get("rotation")
+        if not isinstance(rotation, (int, float)):
+            continue
+        offset_from_quarter_turn = abs(rotation) % 180
+        if abs(offset_from_quarter_turn - 90) < _ROTATION_TOLERANCE_DEGREES:
+            return True
+    return False
 
 
 class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
@@ -51,7 +77,7 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
         - video (VideoUrlArtifact): Input video to edit (required, max 21s, max resolution 3840x2160, sent as base64)
         - retake_segment (list[float]): Time range [start, end] in seconds to regenerate
         - prompt (str): Text describing what should happen in the retake segment (max 5000 chars)
-        - resolution (str): Output resolution (1920x1080, 2560x1440, or 3840x2160); auto-detected from input video
+        - resolution (str): Output resolution (1920x1080 or 1080x1920); auto-detected from input video
         - mode (str): What to replace - audio only, video only, or both (default: both)
         - model (str): Model to use (LTX 2 Pro or LTX 2.3 Pro)
         (Always polls for result: 5s interval, 20 min timeout)
@@ -114,12 +140,15 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
         )
 
         # Resolution parameter (required by the LTX retake API).
-        # Auto-populated from the connected video when possible.
+        # Auto-populated from the connected video's orientation when possible.
         self.add_parameter(
             ParameterString(
                 name="resolution",
                 default_value=DEFAULT_RESOLUTION,
-                tooltip="Output video resolution. Auto-detected from the input video when possible.",
+                tooltip=(
+                    "Output video resolution. Retake renders at 1080p; the orientation is "
+                    "auto-detected from the input video when possible."
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=list(SUPPORTED_RESOLUTIONS))},
             )
@@ -328,6 +357,8 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
             width = video_stream.get("width")
             height = video_stream.get("height")
             if isinstance(width, int) and isinstance(height, int):
+                if _is_quarter_turned(video_stream):
+                    width, height = height, width
                 info["width"] = width
                 info["height"] = height
             return info or None
@@ -344,22 +375,13 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
 
     @staticmethod
     def _snap_to_supported_resolution(width: int, height: int) -> str:
-        """Pick the closest supported resolution by total pixel count.
+        """Pick the supported resolution matching the video's orientation.
 
-        The API only accepts the fixed set ``SUPPORTED_RESOLUTIONS``, so we
-        match on pixel-area proximity. Orientation is preserved by the API
-        internally; we always report ``WIDTHxHEIGHT`` from the supported list.
+        1080p is the only size the endpoint accepts, so orientation is the whole
+        choice: a taller-than-wide video retakes at ``1080x1920`` and everything
+        else at ``1920x1080``. Square sources take the landscape default.
         """
-        target_pixels = max(width, 1) * max(height, 1)
-
-        def _pixels(res: str) -> int:
-            w, _, h = res.partition("x")
-            try:
-                return int(w) * int(h)
-            except ValueError:
-                return 0
-
-        return min(SUPPORTED_RESOLUTIONS, key=lambda r: abs(_pixels(r) - target_pixels))
+        return PORTRAIT_RESOLUTION if height > width else DEFAULT_RESOLUTION
 
     async def _process_generation(self) -> None:
         self._reset_video_uploads()
