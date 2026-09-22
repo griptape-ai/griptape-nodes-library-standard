@@ -23,7 +23,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import prepare_media_data_uri
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -560,14 +560,13 @@ class WanImageToVideoGeneration(GriptapeProxyNode):
 
         return None
 
-    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
-        """Handle WAN response and extract video.
+    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
+        """Handle WAN response and save the hosted video.
 
         Response shape:
         {
             "task_id": "...",
             "task_status": "SUCCEEDED",
-            "video_url": "https://...",
             "submit_time": "...",
             "scheduled_time": "...",
             "end_time": "...",
@@ -578,10 +577,8 @@ class WanImageToVideoGeneration(GriptapeProxyNode):
         task_id = result_json.get("task_id", "")
         self.parameter_output_values["generation_id"] = str(task_id)
 
-        # Extract task status and video URL from top-level fields
-        task_status = result_json.get("task_status")
-
         # Check task status
+        task_status = result_json.get("task_status")
         if task_status != "SUCCEEDED":
             logger.error("Generation failed with task_status: %s", task_status)
             self._set_safe_defaults()
@@ -589,16 +586,12 @@ class WanImageToVideoGeneration(GriptapeProxyNode):
             self._set_status_results(was_successful=False, result_details=error_details)
             return
 
-        video_url = result_json.get("video_url")
-        if video_url:
-            await self._download_and_save(video_url, "video", lambda v, n: VideoUrlArtifact(value=v, name=n))
-        else:
-            logger.warning("No video_url found in response")
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details="Generation completed but no video URL was found in the response.",
-            )
+        await self._save_generated_media(
+            generation_id,
+            "video",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+        )
 
     async def _prepare_audio_data_url_async(self, audio_input: Any) -> str | None:
         return await prepare_media_data_uri(audio_input, kind="audio", node_name=self.name)

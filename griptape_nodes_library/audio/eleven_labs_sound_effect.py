@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import json as _json
 import logging
 from contextlib import suppress
@@ -15,7 +14,7 @@ from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.slider import Slider
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger(__name__)
 
@@ -152,54 +151,15 @@ class ElevenLabsSoundEffectGeneration(GriptapeProxyNode):
 
             self._log(f"Request payload: {_json.dumps(sanitized_payload, indent=2)}")
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        """Parse the Eleven Labs sound effect result and set output parameters."""
-        # Check if we received raw audio bytes (in case API returns raw bytes)
-        audio_bytes_raw = result_json.get("raw_bytes")
-        if audio_bytes_raw:
-            audio_bytes = audio_bytes_raw
-            self._log("Received raw audio bytes from API")
-        else:
-            # Fall back to base64-encoded audio (expected for this model)
-            audio_base64 = result_json.get("audio_base64")
-            if not audio_base64:
-                self._log("No audio data in response")
-                self._set_safe_defaults()
-                self._set_status_results(
-                    was_successful=False,
-                    result_details="Generation completed but no audio data was found in the response.",
-                )
-                return
-
-            try:
-                audio_bytes = base64.b64decode(audio_base64)
-                self._log("Decoded base64 audio")
-            except Exception as e:
-                self._log(f"Failed to decode base64 audio: {e}")
-                self._set_safe_defaults()
-                self._set_status_results(
-                    was_successful=False,
-                    result_details=f"Failed to decode audio data: {e}",
-                )
-                return
-
-        # Save audio
-        try:
-            dest = self._output_file.build_file()
-            saved = await dest.awrite_bytes(audio_bytes)
-            self.parameter_output_values["audio_url"] = AudioUrlArtifact(value=saved.location, name=saved.name)
-            self._log(f"Saved audio as {saved.name}")
-        except Exception as e:
-            self._log(f"Failed to save audio: {e}")
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"Failed to save audio file: {e}",
-            )
-            return
-
-        # Set success status
-        self._set_status_results(was_successful=True, result_details="Sound effect generated successfully")
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        """Save the hosted sound-effect audio."""
+        await self._save_generated_media(
+            generation_id,
+            "audio_url",
+            lambda v, n: AudioUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.AUDIO,
+            media_kind="sound effect",
+        )
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:
         """Extract error message from Eleven Labs sound effect failed generation response."""

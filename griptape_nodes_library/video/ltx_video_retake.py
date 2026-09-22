@@ -19,7 +19,7 @@ from griptape_nodes.traits.options import Options
 from static_ffmpeg import run  # type: ignore[import-untyped]
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.ffmpeg_utils import describe_ffmpeg_failure
 from griptape_nodes_library.video.public_video_url_mixin import PublicVideoUrlMixin
 
@@ -31,13 +31,18 @@ MAX_VIDEO_DURATION = 21
 MIN_RETAKE_DURATION = 2.0
 RETAKE_SEGMENT_LENGTH = 2
 
-# Migrates values saved before the dropdown stored the provider's own model id: old
-# display labels and catalog keys.
+DEFAULT_MODEL = "ltx-2-3-pro"
+
+# Migrates values saved before the dropdown stored the provider's own model id (old
+# display labels and catalog keys), plus ltx-2-pro, which LTX removed from the retake
+# endpoint. Retake is offered on ltx-2-3-pro only:
+# https://docs.ltx.io/pricing
 LEGACY_MODEL_VALUES = {
-    "LTX 2 Pro": "ltx-2-pro",
+    "LTX 2 Pro": "ltx-2-3-pro",
     "LTX 2.3 Pro": "ltx-2-3-pro",
     "gtc_ltx_2_3_pro": "ltx-2-3-pro",
-    "gtc_ltx_2_pro": "ltx-2-pro",
+    "gtc_ltx_2_pro": "ltx-2-3-pro",
+    "ltx-2-pro": "ltx-2-3-pro",
 }
 
 SUPPORTED_RESOLUTIONS = ("1920x1080", "2560x1440", "3840x2160")
@@ -53,7 +58,7 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
         - prompt (str): Text describing what should happen in the retake segment (max 5000 chars)
         - resolution (str): Output resolution (1920x1080, 2560x1440, or 3840x2160); auto-detected from input video
         - mode (str): What to replace - audio only, video only, or both (default: both)
-        - model (str): Model to use (LTX 2 Pro or LTX 2.3 Pro)
+        - model (str): Model to use (LTX 2.3 Pro)
         (Always polls for result: 5s interval, 20 min timeout)
 
     Outputs:
@@ -73,10 +78,10 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
 
         # INPUTS / PROPERTIES
 
-        # Model parameter (retake supports pro-tier LTX models)
+        # Model parameter (retake is offered on ltx-2-3-pro only)
         model_param = ParameterString(
             name="model",
-            default_value="ltx-2-pro",
+            default_value=DEFAULT_MODEL,
             tooltip="Model to use for video retake",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -86,8 +91,8 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
         self._model_access = ModelAccessComponent(
             node=self,
             parameter=model_param,
-            model_choices=["ltx-2-pro", "ltx-2-3-pro"],
-            default_model="ltx-2-pro",
+            model_choices=[DEFAULT_MODEL],
+            default_model=DEFAULT_MODEL,
             deprecated_values=LEGACY_MODEL_VALUES,
         )
         self.add_parameter(
@@ -371,7 +376,7 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
     def _get_parameters(self) -> dict[str, Any]:
         return {
             "prompt": self.get_parameter_value("prompt") or "",
-            "model": self.get_parameter_value("model") or "ltx-2-pro",
+            "model": self.get_parameter_value("model") or DEFAULT_MODEL,
             "retake_segment": self.get_parameter_value("retake_segment") or [0.0, 2.0],
             "mode": self.get_parameter_value("mode") or "replace_audio_and_video",
             "resolution": self.get_parameter_value("resolution") or DEFAULT_RESOLUTION,
@@ -485,44 +490,15 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
 
         return payload
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        video_bytes = result_json.get("raw_bytes")
-        if not isinstance(video_bytes, (bytes, bytearray)):
-            msg = f"{self.name} generation completed but no video data received."
-            raise TypeError(msg)
-
-        await self._handle_completion_async(bytes(video_bytes), generation_id)
-
-    async def _handle_completion_async(self, video_bytes: bytes, generation_id: str) -> None:
-        """Handle successful completion by saving the video to static storage.
-
-        Args:
-            video_bytes: Raw binary MP4 data received from /result endpoint
-            generation_id: Generation ID for filename
-        """
-        if not video_bytes:
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no video data received.",
-            )
-            return
-
-        try:
-            dest = self._output_file.build_file()
-            saved = await dest.awrite_bytes(video_bytes)
-            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-            logger.info("%s saved video as %s", self.name, saved.name)
-            self._set_status_results(
-                was_successful=True, result_details=f"Video retake successful and saved as {saved.name}."
-            )
-        except (OSError, PermissionError) as e:
-            logger.error("%s failed to save to static storage: %s", self.name, e)
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"Video generated but failed to save to storage: {e}",
-            )
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        """Save the hosted video. LTX returns the media as the response body itself."""
+        await self._save_generated_media(
+            generation_id,
+            "video_url",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+            action="retaken",
+        )
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:  # noqa: C901, PLR0912
         if not response_json:
