@@ -6,8 +6,7 @@ import logging
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
-from griptape_nodes.exe_types.node_groups.base_while_node_group import BaseWhileNodeGroup
-from griptape_nodes.exe_types.node_groups.subflow_node_group import RIGHT_PARAMETERS_KEY
+from griptape_nodes.exe_types.node_groups import RIGHT_PARAMETERS_KEY, BaseWhileNodeGroup
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -50,7 +49,7 @@ class RetryGroupNode(BaseWhileNodeGroup):
             default_value=False,
         )
         self.add_parameter(self.was_successful)
-        self.metadata[RIGHT_PARAMETERS_KEY].append("was_successful")
+        self._register_side_parameter(RIGHT_PARAMETERS_KEY, self.was_successful.name)
 
         self.raise_on_failure = Parameter(
             name="raise_on_failure",
