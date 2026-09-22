@@ -19,9 +19,8 @@ from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     image_to_bytes,
     load_pil_from_url,
-    resize_rgba,
     scale_alpha,
-    unassociate_alpha,
+    unpremultiply_rgba,
 )
 
 
@@ -171,7 +170,7 @@ class MergeImages(ControlNode):
             case AlphaConvention.STRAIGHT:
                 return rgba
             case AlphaConvention.PREMULTIPLIED:
-                return unassociate_alpha(rgba)
+                return unpremultiply_rgba(rgba)
             case _:
                 msg = f"Unknown alpha convention: {alpha_convention!r}"
                 raise ValueError(msg)
@@ -188,7 +187,9 @@ class MergeImages(ControlNode):
             new_height = target_height
             new_width = int(target_height * img_ratio)
 
-        return resize_rgba(img, (max(new_width, 1), max(new_height, 1)))
+        # Pillow premultiplies RGBA internally while resampling, so soft edges don't pick
+        # up colour from transparent pixels. Premultiplying here as well would do it twice.
+        return img.resize((max(new_width, 1), max(new_height, 1)), Image.Resampling.LANCZOS)
 
     def _process_horizontal_layout(self, images: list[Image.Image]) -> Image.Image:
         # Resize all images to the same height (max height), preserving aspect ratio

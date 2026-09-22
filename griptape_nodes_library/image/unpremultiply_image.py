@@ -31,6 +31,9 @@ class UnpremultiplyImage(DataNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
+        # Inputs of the last successful run, so process() can skip work the live preview already did.
+        self._last_run_key: tuple[str, bool] | None = None
+
         self.add_parameter(
             ParameterImage(
                 name="input_image",
@@ -66,32 +69,33 @@ class UnpremultiplyImage(DataNode):
         self._output_file.add_parameter()
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        if parameter.name in {"input_image", "invert"} and value is not None:
-            input_image = self.get_parameter_value("input_image")
-            if input_image is not None:
-                if isinstance(input_image, dict):
-                    input_image = dict_to_image_url_artifact(input_image)
-                self._run(input_image)
-
-    def process(self) -> None:
-        input_image = self.get_parameter_value("input_image")
-        if input_image is None:
+        super().after_value_set(parameter, value)
+        if parameter.name not in {"input_image", "invert"} or self.get_parameter_value("input_image") is None:
             return
-        if isinstance(input_image, dict):
-            input_image = dict_to_image_url_artifact(input_image)
-        self._run(input_image)
-
-    def _run(self, image_artifact: ImageUrlArtifact) -> None:
+        # Live preview: a failure here is reported but must not break setting the value.
         try:
-            pil_image = load_pil_from_url(image_artifact.value)
-            invert = bool(self.get_parameter_value("invert"))
-            result = unpremultiply_rgba(pil_image, invert=invert)
-
-            image_bytes = image_to_bytes(result, "PNG")
-            dest = self._output_file.build_file()
-            saved = dest.write_bytes(image_bytes)
-            output_artifact = ImageUrlArtifact(saved.location)
-            self.set_parameter_value("output", output_artifact)
-            self.publish_update_to_parameter("output", output_artifact)
+            self._run()
         except Exception as e:
             logger.error(f"{self.name}: Failed to unpremultiply image: {e!s}")
+
+    def process(self) -> None:
+        if self.get_parameter_value("input_image") is None:
+            return
+        self._run()
+
+    def _run(self) -> None:
+        input_image = self.get_parameter_value("input_image")
+        if isinstance(input_image, dict):
+            input_image = dict_to_image_url_artifact(input_image)
+        invert = bool(self.get_parameter_value("invert"))
+
+        run_key = (input_image.value, invert)
+        if run_key == self._last_run_key and self.get_parameter_value("output") is not None:
+            return
+
+        result = unpremultiply_rgba(load_pil_from_url(input_image.value), invert=invert)
+        saved = self._output_file.build_file().write_bytes(image_to_bytes(result, "PNG"))
+        output_artifact = ImageUrlArtifact(saved.location)
+        self.set_parameter_value("output", output_artifact)
+        self.publish_update_to_parameter("output", output_artifact)
+        self._last_run_key = run_key

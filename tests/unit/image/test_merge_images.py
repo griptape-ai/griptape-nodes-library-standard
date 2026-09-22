@@ -1,5 +1,6 @@
 """Tests for MergeImages' alpha handling and opacity control."""
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -269,3 +270,20 @@ class TestResampling:
 
         # No green may appear anywhere in the composite.
         assert result.getchannel("G").getextrema()[1] == 0
+
+    def test_soft_edge_keeps_its_colour_when_resized(self, node: MergeImages) -> None:
+        """Resizing must premultiply exactly once.
+
+        Pillow already premultiplies RGBA while resampling. Doing it again by hand
+        weights colour by alpha squared and crushes low-alpha pixels toward black.
+        """
+        arr = np.zeros((64, 64, 4), dtype=np.uint8)
+        arr[..., :3] = (200, 100, 50)
+        arr[..., 3] = np.linspace(0, 255, 64).astype(np.uint8)[None, :]
+        soft = Image.fromarray(arr, mode="RGBA")
+
+        resized = np.asarray(node._resize_image(soft, 16, 16)).astype(int)
+
+        visible = resized[..., 3] > 0
+        red = resized[..., 0][visible]
+        assert np.abs(red - 200).max() <= 15  # noqa: PLR2004
