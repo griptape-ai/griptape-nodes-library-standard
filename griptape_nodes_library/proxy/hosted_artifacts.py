@@ -24,6 +24,8 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
+
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = [
@@ -142,7 +144,8 @@ async def fetch_hosted_artifacts(proxy_base: str, generation_id: str, api_key: s
             defense-in-depth check in ``_require_trustworthy_prefix``.
     """
     url = urljoin(proxy_base, f"generations/{generation_id}/artifacts")
-    headers = {"Authorization": f"Bearer {api_key}"}
+    # Reading the list costs nothing; the generation was paid for at submit.
+    headers = build_griptape_cloud_headers(api_key, attribution=False)
 
     try:
         async with httpx.AsyncClient() as client:
@@ -214,5 +217,6 @@ def artifact_download_headers(url: str, api_key: str, proxy_base: str) -> dict[s
     # The real fix is for the artifact envelope to state each URL's own auth
     # requirement rather than the client inferring it from the URL's shape.
     if parsed.netloc == urlparse(proxy_base).netloc and _PROXY_ARTIFACT_ROUTE.search(parsed.path):
-        return {"Authorization": f"Bearer {api_key}"}
+        # Downloading media the generation already paid for incurs no further spend.
+        return build_griptape_cloud_headers(api_key, attribution=False)
     return {}

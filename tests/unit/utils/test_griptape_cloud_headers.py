@@ -15,8 +15,9 @@ LIBRARY_ROOT = Path(__file__).parents[3] / "griptape_nodes_library"
 # first one's answer.
 #
 # The `False` entries consume no credits, so there is nothing to attribute: two model/bucket
-# listings, an asset-access probe, and the proxy's two re-reads of a generation already paid
-# for at submit. Flipping any `True` here to `False` is how spend silently stops being
+# listings, an asset-access probe, and the proxy's reads of a generation already paid
+# for at submit, including its hosted media.
+# Flipping any `True` here to `False` is how spend silently stops being
 # attributed, which is why the map is asserted whole rather than as an allowlist.
 # The `utils/` entries hand the dict to a `griptape` driver rather than to `requests`.
 # `test_cloud_driver_auth.py` reads construction sites, so it covers the first two but is blind
@@ -26,6 +27,8 @@ CLOUD_HEADER_CALLS = {
     ("proxy/griptape_proxy_node.py", "_fetch_generation_result"): (False,),
     ("proxy/griptape_proxy_node.py", "_process_generation"): (True,),
     ("proxy/griptape_proxy_node.py", "_refresh_async"): (False,),
+    ("proxy/hosted_artifacts.py", "artifact_download_headers"): (False,),
+    ("proxy/hosted_artifacts.py", "fetch_hosted_artifacts"): (False,),
     ("proxy/provider_asset_access.py", "check_provider_asset_access"): (False,),
     ("tools/file_manager_tool.py", "get_bucket_list"): (False,),
     ("utils/agent_utils.py", "_restored_cloud_credentials"): (True,),

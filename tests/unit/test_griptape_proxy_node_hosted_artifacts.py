@@ -14,6 +14,7 @@ from griptape_nodes_library.proxy.hosted_artifacts import (
     fetch_hosted_artifacts,
 )
 from griptape_nodes_library.proxy.provider_asset_access import ProxyCredential
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 PROXY_BASE = "https://cloud.griptape.ai/api/proxy/v2/"
 GENERATION_ID = "gen-abc"
@@ -103,7 +104,9 @@ def test_presigned_url_is_fetched_without_a_bearer_token() -> None:
 
 
 def test_streaming_route_is_fetched_with_a_bearer_token() -> None:
-    assert artifact_download_headers(STREAMING_URL, "test-key", PROXY_BASE) == {"Authorization": "Bearer test-key"}
+    assert artifact_download_headers(STREAMING_URL, "test-key", PROXY_BASE) == build_griptape_cloud_headers(
+        "test-key", attribution=False
+    )
 
 
 def test_streaming_route_shape_on_a_foreign_host_is_fetched_without_a_bearer_token() -> None:
