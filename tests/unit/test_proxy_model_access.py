@@ -99,7 +99,7 @@ NODE_MODEL_CASES: list[tuple[str, str, str, str]] = [
     ("LTXImageToVideoGeneration", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),
     ("LTXAudioToVideoGeneration", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),
     ("LTXVideoExtend", "gtc_ltx_2_pro", "ltx-2-pro", "model"),
-    ("LTXVideoRetake", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),
+    ("LTXVideoRetake", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),  # only declared model
     ("LTXVideoToVideoHDR", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),  # only declared model
 ]
 
