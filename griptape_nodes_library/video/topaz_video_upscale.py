@@ -24,7 +24,7 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.ffmpeg_utils import VideoMetadata, extract_video_metadata_structured
 
 logger = logging.getLogger("griptape_nodes")
@@ -738,47 +738,14 @@ class TopazVideoUpscale(GriptapeProxyNode):
 
     # -- result ------------------------------------------------------------
 
-    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
-        raw_bytes = result_json.get("raw_bytes")
-        if isinstance(raw_bytes, (bytes, bytearray)):
-            await self._handle_binary_video_response(bytes(raw_bytes))
-            return
-
-        # `download.url` is Topaz's documented shape for a completed generation.
-        await self._download_and_save(
-            result_json["download"]["url"],
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        """Save the hosted upscaled video."""
+        await self._save_generated_media(
+            generation_id,
             "video_output",
             lambda v, n: VideoUrlArtifact(value=v, name=n),
-            media_kind="video",
+            kind=ArtifactKind.VIDEO,
             action="upscaled",
-        )
-
-    async def _handle_binary_video_response(self, video_bytes: bytes) -> None:
-        """Save video bytes served directly by the proxy rather than via a URL."""
-        if not video_bytes:
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name}: the upscale completed but no video data was received.",
-            )
-            return
-
-        try:
-            dest = self._output_file.build_file()
-            saved = await dest.awrite_bytes(video_bytes)
-        except (OSError, PermissionError) as e:
-            logger.error("%s failed to save the upscaled video: %s", self.name, e)
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name}: the upscale succeeded but saving the video failed: {e}",
-            )
-            return
-
-        self.parameter_output_values["video_output"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-        self._set_status_results(
-            was_successful=True,
-            result_details=f"Upscale successful. Video saved as {saved.name}.",
         )
 
     def _handle_payload_build_error(self, e: Exception) -> None:

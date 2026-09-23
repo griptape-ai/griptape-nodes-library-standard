@@ -9,15 +9,21 @@ from griptape_nodes_library.image.flux_2_image_generation import Flux2ImageGener
 
 
 class _FakeResponse:
-    def __init__(self, *, status_code: int = 200, content: bytes = b"data") -> None:
+    def __init__(
+        self, *, status_code: int = 200, content: bytes = b"data", url: str = "https://provider.example/asset"
+    ) -> None:
         self.status_code = status_code
         self.content = content
+        self._url = url
 
     def raise_for_status(self) -> None:
         if httpx.codes.is_error(self.status_code):
-            request = httpx.Request("GET", "https://provider.example/asset")
+            request = httpx.Request("GET", self._url)
             response = httpx.Response(self.status_code, request=request)
-            raise httpx.HTTPStatusError("error", request=request, response=response)
+            # Real raise_for_status(), not a hand-written HTTPStatusError: its
+            # auto-generated message bakes in the full request URL, which is what
+            # the leak-redaction test below needs to reproduce.
+            response.raise_for_status()
 
 
 def _install_fake_client(monkeypatch: pytest.MonkeyPatch, get_impl: Any) -> None:
@@ -28,8 +34,8 @@ def _install_fake_client(monkeypatch: pytest.MonkeyPatch, get_impl: Any) -> None
         async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
             return None
 
-        async def get(self, url: str, timeout: int) -> _FakeResponse:
-            return await get_impl(url, timeout)
+        async def get(self, url: str, timeout: int, headers: dict[str, str] | None = None) -> _FakeResponse:
+            return await get_impl(url, timeout, headers)
 
     monkeypatch.setattr("griptape_nodes_library.proxy.griptape_proxy_node.httpx.AsyncClient", FakeAsyncClient)
 
@@ -43,7 +49,7 @@ def _install_fake_client(monkeypatch: pytest.MonkeyPatch, get_impl: Any) -> None
 async def test_download_retries_once_on_transient_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = 0
 
-    async def get_impl(_url: str, _timeout: int) -> _FakeResponse:
+    async def get_impl(_url: str, _timeout: int, _headers: dict[str, str] | None) -> _FakeResponse:
         nonlocal calls
         calls += 1
         if calls == 1:
@@ -62,7 +68,7 @@ async def test_download_retries_once_on_transient_then_succeeds(monkeypatch: pyt
 async def test_download_does_not_retry_on_client_error(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = 0
 
-    async def get_impl(_url: str, _timeout: int) -> _FakeResponse:
+    async def get_impl(_url: str, _timeout: int, _headers: dict[str, str] | None) -> _FakeResponse:
         nonlocal calls
         calls += 1
         return _FakeResponse(status_code=403)
@@ -80,7 +86,7 @@ async def test_download_does_not_retry_on_client_error(monkeypatch: pytest.Monke
 async def test_download_retries_once_on_server_error_then_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = 0
 
-    async def get_impl(_url: str, _timeout: int) -> _FakeResponse:
+    async def get_impl(_url: str, _timeout: int, _headers: dict[str, str] | None) -> _FakeResponse:
         nonlocal calls
         calls += 1
         return _FakeResponse(status_code=503)
@@ -95,62 +101,21 @@ async def test_download_retries_once_on_server_error_then_raises(monkeypatch: py
 
 
 @pytest.mark.asyncio
-async def test_download_and_save_failure_reports_unsuccessful_and_surfaces_url(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def get_impl(_url: str, _timeout: int) -> _FakeResponse:
-        return _FakeResponse(status_code=403)
+async def test_download_error_redacts_a_presigned_urls_query_string(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A presigned artifact URL's credential lives in its query string.
+    # httpx.Response.raise_for_status() bakes the full URL into its message, so
+    # the raised error must be re-sanitized rather than propagated as-is.
+    secret = "X-Amz-Signature=DEADBEEFSECRET&X-Amz-Credential=AKIAEXAMPLE"
+    presigned_url = f"https://blob.example.com/gen/1/video.mp4?{secret}"
+
+    async def get_impl(_url: str, _timeout: int, _headers: dict[str, str] | None) -> _FakeResponse:
+        return _FakeResponse(status_code=403, url=presigned_url)
 
     _install_fake_client(monkeypatch, get_impl)
 
-    node = Flux2ImageGeneration(name="Flux2")
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        await Flux2ImageGeneration._download_bytes_from_url(presigned_url)
 
-    status_calls: list[dict[str, Any]] = []
-    node._set_status_results = lambda **kwargs: status_calls.append(kwargs)  # type: ignore[method-assign]
-
-    url = "https://provider.example/asset"
-    await node._download_and_save(url, "image_url", lambda v, n: {"value": v, "name": n}, media_kind="image")
-
-    assert node.parameter_output_values["image_url"] is None
-    assert len(status_calls) == 1
-    assert status_calls[0]["was_successful"] is False
-    assert url in status_calls[0]["result_details"]
-
-
-@pytest.mark.asyncio
-async def test_download_and_save_success_saves_and_reports_successful(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def get_impl(_url: str, _timeout: int) -> _FakeResponse:
-        return _FakeResponse(content=b"image-bytes")
-
-    _install_fake_client(monkeypatch, get_impl)
-
-    node = Flux2ImageGeneration(name="Flux2")
-
-    class _SavedFile:
-        location = "project/files/output.png"
-        name = "output.png"
-
-    class _Dest:
-        async def awrite_bytes(self, _data: bytes) -> _SavedFile:
-            return _SavedFile()
-
-    class _OutputFile:
-        def build_file(self, **_extra: Any) -> _Dest:
-            return _Dest()
-
-    node._output_file = _OutputFile()  # type: ignore[assignment]
-
-    status_calls: list[dict[str, Any]] = []
-    node._set_status_results = lambda **kwargs: status_calls.append(kwargs)  # type: ignore[method-assign]
-
-    await node._download_and_save(
-        "https://provider.example/asset",
-        "image_url",
-        lambda v, n: {"value": v, "name": n},
-        media_kind="image",
-    )
-
-    assert node.parameter_output_values["image_url"] == {"value": "project/files/output.png", "name": "output.png"}
-    assert len(status_calls) == 1
-    assert status_calls[0]["was_successful"] is True
-    assert "output.png" in status_calls[0]["result_details"]
+    assert secret not in str(exc_info.value)
+    assert "blob.example.com" in str(exc_info.value)
+    assert "403" in str(exc_info.value)

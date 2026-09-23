@@ -21,7 +21,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import prepare_media_data_uri
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -494,26 +494,18 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
             self._set_status_results(was_successful=False, result_details=error_details)
             return
 
-        await self._handle_completion(result_json, generation_id)
+        await self._save_generated_media(
+            generation_id,
+            "video",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+        )
 
     async def _prepare_video_data_url_async(self, video_input: Any) -> str | None:
         return await prepare_media_data_uri(video_input, kind="video", node_name=self.name)
 
     async def _prepare_audio_data_url_async(self, audio_input: Any) -> str | None:
         return await prepare_media_data_uri(audio_input, kind="audio", node_name=self.name)
-
-    async def _handle_completion(self, last_json: dict[str, Any] | None, generation_id: str | None = None) -> None:
-        """Handle successful generation completion."""
-        extracted_url = self._extract_result_video_url(last_json)
-        if not extracted_url:
-            self.parameter_output_values["video"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details="Generation completed but no video URL was found in the response.",
-            )
-            return
-
-        await self._download_and_save(extracted_url, "video", lambda v, n: VideoUrlArtifact(value=v, name=n))
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
         """Extract error details from API response."""
@@ -593,24 +585,4 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
         task_status = response_json.get("task_status")
         if isinstance(task_status, str):
             return task_status
-        return None
-
-    @staticmethod
-    def _extract_result_video_url(obj: dict[str, Any] | None) -> str | None:
-        """Extract video URL from response.
-
-        The WAN proxy nests the result under ``output.video_url``; older or
-        flatter responses may put it at the top level. Check the nested
-        location first and fall back to the top-level key.
-        """
-        if not obj:
-            return None
-        output = obj.get("output")
-        if isinstance(output, dict):
-            nested = output.get("video_url")
-            if isinstance(nested, str) and nested.startswith("http"):
-                return nested
-        video_url = obj.get("video_url")
-        if isinstance(video_url, str) and video_url.startswith("http"):
-            return video_url
         return None
