@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import pathlib
+import re
 import subprocess
 from enum import StrEnum
 from typing import Any
@@ -13,10 +14,10 @@ import griptape_nodes.traits.widget as widget_trait
 from griptape_nodes.exe_types.core_types import (
     NodeMessageResult,
     Parameter,
+    ParameterGroup,
     ParameterMode,
 )
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
-from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileDestinationProvider
@@ -24,7 +25,6 @@ from griptape_nodes.retained_mode.events.connection_events import (
     ListConnectionsForNodeRequest,
     ListConnectionsForNodeResultSuccess,
 )
-from griptape_nodes.retained_mode.events.os_events import OpenAssociatedFileRequest, OpenAssociatedFileResultSuccess
 from griptape_nodes.retained_mode.events.static_file_events import (
     CreateStaticFileDownloadUrlFromPathRequest,
     CreateStaticFileDownloadUrlFromPathResultSuccess,
@@ -43,12 +43,14 @@ logger = logging.getLogger("griptape_nodes")
 __all__ = ["ExtractFrames"]
 
 FORMAT_OPTIONS = ["png", "jpg", "webp"]
-PADDING_OPTIONS = ["1", "2", "3", "4", "5", "6"]
 
 DEFAULT_OUTPUT_PREFIX = "frames"
 DEFAULT_FRAME_PADDING = 4
 DEFAULT_OUTPUT_FORMAT = "png"
 DEFAULT_EVERY_N = 1
+DEFAULT_DIRECTORY = "{outputs}/frames_v{###}"
+
+_VERSION_TOKEN_RE = re.compile(r"\{(#+)\}")
 
 
 class FrameSelectionMode(StrEnum):
@@ -93,7 +95,9 @@ class ExtractFrames(SuccessFailureNode):
             )
         )
 
-        self.add_parameter(
+        with ParameterGroup(
+            name="frame_selection", ui_options={"display_name": "Frame Selection"}
+        ) as frame_selection_group:
             ParameterString(
                 name="frame_selection_mode",
                 default_value=FrameSelectionMode.LIST,
@@ -105,14 +109,11 @@ class ExtractFrames(SuccessFailureNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=list(FrameSelectionMode))},
             )
-        )
 
-        self.add_parameter(
-            Parameter(
+            ParameterString(
                 name="input_frame_numbers",
-                type="str",
-                output_type="str",
                 default_value="",
+                placeholder_text="e.g. 1,4,5-9,11",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 tooltip=(
                     "Frames to extract as a comma-separated list of numbers or ranges (e.g. 1,4,5-9,11).\n\n"
@@ -123,9 +124,7 @@ class ExtractFrames(SuccessFailureNode):
                     "• Hover a marker and click the trash icon to remove it"
                 ),
             )
-        )
 
-        self.add_parameter(
             ParameterInt(
                 name="every_n",
                 default_value=DEFAULT_EVERY_N,
@@ -133,77 +132,62 @@ class ExtractFrames(SuccessFailureNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 hide=True,
             )
-        )
 
-        output_dir_param = Parameter(
-            name="output_directory",
-            type="str",
-            default_value="",
-            input_types=["str"],
-            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            tooltip=(
-                "Directory where frames are saved. Supports project macros (e.g. {outputs}/my_frames). "
-                "Click the gear to connect a FileOutputSettings node."
-            ),
-            ui_options={"placeholder_text": "{outputs}/frames"},
-            traits={
-                Button(
-                    icon="cog",
-                    size="icon",
-                    variant="secondary",
-                    tooltip="Create and connect a FileOutputSettings node",
-                    on_click=self._on_configure_output_dir_clicked,
+        self.add_node_element(frame_selection_group)
+
+        with ParameterGroup(
+            name="output_settings", ui_options={"display_name": "Output Settings"}
+        ) as output_settings_group:
+            output_dir_param = Parameter(
+                name="directory",
+                type="str",
+                default_value=DEFAULT_DIRECTORY,
+                input_types=["str"],
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                tooltip=(
+                    "Directory where frames are saved. Use {###} for auto-incrementing versions "
+                    "(e.g. {outputs}/frames_v{###} → frames_v001, frames_v002, …). "
+                    "Click the gear to connect a FileOutputSettings node."
                 ),
-                FileSystemPicker(allow_files=False, allow_directories=True, multiple=False),
-            },
-        )
-        output_dir_param.on_incoming_connection_removed.append(self._on_output_dir_connection_removed)
-        self.add_parameter(output_dir_param)
+                ui_options={"placeholder_text": DEFAULT_DIRECTORY},
+                traits={
+                    Button(
+                        icon="cog",
+                        size="icon",
+                        variant="secondary",
+                        tooltip="Create and connect a FileOutputSettings node",
+                        on_click=self._on_configure_output_dir_clicked,
+                    ),
+                    FileSystemPicker(allow_files=False, allow_directories=True, multiple=False),
+                },
+            )
+            output_dir_param.on_incoming_connection_removed.append(self._on_output_dir_connection_removed)
 
-        self.add_parameter(
             ParameterString(
-                name="output_file_prefix",
+                name="file_prefix",
                 default_value=DEFAULT_OUTPUT_PREFIX,
                 tooltip="Filename prefix for each saved frame (e.g. 'frames' → 'frames.0001.png')",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
-        )
-        self.add_parameter(
+
             ParameterString(
-                name="output_frame_padding",
-                default_value=str(DEFAULT_FRAME_PADDING),
-                tooltip="Number of digits used to zero-pad frame numbers in output filenames.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=PADDING_OPTIONS)},
-            )
-        )
-        self.add_parameter(
-            ParameterString(
-                name="output_file_format",
+                name="file_format",
                 default_value=DEFAULT_OUTPUT_FORMAT,
                 tooltip="Image format for extracted frames.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=FORMAT_OPTIONS)},
             )
-        )
+
+        self.add_node_element(output_settings_group)
 
         self.add_parameter(
-            Parameter(
-                name="output_location",
+            ParameterString(
+                name="output_directory",
                 type="str",
                 output_type="str",
                 allowed_modes={ParameterMode.OUTPUT},
                 tooltip="Directory where frames were saved.",
-            )
-        )
-        self.add_parameter(
-            ParameterButton(
-                name="open_output_folder",
-                label="Open Output Folder",
-                variant="secondary",
-                icon="folder-open",
-                on_click=self._on_open_output_folder,
-                ui_options={"disabled": True},
+                placeholder_text="This will be automatically set to the output directory",
             )
         )
         self.add_parameter(
@@ -242,12 +226,12 @@ class ExtractFrames(SuccessFailureNode):
                             logger.warning("%s: could not detect video FPS", self.name, exc_info=True)
                 elif current_base:
                     self.set_parameter_value("input_video", "")
-            case "output_directory":
+            case "directory":
                 if value and not str(value).startswith("{"):
                     result = resolve_to_macro_path(str(value))
                     if not result.is_external and result.resolved_path != str(value):
-                        self.set_parameter_value("output_directory", result.resolved_path)
-                        self.publish_update_to_parameter("output_directory", result.resolved_path)
+                        self.set_parameter_value("directory", result.resolved_path)
+                        self.publish_update_to_parameter("directory", result.resolved_path)
             case "frame_selection_mode":
                 match value:
                     case FrameSelectionMode.LIST:
@@ -295,9 +279,7 @@ class ExtractFrames(SuccessFailureNode):
         if str(file_path).startswith(("http://", "https://", "blob:", "data:")):
             return str(file_path)
         try:
-            result = GriptapeNodes.handle_request(
-                CreateStaticFileDownloadUrlFromPathRequest(file_path=str(file_path))
-            )
+            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=str(file_path)))
             if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
                 return result.url
         except Exception:
@@ -325,8 +307,15 @@ class ExtractFrames(SuccessFailureNode):
         try:
             _, ffprobe_path = run.get_or_fetch_platform_executables_else_raise()
             cmd = [
-                ffprobe_path, "-v", "quiet", "-print_format", "json",
-                "-show_streams", "-select_streams", "v:0", video_url,
+                ffprobe_path,
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
+                "-show_streams",
+                "-select_streams",
+                "v:0",
+                video_url,
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)  # noqa: S603
             streams = json.loads(result.stdout).get("streams", [])
@@ -345,8 +334,15 @@ class ExtractFrames(SuccessFailureNode):
         try:
             _, ffprobe_path = run.get_or_fetch_platform_executables_else_raise()
             cmd = [
-                ffprobe_path, "-v", "quiet", "-print_format", "json",
-                "-show_streams", "-select_streams", "v:0", video_url,
+                ffprobe_path,
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
+                "-show_streams",
+                "-select_streams",
+                "v:0",
+                video_url,
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)  # noqa: S603
             streams = json.loads(result.stdout).get("streams", [])
@@ -389,10 +385,10 @@ class ExtractFrames(SuccessFailureNode):
     ) -> NodeMessageResult:
         conn_result = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=self.name))
         if isinstance(conn_result, ListConnectionsForNodeResultSuccess):
-            if any(c.target_parameter_name == "output_directory" for c in conn_result.incoming_connections):
+            if any(c.target_parameter_name == "directory" for c in conn_result.incoming_connections):
                 return NodeMessageResult(
                     success=False,
-                    details=f"{self.name}: output_directory already has an incoming connection",
+                    details=f"{self.name}: directory already has an incoming connection",
                     response=button_details,
                     altered_workflow_state=False,
                 )
@@ -418,19 +414,19 @@ class ExtractFrames(SuccessFailureNode):
         if configure_node is not None:
             configure_node.set_parameter_value("situation", "save_node_output")
             configure_node.publish_update_to_parameter("situation", "save_node_output")
-            current_dir = self.get_parameter_value("output_directory") or ""
+            current_dir = self.get_parameter_value("directory") or ""
             if current_dir:
                 configure_node.set_parameter_value("filename", current_dir)
                 configure_node.publish_update_to_parameter("filename", current_dir)
 
         connection_result = RetainedMode.connect(
             source=f"{configure_node_name}.file_destination",
-            destination=f"{self.name}.output_directory",
+            destination=f"{self.name}.directory",
         )
         if not connection_result.succeeded():
             return NodeMessageResult(
                 success=False,
-                details=f"{self.name}: Failed to connect {configure_node_name}.file_destination to output_directory",
+                details=f"{self.name}: Failed to connect {configure_node_name}.file_destination to directory",
                 response=button_details,
                 altered_workflow_state=True,
             )
@@ -442,45 +438,58 @@ class ExtractFrames(SuccessFailureNode):
         )
 
     def _on_output_dir_connection_removed(self, *_: object) -> None:
-        self.set_parameter_value("output_directory", "")
-        self.publish_update_to_parameter("output_directory", "")
+        self.set_parameter_value("directory", "")
+        self.publish_update_to_parameter("directory", "")
 
     def _resolve_output_dir(self) -> pathlib.Path:
         conn_result = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=self.name))
         if isinstance(conn_result, ListConnectionsForNodeResultSuccess):
             for conn in conn_result.incoming_connections:
-                if conn.target_parameter_name == "output_directory":
+                if conn.target_parameter_name == "directory":
                     source = GriptapeNodes.ObjectManager().attempt_get_object_by_name(conn.source_node_name)
                     if isinstance(source, FileDestinationProvider):
                         fd = source.file_destination
                         if fd is not None:
                             return pathlib.Path(fd.resolve()).parent
-        value = (self.get_parameter_value("output_directory") or "").strip().rstrip("/")
+        value = (self.get_parameter_value("directory") or DEFAULT_DIRECTORY).strip().rstrip("/")
         if not value:
-            return pathlib.Path(File(f"{{outputs}}/{self.name}").resolve())
+            value = DEFAULT_DIRECTORY
+        if _VERSION_TOKEN_RE.search(value):
+            return self._resolve_versioned_dir(value)
         # Treat bare relative paths (no leading / or macro {) as relative to {outputs}
         if not value.startswith(("/", "{")):
             value = f"{{outputs}}/{value}"
         return pathlib.Path(File(value).resolve())
 
-    def _on_open_output_folder(
-        self, _button: Button, button_details: ButtonDetailsMessagePayload
-    ) -> NodeMessageResult:
-        if not self._last_output_dir or not self._last_output_dir.exists():
-            return NodeMessageResult(
-                success=False,
-                details="No output folder yet — run the node first.",
-                response=button_details,
-                altered_workflow_state=False,
-            )
-        result = GriptapeNodes.handle_request(OpenAssociatedFileRequest(path_to_file=str(self._last_output_dir)))
-        success = isinstance(result, OpenAssociatedFileResultSuccess)
-        return NodeMessageResult(
-            success=success,
-            details=str(self._last_output_dir) if success else f"Could not open folder: {result}",
-            response=button_details,
-            altered_workflow_state=False,
-        )
+    def _resolve_versioned_dir(self, template: str) -> pathlib.Path:
+        m = _VERSION_TOKEN_RE.search(template)
+        if not m:
+            msg = f"No version token in template: {template!r}"
+            raise ValueError(msg)
+        num_digits = len(m.group(1))
+        prefix_template = template[: m.start()].rstrip("/")
+
+        # Resolve any macros in the prefix by substituting zeros as a stand-in
+        test_value = prefix_template + "0" * num_digits
+        if not test_value.startswith(("/", "{")):
+            test_value = f"{{outputs}}/{test_value}"
+        resolved_test = pathlib.Path(File(test_value).resolve())
+
+        parent = resolved_test.parent
+        name_prefix = resolved_test.name[:-num_digits]  # e.g. "frames_v"
+
+        next_version = 1
+        if parent.exists():
+            for entry in parent.iterdir():
+                if not entry.is_dir() or not entry.name.startswith(name_prefix):
+                    continue
+                version_str = entry.name[len(name_prefix) :]
+                try:
+                    next_version = max(next_version, int(version_str) + 1)
+                except ValueError:
+                    pass
+
+        return parent / f"{name_prefix}{next_version:0{num_digits}d}"
 
     # ── Extraction ──────────────────────────────────────────────────────────────
 
@@ -507,10 +516,14 @@ class ExtractFrames(SuccessFailureNode):
             # select filter uses 0-based index; user-facing frame numbers are 1-based
             cmd = [
                 ffmpeg_path,
-                "-i", video_url,
-                "-vf", f"select='eq(n\\,{frame_num - 1})'",
-                "-vsync", "0",
-                "-frames:v", "1",
+                "-i",
+                video_url,
+                "-vf",
+                f"select='eq(n\\,{frame_num - 1})'",
+                "-vsync",
+                "0",
+                "-frames:v",
+                "1",
                 "-y",
                 str(output_path),
             ]
@@ -569,9 +582,9 @@ class ExtractFrames(SuccessFailureNode):
         output_dir = self._resolve_output_dir()
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        prefix = self.get_parameter_value("output_file_prefix") or DEFAULT_OUTPUT_PREFIX
-        padding = int(self.get_parameter_value("output_frame_padding") or str(DEFAULT_FRAME_PADDING))
-        fmt = self.get_parameter_value("output_file_format") or DEFAULT_OUTPUT_FORMAT
+        prefix = self.get_parameter_value("file_prefix") or DEFAULT_OUTPUT_PREFIX
+        padding = DEFAULT_FRAME_PADDING
+        fmt = self.get_parameter_value("file_format") or DEFAULT_OUTPUT_FORMAT
 
         saved_paths = self._extract_frames(
             video_url=video_url,
@@ -585,21 +598,20 @@ class ExtractFrames(SuccessFailureNode):
         self._last_output_dir = output_dir
         out_dir_str = str(output_dir)
 
-        self.parameter_output_values["output_location"] = out_dir_str
+        self.parameter_output_values["output_directory"] = out_dir_str
         self.parameter_output_values["output_paths"] = [str(p.resolve()) for p in saved_paths]
-        self.set_parameter_value("open_output_folder", {"disabled": False})
-        self.publish_update_to_parameter("open_output_folder", {"disabled": False})
         self._set_status_results(
             was_successful=True,
             result_details=f"Extracted {len(saved_paths)} frame(s) to {out_dir_str}",
         )
 
     def _set_safe_defaults(self) -> None:
-        self.parameter_output_values["output_location"] = ""
+        self.parameter_output_values["output_directory"] = ""
         self.parameter_output_values["output_paths"] = []
 
 
 # ── Module-level frame string parser ───────────────────────────────────────────
+
 
 def _parse_frame_string(frame_str: str) -> list[int]:
     """Parse comma-separated frame spec into a sorted deduplicated list (1-based).
