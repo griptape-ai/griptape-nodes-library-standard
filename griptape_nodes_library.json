@@ -1285,11 +1285,6 @@
   },
   "widgets": [
     {
-      "name": "VideoPlayerFrameSelector",
-      "path": "griptape_nodes_library/video/widgets/VideoPlayerFrameSelector.js",
-      "description": "Video player with frame selection capabilities for precise frame extraction."
-    },
-    {
       "name": "KlingMultiShotEditor",
       "path": "griptape_nodes_library/video/widgets/KlingMultiShotEditor.js",
       "description": "Multi-shot editor for Kling v3 customize mode."

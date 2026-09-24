@@ -65,8 +65,6 @@ class ExtractFrames(SuccessFailureNode):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._last_output_dir: pathlib.Path | None = None
-
         self.add_parameter(
             ParameterVideo(
                 name="input_video",
@@ -316,34 +314,12 @@ class ExtractFrames(SuccessFailureNode):
 
     # ── FFprobe helpers ─────────────────────────────────────────────────────────
 
-    def _get_video_fps(self, video_url: str) -> float | None:
-        try:
-            _, ffprobe_path = run.get_or_fetch_platform_executables_else_raise()
-            cmd = [
-                ffprobe_path,
-                "-v",
-                "quiet",
-                "-print_format",
-                "json",
-                "-show_streams",
-                "-select_streams",
-                "v:0",
-                video_url,
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)  # noqa: S603
-            streams = json.loads(result.stdout).get("streams", [])
-            if not streams:
-                return None
-            r_frame_rate = streams[0].get("r_frame_rate", "30/1")
-            if "/" in r_frame_rate:
-                num, den = map(int, r_frame_rate.split("/"))
-                return num / den if den != 0 else None
-            return float(r_frame_rate)
-        except Exception:
-            return None
+    def _probe_video(self, video_url: str) -> tuple[float, float]:
+        """Return (fps, duration_seconds) for the first video stream.
 
-    def _get_video_fps_and_duration(self, video_url: str) -> tuple[float, float]:
-        """Return (fps, duration_seconds). Used for every_Nth frame calculation."""
+        Falls back to format-level duration when the stream doesn't have one
+        (common in Matroska/WebM containers). Returns (30.0, 0.0) on failure.
+        """
         try:
             _, ffprobe_path = run.get_or_fetch_platform_executables_else_raise()
             cmd = [
@@ -353,26 +329,37 @@ class ExtractFrames(SuccessFailureNode):
                 "-print_format",
                 "json",
                 "-show_streams",
+                "-show_format",
                 "-select_streams",
                 "v:0",
                 video_url,
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)  # noqa: S603
-            streams = json.loads(result.stdout).get("streams", [])
+            data = json.loads(result.stdout)
+            streams = data.get("streams", [])
             if not streams:
                 return 30.0, 0.0
             stream = streams[0]
+
             r_frame_rate = stream.get("r_frame_rate", "30/1")
             if "/" in r_frame_rate:
                 num, den = map(int, r_frame_rate.split("/"))
                 fps = num / den if den != 0 else 30.0
             else:
                 fps = float(r_frame_rate)
-            duration_str = stream.get("duration", "0")
-            duration = float(duration_str) if duration_str not in ("N/A", "", None) else 0.0
-            return fps, duration
+
+            # stream.duration is absent or "N/A" for Matroska and some other containers
+            for duration_str in (stream.get("duration"), data.get("format", {}).get("duration")):
+                if duration_str and duration_str not in ("N/A", ""):
+                    return fps, float(duration_str)
+
+            return fps, 0.0
         except Exception:
             return 30.0, 0.0
+
+    def _get_video_fps(self, video_url: str) -> float | None:
+        fps, _ = self._probe_video(video_url)
+        return fps if fps else None
 
     # ── Frame list building ─────────────────────────────────────────────────────
 
@@ -384,7 +371,7 @@ class ExtractFrames(SuccessFailureNode):
                 return _parse_frame_string(self.get_parameter_value("input_frame_numbers") or "")
             case FrameSelectionMode.EVERY_NTH:
                 every_n = max(1, self.get_parameter_value("every_n") or DEFAULT_EVERY_N)
-                fps, duration = self._get_video_fps_and_duration(video_url)
+                fps, duration = self._probe_video(video_url)
                 total_frames = max(1, round(duration * fps))
                 return list(range(1, total_frames + 1, every_n))
             case _:
@@ -521,39 +508,53 @@ class ExtractFrames(SuccessFailureNode):
             msg = f"FFmpeg is not available: {e}"
             raise ValueError(msg) from e
 
-        saved_paths: list[pathlib.Path] = []
+        # One ffmpeg call selects all requested frames (0-based indices).
+        # Outputs are sequentially numbered (__ext_tmp1.png, __ext_tmp2.png, …);
+        # we rename them to final names afterward and check each was written.
+        select_expr = "+".join(f"eq(n\\,{fn - 1})" for fn in frame_numbers)
+        tmp_stem = "__ext_tmp"
+        tmp_pattern = output_dir / f"{tmp_stem}%d.{fmt}"
+        timeout = max(120, 30 + 2 * len(frame_numbers))
+
+        cmd = [
+            ffmpeg_path,
+            "-i",
+            video_url,
+            "-vf",
+            f"select='{select_expr}'",
+            "-vsync",
+            "0",
+            "-y",
+            str(tmp_pattern),
+        ]
+
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=timeout)  # noqa: S603
+        except subprocess.TimeoutExpired as e:
+            msg = "Timed out extracting frames. Try fewer frames or a shorter clip."
+            raise RuntimeError(msg) from e
+        except subprocess.CalledProcessError as e:
+            detail = (e.stderr or str(e)).strip()[:400]
+            msg = f"Could not extract frames. {detail}"
+            raise RuntimeError(msg) from e
+
         self.progress_component.initialize(len(frame_numbers))
-        for frame_num in frame_numbers:
-            filename = f"{prefix}.{str(frame_num).zfill(padding)}.{fmt}"
-            output_path = output_dir / filename
-
-            # select filter uses 0-based index; user-facing frame numbers are 1-based
-            cmd = [
-                ffmpeg_path,
-                "-i",
-                video_url,
-                "-vf",
-                f"select='eq(n\\,{frame_num - 1})'",
-                "-vsync",
-                "0",
-                "-frames:v",
-                "1",
-                "-y",
-                str(output_path),
-            ]
-
-            try:
-                subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)  # noqa: S603
-            except subprocess.TimeoutExpired as e:
-                msg = f"Timed out extracting frame {frame_num}. Try fewer frames or a shorter clip."
-                raise RuntimeError(msg) from e
-            except subprocess.CalledProcessError as e:
-                detail = (e.stderr or str(e)).strip()[:400]
-                msg = f"Could not extract frame {frame_num}. {detail}"
-                raise RuntimeError(msg) from e
-
-            saved_paths.append(output_path)
+        saved_paths: list[pathlib.Path] = []
+        missing: list[int] = []
+        for i, frame_num in enumerate(frame_numbers, start=1):
+            tmp_path = output_dir / f"{tmp_stem}{i}.{fmt}"
+            final_path = output_dir / f"{prefix}.{str(frame_num).zfill(padding)}.{fmt}"
+            if tmp_path.exists():
+                tmp_path.rename(final_path)
+                saved_paths.append(final_path)
+            else:
+                missing.append(frame_num)
             self.progress_component.increment()
+
+        if missing:
+            skipped = ", ".join(str(n) for n in missing[:10])
+            suffix = f" … ({len(missing)} total)" if len(missing) > 10 else ""
+            logger.warning("%s: frame(s) past end of clip, skipped: %s%s", self.name, skipped, suffix)
 
         return saved_paths
 
@@ -611,7 +612,6 @@ class ExtractFrames(SuccessFailureNode):
             fmt=fmt,
         )
 
-        self._last_output_dir = output_dir
         out_dir_str = str(output_dir)
 
         self.parameter_output_values["output_directory"] = out_dir_str
