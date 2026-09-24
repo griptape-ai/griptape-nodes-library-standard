@@ -10,7 +10,6 @@ import subprocess
 from enum import StrEnum
 from typing import Any
 
-import griptape_nodes.traits.widget as widget_trait
 from griptape_nodes.exe_types.core_types import (
     NodeMessageResult,
     Parameter,
@@ -21,6 +20,7 @@ from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.progress_bar_component import ProgressBarComponent
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileDestinationProvider
 from griptape_nodes.retained_mode.events.connection_events import (
     ListConnectionsForNodeRequest,
@@ -49,7 +49,7 @@ PADDING_OPTIONS = ["1", "2", "3", "4", "5", "6", "7", "8"]
 DEFAULT_OUTPUT_PREFIX = "frames"
 DEFAULT_FRAME_PADDING = 4
 DEFAULT_OUTPUT_FORMAT = "png"
-DEFAULT_EVERY_N = 1
+DEFAULT_EVERY_N = 2
 DEFAULT_DIRECTORY = "{outputs}/frames_v{###}"
 
 _VERSION_TOKEN_RE = re.compile(r"\{(#+)\}")
@@ -68,21 +68,13 @@ class ExtractFrames(SuccessFailureNode):
         self._last_output_dir: pathlib.Path | None = None
 
         self.add_parameter(
-            Parameter(
+            ParameterVideo(
                 name="input_video",
-                type="str",
-                output_type="str",
-                input_types=["VideoUrlArtifact", "VideoArtifact", "str"],
                 default_value="",
+                edit_video=True,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 tooltip="Video player for precise frame selection. Connect a video source here.",
                 ui_options={"display_name": "Video Input"},
-                traits={
-                    widget_trait.Widget(
-                        name="VideoPlayerFrameSelector",
-                        library="Griptape Nodes Library",
-                    )
-                },
             )
         )
 
@@ -105,10 +97,17 @@ class ExtractFrames(SuccessFailureNode):
                 default_value=FrameSelectionMode.LIST,
                 tooltip=(
                     "How frames are selected. "
-                    "'list' uses markers placed in the video player above. "
-                    "'every_Nth' extracts one frame every N frames across the whole clip."
+                    "'Specific Frames' uses markers placed in the video player above. "
+                    "'Every N Frames' extracts one frame every N frames across the whole clip."
                 ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={
+                    "display_name": "Selection",
+                    "data": [
+                        {"name": "list", "label": "Specific Frames"},
+                        {"name": "every_Nth", "label": "Every N Frames"},
+                    ],
+                },
                 traits={Options(choices=list(FrameSelectionMode))},
             )
 
@@ -116,6 +115,7 @@ class ExtractFrames(SuccessFailureNode):
                 name="input_frame_numbers",
                 default_value="",
                 placeholder_text="e.g. 1,4,5-9,11",
+                ui_options={"display_name": "Specific Frames", "frame_selector": True},
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 tooltip=(
                     "Frames to extract as a comma-separated list of numbers or ranges (e.g. 1,4,5-9,11).\n\n"
@@ -132,6 +132,7 @@ class ExtractFrames(SuccessFailureNode):
                 default_value=DEFAULT_EVERY_N,
                 tooltip="Extract one frame every N frames across the full clip.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={"display_name": "Every N Frames"},
                 hide=True,
             )
 
