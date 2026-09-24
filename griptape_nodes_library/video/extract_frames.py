@@ -191,16 +191,6 @@ class ExtractFrames(SuccessFailureNode):
         self.add_node_element(output_settings_group)
 
         self.add_parameter(
-            ParameterString(
-                name="output_directory",
-                type="str",
-                output_type="str",
-                allowed_modes={ParameterMode.OUTPUT},
-                tooltip="Directory where frames were saved.",
-                placeholder_text="This will be automatically set to the output directory",
-            )
-        )
-        self.add_parameter(
             Parameter(
                 name="output_frames",
                 type="list[str]",
@@ -210,9 +200,18 @@ class ExtractFrames(SuccessFailureNode):
                 ui_options={"pulse_on_run": True},
             )
         )
+        self.add_parameter(
+            ParameterString(
+                name="output_directory",
+                type="str",
+                output_type="str",
+                allowed_modes={ParameterMode.OUTPUT},
+                tooltip="Directory where frames were saved.",
+                placeholder_text="This will be automatically set to the output directory",
+            )
+        )
         self.progress_component = ProgressBarComponent(self)
         self.progress_component.add_property_parameters()
-
         self._create_status_parameters(
             result_details_tooltip="Details about the frame extraction result or any errors",
             result_details_placeholder="Extraction status will appear here.",
