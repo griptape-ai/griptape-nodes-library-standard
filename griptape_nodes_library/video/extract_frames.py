@@ -192,7 +192,7 @@ class ExtractFrames(SuccessFailureNode):
         )
         self.add_parameter(
             Parameter(
-                name="output_paths",
+                name="output_frames",
                 type="list[str]",
                 output_type="list[str]",
                 allowed_modes={ParameterMode.OUTPUT},
@@ -599,7 +599,7 @@ class ExtractFrames(SuccessFailureNode):
         out_dir_str = str(output_dir)
 
         self.parameter_output_values["output_directory"] = out_dir_str
-        self.parameter_output_values["output_paths"] = [str(p.resolve()) for p in saved_paths]
+        self.parameter_output_values["output_frames"] = [str(p.resolve()) for p in saved_paths]
         self._set_status_results(
             was_successful=True,
             result_details=f"Extracted {len(saved_paths)} frame(s) to {out_dir_str}",
@@ -607,7 +607,7 @@ class ExtractFrames(SuccessFailureNode):
 
     def _set_safe_defaults(self) -> None:
         self.parameter_output_values["output_directory"] = ""
-        self.parameter_output_values["output_paths"] = []
+        self.parameter_output_values["output_frames"] = []
 
 
 # ── Module-level frame string parser ───────────────────────────────────────────
