@@ -51,7 +51,7 @@ top_level_unique_values_dict = {
         b"\x80\x04\x95\xf8\x00\x00\x00\x00\x00\x00\x00\x8c\xf4If you're following along with our Getting Started tutorials, check out the next workflow: Coordinating Agents.\n\nLoad the next tutorial page here:\nhttps://docs.griptapenodes.com/en/stable/ftue/02_coordinating_agents/FTUE_02_coordinating_agents/\x94."
     ),
     "35b654a4-afe9-4084-b1a5-437522aed294": pickle.loads(
-        b"\x80\x04\x95\x0f\x00\x00\x00\x00\x00\x00\x00\x8c\x0bgpt-image-1\x94."
+        b"\x80\x04\x95\x18\x00\x00\x00\x00\x00\x00\x00\x8c\x14gtc_gpt_image_1_mini\x94."
     ),
     "f46443d1-82b3-4c12-abc8-07b4801133d3": pickle.loads(
         b"\x80\x04\x95#\x00\x00\x00\x00\x00\x00\x00\x8c\x1fA potato making an oil painting\x94."

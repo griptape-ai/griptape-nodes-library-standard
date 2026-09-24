@@ -97,7 +97,7 @@ top_level_unique_values_dict = {
         b"\x80\x04\x95'\x00\x00\x00\x00\x00\x00\x00\x8c#Run the workflow to view the result\x94."
     ),
     "f9c3c5ae-89a5-4df2-a8f5-eb580b3f97b5": pickle.loads(
-        b"\x80\x04\x95\x15\x00\x00\x00\x00\x00\x00\x00\x8c\x11nano-banana-3-pro\x94."
+        b"\x80\x04\x95\x1a\x00\x00\x00\x00\x00\x00\x00\x8c\x16gtc_gemini_3_pro_image\x94."
     ),
     "5be1faa9-b4be-4358-b89e-3279c864305b": pickle.loads(
         b"\x80\x04\x95\xc5\x00\x00\x00\x00\x00\x00\x00\x8c\xc13d high resolution render of this character in a T-pose. vintage textures, detailed clothing. Light background, soft shadows. Maintain the vintage color, texture, and lighting of the character.\x94."

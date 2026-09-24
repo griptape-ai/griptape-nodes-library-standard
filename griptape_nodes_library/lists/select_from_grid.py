@@ -3,7 +3,7 @@ import pathlib
 from typing import Any
 
 from griptape.artifacts import AudioArtifact, ImageArtifact, ImageUrlArtifact
-from griptape_nodes.common.macro_parser import ParsedMacro
+from griptape_nodes.common.macro_parser import MacroSyntaxError, ParsedMacro
 from griptape_nodes.exe_types.core_types import (
     Parameter,
     ParameterMode,
@@ -379,14 +379,33 @@ class SelectFromGrid(ControlNode):
         """Ask the engine to generate (or load cached) preview for any artifact type, return a browser URL."""
         if not path or path.startswith(("http://", "https://")):
             return ""
+        # Preview metadata records the request's macro template as its source path, so
+        # hand the engine the original macro form when there is one. Resolving first
+        # would bake this machine's absolute path into the project's preview sidecar,
+        # making it non-portable. The engine resolves the macro itself.
+        macro_path = None
         try:
-            resolved = File(path).resolve()
-        except Exception:
-            resolved = path
+            parsed = ParsedMacro(path)
+        except MacroSyntaxError:
+            parsed = None
+        if parsed is not None and parsed.get_variables():
+            macro_path = MacroPath(parsed, {})
+        if macro_path is None:
+            try:
+                resolved = File(path).resolve()
+            except Exception:
+                resolved = path
+            try:
+                macro_path = MacroPath(ParsedMacro(resolved), {})
+            except MacroSyntaxError:
+                # A legal filename can carry an unbalanced brace ("photo{1.png"),
+                # which fails macro parsing before AND after resolution. No
+                # preview then; the caller falls back to a direct file URL.
+                return ""
         try:
             result = await GriptapeNodes.ahandle_request(
                 GetPreviewForArtifactRequest(
-                    macro_path=MacroPath(ParsedMacro(resolved), {}),
+                    macro_path=macro_path,
                     artifact_provider_name=provider,
                 )
             )

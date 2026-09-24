@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.RELEASE_PAT }}
+          token: ${{ github.token }}
 
       - name: Configure Git
         run: |
@@ -33,9 +33,11 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
 
+      # CI on the bot PR starts in an approval-required state; a reviewer must
+      # click "Approve workflows to run" before check (3.12) reports.
       - name: Open pull request
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           if [ "$(gh pr list --base main --head '${{ steps.bump.outputs.branch }}' --json number --jq length)" = "0" ]; then
             gh pr create --base main --head "${{ steps.bump.outputs.branch }}" \
@@ -46,5 +48,5 @@ jobs:
       - name: Enable auto-merge
         continue-on-error: true
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: gh pr merge --auto --squash "${{ steps.bump.outputs.branch }}"

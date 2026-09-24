@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import asyncio
-import base64
 import logging
+from contextlib import suppress
 from enum import StrEnum
 from typing import Any
 
@@ -17,7 +16,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -294,44 +293,25 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
             "generation_config": {"video_config": {"task": task.value}},
         }
 
-    def _extract_video_from_steps(self, result_json: dict[str, Any]) -> dict[str, Any] | None:
-        """Return the first video content item from the interactions `steps` array."""
-        for step in result_json.get("steps", []) or []:
-            if not isinstance(step, dict):
-                continue
-            for item in step.get("content", []) or []:
-                if isinstance(item, dict) and item.get("type") == "video":
-                    return item
-        return None
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        await self._save_generated_media(
+            generation_id,
+            "video_url",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+        )
 
-    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
-        video_item = self._extract_video_from_steps(result_json)
-        if not video_item:
-            logger.warning("%s: No video in result", self.name)
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details="Generation completed but no video was received",
-            )
-            return
-
-        base64_data = video_item.get("data")
-        if not base64_data:
-            logger.warning("%s: Video content missing base64 data", self.name)
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details="Generation completed but the video contained no data",
-            )
-            return
-
-        video_bytes = await asyncio.to_thread(base64.b64decode, base64_data)
-        dest = self._output_file.build_file()
-        saved = await dest.awrite_bytes(video_bytes)
-        logger.info("%s: Saved video as %s (%s bytes)", self.name, saved.name, len(video_bytes))
-
-        self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-        self._set_status_results(was_successful=True, result_details="Generated 1 video successfully")
+        # Gemini reports one video per generation step, and this node exposes a single
+        # video_url, so a multi-step generation would be billed for videos nothing can
+        # read. Say so rather than dropping them in silence.
+        with suppress(Exception):
+            hosted = [a for a in await self._hosted_artifacts(generation_id) if a.kind == ArtifactKind.VIDEO]
+            if len(hosted) > 1:
+                logger.warning(
+                    "%s: the generation hosts %d videos but this node surfaces one; the rest are unread",
+                    self.name,
+                    len(hosted),
+                )
 
     def _set_safe_defaults(self) -> None:
         """Set safe default values for all outputs on error."""

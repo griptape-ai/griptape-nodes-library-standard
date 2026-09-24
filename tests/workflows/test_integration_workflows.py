@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,12 @@ def get_integration_workflows() -> list[tuple[str, dict]]:
 
 @pytest.mark.parametrize("workflow_path,flow_input", get_integration_workflows())
 @pytest.mark.asyncio
-async def test_workflow_runs(workflow_path: str, flow_input: dict, workflow_executor: LocalWorkflowExecutor) -> None:
+async def test_workflow_runs(
+    workflow_path: str,
+    flow_input: dict,
+    workflow_executor: LocalWorkflowExecutor,
+    isolated_workflow_path: Callable[[str | Path], Path],
+) -> None:
     """Test that each integration workflow runs without errors."""
-    await workflow_executor.arun(workflow_name="main", flow_input=flow_input, workflow_path=workflow_path)
+    workflow_copy = isolated_workflow_path(workflow_path)
+    await workflow_executor.arun(workflow_name="main", flow_input=flow_input, workflow_path=str(workflow_copy))

@@ -5,17 +5,25 @@ wire and rebuilt fresh at the point of use.  Every node that produces or
 consumes an Agent value imports from here so the logic lives in one place.
 """
 
+import copy
 import logging
-from typing import cast
+from typing import Any, cast
 
+import attrs
+from griptape.drivers.image_generation.griptape_cloud import GriptapeCloudImageGenerationDriver
+from griptape.drivers.memory.conversation.griptape_cloud import GriptapeCloudConversationMemoryDriver
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
+from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.drivers.prompt.ollama import OllamaPromptDriver
 from griptape.drivers.prompt.openai import OpenAiChatPromptDriver
+from griptape.drivers.ruleset.griptape_cloud import GriptapeCloudRulesetDriver
+from griptape.drivers.vector.griptape_cloud import GriptapeCloudVectorStoreDriver
 from griptape.rules import Rule, Ruleset
 from griptape.tasks import PromptTask
 from griptape_nodes.drivers.cloud_models import ProviderID
 
-from griptape_nodes_library.utils.cloud_credential_utils import resolve_cloud_api_key
+from griptape_nodes_library.utils.cloud_credential_utils import missing_credential_message, resolve_cloud_api_key
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 
 # ---------------------------------------------------------------------------
@@ -57,18 +65,133 @@ logger = logging.getLogger("griptape_nodes")
 # ---------------------------------------------------------------------------
 
 
-def unwrap_agent(value: dict) -> tuple[dict, list, list]:
+GRIPTAPE_CLOUD_DRIVER_PREFIX = "GriptapeCloud"
+"""``type`` tag prefix griptape writes for its Griptape Cloud drivers in ``to_dict()``.
+
+Matched as a prefix rather than against ``GriptapeCloudPromptDriver`` alone: every
+``GriptapeCloud*`` driver declares ``api_key`` the same unserializable way, so any that reaches
+the wire fails identically on rebuild. Only the prompt driver is serializable today, but which
+of the family griptape serializes is upstream's call.
+"""
+
+
+_HEADER_SETTABLE_CLOUD_DRIVER_TAGS: frozenset[str] = frozenset(
+    driver.__name__
+    for driver in (
+        GriptapeCloudConversationMemoryDriver,
+        GriptapeCloudImageGenerationDriver,
+        GriptapeCloudPromptDriver,
+        GriptapeCloudRulesetDriver,
+        GriptapeCloudVectorStoreDriver,
+    )
+    if attrs.fields_dict(driver)["headers"].init
+)
+"""``type`` tags whose driver accepts a ``headers`` kwarg, and so can be handed attribution.
+
+Derived from the installed ``griptape`` because the drivers disagree: the conversation-memory
+and ruleset drivers declare ``headers`` as ``init=False`` where the prompt and image drivers
+make it ``kw_only=True``. Passing the kwarg to one of the former raises ``TypeError`` out of
+``from_dict()`` -- a crash where there was working code.
+
+Neither is reachable through ``Agent.to_dict()`` today, so the exclusion costs nothing yet;
+deriving the set means an upstream fix starts attributing them with no change here.
+"""
+
+
+def _restored_cloud_credentials(agent_core_dict: dict, *, require_credential: bool) -> dict:
+    """Return the agent dict with a fresh ``api_key`` and attribution headers on every Cloud driver.
+
+    ``to_dict()`` drops both fields and ``from_dict()`` refills them from the attrs defaults
+    -- a bare ``os.environ["GT_CLOUD_API_KEY"]`` read that never consults the License, and a
+    header carrying no attribution. Injecting both *before* ``from_dict()`` means attrs never
+    evaluates those defaults. Attribution is the half with no server-side backstop: Cloud emits
+    a metric for a malformed header and nothing at all for a missing one. ``headers`` goes only
+    to the driver types that accept the kwarg -- see :data:`_HEADER_SETTABLE_CLOUD_DRIVER_TAGS`.
+
+    Never mutates ``agent_core_dict``: a saved workflow pickles the upstream node's parameter
+    value verbatim, so repairing in place would persist a License JWT to disk. Returns a copy
+    when a Cloud driver was found, ``agent_core_dict`` itself otherwise.
+
+    Args:
+        agent_core_dict: Serialized agent, as produced by ``Agent.to_dict()``.
+        require_credential: Raise when a Cloud driver is present and no credential
+            resolves, instead of injecting ``""``. True for callers that go on to send
+            a request, so the missing credential is reported here rather than as a bare
+            401 from Cloud -- see :func:`unwrap_agent`.
+
+    Raises:
+        KeyError: ``require_credential`` and no License or API key is set.
+    """
+    if not _iter_cloud_driver_dicts(agent_core_dict):
+        return agent_core_dict
+    api_key = resolve_cloud_api_key()
+    if not api_key and require_credential:
+        msg = missing_credential_message("use the incoming agent's Griptape Cloud driver")
+        raise KeyError(msg)
+    result = copy.deepcopy(agent_core_dict)
+    for driver_dict in _iter_cloud_driver_dicts(result):
+        driver_dict["api_key"] = api_key
+        if driver_dict.get("type") in _HEADER_SETTABLE_CLOUD_DRIVER_TAGS:
+            driver_dict["headers"] = build_griptape_cloud_headers(api_key, attribution=True)
+    return result
+
+
+def _iter_cloud_driver_dicts(node: Any) -> list[dict]:
+    """Collect every serialized ``GriptapeCloud*`` driver dict nested under ``node``.
+
+    Walks the structure instead of reaching for ``tasks[].prompt_driver`` so a Cloud
+    driver in any position is repaired -- a conversation-memory driver hits the same
+    stripped-``api_key`` problem. Non-GTC drivers are left alone: they are rebuilt from
+    the wrapper's ``provider`` blob by :func:`restore_provider_driver`, and
+    ``from_dict()`` rejects an ``api_key`` kwarg on a driver without one.
+    """
+    found: list[dict] = []
+    if isinstance(node, dict):
+        type_tag = node.get("type")
+        if isinstance(type_tag, str) and type_tag.startswith(GRIPTAPE_CLOUD_DRIVER_PREFIX):
+            found.append(node)
+        for value in node.values():
+            found.extend(_iter_cloud_driver_dicts(value))
+    elif isinstance(node, list):
+        for item in node:
+            found.extend(_iter_cloud_driver_dicts(item))
+    return found
+
+
+def unwrap_agent(value: dict, *, require_credential: bool = True) -> tuple[dict, list, list]:
     """Return (agent_core_dict, tool_configs, ruleset_configs).
 
     Handles both the new wrapper format {"agent": {...}, "tools": [...], "rulesets": [...]}
     and the old raw griptape dict (backward compatibility — returns empty lists).
     Returns ({}, [], []) for non-dict input.
+
+    Griptape Cloud drivers in the returned dict carry a freshly resolved ``api_key`` and
+    attribution headers (see :func:`_restored_cloud_credentials`), so a caller
+    deserializing with ``from_dict()`` gets the License-first credential rather than a raw
+    environment read, and its spend is attributed rather than pooled into
+    ``<system-defaults>``. ``value`` is never modified.
+
+    Args:
+        value: The upstream node's ``agent`` parameter value.
+        require_credential: Raise a user-facing ``KeyError`` when the agent carries a
+            Griptape Cloud driver and no credential resolves. The default suits any
+            caller that goes on to send a request: a connected agent bypasses the
+            node's own ``validate_before_workflow_run`` credential check
+            (``ProviderSelectionComponent.uses_griptape_cloud_driver`` returns ``False``
+            once ``agent`` is connected), and several consumers define no such check at
+            all, so the unwrap is where a missing credential is known and can still be
+            named. Pass ``False`` from paths that only read or rewrite the wire dict --
+            they should not fail for want of a credential they never use.
+
+    Raises:
+        KeyError: ``require_credential`` and no License or API key is set.
     """
     if not isinstance(value, dict):
         return {}, [], []
     if "agent" in value and "tools" in value:
-        return value["agent"], value.get("tools", []), value.get("rulesets", [])
-    return value, [], []
+        agent_core_dict = _restored_cloud_credentials(value["agent"], require_credential=require_credential)
+        return agent_core_dict, value.get("tools", []), value.get("rulesets", [])
+    return _restored_cloud_credentials(value, require_credential=require_credential), [], []
 
 
 def _ollama_host_from_base_url(base_url: str) -> str | None:
@@ -276,6 +399,14 @@ def build_tool_from_config(config: dict) -> object:
             api_key = resolve_cloud_api_key()
             bucket_id = config.get("bucket_id", "")
             driver = GriptapeCloudFileManagerDriver(api_key=api_key, bucket_id=bucket_id)
+            # This driver declares `headers` as `init=False`, so unlike every other Cloud
+            # driver it cannot take the kwarg -- assign after construction. The bucket GET in
+            # its `__attrs_post_init__` has already gone out by then; it consumes no credits.
+            #
+            # The one dict also serves the free asset listing and the metered create/upload. A
+            # single flag cannot answer both, so it answers the expensive one: over-reporting is
+            # recoverable, under-reporting is invisible on both ends.
+            driver.headers = build_griptape_cloud_headers(api_key, attribution=True)
         else:
             workdir = GriptapeNodes.ConfigManager().get_config_value("workspace_directory")
             driver = LocalFileManagerDriver(workdir=workdir)

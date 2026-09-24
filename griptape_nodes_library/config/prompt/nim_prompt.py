@@ -37,6 +37,40 @@ MODEL_CHOICES = [
 ]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES = {
+    "DeepSeek V3.1": "deepseek-ai/deepseek-v3.1",
+    "GPT-OSS 120B": "openai/gpt-oss-120b",
+    "GPT-OSS 20B": "openai/gpt-oss-20b",
+    "Gemma 3 1B IT": "google/gemma-3-1b-it",
+    "Kimi K2 Instruct": "moonshotai/kimi-k2-instruct",
+    "Llama 3 8B Instruct": "meta/llama3-8b-instruct",
+    "Llama 3.1 Nemotron Nano VL 8B v1": "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+    "Llama 3.2 11B Vision Instruct": "meta/llama-3.2-11b-vision-instruct",
+    "Llama 3.2 90B Vision Instruct": "meta/llama-3.2-90b-vision-instruct",
+    "Llama 3.3 Nemotron Super 49B v1.5": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+    "Llama 4 Maverick 17B 128E Instruct": "meta/llama-4-maverick-17b-128e-instruct",
+    "Llama 4 Scout 17B 16E Instruct": "meta/llama-4-scout-17b-16e-instruct",
+    "Magistral Small 2506": "mistralai/magistral-small-2506",
+    "Nemotron Nano 9B v2": "nvidia/nvidia-nemotron-nano-9b-v2",
+    "Teuken 7B Instruct Commercial v0.4": "opengpt-x/teuken-7b-instruct-commercial-v0.4",
+    "nim_deepseek_v3_1": "deepseek-ai/deepseek-v3.1",
+    "nim_gemma_3_1b_it": "google/gemma-3-1b-it",
+    "nim_gpt_oss_120b": "openai/gpt-oss-120b",
+    "nim_gpt_oss_20b": "openai/gpt-oss-20b",
+    "nim_kimi_k2_instruct": "moonshotai/kimi-k2-instruct",
+    "nim_llama3_8b_instruct": "meta/llama3-8b-instruct",
+    "nim_llama_3_1_nemotron_nano_vl_8b_v1": "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+    "nim_llama_3_2_11b_vision_instruct": "meta/llama-3.2-11b-vision-instruct",
+    "nim_llama_3_2_90b_vision_instruct": "meta/llama-3.2-90b-vision-instruct",
+    "nim_llama_3_3_nemotron_super_49b_v1_5": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+    "nim_llama_4_maverick_17b_128e_instruct": "meta/llama-4-maverick-17b-128e-instruct",
+    "nim_llama_4_scout_17b_16e_instruct": "meta/llama-4-scout-17b-16e-instruct",
+    "nim_magistral_small_2506": "mistralai/magistral-small-2506",
+    "nim_nemotron_nano_9b_v2": "nvidia/nvidia-nemotron-nano-9b-v2",
+    "nim_teuken_7b_instruct_commercial_v0_4": "opengpt-x/teuken-7b-instruct-commercial-v0.4",
+}
+
 
 class NimPrompt(BasePrompt):
     """Node for configuring and providing a NVIDIA Chat Prompt Driver.
@@ -66,8 +100,10 @@ class NimPrompt(BasePrompt):
 
         # --- Customize Inherited Parameters ---
 
-        # Update the 'model' parameter for NVIDIA specifics.
-        self._update_option_choices(param="model", choices=MODEL_CHOICES, default=DEFAULT_MODEL)
+        # Offer NVIDIA's models as a license-filtered dropdown.
+        self._install_model_access(
+            model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=LEGACY_MODEL_VALUES
+        )
 
         # Remove the 'seed' parameter
         self.remove_parameter_element_by_name("seed")
@@ -94,6 +130,9 @@ class NimPrompt(BasePrompt):
         # Retrieve all parameter values set on the node UI or via input connections.
         params = self.parameter_values
 
+        # A model the license denies must not reach a downstream node as a driver.
+        self._raise_if_model_denied()
+
         # --- Get Common Driver Arguments ---
         # Use the helper method from BasePrompt to get args like temperature, stream, max_attempts, etc.
         common_args = self._get_common_driver_args(params)
@@ -107,8 +146,8 @@ class NimPrompt(BasePrompt):
         # Set the base URL for the NVIDIA API.
         specific_args["base_url"] = BASE_URL
 
-        # Get the selected model.
-        specific_args["model"] = self.get_parameter_value("model")
+        # Get the upstream provider's id for the selected model.
+        specific_args["model"] = self._get_selected_model_id()
 
         # Handle parameters that go into 'extra_params' for NVIDIA.
         extra_params = {}

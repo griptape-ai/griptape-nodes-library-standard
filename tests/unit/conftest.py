@@ -14,6 +14,7 @@ import pytest
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
+from griptape_nodes.retained_mode.engine import Engine, reset_root_engine
 from griptape_nodes.retained_mode.events.library_events import RegisterLibraryFromFileRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.utils.metaclasses import SingletonMeta
@@ -76,15 +77,27 @@ def stub_public_artifact_bucket_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def griptape_nodes() -> GriptapeNodes:
-    """Provide a properly initialized GriptapeNodes instance for testing."""
+def griptape_nodes() -> Engine:
+    """Provide a properly initialized engine for testing.
+
+    `GriptapeNodes()` resolves to the current `Engine` rather than building a facade,
+    so the fixture is typed as what it actually hands back.
+    """
     return GriptapeNodes()
 
 
 @contextlib.contextmanager
 def _isolated_env():
-    """Patch config and secrets paths to temp files and clear singletons."""
+    """Patch config and secrets paths to temp files and clear per-test engine state.
+
+    `reset_root_engine` matters as much as the singleton clear: `GriptapeNodes` resolves
+    the current engine rather than being a singleton, so clearing `SingletonMeta`
+    discards nothing engine-owned. Without the reset, managers survive between tests and
+    their state leaks -- workflow variables outliving the flow that owned them, for one.
+    The reset is lazy, so tests that never touch an engine pay nothing.
+    """
     SingletonMeta._instances.clear()
+    reset_root_engine()
 
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -101,3 +114,4 @@ def _isolated_env():
 
     finally:
         SingletonMeta._instances.clear()
+        reset_root_engine()

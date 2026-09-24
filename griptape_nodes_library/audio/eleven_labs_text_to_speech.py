@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import base64
 import logging
 from contextlib import suppress
 from typing import Any
 
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -15,13 +15,21 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["ElevenLabsTextToSpeechGeneration"]
 
 PROMPT_TRUNCATE_LENGTH = 100
+
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Eleven Multilingual v2": "eleven_multilingual_v2",
+    "Eleven v3": "eleven_v3",
+    "gtc_eleven_multilingual_v2": "eleven_multilingual_v2",
+    "gtc_eleven_v3": "eleven_v3",
+}
 
 # Voice preset mapping - friendly names to Eleven Labs voice IDs (sorted alphabetically)
 VOICE_PRESET_MAP = {  # spellchecker:disable-line
@@ -64,15 +72,22 @@ class ElevenLabsTextToSpeechGeneration(GriptapeProxyNode):
 
         # INPUTS / PROPERTIES
         # Model Selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="eleven_v3",
-                tooltip="Select the Eleven Labs text-to-speech model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["eleven_multilingual_v2", "eleven_v3"])},
-                ui_options={"display_name": "Model"},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="eleven_v3",
+            tooltip="Select the Eleven Labs text-to-speech model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={"display_name": "Model"},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=["eleven_multilingual_v2", "eleven_v3"],
+            default_model="eleven_v3",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Text input
@@ -268,10 +283,6 @@ class ElevenLabsTextToSpeechGeneration(GriptapeProxyNode):
 
         return super().after_value_set(parameter, value)
 
-    def _get_api_model_id(self) -> str:
-        """Get the API model ID for this generation."""
-        return self.get_parameter_value("model") or "eleven_v3"
-
     def _log(self, message: str) -> None:
         with suppress(Exception):
             logger.info(message)
@@ -294,7 +305,7 @@ class ElevenLabsTextToSpeechGeneration(GriptapeProxyNode):
         elif voice_preset:
             voice_id = VOICE_PRESET_MAP.get(voice_preset)
 
-        model = self.get_parameter_value("model") or "eleven_v3"
+        model = self._get_selected_model_id() or "eleven_v3"
         params = {"text": text, "model_id": model}
 
         # Add optional parameters if they have values
@@ -345,68 +356,22 @@ class ElevenLabsTextToSpeechGeneration(GriptapeProxyNode):
                         sanitized_payload[key] = text_value[:PROMPT_TRUNCATE_LENGTH] + "..."
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        """Parse the Eleven Labs TTS result and set output parameters."""
-        # Check if we received raw audio bytes (in case API returns raw bytes)
-        audio_bytes_raw = result_json.get("raw_bytes")
-        if audio_bytes_raw:
-            audio_bytes = audio_bytes_raw
-            self._log("Received raw audio bytes from API")
-        else:
-            # Fall back to base64-encoded audio (expected for this model)
-            audio_base64 = result_json.get("audio_base64")
-            if not audio_base64:
-                self._log("No audio data in response")
-                self._set_safe_defaults()
-                self._set_status_results(
-                    was_successful=False,
-                    result_details="Generation completed but no audio data was found in the response.",
-                )
-                return
-
-            try:
-                audio_bytes = base64.b64decode(audio_base64)
-                self._log("Decoded base64 audio")
-            except Exception as e:
-                self._log(f"Failed to decode base64 audio: {e}")
-                self._set_safe_defaults()
-                self._set_status_results(
-                    was_successful=False,
-                    result_details=f"Failed to decode audio data: {e}",
-                )
-                return
-
-        # Save audio
-        try:
-            dest = self._output_file.build_file()
-            saved = await dest.awrite_bytes(audio_bytes)
-            self.parameter_output_values["audio_url"] = AudioUrlArtifact(value=saved.location, name=saved.name)
-            self._log(f"Saved audio as {saved.name}")
-        except Exception as e:
-            self._log(f"Failed to save audio: {e}")
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"Failed to save audio file: {e}",
-            )
+        """Save the hosted audio and pass through the alignment data beside it."""
+        if not await self._save_generated_media(
+            generation_id,
+            "audio_url",
+            lambda v, n: AudioUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.AUDIO,
+            media_kind="audio",
+        ):
+            self.parameter_output_values["alignment"] = None
+            self.parameter_output_values["normalized_alignment"] = None
             return
 
-        # Extract alignment data
-        alignment = result_json.get("alignment")
-        normalized_alignment = result_json.get("normalized_alignment")
-
-        if alignment:
-            self.parameter_output_values["alignment"] = alignment
-            self._log("Extracted character alignment data")
-        else:
-            self.parameter_output_values["alignment"] = None
-
-        if normalized_alignment:
-            self.parameter_output_values["normalized_alignment"] = normalized_alignment
-            self._log("Extracted normalized alignment data")
-        else:
-            self.parameter_output_values["normalized_alignment"] = None
-
-        # Set success status
+        # ElevenLabs reports per-character timings alongside the speech; they are the
+        # reason this endpoint answers with a document rather than the audio itself.
+        self.parameter_output_values["alignment"] = result_json.get("alignment")
+        self.parameter_output_values["normalized_alignment"] = result_json.get("normalized_alignment")
         self._set_status_results(was_successful=True, result_details="Speech generated successfully")
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:

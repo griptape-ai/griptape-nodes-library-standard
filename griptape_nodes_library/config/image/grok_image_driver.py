@@ -13,6 +13,12 @@ API_KEY_ENV_VAR = "GROK_API_KEY"
 MODEL_CHOICES = ["grok-2-image-1212"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES = {
+    "Grok 2 Image": "grok-2-image-1212",
+    "xai_grok_2_image_1212": "grok-2-image-1212",
+}
+
 
 class GrokImage(BaseImageDriver):
     """Node for OpenAI Image Generation Driver.
@@ -25,8 +31,10 @@ class GrokImage(BaseImageDriver):
 
         # --- Customize Inherited Parameters ---
 
-        # Update the 'model' parameter
-        self._update_option_choices(param="model", choices=MODEL_CHOICES, default=DEFAULT_MODEL)
+        # Offer Grok's models as a license-filtered dropdown.
+        self._install_model_access(
+            model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=LEGACY_MODEL_VALUES
+        )
 
         # remove the 'size' parameter
         self.remove_parameter_element_by_name("image_size")
@@ -34,6 +42,9 @@ class GrokImage(BaseImageDriver):
     def process(self) -> None:
         # Get the parameters from the node
         params = self.parameter_values
+
+        # A model the license denies must not reach a downstream node as a driver.
+        self._raise_if_model_denied()
 
         # --- Get Common Driver Arguments ---
         # Use the helper method from BaseImageDriver to get common driver arguments
@@ -47,6 +58,9 @@ class GrokImage(BaseImageDriver):
 
         # Retrieve the mandatory API key.
         specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
+
+        # The provider's own id for the selected model.
+        specific_args["model"] = self._get_selected_model_id()
 
         all_kwargs = {**common_args, **specific_args}
 

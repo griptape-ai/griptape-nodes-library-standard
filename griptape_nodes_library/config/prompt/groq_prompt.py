@@ -32,6 +32,30 @@ MODEL_CHOICES = [
 ]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES = {
+    "Allam 2 7B": "allam-2-7b",
+    "DeepSeek R1 Distill Llama 70B": "deepseek-r1-distill-llama-70b",
+    "Gemma 2 9B IT": "gemma2-9b-it",
+    "Llama 3 70B 8192": "llama3-70b-8192",
+    "Llama 3 8B 8192": "llama3-8b-8192",
+    "Llama 3.1 8B Instant": "llama-3.1-8b-instant",
+    "Llama 3.3 70B Versatile": "llama-3.3-70b-versatile",
+    "Llama 4 Maverick 17B 128E Instruct": "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "Llama 4 Scout 17B 16E Instruct": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "Llama Guard 4 12B": "meta-llama/llama-guard-4-12b",
+    "groq_allam_2_7b": "allam-2-7b",
+    "groq_deepseek_r1_distill_llama_70b": "deepseek-r1-distill-llama-70b",
+    "groq_gemma2_9b_it": "gemma2-9b-it",
+    "groq_llama3_70b_8192": "llama3-70b-8192",
+    "groq_llama3_8b_8192": "llama3-8b-8192",
+    "groq_llama_3_1_8b_instant": "llama-3.1-8b-instant",
+    "groq_llama_3_3_70b_versatile": "llama-3.3-70b-versatile",
+    "groq_llama_4_maverick_17b_128e_instruct": "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "groq_llama_4_scout_17b_16e_instruct": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "groq_llama_guard_4_12b": "meta-llama/llama-guard-4-12b",
+}
+
 
 class GroqPrompt(BasePrompt):
     """Node for configuring and providing a Groq Chat Prompt Driver.
@@ -61,8 +85,10 @@ class GroqPrompt(BasePrompt):
 
         # --- Customize Inherited Parameters ---
 
-        # Update the 'model' parameter for Groq specifics.
-        self._update_option_choices(param="model", choices=MODEL_CHOICES, default=DEFAULT_MODEL)
+        # Offer Groq's models as a license-filtered dropdown.
+        self._install_model_access(
+            model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=LEGACY_MODEL_VALUES
+        )
 
         # Remove the 'seed' parameter as it's not directly used by GroqPromptDriver.
         self.remove_parameter_element_by_name("seed")
@@ -89,6 +115,9 @@ class GroqPrompt(BasePrompt):
         # Retrieve all parameter values set on the node UI or via input connections.
         params = self.parameter_values
 
+        # A model the license denies must not reach a downstream node as a driver.
+        self._raise_if_model_denied()
+
         # --- Get Common Driver Arguments ---
         # Use the helper method from BasePrompt to get args like temperature, stream, max_attempts, etc.
         common_args = self._get_common_driver_args(params)
@@ -102,8 +131,8 @@ class GroqPrompt(BasePrompt):
         # Set the base URL for the Groq API.
         specific_args["base_url"] = BASE_URL
 
-        # Get the selected model.
-        specific_args["model"] = self.get_parameter_value("model")
+        # Get the upstream provider's id for the selected model.
+        specific_args["model"] = self._get_selected_model_id()
 
         # Handle parameters that go into 'extra_params' for Groq.
         extra_params = {}

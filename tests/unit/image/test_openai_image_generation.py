@@ -1,24 +1,27 @@
 from __future__ import annotations
 
-import base64
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from griptape.artifacts import ImageArtifact
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
+from griptape_nodes.node_library.library_registry import LibraryRegistry
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.image.openai_image_generation import (
-    GPT_IMAGE_1_MODEL_NAME,
-    GPT_IMAGE_2_MODEL_ID,
-    GPT_IMAGE_2_MODEL_NAME,
+    GPT_IMAGE_1_MODEL_KEY,
+    GPT_IMAGE_2_MODEL_KEY,
     OpenAiImageGeneration,
 )
 from griptape_nodes_library.proxy.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy.hosted_artifacts import HostedArtifact
+
+LIBRARY_NAME = "Griptape Nodes Library"
 
 
 def _is_param_hidden(node: OpenAiImageGeneration, name: str) -> bool:
@@ -35,7 +38,18 @@ def _has_size_badge(node: OpenAiImageGeneration) -> bool:
 
 @pytest.fixture
 def node(griptape_nodes: GriptapeNodes) -> OpenAiImageGeneration:  # noqa: ARG002
-    return OpenAiImageGeneration(name="OpenAI Image Generation")
+    """Construct through the library so its metadata carries `library` / `node_type`.
+
+    `_get_selected_model_id()` resolves the dropdown's catalog key
+    through the node's declared models, which requires that metadata; a bare
+    `OpenAiImageGeneration(name=...)` construction leaves it unset and
+    resolution would return `""`.
+    """
+    library = LibraryRegistry.get_library(name=LIBRARY_NAME)
+    return cast(
+        "OpenAiImageGeneration",
+        library.create_node(node_type="OpenAiImageGeneration", name="OpenAI Image Generation"),
+    )
 
 
 @pytest.mark.asyncio
@@ -323,7 +337,7 @@ async def test_reference_upload_scratch_parameters_removed_after_generation(
 
 
 @pytest.mark.asyncio
-async def test_parse_result_saves_base64_images(
+async def test_parse_result_saves_hosted_images(
     node: OpenAiImageGeneration, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     class FakeDestination:
@@ -341,14 +355,21 @@ async def test_parse_result_saves_base64_images(
 
     image_1_bytes = b"image-one"
     image_2_bytes = b"image-two"
-    result_json = {
-        "data": [
-            {"b64_json": base64.b64encode(image_1_bytes).decode("utf-8")},
-            {"b64_json": base64.b64encode(image_2_bytes).decode("utf-8")},
-        ]
-    }
 
-    await node._parse_result(result_json, "gen_123")
+    async def fake_hosted_artifacts(_generation_id: str) -> list[HostedArtifact]:
+        return [
+            HostedArtifact(index=0, kind="image", url="https://example/0.png"),
+            HostedArtifact(index=1, kind="image", url="https://example/1.png"),
+        ]
+
+    async def fake_load_generated_media(_generation_id: str, *, kind: str | None = None, position: int = 0) -> bytes:
+        assert kind == "image"
+        return image_1_bytes if position == 0 else image_2_bytes
+
+    monkeypatch.setattr(node, "_hosted_artifacts", fake_hosted_artifacts)
+    monkeypatch.setattr(node, "_load_generated_media", fake_load_generated_media)
+
+    await node._parse_result({}, "gen_123")
 
     first_artifact = node.parameter_output_values["image_url"]
     second_artifact = node.parameter_output_values["image_url_2"]
@@ -358,6 +379,47 @@ async def test_parse_result_saves_base64_images(
     assert Path(first_artifact.value).read_bytes() == image_1_bytes
     assert Path(second_artifact.value).read_bytes() == image_2_bytes
     assert node.parameter_output_values["was_successful"] is True
+
+
+@pytest.mark.asyncio
+async def test_parse_result_keeps_a_failed_image_slot_empty(
+    node: OpenAiImageGeneration, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # image_url_N must stay pinned to the Nth hosted image: a mid-list download failure
+    # leaves that slot empty instead of pulling image 3 into image_url_2's place.
+    class FakeDestination:
+        def __init__(self, path: Path) -> None:
+            self.path = path
+
+        async def awrite_bytes(self, data: bytes) -> SimpleNamespace:
+            self.path.write_bytes(data)
+            return SimpleNamespace(location=str(self.path), name=self.path.name)
+
+    monkeypatch.setattr(
+        node._output_file,
+        "build_file",
+        lambda _index=1, **_kwargs: FakeDestination(tmp_path / f"openai_image_{_index}.png"),
+    )
+
+    async def fake_hosted_artifacts(_generation_id: str) -> list[HostedArtifact]:
+        return [HostedArtifact(index=i, kind="image", url=f"https://example/{i}.png") for i in range(3)]
+
+    async def fake_load_generated_media(_generation_id: str, *, kind: str | None = None, position: int = 0) -> bytes:  # noqa: ARG001
+        if position == 1:
+            msg = "not hosted"
+            raise RuntimeError(msg)
+        return f"image-{position}".encode()
+
+    monkeypatch.setattr(node, "_hosted_artifacts", fake_hosted_artifacts)
+    monkeypatch.setattr(node, "_load_generated_media", fake_load_generated_media)
+
+    await node._parse_result({}, "gen_123")
+
+    assert Path(node.parameter_output_values["image_url"].value).read_bytes() == b"image-0"
+    assert node.parameter_output_values["image_url_2"] is None
+    assert Path(node.parameter_output_values["image_url_3"].value).read_bytes() == b"image-2"
+    assert node.parameter_output_values["was_successful"] is True
+    assert "Image(s) 2 could not be retrieved" in node.parameter_output_values["result_details"]
 
 
 def _background_choices(node: OpenAiImageGeneration) -> list[str]:
@@ -389,10 +451,10 @@ def test_default_model_omits_transparent_background(node: OpenAiImageGeneration)
 
 
 def test_switching_to_unsupported_model_resets_transparent_background(node: OpenAiImageGeneration) -> None:
-    node.set_parameter_value("model", GPT_IMAGE_1_MODEL_NAME)
+    node.set_parameter_value("model", GPT_IMAGE_1_MODEL_KEY)
     node.set_parameter_value("background", "transparent")
 
-    node.set_parameter_value("model", GPT_IMAGE_2_MODEL_NAME)
+    node.set_parameter_value("model", GPT_IMAGE_2_MODEL_KEY)
 
     assert node.get_parameter_value("background") == "auto"
 
@@ -400,19 +462,19 @@ def test_switching_to_unsupported_model_resets_transparent_background(node: Open
 def test_switching_to_supported_model_preserves_opaque_background(node: OpenAiImageGeneration) -> None:
     node.set_parameter_value("background", "opaque")
 
-    node.set_parameter_value("model", GPT_IMAGE_1_MODEL_NAME)
+    node.set_parameter_value("model", GPT_IMAGE_1_MODEL_KEY)
 
     assert node.get_parameter_value("background") == "opaque"
 
 
-def test_default_model_uses_display_name(node: OpenAiImageGeneration) -> None:
-    assert node.get_parameter_value("model") == GPT_IMAGE_2_MODEL_NAME
+def test_default_model_uses_catalog_key(node: OpenAiImageGeneration) -> None:
+    assert node.get_parameter_value("model") == GPT_IMAGE_2_MODEL_KEY
 
 
-def test_payload_model_id_translates_display_name(node: OpenAiImageGeneration) -> None:
-    node.set_parameter_value("model", GPT_IMAGE_2_MODEL_NAME)
+def test_provider_model_id_resolves_from_catalog_key(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_MODEL_KEY)
 
-    assert node._get_payload_model_id() == GPT_IMAGE_2_MODEL_ID
+    assert node._get_selected_model_id() == "gpt-image-2"
 
 
 def test_size_choices_include_custom_for_gpt_image_2(node: OpenAiImageGeneration) -> None:
@@ -420,7 +482,7 @@ def test_size_choices_include_custom_for_gpt_image_2(node: OpenAiImageGeneration
 
 
 def test_size_choices_omit_custom_for_legacy_models(node: OpenAiImageGeneration) -> None:
-    node.set_parameter_value("model", GPT_IMAGE_1_MODEL_NAME)
+    node.set_parameter_value("model", GPT_IMAGE_1_MODEL_KEY)
     assert "custom" not in _size_choices(node)
 
 
@@ -449,7 +511,7 @@ def test_switching_off_custom_size_hides_dimension_inputs(node: OpenAiImageGener
 
 def test_switching_to_legacy_model_hides_custom_size_inputs(node: OpenAiImageGeneration) -> None:
     node.set_parameter_value("size", "custom")
-    node.set_parameter_value("model", GPT_IMAGE_1_MODEL_NAME)
+    node.set_parameter_value("model", GPT_IMAGE_1_MODEL_KEY)
 
     assert _is_param_hidden(node, "custom_width")
     assert _is_param_hidden(node, "custom_height")
@@ -481,7 +543,7 @@ def test_custom_dimension_snaps_to_multiple_of_16(
 
 @pytest.mark.asyncio
 async def test_build_payload_combines_custom_dimensions(node: OpenAiImageGeneration) -> None:
-    node.set_parameter_value("model", GPT_IMAGE_2_MODEL_NAME)
+    node.set_parameter_value("model", GPT_IMAGE_2_MODEL_KEY)
     node.set_parameter_value("prompt", "A panoramic image")
     node.set_parameter_value("size", "custom")
     node.set_parameter_value("custom_width", 2048)
@@ -493,7 +555,7 @@ async def test_build_payload_combines_custom_dimensions(node: OpenAiImageGenerat
 
 
 def test_validate_runs_against_custom_dimensions(node: OpenAiImageGeneration) -> None:
-    node.set_parameter_value("model", GPT_IMAGE_2_MODEL_NAME)
+    node.set_parameter_value("model", GPT_IMAGE_2_MODEL_KEY)
     node.set_parameter_value("prompt", "A red circle")
     node.set_parameter_value("size", "custom")
     node.set_parameter_value("custom_width", 3840)
@@ -506,7 +568,7 @@ def test_validate_runs_against_custom_dimensions(node: OpenAiImageGeneration) ->
 
 
 def test_validate_accepts_valid_custom_dimensions(node: OpenAiImageGeneration) -> None:
-    node.set_parameter_value("model", GPT_IMAGE_2_MODEL_NAME)
+    node.set_parameter_value("model", GPT_IMAGE_2_MODEL_KEY)
     node.set_parameter_value("prompt", "A red circle")
     node.set_parameter_value("size", "custom")
     node.set_parameter_value("custom_width", 2048)
@@ -521,7 +583,7 @@ def test_initial_setup_sync_restores_custom_size_visibility(
     """Workflow load uses initial_setup=True, which skips after_value_set. Visibility must still sync."""
     fresh_node = OpenAiImageGeneration(name="OpenAI Image Generation Loaded")
 
-    fresh_node.set_parameter_value("model", GPT_IMAGE_2_MODEL_NAME, initial_setup=True)
+    fresh_node.set_parameter_value("model", GPT_IMAGE_2_MODEL_KEY, initial_setup=True)
     fresh_node.set_parameter_value("size", "custom", initial_setup=True)
 
     assert not _is_param_hidden(fresh_node, "custom_width")
@@ -535,7 +597,7 @@ def test_initial_setup_does_not_snap_custom_dimensions(
     """Workflow load must not mutate persisted custom_width/height values."""
     fresh_node = OpenAiImageGeneration(name="OpenAI Image Generation Loaded")
 
-    fresh_node.set_parameter_value("model", GPT_IMAGE_2_MODEL_NAME, initial_setup=True)
+    fresh_node.set_parameter_value("model", GPT_IMAGE_2_MODEL_KEY, initial_setup=True)
     fresh_node.set_parameter_value("size", "custom", initial_setup=True)
     fresh_node.set_parameter_value("custom_width", 1000, initial_setup=True)
 

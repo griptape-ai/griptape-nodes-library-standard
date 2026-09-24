@@ -11,6 +11,7 @@ from typing import Any
 from griptape.rules import Rule, Ruleset
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.options import Options
@@ -287,17 +288,12 @@ class CreateAgentSchema(SuccessFailureNode):
         )
 
         self.add_parameter(
-            Parameter(
+            ParameterJson(
                 name="example",
-                input_types=["json", "str", "dict"],
-                type="json",
                 default_value="{}",
                 tooltip="Example JSON structure to generate a schema from. Provide a sample of the data structure you want.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={
-                    "multiline": True,
-                    "placeholder_text": '{"name": "John", "age": 30, "email": "john@example.com"}',
-                },
+                placeholder_text='{"name": "John", "age": 30, "email": "john@example.com"}',
             )
         )
 
@@ -323,12 +319,11 @@ class CreateAgentSchema(SuccessFailureNode):
         )
 
         self.add_parameter(
-            Parameter(
+            ParameterJson(
                 name="schema",
-                input_types=["json"],
-                type="json",
                 tooltip="Generated JSON schema that describes the structure of the example.",
                 allowed_modes={ParameterMode.OUTPUT},
+                hide_property=True,
             )
         )
 

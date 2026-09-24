@@ -36,6 +36,8 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
+from griptape_nodes_library.utils.cloud_legacy_models import cloud_legacy_values_for
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
@@ -49,6 +51,9 @@ API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 # per-model `vision` flag so this list cannot drift from the models it describes.
 GTC_VISION_MODEL_CHOICES = VISION_MODEL_CHOICES
 DEFAULT_MODEL = GTC_VISION_MODEL_CHOICES[0]
+
+# The shared Griptape Cloud table, narrowed to the vision-capable models this node offers.
+LEGACY_MODEL_VALUES = cloud_legacy_values_for(GTC_VISION_MODEL_CHOICES)
 
 
 class DescribeImage(ControlNode):
@@ -98,13 +103,12 @@ class DescribeImage(ControlNode):
             parameter=model_param,
             model_choices=GTC_VISION_MODEL_CHOICES,
             default_model=DEFAULT_MODEL,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self._provider = ProviderSelectionComponent(
             node=self,
-            model_param=model_param,
             model_provider_param=model_provider_param,
-            gtc_model_choices=GTC_VISION_MODEL_CHOICES,
             model_access=self._model_access,
             default_model=DEFAULT_MODEL,
         )
@@ -331,10 +335,9 @@ class DescribeImage(ControlNode):
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
-        if parameter.name == "model":
-            self._model_access.on_value_changed(value)
-        elif parameter.name == "model_provider":
-            self._provider.update_model_choices_for_provider(str(value))
+        self._model_access.on_value_set(parameter, value)
+        if parameter.name == "model_provider":
+            self._provider.on_provider_changed(str(value))
 
     def process(self) -> AsyncResult[Structure]:  # noqa: C901, PLR0915, PLR0912
         # Get the parameters from the node
@@ -348,14 +351,14 @@ class DescribeImage(ControlNode):
         # driver, so the node's (hidden, not cleared) dropdown value is stale. The
         # INVOKE_MODEL declaration below gates the model that actually runs.
         if agent_value is None and provider_name == "griptape_cloud":
-            self._model_access.raise_if_denied(model_input)
+            self._model_access.raise_if_selection_denied()
 
         agent = None
 
         default_prompt_driver = GriptapeCloudPromptDriver(
             model=DEFAULT_MODEL,
-            api_key=resolve_cloud_api_key(),
             stream=False,  # TODO: enable once https://github.com/griptape-ai/griptape-cloud/issues/1593 is resolved
+            **cloud_driver_auth(),
         )
 
         output_schema = self.get_parameter_value("output_schema")
@@ -436,8 +439,8 @@ class DescribeImage(ControlNode):
                 model_input = DEFAULT_MODEL
             prompt_driver = GriptapeCloudPromptDriver(
                 model=model_input,
-                api_key=resolve_cloud_api_key(),
                 stream=False,  # TODO: enable once https://github.com/griptape-ai/griptape-cloud/issues/1593 is resolved
+                **cloud_driver_auth(),
             )
             agent = GtAgent(prompt_driver=prompt_driver, output_schema=pydantic_schema)
         else:

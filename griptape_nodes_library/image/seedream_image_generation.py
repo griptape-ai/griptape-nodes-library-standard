@@ -13,21 +13,20 @@ from griptape_nodes.exe_types.core_types import (
     Parameter,
     ParameterGroup,
     ParameterList,
-    ParameterMessage,
     ParameterMode,
 )
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 from PIL import Image
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode, HostedArtifact
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -36,21 +35,21 @@ __all__ = ["SeedreamImageGeneration"]
 # Define constant for prompt truncation length
 PROMPT_TRUNCATE_LENGTH = 100
 
-# Model mapping from user-facing names to API model IDs
-# Only Seedream 5.0 Pro carries the "dola-" prefix; the provider's own ids are inconsistent
-# and the unprefixed ids are what the other models answer to.
-MODEL_NAME_MAP = {
-    "Seedream 5.0 Pro": "dola-seedream-5-0-pro-260628",
-    "Seedream 5.0 Lite": "seedream-5-0-260128",
-    "Seedream 4.5": "seedream-4-5-251128",
-}
+# The models this node offers, as the provider's own ids -- the dropdown stores these and
+# the payload sends them as-is. Only Seedream 5.0 Pro carries the "dola-" prefix; the
+# provider's ids are inconsistent and the unprefixed ids are what the other models answer to.
+MODEL_CHOICES = [
+    "dola-seedream-5-0-pro-260628",
+    "seedream-5-0-260128",
+    "seedream-4-5-251128",
+]
 
-# Size options for different models (using friendly names)
+# Size options for different models, keyed by the provider's own model id
 SIZE_OPTIONS = {
     # A resolution token lets the model choose the aspect ratio from the prompt; an explicit
     # WxH pins it. 1K and 1.5K cost the same, so 1K's explicit dimensions are omitted as
     # strictly lower quality for the price; the token remains for smaller, faster output.
-    "Seedream 5.0 Pro": [
+    "dola-seedream-5-0-pro-260628": [
         "1K",
         "1.5K",
         "2K",
@@ -71,7 +70,7 @@ SIZE_OPTIONS = {
         "1664x2496",
         "3136x1344",
     ],
-    "Seedream 5.0 Lite": [
+    "seedream-5-0-260128": [
         "2K",
         "3K",
         "4K",
@@ -100,7 +99,7 @@ SIZE_OPTIONS = {
         "4992x3328",
         "6240x2656",
     ],
-    "Seedream 4.5": [
+    "seedream-4-5-251128": [
         "2K",
         "4K",
         "2048x2048",
@@ -128,22 +127,23 @@ SIZE_OPTIONS = {
     ],
 }
 
-DEFAULT_MODEL = "Seedream 4.5"
+DEFAULT_MODEL = "seedream-4-5-251128"
 
 # Size selected when the current size isn't offered by the newly selected model.
 # Seedream 5.0 Pro deliberately differs from the provider default of 2K: 1.5K is billed at the
 # 1K rate while producing better images, so it is the best value rather than the cheapest option.
 DEFAULT_SIZE_PER_MODEL = {
-    "Seedream 5.0 Pro": "1.5K",
-    "Seedream 5.0 Lite": "2K",
-    "Seedream 4.5": "2K",
+    "dola-seedream-5-0-pro-260628": "1.5K",
+    "seedream-5-0-260128": "2K",
+    "seedream-4-5-251128": "2K",
 }
 
-# Maximum number of input images for models that support multiple images (using friendly names)
+# Maximum number of input images for models that support multiple images,
+# keyed by the provider's own model id
 MAX_IMAGES_PER_MODEL = {
-    "Seedream 5.0 Pro": 10,
-    "Seedream 5.0 Lite": 14,
-    "Seedream 4.5": 14,
+    "dola-seedream-5-0-pro-260628": 10,
+    "seedream-5-0-260128": 14,
+    "seedream-4-5-251128": 14,
 }
 
 OUTPUT_FORMAT_OPTIONS = ["jpeg", "png"]
@@ -152,23 +152,31 @@ OUTPUT_FORMAT_OPTIONS = ["jpeg", "png"]
 # reject the request with "optimize_prompt_options.mode must be 'standard'". The first entry is
 # the fallback when the current selection isn't supported by a newly selected model.
 OPTIMIZE_PROMPT_MODES_PER_MODEL = {
-    "Seedream 5.0 Pro": ["standard", "fast"],
-    "Seedream 5.0 Lite": ["standard"],
-    "Seedream 4.5": ["standard"],
+    "dola-seedream-5-0-pro-260628": ["standard", "fast"],
+    "seedream-5-0-260128": ["standard"],
+    "seedream-4-5-251128": ["standard"],
 }
 
-# Deprecated models and their replacements (covers both friendly names and raw provider IDs
-# so saved workflows in either format are migrated). Migration is single-hop, so every value
-# here must name a model that is still in MODEL_NAME_MAP -- never another deprecated model.
-DEPRECATED_MODELS = {
-    "Seedream 3.0 T2I": "Seedream 5.0 Lite",
-    "seedream-3-0-t2i-250415": "Seedream 5.0 Lite",
-    "Seedream 3.0 I2I": "Seedream 5.0 Lite",
-    "seededit-3-0-i2i-250628": "Seedream 5.0 Lite",
-    "Seedream 4.0": "Seedream 5.0 Lite",
-    "seedream-4-0-250828": "Seedream 5.0 Lite",
+# Migrates values saved before this dropdown stored the provider's own model id: friendly
+# labels, catalog keys, and the ids of models that have since been retired. Migration is
+# single-hop, so every value here must be one of MODEL_CHOICES -- never another retired model.
+LEGACY_MODEL_VALUES = {
+    "Seedream 5.0 Pro": "dola-seedream-5-0-pro-260628",
+    "Seedream 5.0 Lite": "seedream-5-0-260128",
+    "Seedream 4.5": "seedream-4-5-251128",
+    "gtc_seedream_5_0_pro": "dola-seedream-5-0-pro-260628",
+    "gtc_seedream_5_0_lite": "seedream-5-0-260128",
+    "gtc_seedream_4_5": "seedream-4-5-251128",
+    # Retired models: Seedream 4.0 and the 3.0 pair all migrate to 5.0 Lite.
+    "Seedream 4.0": "seedream-5-0-260128",
+    "seedream-4-0-250828": "seedream-5-0-260128",
+    "gtc_seedream_4_0": "seedream-5-0-260128",
+    "Seedream 3.0 T2I": "seedream-5-0-260128",
+    "seedream-3-0-t2i-250415": "seedream-5-0-260128",
+    "Seedream 3.0 I2I": "seedream-5-0-260128",
+    "seededit-3-0-i2i-250628": "seedream-5-0-260128",
     # Never a valid provider id; shipped in a workflow template and rejected by the proxy.
-    "seedream-4.5": "Seedream 4.5",
+    "seedream-4.5": "seedream-4-5-251128",
 }
 
 
@@ -217,39 +225,22 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         self.description = "Generate images using Seedream models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value=DEFAULT_MODEL,
-                tooltip="Select the Seedream model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={
-                    Options(
-                        choices=[
-                            "Seedream 5.0 Pro",
-                            "Seedream 5.0 Lite",
-                            "Seedream 4.5",
-                        ]
-                    )
-                },
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value=DEFAULT_MODEL,
+            tooltip="Select the Seedream model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
-
-        self.add_node_element(
-            ParameterMessage(
-                name="model_deprecation_notice",
-                title="Model Deprecation Notice",
-                variant="info",
-                value="",
-                traits={
-                    Button(
-                        full_width=True,
-                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
-                    )
-                },
-                button_text="Dismiss",
-                hide=True,
-            )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits, marks the
+        # models the license denies, and migrates saved values through LEGACY_MODEL_VALUES. The
+        # proxy base class refuses to submit a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_CHOICES,
+            default_model=DEFAULT_MODEL,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Core parameters
@@ -403,13 +394,13 @@ class SeedreamImageGeneration(GriptapeProxyNode):
     def _apply_model_parameter_visibility(self, model: str) -> None:
         """Show or hide the model-dependent generation settings for the selected model."""
         match model:
-            case "Seedream 5.0 Pro":
+            case "dola-seedream-5-0-pro-260628":
                 # Pro rejects the batch fields outright, but does take output_format and
                 # prompt optimization (including the "fast" mode that Lite refuses).
                 visible = {"output_format", "optimize_prompt_mode"}
-            case "Seedream 5.0 Lite":
+            case "seedream-5-0-260128":
                 visible = {"max_images", "output_format", "optimize_prompt_mode"}
-            case "Seedream 4.5":
+            case "seedream-4-5-251128":
                 visible = {"max_images"}
             case _:
                 msg = f"Unknown Seedream model: {model!r}"
@@ -420,24 +411,6 @@ class SeedreamImageGeneration(GriptapeProxyNode):
                 self.show_parameter_by_name(param_name)
             else:
                 self.hide_parameter_by_name(param_name)
-
-    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
-        """Migrate deprecated model selections to their replacement."""
-        if parameter.name == "model" and isinstance(value, str) and value in DEPRECATED_MODELS:
-            replacement = DEPRECATED_MODELS[value]
-            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
-            if message is None:
-                raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
-            message.value = (
-                f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. "
-                "Please save your workflow to apply this change."
-            )
-            self.show_message_by_name("model_deprecation_notice")
-            value = replacement
-        elif parameter.name == "model" and isinstance(value, str):
-            self.hide_message_by_name("model_deprecation_notice")
-
-        return super().before_value_set(parameter, value)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Update size options and parameter visibility based on parameter changes."""
@@ -452,14 +425,6 @@ class SeedreamImageGeneration(GriptapeProxyNode):
 
         return super().after_value_set(parameter, value)
 
-    def _get_api_model_id(self) -> str:
-        """Get the API model ID for this generation.
-
-        Converts friendly model name to API model ID.
-        """
-        model = self.get_parameter_value("model") or DEFAULT_MODEL
-        return MODEL_NAME_MAP.get(model, model)
-
     def _update_model_parameters(self, model: str) -> None:
         """Update parameters and UI based on selected model."""
         new_choices = SIZE_OPTIONS[model]
@@ -472,7 +437,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         # Seedream 5.0 Pro charges twice as much above its pixel threshold, and "2K" is over it.
         # Carrying that size over from a model where it was free of consequence would silently
         # double the cost, so Pro always starts from its cheaper default.
-        if current_size in new_choices and model != "Seedream 5.0 Pro":
+        if current_size in new_choices and model != "dola-seedream-5-0-pro-260628":
             self._update_option_choices("size", new_choices, current_size)
         else:
             default_size = DEFAULT_SIZE_PER_MODEL[model]
@@ -497,7 +462,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         if size_parameter is None:
             return
 
-        if model == "Seedream 5.0 Pro":
+        if model == "dola-seedream-5-0-pro-260628":
             size_parameter.set_badge(
                 variant="note",
                 title="2K costs twice as much",
@@ -515,60 +480,54 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         with suppress(Exception):
             logger.info(message)
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        """Parse the result and set output parameters.
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        """Save the hosted images.
 
         Args:
-            result_json: The JSON response from the /result endpoint
+            _result_json: The JSON response from the /result endpoint
             generation_id: The generation ID for this request
         """
-        # Extract image data
-        data = result_json.get("data", [])
-        if not data:
-            self._log("No image data in result")
+        try:
+            artifacts = await self._hosted_artifacts(generation_id)
+        except Exception as e:
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=f"{self.name} generation completed but no image data was found in the response.",
+                result_details=f"{self.name} generation completed but its images could not be listed: {e}",
             )
             return
 
-        # Process all images from the response
-        image_artifacts = []
-        failed_urls = []
-        for idx, image_data in enumerate(data):
-            image_url = image_data.get("url")
-            if not image_url:
-                self._log(f"No URL found for image {idx}")
-                continue
-
-            artifact = await self._save_single_image_from_url(image_url, generation_id, idx)
-            if artifact:
-                image_artifacts.append(artifact)
-            else:
-                failed_urls.append(image_url)
-
-        if not image_artifacts:
-            self._log("No images could be saved")
+        image_artifact_refs = [artifact for artifact in artifacts if artifact.kind == ArtifactKind.IMAGE]
+        if not image_artifact_refs:
             self._set_safe_defaults()
-            if failed_urls:
-                details = (
-                    f"{self.name} generation completed upstream but the image(s) could not be retrieved. "
-                    f"Provider URL(s) (may be temporary): {', '.join(failed_urls)}"
-                )
-            else:
-                details = f"{self.name} generation completed but no image URLs were found in the response."
-            self._set_status_results(was_successful=False, result_details=details)
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"{self.name} generation completed but no images were hosted.",
+            )
             return
 
-        # Show the appropriate number of image output parameters based on actual image count
-        self._show_image_output_parameters(len(image_artifacts))
+        # Slots follow provider order: a failed download leaves its slot empty instead of
+        # pulling later images forward, so image_url_N always holds the Nth hosted image.
+        saved_by_position = [
+            await self._save_single_hosted_image(artifact, idx) for idx, artifact in enumerate(image_artifact_refs)
+        ]
+
+        image_artifacts = [artifact for artifact in saved_by_position if artifact is not None]
+        if not image_artifacts:
+            self._set_safe_defaults()
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"{self.name} generation completed upstream but the image(s) could not be retrieved.",
+            )
+            return
+
+        self._show_image_output_parameters(len(saved_by_position))
 
         # These parameters are PROPERTY|OUTPUT, so the stored value backs what the editor renders
         # while the output value feeds downstream nodes. Setting only the output leaves the stored
         # value empty and the image shows as a placeholder until a reload rehydrates it. This is
         # the same set/publish/output sequence ExecutionStatusComponent uses for its own params.
-        for idx, artifact in enumerate(image_artifacts, start=1):
+        for idx, artifact in enumerate(saved_by_position, start=1):
             param_name = "image_url" if idx == 1 else f"image_url_{idx}"
             self.set_parameter_value(param_name, artifact)
             self.publish_update_to_parameter(param_name, artifact)
@@ -577,7 +536,13 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         # Set success status
         count = len(image_artifacts)
         filenames = [artifact.name for artifact in image_artifacts]
-        if count == 1:
+        missing = [str(idx) for idx, artifact in enumerate(saved_by_position, start=1) if artifact is None]
+        if missing:
+            details = (
+                f"Saved {count} of {len(saved_by_position)} images: {', '.join(filenames)}. "
+                f"Image(s) {', '.join(missing)} could not be retrieved; their output slots are empty."
+            )
+        elif count == 1:
             details = f"Image generated successfully and saved as {filenames[0]}."
         else:
             details = f"Generated {count} images successfully: {', '.join(filenames)}."
@@ -630,7 +595,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         model = params["model"]
 
         payload = {
-            "model": self._get_api_model_id(),
+            "model": model,
             "prompt": params["prompt"],
             "size": params["size"],
             "response_format": "url",
@@ -657,15 +622,15 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         await self._add_multi_image_payload_fields(payload, params)
 
         match model:
-            case "Seedream 5.0 Pro":
+            case "dola-seedream-5-0-pro-260628":
                 # Pro generates a single image and errors if the batch fields are present.
                 payload["output_format"] = params.get("output_format", "jpeg")
                 payload["optimize_prompt_options"] = {"mode": params.get("optimize_prompt_mode", "standard")}
-            case "Seedream 5.0 Lite":
+            case "seedream-5-0-260128":
                 self._add_batch_payload_fields(payload, params)
                 payload["output_format"] = params.get("output_format", "jpeg")
                 payload["optimize_prompt_options"] = {"mode": params.get("optimize_prompt_mode", "standard")}
-            case "Seedream 4.5":
+            case "seedream-4-5-251128":
                 self._add_batch_payload_fields(payload, params)
             case _:
                 msg = f"Unknown Seedream model: {model!r}"
@@ -793,22 +758,19 @@ class SeedreamImageGeneration(GriptapeProxyNode):
 
             self._log(f"Request payload: {_json.dumps(sanitized_payload, indent=2)}")
 
-    async def _save_single_image_from_url(
-        self, image_url: str, generation_id: str | None = None, index: int = 0
-    ) -> ImageUrlArtifact | None:
-        """Download and save a single image from the provided URL.
+    async def _save_single_hosted_image(self, artifact: HostedArtifact, index: int) -> ImageUrlArtifact | None:
+        """Download and save a single hosted image.
 
         Args:
-            image_url: URL of the image to download
-            generation_id: Optional generation ID for filename
-            index: Index of the image in multi-image response
+            artifact: The hosted artifact to download.
+            index: Index of the image in the multi-image response.
 
         Returns:
             ImageUrlArtifact with saved image, or None if download/save fails
         """
         try:
-            self._log(f"Downloading image {index} from URL")
-            image_bytes = await self._download_bytes_from_url(image_url)
+            self._log(f"Downloading image {index} from hosted artifact")
+            image_bytes = await self._download_artifact(artifact)
 
             dest = self._output_file.build_file(_index=index)
             saved = await dest.awrite_bytes(image_bytes)
@@ -817,9 +779,8 @@ class SeedreamImageGeneration(GriptapeProxyNode):
 
         except Exception as e:
             # A billed generation whose image cannot be retrieved is a failure, not a
-            # silent success. Return None so this image is not counted as saved; the
-            # caller reports failure and surfaces the provider URL for manual retrieval.
-            self._log(f"Failed to retrieve image {index} from {image_url}: {e}")
+            # silent success. Return None so this image is not counted as saved.
+            self._log(f"Failed to retrieve image {index}: {e}")
             return None
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:

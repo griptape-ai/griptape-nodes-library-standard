@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import base64
+import io
+
 import pytest
 from griptape.artifacts import ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode
-from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
-    PublicArtifactUrlParameter,
-)
-from griptape_nodes.files.file import File
 from griptape_nodes.traits.options import Options
+from PIL import Image
 
 from griptape_nodes_library.assets import (
     ASSET_KIND_AUDIO,
@@ -24,8 +24,11 @@ from griptape_nodes_library.video.seedance_2_5_video_generation import (
     MAX_REFERENCE_IMAGES,
     MAX_REFERENCE_VIDEOS,
     MAX_TOTAL_REFERENCE_ASSETS,
+    RESOLUTION_CHOICES,
     SEEDANCE_2_5_MODEL_ID,
     SMART_DURATION,
+    TASK_CONSTRAINTS,
+    OmniReferenceTaskType,
     Seedance25VideoGeneration,
     SeedanceTask,
 )
@@ -199,6 +202,44 @@ def test_switching_task_coerces_out_of_range_ratio_and_duration() -> None:
     assert node.get_parameter_value("duration") == SMART_DURATION
 
 
+def test_narrowed_choices_recover_after_a_save_reload_cycle() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("task", SeedanceTask.FIRST_LAST_FRAME)
+
+    # A saved workflow replays the merged ui_options into the parameter's stored dict on load,
+    # where "simple_dropdown" shadows whatever choices the trait carries afterwards. Reproduce
+    # that stored state, then widen the choices by switching back to an unconstrained task.
+    for parameter_name in ("ratio", "duration"):
+        parameter = _parameter_by_name(node, parameter_name)
+        parameter.ui_options = dict(parameter.ui_options)
+
+    node.set_parameter_value("task", SeedanceTask.TEXT_TO_VIDEO)
+
+    assert _option_choices(node, "ratio") == list(ALL_RATIO_CHOICES)
+    assert _option_choices(node, "duration") == list(ALL_DURATION_CHOICES)
+    assert _parameter_by_name(node, "ratio").ui_options["simple_dropdown"] == list(ALL_RATIO_CHOICES)
+
+
+# --- Resolution ------------------------------------------------------------------------------
+
+
+def test_resolution_dropdown_offers_every_supported_tier() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    assert _option_choices(node, "resolution") == ["480p", "720p", "1080p"]
+
+
+@pytest.mark.parametrize("task", list(SeedanceTask))
+def test_resolution_choices_do_not_depend_on_the_task(task: SeedanceTask) -> None:
+    # Unlike ratio and duration, the provider documents resolution with no per-task constraint, so
+    # switching tasks must never narrow the tiers or coerce the selected one.
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("resolution", "1080p")
+    node.set_parameter_value("task", task)
+
+    assert _option_choices(node, "resolution") == RESOLUTION_CHOICES
+    assert node.get_parameter_value("resolution") == "1080p"
+
+
 # --- Validation: media matches task ----------------------------------------------------------
 
 
@@ -247,6 +288,17 @@ def test_audio_only_reference_input_is_accepted() -> None:
     _set_parameter_list_values(node, "reference_audio", ["data:audio/wav;base64,AAA"])
 
     node._validate_parameters(node._get_parameters())
+
+
+def test_reference_to_video_requires_at_least_one_reference() -> None:
+    # The provider defines a reference task by the presence of a reference asset, so with none the
+    # request would contradict the task the node declares.
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("task", SeedanceTask.REFERENCE_TO_VIDEO)
+    node.set_parameter_value("prompt", "A quiet street at dusk")
+
+    with pytest.raises(ValueError, match="requires at least one reference image, video, or audio"):
+        node._validate_parameters(node._get_parameters())
 
 
 # --- Validation: trigger keywords ------------------------------------------------------------
@@ -373,6 +425,28 @@ def test_unknown_task_is_reported() -> None:
         node._validate_parameters(params)
 
 
+# --- Validation: resolution ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("resolution", ["4k", "1080P", "720", "", None])
+def test_unsupported_resolution_arriving_over_a_connection_is_rejected(resolution: str | None) -> None:
+    # The dropdown only offers supported tiers, but a connected value bypasses the dropdown.
+    node = Seedance25VideoGeneration(name="Seedance25")
+    params = node._get_parameters()
+    params["resolution"] = resolution
+
+    with pytest.raises(ValueError, match="supports resolution 480p, 720p, 1080p"):
+        node._validate_parameters(params)
+
+
+@pytest.mark.parametrize("resolution", RESOLUTION_CHOICES)
+def test_every_offered_resolution_passes_validation(resolution: str) -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("resolution", resolution)
+
+    node._validate_parameters(node._get_parameters())
+
+
 # --- Payload ---------------------------------------------------------------------------------
 
 
@@ -404,29 +478,91 @@ async def test_text_to_video_payload_carries_all_settings() -> None:
 
 
 @pytest.mark.asyncio
-async def test_first_last_frame_payload_assigns_frame_roles(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_1080p_reaches_the_payload_verbatim() -> None:
+    # The tier drives the provider's encoding and our billing rate, so it must pass through as-is.
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("prompt", "A fox runs through a forest")
+    node.set_parameter_value("resolution", "1080p")
+
+    payload = await node._build_payload()
+
+    assert payload["resolution"] == "1080p"
+
+
+def _image_data_uri(width: int, height: int) -> str:
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), color=(90, 120, 60)).save(buffer, format="JPEG", quality=90)
+    return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode()
+
+
+def _decode_image_size(data_uri: str) -> tuple[int, int]:
+    _, _, encoded = data_uri.partition(";base64,")
+    with Image.open(io.BytesIO(base64.b64decode(encoded))) as img:
+        return img.size
+
+
+@pytest.mark.asyncio
+async def test_oversized_frame_is_downscaled_to_the_provider_cap() -> None:
+    # Seedance rejects input images whose width or height exceeds 6000px (the 2.5 backend fails
+    # the whole task; 2.0's downscales silently), so the node downscales before sending.
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("task", SeedanceTask.FIRST_LAST_FRAME)
+    node.set_parameter_value("prompt", "Drone Shot")
+    node.set_parameter_value("first_frame", ImageUrlArtifact(_image_data_uri(6500, 2000)))
+
+    payload = await node._build_payload()
+
+    frame_uri = payload["content"][1]["image_url"]["url"]
+    assert _decode_image_size(frame_uri) == (6000, 1846)
+
+
+@pytest.mark.asyncio
+async def test_within_limit_frame_bytes_pass_through_unchanged() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("task", SeedanceTask.FIRST_LAST_FRAME)
+    node.set_parameter_value("prompt", "Drone Shot")
+    within_limit_uri = _image_data_uri(1280, 720)
+    node.set_parameter_value("first_frame", ImageUrlArtifact(within_limit_uri))
+
+    payload = await node._build_payload()
+
+    assert payload["content"][1]["image_url"]["url"] == within_limit_uri
+
+
+@pytest.mark.asyncio
+async def test_undecodable_image_data_uri_passes_through_unchanged() -> None:
+    # Seedance accepts formats PIL has no codec for (HEIC/HEIF), so bytes PIL cannot decode must
+    # be sent unchanged rather than blocked by the downscale check.
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("task", SeedanceTask.FIRST_LAST_FRAME)
+    node.set_parameter_value("prompt", "Drone Shot")
+    heic_like_uri = "data:image/heic;base64," + base64.b64encode(b"not decodable by PIL").decode()
+    node.set_parameter_value("first_frame", ImageUrlArtifact(heic_like_uri))
+
+    payload = await node._build_payload()
+
+    assert payload["content"][1]["image_url"]["url"] == heic_like_uri
+
+
+@pytest.mark.asyncio
+async def test_first_last_frame_payload_assigns_frame_roles() -> None:
     node = Seedance25VideoGeneration(name="Seedance25")
     node.set_parameter_value("task", SeedanceTask.FIRST_LAST_FRAME)
     node.set_parameter_value("prompt", "The girl turns to face the camera")
     node.set_parameter_value("first_frame", ImageUrlArtifact("https://public.example/first.png"))
     node.set_parameter_value("last_frame", ImageUrlArtifact("https://public.example/last.png"))
 
-    async def fake_aread_data_uri(self: File, fallback_mime: str = "application/octet-stream") -> str:
-        return "data:image/png;base64,VALID_IMAGE"
-
-    monkeypatch.setattr(File, "aread_data_uri", fake_aread_data_uri)
-
     payload = await node._build_payload()
 
     assert payload["content"] == [
         {"type": "text", "text": "The girl turns to face the camera"},
-        {"type": "image_url", "image_url": {"url": "data:image/png;base64,VALID_IMAGE"}, "role": "first_frame"},
-        {"type": "image_url", "image_url": {"url": "data:image/png;base64,VALID_IMAGE"}, "role": "last_frame"},
+        {"type": "image_url", "image_url": {"url": "https://public.example/first.png"}, "role": "first_frame"},
+        {"type": "image_url", "image_url": {"url": "https://public.example/last.png"}, "role": "last_frame"},
     ]
 
 
 @pytest.mark.asyncio
-async def test_reference_payload_preserves_list_order_per_kind(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_reference_payload_preserves_list_order_per_kind() -> None:
     # List order is what @Image N / @Video N / @Audio N in the prompt resolve against.
     node = Seedance25VideoGeneration(name="Seedance25")
     node.set_parameter_value("task", SeedanceTask.REFERENCE_TO_VIDEO)
@@ -449,23 +585,18 @@ async def test_reference_payload_preserves_list_order_per_kind(monkeypatch: pyte
     )
     _set_parameter_list_values(node, "reference_audio", ["https://public.example/track.mp3"])
 
-    async def fake_aread_data_uri(self: File, fallback_mime: str = "application/octet-stream") -> str:
-        return f"data:image/png;base64,{fallback_mime}"
-
-    monkeypatch.setattr(File, "aread_data_uri", fake_aread_data_uri)
-
     payload = await node._build_payload()
 
     assert payload["content"] == [
         {"type": "text", "text": "@Image 1 walks toward @Image 2 while @Audio 1 plays"},
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image/jpeg"},
+            "image_url": {"url": "https://public.example/one.png"},
             "role": "reference_image",
         },
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/png;base64,image/jpeg"},
+            "image_url": {"url": "https://public.example/two.png"},
             "role": "reference_image",
         },
         {
@@ -487,26 +618,26 @@ async def test_reference_payload_preserves_list_order_per_kind(monkeypatch: pyte
 
 
 @pytest.mark.asyncio
-async def test_non_public_reference_video_is_uploaded_for_a_public_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Seedance rejects video base64, so a local/non-public video must be uploaded first.
+async def test_non_public_reference_video_is_uploaded_for_a_public_url(upload_env, tmp_path) -> None:
+    # Seedance rejects video base64, so a local/non-public video must be uploaded first. Asserted
+    # against the engine's real get_public_url_for_parameter, so the upload has to actually happen
+    # rather than being mocked into existence.
+    local_clip = tmp_path / "local-clip.mp4"
+    local_clip.write_bytes(b"clip bytes")
     node = Seedance25VideoGeneration(name="Seedance25")
     node.set_parameter_value("task", SeedanceTask.REFERENCE_TO_VIDEO)
     node.set_parameter_value("prompt", "Match the motion in @Video 1")
-    _set_parameter_list_values(node, "reference_videos", [VideoUrlArtifact("/tmp/local-clip.mp4")])
-
-    monkeypatch.setattr(
-        PublicArtifactUrlParameter,
-        "get_public_url_for_parameter",
-        lambda self: "https://public.example/uploaded.mp4",
-    )
+    _set_parameter_list_values(node, "reference_videos", [VideoUrlArtifact(str(local_clip))])
 
     payload = await node._build_payload()
 
     assert payload["content"][1] == {
         "type": "video_url",
-        "video_url": {"url": "https://public.example/uploaded.mp4"},
+        "video_url": {"url": upload_env.signed_url},
         "role": "reference_video",
     }
+    assert len(upload_env.uploaded_keys) == 1
+    assert upload_env.uploaded_keys[0].endswith("/local-clip.mp4")
 
 
 @pytest.mark.asyncio
@@ -537,6 +668,49 @@ async def test_build_payload_registers_private_asset_references(monkeypatch: pyt
         "image_url": {"url": "asset://generated-asset-id"},
         "role": "reference_image",
     }
+
+
+# --- Omni reference task type ----------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("task", "prompt", "expected"),
+    [
+        (SeedanceTask.REFERENCE_TO_VIDEO, "A street at dusk, styled after @Image 1", "reference"),
+        (SeedanceTask.VIDEO_EDITING, "Remove the background music from @Video 1", "edit"),
+        (SeedanceTask.VIDEO_EXTENSION, "Extend @Video 1 backward", "extend"),
+    ],
+)
+async def test_reference_subtasks_are_declared_to_the_provider(task: SeedanceTask, prompt: str, expected: str) -> None:
+    # Declaring the subtask is what moves the provider's ratio/duration checks to submission time.
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("task", task)
+    node.set_parameter_value("prompt", prompt)
+    _set_parameter_list_values(node, "reference_videos", [VideoUrlArtifact("https://public.example/reference.mp4")])
+
+    payload = await node._build_payload()
+
+    assert payload["omni_reference_task_type"] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("task", [SeedanceTask.TEXT_TO_VIDEO, SeedanceTask.FIRST_LAST_FRAME])
+async def test_non_reference_tasks_omit_the_task_type(task: SeedanceTask) -> None:
+    # Neither is an omni reference task, and omitting the field is what the provider treats as auto.
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("task", task)
+    node.set_parameter_value("prompt", "A fox runs through a forest")
+
+    payload = await node._build_payload()
+
+    assert "omni_reference_task_type" not in payload
+
+
+def test_every_task_declares_a_value_the_provider_accepts() -> None:
+    accepted = {None, *OmniReferenceTaskType}
+    for task, constraints in TASK_CONSTRAINTS.items():
+        assert constraints.omni_reference_task_type in accepted, task
 
 
 # --- Private-asset gating --------------------------------------------------------------------
@@ -622,11 +796,14 @@ async def test_parse_result_saves_last_frame_when_requested(monkeypatch: pytest.
     node = Seedance25VideoGeneration(name="Seedance25")
     node.set_parameter_value("return_last_frame", True)
 
-    downloaded: list[str] = []
+    saved_media_calls: list[str] = []
 
-    async def fake_download_and_save(self, url, output_param, artifact_factory, **kwargs) -> None:
-        downloaded.append(url)
-        self.parameter_output_values[output_param] = artifact_factory(url, "video.mp4")
+    async def fake_save_generated_media(self, generation_id, output_param, artifact_factory, **kwargs) -> bool:
+        saved_media_calls.append(generation_id)
+        self.parameter_output_values[output_param] = artifact_factory("https://hosted.example/output.mp4", "video.mp4")
+        return True
+
+    downloaded: list[str] = []
 
     async def fake_download_bytes(url: str) -> bytes:
         downloaded.append(url)
@@ -643,21 +820,17 @@ async def test_parse_result_saves_last_frame_when_requested(monkeypatch: pytest.
             saved_bytes.append(data)
             return FakeSavedFile()
 
-    monkeypatch.setattr(Seedance25VideoGeneration, "_download_and_save", fake_download_and_save)
+    monkeypatch.setattr(Seedance25VideoGeneration, "_save_generated_media", fake_save_generated_media)
     monkeypatch.setattr(Seedance25VideoGeneration, "_download_bytes_from_url", staticmethod(fake_download_bytes))
     monkeypatch.setattr(node._last_frame_file, "build_file", lambda **kwargs: FakeDestination())
 
     await node._parse_result(
-        {
-            "content": {
-                "video_url": "https://public.example/output.mp4",
-                "last_frame_url": "https://public.example/output_last.png",
-            }
-        },
+        {"content": {"last_frame_url": "https://public.example/output_last.png"}},
         "generation-1",
     )
 
-    assert downloaded == ["https://public.example/output.mp4", "https://public.example/output_last.png"]
+    assert saved_media_calls == ["generation-1"]
+    assert downloaded == ["https://public.example/output_last.png"]
     assert saved_bytes == [b"last-frame-bytes"]
     assert node.parameter_output_values["last_frame_url"].value == "project://seedance_2_5_last_frame.png"
 
@@ -666,22 +839,18 @@ async def test_parse_result_saves_last_frame_when_requested(monkeypatch: pytest.
 async def test_parse_result_skips_last_frame_when_not_requested(monkeypatch: pytest.MonkeyPatch) -> None:
     node = Seedance25VideoGeneration(name="Seedance25")
 
-    async def fake_download_and_save(self, url, output_param, artifact_factory, **kwargs) -> None:
-        self.parameter_output_values[output_param] = artifact_factory(url, "video.mp4")
+    async def fake_save_generated_media(self, generation_id, output_param, artifact_factory, **kwargs) -> bool:
+        self.parameter_output_values[output_param] = artifact_factory("https://hosted.example/output.mp4", "video.mp4")
+        return True
 
     def fail_if_called(url: str) -> bytes:
         raise AssertionError("the last frame must not be downloaded unless return_last_frame is set")
 
-    monkeypatch.setattr(Seedance25VideoGeneration, "_download_and_save", fake_download_and_save)
+    monkeypatch.setattr(Seedance25VideoGeneration, "_save_generated_media", fake_save_generated_media)
     monkeypatch.setattr(Seedance25VideoGeneration, "_download_bytes_from_url", staticmethod(fail_if_called))
 
     await node._parse_result(
-        {
-            "content": {
-                "video_url": "https://public.example/output.mp4",
-                "last_frame_url": "https://public.example/output_last.png",
-            }
-        },
+        {"content": {"last_frame_url": "https://public.example/output_last.png"}},
         "generation-1",
     )
 
@@ -694,35 +863,44 @@ async def test_failed_last_frame_download_does_not_fail_the_run(monkeypatch: pyt
     node = Seedance25VideoGeneration(name="Seedance25")
     node.set_parameter_value("return_last_frame", True)
 
-    async def fake_download_and_save(self, url, output_param, artifact_factory, **kwargs) -> None:
-        self.parameter_output_values[output_param] = artifact_factory(url, "video.mp4")
+    async def fake_save_generated_media(self, generation_id, output_param, artifact_factory, **kwargs) -> bool:
+        self.parameter_output_values[output_param] = artifact_factory("https://hosted.example/output.mp4", "video.mp4")
+        return True
 
     async def failing_download(url: str) -> bytes:
         msg = "410 Gone"
         raise RuntimeError(msg)
 
-    monkeypatch.setattr(Seedance25VideoGeneration, "_download_and_save", fake_download_and_save)
+    monkeypatch.setattr(Seedance25VideoGeneration, "_save_generated_media", fake_save_generated_media)
     monkeypatch.setattr(Seedance25VideoGeneration, "_download_bytes_from_url", staticmethod(failing_download))
 
     await node._parse_result(
-        {
-            "content": {
-                "video_url": "https://public.example/output.mp4",
-                "last_frame_url": "https://public.example/output_last.png",
-            }
-        },
+        {"content": {"last_frame_url": "https://public.example/output_last.png"}},
         "generation-1",
     )
 
-    assert node.parameter_output_values["video_url"].value == "https://public.example/output.mp4"
+    assert node.parameter_output_values["video_url"].value == "https://hosted.example/output.mp4"
     assert "last_frame_url" not in node.parameter_output_values
 
 
 @pytest.mark.asyncio
-async def test_parse_result_reports_failure_when_no_video_url() -> None:
+async def test_parse_result_skips_last_frame_when_video_is_not_hosted(monkeypatch: pytest.MonkeyPatch) -> None:
     node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("return_last_frame", True)
+
+    async def fake_save_generated_media(self, generation_id, output_param, artifact_factory, **kwargs) -> bool:
+        self.parameter_output_values[output_param] = None
+        self._set_status_results(was_successful=False, result_details="no video hosted")
+        return False
+
+    def fail_if_called(url: str) -> bytes:
+        raise AssertionError("the last frame must not be downloaded when the video was not saved")
+
+    monkeypatch.setattr(Seedance25VideoGeneration, "_save_generated_media", fake_save_generated_media)
+    monkeypatch.setattr(Seedance25VideoGeneration, "_download_bytes_from_url", staticmethod(fail_if_called))
 
     await node._parse_result({"content": {}}, "generation-1")
 
     assert node.parameter_output_values["video_url"] is None
     assert node.parameter_output_values["was_successful"] is False
+    assert "last_frame_url" not in node.parameter_output_values

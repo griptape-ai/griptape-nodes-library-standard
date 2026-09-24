@@ -36,16 +36,20 @@ __all__ = [
 
 
 def resolve_catalog_model_id(node: BaseNode, api_model_id: str) -> str | None:
-    """Resolve the selected provider model id to its stable catalog key.
+    """Resolve a provider's model id to the stable catalog key the permission layer gates on.
 
-    The lookup is scoped to the node's own declared models, so the
-    provider_model_id -> stable key mapping is unambiguous: a node does not
-    declare the same upstream model under two catalog keys. Returns None
-    when the selection is not one of the node's declared catalog models.
+    `api_model_id` is the provider's own name for the model: either the value a
+    model dropdown stores, or a driver's `model` attribute read off whatever
+    concrete driver ended up installed. The lookup is scoped to the node's own
+    declared models.
+
+    The catalog permits two entries to share one `provider_model_id`, so an
+    ambiguous match resolves to nothing rather than gating against an arbitrary
+    one of them. Returns None in that case, and when `api_model_id` is not a
+    provider id this node declares.
     """
-    matches = [
-        resolved.model_id for resolved in get_declared_models(node) if resolved.model.provider_model_id == api_model_id
-    ]
+    declared = get_declared_models(node)
+    matches = [resolved.model_id for resolved in declared if resolved.model.provider_model_id == api_model_id]
     return matches[0] if len(matches) == 1 else None
 
 

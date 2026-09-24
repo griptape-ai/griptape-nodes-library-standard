@@ -14,6 +14,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, Param
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -22,11 +23,10 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.traits.options import Options
 from PIL import Image
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 from griptape_nodes_library.utils.image_utils import (
     extract_image_url,
     resize_image_for_resolution,
@@ -71,6 +71,13 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         "omnihuman-1-0",
         "omnihuman-1-5",
     ]
+    # Migrates values saved before the dropdown stored the provider's own model id.
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
+        "OmniHuman 1.0": "omnihuman-1-0",
+        "OmniHuman 1.5": "omnihuman-1-5",
+        "gtc_omnihuman_1_0": "omnihuman-1-0",
+        "gtc_omnihuman_1_5": "omnihuman-1-5",
+    }
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -79,14 +86,21 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
 
         # INPUTS
         # add model_id parameter with fixed value
-        self.add_parameter(
-            ParameterString(
-                name="model_id",
-                default_value="omnihuman-1-5",
-                tooltip="Model identifier to use for generation",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=self.MODEL_IDS)},
-            )
+        model_id_param = ParameterString(
+            name="model_id",
+            default_value="omnihuman-1-5",
+            tooltip="Model identifier to use for generation",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_id_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_id_param,
+            model_choices=self.MODEL_IDS,
+            default_model="omnihuman-1-5",
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
         self.add_parameter(
             ParameterString(
@@ -199,7 +213,8 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         parameter: Parameter,
         value: Any,
     ) -> None:
-        # if the model_id parameter is omnihuman-1-0, remove seed, fast_mode, and prompt parameters
+        super().after_value_set(parameter, value)
+        # if the model_id parameter is OmniHuman 1.0, remove seed, fast_mode, and prompt parameters
         if parameter.name == "model_id" and value == "omnihuman-1-0":
             self.hide_parameter_by_name("seed")
             self.hide_parameter_by_name("fast_mode")
@@ -344,8 +359,6 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         seed = self.get_parameter_value("seed")
         fast_mode = self.get_parameter_value("fast_mode")
 
-        model_id = self.get_parameter_value("model_id")
-
         if not image_input:
             msg = "image_url parameter is required."
             raise ValueError(msg)
@@ -381,7 +394,7 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
                     mask_urls.append(mask_url)
 
         body = {
-            "req_key": self._get_req_key(model_id),
+            "req_key": self._get_req_key(self._get_selected_model_id()),
             "image_url": image_url,
             "audio_url": audio_url,
             "mask_url": "; ".join(mask_urls) if mask_urls else None,
@@ -393,7 +406,7 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
 
     async def _auto_detect_masks(self, image_url: str) -> list[str]:
         """Automatically detect masks by calling the subject detection API."""
-        headers = {"Authorization": f"Bearer {self._validate_api_key()}", "Content-Type": "application/json"}
+        headers = build_griptape_cloud_headers(self._validate_api_key(), attribution=True)
 
         # Build payload for subject detection
         provider_params = {
@@ -430,7 +443,7 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
             return []
 
     def _get_req_key(self, model_id: str) -> str:
-        """Get the request key based on model_id."""
+        """Get the request key based on the upstream provider's model id."""
         if model_id == "omnihuman-1-0":
             return "realman_avatar_picture_omni_cv"
         if model_id == "omnihuman-1-5":
@@ -438,27 +451,11 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         msg = f"Unsupported model_id: {model_id}"
         raise ValueError(msg)
 
-    def _validate_api_key(self) -> str:
-        """Validate that the API key is available."""
-        api_key = resolve_proxy_api_key(self.API_KEY_NAME)
-        if not api_key:
-            msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
-            raise ValueError(msg)
-        return api_key
-
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model_id") or ""
-
     async def _build_payload(self) -> dict[str, Any]:
         params = await self._get_parameters()
         return params
 
-    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
-        # Handle binary response if returned
-        if "raw_bytes" in result_json:
-            await self._handle_video_bytes(result_json["raw_bytes"])
-            return
-
+    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         provider_response = result_json.get("provider_response", result_json)
         if isinstance(provider_response, str):
             try:
@@ -473,60 +470,12 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
             self._set_status_results(was_successful=False, result_details=error_details)
             return
 
-        await self._handle_completion(provider_response)
-
-    async def _handle_video_bytes(self, video_bytes: bytes) -> None:
-        if not video_bytes:
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(was_successful=False, result_details="Received empty video data from API.")
-            return
-
-        try:
-            dest = self._output_file.build_file()
-            saved = await dest.awrite_bytes(video_bytes)
-            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-            self._set_status_results(
-                was_successful=True,
-                result_details=f"Video generation completed successfully. Saved as: {saved.name}",
-            )
-        except Exception as e:
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False, result_details=f"Video generation completed but failed to save: {e}"
-            )
-
-    async def _handle_completion(self, response_json: dict[str, Any]) -> None:
-        """Handle successful completion of video generation."""
-        # Extract provider response
-        provider_response = response_json.get("provider_response", {})
-        if isinstance(provider_response, str):
-            try:
-                provider_response = _json.loads(provider_response)
-            except Exception:
-                provider_response = {}
-
-        # Extract video URL from provider response
-        video_url = self._extract_video_url(provider_response)
-
-        if not video_url:
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details="Generation completed but no video URL was found in the response.",
-            )
-            return
-
-        await self._download_and_save(video_url, "video_url", lambda v, n: VideoUrlArtifact(value=v, name=n))
-
-    @staticmethod
-    def _extract_video_url(response_json: dict[str, Any]) -> str | None:
-        """Extract video URL from API response."""
-        # Try direct video_url field
-        video_url = _json.loads(response_json.get("data", {}).get("resp_data", "{}")).get("video_url")
-        if isinstance(video_url, str) and video_url.startswith("http"):
-            return video_url
-
-        return None
+        await self._save_generated_media(
+            generation_id,
+            "video_url",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+        )
 
     def _set_safe_defaults(self) -> None:
         """Set safe default values for outputs on error."""
