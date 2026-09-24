@@ -32,10 +32,10 @@ from griptape_nodes_library.assets import (
     get_provider_asset_kind,
     is_provider_asset_reference,
 )
+from griptape_nodes_library.proxy import ArtifactKind
 from griptape_nodes_library.video.seedance_common import (
     SeedanceProxyNode,
     coerce_video_url,
-    extract_video_url,
 )
 
 logger = logging.getLogger("griptape_nodes")
@@ -877,19 +877,14 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
             # Text Only mode: no media inputs
             self._log(f"{self.name} text-only mode, no media inputs")
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        """Parse the result and set output parameters."""
-        extracted_url = extract_video_url(result_json)
-        if not extracted_url:
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no video URL was found in the response.",
-            )
-            return
-
-        # Download and save video
-        await self._download_and_save(extracted_url, "video_url", lambda v, n: VideoUrlArtifact(value=v, name=n))
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        """Save the hosted video."""
+        await self._save_generated_media(
+            generation_id,
+            "video_url",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+        )
 
     def _set_safe_defaults(self) -> None:
         """Clear all output parameters on error."""

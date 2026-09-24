@@ -16,6 +16,9 @@ FLOW_INPUTS: dict[str, dict] = {
     "test_ltx_text_to_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_wan_text_to_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_minimax_hailuo_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
+    "test_seedance_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
+    "test_gemini_omni_flash_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
+    "test_kling_omni_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_tripo_text_to_3d_generation.py": {"Start Flow": {"prompt": "A simple chair"}},
     "test_elevenlabs_text_to_speech_generation.py": {"Start Flow": {"prompt": "Hello world"}},
     "test_elevenlabs_sound_effect_generation.py": {"Start Flow": {"prompt": "Thunder clap"}},
@@ -23,6 +26,7 @@ FLOW_INPUTS: dict[str, dict] = {
     "test_seedance_2_0.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_seedance_2_0_fast.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_seedance_2_5.py": {"Start Flow": {"prompt": "A ball bouncing"}},
+    "test_ltx_text_to_video_generation_2_5.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_openai_image_generation_wide.py": {"Start Flow": {"prompt": "A red circle"}},
     "test_openai_image_generation_tall.py": {"Start Flow": {"prompt": "A red circle"}},
 }

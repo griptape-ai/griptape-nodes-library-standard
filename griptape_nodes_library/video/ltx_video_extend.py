@@ -16,7 +16,7 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
 from griptape_nodes_library.media import prepare_media_data_uri
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.video.public_video_url_mixin import PublicVideoUrlMixin
 
 logger = logging.getLogger("griptape_nodes")
@@ -294,40 +294,15 @@ class LTXVideoExtend(PublicVideoUrlMixin, GriptapeProxyNode):
 
         return payload
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        video_bytes = result_json.get("raw_bytes")
-        if not isinstance(video_bytes, (bytes, bytearray)):
-            msg = f"{self.name} generation completed but no video data received."
-            raise TypeError(msg)
-
-        await self._handle_completion_async(bytes(video_bytes), generation_id)
-
-    async def _handle_completion_async(self, video_bytes: bytes, generation_id: str) -> None:
-        """Handle successful completion by saving the video to static storage."""
-        if not video_bytes:
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no video data received.",
-            )
-            return
-
-        try:
-            dest = self._output_file.build_file()
-            saved = await dest.awrite_bytes(video_bytes)
-            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-            logger.info("%s saved video as %s", self.name, saved.name)
-            self._set_status_results(
-                was_successful=True,
-                result_details=f"Video extension successful and saved as {saved.name}.",
-            )
-        except (OSError, PermissionError) as e:
-            logger.error("%s failed to save to static storage: %s", self.name, e)
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"Video generated but failed to save to storage: {e}",
-            )
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        """Save the hosted video. LTX returns the media as the response body itself."""
+        await self._save_generated_media(
+            generation_id,
+            "video_url",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+            action="extended",
+        )
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:  # noqa: C901, PLR0912
         if not response_json:
