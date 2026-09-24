@@ -18,6 +18,7 @@ from griptape_nodes.exe_types.core_types import (
     ParameterMode,
 )
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
+from griptape_nodes.exe_types.param_components.progress_bar_component import ProgressBarComponent
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileDestinationProvider
@@ -43,6 +44,7 @@ logger = logging.getLogger("griptape_nodes")
 __all__ = ["ExtractFrames"]
 
 FORMAT_OPTIONS = ["png", "jpg", "webp"]
+PADDING_OPTIONS = ["1", "2", "3", "4", "5", "6", "7", "8"]
 
 DEFAULT_OUTPUT_PREFIX = "frames"
 DEFAULT_FRAME_PADDING = 4
@@ -171,6 +173,14 @@ class ExtractFrames(SuccessFailureNode):
             )
 
             ParameterString(
+                name="frame_padding",
+                default_value=str(DEFAULT_FRAME_PADDING),
+                tooltip="Number of digits used to zero-pad frame numbers in output filenames.",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Options(choices=PADDING_OPTIONS)},
+            )
+
+            ParameterString(
                 name="file_format",
                 default_value=DEFAULT_OUTPUT_FORMAT,
                 tooltip="Image format for extracted frames.",
@@ -200,6 +210,9 @@ class ExtractFrames(SuccessFailureNode):
                 ui_options={"pulse_on_run": True},
             )
         )
+        self.progress_component = ProgressBarComponent(self)
+        self.progress_component.add_property_parameters()
+
         self._create_status_parameters(
             result_details_tooltip="Details about the frame extraction result or any errors",
             result_details_placeholder="Extraction status will appear here.",
@@ -509,6 +522,7 @@ class ExtractFrames(SuccessFailureNode):
             raise ValueError(msg) from e
 
         saved_paths: list[pathlib.Path] = []
+        self.progress_component.initialize(len(frame_numbers))
         for frame_num in frame_numbers:
             filename = f"{prefix}.{str(frame_num).zfill(padding)}.{fmt}"
             output_path = output_dir / filename
@@ -539,6 +553,7 @@ class ExtractFrames(SuccessFailureNode):
                 raise RuntimeError(msg) from e
 
             saved_paths.append(output_path)
+            self.progress_component.increment()
 
         return saved_paths
 
@@ -546,6 +561,7 @@ class ExtractFrames(SuccessFailureNode):
 
     def process(self) -> AsyncResult[None]:
         self._clear_execution_status()
+        self.progress_component.reset()
 
         raw_video = self.get_parameter_value("input_video")
         try:
@@ -583,7 +599,7 @@ class ExtractFrames(SuccessFailureNode):
         output_dir.mkdir(parents=True, exist_ok=True)
 
         prefix = self.get_parameter_value("file_prefix") or DEFAULT_OUTPUT_PREFIX
-        padding = DEFAULT_FRAME_PADDING
+        padding = int(self.get_parameter_value("frame_padding") or DEFAULT_FRAME_PADDING)
         fmt = self.get_parameter_value("file_format") or DEFAULT_OUTPUT_FORMAT
 
         saved_paths = self._extract_frames(
