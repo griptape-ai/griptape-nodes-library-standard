@@ -10,10 +10,8 @@ import logging
 from typing import Any, cast
 
 import attrs
-from griptape.drivers.image_generation.griptape_cloud import GriptapeCloudImageGenerationDriver
 from griptape.drivers.memory.conversation.griptape_cloud import GriptapeCloudConversationMemoryDriver
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
-from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.drivers.prompt.ollama import OllamaPromptDriver
 from griptape.drivers.prompt.openai import OpenAiChatPromptDriver
 from griptape.drivers.ruleset.griptape_cloud import GriptapeCloudRulesetDriver
@@ -22,6 +20,13 @@ from griptape.rules import Rule, Ruleset
 from griptape.tasks import PromptTask
 from griptape_nodes.drivers.cloud_models import ProviderID
 
+from griptape_nodes_library.utils.cloud_budget_drivers import (
+    MODULE_NAME as CLOUD_BUDGET_DRIVERS_MODULE,
+)
+from griptape_nodes_library.utils.cloud_budget_drivers import (
+    GriptapeCloudImageGenerationDriver,
+    GriptapeCloudPromptDriver,
+)
 from griptape_nodes_library.utils.cloud_credential_utils import missing_credential_message, resolve_cloud_api_key
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
@@ -98,6 +103,23 @@ deriving the set means an upstream fix starts attributing them with no change he
 """
 
 
+_BUDGET_AWARE_CLOUD_DRIVER_TAGS: frozenset[str] = frozenset(
+    driver.__name__
+    for driver in (
+        GriptapeCloudImageGenerationDriver,
+        GriptapeCloudPromptDriver,
+    )
+)
+"""``type`` tags to rebuild as this library's budget-aware driver rather than upstream's.
+
+``to_dict()`` writes the class name and no module, and these subclasses are named after the
+drivers they replace, so a rebuild finds upstream's -- an agent that round-trips through a
+saved workflow or a node boundary would come back retrying budget refusals, and dropping the
+body off a streamed one. Writing ``module_name`` in alongside the credential repair sends
+``from_dict()`` to ours instead.
+"""
+
+
 def _restored_cloud_credentials(agent_core_dict: dict, *, require_credential: bool) -> dict:
     """Return the agent dict with a fresh ``api_key`` and attribution headers on every Cloud driver.
 
@@ -133,6 +155,8 @@ def _restored_cloud_credentials(agent_core_dict: dict, *, require_credential: bo
         driver_dict["api_key"] = api_key
         if driver_dict.get("type") in _HEADER_SETTABLE_CLOUD_DRIVER_TAGS:
             driver_dict["headers"] = build_griptape_cloud_headers(api_key, attribution=True)
+        if driver_dict.get("type") in _BUDGET_AWARE_CLOUD_DRIVER_TAGS:
+            driver_dict["module_name"] = CLOUD_BUDGET_DRIVERS_MODULE
     return result
 
 

@@ -1,13 +1,13 @@
 from typing import Any
 
 from griptape.artifacts import BaseArtifact
-from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.events import ActionChunkEvent, FinishStructureRunEvent, StartStructureRunEvent, TextChunkEvent
 from griptape.structures import Agent, Structure
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 
+from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 

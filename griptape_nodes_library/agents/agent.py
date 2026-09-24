@@ -11,7 +11,6 @@ from typing import Any, cast  # cast used for handle_request narrowing
 
 from griptape.artifacts import BaseArtifact, ModelArtifact, TextArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
-from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.events import (
     ActionChunkEvent,
     FinishActionsSubtaskEvent,
@@ -55,6 +54,7 @@ from griptape_nodes_library.utils.agent_utils import (
     unwrap_agent,
     wrap_agent,
 )
+from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,

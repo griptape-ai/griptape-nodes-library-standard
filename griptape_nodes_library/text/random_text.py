@@ -5,7 +5,6 @@ import string
 from typing import Any
 
 from griptape.artifacts import BaseArtifact
-from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
@@ -14,6 +13,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
+from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
