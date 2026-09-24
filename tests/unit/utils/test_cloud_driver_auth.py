@@ -25,6 +25,9 @@ LIBRARY_ROOT = Path(griptape_nodes_library.__file__).parent
 
 _TOKEN = "gt-the-credential"  # noqa: S105
 
+_CLOUD_DRIVER_MODULES = ("griptape.drivers", "griptape_nodes_library.utils.cloud_budget_drivers")
+"""Modules a Cloud driver class is imported from, for the construction scan below."""
+
 # Constructions allowed to skip the `cloud_driver_auth()` spread: `(file, function) -> (how many,
 # why)`. Keyed by function *and* counted, because either alone leaks wider than intended -- by file
 # it would also cover `agent_utils.build_prompt_driver`, by function a second construction added
@@ -59,6 +62,11 @@ def _cloud_driver_constructions() -> dict[tuple[Path, str], list[tuple[int, bool
     Keyed by enclosing function to match `UNSPREAD_CONSTRUCTIONS`; the lineno only names the line
     in a failure. Aliases resolve from the `ImportFrom` binding rather than by name, because
     `griptape_cloud_prompt.py` imports the class `as GtGriptapeCloudPromptDriver`.
+
+    Both sources of a Cloud driver count. Prompt and image drivers come from
+    `cloud_budget_drivers`, which subclasses upstream's to stop on a budget refusal; the rest
+    still come straight from `griptape.drivers`. A scan that knew only the latter would go quiet
+    on the two most-constructed drivers in the library and report an all-clear.
     """
     found: dict[tuple[Path, str], list[tuple[int, bool]]] = {}
     for path in sorted(LIBRARY_ROOT.rglob("*.py")):
@@ -66,7 +74,7 @@ def _cloud_driver_constructions() -> dict[tuple[Path, str], list[tuple[int, bool
         bound = {
             alias.asname or alias.name
             for node in ast.walk(tree)
-            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("griptape.drivers")
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(_CLOUD_DRIVER_MODULES)
             for alias in node.names
             if alias.name.startswith("GriptapeCloud") and alias.name.endswith("Driver")
         }

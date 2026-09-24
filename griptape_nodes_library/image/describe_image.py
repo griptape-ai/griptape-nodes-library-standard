@@ -3,7 +3,6 @@ from typing import Any, cast
 
 from griptape.artifacts import ImageUrlArtifact, ModelArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
-from griptape.drivers.prompt.griptape_cloud_prompt_driver import GriptapeCloudPromptDriver
 from griptape.drivers.prompt.openai import OpenAiChatPromptDriver as GtOpenAiChatPromptDriver
 from griptape.structures import Structure
 from griptape.tasks import PromptTask
@@ -32,6 +31,7 @@ from griptape_nodes_library.utils.agent_utils import (
     unwrap_agent,
     wrap_agent,
 )
+from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,

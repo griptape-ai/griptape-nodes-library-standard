@@ -3,8 +3,6 @@ from typing import Any, cast
 import requests
 from griptape.artifacts import BaseArtifact, ImageUrlArtifact
 from griptape.drivers.image_generation.base_image_generation_driver import BaseImageGenerationDriver
-from griptape.drivers.image_generation.griptape_cloud import GriptapeCloudImageGenerationDriver
-from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.tasks import PromptImageGenerationTask, PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
@@ -17,6 +15,10 @@ from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
 from griptape_nodes_library.utils.agent_utils import restore_provider_driver, unwrap_agent, wrap_agent
+from griptape_nodes_library.utils.cloud_budget_drivers import (
+    GriptapeCloudImageGenerationDriver,
+    GriptapeCloudPromptDriver,
+)
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
