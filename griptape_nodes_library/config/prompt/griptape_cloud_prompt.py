@@ -9,7 +9,6 @@ node configuration, and instantiates the `GriptapeCloudPromptDriver`.
 
 from typing import Any
 
-from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver as GtGriptapeCloudPromptDriver
 from griptape_nodes.drivers.cloud_models import (
     MODEL_CHOICES,
     MODEL_CHOICES_ARGS,
@@ -18,6 +17,9 @@ from griptape_nodes.drivers.cloud_models import (
 from griptape_nodes.exe_types.core_types import Parameter
 
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
+from griptape_nodes_library.utils.cloud_budget_drivers import (
+    GriptapeCloudPromptDriver as GtGriptapeCloudPromptDriver,
+)
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
