@@ -19,6 +19,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
+from griptape_nodes_library.utils.error_utils import raise_if_budget_halt
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
@@ -255,6 +256,7 @@ class RandomText(DataNode):
             require_model_invocation_sync(self, MODEL)
 
             result = self.agent.run(prompt)
+            raise_if_budget_halt(result.output)
             if isinstance(result, BaseArtifact):
                 return result.output.value
             return str(result.output.value)
