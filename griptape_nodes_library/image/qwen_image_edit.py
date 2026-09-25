@@ -9,6 +9,7 @@ from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -16,11 +17,9 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -35,6 +34,16 @@ MODEL_OPTIONS = [
     "qwen-image-edit-plus",
     "qwen-image-edit-plus-2025-10-30",
 ]
+
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Qwen Image Edit": "qwen-image-edit",
+    "Qwen Image Edit Plus": "qwen-image-edit-plus",
+    "Qwen Image Edit Plus (2025-10-30)": "qwen-image-edit-plus-2025-10-30",
+    "gtc_qwen_image_edit": "qwen-image-edit",
+    "gtc_qwen_image_edit_plus": "qwen-image-edit-plus",
+    "gtc_qwen_image_edit_plus_2025_10_30": "qwen-image-edit-plus-2025-10-30",
+}
 
 # Response status constants
 STATUS_FAILED = "Failed"
@@ -87,14 +96,21 @@ class QwenImageEdit(GriptapeProxyNode):
         self.description = "Edit images using Qwen image editing models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="qwen-image-edit-plus",
-                tooltip="Select the Qwen image editing model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="qwen-image-edit-plus",
+            tooltip="Select the Qwen image editing model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model="qwen-image-edit-plus",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Editing instruction parameter
@@ -239,17 +255,6 @@ class QwenImageEdit(GriptapeProxyNode):
             "seed": self._seed_parameter.get_seed(),
         }
 
-    def _validate_api_key(self) -> str:
-        api_key = resolve_proxy_api_key(self.API_KEY_NAME)
-        if not api_key:
-            self._set_safe_defaults()
-            msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
-            raise ValueError(msg)
-        return api_key
-
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or ""
-
     async def _build_payload(self) -> dict[str, Any]:
         params = self._get_parameters()
 
@@ -268,7 +273,7 @@ class QwenImageEdit(GriptapeProxyNode):
 
         # Flatten structure - parameters should be at top level for MultiModalConversation.call()
         payload = {
-            "model": params["model"],
+            "model": self._get_selected_model_id(),
             "messages": [{"role": "user", "content": content}],
             "n": params["num_images"],
             "watermark": params["watermark"],
@@ -342,25 +347,14 @@ class QwenImageEdit(GriptapeProxyNode):
 
             logger.info("Request payload: %s", json.dumps(sanitized_payload, indent=2))
 
-    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
-        """Handle Qwen synchronous response and extract image.
+    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
+        """Handle Qwen response and save the hosted image.
 
         Response shape:
         {
             "status_code": 200,
             "request_id": "...",
-            "output": {
-                "choices": [
-                    {
-                        "message": {
-                            "content": [
-                                {"image": "https://..."},
-                                {"image": "https://..."}
-                            ]
-                        }
-                    }
-                ]
-            }
+            ...
         }
         """
         # Extract request_id for generation_id
@@ -376,58 +370,31 @@ class QwenImageEdit(GriptapeProxyNode):
             self._set_status_results(was_successful=False, result_details=error_details)
             return
 
-        try:
-            choices = result_json.get("choices", [])
-            choice = choices[0]
-            message = choice.get("message", {})
-            content = message.get("content", [])
-            first_content_item = content[0]
-            image_url = first_content_item.get("image")
-        except Exception as e:
-            logger.error("Failed to extract image URL from response: %s", e)
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details="Editing completed but failed to extract image URL from the response.",
-            )
-            return
+        await self._save_generated_media(
+            generation_id,
+            "image_url",
+            lambda v, _n: ImageUrlArtifact(v),
+            kind=ArtifactKind.IMAGE,
+            media_kind="image",
+            action="edited",
+        )
+        await self._warn_on_unsurfaced_images(generation_id)
 
-        if image_url:
-            await self._save_image_from_url(image_url)
-        else:
-            logger.warning("No image URL found in content")
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details="Editing completed but no image URL was found in the response.",
-            )
+    async def _warn_on_unsurfaced_images(self, generation_id: str) -> None:
+        """Log when Qwen produced more images than this node exposes.
 
-    async def _save_image_from_url(self, image_url: str) -> None:
-        """Download and save the image from the provided URL."""
-        try:
-            logger.info("Downloading image from URL")
-            image_bytes = await File(image_url).aread_bytes()
-            if image_bytes:
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(image_bytes)
-                self.parameter_output_values["image_url"] = ImageUrlArtifact(saved.location)
-                logger.info("Saved image as %s", saved.name)
-                self._set_status_results(
-                    was_successful=True, result_details=f"Image edited successfully and saved as {saved.name}."
+        The node asks for one edit per input image and has a single ``image_url``
+        output, so a multi-image edit is billed for images nothing can read. Saying so
+        beats dropping them in silence.
+        """
+        with suppress(Exception):
+            hosted = [a for a in await self._hosted_artifacts(generation_id) if a.kind == ArtifactKind.IMAGE]
+            if len(hosted) > 1:
+                logger.warning(
+                    "%s: the generation hosts %d images but this node surfaces one; the rest are unread",
+                    self.name,
+                    len(hosted),
                 )
-            else:
-                self.parameter_output_values["image_url"] = ImageUrlArtifact(value=image_url)
-                self._set_status_results(
-                    was_successful=True,
-                    result_details="Image edited successfully. Using provider URL (could not download image bytes).",
-                )
-        except Exception as e:
-            logger.error("Failed to save image from URL: %s", e)
-            self.parameter_output_values["image_url"] = ImageUrlArtifact(value=image_url)
-            self._set_status_results(
-                was_successful=True,
-                result_details=f"Image edited successfully. Using provider URL (could not save to static storage: {e}).",
-            )
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
         """Extract error details from API response.

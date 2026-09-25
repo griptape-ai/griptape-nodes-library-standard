@@ -6,31 +6,50 @@ from griptape.drivers.image_generation.base_image_generation_driver import BaseI
 from griptape.drivers.image_generation.griptape_cloud import GriptapeCloudImageGenerationDriver
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.tasks import PromptImageGenerationTask, PromptTask
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
 from griptape_nodes_library.utils.agent_utils import restore_provider_driver, unwrap_agent, wrap_agent
+from griptape_nodes_library.utils.cloud_credential_utils import (
+    missing_credential_message,
+    resolve_cloud_api_key,
+)
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.error_utils import try_throw_error
+from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
-MODEL_CHOICES = ["gpt-image-1-mini", "gpt-image-1.5"]
+MODEL_CHOICES = [
+    "gpt-image-1-mini",
+    "gpt-image-1.5",
+]
 AVAILABLE_SIZES = ["1024x1024", "1536x1024", "1024x1536"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 DEFAULT_SIZE = AVAILABLE_SIZES[0]
 
-# Deprecated models and their replacements
-DEPRECATED_MODELS = {
+# Migrates values saved before the dropdown stored the provider's own model id. "dall-e-3"
+# and "gpt-image-1" predate this node's own MODEL_CHOICES history and were folded in
+# from the DEPRECATED_MODELS dict this replaces. "GPT-4o" / "gpt-4o" are deliberately
+# excluded even though the generated catalog table lists them: this node's dropdown
+# never offered "gpt-4o" as an image model (it's the hardcoded model of the separate
+# prompt-enhancement driver below), and its catalog key gtc_gpt_4o is not one of this
+# node's own MODEL_CHOICES, so mapping to it here would fail ModelAccessComponent's
+# construction-time validation that every deprecated_values target is a current choice.
+LEGACY_MODEL_VALUES = {
+    "GPT Image 1 Mini": "gpt-image-1-mini",
+    "GPT Image 1.5": "gpt-image-1.5",
     "dall-e-3": "gpt-image-1-mini",
     "gpt-image-1": "gpt-image-1-mini",
+    "gtc_gpt_image_1_5": "gpt-image-1.5",
+    "gtc_gpt_image_1_mini": "gpt-image-1-mini",
 }
 
 
@@ -52,33 +71,25 @@ class GenerateImage(ControlNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
             )
         )
-        self.add_parameter(
-            Parameter(
-                name="model",
-                input_types=["str", "Image Generation Driver"],
-                type="str",
-                default_value=DEFAULT_MODEL,
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                tooltip="Select the model you want to use from the available options.",
-                traits={Options(choices=MODEL_CHOICES)},
-                ui_options={"display_name": "image model"},
-            )
+        model_param = Parameter(
+            name="model",
+            input_types=["str", "Image Generation Driver"],
+            type="str",
+            default_value=DEFAULT_MODEL,
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            tooltip="Select the model you want to use from the available options.",
+            ui_options={"display_name": "image model"},
         )
-        self.add_node_element(
-            ParameterMessage(
-                name="model_deprecation_notice",
-                title="Model Deprecation Notice",
-                variant="info",
-                value="",
-                traits={
-                    Button(
-                        full_width=True,
-                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
-                    )
-                },
-                button_text="Dismiss",
-                hide=True,
-            )
+        self.add_parameter(model_param)
+        # License-policy helper: adds Options + refresh Button traits, applies per-row
+        # decoration + badge, exposes query_for_denial / raise_if_denied, and
+        # relocates the stored value to a permitted alternative if DEFAULT_MODEL is denied.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_CHOICES,
+            default_model=DEFAULT_MODEL,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
         self.add_parameter(
             ParameterString(
@@ -144,13 +155,13 @@ class GenerateImage(ControlNode):
     def validate_before_workflow_run(self) -> list[Exception] | None:
         # TODO: https://github.com/griptape-ai/griptape-nodes/issues/871
         exceptions = []
-        api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
+        api_key = resolve_cloud_api_key()
         if not api_key:
             # If we have an agent or a driver, the lack of API key will be surfaced on them, not us.
             agent_val = self.parameter_values.get("agent", None)
             driver_val = self.parameter_values.get("driver", None)
             if agent_val is None and driver_val is None:
-                msg = f"{API_KEY_ENV_VAR} is not defined"
+                msg = missing_credential_message("generate an image")
                 exceptions.append(KeyError(msg))
 
         # Validate that we have a prompt.
@@ -159,24 +170,6 @@ class GenerateImage(ControlNode):
             exceptions.append(prompt_error)
 
         return exceptions if exceptions else None
-
-    def before_value_set(
-        self,
-        parameter: Parameter,
-        value: Any,
-    ) -> Any:
-        if parameter.name == "model" and isinstance(value, str) and value in DEPRECATED_MODELS:
-            replacement = DEPRECATED_MODELS[value]
-            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
-            if message is None:
-                raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
-            message.value = f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. Please save your workflow to apply this change."
-            self.show_message_by_name("model_deprecation_notice")
-            value = replacement
-        elif parameter.name == "model" and isinstance(value, str):
-            self.hide_message_by_name("model_deprecation_notice")
-
-        return super().before_value_set(parameter, value)
 
     def after_value_set(
         self,
@@ -198,6 +191,7 @@ class GenerateImage(ControlNode):
             else:
                 # It's an Image Generation Driver, which we canNOT serialize.
                 parameter.serializable = False
+            self._model_access.on_value_set(parameter, value)
 
         return super().after_value_set(parameter, value)
 
@@ -212,14 +206,19 @@ class GenerateImage(ControlNode):
         if exception:
             raise exception
 
+        # License-policy runtime gate for the image model. Non-string values (a connected
+        # Image Generation Driver) bypass it: they carry their own model identity. The
+        # INVOKE_MODEL declarations below still gate the models that actually run.
+        self._model_access.raise_if_selection_denied()
+
         agent_input = self.get_parameter_value("agent")
         tool_configs: list = []
         ruleset_configs: list = []
         if not agent_input:
             prompt_driver = GriptapeCloudPromptDriver(
                 model="gpt-4o",
-                api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
                 stream=True,
+                **cloud_driver_auth(),
             )
             agent = GtAgent(prompt_driver=prompt_driver)
         else:
@@ -238,6 +237,12 @@ class GenerateImage(ControlNode):
 
         if enhance_prompt:
             self.append_value_to_parameter("logs", "Enhancing prompt...\n")
+            # This runs the agent's own prompt driver (the default gpt-4o driver, or a
+            # connected agent's) -- a model invocation distinct from the image-generation
+            # driver below, and one no dropdown selects, so its model comes from the task
+            # driver. Declare it so a denied invocation fails closed before the call.
+            enhance_model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
+            require_model_invocation_sync(self, enhance_model, purpose="prompt enhancement")
             # agent.run is a blocking operation that will hold up the rest of the engine.
             # By using `yield lambda`, the engine can run this in the background and resume when it's done.
             result = yield lambda: agent.run(
@@ -267,24 +272,31 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
         if isinstance(model_input, BaseImageGenerationDriver):
             driver = model_input
         elif isinstance(model_input, str):
-            if model_input not in MODEL_CHOICES:
+            if model_input not in self._model_access.model_choices:
                 model_input = DEFAULT_MODEL
             driver = GriptapeCloudImageGenerationDriver(
                 model=model_input,
                 image_size=self.get_parameter_value("image_size"),
-                api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
                 # Don't retry on HTTP errors, we want to fail fast.
                 ignored_exception_types=(requests.exceptions.HTTPError,),
+                **cloud_driver_auth(),
             )
         else:
             driver = GriptapeCloudImageGenerationDriver(
                 model=DEFAULT_MODEL,
                 image_size=self.get_parameter_value("image_size"),
-                api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
                 ignored_exception_types=(requests.HTTPError,),
+                **cloud_driver_auth(),
             )
 
         kwargs["image_generation_driver"] = driver
+
+        # The image generation driver is settled above -- every branch produces a
+        # concrete BaseImageGenerationDriver whose `model` is a required field. The util
+        # resolves that provider model id to its stable catalog key (via the node's
+        # model_usage) before declaring. Declare before swapping in the task (and the
+        # network call it triggers below) so a denied invocation fails closed here.
+        require_model_invocation_sync(self, driver.model)
 
         # Set new Image Generation Task
         # Cool trick to swap the task of the agent from PromptTask to ImageGenerationTask
@@ -360,13 +372,16 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
             # Enable PROPERTY so the user can set it
             target_parameter.allowed_modes = {ParameterMode.INPUT, ParameterMode.PROPERTY}
 
-            target_parameter.add_trait(Options(choices=MODEL_CHOICES))
-            target_parameter.set_default_value(DEFAULT_MODEL)
-            target_parameter.default_value = DEFAULT_MODEL
+            default_model = self._model_access.pick_permitted_default() or DEFAULT_MODEL
+            target_parameter.set_default_value(default_model)
+            target_parameter.default_value = default_model
             ui_options = target_parameter.ui_options
             ui_options["display_name"] = "model"
             target_parameter.ui_options = ui_options
-            self.set_parameter_value("model", DEFAULT_MODEL)
+            self.set_parameter_value("model", default_model)
+            # Helper reinstalls its Options trait + decoration + badge on the freshly-uncovered
+            # parameter (the incoming-connection handler stripped Options when the driver connected).
+            self._model_access.reinstall_options()
             self.show_parameter_by_name("image_size")
 
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)

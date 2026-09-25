@@ -218,3 +218,11 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Griptape Nodes
+#   Engine runtime artifacts. GriptapeNodes/ is the local workspace directory, and
+#   outputs/ plus .griptape-nodes-metadata/ are written next to any workflow that runs,
+#   so both appear under tests/ and workflows/ as well as inside the workspace.
+GriptapeNodes/
+outputs/
+.griptape-nodes-metadata/
+

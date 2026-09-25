@@ -4,7 +4,6 @@ from griptape.structures import Agent, Structure
 from griptape.tools import DateTimeTool as GtDateTimeTool
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.node_types import AsyncResult
-from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.tasks.base_task import BaseTask
@@ -18,7 +17,6 @@ FORMAT_CHOICES = [
     "This Saturday at 7 PM",
     "Custom format",
 ]
-MODEL_CHOICES = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-5"]
 DEFAULT_MODEL = "gpt-4.1-mini"
 
 
@@ -53,20 +51,7 @@ class DateAndTime(BaseTask):
                 ui_options={"hide": True, "placeholder_text": "any custom format"},
             )
         )
-        model_param = Parameter(
-            name="model",
-            type="str",
-            default_value=DEFAULT_MODEL,
-            tooltip="The model to use for the task.",
-            ui_options={"hide": True},
-        )
-        self.add_parameter(model_param)
-        self._model_access = ModelAccessComponent(
-            node=self,
-            parameter=model_param,
-            model_choices=MODEL_CHOICES,
-            default_model=DEFAULT_MODEL,
-        )
+        self._add_model_parameter(default_model=DEFAULT_MODEL)
 
         self.add_parameter(
             Parameter(
@@ -90,20 +75,14 @@ class DateAndTime(BaseTask):
                 self.show_parameter_by_name("custom_format")
             else:
                 self.hide_parameter_by_name("custom_format")
-        if parameter.name == "model":
-            self._model_access.on_value_changed(value)
         return super().after_value_set(parameter, value)
 
     def process(self) -> AsyncResult[Structure]:
         prompt = self.get_parameter_value("prompt")
-        model = self.get_parameter_value("model")
+        model = self._require_permitted_model()
         date_format = self.get_parameter_value("format")
         if date_format == "Custom format":
             date_format = self.get_parameter_value("custom_format")
-
-        # License-policy runtime gate. Raises RuntimeError if the currently-selected
-        # model is denied.
-        self._model_access.raise_if_denied(model)
 
         # Create the tool
         tool = GtDateTimeTool()

@@ -1,14 +1,15 @@
-from typing import Any
-
 from griptape.drivers.image_generation.griptape_cloud import (
     GriptapeCloudImageGenerationDriver as GtGriptapeCloudImageGenerationDriver,
 )
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-from griptape_nodes.traits.button import Button
+from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.config.image.base_image_driver import BaseImageDriver
+from griptape_nodes_library.utils.cloud_credential_utils import (
+    missing_credential_message,
+    resolve_cloud_api_key,
+)
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 
 # --- Constants ---
 
@@ -20,8 +21,13 @@ DEFAULT_MODEL = MODEL_CHOICES[0]
 AVAILABLE_SIZES = ["1024x1024", "1536x1024", "1024x1536"]
 DEFAULT_SIZE = AVAILABLE_SIZES[0]
 
-# Deprecated models and their replacements
-DEPRECATED_MODELS = {
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES = {
+    "GPT Image 1 Mini": "gpt-image-1-mini",
+    "GPT Image 1.5": "gpt-image-1.5",
+    "gtc_gpt_image_1_5": "gpt-image-1.5",
+    "gtc_gpt_image_1_mini": "gpt-image-1-mini",
+    # Folded in from this node's own retired DEPRECATED_MODELS dict.
     "dall-e-3": "gpt-image-1-mini",
 }
 
@@ -37,28 +43,13 @@ class GriptapeCloudImage(BaseImageDriver):
 
         # --- Customize Inherited Parameters ---
 
-        # Update the 'model' parameter for Griptape Cloud specifics.
-        self._update_option_choices(param="model", choices=MODEL_CHOICES, default=DEFAULT_MODEL)
+        # Offer Griptape Cloud's models as a license-filtered dropdown.
+        self._install_model_access(
+            model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=LEGACY_MODEL_VALUES
+        )
 
         # Update the 'size' parameter for Griptape Cloud specifics.
         self._update_option_choices(param="image_size", choices=AVAILABLE_SIZES, default=str(DEFAULT_SIZE))
-
-        self.add_node_element(
-            ParameterMessage(
-                name="model_deprecation_notice",
-                title="Model Deprecation Notice",
-                variant="info",
-                value="",
-                traits={
-                    Button(
-                        full_width=True,
-                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
-                    )
-                },
-                button_text="Dismiss",
-                hide=True,
-            )
-        )
 
         # Add additional parameters specific to Griptape Cloud
         self.add_parameter(
@@ -71,27 +62,12 @@ class GriptapeCloudImage(BaseImageDriver):
             )
         )
 
-    def before_value_set(
-        self,
-        parameter: Parameter,
-        value: Any,
-    ) -> Any:
-        if parameter.name == "model" and isinstance(value, str) and value in DEPRECATED_MODELS:
-            replacement = DEPRECATED_MODELS[value]
-            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
-            if message is None:
-                raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
-            message.value = f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. Please save your workflow to apply this change."
-            self.show_message_by_name("model_deprecation_notice")
-            value = replacement
-        elif parameter.name == "model" and isinstance(value, str):
-            self.hide_message_by_name("model_deprecation_notice")
-
-        return super().before_value_set(parameter, value)
-
     def process(self) -> None:
         # Get the parameters from the node
         params = self.parameter_values
+
+        # A model the license denies must not reach a downstream node as a driver.
+        self._raise_if_model_denied()
 
         # --- Get Common Driver Arguments ---
         # Use the helper method from BaseImageDriver to get common driver arguments
@@ -100,8 +76,11 @@ class GriptapeCloudImage(BaseImageDriver):
         # --- Prepare Griptape Cloud Specific Arguments ---
         specific_args = {}
 
-        # Retrieve the mandatory API key.
-        specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
+        # Retrieve the mandatory API key, alongside the headers that carry attribution.
+        specific_args.update(cloud_driver_auth())
+
+        # The provider's own id for the selected model.
+        specific_args["model"] = self._get_selected_model_id()
 
         specific_args["quality"] = self.get_parameter_value("quality")
 
@@ -119,4 +98,8 @@ class GriptapeCloudImage(BaseImageDriver):
             service_name=SERVICE,
             api_key_env_var=API_KEY_ENV_VAR,
             api_key_url=API_KEY_URL,
+            # Griptape Cloud accepts a License as well as an API key; a license-only
+            # user has no GT_CLOUD_API_KEY, so resolve both before deciding.
+            resolved_credential=resolve_cloud_api_key(),
+            missing_credential_msg=missing_credential_message("configure the Griptape Cloud image driver"),
         )

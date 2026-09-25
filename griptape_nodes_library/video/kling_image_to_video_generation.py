@@ -10,6 +10,7 @@ from typing import Any, ClassVar
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -24,7 +25,7 @@ from griptape_nodes.traits.widget import Widget
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -72,17 +73,27 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         - result_details (str): Details about the generation result or error
     """
 
-    # Map user-facing names to provider model IDs
-    MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
-        "Kling v3.0": "kling-v3",
-        "Kling v2.6": "kling-v2-6",
-        "Kling v2.5 Turbo": "kling-v2-5-turbo",
-        "Kling v2.1 Master": "kling-v2-1-master",
-        "Kling v2.1": "kling-v2-1",
-        "Kling v2 Master": "kling-v2-master",
-        "Kling v1.6": "kling-v1-6",
-        "Kling v1.5": "kling-v1-5",
+    # Migrates values saved before the dropdown stored the provider's own model id: old
+    # display labels and catalog keys.
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
         "Kling v1": "kling-v1",
+        "Kling v1.5": "kling-v1-5",
+        "Kling v1.6": "kling-v1-6",
+        "Kling v2 Master": "kling-v2-master",
+        "Kling v2.1": "kling-v2-1",
+        "Kling v2.1 Master": "kling-v2-1-master",
+        "Kling v2.5 Turbo": "kling-v2-5-turbo",
+        "Kling v2.6": "kling-v2-6",
+        "Kling v3.0": "kling-v3",
+        "gtc_kling_v1": "kling-v1",
+        "gtc_kling_v1_5": "kling-v1-5",
+        "gtc_kling_v1_6": "kling-v1-6",
+        "gtc_kling_v2_1": "kling-v2-1",
+        "gtc_kling_v2_1_master": "kling-v2-1-master",
+        "gtc_kling_v2_5_turbo": "kling-v2-5-turbo",
+        "gtc_kling_v2_6": "kling-v2-6",
+        "gtc_kling_v2_master": "kling-v2-master",
+        "gtc_kling_v3": "kling-v3",
     }
 
     # Model capability definitions
@@ -151,29 +162,32 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         super().__init__(**kwargs)
 
         # INPUTS / PROPERTIES
-        self.add_parameter(
-            ParameterString(
-                name="model_name",
-                default_value="Kling v3.0",
-                tooltip="Model Name for generation",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={
-                    Options(
-                        choices=[
-                            "Kling v3.0",
-                            "Kling v2.6",
-                            "Kling v2.5 Turbo",
-                            "Kling v2.1 Master",
-                            "Kling v2.1",
-                            "Kling v2 Master",
-                            "Kling v1.6",
-                            "Kling v1.5",
-                            "Kling v1",
-                        ]
-                    )
-                },
-                ui_options={"display_name": "Model"},
-            )
+        model_name_param = ParameterString(
+            name="model_name",
+            default_value="kling-v3",
+            tooltip="Model Name for generation",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={"display_name": "Model"},
+        )
+        self.add_parameter(model_name_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_name_param,
+            model_choices=[
+                "kling-v3",
+                "kling-v2-6",
+                "kling-v2-5-turbo",
+                "kling-v2-1-master",
+                "kling-v2-1",
+                "kling-v2-master",
+                "kling-v1-6",
+                "kling-v1-5",
+                "kling-v1",
+            ],
+            default_model="kling-v3",
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
         # Prompts
@@ -376,7 +390,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         )
 
         # Set initial parameter visibility based on default model
-        self._update_parameter_visibility_for_model(self.get_parameter_value("model_name") or "Kling v3.0")
+        self._update_parameter_visibility_for_model(self.get_parameter_value("model_name") or "kling-v3")
         self._update_multi_shot_parameter_visibility()
 
         self.set_initial_node_size(height=1145)
@@ -398,8 +412,8 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
     def _update_duration_choices(self) -> None:
         """Update duration dropdown based on current model and image_tail state."""
-        model_name = self.get_parameter_value("model_name") or "Kling v3.0"
-        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        model_name = self.get_parameter_value("model_name") or "kling-v3"
+        model_id = model_name
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
         new_durations = list(capabilities.get("durations", [5, 10]))
         # kling-v1: end frame restricts to 5s only
@@ -413,7 +427,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
     def _update_parameter_visibility_for_model(self, model_name: str) -> None:
         """Update parameter visibility based on selected model."""
-        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        model_id = model_name
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
 
         # Show mask features for all models
@@ -466,7 +480,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
     def _update_mode_dependent_features(self) -> None:
         """Show/hide features that depend on the current mode (e.g. sound for kling-v2-6)."""
         model_name = self.get_parameter_value("model_name") or ""
-        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        model_id = model_name
         if model_id == "kling-v2-6":
             mode = self.get_parameter_value("mode") or MODE_PRO
             if mode == MODE_PRO:
@@ -487,8 +501,8 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
     def _update_multi_shot_parameter_visibility(self) -> None:
         """Toggle prompt and shot inputs for v3 multi-shot configurations."""
-        model_name = self.get_parameter_value("model_name") or "Kling v3.0"
-        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        model_name = self.get_parameter_value("model_name") or "kling-v3"
+        model_id = model_name
         if model_id != V3_MODEL_ID:
             return
 
@@ -586,9 +600,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
         Appends :image2video modality to the model name.
         """
-        model_name = self.get_parameter_value("model_name") or "Kling v2.6"
-        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
-        return f"{model_id}:image2video"
+        return f"{self._get_selected_model_id()}:image2video"
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for Kling API.
@@ -596,8 +608,8 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         Returns:
             dict: The request payload (model field excluded, handled by base class)
         """
-        model_name = self.get_parameter_value("model_name") or "Kling v2.6"
-        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        model_name = self.get_parameter_value("model_name") or "kling-v2-6"
+        model_id = model_name
 
         # Normalize image parameters before processing
         image_input = normalize_artifact_input(
@@ -884,69 +896,22 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             return None
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        """Parse the result and set output parameters.
+        """Save the hosted video and record Kling's own id for it.
 
-        Expected structure: {"data": {"task_result": {"videos": [{"url": "...", "id": "..."}]}}}
+        Kling reports the id under {"data": {"task_result": {"videos": [{"id": "..."}]}}}.
         """
-        data = result_json.get("data", {})
-        task_result = data.get("task_result", {})
-        videos = task_result.get("videos", [])
-
-        if not videos or not isinstance(videos, list) or len(videos) == 0:
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no videos found in response.",
-            )
-            return
-
-        video_info = videos[0]
-        download_url = video_info.get("url")
-        video_id = video_info.get("id")
-
-        if not download_url:
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no download URL found in response.",
-            )
-            return
-
-        # Set kling_video_id output parameter
+        videos = result_json.get("data", {}).get("task_result", {}).get("videos", [])
+        video_id = videos[0].get("id") if videos and isinstance(videos[0], dict) else None
         if video_id:
             self.parameter_output_values["kling_video_id"] = video_id
             logger.info("Video ID: %s", video_id)
 
-        # Download and save video
-        try:
-            logger.info("%s downloading video from provider URL", self.name)
-            video_bytes = await self._download_bytes_from_url(download_url)
-        except Exception as e:
-            logger.warning("%s failed to download video: %s", self.name, e)
-            video_bytes = None
-
-        if video_bytes:
-            try:
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(video_bytes)
-                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-                logger.info("%s saved video as %s", self.name, saved.name)
-                self._set_status_results(
-                    was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
-                )
-            except (OSError, PermissionError) as e:
-                logger.warning("%s failed to save video: %s, using provider URL", self.name, e)
-                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=download_url)
-                self._set_status_results(
-                    was_successful=True,
-                    result_details=f"Video generated successfully. Using provider URL (could not save to storage: {e}).",
-                )
-        else:
-            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=download_url)
-            self._set_status_results(
-                was_successful=True,
-                result_details="Video generated successfully. Using provider URL (could not download video bytes).",
-            )
+        await self._save_generated_media(
+            generation_id,
+            "video_url",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+        )
 
     def _set_safe_defaults(self) -> None:
         """Clear output parameters on error."""
@@ -958,8 +923,8 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         exceptions = super().validate_before_node_run() or []
 
         # Get parameter values
-        model_name = self.get_parameter_value("model_name") or "Kling v2.6"
-        model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
+        model_name = self.get_parameter_value("model_name") or "kling-v2-6"
+        model_id = model_name
         image = self.get_parameter_value("image")
         image_tail = self.get_parameter_value("image_tail")
         prompt = self.get_parameter_value("prompt") or ""

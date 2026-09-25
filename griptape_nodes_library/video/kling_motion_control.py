@@ -16,7 +16,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -221,69 +221,22 @@ class KlingMotionControl(GriptapeProxyNode):
         return payload
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        """Parse the result and set output parameters.
+        """Save the hosted video and record Kling's own id for it.
 
-        Expected structure: {"data": {"task_result": {"videos": [{"url": "...", "id": "..."}]}}}
+        Kling reports the id under {"data": {"task_result": {"videos": [{"id": "..."}]}}}.
         """
-        data = result_json.get("data", {})
-        task_result = data.get("task_result", {})
-        videos = task_result.get("videos", [])
-
-        if not videos or not isinstance(videos, list) or len(videos) == 0:
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no videos found in response.",
-            )
-            return
-
-        video_info = videos[0]
-        download_url = video_info.get("url")
-        video_id = video_info.get("id")
-
-        if not download_url:
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no download URL found in response.",
-            )
-            return
-
-        # Set kling_video_id output parameter
+        videos = result_json.get("data", {}).get("task_result", {}).get("videos", [])
+        video_id = videos[0].get("id") if videos and isinstance(videos[0], dict) else None
         if video_id:
             self.parameter_output_values["kling_video_id"] = video_id
             logger.info("Video ID: %s", video_id)
 
-        # Download and save video
-        try:
-            logger.info("%s downloading video from provider URL", self.name)
-            video_bytes = await self._download_bytes_from_url(download_url)
-        except Exception as e:
-            logger.warning("%s failed to download video: %s", self.name, e)
-            video_bytes = None
-
-        if video_bytes:
-            try:
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(video_bytes)
-                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-                logger.info("%s saved video as %s", self.name, saved.name)
-                self._set_status_results(
-                    was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
-                )
-            except (OSError, PermissionError) as e:
-                logger.warning("%s failed to save video: %s, using provider URL", self.name, e)
-                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=download_url)
-                self._set_status_results(
-                    was_successful=True,
-                    result_details=f"Video generated successfully. Using provider URL (could not save to storage: {e}).",
-                )
-        else:
-            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=download_url)
-            self._set_status_results(
-                was_successful=True,
-                result_details="Video generated successfully. Using provider URL (could not download video bytes).",
-            )
+        await self._save_generated_media(
+            generation_id,
+            "video_url",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+        )
 
     def _set_safe_defaults(self) -> None:
         """Clear output parameters on error."""

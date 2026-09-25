@@ -12,6 +12,7 @@ from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -19,16 +20,22 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.ffmpeg_utils import get_ffmpeg_path
 
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["LTXAudioToVideoGeneration"]
 
-MODEL_MAPPING = {
+# Migrates values saved before the dropdown stored the provider's own model id: old
+# display labels and catalog keys.
+LEGACY_MODEL_VALUES = {
     "LTX 2 Pro": "ltx-2-pro",
     "LTX 2.3 Pro": "ltx-2-3-pro",
+    "LTX 2.5 Fast": "ltx-2-5-fast",
+    "LTX 2.5 Pro": "ltx-2-5-pro",
+    "gtc_ltx_2_3_pro": "ltx-2-3-pro",
+    "gtc_ltx_2_pro": "ltx-2-pro",
 }
 
 
@@ -39,7 +46,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
         - audio (AudioArtifact|AudioUrlArtifact|str): Input audio (required, base64 data URI format)
         - prompt (str): Text prompt for video generation (required)
         - image (ImageArtifact|ImageUrlArtifact|str): Input image (optional, base64 data URI format)
-        - resolution (str): Video resolution (1920x1080)
+        - resolution (str): Video resolution (1920x1080 or 1080x1920)
         - guidance_scale (float): Guidance scale for generation (1-50, optional)
 
     Outputs:
@@ -58,14 +65,21 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
         super().__init__(**kwargs)
 
         # INPUTS / PROPERTIES
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="LTX 2 Pro",
-                tooltip="Model to use for video generation",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["LTX 2 Pro", "LTX 2.3 Pro"])},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="ltx-2-5-fast",
+            tooltip="Model to use for video generation",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=["ltx-2-pro", "ltx-2-3-pro", "ltx-2-5-pro", "ltx-2-5-fast"],
+            default_model="ltx-2-5-fast",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
         self.add_parameter(
             ParameterString(
@@ -109,7 +123,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
                 default_value="1920x1080",
                 tooltip="Video resolution",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["1920x1080"])},
+                traits={Options(choices=["1920x1080", "1080x1920"])},
             )
         )
 
@@ -177,7 +191,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
         """Get and process all parameters, including audio and image conversion."""
         return {
             "prompt": self.get_parameter_value("prompt") or "",
-            "model": self.get_parameter_value("model") or "LTX 2 Pro",
+            "model": self.get_parameter_value("model") or "ltx-2-pro",
             "audio_uri": await self._prepare_audio_data_url_async(self.get_parameter_value("audio")),
             "image_uri": await self._prepare_image_data_url_async(self.get_parameter_value("image")),
             "resolution": self.get_parameter_value("resolution") or "1920x1080",
@@ -185,9 +199,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
         }
 
     def _get_api_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "LTX 2 Pro"
-        model_id = MODEL_MAPPING.get(model_name, "ltx-2-pro")
-        return f"{model_id}:audio-to-video"
+        return f"{self._get_selected_model_id()}:audio-to-video"
 
     async def _prepare_audio_data_url_async(self, audio_input: Any) -> str | None:
         """Convert audio input to a base64 data URL."""
@@ -399,7 +411,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
             msg = f"{self.name} requires a prompt to generate video."
             raise ValueError(msg)
 
-        model_id = MODEL_MAPPING.get(params["model"], "ltx-2-pro")
+        model_id = params["model"]
         payload: dict[str, Any] = {
             "audio_uri": params["audio_uri"],
             "prompt": params["prompt"].strip(),
@@ -413,44 +425,14 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
 
         return payload
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        video_bytes = result_json.get("raw_bytes")
-        if not isinstance(video_bytes, (bytes, bytearray)):
-            msg = f"{self.name} generation completed but no video data received."
-            raise TypeError(msg)
-
-        await self._handle_completion_async(bytes(video_bytes), generation_id)
-
-    async def _handle_completion_async(self, video_bytes: bytes, generation_id: str) -> None:
-        """Handle successful completion by saving the video to static storage.
-
-        Args:
-            video_bytes: Raw binary MP4 data received from /result endpoint
-            generation_id: Generation ID for filename
-        """
-        if not video_bytes:
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no video data received.",
-            )
-            return
-
-        try:
-            dest = self._output_file.build_file()
-            saved = await dest.awrite_bytes(video_bytes)
-            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-            logger.info("%s saved video as %s", self.name, saved.name)
-            self._set_status_results(
-                was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
-            )
-        except (OSError, PermissionError) as e:
-            logger.error("%s failed to save to static storage: %s", self.name, e)
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"Video generated but failed to save to storage: {e}",
-            )
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        """Save the hosted video. LTX returns the media as the response body itself."""
+        await self._save_generated_media(
+            generation_id,
+            "video_url",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+        )
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:  # noqa: C901, PLR0912
         if not response_json:

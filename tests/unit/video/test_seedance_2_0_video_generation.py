@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 from griptape.artifacts import ImageUrlArtifact
@@ -11,8 +13,10 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
     PublicArtifactUrlParameter,
 )
 from griptape_nodes.exe_types.param_types import parameter_image
-from griptape_nodes.files.file import File
+from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.retained_mode.events.os_events import FileIOFailureReason
 from griptape_nodes.traits.options import Options
+from PIL import Image
 
 from griptape_nodes_library.assets import (
     ASSET_KIND_AUDIO,
@@ -25,8 +29,8 @@ from griptape_nodes_library.video.seedance_2_0_video_generation import (
     SEEDANCE_2_0_MODEL_ID,
     SEEDANCE_MODEL_CAPABILITIES,
     Seedance20VideoGeneration,
-    _normalize_audio_data_uri_subtype,
 )
+from griptape_nodes_library.video.seedance_common import normalize_audio_data_uri_subtype
 
 
 def _set_parameter_list_values(node: Seedance20VideoGeneration, parameter_name: str, values: list[object]) -> None:
@@ -68,18 +72,19 @@ async def test_build_payload_normalizes_local_frame_paths(monkeypatch: pytest.Mo
     node.set_parameter_value("first_frame", str(first_frame))
     node.set_parameter_value("last_frame", str(last_frame))
 
-    async def fake_aread_data_uri(self: File, fallback_mime: str = "application/octet-stream") -> str:
-        return "data:image/png;base64,VALID_IMAGE"
+    async def fail_if_called(self: File, fallback_mime: str = "application/octet-stream") -> str:
+        raise AssertionError("a normalized public URL must not be downloaded and re-encoded")
 
-    monkeypatch.setattr(File, "aread_data_uri", fake_aread_data_uri)
+    monkeypatch.setattr(File, "aread_data_uri", fail_if_called)
 
     payload = await node._build_payload()
     frame_entries = [item for item in payload["content"] if item["type"] == "image_url"]
 
     assert normalization_calls == [str(first_frame), str(last_frame)]
+    # Normalization turns these into public URLs, which the provider fetches itself.
     assert frame_entries == [
-        {"type": "image_url", "image_url": {"url": "data:image/png;base64,VALID_IMAGE"}, "role": "first_frame"},
-        {"type": "image_url", "image_url": {"url": "data:image/png;base64,VALID_IMAGE"}, "role": "last_frame"},
+        {"type": "image_url", "image_url": {"url": "https://example.com/first.png"}, "role": "first_frame"},
+        {"type": "image_url", "image_url": {"url": "https://example.com/last.png"}, "role": "last_frame"},
     ]
     assert all(str(first_frame) not in item["image_url"]["url"] for item in frame_entries)
     assert all(str(last_frame) not in item["image_url"]["url"] for item in frame_entries)
@@ -259,7 +264,7 @@ async def test_build_payload_includes_multimodal_video_url_and_audio_base64() ->
     ],
 )
 def test_normalize_audio_data_uri_subtype(data_uri: str, expected: str) -> None:
-    assert _normalize_audio_data_uri_subtype(data_uri) == expected
+    assert normalize_audio_data_uri_subtype(data_uri) == expected
 
 
 @pytest.mark.asyncio
@@ -330,6 +335,278 @@ async def test_build_payload_uses_public_artifact_url_parameter_for_reference_vi
     ]
 
 
+# --- Reference images that name a file travel as URLs ---------------------------------------
+
+
+def _multimodal_node_with_reference_images(values: list[object]) -> Seedance20VideoGeneration:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    node.set_parameter_value("prompt", "Animate @Image 1")
+    _set_parameter_list_values(node, "reference_images", values)
+    return node
+
+
+@pytest.mark.asyncio
+async def test_public_reference_image_url_passes_through_without_upload(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An already-public URL is what the provider fetches; downloading and re-encoding it was the
+    # wasted work this change removes.
+    node = _multimodal_node_with_reference_images([ImageUrlArtifact("https://public.example/style.png")])
+
+    def fail_if_called(self) -> str:
+        raise AssertionError("an already-public image URL must not be uploaded")
+
+    monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", fail_if_called)
+
+    payload = await node._build_payload()
+
+    assert payload["content"][1] == {
+        "type": "image_url",
+        "image_url": {"url": "https://public.example/style.png"},
+        "role": "reference_image",
+    }
+    assert not node._pending_asset_uploads
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "static_url",
+    [
+        "http://localhost:8124/workspace/static_files/style.png",
+        "http://127.0.0.1:8124/workspace/static_files/style.png",
+        "http://0.0.0.0:8124/workspace/static_files/style.png",
+        "http://192.168.1.20:8124/workspace/static_files/style.png",
+        "http://my-container:8124/workspace/static_files/style.png",
+        "https://192.168.1.20:8124/workspace/static_files/style.png",
+        # The static server appends a cachebuster, which must not defeat path resolution.
+        "http://192.168.1.20:8124/workspace/static_files/style.png?t=1730000000",
+    ],
+)
+async def test_static_server_reference_image_is_really_uploaded(upload_env, static_url: str) -> None:
+    # STATIC_SERVER_HOST / static_server_base_url are overridable for tunnels and reverse proxies,
+    # so the static server is reached by localhost, a loopback or LAN IP, or a bare container name
+    # depending on the deployment. Every spelling must produce a real upload -- not a pass-through
+    # (the provider cannot fetch it, and it discloses an internal host) and not base64 (that is the
+    # oversized body of #2191). Asserted against the engine's real get_public_url_for_parameter.
+    node = _multimodal_node_with_reference_images([ImageUrlArtifact(static_url)])
+
+    payload = await node._build_payload()
+    serialized = json.dumps(payload)
+
+    hostname = urlparse(static_url).hostname
+    assert hostname is not None
+
+    assert payload["content"][1]["image_url"] == {"url": upload_env.signed_url}
+    # The upload really happened, and kept the extension the presigned content type is guessed from.
+    assert len(upload_env.uploaded_keys) == 1
+    assert upload_env.uploaded_keys[0].endswith("/style.png")
+    # Neither the URL nor the internal host it names may survive anywhere in the payload.
+    assert static_url not in serialized
+    assert hostname not in serialized
+    assert "base64" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_unresolvable_unreachable_url_degrades_to_base64(monkeypatch: pytest.MonkeyPatch, upload_env) -> None:
+    # An unreachable host that is *not* one of our static-server URLs cannot be resolved to a file,
+    # so there is nothing to upload. It must degrade to base64 -- what this path always did -- and
+    # must not pass through as a URL the provider cannot fetch.
+    unreachable_url = "http://192.168.1.20:9000/img/style.png"
+    node = _multimodal_node_with_reference_images([ImageUrlArtifact(unreachable_url)])
+
+    async def fake_read(self: File, fallback_mime: str = "application/octet-stream") -> str:  # noqa: ARG001
+        return upload_env.inline_data_uri
+
+    monkeypatch.setattr(File, "aread_data_uri", fake_read)
+
+    payload = await node._build_payload()
+    serialized = json.dumps(payload)
+
+    assert payload["content"][1]["image_url"] == {"url": upload_env.inline_data_uri}
+    assert upload_env.uploaded_keys == []
+    assert unreachable_url not in serialized
+    assert "192.168.1.20" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_public_http_url_passes_through_without_upload(upload_env) -> None:
+    # Plain http on a real domain is fetchable by the provider, so it passes through. Holding it to
+    # an https-only bar instead sent it to an upload the engine declines to perform, which then had
+    # nothing to return -- a regression this asserts against.
+    public_http_url = "http://insecure.example.com/style.png"
+    node = _multimodal_node_with_reference_images([ImageUrlArtifact(public_http_url)])
+
+    payload = await node._build_payload()
+
+    assert payload["content"][1]["image_url"] == {"url": public_http_url}
+    assert upload_env.uploaded_keys == []
+    assert not node._pending_asset_uploads
+
+
+@pytest.mark.asyncio
+async def test_local_path_reference_image_is_uploaded_for_a_public_url(upload_env, tmp_path) -> None:
+    reference_image = tmp_path / "style.png"
+    reference_image.write_bytes(b"style")
+    node = _multimodal_node_with_reference_images([ImageUrlArtifact(str(reference_image))])
+
+    payload = await node._build_payload()
+
+    assert payload["content"][1]["image_url"] == {"url": upload_env.signed_url}
+    assert len(upload_env.uploaded_keys) == 1
+    assert upload_env.uploaded_keys[0].endswith("/style.png")
+
+
+@pytest.mark.asyncio
+async def test_many_reference_images_stay_out_of_the_payload(
+    monkeypatch: pytest.MonkeyPatch, upload_env, tmp_path
+) -> None:
+    # Regression for griptape-ai/griptape-cloud#2191: seven reference images read from disk were
+    # inlined as base64, pushing the request past the provider's size limit, which came back as an
+    # opaque "proxy client error". Images that name a file must travel as URLs however many there are.
+    reference_images = []
+    for index in range(7):
+        reference_image = tmp_path / f"style-{index}.png"
+        reference_image.write_bytes(b"style" * 1000)
+        reference_images.append(ImageUrlArtifact(str(reference_image)))
+    node = _multimodal_node_with_reference_images(reference_images)
+
+    async def fail_if_called(self: File, fallback_mime: str = "application/octet-stream") -> str:
+        raise AssertionError("reference images that name a file must not be read inline as base64")
+
+    monkeypatch.setattr(File, "aread_data_uri", fail_if_called)
+
+    payload = await node._build_payload()
+    image_entries = [item for item in payload["content"] if item["type"] == "image_url"]
+
+    assert len(image_entries) == 7
+    assert all(item["image_url"] == {"url": upload_env.signed_url} for item in image_entries)
+    # Seven real uploads, not seven mocked return values.
+    assert len(upload_env.uploaded_keys) == 7
+    assert "base64" not in json.dumps(payload)
+
+
+@pytest.mark.asyncio
+async def test_oversized_file_reference_image_is_downscaled_not_uploaded(
+    monkeypatch: pytest.MonkeyPatch, upload_env, tmp_path
+) -> None:
+    # An image over Seedance's 6000px cap fails server-side no matter how it is delivered (the 2.5
+    # backend rejects the task; 2.0's downscales silently), so it is downscaled and inlined instead
+    # of uploaded at full size. Measuring is a header-only PIL read: the file must still never be
+    # read through File.aread_data_uri.
+    reference_image = tmp_path / "huge.png"
+    Image.new("RGB", (6500, 500)).save(reference_image, format="PNG")
+    node = _multimodal_node_with_reference_images([ImageUrlArtifact(str(reference_image))])
+
+    async def fail_if_called(self: File, fallback_mime: str = "application/octet-stream") -> str:
+        raise AssertionError("reference images that name a file must not be read inline as base64")
+
+    monkeypatch.setattr(File, "aread_data_uri", fail_if_called)
+
+    payload = await node._build_payload()
+    image_entries = [item for item in payload["content"] if item["type"] == "image_url"]
+
+    assert len(image_entries) == 1
+    assert image_entries[0]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert len(upload_env.uploaded_keys) == 0
+
+
+def test_private_asset_accepts_a_public_http_url(upload_env) -> None:
+    # Provider asset registration needs a URL the provider can fetch, and plain http on a real
+    # domain qualifies. Requiring https here rejected an input that registers fine, because the
+    # upload it assumed would happen instead is one the engine declines to perform.
+    public_http_url = "http://images.example.com/face.png"
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node._pending_asset_uploads = []
+    ref = create_provider_asset_reference(value=public_http_url, asset_kind=ASSET_KIND_IMAGE)
+
+    assert node._resolve_public_url_for_asset(ref, asset_kind=ASSET_KIND_IMAGE) == public_http_url
+    assert upload_env.uploaded_keys == []
+
+
+def test_private_asset_rejects_an_unreachable_host(upload_env) -> None:
+    # The provider cannot fetch a LAN address. Registering it anyway leaves the asset stuck and
+    # discloses an internal host, so this fails at our own gate with a message that says why.
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node._pending_asset_uploads = []
+    ref = create_provider_asset_reference(value="http://192.168.1.20:9000/face.png", asset_kind=ASSET_KIND_IMAGE)
+
+    with pytest.raises(RuntimeError, match="was not uploaded"):
+        node._resolve_public_url_for_asset(ref, asset_kind=ASSET_KIND_IMAGE)
+    assert upload_env.uploaded_keys == []
+
+
+@pytest.mark.asyncio
+async def test_data_uri_reference_image_stays_inline(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An image that already carries its bytes is sent inline, as every other image input in this
+    # library does. Uploading it would key the stored object by a slice of its own base64 payload.
+    data_uri = "data:image/png;base64,RAW_IMAGE_BASE64"
+    node = _multimodal_node_with_reference_images([data_uri])
+
+    def fail_if_called(self) -> str:
+        raise AssertionError("an inline image must not be uploaded")
+
+    monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", fail_if_called)
+
+    payload = await node._build_payload()
+
+    assert payload["content"][1] == {
+        "type": "image_url",
+        "image_url": {"url": data_uri},
+        "role": "reference_image",
+    }
+    assert not node._pending_asset_uploads
+
+
+@pytest.mark.asyncio
+async def test_upload_failure_degrades_to_base64_rather_than_failing_the_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    # An upload that cannot run (no credential, unreachable bucket, transient 5xx) must not fail the
+    # run over media that inlined fine before, and must not drop the image either -- that renumbers
+    # the @Image N the prompt refers to. Degrade to base64, as PublicVideoUrlMixin does for video.
+    reference_image = tmp_path / "style.png"
+    reference_image.write_bytes(b"style")
+    node = _multimodal_node_with_reference_images([ImageUrlArtifact(str(reference_image))])
+
+    def raise_runtime_error(self) -> str:
+        raise RuntimeError("bucket unreachable")
+
+    monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", raise_runtime_error)
+
+    async def fake_aread_data_uri(self: File, fallback_mime: str = "application/octet-stream") -> str:
+        return "data:image/png;base64,READ_FROM_DISK"
+
+    monkeypatch.setattr(File, "aread_data_uri", fake_aread_data_uri)
+
+    payload = await node._build_payload()
+
+    # The media is read, not handed over as a path: a filesystem path in the body is something the
+    # provider cannot fetch, and it discloses a local path to a third party.
+    assert payload["content"][1]["image_url"] == {"url": "data:image/png;base64,READ_FROM_DISK"}
+    assert str(reference_image) not in json.dumps(payload)
+
+
+@pytest.mark.asyncio
+async def test_unreadable_reference_image_is_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An input that cannot be read at all is dropped with a log rather than failing the whole run,
+    # matching the behaviour before images moved to uploads.
+    node = _multimodal_node_with_reference_images([ImageUrlArtifact("/does/not/exist.png")])
+
+    def raise_runtime_error(self) -> str:
+        raise RuntimeError("bucket unreachable")
+
+    monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", raise_runtime_error)
+
+    async def raise_file_load_error(self: File, fallback_mime: str = "application/octet-stream") -> str:
+        raise FileLoadError(FileIOFailureReason.FILE_NOT_FOUND, "no such file")
+
+    monkeypatch.setattr(File, "aread_data_uri", raise_file_load_error)
+
+    payload = await node._build_payload()
+
+    assert payload["content"] == [{"type": "text", "text": "Animate @Image 1"}]
+
+
 # --- Private-asset reference gating (Seedance 2.0 only) -------------------------------------
 
 
@@ -398,6 +675,24 @@ def test_seedance_2_mini_omits_4k_resolution_choice() -> None:
     assert "4k" not in choices
     assert "1080p" not in choices
     assert choices == ["480p", "720p"]
+
+
+def test_resolution_choices_recover_after_a_save_reload_cycle() -> None:
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0 Fast")
+    resolution_param = _parameter_by_name(node, "resolution")
+    assert resolution_param.find_elements_by_type(Options)[0].choices == ["480p", "720p"]
+
+    # A saved workflow replays the merged ui_options into the parameter's stored dict on load,
+    # where "simple_dropdown" shadows whatever choices the trait carries afterwards. Reproduce
+    # that stored state, then widen the choices by switching to the model with the full range.
+    resolution_param.ui_options = dict(resolution_param.ui_options)
+
+    node.set_parameter_value("model_id", "Seedance 2.0")
+
+    choices = resolution_param.find_elements_by_type(Options)[0].choices
+    assert choices == ["480p", "720p", "1080p", "4k"]
+    assert resolution_param.ui_options["simple_dropdown"] == ["480p", "720p", "1080p", "4k"]
 
 
 @pytest.mark.parametrize("model_id", [SEEDANCE_2_0_FAST_MODEL_ID, SEEDANCE_2_0_MINI_MODEL_ID])
@@ -581,24 +876,17 @@ async def test_build_payload_does_not_register_assets_when_byok_enabled(
     ]
 
 
-def test_scratch_upload_parameters_are_removed_after_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_scratch_upload_parameters_are_removed_after_cleanup(upload_env) -> None:
     # Registering an asset whose media needs uploading creates a uniquely-named scratch
     # parameter. The cleanup must remove it so parameters don't accumulate across runs.
     node = Seedance20VideoGeneration(name="Seedance20")
-
-    monkeypatch.setattr(
-        PublicArtifactUrlParameter,
-        "get_public_url_for_parameter",
-        lambda self: "https://public.example/uploaded.png",
-    )
-    monkeypatch.setattr(PublicArtifactUrlParameter, "delete_uploaded_artifact", lambda self: None)
 
     # A non-public (data URI) value forces the upload path that mints a scratch parameter.
     public_url = node._resolve_public_url_for_asset(
         create_provider_asset_reference(value="data:image/png;base64,AAAA", asset_kind=ASSET_KIND_IMAGE),
         asset_kind=ASSET_KIND_IMAGE,
     )
-    assert public_url == "https://public.example/uploaded.png"
+    assert public_url == upload_env.signed_url
 
     scratch_names = [name for _, name in node._pending_asset_uploads]
     assert scratch_names, "expected a scratch upload parameter to be created"

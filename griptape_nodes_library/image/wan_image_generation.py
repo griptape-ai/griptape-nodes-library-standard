@@ -5,28 +5,33 @@ from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.files.file import File
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["WanImageGeneration"]
 
-# Model mapping from user-friendly names to API model IDs
-MODEL_MAPPING = {
-    "Wan 2.7 Image Pro": "wan2.7-image-pro",
-    "Wan 2.7 Image": "wan2.7-image",
-}
-MODEL_OPTIONS = list(MODEL_MAPPING.keys())
+# Model options, in catalog order
+MODEL_OPTIONS = ["wan2.7-image-pro", "wan2.7-image"]
 DEFAULT_MODEL = MODEL_OPTIONS[0]
+
+# Migrates values saved before this dropdown stored the provider's own model id (friendly
+# labels and catalog keys alike).
+LEGACY_MODEL_VALUES = {
+    "Wan 2.7 Image": "wan2.7-image",
+    "Wan 2.7 Image Pro": "wan2.7-image-pro",
+    "gtc_wan_2_7_image": "wan2.7-image",
+    "gtc_wan_2_7_image_pro": "wan2.7-image-pro",
+}
 
 # Size options
 SIZE_OPTIONS = ["1K", "2K", "4K"]
@@ -62,14 +67,21 @@ class WanImageGeneration(GriptapeProxyNode):
         self.description = "Generate images using Wan 2.7 models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value=DEFAULT_MODEL,
-                tooltip="Select the Wan model to use",
-                allow_output=False,
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value=DEFAULT_MODEL,
+            tooltip="Select the Wan model to use",
+            allow_output=False,
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model=DEFAULT_MODEL,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Core parameters
@@ -175,11 +187,6 @@ class WanImageGeneration(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
 
-    def _get_api_model_id(self) -> str:
-        """Map friendly model name to API model ID."""
-        model = self.get_parameter_value("model") or DEFAULT_MODEL
-        return MODEL_MAPPING.get(str(model), str(model))
-
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for Wan image generation.
 
@@ -239,97 +246,73 @@ class WanImageGeneration(GriptapeProxyNode):
             else:
                 self.hide_parameter_by_name(param_name)
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        """Parse the Wan image generation result and save images.
-
-        The proxy client returns the full DashScope response. Image URLs are at:
-        output.choices[*].message.content[*].image
-        """
-        # Extract image URLs from all choices
-        output = result_json.get("output", {})
-        choices = output.get("choices", [])
-
-        if not choices:
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        """Save the hosted images. DashScope may return more than one, in order."""
+        hosted_images = [a for a in await self._hosted_artifacts(generation_id) if a.kind == ArtifactKind.IMAGE]
+        if not hosted_images:
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details="Generation completed but no choices found in the response.",
+                result_details="Generation completed but no images were hosted for this generation.",
             )
             return
 
-        # Collect image URLs from all choices
-        image_urls: list[str] = []
-        for choice in choices:
-            message = choice.get("message", {})
-            content_items = message.get("content", [])
-            for item in content_items:
-                if isinstance(item, dict) and item.get("image"):
-                    image_urls.append(item["image"])
+        # Slots follow provider order: a failed download leaves its slot empty instead of
+        # pulling later images forward, so image_url_N always holds the Nth hosted image.
+        saved_by_position = [
+            await self._save_single_generated_image(generation_id, index) for index in range(len(hosted_images))
+        ]
 
-        if not image_urls:
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details="Generation completed but no image URLs were found in the response.",
-            )
-            return
-
-        # Download and save all images
-        image_artifacts: list[ImageUrlArtifact] = []
-        for index, url in enumerate(image_urls):
-            artifact = await self._save_single_image_from_url(url, index)
-            if artifact:
-                image_artifacts.append(artifact)
-
+        image_artifacts = [artifact for artifact in saved_by_position if artifact is not None]
         if not image_artifacts:
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details="Generation completed but no images could be saved.",
+                result_details=f"{self.name} generation completed upstream but the image(s) could not be retrieved.",
             )
             return
 
-        # Show the appropriate number of image output parameters
-        self._show_image_output_parameters(len(image_artifacts))
+        self._show_image_output_parameters(len(saved_by_position))
 
-        # Set individual image output parameters
-        for idx, artifact in enumerate(image_artifacts, start=1):
-            param_name = f"image_url_{idx}"
-            self.parameter_output_values[param_name] = artifact
+        for idx, artifact in enumerate(saved_by_position, start=1):
+            self.parameter_output_values[f"image_url_{idx}"] = artifact
 
-        # Set success status
         count = len(image_artifacts)
         filenames = [artifact.name for artifact in image_artifacts]
-        if count == 1:
+        missing = [str(idx) for idx, artifact in enumerate(saved_by_position, start=1) if artifact is None]
+        if missing:
+            details = (
+                f"Saved {count} of {len(saved_by_position)} images: {', '.join(filenames)}. "
+                f"Image(s) {', '.join(missing)} could not be retrieved; their output slots are empty."
+            )
+        elif count == 1:
             details = f"Image generated successfully and saved as {filenames[0]}."
         else:
             details = f"Generated {count} images successfully: {', '.join(filenames)}."
         self._set_status_results(was_successful=True, result_details=details)
 
-    async def _save_single_image_from_url(self, image_url: str, index: int = 0) -> ImageUrlArtifact | None:
-        """Download and save a single image from the provided URL.
+    async def _save_single_generated_image(self, generation_id: str, index: int) -> ImageUrlArtifact | None:
+        """Download and save one hosted image by position.
 
         Args:
-            image_url: URL of the image to download
-            index: Index of the image in multi-image response
+            generation_id: The generation whose hosted images to read.
+            index: Position of the image among the generation's hosted images.
 
         Returns:
-            ImageUrlArtifact with saved image, or None if download/save fails
+            ImageUrlArtifact with saved image, or None if the image cannot be retrieved.
         """
         try:
-            logger.info("Downloading image %d from URL", index)
-            image_bytes = await File(image_url).aread_bytes()
-            if not image_bytes:
-                logger.warning("Could not download image %d, using provider URL", index)
-                return ImageUrlArtifact(value=image_url)
-
+            image_bytes = await self._load_generated_media(generation_id, kind=ArtifactKind.IMAGE, position=index)
             dest = self._output_file.build_file(_index=index)
             saved = await dest.awrite_bytes(image_bytes)
             logger.info("Saved image %d as %s", index, saved.name)
             return ImageUrlArtifact(value=saved.location, name=saved.name)
         except Exception as e:
-            logger.error("Failed to save image %d from URL: %s", index, e)
-            return ImageUrlArtifact(value=image_url)
+            # A billed generation whose image cannot be retrieved is a failure, not a
+            # silent success. Return None so this image is not counted as saved; the
+            # caller reports failure.
+            logger.error("Failed to retrieve hosted image %d for generation %s: %s", index, generation_id, e)
+            return None
 
     def _set_safe_defaults(self) -> None:
         """Set safe default values for outputs."""

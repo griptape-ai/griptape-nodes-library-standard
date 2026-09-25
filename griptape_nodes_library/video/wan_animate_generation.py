@@ -10,6 +10,7 @@ from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -18,8 +19,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
-from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.video_utils import get_video_duration
 
 logger = logging.getLogger("griptape_nodes")
@@ -31,6 +31,14 @@ MODEL_OPTIONS = [
     "wan2.2-animate-mix",
     "wan2.2-animate-move",
 ]
+
+# Migrates values saved before the dropdown stored catalog keys.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Wan 2.2 Animate Mix": "wan2.2-animate-mix",
+    "Wan 2.2 Animate Move": "wan2.2-animate-move",
+    "gtc_wan_2_2_animate_mix": "wan2.2-animate-mix",
+    "gtc_wan_2_2_animate_move": "wan2.2-animate-move",
+}
 
 # Mode options
 MODE_OPTIONS = [
@@ -93,14 +101,21 @@ class WanAnimateGeneration(GriptapeProxyNode):
         self.description = "Generate animated videos from images using WAN Animate models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value=MODEL_OPTIONS[0],
-                tooltip="Select the WAN Animate model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value=MODEL_OPTIONS[0],
+            tooltip="Select the WAN Animate model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model=MODEL_OPTIONS[0],
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
         # Mode selection
         self.add_parameter(
@@ -258,17 +273,6 @@ class WanAnimateGeneration(GriptapeProxyNode):
             return raw
         return None
 
-    def _validate_api_key(self) -> str:
-        api_key = resolve_proxy_api_key(self.API_KEY_NAME)
-        if not api_key:
-            self._set_safe_defaults()
-            msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
-            raise ValueError(msg)
-        return api_key
-
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or ""
-
     async def _build_payload(self) -> dict[str, Any]:
         params = await self._get_parameters()
 
@@ -307,47 +311,12 @@ class WanAnimateGeneration(GriptapeProxyNode):
             self._set_status_results(was_successful=False, result_details=error_details)
             return
 
-        await self._handle_completion(result_json, generation_id)
-
-    async def _handle_completion(self, last_json: dict[str, Any] | None, generation_id: str | None = None) -> None:
-        extracted_url = self._extract_video_url(last_json)
-        if not extracted_url:
-            self.parameter_output_values["video"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details="Generation completed but no video URL was found in the response.",
-            )
-            return
-
-        try:
-            logger.debug("Downloading video bytes from provider URL")
-            video_bytes = await self._download_bytes_from_url(extracted_url)
-        except Exception as e:
-            logger.debug("Failed to download video: %s", e)
-            video_bytes = None
-
-        if video_bytes:
-            try:
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(video_bytes)
-                self.parameter_output_values["video"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-                logger.debug("Saved video as %s", saved.name)
-                self._set_status_results(
-                    was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
-                )
-            except Exception as e:
-                logger.debug("Failed to save video: %s, using provider URL", e)
-                self.parameter_output_values["video"] = VideoUrlArtifact(value=extracted_url)
-                self._set_status_results(
-                    was_successful=True,
-                    result_details=f"Video generated successfully. Using provider URL (could not save: {e}).",
-                )
-        else:
-            self.parameter_output_values["video"] = VideoUrlArtifact(value=extracted_url)
-            self._set_status_results(
-                was_successful=True,
-                result_details="Video generated successfully. Using provider URL (could not download video bytes).",
-            )
+        await self._save_generated_media(
+            generation_id,
+            "video",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+        )
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
         """Extract error details from API response."""
@@ -433,47 +402,4 @@ class WanAnimateGeneration(GriptapeProxyNode):
         task_status = response_json.get("task_status")
         if isinstance(task_status, str):
             return task_status
-        return None
-
-    @staticmethod
-    def _extract_video_url(obj: dict[str, Any] | None) -> str | None:
-        """Extract the generated video URL from a WAN Animate response.
-
-        DashScope's documented shape (``wan2.2-animate-mix`` / ``-move``) is::
-
-            {
-              "request_id": "...",
-              "output": {
-                "task_status": "SUCCEEDED",
-                "results": {"video_url": "https://..."}
-              },
-              "usage": {...}
-            }
-
-        Older / sibling WAN endpoints have used ``output.video_url`` directly,
-        a top-level ``results.video_url`` (shape kept for backwards compat),
-        and a top-level ``video_url``. We probe each location in turn so a
-        documented response shift across model versions keeps working.
-        """
-        if not obj:
-            return None
-
-        def _is_http_url(value: Any) -> bool:
-            return isinstance(value, str) and value.startswith("http")
-
-        output = obj.get("output")
-        if isinstance(output, dict):
-            results = output.get("results")
-            if isinstance(results, dict) and _is_http_url(results.get("video_url")):
-                return results["video_url"]
-            if _is_http_url(output.get("video_url")):
-                return output["video_url"]
-
-        results = obj.get("results")
-        if isinstance(results, dict) and _is_http_url(results.get("video_url")):
-            return results["video_url"]
-
-        if _is_http_url(obj.get("video_url")):
-            return obj["video_url"]
-
         return None

@@ -6,6 +6,10 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.tools.base_tool import BaseTool
+from griptape_nodes_library.utils.cloud_credential_utils import (
+    resolve_cloud_api_key,
+)
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 LOCATIONS = ["Workspace Directory", "GriptapeCloud"]
 
@@ -18,7 +22,7 @@ class FileManager(BaseTool):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self.api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
+        self.api_key = resolve_cloud_api_key()
         self.bucket_list = self.get_bucket_list()
         self.bucket_map = dict(self.bucket_list)
         self.workdir = GriptapeNodes.ConfigManager().get_config_value("workspace_directory")
@@ -75,7 +79,11 @@ class FileManager(BaseTool):
             list[tuple[str, str]]: List of tuples containing (bucket_name, bucket_id)
         """
         try:
-            response = httpx.get(f"{BASE_URL}/buckets", headers={"Authorization": f"Bearer {self.api_key}"}, timeout=10)
+            response = httpx.get(
+                f"{BASE_URL}/buckets",
+                headers=build_griptape_cloud_headers(self.api_key, attribution=False),
+                timeout=10,
+            )
             response.raise_for_status()
             data = response.json()
             return [(bucket["name"], bucket["bucket_id"]) for bucket in data["buckets"]]

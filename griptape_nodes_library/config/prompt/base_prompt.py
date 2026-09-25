@@ -12,7 +12,6 @@ from typing import Any
 
 from griptape.drivers.prompt.dummy import DummyPromptDriver
 from griptape_nodes.exe_types.core_types import Parameter
-from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.config.base_driver import BaseDriver
 
@@ -31,7 +30,8 @@ class BasePrompt(BaseDriver):
     - Defines common LLM parameters accessible via `self.parameter_values`.
     - Provides `_get_common_driver_args` to easily collect arguments for drivers based on base parameters.
     - Provides `_validate_api_key` to standardize API key validation logic.
-    - Provides `_update_option_choices` to set driver-specific model lists for the 'model' parameter.
+    - Provides `_install_model_access` to turn the 'model' parameter into a
+      license-filtered dropdown of driver-specific models.
     Note: The `process` method in this base class creates a `DummyPromptDriver`
     primarily to establish the output socket type. It does not utilize the
     configuration parameters defined herein. Direct use of `BasePrompt` is
@@ -71,7 +71,10 @@ class BasePrompt(BaseDriver):
                 ui_options={"is_full_width": True, "multiline": True, "hide": True},
             )
         )
-        # Parameter for model selection. Subclasses should populate the 'choices'.
+        # Parameter for model selection. Subclasses either call
+        # `_install_model_access` to offer a license-filtered dropdown of their
+        # models, or add their own trait when the choices are theirs to manage
+        # (a free-text field, or a list fetched from the provider at runtime).
         self.add_parameter(
             Parameter(
                 name="model",
@@ -80,7 +83,6 @@ class BasePrompt(BaseDriver):
                 output_type="str",
                 default_value="",
                 tooltip="Select the model you want to use from the available options.",
-                traits={Options(choices=[])},
             )
         )
 

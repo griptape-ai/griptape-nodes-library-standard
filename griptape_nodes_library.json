@@ -29,8 +29,8 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.82.0",
-    "engine_version": "0.93.0",
+    "library_version": "0.87.0",
+    "engine_version": "0.99.0",
     "tags": [
       "Griptape",
       "AI"
@@ -49,10 +49,15 @@
         "asteval>=1.0.8",
         "color-matcher",
         "zstandard>=0.22.0",
+        "tokenizers>=0.22.0,<0.23",
         "lxml>=5.0.0"
       ]
     },
     "declarations": [
+      {
+        "type": "lifecycle_stage",
+        "stage": "STABLE"
+      },
       {
         "type": "model_catalog",
         "providers": {
@@ -81,6 +86,18 @@
                 "display_name": "Claude Haiku 4.5",
                 "family": "Claude 4",
                 "provider_model_id": "claude-haiku-4-5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_claude_opus_5": {
+                "display_name": "Claude Opus 5",
+                "family": "Claude 5",
+                "provider_model_id": "claude-opus-5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_claude_sonnet_5": {
+                "display_name": "Claude Sonnet 5",
+                "family": "Claude 5",
+                "provider_model_id": "claude-sonnet-5",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
@@ -182,22 +199,28 @@
                 "provider_model_id": "veo-3.1-fast-generate-001",
                 "key_support": "REQUIRES_GRIPTAPE_KEY"
               },
-              "gtc_veo_3_0": {
-                "display_name": "Veo 3.0",
-                "family": "Veo",
-                "provider_model_id": "veo-3.0-generate-001",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
-              },
-              "gtc_veo_3_0_fast": {
-                "display_name": "Veo 3.0 Fast",
-                "family": "Veo",
-                "provider_model_id": "veo-3.0-fast-generate-001",
-                "key_support": "REQUIRES_GRIPTAPE_KEY"
-              },
               "gtc_gemini_omni_flash": {
                 "display_name": "Gemini Omni Flash",
                 "family": "Gemini Omni",
                 "provider_model_id": "gemini-omni-flash-preview",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gemini_3_6_flash": {
+                "display_name": "Gemini 3.6 Flash",
+                "family": "Gemini",
+                "provider_model_id": "gemini-3.6-flash",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gemini_3_5_flash": {
+                "display_name": "Gemini 3.5 Flash",
+                "family": "Gemini",
+                "provider_model_id": "gemini-3.5-flash",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
+              "gtc_gemini_3_5_flash_lite": {
+                "display_name": "Gemini 3.5 Flash-Lite",
+                "family": "Gemini",
+                "provider_model_id": "gemini-3.5-flash-lite",
                 "key_support": "REQUIRES_GRIPTAPE_KEY"
               }
             }
@@ -205,6 +228,36 @@
           "openai": {
             "display_name": "OpenAI",
             "models": {
+              "gtc_gpt_5_6_sol": {
+                "display_name": "GPT-5.6 Sol",
+                "family": "GPT",
+                "provider_model_id": "gpt-5.6-sol",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_5_6_terra": {
+                "display_name": "GPT-5.6 Terra",
+                "family": "GPT",
+                "provider_model_id": "gpt-5.6-terra",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_5_6_luna": {
+                "display_name": "GPT-5.6 Luna",
+                "family": "GPT",
+                "provider_model_id": "gpt-5.6-luna",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_5_5": {
+                "display_name": "GPT-5.5",
+                "family": "GPT",
+                "provider_model_id": "gpt-5.5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_5_4": {
+                "display_name": "GPT-5.4",
+                "family": "GPT",
+                "provider_model_id": "gpt-5.4",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
               "gtc_gpt_5_2": {
                 "display_name": "GPT-5.2",
                 "family": "GPT",
@@ -348,6 +401,12 @@
           "bytedance_seed": {
             "display_name": "ByteDance Seed",
             "models": {
+              "gtc_seedream_5_0_pro": {
+                "display_name": "Seedream 5.0 Pro",
+                "family": "Seedream",
+                "provider_model_id": "dola-seedream-5-0-pro-260628",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
               "gtc_seedream_5_0_lite": {
                 "display_name": "Seedream 5.0 Lite",
                 "family": "Seedream",
@@ -358,12 +417,6 @@
                 "display_name": "Seedream 4.5",
                 "family": "Seedream",
                 "provider_model_id": "seedream-4-5-251128",
-                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
-              },
-              "gtc_seedream_4_0": {
-                "display_name": "Seedream 4.0",
-                "family": "Seedream",
-                "provider_model_id": "seedream-4-0-250828",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_seedance_1_5_pro": {
@@ -400,6 +453,12 @@
                 "display_name": "Seedance 2.0 Mini",
                 "family": "Seedance",
                 "provider_model_id": "dreamina-seedance-2-0-mini-260615",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_seedance_2_5": {
+                "display_name": "Seedance 2.5",
+                "family": "Seedance",
+                "provider_model_id": "dreamina-seedance-2-5-260628",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_omnihuman_1_0": {
@@ -709,6 +768,24 @@
                 "family": "Topaz",
                 "provider_model_id": "topaz-tool",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_video_slp_2_5": {
+                "display_name": "Topaz Starlight Precise 2.5",
+                "family": "Topaz",
+                "provider_model_id": "topaz-video-slp-2.5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_video_slp_2_6": {
+                "display_name": "Topaz Starlight Precise 2.6",
+                "family": "Topaz",
+                "provider_model_id": "topaz-video-slp-2.6",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_topaz_video_ast_2": {
+                "display_name": "Topaz Astra 2",
+                "family": "Topaz",
+                "provider_model_id": "topaz-video-ast-2",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
           },
@@ -883,6 +960,18 @@
                 "display_name": "LTX 2.3 Fast",
                 "family": "LTX",
                 "provider_model_id": "ltx-2-3-fast",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_ltx_2_5_pro": {
+                "display_name": "LTX 2.5 Pro",
+                "family": "LTX",
+                "provider_model_id": "ltx-2-5-pro",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_ltx_2_5_fast": {
+                "display_name": "LTX 2.5 Fast",
+                "family": "LTX",
+                "provider_model_id": "ltx-2-5-fast",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
@@ -1208,22 +1297,32 @@
     {
       "name": "SplatViewer",
       "path": "griptape_nodes_library/splat/widgets/SplatViewer.js",
-      "description": "Inline Gaussian splat viewer \u2014 auto-renders the highest-fidelity wired splat using OrbitControls, matching the vsl-gui SplatComponent appearance."
+      "description": "Inline Gaussian splat viewer — auto-renders the highest-fidelity wired splat using OrbitControls, matching the vsl-gui SplatComponent appearance."
     },
     {
       "name": "CropImageEditor",
       "path": "widgets/CropImageEditor/CropImageEditor.js",
-      "description": "Interactive crop editor \u2014 drag to move/resize the crop rectangle, draw a new crop area, with rule-of-thirds guides and live coordinate readout."
+      "description": "Interactive crop editor — drag to move/resize the crop rectangle, draw a new crop area, with rule-of-thirds guides and live coordinate readout."
     },
     {
       "name": "CropVideoEditor",
       "path": "widgets/CropVideoEditor/CropVideoEditor.js",
-      "description": "Interactive video crop editor \u2014 drag handles on a live video frame with frame scrubber, aspect ratio, resolution, and position presets."
+      "description": "Interactive video crop editor — drag handles on a live video frame with frame scrubber, aspect ratio, resolution, and position presets."
     },
     {
       "name": "SelectFromGrid",
       "path": "widgets/SelectFromGrid/SelectFromGrid.js",
-      "description": "Interactive grid selector \u2014 displays list items as thumbnails (images, video, audio, text) and lets the user click to select one or more."
+      "description": "Interactive grid selector — displays list items as thumbnails (images, video, audio, text) and lets the user click to select one or more."
+    },
+    {
+      "name": "VideoCapture",
+      "path": "widgets/VideoCapture/VideoCapture.js",
+      "description": "Webcam video capture widget — live preview, record with audio, review playback, then accept before running."
+    },
+    {
+      "name": "WebcamCapture",
+      "path": "widgets/WebcamCapture/WebcamCapture.js",
+      "description": "Webcam snapshot widget — live camera preview, capture a frame, review, then accept to output an ImageUrlArtifact."
     }
   ],
   "categories": [
@@ -1893,6 +1992,22 @@
       }
     },
     {
+      "class_name": "SplitListByType",
+      "file_path": "griptape_nodes_library/lists/split_list_by_type.py",
+      "metadata": {
+        "category": "lists",
+        "description": "Routes a mixed list into a separate output list per media type (images, audio, video, text), so a single list can feed a multi-modal node's per-type inputs.",
+        "display_name": "Split List By Type",
+        "icon": "split",
+        "group": "edit",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
+      }
+    },
+    {
       "class_name": "SortList",
       "file_path": "griptape_nodes_library/lists/sort_list.py",
       "metadata": {
@@ -1974,20 +2089,23 @@
           {
             "type": "model_usage",
             "model_ids": [
-              "gtc_claude_opus_4_7",
-              "gtc_claude_sonnet_4_6",
-              "gtc_claude_sonnet_4_5",
+              "gtc_claude_sonnet_5",
+              "gtc_claude_opus_5",
               "gtc_claude_haiku_4_5",
-              "gtc_deepseek_v3",
-              "gtc_deepseek_r1",
-              "gtc_llama_3_3_70b",
-              "gtc_llama_3_1_70b",
+              "gtc_gemini_3_6_flash",
+              "gtc_gemini_3_5_flash",
+              "gtc_gemini_3_5_flash_lite",
               "gtc_gemini_3_1_pro",
               "gtc_gemini_3_1_flash_lite",
               "gtc_gemini_3_flash",
               "gtc_gemini_2_5_pro",
               "gtc_gemini_2_5_flash",
               "gtc_gemini_2_5_flash_lite",
+              "gtc_gpt_5_6_sol",
+              "gtc_gpt_5_6_terra",
+              "gtc_gpt_5_6_luna",
+              "gtc_gpt_5_5",
+              "gtc_gpt_5_4",
               "gtc_gpt_5_2",
               "gtc_gpt_5_2_chat",
               "gtc_gpt_5_1",
@@ -2001,7 +2119,11 @@
               "gtc_o4_mini",
               "gtc_o3",
               "gtc_o3_mini",
-              "gtc_o1"
+              "gtc_o1",
+              "gtc_deepseek_v3",
+              "gtc_deepseek_r1",
+              "gtc_llama_3_3_70b",
+              "gtc_llama_3_1_70b"
             ]
           }
         ]
@@ -2417,11 +2539,37 @@
       }
     },
     {
+      "class_name": "Seedance25VideoGeneration",
+      "file_path": "griptape_nodes_library/video/seedance_2_5_video_generation.py",
+      "metadata": {
+        "category": "video",
+        "description": "Generate a video using Seedance 2.5 with multimodal references, editing, and extension via Griptape Cloud model proxy.",
+        "display_name": "Seedance 2.5 Video Generation",
+        "icon": "Sparkles",
+        "group": "create",
+        "tags": [
+          "video",
+          "generation",
+          "ai",
+          "api",
+          "seedance"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_seedance_2_5"
+            ]
+          }
+        ]
+      }
+    },
+    {
       "class_name": "SeedanceHumanReferenceAsset",
       "file_path": "griptape_nodes_library/video/seedance_human_reference_asset.py",
       "metadata": {
         "category": "video/seedance",
-        "description": "Package an image, video, or audio as a private-asset reference for Seedance 2.0 human-reference inputs.",
+        "description": "Package an image, video, or audio as a private-asset reference for Seedance human-reference inputs.",
         "display_name": "Seedance Human Reference Asset",
         "icon": "Link",
         "group": "create",
@@ -2687,7 +2835,9 @@
               "gtc_ltx_2_pro",
               "gtc_ltx_2_fast",
               "gtc_ltx_2_3_pro",
-              "gtc_ltx_2_3_fast"
+              "gtc_ltx_2_3_fast",
+              "gtc_ltx_2_5_pro",
+              "gtc_ltx_2_5_fast"
             ]
           }
         ]
@@ -2716,7 +2866,9 @@
               "gtc_ltx_2_pro",
               "gtc_ltx_2_fast",
               "gtc_ltx_2_3_pro",
-              "gtc_ltx_2_3_fast"
+              "gtc_ltx_2_3_fast",
+              "gtc_ltx_2_5_pro",
+              "gtc_ltx_2_5_fast"
             ]
           }
         ]
@@ -2743,7 +2895,9 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_ltx_2_pro",
-              "gtc_ltx_2_3_pro"
+              "gtc_ltx_2_3_pro",
+              "gtc_ltx_2_5_pro",
+              "gtc_ltx_2_5_fast"
             ]
           }
         ]
@@ -2769,7 +2923,6 @@
           {
             "type": "model_usage",
             "model_ids": [
-              "gtc_ltx_2_pro",
               "gtc_ltx_2_3_pro"
             ]
           }
@@ -2798,6 +2951,38 @@
             "model_ids": [
               "gtc_ltx_2_pro",
               "gtc_ltx_2_3_pro"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "TopazVideoUpscale",
+      "file_path": "griptape_nodes_library/video/topaz_video_upscale.py",
+      "metadata": {
+        "category": "video",
+        "description": "Upscale a video using Topaz Starlight Precise or Astra 2 generative upscaling via the Griptape model proxy.",
+        "display_name": "Topaz Video Upscale",
+        "icon": "Sparkles",
+        "group": "edit",
+        "tags": [
+          "video",
+          "upscale",
+          "enhance",
+          "generative",
+          "ai",
+          "api",
+          "topaz",
+          "starlight",
+          "astra"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_topaz_video_slp_2_5",
+              "gtc_topaz_video_slp_2_6",
+              "gtc_topaz_video_ast_2"
             ]
           }
         ]
@@ -2914,7 +3099,7 @@
       "file_path": "griptape_nodes_library/video/sora_video_generation.py",
       "metadata": {
         "category": "video",
-        "description": "Generate video using Sora 2 models via Griptape Cloud model proxy",
+        "description": "Deprecated: OpenAI removes Sora 2 on 24 September 2026. Migrate to Veo 3.1 or Seedance 2.0 video generation.",
         "display_name": "Sora 2 Video Generation",
         "icon": "Sparkles",
         "group": "create",
@@ -2924,9 +3109,19 @@
           "ai",
           "api",
           "sora",
-          "openai"
+          "openai",
+          "retired",
+          "deprecated"
         ],
+        "deprecation": {
+          "deprecation_message": "OpenAI removes the Videos API and all Sora 2 models on 24 September 2026 without naming a successor. Open the node and use its migrate buttons to rebuild it as Veo 3.1 Video Generation or Seedance 2.0 Video Generation, carrying over values and connections.",
+          "removal_version": "0.88.0"
+        },
         "declarations": [
+          {
+            "type": "lifecycle_stage",
+            "stage": "DEPRECATED"
+          },
           {
             "type": "model_usage",
             "model_ids": [
@@ -2989,9 +3184,7 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_veo_3_1",
-              "gtc_veo_3_1_fast",
-              "gtc_veo_3_0",
-              "gtc_veo_3_0_fast"
+              "gtc_veo_3_1_fast"
             ]
           }
         ]
@@ -3433,6 +3626,25 @@
           "video",
           "audio",
           "ffmpeg"
+        ]
+      }
+    },
+    {
+      "class_name": "VideoCapture",
+      "file_path": "griptape_nodes_library/video/video_capture.py",
+      "metadata": {
+        "category": "video",
+        "description": "Capture video and audio from your webcam. Record, preview the playback, then accept to output a VideoUrlArtifact.",
+        "display_name": "Video Capture",
+        "icon": "video",
+        "group": "create",
+        "tags": [
+          "video",
+          "webcam",
+          "camera",
+          "capture",
+          "input",
+          "record"
         ]
       }
     },
@@ -4204,20 +4416,23 @@
           {
             "type": "model_usage",
             "model_ids": [
-              "gtc_claude_opus_4_7",
-              "gtc_claude_sonnet_4_6",
-              "gtc_claude_sonnet_4_5",
+              "gtc_claude_sonnet_5",
+              "gtc_claude_opus_5",
               "gtc_claude_haiku_4_5",
-              "gtc_deepseek_v3",
-              "gtc_deepseek_r1",
-              "gtc_llama_3_3_70b",
-              "gtc_llama_3_1_70b",
+              "gtc_gemini_3_6_flash",
+              "gtc_gemini_3_5_flash",
+              "gtc_gemini_3_5_flash_lite",
               "gtc_gemini_3_1_pro",
               "gtc_gemini_3_1_flash_lite",
               "gtc_gemini_3_flash",
               "gtc_gemini_2_5_pro",
               "gtc_gemini_2_5_flash",
               "gtc_gemini_2_5_flash_lite",
+              "gtc_gpt_5_6_sol",
+              "gtc_gpt_5_6_terra",
+              "gtc_gpt_5_6_luna",
+              "gtc_gpt_5_5",
+              "gtc_gpt_5_4",
               "gtc_gpt_5_2",
               "gtc_gpt_5_2_chat",
               "gtc_gpt_5_1",
@@ -4231,7 +4446,11 @@
               "gtc_o4_mini",
               "gtc_o3",
               "gtc_o3_mini",
-              "gtc_o1"
+              "gtc_o1",
+              "gtc_deepseek_v3",
+              "gtc_deepseek_r1",
+              "gtc_llama_3_3_70b",
+              "gtc_llama_3_1_70b"
             ]
           }
         ]
@@ -4401,6 +4620,11 @@
           {
             "type": "model_usage",
             "model_ids": [
+              "gtc_gpt_5_6_sol",
+              "gtc_gpt_5_6_terra",
+              "gtc_gpt_5_6_luna",
+              "gtc_gpt_5_5",
+              "gtc_gpt_5_4",
               "gtc_gpt_5_2",
               "gtc_gpt_5_1",
               "gtc_gpt_5",
@@ -4466,6 +4690,22 @@
           {
             "type": "model_usage",
             "model_ids": [
+              "gtc_claude_sonnet_5",
+              "gtc_claude_opus_5",
+              "gtc_gemini_3_6_flash",
+              "gtc_gemini_3_5_flash",
+              "gtc_gemini_3_5_flash_lite",
+              "gtc_gemini_3_1_pro",
+              "gtc_gemini_3_1_flash_lite",
+              "gtc_gemini_3_flash",
+              "gtc_gemini_2_5_pro",
+              "gtc_gemini_2_5_flash",
+              "gtc_gemini_2_5_flash_lite",
+              "gtc_gpt_5_6_sol",
+              "gtc_gpt_5_6_terra",
+              "gtc_gpt_5_6_luna",
+              "gtc_gpt_5_5",
+              "gtc_gpt_5_4",
               "gtc_gpt_5_2",
               "gtc_gpt_5_1",
               "gtc_gpt_5",
@@ -4475,12 +4715,7 @@
               "gtc_gpt_4_1_nano",
               "gtc_gpt_4o",
               "gtc_o4_mini",
-              "gtc_o3",
-              "gtc_claude_opus_4_7",
-              "gtc_claude_sonnet_4_6",
-              "gtc_claude_sonnet_4_5",
-              "gtc_gemini_3_1_pro",
-              "gtc_gemini_2_5_pro"
+              "gtc_o3"
             ]
           }
         ]
@@ -4534,7 +4769,8 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_gpt_image_1_mini",
-              "gtc_gpt_image_1_5"
+              "gtc_gpt_image_1_5",
+              "gtc_gpt_4o"
             ]
           }
         ]
@@ -4575,9 +4811,9 @@
           {
             "type": "model_usage",
             "model_ids": [
+              "gtc_seedream_5_0_pro",
               "gtc_seedream_5_0_lite",
-              "gtc_seedream_4_5",
-              "gtc_seedream_4_0"
+              "gtc_seedream_4_5"
             ]
           }
         ]
@@ -5978,7 +6214,28 @@
           {
             "type": "model_usage",
             "model_ids": [
-              "gtc_gpt_4_1"
+              "gtc_claude_sonnet_5",
+              "gtc_claude_opus_5",
+              "gtc_claude_haiku_4_5",
+              "gtc_gemini_3_6_flash",
+              "gtc_gemini_3_1_pro",
+              "gtc_gemini_3_flash",
+              "gtc_gemini_2_5_pro",
+              "gtc_gemini_2_5_flash",
+              "gtc_gemini_2_5_flash_lite",
+              "gtc_gpt_5_5",
+              "gtc_gpt_5_4",
+              "gtc_gpt_5_2",
+              "gtc_gpt_5_2_chat",
+              "gtc_gpt_5_1",
+              "gtc_gpt_5",
+              "gtc_gpt_5_mini",
+              "gtc_gpt_5_nano",
+              "gtc_gpt_4_1",
+              "gtc_gpt_4_1_mini",
+              "gtc_gpt_4_1_nano",
+              "gtc_gpt_4o",
+              "gtc_deepseek_v3"
             ]
           }
         ]
@@ -6666,7 +6923,7 @@
       "file_path": "griptape_nodes_library/files/resolve_macro_path.py",
       "metadata": {
         "category": "files",
-        "description": "Resolve a macro path to an absolute filesystem path (e.g. {inputs}/file.txt \u2192 /home/user/project/inputs/file.txt).",
+        "description": "Resolve a macro path to an absolute filesystem path (e.g. {inputs}/file.txt → /home/user/project/inputs/file.txt).",
         "display_name": "Resolve Macro Path",
         "icon": "FolderSearch",
         "tags": [
@@ -6681,7 +6938,7 @@
       "file_path": "griptape_nodes_library/files/resolve_macro_paths.py",
       "metadata": {
         "category": "files",
-        "description": "Resolve a list of macro paths to absolute filesystem paths (e.g. [{inputs}/file.txt, {outputs}/image.png] \u2192 [/home/user/project/inputs/file.txt, /home/user/project/outputs/image.png]).",
+        "description": "Resolve a list of macro paths to absolute filesystem paths (e.g. [{inputs}/file.txt, {outputs}/image.png] → [/home/user/project/inputs/file.txt, /home/user/project/outputs/image.png]).",
         "display_name": "Resolve Macro Path List",
         "icon": "FolderSearch",
         "tags": [
@@ -6863,13 +7120,14 @@
       "file_path": "griptape_nodes_library/image/topaz_image_enhance.py",
       "metadata": {
         "category": "image",
-        "description": "Enhance images using Topaz Labs models via Griptape model proxy. Supports enhance, denoise, and sharpen operations.",
+        "description": "Enhance and upscale images using Topaz Labs models via Griptape model proxy. Supports enhance, upscale, denoise, and sharpen operations.",
         "display_name": "Topaz Image Enhance",
         "icon": "Sparkles",
         "group": "edit",
         "tags": [
           "image",
           "enhance",
+          "upscale",
           "ai",
           "api",
           "topaz"

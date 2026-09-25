@@ -21,6 +21,7 @@ from griptape_nodes.retained_mode.events.artifact_events import (
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.utils.ffmpeg_utils import describe_ffmpeg_failure
 from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.video_utils import (
     detect_video_format,
@@ -204,8 +205,10 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
         try:
             cmd = [
                 ffprobe_path,
+                # "error" rather than "quiet" so the warning below can report why the
+                # probe failed; the JSON stays on stdout, diagnostics go to stderr.
                 "-v",
-                "quiet",
+                "error",
                 "-print_format",
                 "json",
                 "-show_streams",
@@ -243,7 +246,10 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
             return self.DEFAULT_FRAME_RATE, (self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT), self.DEFAULT_DURATION  # noqa: TRY300
 
         except Exception as e:
-            self.append_value_to_parameter("logs", f"Warning: Could not detect video properties, using defaults: {e}\n")
+            self.append_value_to_parameter(
+                "logs",
+                f"Warning: Could not detect video properties for {input_url!r}, using defaults: {describe_ffmpeg_failure(e)}\n",
+            )
             return self.DEFAULT_FRAME_RATE, (self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT), self.DEFAULT_DURATION
 
     def _detect_audio_stream(self, input_url: str, ffprobe_path: str) -> bool:
@@ -251,8 +257,10 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
         try:
             cmd = [
                 ffprobe_path,
+                # "error" rather than "quiet" so a failed probe can say why; the stream
+                # listing stays on stdout, diagnostics go to stderr.
                 "-v",
-                "quiet",
+                "error",
                 "-select_streams",
                 "a",
                 "-show_entries",
@@ -265,8 +273,13 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
             result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)  # noqa: S603
             # If there are audio streams, ffprobe will return "audio" for each stream
             return "audio" in result.stdout.strip()
-        except subprocess.CalledProcessError:
-            # If ffprobe fails, assume no audio
+        except subprocess.CalledProcessError as e:
+            # If ffprobe fails, assume no audio — but say so, since a probe failure and a
+            # genuinely silent video are indistinguishable in the result.
+            self.append_value_to_parameter(
+                "logs",
+                f"Warning: Could not detect audio streams in {input_url!r}, assuming none: {describe_ffmpeg_failure(e)}\n",
+            )
             return False
         except Exception:
             # If any other error, assume no audio

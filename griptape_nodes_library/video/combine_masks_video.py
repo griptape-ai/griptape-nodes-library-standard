@@ -14,6 +14,8 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
 from PIL import Image, ImageChops
 
+from griptape_nodes_library.utils.ffmpeg_utils import describe_ffmpeg_failure
+
 
 class CombineMasksVideo(DataNode):
     """Combine a list of mask videos into a single consolidated mask video (pixel-wise max per frame).
@@ -250,8 +252,10 @@ class CombineMasksVideo(DataNode):
         try:
             cmd = [
                 ffprobe_path,
+                # "error" rather than "quiet" so the raise below can report why the probe
+                # failed; the JSON stays on stdout, diagnostics go to stderr.
                 "-v",
-                "quiet",
+                "error",
                 "-print_format",
                 "json",
                 "-show_streams",
@@ -293,7 +297,7 @@ class CombineMasksVideo(DataNode):
             return {"width": width, "height": height, "fps": fps, "frame_count": frame_count}
 
         except Exception as e:
-            msg = f"{self.name}: Failed to get video properties: {e}"
+            msg = f"{self.name}: Failed to get video properties for {video_url!r}: {describe_ffmpeg_failure(e)}"
             raise ValueError(msg) from e
 
     def _validate_video_properties(self, video_properties: list[dict[str, Any]]) -> None:

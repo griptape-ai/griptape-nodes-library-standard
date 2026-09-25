@@ -53,7 +53,7 @@ top_level_unique_values_dict = {
         b'\x80\x04\x95F\x00\x00\x00\x00\x00\x00\x00\x8cBGood job. You\'ve completed our "Getting Started" set of tutorials!\x94.'
     ),
     "9e713b10-5932-45c5-a695-a1b161a31199": pickle.loads(
-        b"\x80\x04\x95\x0b\x00\x00\x00\x00\x00\x00\x00\x8c\x07gpt-4.1\x94."
+        b"\x80\x04\x95\x0f\x00\x00\x00\x00\x00\x00\x00\x8c\x0bgtc_gpt_4_1\x94."
     ),
     "df862202-5d23-42a3-8998-18d1c500a703": pickle.loads(b"\x80\x04\x95\x04\x00\x00\x00\x00\x00\x00\x00\x8c\x00\x94."),
     "f4cff29c-3fff-4f52-bf09-c35f51511d56": pickle.loads(b"\x80\x04]\x94."),
@@ -94,7 +94,7 @@ top_level_unique_values_dict = {
     "855c64e3-2231-4d8f-8665-92ccd3e18013": pickle.loads(b"\x80\x04\x95\x06\x00\x00\x00\x00\x00\x00\x00]\x94]\x94a."),
     "41a31b7f-7cc4-40d7-98ee-dd94e0003b1c": pickle.loads(b"\x80\x04]\x94."),
     "5346f5ea-c921-453a-9d38-c17fd26b3363": pickle.loads(
-        b"\x80\x04\x95\x0f\x00\x00\x00\x00\x00\x00\x00\x8c\x0bgpt-image-1\x94."
+        b"\x80\x04\x95\x18\x00\x00\x00\x00\x00\x00\x00\x8c\x14gtc_gpt_image_1_mini\x94."
     ),
     "f5907740-6837-4a68-b462-2064d3e7ac6b": pickle.loads(
         b"\x80\x04\x95\r\x00\x00\x00\x00\x00\x00\x00\x8c\t1024x1024\x94."

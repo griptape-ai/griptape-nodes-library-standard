@@ -7,8 +7,8 @@ from griptape.drivers.prompt.griptape_cloud_prompt_driver import GriptapeCloudPr
 from griptape.drivers.prompt.openai import OpenAiChatPromptDriver as GtOpenAiChatPromptDriver
 from griptape.structures import Structure
 from griptape.tasks import PromptTask
+from griptape_nodes.drivers.cloud_models import VISION_MODEL_CHOICES
 from griptape_nodes.exe_types.core_types import (
-    NodeMessageResult,
     Parameter,
     ParameterList,
     ParameterMode,
@@ -19,21 +19,12 @@ from griptape_nodes.exe_types.param_components.model_access_component import Mod
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.events.agent_events import (
-    ListAgentProvidersRequest,
-    ListAgentProvidersResultSuccess,
-    ListProviderModelsRequest,
-    ListProviderModelsResultSuccess,
-    ProviderConfig,
-)
 from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest, DeleteConnectionRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
-from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
-from griptape_nodes_library.config.prompt.cloud_models import MODEL_CHOICES_ARGS
 from griptape_nodes_library.utils.agent_utils import (
     build_rulesets_from_configs,
     build_tools,
@@ -41,34 +32,28 @@ from griptape_nodes_library.utils.agent_utils import (
     unwrap_agent,
     wrap_agent,
 )
+from griptape_nodes_library.utils.cloud_credential_utils import (
+    missing_credential_message,
+    resolve_cloud_api_key,
+)
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
+from griptape_nodes_library.utils.cloud_legacy_models import cloud_legacy_values_for
 from griptape_nodes_library.utils.error_utils import try_throw_error
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
-
-_GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
+from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
+from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
 SERVICE = "Griptape"
 API_KEY_URL = "https://cloud.griptape.ai/configuration/api-keys"
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 
-# Vision-capable models available on Griptape Cloud.
-GTC_VISION_MODEL_CHOICES = [
-    "gpt-5.2",
-    "gpt-5.1",
-    "gpt-5",
-    "gpt-5-mini",
-    "gpt-4.1",
-    "gpt-4.1-mini",
-    "gpt-4.1-nano",
-    "gpt-4o",
-    "o4-mini",
-    "o3",
-    "claude-opus-4-7",
-    "claude-sonnet-4-6",
-    "claude-4-5-sonnet",
-    "gemini-3.1-pro",
-    "gemini-2.5-pro",
-]
+# Vision-capable models available on Griptape Cloud, derived from the catalog's
+# per-model `vision` flag so this list cannot drift from the models it describes.
+GTC_VISION_MODEL_CHOICES = VISION_MODEL_CHOICES
 DEFAULT_MODEL = GTC_VISION_MODEL_CHOICES[0]
+
+# The shared Griptape Cloud table, narrowed to the vision-capable models this node offers.
+LEGACY_MODEL_VALUES = cloud_legacy_values_for(GTC_VISION_MODEL_CHOICES)
 
 
 class DescribeImage(ControlNode):
@@ -86,27 +71,17 @@ class DescribeImage(ControlNode):
             )
         )
 
-        # Provider selector — populated from the engine's configured providers.
-        provider_names = self._fetch_provider_names()
-        self.add_parameter(
-            Parameter(
-                name="model_provider",
-                type="str",
-                default_value=provider_names[0] if provider_names else "griptape_cloud",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                tooltip="Choose a provider. Refresh to see all configured providers.",
-                traits={
-                    Options(choices=provider_names),
-                    Button(
-                        icon="list-restart",
-                        size="icon",
-                        variant="secondary",
-                        on_click=self._refresh_providers_button,
-                    ),
-                },
-                ui_options={"display_name": "provider"},
-            )
+        # Provider selector shown above the model dropdown. The ProviderSelectionComponent
+        # installs the Options + refresh Button traits after construction.
+        model_provider_param = Parameter(
+            name="model_provider",
+            type="str",
+            default_value="griptape_cloud",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            tooltip="Choose a provider. Refresh to see all configured providers.",
+            ui_options={"display_name": "provider"},
         )
+        self.add_parameter(model_provider_param)
 
         model_param = Parameter(
             name="model",
@@ -119,6 +94,7 @@ class DescribeImage(ControlNode):
             ui_options={"display_name": "prompt model"},
         )
         self.add_parameter(model_param)
+
         # License-policy helper: adds Options + refresh Button traits, applies per-row
         # decoration + badge, exposes query_for_denial / raise_if_denied, and
         # relocates the stored value to a permitted alternative if DEFAULT_MODEL is denied.
@@ -127,7 +103,16 @@ class DescribeImage(ControlNode):
             parameter=model_param,
             model_choices=GTC_VISION_MODEL_CHOICES,
             default_model=DEFAULT_MODEL,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
+
+        self._provider = ProviderSelectionComponent(
+            node=self,
+            model_provider_param=model_provider_param,
+            model_access=self._model_access,
+            default_model=DEFAULT_MODEL,
+        )
+
         self.add_parameter(
             ParameterList(
                 name="images",
@@ -190,85 +175,6 @@ class DescribeImage(ControlNode):
                 hide=True,
             )
         )
-
-    # --- Provider / model helpers (mirrors agent.py) ---
-    # TODO: extract into ProviderSelectionComponent shared with Agent
-    # https://github.com/griptape-ai/griptape-nodes-library-standard/issues/442
-
-    def _fetch_providers(self) -> list[ProviderConfig]:
-        _FALLBACK = [_GRIPTAPE_CLOUD_PROVIDER]
-        try:
-            result = GriptapeNodes.handle_request(ListAgentProvidersRequest())
-            if not isinstance(result, ListAgentProvidersResultSuccess):
-                return _FALLBACK
-            return cast(ListAgentProvidersResultSuccess, result).providers or _FALLBACK
-        except Exception:
-            return _FALLBACK
-
-    def _fetch_provider_names(self) -> list[str]:
-        providers = self._fetch_providers()
-        return [p.name for p in providers] or ["griptape_cloud"]
-
-    def _resolve_provider_api_key(self, provider_config: "ProviderConfig") -> str:
-        secret_name = provider_config.api_key_secret_name or ""
-        if secret_name:
-            return (
-                GriptapeNodes.SecretsManager().get_secret(secret_name, should_error_on_not_found=False) or "not-needed"
-            )
-        return "not-needed"
-
-    def _fetch_models_for_provider(self, provider_name: str) -> list[str]:
-        try:
-            providers = self._fetch_providers()
-            provider_config = next((p for p in providers if p.name == provider_name), None)
-            if provider_config is None:
-                return GTC_VISION_MODEL_CHOICES
-            result = GriptapeNodes.handle_request(
-                ListProviderModelsRequest(
-                    provider=provider_config.type,
-                    base_url=provider_config.base_url or "",
-                    api_key=self._resolve_provider_api_key(provider_config),
-                )
-            )
-            if isinstance(result, ListProviderModelsResultSuccess):
-                return cast(ListProviderModelsResultSuccess, result).models or GTC_VISION_MODEL_CHOICES
-        except Exception:
-            pass
-        return GTC_VISION_MODEL_CHOICES
-
-    def _update_model_choices_for_provider(self, provider_name: str) -> None:
-        if provider_name == "griptape_cloud":
-            # Use a curated vision-only subset rather than the full GTC model list.
-            models = GTC_VISION_MODEL_CHOICES
-            vision_names = set(GTC_VISION_MODEL_CHOICES)
-            new_data = [entry for entry in MODEL_CHOICES_ARGS if entry["name"] in vision_names]
-        else:
-            models = self._fetch_models_for_provider(provider_name)
-            new_data = [{"name": m, "icon": "", "args": {}} for m in models]
-        default = models[0] if models else DEFAULT_MODEL
-        self._update_option_choices(param="model", choices=models, default=default)
-        param = self.get_parameter_by_name("model")
-        if param:
-            param.update_ui_options_key("data", new_data)
-
-    def _refresh_providers_button(
-        self,
-        button: Button,
-        button_details: ButtonDetailsMessagePayload,  # noqa: ARG002
-    ) -> NodeMessageResult | None:
-        provider_names = self._fetch_provider_names()
-        current = self.get_parameter_value("model_provider") or "griptape_cloud"
-        default = current if current in provider_names else (provider_names[0] if provider_names else "griptape_cloud")
-        self._update_option_choices(param="model_provider", choices=provider_names, default=default)
-        return None
-
-    def _uses_griptape_cloud_driver(self) -> bool:
-        if self.get_parameter_value("agent") is not None:
-            return False
-        if isinstance(self.get_parameter_value("model"), BasePromptDriver):
-            return False
-        provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
-        return provider_name == "griptape_cloud"
 
     # --- Connection / UI helpers ---
 
@@ -363,11 +269,11 @@ class DescribeImage(ControlNode):
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
         exceptions = []
-        if not self._uses_griptape_cloud_driver():
+        if not self._provider.uses_griptape_cloud_driver():
             return None
-        api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
+        api_key = resolve_cloud_api_key()
         if not api_key:
-            msg = f"{API_KEY_ENV_VAR} is not defined"
+            msg = missing_credential_message("describe an image")
             exceptions.append(KeyError(msg))
             return exceptions
         return exceptions if exceptions else None
@@ -379,8 +285,7 @@ class DescribeImage(ControlNode):
         target_parameter: Parameter,
     ) -> None:
         if target_parameter.name == "agent":
-            self.hide_parameter_by_name("model")
-            self.hide_parameter_by_name("model_provider")
+            self._provider.hide()
 
         if target_parameter.name == "output_schema":
             self._update_output_type_and_validate_connections("json")
@@ -405,8 +310,7 @@ class DescribeImage(ControlNode):
         target_parameter: Parameter,
     ) -> None:
         if target_parameter.name == "agent":
-            self.show_parameter_by_name("model")
-            self.show_parameter_by_name("model_provider")
+            self._provider.show()
         if target_parameter.name == "output_schema":
             self.set_parameter_value("output_schema", None)
             self._update_output_type_and_validate_connections("str")
@@ -431,27 +335,30 @@ class DescribeImage(ControlNode):
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
-        if parameter.name == "model":
-            self._model_access.on_value_changed(value)
-        elif parameter.name == "model_provider":
-            self._update_model_choices_for_provider(str(value))
+        self._model_access.on_value_set(parameter, value)
+        if parameter.name == "model_provider":
+            self._provider.on_provider_changed(str(value))
 
     def process(self) -> AsyncResult[Structure]:  # noqa: C901, PLR0915, PLR0912
         # Get the parameters from the node
         params = self.parameter_values
         model_input = self.get_parameter_value("model")
         provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
+        agent_value = self.get_parameter_value("agent")
 
-        # License-policy runtime gate — only enforced for Griptape Cloud models.
-        if provider_name == "griptape_cloud":
-            self._model_access.raise_if_denied(model_input)
+        # License-policy runtime gate, scoped to Griptape Cloud models (the only ones the
+        # catalog declares) and skipped when an Agent is connected: it supplies its own
+        # driver, so the node's (hidden, not cleared) dropdown value is stale. The
+        # INVOKE_MODEL declaration below gates the model that actually runs.
+        if agent_value is None and provider_name == "griptape_cloud":
+            self._model_access.raise_if_selection_denied()
 
         agent = None
 
         default_prompt_driver = GriptapeCloudPromptDriver(
             model=DEFAULT_MODEL,
-            api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
             stream=False,  # TODO: enable once https://github.com/griptape-ai/griptape-cloud/issues/1593 is resolved
+            **cloud_driver_auth(),
         )
 
         output_schema = self.get_parameter_value("output_schema")
@@ -494,7 +401,6 @@ class DescribeImage(ControlNode):
         tool_configs: list = []
         ruleset_configs: list = []
         provider_info: dict | None = None
-        agent_value = self.get_parameter_value("agent")
         if isinstance(agent_value, dict):
             agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_value)
             agent = GtAgent().from_dict(agent_core_dict)
@@ -513,12 +419,12 @@ class DescribeImage(ControlNode):
         elif isinstance(model_input, BasePromptDriver):
             agent = GtAgent(prompt_driver=model_input, output_schema=pydantic_schema)
         elif provider_name != "griptape_cloud":
-            providers = self._fetch_providers()
+            providers = self._provider._fetch_providers()
             non_gtc_provider_config = next((p for p in providers if p.name == provider_name), None)
             if non_gtc_provider_config is None:
                 msg = f"DescribeImage '{self.name}': provider '{provider_name}' not found in configured providers."
                 raise ValueError(msg)
-            api_key = self._resolve_provider_api_key(non_gtc_provider_config)
+            api_key = self._provider.resolve_provider_api_key(non_gtc_provider_config)
             base_url = non_gtc_provider_config.base_url or ""
             prompt_driver = GtOpenAiChatPromptDriver(
                 model=model_input if isinstance(model_input, str) else DEFAULT_MODEL,
@@ -533,8 +439,8 @@ class DescribeImage(ControlNode):
                 model_input = DEFAULT_MODEL
             prompt_driver = GriptapeCloudPromptDriver(
                 model=model_input,
-                api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
                 stream=False,  # TODO: enable once https://github.com/griptape-ai/griptape-cloud/issues/1593 is resolved
+                **cloud_driver_auth(),
             )
             agent = GtAgent(prompt_driver=prompt_driver, output_schema=pydantic_schema)
         else:
@@ -574,6 +480,18 @@ class DescribeImage(ControlNode):
             self.parameter_output_values["output"] = "No image provided"
             return
 
+        # Declare the model that will actually run. Every construction branch above
+        # ends with the concrete prompt driver installed on the agent's PromptTask,
+        # so read the model from there. The node's own `model` parameter is not a
+        # trustworthy source: it keeps its last dropdown value (hidden, not cleared)
+        # while a connected Agent supplies the real driver. The util resolves the
+        # provider model id to its stable catalog key (via the node's model_usage)
+        # before declaring. Declare before the network call below so a denied
+        # invocation fails closed rather than reaching the provider.
+        model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
+        require_model_invocation_sync(self, model)
+
+        # Run the agent
         yield lambda: agent.run([prompt, *image_artifacts])
         agent_output = agent.output
         output_value = agent_output.value

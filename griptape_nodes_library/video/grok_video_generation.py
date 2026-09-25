@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import logging
-from contextlib import suppress
 from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -15,7 +15,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -41,8 +41,10 @@ class GrokVideoGeneration(GriptapeProxyNode):
         - result_details (str): Details about the generation result or error
     """
 
-    MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
+    # Migrates values saved before the dropdown stored the provider's own model id.
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
         "Grok Imagine Video": "grok-imagine-video",
+        "gtc_grok_imagine_video": "grok-imagine-video",
     }
 
     MIN_DURATION: ClassVar[int] = 1
@@ -64,14 +66,21 @@ class GrokVideoGeneration(GriptapeProxyNode):
         self.category = "API Nodes"
         self.description = "Generate videos using Grok video models via Griptape model proxy"
 
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="Grok Imagine Video",
-                tooltip="Select the Grok video model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["Grok Imagine Video"])},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="grok-imagine-video",
+            tooltip="Select the Grok video model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=["grok-imagine-video"],
+            default_model="grok-imagine-video",
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -204,18 +213,10 @@ class GrokVideoGeneration(GriptapeProxyNode):
             return None
 
     def _get_api_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "Grok Imagine Video"
-        base_model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
-        return f"{base_model_id}:generate"
+        return f"{self._get_selected_model_id()}:generate"
 
     def _get_payload_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "Grok Imagine Video"
-        return self.MODEL_NAME_MAP.get(model_name, model_name)
-
-    def _get_catalog_model_id(self) -> str:
-        # The catalog declares the bare provider id (no `:generate` suffix), so
-        # resolve the declaration against the un-suffixed id.
-        return self._get_payload_model_id()
+        return self._get_selected_model_id() or "grok-imagine-video"
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []
@@ -255,44 +256,12 @@ class GrokVideoGeneration(GriptapeProxyNode):
 
         return payload
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        video_info = result_json.get("video") or {}
-        video_url = video_info.get("url")
-
-        if not video_url:
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no video URL was found in the response.",
-            )
-            return
-
-        try:
-            video_bytes = await self._download_bytes_from_url(video_url)
-        except Exception as e:
-            with suppress(Exception):
-                logger.warning("%s failed to download video: %s", self.name, e)
-            video_bytes = None
-
-        if video_bytes:
-            try:
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(video_bytes)
-            except (OSError, PermissionError) as e:
-                with suppress(Exception):
-                    logger.warning("%s failed to save video: %s", self.name, e)
-            else:
-                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-                self._set_status_results(
-                    was_successful=True,
-                    result_details=f"Video generated successfully and saved as {saved.name}.",
-                )
-                return
-
-        self.parameter_output_values["video_url"] = VideoUrlArtifact(value=video_url)
-        self._set_status_results(
-            was_successful=True,
-            result_details="Video generated successfully. Using provider URL (could not save to static storage).",
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        await self._save_generated_media(
+            generation_id,
+            "video_url",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
         )
 
     def _set_safe_defaults(self) -> None:

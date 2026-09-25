@@ -75,3 +75,13 @@ class TestLoadTextProcess:
             node.process()
 
         mock_loader_cls.assert_not_called()
+
+    def test_edl_reads_as_plain_text(self, node: LoadText) -> None:
+        """EDL files (plain ASCII) should be read via File.read_text(), not PdfLoader."""
+        node.parameter_values["path"] = "cut_list.edl"
+
+        with patch.object(File, "read_text", return_value="TITLE: MY_EDL\nFCM: DROP FRAME\n") as mock_read:
+            node.process()
+
+        mock_read.assert_called_once()
+        assert node.parameter_output_values["output"] == "TITLE: MY_EDL\nFCM: DROP FRAME\n"

@@ -6,24 +6,28 @@ import subprocess
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.traits.options import Options
 
 # static_ffmpeg is dynamically installed by the library loader at runtime
 from static_ffmpeg import run  # type: ignore[import-untyped]
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.utils.ffmpeg_utils import describe_ffmpeg_failure
 
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["LTXVideoToVideoHDR"]
 
-MODEL_MAPPING = {
+# Migrates values saved before the dropdown stored the provider's own model id: old
+# display labels and catalog keys.
+LEGACY_MODEL_VALUES = {
     "LTX 2.3 Pro": "ltx-2-3-pro",
+    "gtc_ltx_2_3_pro": "ltx-2-3-pro",
 }
 
 # Input frame-count limits per LTX HDR upscale docs, keyed by billing tier.
@@ -60,14 +64,21 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         # INPUTS / PROPERTIES
 
         # Model parameter — HDR upscale is only offered on ltx-2-3-pro per the pricing page.
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="LTX 2.3 Pro",
-                tooltip="Model to use for video-to-video HDR upscale",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=list(MODEL_MAPPING.keys()))},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="ltx-2-3-pro",
+            tooltip="Model to use for video-to-video HDR upscale",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=["ltx-2-3-pro"],
+            default_model="ltx-2-3-pro",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -115,9 +126,7 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         self.set_initial_node_size(height=400)
 
     def _get_api_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "LTX 2.3 Pro"
-        model_id = MODEL_MAPPING.get(model_name, "ltx-2-3-pro")
-        return f"{model_id}:video-to-video-hdr"
+        return f"{self._get_selected_model_id()}:video-to-video-hdr"
 
     @staticmethod
     def _extract_input_video_url(video_input: Any) -> str | None:
@@ -130,8 +139,10 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
 
             cmd = [
                 ffprobe_path,
+                # "error" rather than "quiet" so the log below can report why the probe
+                # failed; the JSON stays on stdout, diagnostics go to stderr.
                 "-v",
-                "quiet",
+                "error",
                 "-print_format",
                 "json",
                 "-show_streams",
@@ -169,7 +180,7 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
             ValueError,
             KeyError,
         ) as e:
-            logger.debug("%s ffprobe failed to probe video: %s", self.name, e)
+            logger.debug("%s ffprobe failed to probe video: %s", self.name, describe_ffmpeg_failure(e))
             return None
 
     @staticmethod
@@ -240,40 +251,15 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         # from the decoded video, so the request payload only carries video_uri.
         return {"video_uri": video_data_uri}
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        zip_bytes = result_json.get("raw_bytes")
-        if not isinstance(zip_bytes, (bytes, bytearray)):
-            msg = f"{self.name} generation completed but no ZIP data received."
-            raise TypeError(msg)
-
-        await self._handle_completion_async(bytes(zip_bytes), generation_id)
-
-    async def _handle_completion_async(self, zip_bytes: bytes, generation_id: str) -> None:
-        """Save the EXR-frames ZIP to storage and surface its path."""
-        if not zip_bytes:
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no ZIP data received.",
-            )
-            return
-
-        try:
-            dest = self._output_file.build_file()
-            saved = await dest.awrite_bytes(zip_bytes)
-            self.parameter_output_values["project_path"] = saved.location
-            logger.info("%s saved EXR-frames ZIP as %s", self.name, saved.name)
-            self._set_status_results(
-                was_successful=True,
-                result_details=f"HDR upscale successful. EXR frames ZIP saved as {saved.name}.",
-            )
-        except (OSError, PermissionError) as e:
-            logger.error("%s failed to save ZIP to storage: %s", self.name, e)
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"HDR upscale completed but failed to save ZIP to storage: {e}",
-            )
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        """Save the hosted EXR-frames ZIP. LTX HDR returns the archive as the response body itself."""
+        await self._save_generated_media(
+            generation_id,
+            "project_path",
+            lambda v, _n: v,
+            kind=ArtifactKind.ARCHIVE,
+            media_kind="archive",
+        )
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:  # noqa: C901, PLR0912
         if not response_json:

@@ -14,7 +14,12 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
-from griptape_nodes_library.utils.model_invocation import declare_model_invocation_sync
+from griptape_nodes_library.utils.cloud_credential_utils import (
+    missing_credential_message,
+    resolve_cloud_api_key,
+)
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
+from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
@@ -218,12 +223,12 @@ class RandomText(DataNode):
 
     def _initialize_agent(self) -> None:
         """Initialize the Griptape Agent for text generation."""
-        api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
+        api_key = resolve_cloud_api_key()
         if not api_key:
-            msg = f"{API_KEY_ENV_VAR} is not defined"
+            msg = missing_credential_message("generate random text")
             raise KeyError(msg)
 
-        prompt_driver = GriptapeCloudPromptDriver(model=MODEL, api_key=api_key, stream=True)
+        prompt_driver = GriptapeCloudPromptDriver(model=MODEL, stream=True, **cloud_driver_auth(api_key))
         self.agent = GtAgent(prompt_driver=prompt_driver)
 
     def _generate_with_agent(self, selection_type: str, seed: int | None) -> str:
@@ -247,11 +252,7 @@ class RandomText(DataNode):
             # License-policy gate immediately before the framework driver call. RandomText has
             # no user-facing model selection (MODEL is a fixed constant), so there is no
             # dropdown to gate with ModelAccessComponent -- this declaration is the sole gate.
-            declaration = declare_model_invocation_sync(self, MODEL)
-            if declaration.failed():
-                details = str(declaration.result_details or f"{self.name}: model invocation was not permitted.")
-                msg = f"Cannot run {type(self).__name__}: {details}"
-                raise RuntimeError(msg)
+            require_model_invocation_sync(self, MODEL)
 
             result = self.agent.run(prompt)
             if isinstance(result, BaseArtifact):

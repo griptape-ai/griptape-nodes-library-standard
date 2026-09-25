@@ -5,28 +5,20 @@ from contextlib import suppress
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
+from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.files.file import File
-from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["GrokImageGeneration"]
-
-# Deprecated models and their replacements (covers both friendly names and raw provider IDs
-# so saved workflows in either format are migrated)
-DEPRECATED_MODELS = {
-    "Grok 2 Image": "Grok Imagine Image",
-    "grok-2-image-1212": "Grok Imagine Image",
-}
 
 
 class GrokImageGeneration(GriptapeProxyNode):
@@ -48,10 +40,6 @@ class GrokImageGeneration(GriptapeProxyNode):
         - was_successful (bool): Whether the generation succeeded
         - result_details (str): Details about the generation result or error
     """
-
-    MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
-        "Grok Imagine Image": "grok-imagine-image",
-    }
 
     MIN_IMAGES: ClassVar[int] = 1
     MAX_IMAGES: ClassVar[int] = 10
@@ -76,36 +64,35 @@ class GrokImageGeneration(GriptapeProxyNode):
 
     RESOLUTION_OPTIONS: ClassVar[list[str]] = ["1k", "2k"]
 
+    # Migrates values saved before this dropdown stored the provider's own model id.
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
+        "Grok Imagine Image": "grok-imagine-image",
+        "gtc_grok_imagine_image": "grok-imagine-image",
+        # Folded in from this node's own retired DEPRECATED_MODELS dict.
+        "Grok 2 Image": "grok-imagine-image",
+        "grok-2-image-1212": "grok-imagine-image",
+    }
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.category = "API Nodes"
         self.description = "Generate images using Grok image models via Griptape model proxy"
 
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="Grok Imagine Image",
-                tooltip="Select the Grok image model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["Grok Imagine Image"])},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="grok-imagine-image",
+            tooltip="Select the Grok image model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
-
-        self.add_node_element(
-            ParameterMessage(
-                name="model_deprecation_notice",
-                title="Model Deprecation Notice",
-                variant="info",
-                value="",
-                traits={
-                    Button(
-                        full_width=True,
-                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
-                    )
-                },
-                button_text="Dismiss",
-                hide=True,
-            )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=["grok-imagine-image"],
+            default_model="grok-imagine-image",
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -194,24 +181,6 @@ class GrokImageGeneration(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
 
-    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
-        """Migrate deprecated model selections to their replacement."""
-        if parameter.name == "model" and isinstance(value, str) and value in DEPRECATED_MODELS:
-            replacement = DEPRECATED_MODELS[value]
-            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
-            if message is None:
-                raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
-            message.value = (
-                f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. "
-                "Please save your workflow to apply this change."
-            )
-            self.show_message_by_name("model_deprecation_notice")
-            value = replacement
-        elif parameter.name == "model" and isinstance(value, str):
-            self.hide_message_by_name("model_deprecation_notice")
-
-        return super().before_value_set(parameter, value)
-
     def _show_image_output_parameters(self, count: int) -> None:
         for i in range(1, 11):
             param_name = "image_url" if i == 1 else f"image_url_{i}"
@@ -221,18 +190,9 @@ class GrokImageGeneration(GriptapeProxyNode):
                 self.hide_parameter_by_name(param_name)
 
     def _get_api_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "Grok Imagine Image"
-        base_model_id = self.MODEL_NAME_MAP.get(model_name, model_name)
-        return f"{base_model_id}:generate"
-
-    def _get_payload_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "Grok Imagine Image"
-        return self.MODEL_NAME_MAP.get(model_name, model_name)
-
-    def _get_catalog_model_id(self) -> str:
-        # The catalog declares the bare provider id (no `:generate` suffix), so
-        # resolve the declaration against the un-suffixed id.
-        return self._get_payload_model_id()
+        # Decorate the resolved provider id with the URL-path operation suffix the
+        # proxy expects; the catalog declares the bare id (see _get_catalog_model_id).
+        return f"{self._get_selected_model_id()}:generate"
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []
@@ -252,7 +212,7 @@ class GrokImageGeneration(GriptapeProxyNode):
         aspect_ratio = self.get_parameter_value("aspect_ratio") or "1:1"
         n_value = int(self.get_parameter_value("n") or 1)
         resolution = self.get_parameter_value("resolution") or "1k"
-        api_model_id = self._get_payload_model_id()
+        api_model_id = self._get_selected_model_id()
 
         payload: dict[str, Any] = {
             "model": api_model_id,
@@ -266,42 +226,50 @@ class GrokImageGeneration(GriptapeProxyNode):
 
         return payload
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        data = result_json.get("data", [])
-        if not data:
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        try:
+            hosted = [a for a in await self._hosted_artifacts(generation_id) if a.kind == ArtifactKind.IMAGE]
+        except Exception as e:
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=f"{self.name} generation completed but no image data was found in the response.",
+                result_details=f"{self.name} generation completed but its images could not be listed: {e}",
             )
             return
 
-        image_artifacts: list[ImageUrlArtifact] = []
-        for idx, image_data in enumerate(data):
-            image_url = image_data.get("url")
-            if not image_url:
-                continue
+        if not hosted:
+            self._set_safe_defaults()
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"{self.name} generation completed but no images were hosted.",
+            )
+            return
 
-            artifact = await self._save_single_image_from_url(image_url, generation_id, idx)
-            if artifact:
-                image_artifacts.append(artifact)
+        # Slots follow provider order: a failed download leaves its slot empty instead of
+        # pulling later images forward, so image_url_N always holds the Nth hosted image.
+        saved_by_position = [await self._save_single_image(generation_id, position) for position in range(len(hosted))]
 
+        image_artifacts = [artifact for artifact in saved_by_position if artifact is not None]
         if not image_artifacts:
             self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no image URLs were found in the response.",
-            )
+            details = f"{self.name} generation completed upstream but the image(s) could not be retrieved."
+            self._set_status_results(was_successful=False, result_details=details)
             return
 
-        self._show_image_output_parameters(len(image_artifacts))
+        self._show_image_output_parameters(len(saved_by_position))
 
-        for idx, artifact in enumerate(image_artifacts, start=1):
+        for idx, artifact in enumerate(saved_by_position, start=1):
             param_name = "image_url" if idx == 1 else f"image_url_{idx}"
             self.parameter_output_values[param_name] = artifact
 
         filenames = [artifact.name for artifact in image_artifacts]
-        if len(image_artifacts) == 1:
+        missing = [str(idx) for idx, artifact in enumerate(saved_by_position, start=1) if artifact is None]
+        if missing:
+            details = (
+                f"Saved {len(image_artifacts)} of {len(saved_by_position)} images: {', '.join(filenames)}. "
+                f"Image(s) {', '.join(missing)} could not be retrieved; their output slots are empty."
+            )
+        elif len(image_artifacts) == 1:
             details = f"Image generated successfully and saved as {filenames[0]}."
         else:
             details = f"Generated {len(image_artifacts)} images successfully: {', '.join(filenames)}."
@@ -313,18 +281,15 @@ class GrokImageGeneration(GriptapeProxyNode):
             param_name = "image_url" if i == 1 else f"image_url_{i}"
             self.parameter_output_values[param_name] = None
 
-    async def _save_single_image_from_url(
-        self, image_url: str, generation_id: str | None = None, index: int = 0
-    ) -> ImageUrlArtifact | None:
+    async def _save_single_image(self, generation_id: str, position: int) -> ImageUrlArtifact | None:
         try:
-            image_bytes = await File(image_url).aread_bytes()
-            if not image_bytes:
-                return ImageUrlArtifact(value=image_url)
-
+            image_bytes = await self._load_generated_media(generation_id, kind=ArtifactKind.IMAGE, position=position)
             dest = self._output_file.build_file()
             saved = await dest.awrite_bytes(image_bytes)
             return ImageUrlArtifact(value=saved.location, name=saved.name)
         except Exception as e:
+            # A billed generation whose image cannot be retrieved is a failure, not a
+            # silent success. Return None so this image is not counted as saved.
             with suppress(Exception):
-                logger.warning("%s failed to save image %s: %s", self.name, index, e)
-            return ImageUrlArtifact(value=image_url)
+                logger.warning("%s failed to retrieve image %s: %s", self.name, position, e)
+            return None

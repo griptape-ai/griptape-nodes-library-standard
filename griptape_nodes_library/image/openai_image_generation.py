@@ -1,43 +1,49 @@
 from __future__ import annotations
 
-import base64
 import logging
 import re
+from contextlib import suppress
 from typing import Any, ClassVar
+from uuid import uuid4
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
+    PublicArtifactUrlParameter,
+)
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["OpenAiImageGeneration"]
 
-GPT_IMAGE_1_MODEL_ID = "gpt-image-1"
-GPT_IMAGE_1_5_MODEL_ID = "gpt-image-1.5"
-GPT_IMAGE_2_MODEL_ID = "gpt-image-2"
-
-GPT_IMAGE_1_MODEL_NAME = "GPT Image 1"
-GPT_IMAGE_1_5_MODEL_NAME = "GPT Image 1.5"
-GPT_IMAGE_2_MODEL_NAME = "GPT Image 2"
+GPT_IMAGE_1_MODEL_KEY = "gpt-image-1"
+GPT_IMAGE_1_5_MODEL_KEY = "gpt-image-1.5"
+GPT_IMAGE_2_MODEL_KEY = "gpt-image-2"
+MODEL_CHOICES = [GPT_IMAGE_1_MODEL_KEY, GPT_IMAGE_1_5_MODEL_KEY, GPT_IMAGE_2_MODEL_KEY]
 
 
 class OpenAiImageGeneration(GriptapeProxyNode):
     """Generate images using OpenAI GPT Image models via Griptape model proxy."""
 
-    MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
-        GPT_IMAGE_1_MODEL_NAME: GPT_IMAGE_1_MODEL_ID,
-        GPT_IMAGE_1_5_MODEL_NAME: GPT_IMAGE_1_5_MODEL_ID,
-        GPT_IMAGE_2_MODEL_NAME: GPT_IMAGE_2_MODEL_ID,
+    # Migrates values saved before this dropdown stored the provider's own model id
+    # (friendly labels and catalog keys alike).
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
+        "GPT Image 1": GPT_IMAGE_1_MODEL_KEY,
+        "GPT Image 1.5": GPT_IMAGE_1_5_MODEL_KEY,
+        "GPT Image 2": GPT_IMAGE_2_MODEL_KEY,
+        "gtc_gpt_image_1": GPT_IMAGE_1_MODEL_KEY,
+        "gtc_gpt_image_1_5": GPT_IMAGE_1_5_MODEL_KEY,
+        "gtc_gpt_image_2": GPT_IMAGE_2_MODEL_KEY,
     }
     GPT_IMAGE_SIZE_OPTIONS: ClassVar[list[str]] = ["1024x1024", "1024x1536", "1536x1024"]
     GPT_IMAGE_2_CUSTOM_SIZE: ClassVar[str] = "custom"
@@ -47,6 +53,9 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         "1024x1536",
         "1792x1024",
         "1024x1792",
+        "2880x2880",
+        "3840x2160",
+        "2160x3840",
         GPT_IMAGE_2_CUSTOM_SIZE,
     ]
     GPT_IMAGE_2_SIZE_PATTERN: ClassVar[re.Pattern[str]] = re.compile(r"^(?P<width>\d+)x(?P<height>\d+)$")
@@ -57,22 +66,22 @@ class OpenAiImageGeneration(GriptapeProxyNode):
     # Only gpt-image-1 supports transparent backgrounds; gpt-image-1.5 and gpt-image-2 reject
     # background="transparent" at the API level.
     BACKGROUND_OPTIONS_BY_MODEL: ClassVar[dict[str, list[str]]] = {
-        GPT_IMAGE_1_MODEL_NAME: ["auto", "opaque", "transparent"],
-        GPT_IMAGE_1_5_MODEL_NAME: ["auto", "opaque"],
-        GPT_IMAGE_2_MODEL_NAME: ["auto", "opaque"],
+        GPT_IMAGE_1_MODEL_KEY: ["auto", "opaque", "transparent"],
+        GPT_IMAGE_1_5_MODEL_KEY: ["auto", "opaque"],
+        GPT_IMAGE_2_MODEL_KEY: ["auto", "opaque"],
     }
     MODERATION_OPTIONS: ClassVar[list[str]] = ["auto", "low"]
     OUTPUT_FORMAT_OPTIONS: ClassVar[list[str]] = ["png", "jpeg", "webp"]
     MAX_REFERENCE_IMAGES: ClassVar[int] = 16
     MAX_REFERENCE_IMAGES_BY_MODEL: ClassVar[dict[str, int]] = {
-        GPT_IMAGE_1_MODEL_NAME: MAX_REFERENCE_IMAGES,
-        GPT_IMAGE_1_5_MODEL_NAME: MAX_REFERENCE_IMAGES,
-        GPT_IMAGE_2_MODEL_NAME: MAX_REFERENCE_IMAGES,
+        GPT_IMAGE_1_MODEL_KEY: MAX_REFERENCE_IMAGES,
+        GPT_IMAGE_1_5_MODEL_KEY: MAX_REFERENCE_IMAGES,
+        GPT_IMAGE_2_MODEL_KEY: MAX_REFERENCE_IMAGES,
     }
     MIN_IMAGES: ClassVar[int] = 1
     MAX_IMAGES: ClassVar[int] = 10
     MAX_PROMPT_LENGTH: ClassVar[int] = 32_000
-    DEFAULT_MODEL: ClassVar[str] = GPT_IMAGE_2_MODEL_NAME
+    DEFAULT_MODEL: ClassVar[str] = GPT_IMAGE_2_MODEL_KEY
     DEFAULT_OUTPUT_FORMAT: ClassVar[str] = "png"
     DEFAULT_OUTPUT_FILENAME_BASE: ClassVar[str] = "openai_image"
     DEFAULT_INPUT_IMAGE_MIME_TYPE: ClassVar[str] = "image/png"
@@ -87,14 +96,26 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         self.category = "API Nodes"
         self.description = "Generate images using OpenAI GPT Image models via Griptape model proxy"
 
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value=self.DEFAULT_MODEL,
-                tooltip="Select the OpenAI image model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=list(self.MODEL_NAME_MAP.keys()))},
-            )
+        # Reference images are uploaded to Griptape Cloud and passed to the proxy as public URLs
+        # rather than base64-inlined into the request body. Each upload uses a transient
+        # PublicArtifactUrlParameter tracked here so it can be cleaned up after the run.
+        self._pending_reference_uploads: list[tuple[PublicArtifactUrlParameter, str]] = []
+
+        model_param = ParameterString(
+            name="model",
+            default_value=self.DEFAULT_MODEL,
+            tooltip="Select the OpenAI image model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_CHOICES,
+            default_model=self.DEFAULT_MODEL,
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -113,7 +134,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             ParameterString(
                 name="size",
                 default_value=initial_size_choices[0],
-                tooltip=("Output image size. Choose 'custom' on GPT Image 2 to enter a specific width and height."),
+                tooltip=("Output image size. Choose 'custom' to enter any width and height within the model's limits."),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=initial_size_choices)},
             )
@@ -266,20 +287,13 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
     @classmethod
     def _size_choices_for_model(cls, model_name: str) -> list[str]:
-        if model_name == GPT_IMAGE_2_MODEL_NAME:
+        if model_name == GPT_IMAGE_2_MODEL_KEY:
             return list(cls.GPT_IMAGE_2_SIZE_OPTIONS)
         return list(cls.GPT_IMAGE_SIZE_OPTIONS)
 
     @classmethod
     def _background_choices_for_model(cls, model_name: str) -> list[str]:
         return list(cls.BACKGROUND_OPTIONS_BY_MODEL.get(model_name, cls.BACKGROUND_OPTIONS))
-
-    def _get_payload_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or self.DEFAULT_MODEL
-        return self.MODEL_NAME_MAP[model_name]
-
-    def _get_api_model_id(self) -> str:
-        return self._get_payload_model_id()
 
     def _show_image_output_parameters(self, count: int) -> None:
         for i in range(1, self.MAX_IMAGES + 1):
@@ -307,7 +321,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             return
 
         # GPT Image 2 accepts any in-range WIDTHxHEIGHT, so don't clobber a custom size.
-        if model_name == GPT_IMAGE_2_MODEL_NAME and isinstance(current_size, str):
+        if model_name == GPT_IMAGE_2_MODEL_KEY and isinstance(current_size, str):
             match = self.GPT_IMAGE_2_SIZE_PATTERN.fullmatch(current_size.strip())
             if match is not None and not self._validate_gpt_image_2_size(current_size.strip()):
                 self._sync_custom_size_visibility(model_name, current_size)
@@ -337,7 +351,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         self.publish_update_to_parameter("background", choices[0])
 
     def _sync_custom_size_visibility(self, model_name: str, size_value: Any) -> None:
-        show_custom = model_name == GPT_IMAGE_2_MODEL_NAME and size_value == self.GPT_IMAGE_2_CUSTOM_SIZE
+        show_custom = model_name == GPT_IMAGE_2_MODEL_KEY and size_value == self.GPT_IMAGE_2_CUSTOM_SIZE
         for param_name in ("custom_width", "custom_height"):
             if show_custom:
                 self.show_parameter_by_name(param_name)
@@ -456,12 +470,11 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         size = self._resolve_effective_size()
         if not size:
             exceptions.append(ValueError(f"{self.name}: Size is required for image generation."))
-        elif (
-            model_name in {GPT_IMAGE_1_MODEL_NAME, GPT_IMAGE_1_5_MODEL_NAME} and size not in self.GPT_IMAGE_SIZE_OPTIONS
-        ):
+        elif model_name in {GPT_IMAGE_1_MODEL_KEY, GPT_IMAGE_1_5_MODEL_KEY} and size not in self.GPT_IMAGE_SIZE_OPTIONS:
             valid_sizes = ", ".join(self.GPT_IMAGE_SIZE_OPTIONS)
-            exceptions.append(ValueError(f"{self.name}: {model_name} size must be one of: {valid_sizes}."))
-        elif model_name == GPT_IMAGE_2_MODEL_NAME:
+            display_name = "GPT Image 1" if model_name == GPT_IMAGE_1_MODEL_KEY else "GPT Image 1.5"
+            exceptions.append(ValueError(f"{self.name}: {display_name} size must be one of: {valid_sizes}."))
+        elif model_name == GPT_IMAGE_2_MODEL_KEY:
             exceptions.extend(self._validate_gpt_image_2_size(size))
 
         input_images = self._get_input_images_value()
@@ -469,7 +482,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         if len(input_images) > max_reference_images:
             exceptions.append(
                 ValueError(
-                    f"{self.name}: {model_name} supports up to {max_reference_images} reference images; "
+                    f"{self.name}: this model supports up to {max_reference_images} reference images; "
                     f"received {len(input_images)}."
                 )
             )
@@ -492,9 +505,23 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
         return exceptions if exceptions else None
 
+    async def _process_generation(self) -> None:
+        self._pending_reference_uploads = []
+        try:
+            await super()._process_generation()
+        finally:
+            # Delete each uploaded reference and remove its scratch parameter. The scratch name is
+            # unique per upload, so leaving it would accumulate parameters on the node across runs.
+            for helper, scratch_name in self._pending_reference_uploads:
+                with suppress(Exception):
+                    helper.delete_uploaded_artifact()
+                with suppress(Exception):
+                    self.remove_parameter_element_by_name(scratch_name)
+            self._pending_reference_uploads = []
+
     async def _build_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
-            "model": self._get_payload_model_id(),
+            "model": self._get_selected_model_id(),
             "prompt": (self.get_parameter_value("prompt") or "").strip(),
             "size": self._resolve_effective_size(),
             "n": int(self.get_parameter_value("n") or 1),
@@ -513,42 +540,64 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
         return payload
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        data = result_json.get("data", [])
-        if not data:
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        try:
+            hosted = [a for a in await self._hosted_artifacts(generation_id) if a.kind == ArtifactKind.IMAGE]
+        except Exception as e:
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=f"{self.name} generation completed but no image data was found in the response.",
+                result_details=f"{self.name} generation completed but its images could not be listed: {e}",
             )
             return
 
-        image_artifacts: list[ImageUrlArtifact] = []
-        for idx, image_data in enumerate(data, start=1):
-            b64_json = image_data.get("b64_json")
-            if not isinstance(b64_json, str) or not b64_json:
-                logger.warning("%s response item %s did not include b64_json", self.name, idx)
+        if not hosted:
+            self._set_safe_defaults()
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"{self.name} generation completed but no images were hosted.",
+            )
+            return
+
+        # Slots follow provider order: a failed download leaves its slot empty instead of
+        # pulling later images forward, so image_url_N always holds the Nth hosted image.
+        saved_by_position: list[ImageUrlArtifact | None] = []
+        for position in range(len(hosted)):
+            try:
+                image_bytes = await self._load_generated_media(
+                    generation_id, kind=ArtifactKind.IMAGE, position=position
+                )
+                dest = self._output_file.build_file(_index=position + 1)
+                saved = await dest.awrite_bytes(image_bytes)
+            except Exception as e:
+                logger.warning("%s failed to save generated image %s: %s", self.name, position + 1, e)
+                saved_by_position.append(None)
                 continue
+            saved_by_position.append(ImageUrlArtifact(value=saved.location, name=saved.name))
 
-            artifact = await self._save_single_image_from_base64(b64_json, index=idx)
-            if artifact is not None:
-                image_artifacts.append(artifact)
-
+        image_artifacts = [artifact for artifact in saved_by_position if artifact is not None]
         if not image_artifacts:
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=f"{self.name} generation completed but no decodable GPT image payloads were found.",
+                result_details=f"{self.name} generation completed upstream but the image(s) could not be retrieved.",
             )
             return
 
-        self._show_image_output_parameters(len(image_artifacts))
-        for idx, artifact in enumerate(image_artifacts, start=1):
+        self._show_image_output_parameters(len(saved_by_position))
+        for idx, artifact in enumerate(saved_by_position, start=1):
             param_name = "image_url" if idx == 1 else f"image_url_{idx}"
             self.parameter_output_values[param_name] = artifact
 
         filenames = [artifact.name for artifact in image_artifacts if artifact.name]
-        if len(image_artifacts) == 1:
+        missing = [str(idx) for idx, artifact in enumerate(saved_by_position, start=1) if artifact is None]
+        if missing:
+            saved_list = f": {', '.join(filenames)}" if filenames else ""
+            details = (
+                f"Saved {len(image_artifacts)} of {len(saved_by_position)} images{saved_list}. "
+                f"Image(s) {', '.join(missing)} could not be retrieved; their output slots are empty."
+            )
+        elif len(image_artifacts) == 1:
             details = f"Image generated successfully and saved as {filenames[0] if filenames else generation_id}."
         else:
             details = (
@@ -563,16 +612,6 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         for i in range(1, self.MAX_IMAGES + 1):
             param_name = "image_url" if i == 1 else f"image_url_{i}"
             self.parameter_output_values[param_name] = None
-
-    async def _save_single_image_from_base64(self, b64_json: str, *, index: int) -> ImageUrlArtifact | None:
-        try:
-            image_bytes = base64.b64decode(b64_json)
-            dest = self._output_file.build_file(_index=index)
-            saved = await dest.awrite_bytes(image_bytes)
-            return ImageUrlArtifact(value=saved.location, name=saved.name)
-        except Exception as e:
-            logger.warning("%s failed to save generated image %s: %s", self.name, index, e)
-            return None
 
     async def _build_input_images_payload(self) -> list[dict[str, str]]:
         input_images = self._get_input_images_value()
@@ -592,14 +631,50 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         if not image_value:
             raise ValueError(f"{self.name}: Input image must be a file path, URL, data URI, or image artifact.")
 
-        if image_value.startswith("data:"):
+        # Upload the reference to Griptape Cloud and pass the proxy a public URL instead of
+        # base64-inlining the bytes. Base64 inflates the payload ~33%, so a couple of large
+        # references can exceed the proxy's request-body cap; a URL keeps the body tiny.
+        try:
+            return self._resolve_public_url_for_reference(image_value)
+        except Exception as e:
+            msg = f"{self.name}: Failed to prepare input image {image_input!r}: {e}"
+            raise ValueError(msg) from e
+
+    def _resolve_public_url_for_reference(self, image_value: str) -> str:
+        """Return a publicly fetchable URL for a reference image.
+
+        Already-public http(s) URLs pass through unchanged. Everything else — local paths, data
+        URIs, and localhost URLs — is uploaded to Griptape Cloud via a transient
+        PublicArtifactUrlParameter (tracked for cleanup) and its public URL is returned.
+        """
+        if image_value.startswith(("http://", "https://")) and "localhost" not in image_value:
             return image_value
 
-        try:
-            return await File(image_value).aread_data_uri(fallback_mime=self.DEFAULT_INPUT_IMAGE_MIME_TYPE)
-        except FileLoadError as e:
-            msg = f"{self.name}: Failed to read input image {image_input!r}: {e}"
-            raise ValueError(msg) from e
+        # The scratch parameter is a transient, worker-local helper that only exists to feed the
+        # upload (PublicArtifactUrlParameter reads its value locally). Its name is unique per call
+        # and it is removed before the run ends. Mutating parameters during aprocess trips the
+        # strict-mode warning, which is expected and harmless here.
+        scratch_name = f"_reference_upload_{uuid4().hex}"
+        helper = PublicArtifactUrlParameter(
+            node=self,
+            artifact_url_parameter=Parameter(
+                name=scratch_name,
+                input_types=["ImageUrlArtifact"],
+                type="ImageUrlArtifact",
+                default_value="",
+                tooltip="",
+                allowed_modes={ParameterMode.PROPERTY},
+                hide=True,
+                hide_property=True,
+            ),
+        )
+        helper.add_input_parameters()
+        self._pending_reference_uploads.append((helper, scratch_name))
+        self.set_parameter_value(scratch_name, image_value)
+
+        # Must run on the aprocess event loop, not a worker thread: the upload resolves macro paths
+        # (e.g. "{inputs}/...") via GriptapeNodes.handle_request, which needs the node's project context.
+        return helper.get_public_url_for_parameter()
 
     def _extract_input_image_value(self, image_input: Any) -> str | None:
         if isinstance(image_input, str):

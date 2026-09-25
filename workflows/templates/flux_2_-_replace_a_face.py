@@ -154,7 +154,7 @@ top_level_unique_values_dict = {
         b"\x80\x04\x95\x06\x00\x00\x00\x00\x00\x00\x00\x8c\x0295\x94."
     ),
     "038377c4-70c8-408c-9a53-61c24e07f7a2": pickle.loads(
-        b"\x80\x04\x95\x10\x00\x00\x00\x00\x00\x00\x00\x8c\x0cFlux.2 [pro]\x94."
+        b"\x80\x04\x95\x12\x00\x00\x00\x00\x00\x00\x00\x8c\x0egtc_flux_2_pro\x94."
     ),
     "ba1b0f64-59d9-498a-b390-01d0aabca793": pickle.loads(
         b"\x80\x04\x95\xb2\x00\x00\x00\x00\x00\x00\x00\x8c\xaeInpaint the person from Image 3 into Image 1 using the mask from Image 2\nMatch the texture, art style, color, tone, hue, contrast, brightness, levels, and clothing of Image 1\x94."

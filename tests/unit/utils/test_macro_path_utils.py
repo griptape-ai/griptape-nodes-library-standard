@@ -1,66 +1,220 @@
-"""Tests for resolve_to_macro_path URL / filesystem handling."""
+"""Unit tests for resolve_to_macro_path."""
 
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+from griptape_nodes.retained_mode.events.project_events import (
+    AttemptMapAbsolutePathToProjectRequest,
+    AttemptMapAbsolutePathToProjectResultSuccess,
+)
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
+import griptape_nodes_library.utils.macro_path_utils as macro_path_utils_module
 from griptape_nodes_library.utils.macro_path_utils import resolve_to_macro_path
 
 
+class TestResolveToMacroPath:
+    def test_macro_with_variables_returns_unchanged_without_filesystem_access(
+        self, griptape_nodes: GriptapeNodes, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def _fail(_request: object) -> object:
+            msg = "handle_request should not be called for a macro-with-variables input"
+            raise AssertionError(msg)
+
+        monkeypatch.setattr(macro_path_utils_module.GriptapeNodes, "handle_request", staticmethod(_fail))
+
+        result = resolve_to_macro_path("{inputs}/image.png")
+
+        assert result.resolved_path == "{inputs}/image.png"
+        assert result.is_external is False
+
+    @pytest.mark.parametrize(
+        "data_uri",
+        [
+            "data:image/png;base64,AAAA",
+            "DATA:image/png;base64,AAAA",
+            "Data:image/png;base64,AAAA",
+        ],
+    )
+    def test_data_uri_returns_unchanged_and_is_external(
+        self, griptape_nodes: GriptapeNodes, monkeypatch: pytest.MonkeyPatch, data_uri: str
+    ) -> None:
+        def _fail_handle_request(_request: object) -> object:
+            msg = "handle_request should not be called for a data URI input"
+            raise AssertionError(msg)
+
+        def _fail_file_construction(*_args: object, **_kwargs: object) -> None:
+            msg = "File() should not be constructed for a data URI input"
+            raise AssertionError(msg)
+
+        monkeypatch.setattr(macro_path_utils_module.GriptapeNodes, "handle_request", staticmethod(_fail_handle_request))
+        monkeypatch.setattr(macro_path_utils_module, "File", _fail_file_construction)
+
+        result = resolve_to_macro_path(data_uri)
+
+        assert result.resolved_path == data_uri
+        assert result.is_external is True
+
+    def test_bare_relative_path_resolves_against_workspace_not_cwd(
+        self, griptape_nodes: GriptapeNodes, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        workspace_dir = tmp_path / "workspace"
+        cwd_dir = tmp_path / "cwd"
+        workspace_dir.mkdir()
+        cwd_dir.mkdir()
+
+        relative_file = workspace_dir / "relative" / "foo.png"
+        relative_file.parent.mkdir(parents=True)
+        relative_file.write_bytes(b"")
+
+        monkeypatch.chdir(cwd_dir)
+        config_manager = GriptapeNodes.ConfigManager()
+        monkeypatch.setattr(config_manager, "workspace_path", workspace_dir)
+
+        captured_requests: list[AttemptMapAbsolutePathToProjectRequest] = []
+
+        def fake_handle_request(request: AttemptMapAbsolutePathToProjectRequest) -> object:
+            captured_requests.append(request)
+            return AttemptMapAbsolutePathToProjectResultSuccess(mapped_path="{inputs}/foo.png", result_details="mapped")
+
+        monkeypatch.setattr(macro_path_utils_module.GriptapeNodes, "handle_request", staticmethod(fake_handle_request))
+
+        result = resolve_to_macro_path("relative/foo.png")
+
+        assert len(captured_requests) == 1
+        assert captured_requests[0].absolute_path == relative_file.resolve()
+        assert result.resolved_path == "{inputs}/foo.png"
+        assert result.is_external is False
+
+    @pytest.mark.skipif(
+        sys.platform.startswith("win"), reason="symlink creation requires elevated privileges on Windows"
+    )
+    def test_absolute_path_through_symlinked_workspace_resolves_to_real_path(
+        self,
+        monkeypatch,
+        griptape_nodes: GriptapeNodes,
+        tmp_path: Path,
+    ) -> None:
+        """Regression: a symlinked workspace component must not make an in-project file external.
+
+        End-to-end against the real engine (no stubbed `handle_request`): the engine
+        compares against a symlink-resolved workspace path, so an unresolved symlink-spelled
+        path maps to nothing and the file wrongly reports as external.
+        """
+        real_workspace_dir = tmp_path / "real_workspace"
+        real_workspace_dir.mkdir()
+        symlinked_workspace_dir = tmp_path / "workspace_link"
+        symlinked_workspace_dir.symlink_to(real_workspace_dir, target_is_directory=True)
+
+        project_file = real_workspace_dir / "inputs" / "foo.png"
+        project_file.parent.mkdir(parents=True)
+        project_file.write_bytes(b"")
+
+        config_manager = GriptapeNodes.ConfigManager()
+        monkeypatch.setattr(config_manager, "workspace_path", symlinked_workspace_dir)
+
+        absolute_path_via_symlink = str(symlinked_workspace_dir / "inputs" / "foo.png")
+
+        result = resolve_to_macro_path(absolute_path_via_symlink)
+
+        assert result.resolved_path == "{inputs}/foo.png"
+        assert result.is_external is False
+
+    def test_nonexistent_path_returns_external(self, griptape_nodes: GriptapeNodes) -> None:
+        result = resolve_to_macro_path("/definitely/does/not/exist/on/disk.png")
+
+        assert result.is_external is True
+
+    @pytest.mark.skipif(
+        sys.platform.startswith("win"),
+        reason="creates a path component containing a colon, which Windows disallows in filenames",
+    )
+    def test_url_that_survives_file_resolve_is_not_anchored_to_cwd(
+        self, griptape_nodes: GriptapeNodes, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression: a URL that `File.resolve()` returns unchanged (as engine versions with
+        static-server URL mapping do for a non-static-server URL, e.g. a remote `https://`
+        address) must never be anchored to the process cwd by `Path(...).resolve()`.
+        """
+        url = "https://example.com/a.mp4"
+
+        class _FakeFile:
+            def __init__(self, path: str) -> None:
+                self._path = path
+
+            def resolve(self) -> str:
+                return self._path
+
+        monkeypatch.setattr(macro_path_utils_module, "File", _FakeFile)
+        monkeypatch.chdir(tmp_path)
+
+        # If the URL were (incorrectly) anchored to the process cwd by `Path(...).resolve()`,
+        # it would resolve to this on-disk path. Create it so the buggy code path would find
+        # "the file exists" and proceed to call `handle_request` -- which must never happen
+        # for a URL.
+        cwd_anchored_path = Path(url).resolve()
+        cwd_anchored_path.parent.mkdir(parents=True, exist_ok=True)
+        cwd_anchored_path.write_bytes(b"")
+
+        def _fail_handle_request(_request: object) -> object:
+            msg = "handle_request should not be called for a URL that survives File.resolve()"
+            raise AssertionError(msg)
+
+        monkeypatch.setattr(macro_path_utils_module.GriptapeNodes, "handle_request", staticmethod(_fail_handle_request))
+
+        result = resolve_to_macro_path(url)
+
+        assert result.resolved_path == url
+        assert result.is_external is True
+
+
 class TestResolveToMacroPathUrls:
-    """Remote URLs must be treated as external without touching the filesystem.
+    """Remote URLs are external and returned verbatim, without raising."""
 
-    Regression coverage for the bug where an S3 URL fed into a Load node was
-    resolved as a local path (joined onto the cwd, "//" collapsed to "/"), and
-    stat()-ing the resulting long single filename raised OSError (ENAMETOOLONG)
-    instead of degrading to "external".
-    """
-
-    def test_https_url_is_external_and_unchanged(self) -> None:
-        url = "https://example.com/image.png"
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://example.com/image.png",
+            "http://example.com/image.png",
+            "https://example.com/image.png?token=abc&expires=123",
+        ],
+    )
+    def test_url_is_external_and_unchanged(self, griptape_nodes: GriptapeNodes, url: str) -> None:
         result = resolve_to_macro_path(url)
+
         assert result.is_external is True
         assert result.resolved_path == url
 
-    def test_http_url_is_external_and_unchanged(self) -> None:
-        url = "http://example.com/image.png"
-        result = resolve_to_macro_path(url)
-        assert result.is_external is True
-        assert result.resolved_path == url
-
-    def test_long_signed_s3_url_does_not_raise(self) -> None:
-        """A long signed URL previously crashed with 'File name too long'."""
+    def test_long_signed_url_does_not_raise(self, griptape_nodes: GriptapeNodes) -> None:
+        """Regression: a long signed URL crashed with 'File name too long'."""
         url = (
-            "https://sg-media-usor-01.s3-accelerate.amazonaws.com/"
-            "7d0ea73011daa9d36f8c3a0bdff31f7fbad21fe3/"
-            "039b502dda0f485a220d380347e4fee15cba8a38/"
-            "e39081a6093f10bd_image_v026_t.jpg?response-content-disposition="
-            "filename%3D%22e39081a6093f10bd_image_v026_t.jpg%22"
-            "&x-amz-meta-user-id=225&X-Amz-Algorithm=AWS4-HMAC-SHA256"
+            "https://bucket.s3.amazonaws.com/a/b/image.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256"
             "&X-Amz-Expires=900&X-Amz-Signature=" + ("a" * 400)
         )
+
         result = resolve_to_macro_path(url)
+
         assert result.is_external is True
-        # The URL must be preserved verbatim — not mangled into a filesystem path.
         assert result.resolved_path == url
 
-    def test_query_string_is_preserved(self) -> None:
-        url = "https://example.com/image.png?token=abc&expires=123"
-        result = resolve_to_macro_path(url)
-        assert result.resolved_path == url
+    def test_oserror_during_filesystem_resolution_degrades_to_external(
+        self, griptape_nodes: GriptapeNodes, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        over_long_name = "/" + ("a" * 1000)
 
+        class _FakeFile:
+            def __init__(self, path: str) -> None:
+                self._path = path
 
-class TestResolveToMacroPathLocalPaths:
-    """Non-URL values still go through filesystem resolution."""
+            def resolve(self) -> str:
+                return self._path
 
-    def test_nonexistent_local_path_is_external(self) -> None:
-        path = "/tmp/definitely/does/not/exist/image.png"
-        result = resolve_to_macro_path(path)
+        monkeypatch.setattr(macro_path_utils_module, "File", _FakeFile)
+
+        result = resolve_to_macro_path(over_long_name)
+
         assert result.is_external is True
-        assert result.resolved_path == path
-
-    def test_windows_drive_letter_not_treated_as_url(self) -> None:
-        """A Windows drive letter (C:) must not be mistaken for a URL scheme."""
-        path = r"C:\Users\someone\image.png"
-        result = resolve_to_macro_path(path)
-        # It does not exist on this (posix) test host, so it's external — but the
-        # point is it went through the filesystem branch, not the URL short-circuit,
-        # and returned without raising.
-        assert result.is_external is True
-        assert result.resolved_path == path
+        assert result.resolved_path == over_long_name

@@ -9,6 +9,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, Param
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
@@ -20,8 +21,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import prepare_media_data_uri
-from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -38,6 +38,20 @@ MODEL_OPTIONS = [
     "wanx2.1-t2v-turbo",
     "wanx2.1-t2v-plus",
 ]
+
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Wan 2.1 T2V Plus": "wanx2.1-t2v-plus",
+    "Wan 2.1 T2V Turbo": "wanx2.1-t2v-turbo",
+    "Wan 2.2 T2V Plus": "wan2.2-t2v-plus",
+    "Wan 2.5 T2V Preview": "wan2.5-t2v-preview",
+    "Wan 2.6 T2V": "wan2.6-t2v",
+    "gtc_wan_2_2_t2v_plus": "wan2.2-t2v-plus",
+    "gtc_wan_2_5_t2v_preview": "wan2.5-t2v-preview",
+    "gtc_wan_2_6_t2v": "wan2.6-t2v",
+    "gtc_wanx_2_1_t2v_plus": "wanx2.1-t2v-plus",
+    "gtc_wanx_2_1_t2v_turbo": "wanx2.1-t2v-turbo",
+}
 
 # Model-specific configurations
 MODEL_CONFIGS = {
@@ -123,14 +137,21 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
         self.description = "Generate videos from text using WAN models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="wan2.6-t2v",
-                tooltip="Select the WAN model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="wan2.6-t2v",
+            tooltip="Select the WAN model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model="wan2.6-t2v",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Prompt parameter
@@ -401,17 +422,6 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
             "watermark": self.get_parameter_value("watermark"),
         }
 
-    def _validate_api_key(self) -> str:
-        api_key = resolve_proxy_api_key(self.API_KEY_NAME)
-        if not api_key:
-            self._set_safe_defaults()
-            msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
-            raise ValueError(msg)
-        return api_key
-
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or ""
-
     async def _build_payload(self) -> dict[str, Any]:
         params = self._get_parameters()
 
@@ -421,7 +431,7 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
 
         # Build flattened payload (all params at top level)
         payload = {
-            "model": params["model"],
+            "model": self._get_selected_model_id(),
             "prompt": params["prompt"],
             "resolution": params["size"],
             "duration": params["duration"],
@@ -451,14 +461,13 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
 
         return payload
 
-    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
-        """Handle WAN response and extract video.
+    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
+        """Handle WAN response and save the hosted video.
 
         Response shape:
         {
             "task_id": "...",
             "task_status": "SUCCEEDED",
-            "video_url": "https://...",
             "submit_time": "...",
             "scheduled_time": "...",
             "end_time": "...",
@@ -469,10 +478,8 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
         task_id = result_json.get("task_id", "")
         self.parameter_output_values["generation_id"] = str(task_id)
 
-        # Extract task status and video URL from top-level fields
-        task_status = result_json.get("task_status")
-
         # Check task status
+        task_status = result_json.get("task_status")
         if task_status != "SUCCEEDED":
             logger.error("Generation failed with task_status: %s", task_status)
             self._set_safe_defaults()
@@ -480,41 +487,12 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
             self._set_status_results(was_successful=False, result_details=error_details)
             return
 
-        video_url = result_json.get("video_url")
-        if video_url:
-            await self._save_video_from_url(video_url)
-        else:
-            logger.warning("No video_url found in response")
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details="Generation completed but no video URL was found in the response.",
-            )
-
-    async def _save_video_from_url(self, video_url: str) -> None:
-        """Download and save the video from the provided URL."""
-        try:
-            logger.info("Downloading video from URL")
-            video_bytes = await self._download_bytes_from_url(video_url)
-            if video_bytes:
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(video_bytes)
-                self.parameter_output_values["video"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-                logger.info("Saved video as %s", saved.name)
-                self._set_status_results(
-                    was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
-                )
-            else:
-                self._set_status_results(
-                    was_successful=False,
-                    result_details="Video generation completed but could not download video bytes from URL.",
-                )
-        except Exception as e:
-            logger.error("Failed to save video from URL: %s", e)
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"Video generation completed but could not save to static storage: {e}",
-            )
+        await self._save_generated_media(
+            generation_id,
+            "video",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+        )
 
     async def _prepare_audio_data_url_async(self, audio_input: Any) -> str | None:
         return await prepare_media_data_uri(audio_input, kind="audio", node_name=self.name)

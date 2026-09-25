@@ -14,9 +14,14 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.utils.cloud_credential_utils import (
+    missing_credential_message,
+    resolve_cloud_api_key,
+)
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.ffmpeg_utils import (
     build_video_segment_cmd,
     detect_video_properties,
@@ -46,13 +51,16 @@ class Segment:
     end_sec: float
     title: str
     raw_id: str | None = None
+    frame_accurate: bool = False
 
 
 def build_ffmpeg_cmd(input_path: str, seg: Segment, outdir: str) -> list[str]:
     """Return a single ffmpeg command as a list for the given segment."""
     Path(outdir).mkdir(parents=True, exist_ok=True)
     out_path = Path(outdir) / f"{sanitize_filename(seg.title)}.mp4"
-    return build_video_segment_cmd("ffmpeg", input_path, seg.start_sec, seg.end_sec, str(out_path))
+    return build_video_segment_cmd(
+        "ffmpeg", input_path, seg.start_sec, seg.end_sec, str(out_path), frame_accurate=seg.frame_accurate
+    )
 
 
 class SplitVideo(SuccessFailureNode):
@@ -194,13 +202,13 @@ class SplitVideo(SuccessFailureNode):
         self.split_videos_list.clear_list()
 
     def _parse_timecodes_with_agent(self, timecodes_str: str) -> str:
-        api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
+        api_key = resolve_cloud_api_key()
         if not api_key:
-            error_msg = f"No API key found for {SERVICE}. Please set {API_KEY_ENV_VAR} environment variable."
+            error_msg = missing_credential_message("parse the timecodes")
             raise ValueError(error_msg)
 
         prompt_driver = GriptapeCloudPromptDriver(
-            model=MODEL, api_key=api_key, stream=True, structured_output_strategy="tool"
+            model=MODEL, stream=True, structured_output_strategy="tool", **cloud_driver_auth(api_key)
         )
         agent = GriptapeAgent()
         agent.add_task(PromptTask(prompt_driver=prompt_driver))
@@ -435,7 +443,7 @@ If no title is provided, just use "Segment X:" format.
 
             start_sec = start_frame / frame_rate
             end_sec = end_frame / frame_rate
-            segments.append(Segment(start_sec=start_sec, end_sec=end_sec, title=title.strip()))
+            segments.append(Segment(start_sec=start_sec, end_sec=end_sec, title=title.strip(), frame_accurate=True))
 
         return segments
 

@@ -29,6 +29,7 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 from PIL import Image
 
+from griptape_nodes_library.utils.ffmpeg_utils import describe_ffmpeg_failure
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     load_pil_from_url,
@@ -247,8 +248,10 @@ class VideoColorMatch(SuccessFailureNode):
         try:
             cmd = [
                 ffprobe_path,
+                # "error" rather than "quiet" so the warning below can report why the
+                # probe failed; the JSON stays on stdout, diagnostics go to stderr.
                 "-v",
-                "quiet",
+                "error",
                 "-print_format",
                 "json",
                 "-show_streams",
@@ -286,7 +289,9 @@ class VideoColorMatch(SuccessFailureNode):
 
             return frame_rate, (width, height), has_audio
         except Exception as e:
-            logger.warning(f"{self.name}: Could not detect video properties, using defaults: {e}")
+            logger.warning(
+                f"{self.name}: Could not detect video properties for {input_url!r}, using defaults: {describe_ffmpeg_failure(e)}"
+            )
             return self.DEFAULT_FRAME_RATE, (self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT), False
 
     def _apply_color_match_to_frame(

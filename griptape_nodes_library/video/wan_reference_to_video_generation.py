@@ -9,6 +9,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, Param
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
@@ -20,8 +21,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import prepare_media_data_uri
-from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -37,6 +37,12 @@ HTTP_ERROR_STATUS = 400
 MODEL_OPTIONS = [
     "wan2.6-r2v",
 ]
+
+# Migrates values saved before the dropdown stored the provider's own model id.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Wan 2.6 R2V": "wan2.6-r2v",
+    "gtc_wan_2_6_r2v": "wan2.6-r2v",
+}
 
 # Size options organized by resolution tier
 SIZE_OPTIONS_720P = [
@@ -120,14 +126,21 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
         self.description = "Generate videos from reference videos using WAN models via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="wan2.6-r2v",
-                tooltip="Select the WAN reference-to-video model to use",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=MODEL_OPTIONS)},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="wan2.6-r2v",
+            tooltip="Select the WAN reference-to-video model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model="wan2.6-r2v",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Prompt parameter
@@ -430,17 +443,6 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
             "seed": self._seed_parameter.get_seed(),
         }
 
-    def _validate_api_key(self) -> str:
-        api_key = resolve_proxy_api_key(self.API_KEY_NAME)
-        if not api_key:
-            self._set_safe_defaults()
-            msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
-            raise ValueError(msg)
-        return api_key
-
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or ""
-
     async def _build_payload(self) -> dict[str, Any]:
         params = self._get_parameters()
 
@@ -492,54 +494,18 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
             self._set_status_results(was_successful=False, result_details=error_details)
             return
 
-        await self._handle_completion(result_json, generation_id)
+        await self._save_generated_media(
+            generation_id,
+            "video",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+        )
 
     async def _prepare_video_data_url_async(self, video_input: Any) -> str | None:
         return await prepare_media_data_uri(video_input, kind="video", node_name=self.name)
 
     async def _prepare_audio_data_url_async(self, audio_input: Any) -> str | None:
         return await prepare_media_data_uri(audio_input, kind="audio", node_name=self.name)
-
-    async def _handle_completion(self, last_json: dict[str, Any] | None, generation_id: str | None = None) -> None:
-        """Handle successful generation completion."""
-        extracted_url = self._extract_result_video_url(last_json)
-        if not extracted_url:
-            self.parameter_output_values["video"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details="Generation completed but no video URL was found in the response.",
-            )
-            return
-
-        try:
-            logger.debug("Downloading video bytes from provider URL")
-            video_bytes = await self._download_bytes_from_url(extracted_url)
-        except Exception as e:
-            logger.debug("Failed to download video: %s", e)
-            video_bytes = None
-
-        if video_bytes:
-            try:
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(video_bytes)
-                self.parameter_output_values["video"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-                logger.debug("Saved video as %s", saved.name)
-                self._set_status_results(
-                    was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
-                )
-            except Exception as e:
-                logger.debug("Failed to save video: %s, using provider URL", e)
-                self.parameter_output_values["video"] = VideoUrlArtifact(value=extracted_url)
-                self._set_status_results(
-                    was_successful=True,
-                    result_details=f"Video generated successfully. Using provider URL (could not save: {e}).",
-                )
-        else:
-            self.parameter_output_values["video"] = VideoUrlArtifact(value=extracted_url)
-            self._set_status_results(
-                was_successful=True,
-                result_details="Video generated successfully. Using provider URL (could not download video bytes).",
-            )
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
         """Extract error details from API response."""
@@ -619,24 +585,4 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
         task_status = response_json.get("task_status")
         if isinstance(task_status, str):
             return task_status
-        return None
-
-    @staticmethod
-    def _extract_result_video_url(obj: dict[str, Any] | None) -> str | None:
-        """Extract video URL from response.
-
-        The WAN proxy nests the result under ``output.video_url``; older or
-        flatter responses may put it at the top level. Check the nested
-        location first and fall back to the top-level key.
-        """
-        if not obj:
-            return None
-        output = obj.get("output")
-        if isinstance(output, dict):
-            nested = output.get("video_url")
-            if isinstance(nested, str) and nested.startswith("http"):
-                return nested
-        video_url = obj.get("video_url")
-        if isinstance(video_url, str) and video_url.startswith("http"):
-            return video_url
         return None

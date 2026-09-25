@@ -9,6 +9,7 @@ from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -29,16 +30,21 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["WorldLabsWorldGeneration"]
 
-# Model options
-MODEL_OPTIONS = ["Marble 1.1 Plus", "Marble 1.1", "Marble 1.0", "Marble 1.0 Draft"]
-DEFAULT_MODEL = "Marble 1.1"
+# Model options, in catalog order
+MODEL_OPTIONS = ["marble-1.1-plus", "marble-1.1", "marble-1.0", "marble-1.0-draft"]
+DEFAULT_MODEL = "marble-1.1"
 
-# Model ID mapping
-MODEL_ID_MAP = {
-    "Marble 1.1 Plus": "marble-1.1-plus",
-    "Marble 1.1": "marble-1.1",
+# Migrates values saved before this dropdown stored the provider's own model id (friendly
+# labels and catalog keys alike).
+LEGACY_MODEL_VALUES = {
     "Marble 1.0": "marble-1.0",
     "Marble 1.0 Draft": "marble-1.0-draft",
+    "Marble 1.1": "marble-1.1",
+    "Marble 1.1 Plus": "marble-1.1-plus",
+    "gtc_marble_1_0": "marble-1.0",
+    "gtc_marble_1_0_draft": "marble-1.0-draft",
+    "gtc_marble_1_1": "marble-1.1",
+    "gtc_marble_1_1_plus": "marble-1.1-plus",
 }
 
 # Input type options
@@ -90,15 +96,22 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         self.description = "Generate 3D worlds using World Labs Marble via Griptape model proxy"
 
         # Model selection
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value=DEFAULT_MODEL,
-                tooltip="Marble model: 1.1 Plus (variable pricing, larger worlds), 1.1 (standard), 1.0 (previous), 1.0 Draft (fast/cheaper)",
-                allow_output=False,
-                traits={Options(choices=MODEL_OPTIONS)},
-                ui_options={"display_name": "Model"},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value=DEFAULT_MODEL,
+            tooltip="Marble model: 1.1 Plus (variable pricing, larger worlds), 1.1 (standard), 1.0 (previous), 1.0 Draft (fast/cheaper)",
+            allow_output=False,
+            ui_options={"display_name": "Model"},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_OPTIONS,
+            default_model=DEFAULT_MODEL,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         # Input type selector
@@ -374,12 +387,6 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
             "seed": self._seed_parameter.get_seed(),
         }
 
-    def _get_api_model_id(self) -> str:
-        """Map friendly model name to backend model ID."""
-        params = self._get_parameters()
-        model_name = params.get("model", DEFAULT_MODEL)
-        return MODEL_ID_MAP.get(model_name, "marble-1.1")
-
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter changes and update visibility."""
         super().after_value_set(parameter, value)
@@ -435,7 +442,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         # Build top-level request
         payload: dict[str, Any] = {
             "world_prompt": world_prompt,
-            "model": self._get_api_model_id(),
+            "model": self._get_selected_model_id(),
         }
 
         # Add optional parameters
@@ -673,30 +680,31 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
             self._log(f"Failed to load bytes from {value}: {e}")
             return None
 
-    async def _download_and_save_splat(self, url: str, dest: FileDestination) -> str | None:
-        """Download a splat URL and persist it into the project.
+    async def _save_hosted_asset(self, artifact: Any, dest: FileDestination, *, what: str) -> str | None:
+        """Download one hosted asset and persist it into the project.
 
-        Returns the portable macro location or None if download or save failed.
-        One failed resolution must not block its siblings.
+        Returns the portable macro location, or None if the download or the save
+        failed. One failed asset must not block its siblings.
         """
-        data = await self._download_bytes_from_url(url)
-        if not data:
-            self._log(f"Failed to download splat from {url}")
+        try:
+            data = await self._download_artifact(artifact)
+        except Exception as e:
+            self._log(f"Failed to download {what}: {e}")
             return None
 
         try:
             saved = await dest.awrite_bytes(data)
         except Exception as e:
-            self._log(f"Failed to save splat: {e}")
+            self._log(f"Failed to save {what}: {e}")
             return None
 
-        self._log(f"Saved splat: {saved.location} ({len(data):,} bytes)")
+        self._log(f"Saved {what}: {saved.location} ({len(data):,} bytes)")
         return saved.location
 
-    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
+    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         """Parse the World object and populate outputs."""
         try:
-            await self._handle_success(result_json)
+            await self._handle_success(result_json, generation_id)
         except Exception as e:
             self._log(f"Error parsing result: {e}")
             self._set_safe_defaults()
@@ -705,7 +713,7 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
                 result_details=f"Failed to parse generation result: {e}",
             )
 
-    async def _handle_success(self, world: dict[str, Any]) -> None:
+    async def _handle_success(self, world: dict[str, Any], generation_id: str) -> None:
         """Handle successful world generation result."""
         # Store provider response
         self.parameter_output_values["provider_response"] = world
@@ -725,81 +733,172 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
 
         # Parse assets
         assets = world.get("assets") or {}
-        await self._parse_assets(assets, world_id)
+        unsaved = await self._parse_assets(assets, world_id, generation_id)
+        if unsaved is None:
+            return
 
         # Extract caption
         caption = assets.get("caption", "")
         if caption:
             self.parameter_output_values["caption"] = caption
 
+        details = f"Successfully generated 3D world: {world_id}"
+        if unsaved:
+            details += f". {len(unsaved)} asset(s) could not be retrieved: {', '.join(unsaved)}"
         self._set_status_results(
             was_successful=True,
-            result_details=f"Successfully generated 3D world: {world_id}",
+            result_details=details,
         )
 
-    async def _parse_assets(self, assets: dict[str, Any], world_id: str) -> None:
-        """Parse and create artifact outputs from World assets."""
-        # Parse splat files — download and persist into the project.
-        # The primary output (full_res) follows the user's output_file parameter;
-        # sibling resolutions land in the same parent directory.
-        splats = assets.get("splats") or {}
-        spz_urls = splats.get("spz_urls") or {}
+    @staticmethod
+    def _expected_asset_slots(assets: dict[str, Any]) -> list[tuple[str, str]]:
+        """The (output key, filename) pairs the proxy hosts, in the order it lists them.
+
+        The artifact list carries no filenames, so this order is the whole basis for
+        deciding which bytes are which: splats by ascending resolution, then the
+        collider mesh, then the panorama, each skipped when absent. Position i here is
+        position i in the hosted artifact list.
+        """
+        slots: list[tuple[str, str]] = []
+
+        splats = assets.get("splats")
+        if isinstance(splats, dict):
+            spz_urls = splats.get("spz_urls")
+            if isinstance(spz_urls, dict):
+                for resolution in ("100k", "500k", "full_res"):
+                    url = spz_urls.get(resolution)
+                    if isinstance(url, str) and url:
+                        slots.append((f"splat_{resolution}", f"splat_{resolution}.spz"))
+
+        mesh = assets.get("mesh")
+        if isinstance(mesh, dict):
+            url = mesh.get("collider_mesh_url")
+            if isinstance(url, str) and url:
+                slots.append(("mesh", "collider_mesh.glb"))
+
+        imagery = assets.get("imagery")
+        if isinstance(imagery, dict):
+            url = imagery.get("pano_url")
+            if isinstance(url, str) and url:
+                slots.append(("panorama", "panorama.jpg"))
+
+        return slots
+
+    async def _parse_assets(self, assets: dict[str, Any], world_id: str, generation_id: str) -> list[str] | None:
+        """Save the world's hosted assets, matched positionally to the order above.
+
+        The artifact list carries no filename, so each asset's name is one this node
+        assigns; its bytes come from the hosted artifact at the same position.
+        Splats, the collider mesh, and the panorama are all downloaded and saved as
+        project files: none of World Labs's provider URLs are handed downstream, since
+        they expire.
+
+        Returns the output keys that were declared but not saved, so the caller can note a
+        partial world, or None (after reporting failure) when nothing usable landed: the
+        proxy hosting more media than the response declared, since guessing which bytes
+        are which would mislabel a file, or every declared asset failing to save, since a
+        billed world whose assets cannot be retrieved is a failure rather than a success
+        with empty outputs. A short list is truncation, which drops a tail: the assets
+        that did arrive still pair correctly by position and are saved.
+        """
+        declared = self._expected_asset_slots(assets)
+        try:
+            hosted = await self._hosted_artifacts(generation_id)
+        except Exception as e:
+            self._set_safe_defaults()
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"World generated but its assets could not be listed: {e}",
+            )
+            return None
+
+        if len(hosted) > len(declared):
+            self._set_safe_defaults()
+            self._set_status_results(
+                was_successful=False,
+                result_details=(
+                    f"World `{world_id}` declared {len(declared)} asset(s) but the proxy hosts {len(hosted)}; "
+                    f"refusing to guess which bytes belong to which asset."
+                ),
+            )
+            return None
+
+        slots = declared[: len(hosted)]
+        dropped = [output_key for output_key, _filename in declared[len(hosted) :]]
+        unsaved = list(dropped)
+        if dropped:
+            logger.warning(
+                "%s: the proxy hosts %d of %d asset(s); %s left unsaved",
+                self.name,
+                len(hosted),
+                len(declared),
+                ", ".join(dropped),
+            )
 
         output_file_value = self.get_parameter_value("output_file") or "splat_full_res.spz"
         output_path = Path(output_file_value)
         sub_dir = str(output_path.parent)
         sub_dir_prefix = "" if sub_dir in ("", ".") else sub_dir
 
-        def _splat_dest(filename: str) -> ProjectFileDestination:
-            qualified = str(Path(sub_dir_prefix) / filename) if sub_dir_prefix else filename
+        def _asset_dest(filename: str) -> ProjectFileDestination:
+            # The full-res splat follows the user's output_file name; every other
+            # asset keeps its assigned filename in the same directory.
+            name = output_path.name if filename == "splat_full_res.spz" else filename
+            qualified = str(Path(sub_dir_prefix) / name) if sub_dir_prefix else name
             return ProjectFileDestination.from_situation(filename=qualified, situation="save_node_output")
 
-        splat_jobs: list[tuple[str, str, FileDestination]] = []
-        for resolution in ("100k", "500k", "full_res"):
-            url = spz_urls.get(resolution)
-            if url:
-                if resolution == "full_res":
-                    dest = _splat_dest(output_path.name)
-                else:
-                    dest = _splat_dest(f"splat_{resolution}.spz")
-                splat_jobs.append((f"splat_{resolution}", url, dest))
+        jobs = [
+            (output_key, artifact, _asset_dest(filename))
+            for (output_key, filename), artifact in zip(slots, hosted, strict=True)
+        ]
 
-        if splat_jobs:
-            results = await asyncio.gather(
-                *(self._download_and_save_splat(url=url, dest=dest) for _, url, dest in splat_jobs),
-                return_exceptions=True,
+        results = await asyncio.gather(
+            *(self._save_hosted_asset(artifact, dest, what=output_key) for output_key, artifact, dest in jobs),
+            return_exceptions=True,
+        )
+        for (output_key, _artifact, _dest), result in zip(jobs, results, strict=True):
+            if isinstance(result, BaseException):
+                self._log(f"Asset job for {output_key} raised: {result}")
+                unsaved.append(output_key)
+                continue
+            if not result:
+                unsaved.append(output_key)
+                continue
+
+            match output_key:
+                case "mesh":
+                    self.parameter_output_values["mesh"] = ThreeDUrlArtifact(
+                        value=result, meta={"format": "glb", "type": "collider_mesh", "world_id": world_id}
+                    )
+                case "panorama":
+                    self.parameter_output_values["panorama"] = ImageUrlArtifact(
+                        value=result, meta={"type": "panorama", "world_id": world_id}
+                    )
+                case _:
+                    resolution = output_key.removeprefix("splat_")
+                    self.parameter_output_values[output_key] = SplatUrlArtifact(
+                        value=result,
+                        meta={"resolution": resolution, "world_id": world_id, "format": "spz"},
+                    )
+
+        if declared and len(unsaved) == len(declared):
+            self._set_safe_defaults()
+            self._set_status_results(
+                was_successful=False,
+                result_details=(
+                    f"World `{world_id}` was generated but none of its {len(declared)} asset(s) could be retrieved."
+                ),
             )
-            for (output_key, _url, _dest), result in zip(splat_jobs, results, strict=True):
-                if isinstance(result, BaseException):
-                    self._log(f"Splat job for {output_key} raised: {result}")
-                    continue
-                if not result:
-                    continue
-                resolution = output_key.removeprefix("splat_")
-                self.parameter_output_values[output_key] = SplatUrlArtifact(
-                    value=result,
-                    meta={"resolution": resolution, "world_id": world_id, "format": "spz"},
-                )
+            return None
 
-        # Parse mesh
-        mesh = assets.get("mesh") or {}
-        if mesh.get("collider_mesh_url"):
-            self.parameter_output_values["mesh"] = ThreeDUrlArtifact(
-                value=mesh["collider_mesh_url"], meta={"format": "glb", "type": "collider_mesh", "world_id": world_id}
-            )
-
-        # Parse imagery
-        imagery = assets.get("imagery") or {}
-        if imagery.get("pano_url"):
-            self.parameter_output_values["panorama"] = ImageUrlArtifact(
-                value=imagery["pano_url"], meta={"type": "panorama", "world_id": world_id}
-            )
-
-        # Parse thumbnail
+        # Thumbnail is not part of the proxy's hosted artifact set; the provider URL
+        # is passed straight through.
         if assets.get("thumbnail_url"):
             self.parameter_output_values["thumbnail"] = ImageUrlArtifact(
                 value=assets["thumbnail_url"], meta={"type": "thumbnail", "world_id": world_id}
             )
+
+        return unsaved
 
     def _set_safe_defaults(self) -> None:
         """Clear output parameters on failure."""

@@ -7,6 +7,7 @@ from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -17,7 +18,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import prepare_media_data_uri
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -78,37 +79,47 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
         },
     }
 
-    # Map user-facing names to provider model IDs
-    MODEL_NAME_MAP: ClassVar[dict[str, str]] = {
-        "Hailuo 2.3 (TTV & ITV)": "MiniMax-Hailuo-2.3",
+    # Migrates values saved before the dropdown stored the provider's own model id: old
+    # display labels and catalog keys.
+    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
+        "Hailuo 02": "MiniMax-Hailuo-02",
         "Hailuo 02 (TTV & ITV)": "MiniMax-Hailuo-02",
+        "Hailuo 2.3": "MiniMax-Hailuo-2.3",
+        "Hailuo 2.3 (TTV & ITV)": "MiniMax-Hailuo-2.3",
+        "Hailuo 2.3 Fast": "MiniMax-Hailuo-2.3-Fast",
         "Hailuo 2.3 Fast (ITV)": "MiniMax-Hailuo-2.3-Fast",
+        "gtc_minimax_hailuo_02": "MiniMax-Hailuo-02",
+        "gtc_minimax_hailuo_2_3": "MiniMax-Hailuo-2.3",
+        "gtc_minimax_hailuo_2_3_fast": "MiniMax-Hailuo-2.3-Fast",
     }
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
         # INPUTS / PROPERTIES
-        self.add_parameter(
-            ParameterString(
-                name="model_id",
-                default_value="Hailuo 2.3 (TTV & ITV)",
-                tooltip="Model to use for video generation",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={
-                    "display_name": "model",
-                    "hide": False,
-                },
-                traits={
-                    Options(
-                        choices=[
-                            "Hailuo 2.3 (TTV & ITV)",
-                            "Hailuo 02 (TTV & ITV)",
-                            "Hailuo 2.3 Fast (ITV)",
-                        ]
-                    )
-                },
-            )
+        model_id_param = ParameterString(
+            name="model_id",
+            default_value="MiniMax-Hailuo-2.3",
+            tooltip="Model to use for video generation",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={
+                "display_name": "model",
+                "hide": False,
+            },
+        )
+        self.add_parameter(model_id_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_id_param,
+            model_choices=[
+                "MiniMax-Hailuo-2.3",
+                "MiniMax-Hailuo-02",
+                "MiniMax-Hailuo-2.3-Fast",
+            ],
+            default_model="MiniMax-Hailuo-2.3",
+            deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -230,9 +241,8 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
         )
 
         # Set initial parameter visibility based on default model
-        default_model = "Hailuo 2.3 (TTV & ITV)"
-        default_provider_model_id = self._get_provider_model_id(default_model)
-        default_capabilities = self.MODEL_CAPABILITIES.get(default_provider_model_id, {})
+        default_model = "MiniMax-Hailuo-2.3"
+        default_capabilities = self.MODEL_CAPABILITIES.get(default_model, {})
 
         # Show/hide last_frame_image based on default model
         if default_capabilities.get("supports_last_frame", False):
@@ -251,11 +261,8 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
         super().after_value_set(parameter, value)
 
         if parameter.name == "model_id":
-            # Convert friendly name to provider model ID
-            provider_model_id = self._get_provider_model_id(value)
-
             # Show/hide last_frame_image parameter only for 02 model
-            capabilities = self.MODEL_CAPABILITIES.get(provider_model_id, {})
+            capabilities = self.MODEL_CAPABILITIES.get(value, {})
             show_last_frame = capabilities.get("supports_last_frame", False)
             if show_last_frame:
                 self.show_parameter_by_name("last_frame_image")
@@ -273,9 +280,7 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
         await super()._process_generation()
 
     def _get_parameters(self) -> dict[str, Any]:
-        raw_model_id = self.get_parameter_value("model_id") or "Hailuo 2.3 (TTV & ITV)"
-        # Convert friendly name to provider model ID
-        model_id = self._get_provider_model_id(raw_model_id)
+        model_id = self.get_parameter_value("model_id") or "MiniMax-Hailuo-2.3"
 
         return {
             "prompt": self.get_parameter_value("prompt") or "",
@@ -288,18 +293,8 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
             "last_frame_image": self.get_parameter_value("last_frame_image"),
         }
 
-    @classmethod
-    def _get_provider_model_id(cls, user_facing_name: str) -> str:
-        """Convert user-facing model name to provider model ID.
-
-        Falls back to the input value if it's not in the mapping (for backwards compatibility
-        with saved flows that may have old model IDs).
-        """
-        return cls.MODEL_NAME_MAP.get(user_facing_name, user_facing_name)
-
     def _get_api_model_id(self) -> str:
-        raw_model_id = self.get_parameter_value("model_id") or "Hailuo 2.3 (TTV & ITV)"
-        return self._get_provider_model_id(raw_model_id)
+        return self.get_parameter_value("model_id") or "MiniMax-Hailuo-2.3"
 
     async def _build_payload(self) -> dict[str, Any]:  # noqa: C901
         """Build the request payload for MiniMax Hailuo API."""
@@ -384,57 +379,12 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         self.parameter_output_values["provider_response"] = result_json
-        await self._handle_completion_async(result_json, generation_id)
-
-    async def _handle_completion_async(self, response_json: dict[str, Any], generation_id: str) -> None:
-        """Handle successful completion by downloading and saving the video."""
-        file_obj = response_json.get("file")
-        if not isinstance(file_obj, dict):
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no file object found in response.",
-            )
-            return
-
-        download_url = file_obj.get("download_url")
-        if not download_url:
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no download_url found in response.",
-            )
-            return
-
-        try:
-            logger.info("%s downloading video from provider URL", self.name)
-            video_bytes = await self._download_bytes_from_url(download_url)
-        except Exception as e:
-            logger.warning("%s failed to download video: %s", self.name, e)
-            video_bytes = None
-
-        if video_bytes:
-            try:
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(video_bytes)
-                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-                logger.info("%s saved video as %s", self.name, saved.name)
-                self._set_status_results(
-                    was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
-                )
-            except (OSError, PermissionError) as e:
-                logger.warning("%s failed to save video: %s, using provider URL", self.name, e)
-                self.parameter_output_values["video_url"] = VideoUrlArtifact(value=download_url)
-                self._set_status_results(
-                    was_successful=True,
-                    result_details=f"Video generated successfully. Using provider URL (could not save to storage: {e}).",
-                )
-        else:
-            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=download_url)
-            self._set_status_results(
-                was_successful=True,
-                result_details="Video generated successfully. Using provider URL (could not download video bytes).",
-            )
+        await self._save_generated_media(
+            generation_id,
+            "video_url",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+        )
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:
         if not response_json:

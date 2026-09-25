@@ -11,17 +11,22 @@ from typing import Any
 
 import requests
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver as GtGriptapeCloudPromptDriver
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
-from griptape_nodes.traits.button import Button
-
-from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
-from griptape_nodes_library.config.prompt.cloud_models import (
-    DEPRECATED_MODELS,
+from griptape_nodes.drivers.cloud_models import (
     MODEL_CHOICES,
     MODEL_CHOICES_ARGS,
     O_SERIES_MODELS,
 )
+from griptape_nodes.exe_types.core_types import Parameter
+from griptape_nodes.retained_mode.griptape_nodes import logger
+
+from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
+from griptape_nodes_library.utils.cloud_credential_utils import (
+    missing_credential_message,
+    resolve_cloud_api_key,
+)
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
+from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 # --- Constants ---
 
@@ -62,15 +67,14 @@ class GriptapeCloudPrompt(BasePrompt):
 
         # --- Customize Inherited Parameters ---
 
-        # Update the 'model' parameter for Griptape Cloud specifics.
+        # Offer Griptape Cloud's models as a license-filtered dropdown.
         models, default_model = self._list_models()
         logger.debug(f"All models on Griptape Cloud: {models}")
         logger.debug(f"Default model on Griptape Cloud: {default_model}")
 
-        self._update_option_choices(param="model", choices=MODEL_CHOICES, default=DEFAULT_MODEL)
-        model_param = self.get_parameter_by_name("model")
-        if model_param is not None:
-            model_param.ui_options = {"data": MODEL_CHOICES_ARGS}
+        self._install_model_access(
+            model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=CLOUD_LEGACY_MODEL_VALUES
+        )
 
         # Remove the 'seed' parameter as it's not directly used by GriptapeCloudPromptDriver.
         self.remove_parameter_element_by_name("seed")
@@ -81,46 +85,14 @@ class GriptapeCloudPrompt(BasePrompt):
         # Replace `min_p` with `top_p` for Griptape Cloud.
         self._replace_param_by_name(param_name="min_p", new_param_name="top_p", default_value=0.9)
 
-        # Add deprecation notice message element
-        self.add_node_element(
-            ParameterMessage(
-                name="model_deprecation_notice",
-                title="Model Deprecation Notice",
-                variant="info",
-                value="",
-                traits={
-                    Button(
-                        full_width=True,
-                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
-                    )
-                },
-                button_text="Dismiss",
-                hide=True,
-            )
-        )
-
-    def before_value_set(
-        self,
-        parameter: Parameter,
-        value: Any,
-    ) -> Any:
-        if parameter.name == "model":
-            if value in DEPRECATED_MODELS:
-                replacement = DEPRECATED_MODELS[value]
-                message = self.get_message_by_name_or_element_id("model_deprecation_notice")
-                if message is None:
-                    raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
-                message.value = f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. Please save your workflow to apply this change."
-                self.show_message_by_name("model_deprecation_notice")
-                value = replacement
-            else:
-                self.hide_message_by_name("model_deprecation_notice")
-
-        return super().before_value_set(parameter, value)
-
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "model":
-            if "deepseek" in value:
+            # Branch on the provider's own model id to pick family-specific behavior
+            # (payload shape, arg presets). Read directly from `value` rather than
+            # `_get_selected_model_id` because this fires from `_install_model_access`
+            # itself, before `self._model_access` exists.
+            provider_model_id = value if isinstance(value, str) else ""
+            if "deepseek" in provider_model_id:
                 self.hide_parameter_by_name("stream")
                 self.hide_parameter_by_name("top_p")
             else:
@@ -128,7 +100,7 @@ class GriptapeCloudPrompt(BasePrompt):
                 self.show_parameter_by_name("top_p")
 
             # Check and see if max_tokens is defined in the model args
-            model_args = next((model["args"] for model in MODEL_CHOICES_ARGS if model["name"] == value), {})
+            model_args = next((model["args"] for model in MODEL_CHOICES_ARGS if model["name"] == provider_model_id), {})
             if "max_tokens" in model_args:
                 self.parameter_output_values["max_tokens"] = model_args["max_tokens"]
             else:
@@ -152,6 +124,9 @@ class GriptapeCloudPrompt(BasePrompt):
         # Retrieve all parameter values set on the node UI or via input connections.
         params = self.parameter_values
 
+        # A model the license denies must not reach a downstream node as a driver.
+        self._raise_if_model_denied()
+
         # --- Get Common Driver Arguments ---
         # Use the helper method from BasePrompt to get args like temperature, stream, max_attempts, etc.
         common_args = self._get_common_driver_args(params)
@@ -159,16 +134,17 @@ class GriptapeCloudPrompt(BasePrompt):
         # --- Prepare Griptape Cloud Specific Arguments ---
         specific_args = {}
 
-        # Retrieve the mandatory API key.
-        specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
+        # Retrieve the mandatory API key, alongside the headers that carry attribution.
+        # Neither is touched by the MODEL_CHOICES_ARGS override loop below.
+        specific_args.update(cloud_driver_auth())
 
-        # Get the selected model.
-        model = self.get_parameter_value("model")
-        specific_args["model"] = model
+        # Get the upstream provider's id for the selected model.
+        provider_model_id = self._get_selected_model_id()
+        specific_args["model"] = provider_model_id
 
         # Handle parameters that go into 'extra_params' for Griptape Cloud.
         extra_params = {}
-        if model not in O_SERIES_MODELS:
+        if provider_model_id not in O_SERIES_MODELS:
             top_p = self.get_parameter_value("top_p")
             if top_p is not None:
                 extra_params["top_p"] = top_p
@@ -182,8 +158,7 @@ class GriptapeCloudPrompt(BasePrompt):
         all_kwargs = {**common_args, **specific_args}
 
         # Override with model specific args
-        selected_model = self.get_parameter_value("model")
-        model_args = next((model["args"] for model in MODEL_CHOICES_ARGS if model["name"] == selected_model), {})
+        model_args = next((model["args"] for model in MODEL_CHOICES_ARGS if model["name"] == provider_model_id), {})
 
         # Update with model args and remove any that are None
         for arg, value in model_args.items():
@@ -215,6 +190,10 @@ class GriptapeCloudPrompt(BasePrompt):
             service_name=SERVICE,
             api_key_env_var=API_KEY_ENV_VAR,
             api_key_url=API_KEY_URL,
+            # Griptape Cloud accepts a License as well as an API key; a license-only
+            # user has no GT_CLOUD_API_KEY, so resolve both before deciding.
+            resolved_credential=resolve_cloud_api_key(),
+            missing_credential_msg=missing_credential_message("configure the Griptape Cloud prompt driver"),
         )
 
     def _list_models(self) -> tuple[list[str], str]:
@@ -230,7 +209,7 @@ class GriptapeCloudPrompt(BasePrompt):
         # Fetch the list of available models from the Griptape Cloud API.
         response = requests.get(
             CHAT_MODELS_URL,
-            headers={"Authorization": f"Bearer {GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)}"},
+            headers=build_griptape_cloud_headers(resolve_cloud_api_key(), attribution=False),
             timeout=10,
         )
         response.raise_for_status()

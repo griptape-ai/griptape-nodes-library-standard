@@ -11,7 +11,7 @@ class CreateImageList(BaseCreateListNode):
             name,
             metadata,
             input_types=["ImageUrlArtifact"],
-            output_type="list",
+            output_type="list[ImageUrlArtifact]",
             default_value=None,
             items_tooltip="List of image items to add to",
         )

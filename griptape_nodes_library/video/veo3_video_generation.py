@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import base64
 import json
 import logging
 from copy import deepcopy
@@ -11,6 +9,7 @@ from typing import Any
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -24,33 +23,33 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["Veo3VideoGeneration"]
 
 
-class ModelName(StrEnum):
-    VEO_3_1 = "Veo 3.1"
-    VEO_3_1_FAST = "Veo 3.1 Fast"
-    VEO_3_0 = "Veo 3.0"
-    VEO_3_0_FAST = "Veo 3.0 Fast"
-
-
 class ModelId(StrEnum):
     VEO_3_1_GENERATE_001 = "veo-3.1-generate-001"
     VEO_3_1_FAST_GENERATE_001 = "veo-3.1-fast-generate-001"
-    VEO_3_0_GENERATE_001 = "veo-3.0-generate-001"
-    VEO_3_0_FAST_GENERATE_001 = "veo-3.0-fast-generate-001"
 
 
-# Model mapping from human-friendly names to API model IDs
-MODEL_MAPPING = {
-    ModelName.VEO_3_1.value: ModelId.VEO_3_1_GENERATE_001,
-    ModelName.VEO_3_1_FAST.value: ModelId.VEO_3_1_FAST_GENERATE_001,
-    ModelName.VEO_3_0.value: ModelId.VEO_3_0_GENERATE_001,
-    ModelName.VEO_3_0_FAST.value: ModelId.VEO_3_0_FAST_GENERATE_001,
+# Migrates values saved before the dropdown stored the provider's own model id (old
+# display labels and catalog keys), plus Veo 3.0's retired spellings. Google returns
+# 404 for the 3.0 endpoints, so a saved workflow referencing one (by label, catalog
+# key, or provider id) migrates to its 3.1 replacement rather than calling through.
+LEGACY_MODEL_VALUES: dict[str, str] = {
+    "Veo 3.0": ModelId.VEO_3_1_GENERATE_001.value,
+    "Veo 3.0 Fast": ModelId.VEO_3_1_FAST_GENERATE_001.value,
+    "Veo 3.1": ModelId.VEO_3_1_GENERATE_001.value,
+    "Veo 3.1 Fast": ModelId.VEO_3_1_FAST_GENERATE_001.value,
+    "gtc_veo_3_0": ModelId.VEO_3_1_GENERATE_001.value,
+    "gtc_veo_3_0_fast": ModelId.VEO_3_1_FAST_GENERATE_001.value,
+    "gtc_veo_3_1": ModelId.VEO_3_1_GENERATE_001.value,
+    "gtc_veo_3_1_fast": ModelId.VEO_3_1_FAST_GENERATE_001.value,
+    "veo-3.0-fast-generate-001": ModelId.VEO_3_1_FAST_GENERATE_001.value,
+    "veo-3.0-generate-001": ModelId.VEO_3_1_GENERATE_001.value,
 }
 
 
@@ -59,7 +58,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
 
     Inputs:
         - prompt (str): Text prompt for the video
-        - model_id (str): Provider model (default: Veo 3.1, options: Veo 3.1, Veo 3.1 Fast, Veo 3.0, Veo 3.0 Fast)
+        - model_id (str): Provider model (default: Veo 3.1, options: Veo 3.1, Veo 3.1 Fast)
         - negative_prompt (str): Negative prompt to avoid certain content
         - image (ImageArtifact|ImageUrlArtifact|str): Optional start frame image (supported by all models)
         - last_frame (ImageArtifact|ImageUrlArtifact|str): Optional last frame image (only Veo 3.1 and Veo 3.1 Fast)
@@ -90,26 +89,27 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         super().__init__(**kwargs)
 
         # INPUTS / PROPERTIES
-        self.add_parameter(
-            ParameterString(
-                name="model_id",
-                default_value=ModelName.VEO_3_1.value,
-                tooltip="Model id to call via proxy",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={
-                    "display_name": "model",
-                },
-                traits={
-                    Options(
-                        choices=[
-                            ModelName.VEO_3_1.value,
-                            ModelName.VEO_3_1_FAST.value,
-                            ModelName.VEO_3_0.value,
-                            ModelName.VEO_3_0_FAST.value,
-                        ]
-                    )
-                },
-            )
+        model_id_param = ParameterString(
+            name="model_id",
+            default_value=ModelId.VEO_3_1_GENERATE_001.value,
+            tooltip="Model id to call via proxy",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={
+                "display_name": "model",
+            },
+        )
+        self.add_parameter(model_id_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_id_param,
+            model_choices=[
+                ModelId.VEO_3_1_GENERATE_001.value,
+                ModelId.VEO_3_1_FAST_GENERATE_001.value,
+            ],
+            default_model=ModelId.VEO_3_1_GENERATE_001.value,
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -293,18 +293,20 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         # Set initial parameter visibility based on default model
         self._initialize_parameter_visibility()
 
-    def _map_api_model_id(self, friendly_name: str) -> ModelId | str:
-        """Map friendly model name to API model ID."""
-        mapped_model = MODEL_MAPPING.get(friendly_name, friendly_name)
+    def _map_api_model_id(self, model_id: str) -> ModelId | str:
+        """Coerce the stored model id (already the provider's own id) to a `ModelId`.
 
+        Returns the raw string unchanged when it names no known `ModelId`, so an
+        unrecognized selection still reaches the API rather than being dropped.
+        """
         try:
-            return ModelId(mapped_model)
+            return ModelId(model_id)
         except ValueError:
-            return mapped_model
+            return model_id
 
     def _initialize_parameter_visibility(self) -> None:
         """Initialize parameter visibility based on default model selection."""
-        default_model = self.get_parameter_value("model_id") or ModelName.VEO_3_1.value
+        default_model = self.get_parameter_value("model_id") or ModelId.VEO_3_1_GENERATE_001.value
         self._update_parameter_visibility_for_model(default_model)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
@@ -405,7 +407,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
 
         return {
             "prompt": self.get_parameter_value("prompt") or "",
-            "model_id": self.get_parameter_value("model_id") or ModelName.VEO_3_1.value,
+            "model_id": self.get_parameter_value("model_id") or ModelId.VEO_3_1_GENERATE_001.value,
             "negative_prompt": self.get_parameter_value("negative_prompt") or "",
             "image": self.get_parameter_value("start_frame"),
             "last_frame": self.get_parameter_value("last_frame"),
@@ -421,7 +423,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         }
 
     def _get_api_model_id(self) -> str:
-        model_id = self.get_parameter_value("model_id") or ModelName.VEO_3_1.value
+        model_id = self.get_parameter_value("model_id") or ModelId.VEO_3_1_GENERATE_001.value
         api_model_id = self._map_api_model_id(model_id)
         return api_model_id.value if isinstance(api_model_id, ModelId) else api_model_id
 
@@ -439,11 +441,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             ModelId.VEO_3_1_GENERATE_001,
             ModelId.VEO_3_1_FAST_GENERATE_001,
         }:
-            msg = (
-                f"{self.name}: lastFrame parameter is only supported by "
-                f"{ModelName.VEO_3_1.value} and {ModelName.VEO_3_1_FAST.value} models. "
-                f"Current model: {model_id}"
-            )
+            msg = f"{self.name}: lastFrame parameter is only supported by Veo 3.1 and Veo 3.1 Fast models."
             raise ValueError(msg)
 
         # referenceImages are only supported by veo-3.1-generate-001
@@ -451,10 +449,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         has_reference_images = reference_images and len(reference_images) > 0
         if has_reference_images:
             if api_model_id != ModelId.VEO_3_1_GENERATE_001:
-                msg = (
-                    f"{self.name}: referenceImages parameter is only supported by "
-                    f"{ModelName.VEO_3_1.value} model. Current model: {model_id}"
-                )
+                msg = f"{self.name}: referenceImages parameter is only supported by Veo 3.1 model."
                 raise ValueError(msg)
 
             # When referenceImages are provided, duration must be 8 seconds
@@ -691,13 +686,23 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         else:
             return sanitized
 
-    async def _parse_result(self, result_json: dict[str, Any], _generation_id: str) -> None:
+    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         rai_filtered_count = result_json.get("response", {}).get("raiMediaFilteredCount", 0)
         if rai_filtered_count > 0:
             logger.warning("%s: %s video(s) filtered by RAI", self.name, rai_filtered_count)
 
-        videos_array = result_json.get("response", {}).get("videos", [])
-        if not videos_array:
+        try:
+            hosted = [a for a in await self._hosted_artifacts(generation_id) if a.kind == ArtifactKind.VIDEO]
+        except Exception as e:
+            logger.warning("%s: hosted videos could not be listed: %s", self.name, e)
+            self._set_safe_defaults()
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"Generation completed but its videos could not be listed: {e}",
+            )
+            return
+
+        if not hosted:
             logger.warning("%s: No videos in result", self.name)
             self._set_safe_defaults()
             self._set_status_results(
@@ -706,8 +711,8 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             )
             return
 
-        video_artifacts = await self._process_videos_from_result(videos_array)
-        if not video_artifacts:
+        video_artifacts = await self._save_videos(generation_id, len(hosted))
+        if not any(video_artifacts):
             logger.warning("%s: No videos could be processed", self.name)
             self._set_safe_defaults()
             self._set_status_results(
@@ -718,67 +723,50 @@ class Veo3VideoGeneration(GriptapeProxyNode):
 
         self._set_video_output_parameters(video_artifacts)
 
-    async def _process_videos_from_result(
-        self,
-        videos_array: list[dict[str, Any]],
-    ) -> list[VideoUrlArtifact]:
-        """Process all videos from the result array.
+    async def _save_videos(self, generation_id: str, count: int) -> list[VideoUrlArtifact | None]:
+        """Save each hosted video, in provider order, indexed for its output parameter.
 
-        Returns a list of VideoUrlArtifact objects.
+        A video that cannot be saved yields None so it keeps its slot instead of pulling
+        later videos forward.
         """
-        video_artifacts = []
+        video_artifacts: list[VideoUrlArtifact | None] = []
 
-        for idx, video_data in enumerate(videos_array, start=1):
-            artifact = await self._process_single_video(video_data, idx)
-            if artifact:
-                video_artifacts.append(artifact)
+        for position in range(count):
+            try:
+                video_bytes = await self._load_generated_media(
+                    generation_id, kind=ArtifactKind.VIDEO, position=position
+                )
+                dest = self._output_file.build_file(_index=position + 1)
+                saved = await dest.awrite_bytes(video_bytes)
+            except Exception as e:
+                logger.error("%s: Failed to process video %s: %s", self.name, position + 1, e)
+                video_artifacts.append(None)
+                continue
+
+            logger.info("%s: Saved video %s as %s", self.name, position + 1, saved.name)
+            video_artifacts.append(VideoUrlArtifact(value=saved.location, name=saved.name))
 
         return video_artifacts
 
-    async def _process_single_video(
-        self,
-        video_data: dict[str, Any],
-        idx: int,
-    ) -> VideoUrlArtifact | None:
-        """Process a single video from base64 data.
-
-        Returns a VideoUrlArtifact or None if processing failed.
-        """
-        try:
-            base64_data = video_data.get("bytesBase64Encoded")
-
-            if not base64_data:
-                logger.warning("%s: Video %s missing base64 data", self.name, idx)
-                return None
-
-            # Decode base64
-            video_bytes = await asyncio.to_thread(base64.b64decode, base64_data)
-
-            # Save using project file parameter with indexed filename
-            dest = self._output_file.build_file(_index=idx)
-            saved = await dest.awrite_bytes(video_bytes)
-
-            logger.info("%s: Saved video %s as %s (%s bytes)", self.name, idx, saved.name, len(video_bytes))
-
-            return VideoUrlArtifact(value=saved.location, name=saved.name)
-
-        except Exception as e:
-            logger.error("%s: Failed to process video %s: %s", self.name, idx, e)
-            return None
-
-    def _set_video_output_parameters(self, video_artifacts: list[VideoUrlArtifact]) -> None:
+    def _set_video_output_parameters(self, video_artifacts: list[VideoUrlArtifact | None]) -> None:
         """Set output parameters for all generated videos."""
-        # Show appropriate number of output parameters
         self._show_video_output_parameters(len(video_artifacts))
 
-        # Set individual output parameters
+        # Slots follow provider order, so video_url_N always holds the Nth hosted video
+        # and an unsaved video leaves its slot empty.
         for idx, artifact in enumerate(video_artifacts, start=1):
             param_name = "video_url" if idx == 1 else f"video_url_{idx}"
             self.parameter_output_values[param_name] = artifact
 
-        # Set success status
-        video_count = len(video_artifacts)
-        result_message = f"Generated {video_count} video{'s' if video_count > 1 else ''} successfully"
+        saved_count = sum(1 for artifact in video_artifacts if artifact is not None)
+        missing = [str(idx) for idx, artifact in enumerate(video_artifacts, start=1) if artifact is None]
+        if missing:
+            result_message = (
+                f"Saved {saved_count} of {len(video_artifacts)} videos. "
+                f"Video(s) {', '.join(missing)} could not be retrieved; their output slots are empty."
+            )
+        else:
+            result_message = f"Generated {saved_count} video{'s' if saved_count > 1 else ''} successfully"
         self._set_status_results(
             was_successful=True,
             result_details=result_message,

@@ -6,21 +6,39 @@ import logging
 import re
 import threading
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from contextlib import suppress
-from typing import Any
-from urllib.parse import urljoin
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
-from griptape_nodes_library.proxy.provider_asset_access import resolve_proxy_api_key, resolve_proxy_base
+from griptape_nodes_library.proxy.hosted_artifacts import (
+    HostedArtifact,
+    HostedArtifactError,
+    artifact_download_headers,
+    fetch_hosted_artifacts,
+)
+from griptape_nodes_library.proxy.provider_asset_access import (
+    missing_proxy_credential_message,
+    resolve_proxy_base,
+    resolve_proxy_credential,
+)
 from griptape_nodes_library.proxy.proxy_api_key_providers import get_proxy_api_key_provider_config
 from griptape_nodes_library.proxy.proxy_auth_provider_parameter import ProxyAuthProviderParameter
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 from griptape_nodes_library.utils.model_invocation import declare_model_invocation
+
+if TYPE_CHECKING:
+    from griptape_nodes.retained_mode.managers.authorization_checkpoint import CheckpointDenial
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -34,6 +52,28 @@ STATUS_FAILED = "FAILED"
 STATUS_COMPLETED = "COMPLETED"
 STATUS_TIMED_OUT = "TIMED_OUT"
 
+# Number of HTTP client errors (4xx) that indicate a permanent failure not worth retrying.
+HTTP_CLIENT_ERROR_MIN = 400
+HTTP_CLIENT_ERROR_MAX = 500
+# Short delay before the single retry on a transient download failure.
+DOWNLOAD_RETRY_DELAY_SECONDS = 1.0
+# The proxy accepts cancellation only while a generation is still QUEUED; it answers
+# 400 once the work has been dispatched to the provider.
+HTTP_BAD_REQUEST = 400
+# Cancellation is cleanup on the way out of a cancelled node, so it gets a short timeout.
+CANCEL_REQUEST_TIMEOUT_SECONDS = 10
+
+
+class CancelOutcome(StrEnum):
+    """What a best-effort server-side cancel request actually achieved."""
+
+    # The proxy dropped the generation while it was still queued; no billable work ran.
+    CANCELLED = "cancelled"
+    # The generation had already been dispatched, so it runs to completion and is billed.
+    ALREADY_STARTED = "already_started"
+    # The cancel request never got an answer; the generation's fate is unknown.
+    UNKNOWN = "unknown"
+
 
 class GriptapeProxyNode(SuccessFailureNode, ABC):
     """Base class for nodes that use the Griptape Cloud v2 async model proxy API.
@@ -43,6 +83,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     2. Poll generation status via GET /api/proxy/v2/generations/{generation_id}
     3. Handle terminal states (COMPLETED, FAILED, ERRORED, CANCELLED)
     4. Fetch final results from GET /api/proxy/v2/generations/{generation_id}/result
+    5. Cancel a still-queued generation via POST /api/proxy/v2/generations/{generation_id}/cancel
+       when the node's execution is cancelled
 
     Subclasses must implement:
     - _build_payload(): Build the request payload for generation submission
@@ -59,15 +101,29 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     DEFAULT_POLL_INTERVAL = 5
     DEFAULT_MAX_ATTEMPTS = 120  # 10 minutes with 5s intervals
 
+    # Subclasses that download media set this to the destination for saved output.
+    _output_file: ProjectFileParameter
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
         # Compute API base once; GT_CLOUD_PROXY_BASE_URL overrides just the proxy
         # without affecting other engine systems that use GT_CLOUD_BASE_URL.
         self._proxy_base = resolve_proxy_base()
+        # Hosted artifact lists, keyed by generation id. Cleared when a run or a Refresh
+        # starts so a stale list is not reused across them, while a node reading several
+        # artifacts of one generation still lists them once.
+        self._hosted_artifact_lists: dict[str, list[HostedArtifact]] = {}
         self._user_auth_info: str | None = None
         self._api_key_provider: ProxyAuthProviderParameter | None = None
         self._initialize_api_key_provider()
+
+        # Assigned by subclasses whose model selection is a license-filtered dropdown:
+        # they construct a `ModelAccessComponent` over their model parameter and store it
+        # here, which is what wires the dropdown into `after_value_set`,
+        # `_get_api_model_id`, `_get_catalog_model_id`, and the `_submit_and_poll` gate.
+        # Stays None on the subclasses bound to a single model.
+        self._model_access: ModelAccessComponent | None = None
 
         default_timeout = self.DEFAULT_MAX_ATTEMPTS * self.DEFAULT_POLL_INTERVAL
         self.add_parameter(
@@ -145,6 +201,43 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         super().after_value_set(parameter, value)
         if self._api_key_provider:
             self._api_key_provider.after_value_set(parameter, value)
+        if self._model_access is not None:
+            self._model_access.on_value_set(parameter, value)
+
+    def validate_before_node_run(self) -> list[Exception] | None:
+        """Refuse a model the caller's license denies, alongside the node's input checks.
+
+        Subclasses append their own input validation to the list this returns, so
+        reporting the denial here stops a missing prompt or image from being the only
+        thing an artist hears about when the real blocker is the license. `super()`
+        also resets the status parameters, so it must run either way.
+        `_submit_and_poll` re-checks the selection for execution paths that skip
+        validation entirely.
+        """
+        exceptions = super().validate_before_node_run() or []
+        if self._model_access is None:
+            return exceptions or None
+        denial = self._model_access.selection_denial()
+        if denial is None:
+            return exceptions or None
+        exceptions.append(RuntimeError(f"{self.name}: {denial.reason()}"))
+        return exceptions
+
+    def _get_selected_model_id(self) -> str:
+        """The provider model id the model dropdown currently stores.
+
+        The dropdown stores the provider's own id for the model, which is what a
+        node building a request URL or payload needs. Reading it through here
+        rather than by name keeps the parameter's name in one place: it is
+        `model` on most nodes but `model_name` or `model_id` on others.
+
+        Returns:
+            str: The stored provider model id, or `""` when there is no
+                model-access component installed or nothing is selected.
+        """
+        if self._model_access is None:
+            return ""
+        return self._model_access.selected_value or ""
 
     def _prepare_user_auth_info(self) -> None:
         self.register_user_auth_info(None)
@@ -171,9 +264,15 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         """Parse the model-specific result data and set output parameters.
 
-        This method must be implemented by subclasses to parse the result data
-        from GET /api/proxy/v2/generations/{generation_id}/result and set the
+        This method must be implemented by subclasses to read whatever the
+        provider reported alongside its media (ids, text, seeds, timings) from
+        GET /api/proxy/v2/generations/{generation_id}/result and set the
         appropriate output parameters.
+
+        Generated media does not come from here: the proxy hosts it and lists it
+        in one shape for every model, so a subclass reaches it with
+        ``_save_generated_media`` or ``_load_generated_media`` rather than
+        locating a provider URL or a base64 blob in ``result_json``.
 
         Args:
             result_json: The JSON response from the /result endpoint
@@ -234,49 +333,56 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
 
-        Subclasses can override this if they need to map friendly names to API IDs.
-        By default, returns the value of the 'model' parameter if it exists.
+        Subclasses can override this if they need to map the dropdown value to a
+        differently-shaped API ID (e.g. an operation suffix in the URL path). By
+        default, returns the dropdown's stored provider model id; falls back to
+        the raw 'model' parameter value when no model-access component is
+        installed.
 
         Returns:
             str: The model ID to use in the API request
         """
+        if self._model_access is not None:
+            return self._get_selected_model_id()
         return self.get_parameter_value("model") or ""
 
     def _get_catalog_model_id(self) -> str:
         """Get the model ID used to resolve this node's declared catalog model.
 
-        The permission/declaration layer matches on the catalog's
-        `provider_model_id`, which is the bare upstream model id. By default this
-        is the same value used in the API request URL (`_get_api_model_id()`).
+        The declaration layer resolves this through the catalog's
+        `provider_model_id`, so the bare stored value is what it needs. Falls
+        back to `_get_api_model_id()` when no model-access component is installed.
 
         Subclasses whose `_get_api_model_id()` decorates the id with an operation
-        suffix for the URL path (e.g. `grok-imagine-video:generate`) must override
-        this to return the bare provider id instead, or the catalog lookup will
-        fail to match and the invocation cannot be declared.
+        suffix for the URL path (e.g. `grok-imagine-video:generate`) do not need
+        to override this: the stored value is already the bare provider id.
 
         Returns:
             str: The model ID to match against declared catalog models
         """
+        if self._model_access is not None:
+            return self._get_selected_model_id()
         return self._get_api_model_id()
 
     def _validate_api_key(self) -> str:
-        """Validate and return the API key.
+        """Validate and return the credential used for proxy requests.
 
-        GT_CLOUD_PROXY_API_KEY overrides the key used for proxy requests
-        without affecting other engine systems that use GT_CLOUD_API_KEY.
+        Resolution spans GT_CLOUD_PROXY_API_KEY, the Griptape Nodes License, and
+        GT_CLOUD_API_KEY (see `resolve_proxy_credential`), so the failure message names every
+        credential the proxy accepts rather than only the last one checked.
 
         Returns:
-            str: The API key
+            str: The credential to send as the bearer token
 
         Raises:
-            ValueError: If API key is missing
+            ValueError: If no source holds a usable credential
         """
-        api_key = resolve_proxy_api_key(self.API_KEY_NAME)
-        if not api_key:
+        credential = resolve_proxy_credential(self.API_KEY_NAME)
+        if not credential.value:
             self._set_safe_defaults()
-            msg = f"{self.name} is missing {self.API_KEY_NAME}. Ensure it's set in the environment/config."
+            msg = missing_proxy_credential_message(credential, attempted=f"run {self.name}")
             raise ValueError(msg)
-        return api_key
+        return credential.value
 
     def _log(self, message: str) -> None:
         """Log a message with error suppression."""
@@ -449,6 +555,106 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             return self.DEFAULT_MAX_ATTEMPTS * self.DEFAULT_POLL_INTERVAL
         return max(0, int(value))
 
+    async def _request_generation_cancel(self, generation_id: str, headers: dict[str, str]) -> CancelOutcome:
+        """POST the proxy's cancel endpoint for a generation.
+
+        Never raises. Cancellation is cleanup, and a failure here must not replace
+        the reason the node is unwinding, so every failure mode collapses into a
+        ``CancelOutcome`` the caller can report.
+
+        Args:
+            generation_id: The generation to cancel
+            headers: HTTP headers including Authorization
+
+        Returns:
+            CancelOutcome: What the request achieved
+        """
+        cancel_url = urljoin(self._proxy_base, f"generations/{generation_id}/cancel")
+        self._log(f"Requesting cancellation of generation {generation_id}")
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(cancel_url, headers=headers, timeout=CANCEL_REQUEST_TIMEOUT_SECONDS)
+        except Exception as e:
+            self._log(f"Cancel request for generation {generation_id} failed: {e}")
+            return CancelOutcome.UNKNOWN
+
+        # Both the accepted and the rejected response report the generation's status, and
+        # the proxy is authoritative about it — record it so `generation_status` reflects
+        # where the work actually ended up rather than the last status polling happened to see.
+        with suppress(Exception):
+            reported_status = response.json().get("status")
+            if reported_status:
+                self.parameter_output_values["generation_status"] = reported_status
+
+        # A generation that has already left the queue cannot be cancelled. That is the
+        # expected answer whenever the work was picked up quickly, so it is reported as
+        # an outcome rather than surfaced as a node error.
+        if response.status_code == HTTP_BAD_REQUEST:
+            return CancelOutcome.ALREADY_STARTED
+        if response.is_success:
+            return CancelOutcome.CANCELLED
+
+        self._log(f"Cancel request for generation {generation_id} returned HTTP {response.status_code}")
+        return CancelOutcome.UNKNOWN
+
+    async def _cancel_generation_best_effort(self, generation_id: str, headers: dict[str, str]) -> CancelOutcome:
+        """Ask the proxy to drop a generation, then record what that achieved.
+
+        The request is shielded because the usual caller is a cancellation unwind: a
+        second ``task.cancel()`` landing on this node while the POST is in flight
+        would otherwise abandon the request before it reaches the server.
+
+        Args:
+            generation_id: The generation to cancel
+            headers: HTTP headers including Authorization
+
+        Returns:
+            CancelOutcome: What the request achieved
+        """
+        outcome = await asyncio.shield(self._request_generation_cancel(generation_id, headers))
+        self._report_cancellation(generation_id, outcome)
+        return outcome
+
+    def _report_cancellation(self, generation_id: str, outcome: CancelOutcome) -> None:
+        """Record on the node what the cancel attempt achieved.
+
+        A cancel that could not stop billable work is the case worth telling the user
+        about, so each outcome gets its own message. The generation_id is preserved so
+        a generation that outlived the cancel can still be recovered via Refresh.
+
+        Args:
+            generation_id: The generation the cancel was requested for
+            outcome: What the cancel request achieved
+
+        Raises:
+            ValueError: If the outcome is not a known CancelOutcome
+        """
+        match outcome:
+            case CancelOutcome.CANCELLED:
+                details = (
+                    f"Generation `{generation_id}` was cancelled on Griptape Cloud before it started running, "
+                    f"so it will not be billed."
+                )
+            case CancelOutcome.ALREADY_STARTED:
+                details = (
+                    f"Generation `{generation_id}` had already started and could not be cancelled. It will run to "
+                    f"completion and be billed — click the refresh icon on `generation_status` to retrieve its result."
+                )
+            case CancelOutcome.UNKNOWN:
+                details = (
+                    f"Cancellation of generation `{generation_id}` could not be confirmed. It may still be running "
+                    f"and be billed — click the refresh icon on `generation_status` to check."
+                )
+            case _:
+                msg = f"Unknown cancel outcome: {outcome!r}"
+                raise ValueError(msg)
+
+        logger.info("%s: %s", self.name, details)
+        self._set_safe_defaults()
+        self.parameter_output_values["generation_id"] = generation_id
+        self._set_status_results(was_successful=False, result_details=details)
+
     async def _poll_generation_status(self, generation_id: str, headers: dict[str, str]) -> dict[str, Any] | None:
         """Poll generation status until terminal state is reached.
 
@@ -466,50 +672,66 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         max_attempts = max(1, (timeout_s + poll_interval - 1) // poll_interval) if timeout_s > 0 else None
 
         attempt = 0
-        async with httpx.AsyncClient() as client:
-            while True:
-                try:
-                    self._log(f"Polling attempt #{attempt + 1} for generation {generation_id}")
-
-                    response = await client.get(get_url, headers=headers, timeout=60)
-                    response.raise_for_status()
-                    result_json = response.json()
-
-                    status = result_json.get("status", "unknown")
-                    self._log(f"Status: {status}")
-                    self.parameter_output_values["generation_status"] = status
-
-                    is_terminal, terminal_result = self._handle_terminal_status(status, result_json)
-                    if is_terminal:
-                        return terminal_result
-
-                    attempt += 1
-
-                    # Timeout reached (only when max_attempts is set)
-                    if max_attempts is not None and attempt >= max_attempts:
-                        break
-
-                    # Still processing (QUEUED or RUNNING), wait before next poll
-                    await asyncio.sleep(poll_interval)
-
-                except httpx.HTTPStatusError as e:
-                    self._log(f"HTTP error while polling: {e.response.status_code} - {e.response.text}")
-                    attempt += 1
-                    if max_attempts is not None and attempt >= max_attempts:
-                        self._set_safe_defaults()
-                        error_msg = f"Failed to poll generation status: HTTP {e.response.status_code}"
-                        self._set_status_results(was_successful=False, result_details=error_msg)
+        try:
+            async with httpx.AsyncClient() as client:
+                while True:
+                    # Cooperative cancellation: covers a cancel that lands between awaits,
+                    # and callers that set the flag without cancelling the asyncio task.
+                    if self.is_cancellation_requested:
+                        self._log(f"Cancellation requested while polling generation {generation_id}")
+                        await self._cancel_generation_best_effort(generation_id, headers)
                         return None
-                    await asyncio.sleep(poll_interval)
-                except Exception as e:
-                    self._log(f"Error while polling: {e}")
-                    attempt += 1
-                    if max_attempts is not None and attempt >= max_attempts:
-                        self._set_safe_defaults()
-                        error_msg = f"Failed to poll generation status: {e}"
-                        self._set_status_results(was_successful=False, result_details=error_msg)
-                        return None
-                    await asyncio.sleep(poll_interval)
+
+                    try:
+                        self._log(f"Polling attempt #{attempt + 1} for generation {generation_id}")
+
+                        response = await client.get(get_url, headers=headers, timeout=60)
+                        response.raise_for_status()
+                        result_json = response.json()
+
+                        status = result_json.get("status", "unknown")
+                        self._log(f"Status: {status}")
+                        self.parameter_output_values["generation_status"] = status
+
+                        is_terminal, terminal_result = self._handle_terminal_status(status, result_json)
+                        if is_terminal:
+                            return terminal_result
+
+                        attempt += 1
+
+                        # Timeout reached (only when max_attempts is set)
+                        if max_attempts is not None and attempt >= max_attempts:
+                            break
+
+                        # Still processing (QUEUED or RUNNING), wait before next poll
+                        await asyncio.sleep(poll_interval)
+
+                    except httpx.HTTPStatusError as e:
+                        self._log(f"HTTP error while polling: {e.response.status_code} - {e.response.text}")
+                        attempt += 1
+                        if max_attempts is not None and attempt >= max_attempts:
+                            self._set_safe_defaults()
+                            error_msg = f"Failed to poll generation status: HTTP {e.response.status_code}"
+                            self._set_status_results(was_successful=False, result_details=error_msg)
+                            return None
+                        await asyncio.sleep(poll_interval)
+                    except Exception as e:
+                        self._log(f"Error while polling: {e}")
+                        attempt += 1
+                        if max_attempts is not None and attempt >= max_attempts:
+                            self._set_safe_defaults()
+                            error_msg = f"Failed to poll generation status: {e}"
+                            self._set_status_results(was_successful=False, result_details=error_msg)
+                            return None
+                        await asyncio.sleep(poll_interval)
+        except asyncio.CancelledError:
+            # The engine cancels this node's task, which with a 5s poll interval almost
+            # always lands mid-sleep — so this, not the flag check above, is the load-bearing
+            # path. Ask the proxy to drop the generation before unwinding so queued work is
+            # not billed for a result nobody will see, then let the cancellation stand.
+            with suppress(asyncio.CancelledError):
+                await self._cancel_generation_best_effort(generation_id, headers)
+            raise
 
         # Timeout reached — preserve generation_id so the user can recover via Refresh
         self._log("Polling timed out waiting for result")
@@ -544,7 +766,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._handle_api_key_validation_error(e)
             return None
 
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        # Retrieves a generation already paid for, so there is no fresh spend to attribute.
+        headers = build_griptape_cloud_headers(api_key, attribution=False)
         self._log_auth_header_summary("Fetching generation result", headers)
         try:
             async with httpx.AsyncClient() as client:
@@ -579,6 +802,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """Handle API key validation errors."""
         self._set_safe_defaults()
         self._set_status_results(was_successful=False, result_details=str(e))
+        logger.error("%s API key validation failed: %s", self.name, e)
         self._handle_failure_exception(e)
 
     def _handle_payload_build_error(self, e: Exception) -> None:
@@ -592,6 +816,12 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """Handle missing model ID error."""
         self._set_safe_defaults()
         error_msg = f"{self.name}: No model ID provided"
+        self._set_status_results(was_successful=False, result_details=error_msg)
+
+    def _handle_denied_model(self, denial: CheckpointDenial) -> None:
+        """Handle a dropdown selection the license policy does not permit."""
+        self._set_safe_defaults()
+        error_msg = f"{self.name}: {denial.reason()}"
         self._set_status_results(was_successful=False, result_details=error_msg)
 
     def _handle_submission_error(self, e: RuntimeError) -> None:
@@ -617,6 +847,31 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Returns:
             tuple | None: (generation_id, status_response) if successful, None otherwise
         """
+        # Re-check the dropdown selection against the license policy: it may have
+        # been permitted when the node was built and denied since. Both gates run
+        # ahead of `_build_payload`, which uploads input images and videos to public
+        # storage on the nodes that hand the provider a URL rather than bytes; a
+        # denied model must not cost the caller that upload. The dropdown check runs
+        # before the invocation declaration so the failure carries the dropdown's
+        # own reason.
+        if self._model_access is not None:
+            selection_denial = self._model_access.selection_denial()
+            if selection_denial is not None:
+                self._handle_denied_model(selection_denial)
+                return None
+
+        # Declare the invocation so the engine's permission layer can gate it
+        # before any network call. The proxy still enforces server-side; this is
+        # the engine-side gate, so a denied invocation fails fast here. The
+        # declaration resolves the bare provider model id, which may differ from
+        # the URL-path id (e.g. when the latter carries an operation suffix).
+        declaration = await declare_model_invocation(self, self._get_catalog_model_id())
+        if declaration.failed():
+            self._set_safe_defaults()
+            details = str(declaration.result_details or f"{self.name}: model invocation was not permitted.")
+            self._set_status_results(was_successful=False, result_details=details)
+            return None
+
         # Build payload
         try:
             payload = await self._build_payload()
@@ -628,18 +883,6 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         api_model_id = self._get_api_model_id()
         if not api_model_id:
             self._handle_missing_model_id()
-            return None
-
-        # Declare the invocation so the engine's permission layer can gate it
-        # before any network call. The proxy still enforces server-side; this is
-        # the engine-side gate, so a denied invocation fails fast here. The
-        # declaration matches on the bare catalog id, which may differ from the
-        # URL-path id (e.g. when the latter carries an operation suffix).
-        declaration = await declare_model_invocation(self, self._get_catalog_model_id())
-        if declaration.failed():
-            self._set_safe_defaults()
-            details = str(declaration.result_details or f"{self.name}: model invocation was not permitted.")
-            self._set_status_results(was_successful=False, result_details=details)
             return None
 
         # Submit request to get generation ID
@@ -679,17 +922,23 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         # Clear execution status at the start
         self._clear_execution_status()
+        # A node's cancellation flag is only cleared by BaseNode.clear_node(), which the
+        # flow's cancel path does not reach for a node cancelled mid-resolution — so the
+        # flag outlives the run it belonged to. Left set, it would make the poll loop
+        # cancel the generation this run is about to submit. A cancellation that really
+        # applies to this run is requested after the run starts and also cancels the
+        # asyncio task, which the poll loop's CancelledError path handles.
+        self.clear_cancellation()
+        self._hosted_artifact_lists.clear()
         self.parameter_output_values["generation_id"] = ""
         self.parameter_output_values["generation_status"] = ""
 
         try:
             self._prepare_user_auth_info()
-            api_key = self._validate_api_key()
+            headers = build_griptape_cloud_headers(self._validate_api_key(), attribution=True)
         except ValueError as e:
             self._handle_api_key_validation_error(e)
             return
-
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
         # Submit and poll
         result = await self._submit_and_poll(headers)
@@ -767,6 +1016,10 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             return
         if "provider_response" in self.parameter_output_values:
             self.parameter_output_values["provider_response"] = result_json
+        # Reset before parsing so a prior run's leftover True/False cannot leak into
+        # this decision; _parse_result reports its own failure (e.g. media it could
+        # not retrieve) and that must not be overwritten with a success below.
+        self._execution_succeeded = None
         try:
             await self._parse_result(result_json, generation_id)
         except Exception as e:
@@ -775,6 +1028,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 was_successful=False,
                 result_details=f"Generation `{generation_id}` completed, but parsing the result failed: {e}",
             )
+            return
+        if self._execution_succeeded is False:
             return
         self._set_status_results(
             was_successful=True,
@@ -826,13 +1081,18 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             )
             return
 
+        # Artifact URLs are short-lived, so a Refresh lists them again rather than
+        # reusing what an earlier run or Refresh saw.
+        self._hosted_artifact_lists.clear()
+
         try:
             api_key = self._validate_api_key()
         except ValueError as e:
             self._set_status_results(was_successful=False, result_details=f"Cannot refresh: {e}")
             return
 
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        # Re-reads a generation already paid for, so there is no fresh spend to attribute.
+        headers = build_griptape_cloud_headers(api_key, attribution=False)
         status_json = await self._fetch_status_for_refresh(generation_id, headers)
         if status_json is None:
             return
@@ -850,20 +1110,187 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """Async processing entry point."""
         await self._process_generation()
 
+    async def _hosted_artifacts(self, generation_id: str) -> list[HostedArtifact]:
+        """List the media the proxy hosts for a generation, in index order.
+
+        Args:
+            generation_id: The generation to list artifacts for.
+
+        Returns:
+            The hosted artifacts, empty when the proxy hosted none.
+
+        Raises:
+            HostedArtifactError: If the list cannot be read.
+            ValueError: If no credential is available to authenticate the read.
+        """
+        cached = self._hosted_artifact_lists.get(generation_id)
+        if cached is not None:
+            return cached
+
+        artifacts = await fetch_hosted_artifacts(self._proxy_base, generation_id, self._validate_api_key())
+        self._hosted_artifact_lists[generation_id] = artifacts
+        self._log(f"Generation {generation_id} has {len(artifacts)} hosted artifact(s)")
+        return artifacts
+
+    async def _hosted_artifact(
+        self, generation_id: str, *, kind: str | None = None, position: int = 0
+    ) -> HostedArtifact:
+        """The nth hosted artifact of a kind, in the order the provider reported them.
+
+        Args:
+            generation_id: The generation to read from.
+            kind: An ``ArtifactKind`` to filter by, or None for any kind.
+            position: Which matching artifact to take, 0 for the first. Must be
+                nonnegative.
+
+        Returns:
+            The matching artifact.
+
+        Raises:
+            HostedArtifactError: If no such artifact is hosted, or if position is
+                negative.
+            ValueError: If no credential is available to authenticate the read.
+        """
+        if position < 0:
+            msg = f"position must be nonnegative, got {position}."
+            raise HostedArtifactError(msg)
+
+        artifacts = await self._hosted_artifacts(generation_id)
+        matching = [artifact for artifact in artifacts if kind is None or artifact.kind == kind]
+        if position < len(matching):
+            return matching[position]
+
+        hosted = ", ".join(f"{artifact.index}:{artifact.kind}" for artifact in artifacts) or "none"
+        wanted = f"{kind} artifact" if kind else "artifact"
+        msg = f"Generation {generation_id} hosts no {wanted} at position {position} (hosted artifacts: {hosted})."
+        raise HostedArtifactError(msg)
+
+    async def _download_artifact(self, artifact: HostedArtifact) -> bytes:
+        """Download one hosted artifact's bytes."""
+        headers = artifact_download_headers(artifact.url, self._validate_api_key(), self._proxy_base)
+        return await self._download_bytes_from_url(artifact.url, headers=headers)
+
+    async def _load_generated_media(self, generation_id: str, *, kind: str | None = None, position: int = 0) -> bytes:
+        """Download one piece of the generation's hosted media.
+
+        For nodes that need the bytes themselves, e.g. to name several files or to
+        feed the media into something other than the node's output file. Nodes that
+        just save media to their output file use ``_save_generated_media``.
+
+        Raises:
+            HostedArtifactError: If no such artifact is hosted.
+            ValueError: If no credential is available to authenticate the download.
+            httpx.HTTPError: If the download fails.
+        """
+        artifact = await self._hosted_artifact(generation_id, kind=kind, position=position)
+        self._log(f"Downloading hosted artifact {artifact.index} ({artifact.kind}) of generation {generation_id}")
+        return await self._download_artifact(artifact)
+
+    async def _save_generated_media(
+        self,
+        generation_id: str,
+        output_param: str,
+        artifact_factory: Callable[[str, str], Any],
+        *,
+        kind: str | None = None,
+        position: int = 0,
+        media_kind: str = "video",
+        action: str = "generated",
+    ) -> bool:
+        """Save one piece of the generation's hosted media to project storage.
+
+        On success sets ``output_param`` to the artifact ``artifact_factory``
+        produces and reports success. On a retrieval or write failure clears that
+        parameter and reports failure: a generation that completed (and was billed)
+        upstream but whose media cannot be retrieved is a failure, not a success.
+        A failure in ``artifact_factory`` itself is not caught here and propagates
+        to the caller.
+
+        Args:
+            generation_id: The generation whose media to save.
+            output_param: Name of the output parameter to set with the saved artifact.
+            artifact_factory: Callable taking (value, name) and returning a ``*UrlArtifact``.
+            kind: An ``ArtifactKind`` to filter by, or None for any kind.
+            position: Which matching artifact to take, 0 for the first.
+            media_kind: Human-readable media type for log and status messages.
+            action: Past-tense verb describing what the node produced (e.g. "generated",
+                "edited", "extended"), used in the success message.
+
+        Returns:
+            Whether the media was saved. Callers that report their own status only do
+            so when this is True, so a failure here is not overwritten by a success.
+
+        Raises:
+            Exception: If ``artifact_factory`` raises.
+        """
+        try:
+            media_bytes = await self._load_generated_media(generation_id, kind=kind, position=position)
+            dest = self._output_file.build_file()
+            saved = await dest.awrite_bytes(media_bytes)
+        except Exception as e:
+            logger.error("%s failed to retrieve %s: %s", self.name, media_kind, e)
+            self.parameter_output_values[output_param] = None
+            self._set_status_results(
+                was_successful=False,
+                result_details=(
+                    f"{self.name} generation completed upstream but the {media_kind} could not be retrieved: {e}"
+                ),
+            )
+            return False
+
+        self.parameter_output_values[output_param] = artifact_factory(saved.location, saved.name)
+        logger.info("%s saved %s as %s", self.name, media_kind, saved.name)
+        self._set_status_results(
+            was_successful=True,
+            result_details=f"{media_kind.capitalize()} {action} successfully and saved as {saved.name}.",
+        )
+        return True
+
     @staticmethod
-    async def _download_bytes_from_url(url: str) -> bytes | None:
-        """Download bytes from a URL.
+    async def _download_bytes_from_url(url: str, *, headers: dict[str, str] | None = None) -> bytes:
+        """Download bytes from a URL, retrying once on transient failures.
+
+        Transient failures (timeouts, connection errors, and 5xx responses) are
+        retried a single time after a short delay. Permanent failures (4xx, e.g.
+        an expired or missing provider URL) are raised immediately, since
+        retrying cannot help.
+
+        A raised HTTP status error carries the URL's scheme, host, and path but
+        not its query string: a presigned artifact URL carries its credential
+        there, and ``Response.raise_for_status()`` otherwise bakes the full URL,
+        credential included, into the message callers log and show the user.
 
         Args:
             url: The URL to download from
+            headers: Optional request headers, e.g. the credential a proxy-hosted
+                artifact URL needs.
 
         Returns:
-            bytes | None: The downloaded bytes, or None if download failed
+            bytes: The downloaded bytes.
+
+        Raises:
+            httpx.HTTPError: If the download fails (after a retry for transient errors).
         """
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(url, timeout=120)
-                resp.raise_for_status()
-                return resp.content
-        except Exception:
-            return None
+        parsed_url = urlparse(url)
+        redacted_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
+        attempts = 2
+        for attempt in range(1, attempts + 1):
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(url, headers=headers, timeout=120)
+                    resp.raise_for_status()
+                    return resp.content
+            except httpx.HTTPStatusError as e:
+                # 4xx are permanent (expired/missing URL); do not retry.
+                is_client_error = HTTP_CLIENT_ERROR_MIN <= e.response.status_code < HTTP_CLIENT_ERROR_MAX
+                if is_client_error or attempt >= attempts:
+                    msg = f"Download failed: HTTP {e.response.status_code} for {redacted_url}"
+                    raise httpx.HTTPStatusError(msg, request=e.request, response=e.response) from e
+            except (httpx.TimeoutException, httpx.TransportError):
+                if attempt >= attempts:
+                    raise
+            await asyncio.sleep(DOWNLOAD_RETRY_DELAY_SECONDS)
+
+        # Unreachable: the loop either returns or raises on the final attempt.
+        msg = f"Failed to download from {redacted_url}"
+        raise httpx.HTTPError(msg)

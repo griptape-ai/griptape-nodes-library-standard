@@ -6,6 +6,7 @@ from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -16,18 +17,25 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import prepare_media_data_uri
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["LTXImageToVideoGeneration"]
 
-# Model mapping from display names to API model IDs
-MODEL_MAPPING = {
-    "LTX 2 Pro": "ltx-2-pro",
+# Migrates values saved before the dropdown stored the provider's own model id: old
+# display labels and catalog keys.
+LEGACY_MODEL_VALUES = {
     "LTX 2 Fast": "ltx-2-fast",
-    "LTX 2.3 Pro": "ltx-2-3-pro",
+    "LTX 2 Pro": "ltx-2-pro",
     "LTX 2.3 Fast": "ltx-2-3-fast",
+    "LTX 2.3 Pro": "ltx-2-3-pro",
+    "LTX 2.5 Fast": "ltx-2-5-fast",
+    "LTX 2.5 Pro": "ltx-2-5-pro",
+    "gtc_ltx_2_3_fast": "ltx-2-3-fast",
+    "gtc_ltx_2_3_pro": "ltx-2-3-pro",
+    "gtc_ltx_2_fast": "ltx-2-fast",
+    "gtc_ltx_2_pro": "ltx-2-pro",
 }
 
 # Camera motion options
@@ -39,6 +47,7 @@ CAMERA_MOTION_OPTIONS = [
     "dolly_right",
     "jib_up",
     "jib_down",
+    "focus_shift",
 ]
 
 
@@ -47,9 +56,10 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
 
     Inputs:
         - image (ImageArtifact|ImageUrlArtifact|str): Input image (required, base64 data URI format)
+        - last_frame (ImageArtifact|ImageUrlArtifact|str): Optional last frame image to interpolate toward
         - prompt (str): Text prompt for video generation (required)
-        - model (str): Model to use (LTX 2 Pro, LTX 2 Fast, LTX 2.3 Pro, or LTX 2.3 Fast)
-        - resolution (str): Video resolution (1920x1080, 2560x1440, or 3840x2160)
+        - model (str): Model to use (LTX 2 Pro, LTX 2 Fast, LTX 2.3 Pro, LTX 2.3 Fast, LTX 2.5 Pro, or LTX 2.5 Fast)
+        - resolution (str): Video resolution (model-dependent, 1280x720 up to 3840x2160, landscape or portrait)
         - duration (int): Video length in seconds
         - fps (int): Frames per second (default: 25)
         - camera_motion (str): Camera movement type (default: static)
@@ -95,26 +105,102 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
         }
     }
 
+    # LTX 2.5 inverts the tiers: Fast reaches 1440p/4K and long durations, Pro caps at 1080p
+    FAST_2_5_MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
+        "resolutions": {
+            "1920x1080": {
+                "fps": {
+                    24: [6, 8, 10, 12, 14, 16, 18, 20],
+                    25: [6, 8, 10, 12, 14, 16, 18, 20],
+                    48: [6, 8, 10],
+                    50: [6, 8, 10],
+                },
+            },
+            "1080x1920": {
+                "fps": {
+                    24: [6, 8, 10, 12, 14, 16, 18, 20],
+                    25: [6, 8, 10, 12, 14, 16, 18, 20],
+                    48: [6, 8, 10],
+                    50: [6, 8, 10],
+                },
+            },
+            "1280x720": {
+                "fps": {
+                    24: [6, 8, 10, 12, 14, 16, 18, 20],
+                    25: [6, 8, 10, 12, 14, 16, 18, 20],
+                    48: [6, 8, 10],
+                    50: [6, 8, 10],
+                },
+            },
+            "720x1280": {
+                "fps": {
+                    24: [6, 8, 10, 12, 14, 16, 18, 20],
+                    25: [6, 8, 10, 12, 14, 16, 18, 20],
+                    48: [6, 8, 10],
+                    50: [6, 8, 10],
+                },
+            },
+            "2560x1440": {
+                "fps": {24: [6, 8, 10], 25: [6, 8, 10], 48: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "1440x2560": {
+                "fps": {24: [6, 8, 10], 25: [6, 8, 10], 48: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "3840x2160": {
+                "fps": {24: [6, 8, 10], 25: [6, 8, 10], 48: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "2160x3840": {
+                "fps": {24: [6, 8, 10], 25: [6, 8, 10], 48: [6, 8, 10], 50: [6, 8, 10]},
+            },
+        }
+    }
+
+    PRO_2_5_MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
+        "resolutions": {
+            "1920x1080": {
+                "fps": {24: [6, 8, 10], 25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "1080x1920": {
+                "fps": {24: [6, 8, 10], 25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "1280x720": {
+                "fps": {24: [6, 8, 10], 25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+            "720x1280": {
+                "fps": {24: [6, 8, 10], 25: [6, 8, 10], 50: [6, 8, 10]},
+            },
+        }
+    }
+
     # Model capability definitions
     MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
         "ltx-2-fast": FAST_MODEL_CAPABILITIES,
         "ltx-2-3-fast": FAST_MODEL_CAPABILITIES,
         "ltx-2-pro": PRO_MODEL_CAPABILITIES,
         "ltx-2-3-pro": PRO_MODEL_CAPABILITIES,
+        "ltx-2-5-fast": FAST_2_5_MODEL_CAPABILITIES,
+        "ltx-2-5-pro": PRO_2_5_MODEL_CAPABILITIES,
     }
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
         # INPUTS / PROPERTIES
-        self.add_parameter(
-            ParameterString(
-                name="model",
-                default_value="LTX 2.3 Fast",
-                tooltip="Model to use for video generation",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["LTX 2 Pro", "LTX 2 Fast", "LTX 2.3 Pro", "LTX 2.3 Fast"])},
-            )
+        model_param = ParameterString(
+            name="model",
+            default_value="ltx-2-5-fast",
+            tooltip="Model to use for video generation",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=["ltx-2-pro", "ltx-2-fast", "ltx-2-3-pro", "ltx-2-3-fast", "ltx-2-5-pro", "ltx-2-5-fast"],
+            default_model="ltx-2-5-fast",
+            deprecated_values=LEGACY_MODEL_VALUES,
         )
         self.add_parameter(
             ParameterString(
@@ -138,13 +224,36 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
             )
         )
 
+        self.add_parameter(
+            ParameterImage(
+                name="last_frame",
+                tooltip="Optional last frame image; the video interpolates from the input image to this frame. Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
+                allowed_modes={ParameterMode.INPUT},
+                hide_property=True,
+                ui_options={"display_name": "Last Frame Image"},
+            )
+        )
+
         with ParameterGroup(name="Generation Settings") as gen_settings_group:
             ParameterString(
                 name="resolution",
                 default_value="1920x1080",
                 tooltip="Video resolution",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["1920x1080", "2560x1440", "3840x2160"])},
+                traits={
+                    Options(
+                        choices=[
+                            "1920x1080",
+                            "2560x1440",
+                            "3840x2160",
+                            "1280x720",
+                            "720x1280",
+                            "1080x1920",
+                            "1440x2560",
+                            "2160x3840",
+                        ]
+                    )
+                },
             )
 
             ParameterInt(
@@ -160,7 +269,7 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
                 default_value=25,
                 tooltip="Frames per second",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=[25, 50])},
+                traits={Options(choices=[24, 25, 48, 50])},
             )
 
             ParameterString(
@@ -216,7 +325,7 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
         )
 
         # Set initial parameter visibility based on default model
-        self._update_parameter_visibility_for_model("LTX 2 Fast")
+        self._update_parameter_visibility_for_model("ltx-2-fast")
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to show/hide dependent parameters."""
@@ -224,12 +333,12 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
 
         # Update parameter options when model, resolution, or fps changes
         if parameter.name in ("model", "resolution", "fps"):
-            model_name = self.get_parameter_value("model") or "LTX 2 Fast"
+            model_name = self.get_parameter_value("model") or "ltx-2-fast"
             self._update_parameter_visibility_for_model(model_name)
 
     def _update_parameter_visibility_for_model(self, model_name: str) -> None:
         """Update parameter visibility and options based on selected model."""
-        model_id = MODEL_MAPPING.get(model_name, "ltx-2-fast")
+        model_id = model_name
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
 
         # Get available resolutions
@@ -271,8 +380,9 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
         """Get and process all parameters, including image conversion."""
         return {
             "prompt": self.get_parameter_value("prompt") or "",
-            "model": self.get_parameter_value("model") or "LTX 2 Fast",
+            "model": self.get_parameter_value("model") or "ltx-2-fast",
             "image_uri": await self._prepare_image_data_url_async(self.get_parameter_value("image")),
+            "last_frame_uri": await self._prepare_image_data_url_async(self.get_parameter_value("last_frame")),
             "resolution": self.get_parameter_value("resolution") or "1920x1080",
             "duration": self.get_parameter_value("duration") or 6,
             "fps": self.get_parameter_value("fps") or 25,
@@ -283,14 +393,12 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
         }
 
     def _get_api_model_id(self) -> str:
-        model_name = self.get_parameter_value("model") or "LTX 2 Fast"
-        model_id = MODEL_MAPPING.get(model_name, "ltx-2-fast")
-        return f"{model_id}:image-to-video"
+        return f"{self._get_selected_model_id()}:image-to-video"
 
     def _validate_model_params(self, params: dict[str, Any]) -> str | None:
         """Validate that the model-resolution-fps-duration combination is supported."""
         model_display_name = params["model"]
-        model_id = MODEL_MAPPING.get(model_display_name, "ltx-2-fast")
+        model_id = model_display_name
         resolution = params["resolution"]
         fps = params["fps"]
         duration = params["duration"]
@@ -346,7 +454,7 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
             raise ValueError(validation_error)
 
         # Map display name to model ID (without modality)
-        model_id = MODEL_MAPPING.get(params["model"], "ltx-2-fast")
+        model_id = params["model"]
 
         payload: dict[str, Any] = {
             "image_uri": params["image_uri"],
@@ -358,47 +466,19 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
             "camera_motion": params["camera_motion"],
             "generate_audio": bool(params["generate_audio"]),
         }
+        if params["last_frame_uri"]:
+            payload["last_frame_uri"] = params["last_frame_uri"]
 
         return payload
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        video_bytes = result_json.get("raw_bytes")
-        if not isinstance(video_bytes, (bytes, bytearray)):
-            msg = f"{self.name} generation completed but no video data received."
-            raise TypeError(msg)
-
-        await self._handle_completion_async(bytes(video_bytes), generation_id)
-
-    async def _handle_completion_async(self, video_bytes: bytes, generation_id: str) -> None:
-        """Handle successful completion by saving the video to static storage.
-
-        Args:
-            video_bytes: Raw binary MP4 data received from /result endpoint
-            generation_id: Generation ID for filename
-        """
-        if not video_bytes:
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} generation completed but no video data received.",
-            )
-            return
-
-        try:
-            dest = self._output_file.build_file()
-            saved = await dest.awrite_bytes(video_bytes)
-            self.parameter_output_values["video_url"] = VideoUrlArtifact(value=saved.location, name=saved.name)
-            logger.info("%s saved video as %s", self.name, saved.name)
-            self._set_status_results(
-                was_successful=True, result_details=f"Video generated successfully and saved as {saved.name}."
-            )
-        except (OSError, PermissionError) as e:
-            logger.error("%s failed to save to static storage: %s", self.name, e)
-            self.parameter_output_values["video_url"] = None
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"Video generated but failed to save to storage: {e}",
-            )
+    async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+        """Save the hosted video. LTX returns the media as the response body itself."""
+        await self._save_generated_media(
+            generation_id,
+            "video_url",
+            lambda v, n: VideoUrlArtifact(value=v, name=n),
+            kind=ArtifactKind.VIDEO,
+        )
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:  # noqa: C901, PLR0912
         if not response_json:

@@ -4,6 +4,7 @@ from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 
@@ -28,6 +29,11 @@ class BaseDriver(DataNode):
             driver = BaseDriver(name="ExampleDriver")
         """
         super().__init__(**kwargs)
+
+        # Set by `_install_model_access` on subclasses whose model parameter is a
+        # license-filtered dropdown; stays None on the ones offering free text or a
+        # dynamically fetched list.
+        self._model_access: ModelAccessComponent | None = None
 
         self.add_parameter(
             Parameter(
@@ -110,7 +116,108 @@ class BaseDriver(DataNode):
     # Internal Helper Methods
     # -----------------------------------------------------------------------------
 
-    def _display_api_key_message(self, service_name: str, api_key_env_var: str, api_key_url: str | None) -> None:
+    def _install_model_access(
+        self,
+        *,
+        model_choices: list[str],
+        default_model: str,
+        param: str = "model",
+        deprecated_values: dict[str, str] | None = None,
+    ) -> None:
+        """Turn the named model parameter into a license-filtered dropdown.
+
+        Stands in for `_update_option_choices` on driver nodes: the component owns
+        the `Options` trait (so the parameter must not already carry one), adds an
+        inline refresh button, marks the models the caller's license denies, and
+        moves the stored value off a denied default. The declared default is still
+        applied here, so the parameter reads the same as it did before adoption.
+
+        Args:
+            model_choices: The provider model ids the node offers, in dropdown order.
+            default_model: The choice to select by default; must be in `model_choices`.
+            param: Name of the parameter to decorate.
+            deprecated_values: Legacy value -> canonical `model_choices` entry map,
+                needed only when the parameter used to store something other than
+                the provider's model id (an old display label, a catalog key).
+        """
+        if default_model not in model_choices:
+            msg = f"Default model '{default_model}' is not one of the offered choices."
+            raise ValueError(msg)
+        parameter = self.get_parameter_by_name(param)
+        if parameter is None:
+            msg = f"Cannot install model access on '{type(self).__name__}': no '{param}' parameter."
+            raise ValueError(msg)
+
+        parameter.default_value = default_model
+        self.set_parameter_value(param, default_model)
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=parameter,
+            model_choices=model_choices,
+            default_model=default_model,
+            deprecated_values=deprecated_values,
+        )
+
+    def _get_selected_model_id(self) -> str:
+        """The provider model id the model dropdown currently stores.
+
+        The dropdown stores the provider's own id for the model, so a driver
+        built from this node's parameters passes the stored value upstream as-is.
+        Reading it through here keeps the parameter's name in one place.
+        """
+        if self._model_access is None:
+            return ""
+        return self._model_access.selected_value or ""
+
+    def _raise_if_model_denied(self) -> None:
+        """Fail closed rather than hand a downstream node a driver the license denies.
+
+        Called at the top of `process` on nodes with a license-filtered dropdown;
+        no-ops on the nodes that never installed one.
+        """
+        if self._model_access is not None:
+            self._model_access.raise_if_selection_denied()
+
+    def _validate_model_selection(self) -> list[Exception] | None:
+        """The license denial for the stored model selection, as a validation failure.
+
+        Returns `None` when the node never installed a license-filtered dropdown,
+        or when its current selection is permitted. Asks the component for the
+        denial rather than catching the one `raise_if_selection_denied` throws, so
+        an unrelated `RuntimeError` from inside the component surfaces as the bug
+        it is instead of being reported as a license denial.
+        """
+        if self._model_access is None:
+            return None
+        denial = self._model_access.selection_denial()
+        if denial is None:
+            return None
+        selection = self._model_access.selected_value
+        return [RuntimeError(f"Cannot run {type(self).__name__}: '{selection}' is not permitted. {denial.reason()}")]
+
+    def validate_before_workflow_run(self) -> list[Exception] | None:
+        """Refuse a model the caller's license denies before the workflow starts.
+
+        Covers the driver nodes that validate nothing else. Nodes that check their
+        own credentials override this and reach the same denial through
+        `_validate_api_key`, which reports it in place of any key error.
+        """
+        return self._validate_model_selection()
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        """Keep the model dropdown's denial badge in step with the selection."""
+        if self._model_access is not None:
+            self._model_access.on_value_set(parameter, value)
+        return super().after_value_set(parameter, value)
+
+    def _display_api_key_message(
+        self,
+        service_name: str,
+        api_key_env_var: str,
+        api_key_url: str | None,
+        *,
+        credential_present: bool | None = None,
+    ) -> None:
         """Checks if the API key exists in the node configuration, displays a message if not.
 
         This method checks if the API key for a specific service is present
@@ -122,13 +229,20 @@ class BaseDriver(DataNode):
             api_key_env_var: The name of the key variable within the service config.
             api_key_url: An optional URL for users to visit to obtain the key,
                          included in the error message if provided.
+            credential_present: Overrides the `api_key_env_var` lookup when the
+                service accepts a credential other than that secret. Griptape Cloud
+                nodes pass the License-aware result so a license-only user is not
+                shown a "requires an API key" warning for a node that works.
 
         Returns:
             bool: True if the API key exists and is not empty, False otherwise.
         """
         message_param = self.get_parameter_by_name("message")
         if message_param is not None:
-            api_key = GriptapeNodes.SecretsManager().get_secret(api_key_env_var)
+            if credential_present is None:
+                api_key = GriptapeNodes.SecretsManager().get_secret(api_key_env_var)
+            else:
+                api_key = credential_present
             msg = f"⚠️ This node requires an API key from {service_name}\nPlease visit {api_key_url} to obtain a valid key and update your settings."
             message_param.default_value = msg
             ui_options = message_param.ui_options
@@ -139,7 +253,13 @@ class BaseDriver(DataNode):
             message_param.ui_options = ui_options
 
     def _validate_api_key(
-        self, service_name: str, api_key_env_var: str, api_key_url: str | None
+        self,
+        service_name: str,
+        api_key_env_var: str,
+        api_key_url: str | None,
+        *,
+        resolved_credential: str | None = None,
+        missing_credential_msg: str | None = None,
     ) -> list[Exception] | None:
         """Validates the presence and non-emptiness of a specific API key in config.
 
@@ -151,25 +271,51 @@ class BaseDriver(DataNode):
             api_key_env_var: The name of the key variable within the service config.
             api_key_url: An optional URL for users to visit to obtain the key,
                      included in the error message if provided.
+            resolved_credential: The already-resolved credential, for services that
+                accept something other than the `api_key_env_var` secret. Griptape
+                Cloud nodes pass the License-aware result, since a license-only user
+                has no `GT_CLOUD_API_KEY` and must not be blocked. When omitted, the
+                `api_key_env_var` secret is looked up as before.
+            missing_credential_msg: Replaces the default "API Key (...) is missing"
+                wording. Pass this whenever `resolved_credential` is supplied, so the
+                message names the credentials the service actually accepts rather
+                than pointing at one secret the user may not be meant to set.
 
         Returns:
             A list of exceptions (KeyError or ValueError) if validation fails,
-            otherwise None.
+            otherwise None. A model the caller's license denies is reported on its
+            own, in place of any key error.
         """
+        # A denied model is a more fundamental blocker than a missing key: sending
+        # someone off to obtain a key for a model they are not licensed to run wastes
+        # their time. Report the denial and skip the key check entirely.
+        model_denial = self._validate_model_selection()
+        if model_denial is not None:
+            return model_denial
+
         exceptions = []
 
-        api_key = GriptapeNodes.SecretsManager().get_secret(api_key_env_var)
+        if resolved_credential is None:
+            api_key = GriptapeNodes.SecretsManager().get_secret(api_key_env_var)
+        else:
+            api_key = resolved_credential
         if not api_key:
-            msg = f"API Key ('{api_key_env_var}') for service '{service_name}' is missing."
-            if api_key_url:
-                msg += f" Please visit {api_key_url} to obtain a valid key and update your settings."
+            if missing_credential_msg is not None:
+                msg = missing_credential_msg
             else:
-                msg += " Please provide a valid API key in your settings."
+                msg = f"API Key ('{api_key_env_var}') for service '{service_name}' is missing."
+                if api_key_url:
+                    msg += f" Please visit {api_key_url} to obtain a valid key and update your settings."
+                else:
+                    msg += " Please provide a valid API key in your settings."
             exceptions.append(KeyError(msg))
 
         # Display a message to the user if the API key is missing or empty.
         self._display_api_key_message(
-            service_name=service_name, api_key_env_var=api_key_env_var, api_key_url=api_key_url
+            service_name=service_name,
+            api_key_env_var=api_key_env_var,
+            api_key_url=api_key_url,
+            credential_present=None if resolved_credential is None else bool(api_key),
         )
 
         return exceptions if exceptions else None

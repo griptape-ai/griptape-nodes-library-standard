@@ -11,7 +11,7 @@ class CreateFloatList(BaseCreateListNode):
             name,
             metadata,
             input_types=["float"],
-            output_type="list",
+            output_type="list[float]",
             default_value=0.0,
             items_tooltip="List of float items to add to",
             ui_options={"hide_property": False},

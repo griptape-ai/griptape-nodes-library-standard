@@ -3,6 +3,7 @@ from typing import Any
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter
 from griptape_nodes.exe_types.node_types import BaseNode, DataNode, NodeDependencies
+from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 
@@ -152,9 +153,22 @@ class LoadVideo(DataNode):
             update_external_file_controls(result, self._external_warning, self._copy_button, self.name, "video")
             if not result.is_external:
                 resolved_path = result.resolved_path
-                extracted_metadata = ffmpeg_utils.extract_video_player_metadata(resolved_path)
-                video_artifact = VideoUrlArtifact(resolved_path, meta=extracted_metadata)
                 path_value = resolved_path
+                # `resolved_path` may be a macro like "{inputs}/video.mp4", which ffprobe cannot
+                # open as a literal path. Resolve it to a real local path just for the ffprobe
+                # argument; the artifact and "path" output keep the macro form so the stored
+                # value stays portable across workspaces.
+                try:
+                    local_path = File(resolved_path).resolve()
+                except FileLoadError as e:
+                    logger.warning(
+                        f"LoadVideo '{self.name}': Attempted to resolve '{resolved_path}' to extract video "
+                        f"metadata. Failed due to {e.result_details}"
+                    )
+                    video_artifact = VideoUrlArtifact(resolved_path, meta={})
+                else:
+                    extracted_metadata = ffmpeg_utils.extract_video_player_metadata(local_path)
+                    video_artifact = VideoUrlArtifact(resolved_path, meta=extracted_metadata)
 
         self.parameter_output_values["video"] = video_artifact
         self.parameter_output_values["path"] = path_value

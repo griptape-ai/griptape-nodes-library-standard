@@ -22,25 +22,23 @@ from griptape.events import (
 from griptape.memory.structure import ConversationMemory, Run
 from griptape.structures import Structure
 from griptape.tasks import PromptTask
+from griptape_nodes.drivers.cloud_models import (
+    MODEL_CHOICES,
+    MODEL_CHOICES_ARGS,
+)
 from griptape_nodes.exe_types.core_types import (
     NodeMessageResult,
     Parameter,
     ParameterGroup,
     ParameterList,
-    ParameterMessage,
     ParameterMode,
     ParameterType,
 )
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.events.agent_events import (
-    ListAgentProvidersRequest,
-    ListAgentProvidersResultSuccess,
-    ListProviderModelsRequest,
-    ListProviderModelsResultSuccess,
-    ProviderConfig,
-)
+from griptape_nodes.retained_mode.events.agent_events import ProviderConfig
 from griptape_nodes.retained_mode.events.connection_events import DeleteConnectionRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
@@ -49,11 +47,6 @@ from jinja2 import Template
 from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
-from griptape_nodes_library.config.prompt.cloud_models import (
-    DEPRECATED_MODELS,
-    MODEL_CHOICES,
-    MODEL_CHOICES_ARGS,
-)
 from griptape_nodes_library.utils.agent_utils import (
     build_prompt_driver,
     build_rulesets_from_configs,
@@ -62,14 +55,22 @@ from griptape_nodes_library.utils.agent_utils import (
     unwrap_agent,
     wrap_agent,
 )
+from griptape_nodes_library.utils.cloud_credential_utils import (
+    missing_credential_message,
+    resolve_cloud_api_key,
+)
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
+from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
 from griptape_nodes_library.utils.error_utils import try_throw_error
+from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
+from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
 _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
 
 # --- Constants ---
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_MODEL = "claude-sonnet-5"
 
 
 class Agent(ControlNode):
@@ -122,65 +123,47 @@ class Agent(ControlNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
             )
         )
-        self.add_node_element(
-            ParameterMessage(
-                name="model_deprecation_notice",
-                title="Model Deprecation Notice",
-                variant="info",
-                value="",
-                traits={
-                    Button(
-                        full_width=True,
-                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
-                    )
-                },
-                button_text="Dismiss",
-                hide=True,
-            )
+
+        # Provider selector shown above the model dropdown. The ProviderSelectionComponent
+        # installs the Options + refresh Button traits after construction.
+        model_provider_param = Parameter(
+            name="model_provider",
+            type="str",
+            default_value="griptape_cloud",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            tooltip="Choose a provider. Refresh to see all configured providers.",
+            ui_options={"display_name": "provider"},
+        )
+        self.add_parameter(model_provider_param)
+
+        # Model selector. The ModelAccessComponent installs the Options + refresh
+        # Button traits, decorates each row with the caller's license entitlement
+        # (denied Griptape Cloud models are flagged in the dropdown), and gates the
+        # run at execute time. Choices update when the provider changes.
+        model_param = Parameter(
+            name="model",
+            input_types=["str", "Prompt Model Config"],
+            default_value=DEFAULT_MODEL,
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            tooltip="Choose a model, or connect a Prompt Model Configuration",
+            ui_options={"display_name": "prompt model"},
+        )
+        self.add_parameter(model_param)
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_CHOICES,
+            default_model=DEFAULT_MODEL,
+            deprecated_values=CLOUD_LEGACY_MODEL_VALUES,
         )
 
-        # Provider selector — populated from the engine's configured providers.
-        provider_names = self._fetch_provider_names()
-        self.add_parameter(
-            Parameter(
-                name="model_provider",
-                type="str",
-                default_value=provider_names[0] if provider_names else "griptape_cloud",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                tooltip="Choose a provider. Refresh to see all configured providers.",
-                traits={
-                    Options(choices=provider_names),
-                    Button(
-                        icon="list-restart",
-                        size="icon",
-                        variant="secondary",
-                        on_click=self._refresh_providers_button,
-                    ),
-                },
-                ui_options={"display_name": "provider"},
-            )
+        self._provider = ProviderSelectionComponent(
+            node=self,
+            model_provider_param=model_provider_param,
+            model_access=self._model_access,
+            default_model=DEFAULT_MODEL,
         )
 
-        # Model selector — choices update when the provider changes.
-        self.add_parameter(
-            Parameter(
-                name="model",
-                input_types=["str", "Prompt Model Config"],
-                default_value=DEFAULT_MODEL,
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                tooltip="Choose a model, or connect a Prompt Model Configuration",
-                traits={
-                    Options(choices=MODEL_CHOICES),
-                    Button(
-                        icon="list-restart",
-                        size="icon",
-                        variant="secondary",
-                        on_click=self._refresh_models_button,
-                    ),
-                },
-                ui_options={"display_name": "prompt model", "data": MODEL_CHOICES_ARGS},
-            )
-        )
         self.add_parameter(
             ParameterJson(
                 name="agent_memory",
@@ -252,7 +235,7 @@ class Agent(ControlNode):
                 tooltip="Optional JSON schema for structured output validation.",
                 default_value=None,
                 allowed_modes={ParameterMode.INPUT},
-                ui_options={"hide_property": True},
+                hide_property=True,
             )
         )
 
@@ -282,32 +265,6 @@ class Agent(ControlNode):
 
         self.add_node_element(logs_group)
 
-    def before_value_set(
-        self,
-        parameter: Parameter,
-        value: Any,
-    ) -> Any:
-        if parameter.name == "model":
-            # Only run deprecation check for string model names. When a prompt driver
-            # is connected, value is a BasePromptDriver; "value in DEPRECATED_MODELS"
-            # would hash it and raise (drivers are unhashable). See #3713.
-            if isinstance(value, str) and value in DEPRECATED_MODELS:
-                replacement = DEPRECATED_MODELS[value]
-                message = self.get_message_by_name_or_element_id("model_deprecation_notice")
-                if message is None:
-                    raise RuntimeError("model_deprecation_notice message element not found")  # noqa: TRY003, EM101
-                message.value = f"The '{value}' model has been deprecated. The model has been updated to '{replacement}'. Please save your workflow to apply this change."
-                self.show_message_by_name("model_deprecation_notice")
-                value = replacement
-            elif isinstance(value, str):
-                self.hide_message_by_name("model_deprecation_notice")
-
-        # Call the parent implementation and return the result
-        return super().before_value_set(
-            parameter,
-            value,
-        )
-
     def _build_tool_exchange(self, subtask_events: list) -> str:
         """Build a verified tool-use record from FinishActionsSubtaskEvents.
 
@@ -335,91 +292,11 @@ class Agent(ControlNode):
         return "\n".join(lines) + "\n\n"
 
     # --- Provider / Model Methods ---
-    # TODO: extract into ProviderSelectionComponent shared with DescribeImage
-    # https://github.com/griptape-ai/griptape-nodes-library-standard/issues/442
-
-    def _fetch_providers(self) -> "list[ProviderConfig]":
-        """Fetch configured providers from the engine, falling back to griptape_cloud only."""
-        _FALLBACK = [_GRIPTAPE_CLOUD_PROVIDER]
-        try:
-            result = GriptapeNodes.handle_request(ListAgentProvidersRequest())
-            if not isinstance(result, ListAgentProvidersResultSuccess):
-                return _FALLBACK
-            return cast(ListAgentProvidersResultSuccess, result).providers or _FALLBACK
-        except Exception:
-            return _FALLBACK
-
-    def _fetch_provider_names(self) -> list[str]:
-        """Return ordered provider names for the provider dropdown."""
-        providers = self._fetch_providers()
-        return [p.name for p in providers] or ["griptape_cloud"]
-
-    def _resolve_provider_api_key(self, provider_config: "ProviderConfig") -> str:
-        """Resolve the API key for a provider config.
-
-        Provider configs carry api_key_secret_name (the name of a secret in the
-        secrets manager) rather than a raw api_key value.  Fall back to
-        "not-needed" for providers that don't require a key (e.g. Ollama).
-        """
-        secret_name = provider_config.api_key_secret_name or ""
-        if secret_name:
-            return (
-                GriptapeNodes.SecretsManager().get_secret(secret_name, should_error_on_not_found=False) or "not-needed"
-            )
-        return "not-needed"
-
-    def _fetch_models_for_provider(self, provider_name: str) -> list[str]:
-        """Return the model list for a given provider name."""
-        try:
-            providers = self._fetch_providers()
-            provider_config = next((p for p in providers if p.name == provider_name), None)
-            if provider_config is None:
-                return MODEL_CHOICES
-            result = GriptapeNodes.handle_request(
-                ListProviderModelsRequest(
-                    provider=provider_config.type,
-                    base_url=provider_config.base_url or "",
-                    api_key=self._resolve_provider_api_key(provider_config),
-                )
-            )
-            if isinstance(result, ListProviderModelsResultSuccess):
-                return cast(ListProviderModelsResultSuccess, result).models or MODEL_CHOICES
-        except Exception:
-            pass
-        return MODEL_CHOICES
-
-    def _update_model_choices_for_provider(self, provider_name: str) -> None:
-        """Swap the model dropdown choices for the given provider."""
-        models = self._fetch_models_for_provider(provider_name)
-        default = models[0] if models else DEFAULT_MODEL
-        self._update_option_choices(param="model", choices=models, default=default)
-        # The frontend renders the dropdown from the "data" ui_options key (not "simple_dropdown").
-        # Update it explicitly so the frontend receives the change notification.
-        param = self.get_parameter_by_name("model")
-        if param:
-            if provider_name == "griptape_cloud":
-                new_data = MODEL_CHOICES_ARGS
-            else:
-                new_data = [{"name": m, "icon": "", "args": {}} for m in models]
-            param.update_ui_options_key("data", new_data)
-
-    def _refresh_providers_button(
-        self, button: Button, button_details: ButtonDetailsMessagePayload
-    ) -> NodeMessageResult | None:  # noqa: ARG002
-        """Refresh the provider dropdown from the engine."""
-        provider_names = self._fetch_provider_names()
-        current = self.get_parameter_value("model_provider") or "griptape_cloud"
-        default = current if current in provider_names else (provider_names[0] if provider_names else "griptape_cloud")
-        self._update_option_choices(param="model_provider", choices=provider_names, default=default)
-        return None
-
     def _refresh_models_button(
         self, button: Button, button_details: ButtonDetailsMessagePayload
-    ) -> NodeMessageResult | None:  # noqa: ARG002
+    ) -> NodeMessageResult | None:
         """Refresh the model dropdown for the currently selected provider."""
-        provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
-        self._update_model_choices_for_provider(provider_name)
-        return None
+        return self._provider._refresh_models_button(button, button_details)
 
     # --- Helper Methods ---
 
@@ -687,19 +564,9 @@ class Agent(ControlNode):
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
+        self._model_access.on_value_set(parameter, value)
         if parameter.name == "model_provider":
-            provider_name = str(value)
-            models = self._fetch_models_for_provider(provider_name)
-            default = models[0] if models else DEFAULT_MODEL
-            self._update_option_choices(param="model", choices=models, default=default)
-            new_data = (
-                MODEL_CHOICES_ARGS
-                if provider_name == "griptape_cloud"
-                else [{"name": m, "icon": "", "args": {}} for m in models]
-            )
-            param = self.get_parameter_by_name("model")
-            if param:
-                param.update_ui_options_key("data", new_data)
+            self._provider.on_provider_changed(str(value))
 
     # --- UI Interaction Hooks ---
 
@@ -708,8 +575,8 @@ class Agent(ControlNode):
     ) -> None:
         # If an existing agent is connected, hide parameters related to creating a new one.
         if target_parameter.name == "agent":
-            params_to_toggle = ["model", "model_provider", "tools", "rulesets"]
-            self.hide_parameter_by_name(params_to_toggle)
+            self._provider.hide()
+            self.hide_parameter_by_name(["tools", "rulesets"])
 
         if target_parameter.name == "model" and source_parameter.name == "prompt_model_config":
             # Remove the options trait. Defensive guard so this stays idempotent instead
@@ -754,8 +621,8 @@ class Agent(ControlNode):
     ) -> None:
         # If the agent connection is removed, show agent creation parameters.
         if target_parameter.name == "agent":
-            params_to_toggle = ["model", "model_provider", "tools", "rulesets", "schema"]
-            self.show_parameter_by_name(params_to_toggle)
+            self._provider.show()
+            self.show_parameter_by_name(["tools", "rulesets", "schema"])
 
         if target_parameter.name == "output_schema":
             self.set_parameter_value("output_schema", None)
@@ -763,30 +630,20 @@ class Agent(ControlNode):
             self._update_output_type_and_validate_connections("str")
 
         if target_parameter.name == "model":
-            # Reset the parameter type
+            # Reset the parameter type and re-enable PROPERTY so the user can set it.
             target_parameter.type = "str"
-
-            # Enable PROPERTY so the user can set it
             target_parameter.allowed_modes = {ParameterMode.INPUT, ParameterMode.PROPERTY}
 
-            # Sometimes the value is not set to the default value - these are all attempts to get it to work.
-            target_parameter.set_default_value(DEFAULT_MODEL)
-            target_parameter.default_value = DEFAULT_MODEL
-            self.set_parameter_value("model", DEFAULT_MODEL)
-
-            # Restore choices for the currently selected provider.
-            current_provider = self.get_parameter_value("model_provider") or "griptape_cloud"
-            restored_models = self._fetch_models_for_provider(current_provider)
-            # The connect hook stripped the Options trait; reinstall it before updating
-            # choices, otherwise _update_option_choices raises "No Options trait found".
-            if not target_parameter.find_elements_by_type(Options):
-                target_parameter.add_trait(Options(choices=restored_models))
-            self._update_option_choices(param="model", choices=restored_models, default=DEFAULT_MODEL)
-
-            # Change the display name to be appropriate
+            default_model = self._model_access.pick_permitted_default() or DEFAULT_MODEL
+            target_parameter.set_default_value(default_model)
+            target_parameter.default_value = default_model
             ui_options = target_parameter.ui_options
             ui_options["display_name"] = "prompt model"
             target_parameter.ui_options = ui_options
+            self.set_parameter_value("model", default_model)
+            # The connect hook stripped the Options trait; the component reinstalls
+            # its Options trait, per-row license decoration, and badge.
+            self._model_access.reinstall_options()
 
         # If the additional context connection is removed, make it editable again.
         # NOTE: This is a workaround. Ideally this is done automatically.
@@ -804,10 +661,14 @@ class Agent(ControlNode):
     def validate_before_workflow_run(self) -> list[Exception] | None:
         """Performs pre-run validation checks for the node.
 
-        The Griptape Cloud API key is only required when the node would fall back
+        A Griptape Cloud credential is only required when the node would fall back
         to the default Griptape Cloud prompt driver. A connected agent carries its
         own driver, and a connected prompt driver (Prompt Model Config) supplies its
-        own credentials, so neither needs the cloud key.
+        own credentials, so neither needs the cloud credential.
+
+        Either credential is accepted: a Griptape Nodes License or a Griptape Cloud
+        API key. Griptape Cloud's chat endpoints authenticate a License, so a
+        license-only user (no `GT_CLOUD_API_KEY` at all) must not be blocked here.
 
         Returns:
             A list of Exception objects if validation fails, otherwise None.
@@ -816,35 +677,19 @@ class Agent(ControlNode):
 
         # Mirror the driver-selection precedence in process(): a connected agent or a
         # connected prompt driver bypass the default Griptape Cloud driver entirely.
-        if not self._uses_griptape_cloud_driver():
+        if not self._provider.uses_griptape_cloud_driver():
             return None
 
-        # Check to see if the API key is set.
-        api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
+        # Check to see if either credential is set.
+        api_key = resolve_cloud_api_key()
 
         if not api_key:
-            msg = f"{API_KEY_ENV_VAR} is not defined"
+            msg = missing_credential_message("run the Agent")
             exceptions.append(KeyError(msg))
             return exceptions
 
         # Return any exceptions
         return exceptions if exceptions else None
-
-    def _uses_griptape_cloud_driver(self) -> bool:
-        """Return True when the node will build the default Griptape Cloud prompt driver.
-
-        A connected agent supplies its own driver, a connected prompt driver
-        (``model`` resolved to a ``BasePromptDriver``) supplies its own credentials,
-        and a non-griptape_cloud provider uses an OpenAI-compatible driver — none
-        of these need the Griptape Cloud API key.
-        """
-        if self.get_parameter_value("agent") is not None:
-            return False
-        model_input = self.get_parameter_value("model")
-        if isinstance(model_input, BasePromptDriver):
-            return False
-        provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
-        return provider_name == "griptape_cloud"
 
     def _handle_additional_context(self, prompt: str, additional_context: str | int | float | dict[str, Any]) -> str:  # noqa: PYI041
         """Integrates additional context into the main prompt string.
@@ -898,12 +743,19 @@ class Agent(ControlNode):
         """
         model_input = self.get_parameter_value("model")
         provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
+        agent_input = self.get_parameter_value("agent")
+        # License-policy runtime gate, scoped to Griptape Cloud models (the only ones the
+        # catalog declares) and skipped when an Agent is connected: it supplies its own
+        # driver, so the node's (hidden, not cleared) dropdown value is stale. The
+        # INVOKE_MODEL declaration below gates the model that actually runs.
+        if agent_input is None and provider_name == "griptape_cloud":
+            self._model_access.raise_if_selection_denied()
         agent = None
         include_details = self.get_parameter_value("include_details")
         default_prompt_driver = GriptapeCloudPromptDriver(
             model=DEFAULT_MODEL,
-            api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
             stream=True,
+            **cloud_driver_auth(),
         )
 
         # Initialize the logs parameter
@@ -972,7 +824,6 @@ class Agent(ControlNode):
         # If a prompt_driver is provided, we'll use that
         # If neither are provided, we'll create a new one with the selected model.
         # Otherwise, we'll just use the default model
-        agent_input = self.get_parameter_value("agent")
         incoming_provider: dict | None = None
         if isinstance(agent_input, dict):
             # Unwrap the new-format wrapper (or handle old raw agent dict gracefully).
@@ -1013,22 +864,22 @@ class Agent(ControlNode):
             agent = GtAgent(prompt_driver=model_input, tools=tools, rulesets=rulesets, output_schema=pydantic_schema)
         elif isinstance(model_input, str):
             if provider_name == "griptape_cloud":
-                if model_input not in MODEL_CHOICES:
+                if model_input not in self._model_access.model_choices:
                     model_input = DEFAULT_MODEL
                 # Get the appropriate args (stream setting, structured output strategy, etc.)
                 args = next((model["args"] for model in MODEL_CHOICES_ARGS if model["name"] == model_input), {})
                 args = {k: v for k, v in args.items() if v is not None}
                 prompt_driver = GriptapeCloudPromptDriver(
                     model=model_input,
-                    api_key=GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR),
                     **args,
+                    **cloud_driver_auth(),
                 )
             else:
                 # Non-Griptape-Cloud provider: resolve config and pick the right driver.
-                providers = self._fetch_providers()
+                providers = self._provider._fetch_providers()
                 provider_config = next((p for p in providers if p.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
                 base_url = provider_config.base_url or ""
-                api_key = self._resolve_provider_api_key(provider_config)
+                api_key = self._provider.resolve_provider_api_key(provider_config)
                 prompt_driver = build_prompt_driver(
                     provider_type=provider_config.type,
                     model=model_input,
@@ -1047,6 +898,17 @@ class Agent(ControlNode):
             self._apply_memory_to_agent(agent, agent_memory)
 
         if prompt and not prompt.isspace():
+            # Declare the model that will actually run. Every construction branch above
+            # ends with the concrete prompt driver installed on the agent's PromptTask,
+            # so read the model from there. The node's own `model` parameter is not a
+            # trustworthy source: it keeps its last dropdown value (hidden, not cleared)
+            # while a connected Agent supplies the real driver. The util resolves the
+            # provider model id to its stable catalog key (via the node's model_usage)
+            # before declaring. Declare before the network call below so a denied
+            # invocation fails closed rather than reaching the provider.
+            model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
+            require_model_invocation_sync(self, model)
+
             # Run the agent asynchronously
             self.append_value_to_parameter("logs", "[Started processing agent..]\n")
             yield lambda: self._process(agent, prompt)
@@ -1072,13 +934,13 @@ class Agent(ControlNode):
         # Forward provider credentials so downstream nodes can rebuild the driver —
         # griptape strips api_key from non-GTC drivers during to_dict() serialization.
         if provider_name != "griptape_cloud":
-            providers = self._fetch_providers()
+            providers = self._provider._fetch_providers()
             p = next((x for x in providers if x.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
             wrapper["provider"] = {
                 "name": provider_name,
                 "type": p.type,
                 "base_url": p.base_url or "",
-                "api_key": self._resolve_provider_api_key(p),
+                "api_key": self._provider.resolve_provider_api_key(p),
             }
         elif incoming_provider:
             # Passthrough: this node uses griptape_cloud but an upstream agent used a non-GTC provider.
