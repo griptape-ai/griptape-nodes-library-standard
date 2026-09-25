@@ -352,8 +352,8 @@ class CreateVideoFromFrames(SuccessFailureNode):
                 paths.sort(key=lambda p: p.name)
             return paths
 
-        # --- Single ImageUrlArtifact ---
-        if isinstance(frames_input, ImageUrlArtifact):
+        # --- Single ImageUrlArtifact or serialized artifact dict ---
+        if isinstance(frames_input, (ImageUrlArtifact, dict)):
             path = self._extract_path_from_item(frames_input)
             if path and path.exists() and path.is_file() and path.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS:
                 if self._validate_image_file(path):
@@ -396,13 +396,17 @@ class CreateVideoFromFrames(SuccessFailureNode):
         return [f for _, f in found]
 
     def _extract_path_from_item(self, item: Any) -> Path | None:
-        """Extract a file path from a str, Path, or ImageUrlArtifact."""
+        """Extract a file path from a str, Path, ImageUrlArtifact, or serialized artifact dict."""
         if isinstance(item, Path):
             return item
 
         url_or_path = None
         if isinstance(item, str):
             url_or_path = item
+        elif isinstance(item, dict):
+            url_or_path = item.get("value")
+            if not isinstance(url_or_path, str) or not url_or_path:
+                return None
         elif isinstance(item, ImageUrlArtifact):
             url_or_path = item.value
             if not url_or_path:
