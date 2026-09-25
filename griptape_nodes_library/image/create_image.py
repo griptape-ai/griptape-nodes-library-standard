@@ -390,8 +390,8 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
 
     def _create_image(self, agent: GtAgent, prompt: BaseArtifact | str) -> None:
         agent.run(prompt)
+        try_throw_error(agent.output)
         dest = self._output_file.build_file()
         saved = dest.write_bytes(agent.output.to_bytes())
         url_artifact = ImageUrlArtifact(value=saved.location)
         self.publish_update_to_parameter("output", url_artifact)
-        try_throw_error(agent.output)
