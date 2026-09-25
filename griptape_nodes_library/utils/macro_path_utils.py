@@ -52,17 +52,25 @@ def resolve_to_macro_path(path: str) -> MacroPathResult:
     except MacroSyntaxError:
         pass
 
-    # Use `File` so a relative path anchors to the workspace directory (matching
-    # read/write behavior elsewhere in the engine).
-    resolved_str = File(path).resolve()
+    try:
+        # Use `File` so a relative path anchors to the workspace directory (matching
+        # read/write behavior elsewhere in the engine).
+        resolved_str = File(path).resolve()
 
-    # A URL that `File.resolve()` did not turn into a local path is external.
-    if "://" in resolved_str:
+        # A URL that `File.resolve()` did not turn into a local path is external.
+        if "://" in resolved_str:
+            return MacroPathResult(resolved_path=path, is_external=True)
+
+        # Resolve through any symlinks before AttemptMapAbsolutePathToProjectRequest.
+        resolved = Path(resolved_str).resolve()
+        path_exists = resolved.exists()
+    except OSError as e:
+        # A value that isn't a usable filesystem path (e.g. an over-long name) raises
+        # OSError (ENAMETOOLONG) on stat(); degrade to "external" rather than raising.
+        logger.debug(f"Failed to resolve path '{path}' against the filesystem: {e}")
         return MacroPathResult(resolved_path=path, is_external=True)
 
-    # Resolve through any symlinks before AttemptMapAbsolutePathToProjectRequest.
-    resolved = Path(resolved_str).resolve()
-    if resolved.exists():
+    if path_exists:
         result = GriptapeNodes.handle_request(AttemptMapAbsolutePathToProjectRequest(absolute_path=resolved))
         if isinstance(result, AttemptMapAbsolutePathToProjectResultSuccess) and result.mapped_path is not None:
             return MacroPathResult(resolved_path=result.mapped_path, is_external=False)
