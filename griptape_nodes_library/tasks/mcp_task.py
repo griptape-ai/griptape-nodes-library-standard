@@ -30,6 +30,7 @@ from griptape_nodes_library.utils.agent_utils import (
 from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.cloud_legacy_models import cloud_legacy_values_for
+from griptape_nodes_library.utils.error_utils import raise_if_budget_halt
 from griptape_nodes_library.utils.mcp_utils import (
     create_mcp_tool,
     get_available_mcp_servers,
@@ -537,8 +538,10 @@ class MCPTaskNode(SuccessFailureNode):
                         self.append_value_to_parameter("output", value=event.token)
                     if isinstance(event, ActionChunkEvent) and event.name:
                         self.append_value_to_parameter("output", f"\n[Using tool {event.name}]\n")
+            raise_if_budget_halt(agent.output)
         else:
             agent.run(*args)
+            raise_if_budget_halt(agent.output)
             self.append_value_to_parameter("output", value=str(agent.output))
 
         return agent

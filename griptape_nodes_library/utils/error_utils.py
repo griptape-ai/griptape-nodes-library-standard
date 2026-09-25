@@ -3,6 +3,7 @@ import re
 
 import requests
 from griptape.artifacts import BaseArtifact, ErrorArtifact
+from griptape_nodes.utils.budget_refusal import BudgetExceededError
 
 
 def _parse_griptape_cloud_error_message(error: str) -> str:
@@ -29,8 +30,22 @@ def _parse_griptape_cloud_error_message(error: str) -> str:
     return error
 
 
+def raise_if_budget_halt(agent_output: BaseArtifact | None) -> None:
+    """Re-raise a budget halt that a griptape task caught and stored as its output.
+
+    Griptape's `BaseTask.run` catches whatever its driver raises and keeps it on an
+    `ErrorArtifact` instead of letting it out. For a Griptape Cloud budget refusal that
+    turns a halt into an ordinary-looking output, so a node reading `agent.output` would
+    carry on, or report the refusal as generic agent failure. Raising the original lets
+    `NodeManager` recognize the halt, name the node, and stop the run.
+    """
+    if isinstance(agent_output, ErrorArtifact) and isinstance(agent_output.exception, BudgetExceededError):
+        raise agent_output.exception
+
+
 def try_throw_error(agent_output: BaseArtifact) -> None:
     """Throws an error if the agent output is an ErrorArtifact."""
+    raise_if_budget_halt(agent_output)
     if isinstance(agent_output, ErrorArtifact):
         if isinstance(agent_output.exception, requests.HTTPError):
             if agent_output.exception.response.text:

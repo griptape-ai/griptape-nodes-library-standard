@@ -344,7 +344,7 @@ def test_the_spelling_matches_the_caller() -> None:
 # needs an async sibling for the helper it calls, and `cloud_driver_auth` has none yet.
 COROUTINES_THAT_BLOCK_TRANSITIVELY = {
     "audio/transcribe_audio.py:313 (_parse_result)": "unwrap_agent -> _restored_cloud_credentials, once per Cloud driver dict in the agent",
-    "video/split_video.py:539 (aprocess)": "_parse_timecodes -> _parse_timecodes_with_agent -> cloud_driver_auth",
+    "video/split_video.py:541 (aprocess)": "_parse_timecodes -> _parse_timecodes_with_agent -> cloud_driver_auth",
 }
 
 
@@ -564,12 +564,12 @@ SYNC_ENTRY_POINTS_THAT_BLOCK = {
     "image/create_image.py:200 (process)": "cloud_driver_auth; unwrap_agent -> _restored_cloud_credentials",
     "image/describe_image.py:342 (process)": "cloud_driver_auth; build_tools; unwrap_agent -- three routes",
     "number/askulator.py:92 (process)": "create_driver -> cloud_driver_auth",
-    "tasks/mcp_task.py:342 (process)": "_setup_agent -> _create_driver -> cloud_driver_auth",
+    "tasks/mcp_task.py:343 (process)": "_setup_agent -> _create_driver -> cloud_driver_auth",
     "text/date_and_time.py:80 (process)": "create_driver -> cloud_driver_auth",
     "text/evaluate_text_result.py:163 (process)": "create_driver -> cloud_driver_auth",
-    "text/random_text.py:178 (__init__)": "_initialize_agent -> cloud_driver_auth; once per construction, run or not",
-    "text/random_text.py:309 (after_value_set)": "_get_random_selection -> _generate_with_agent -> _initialize_agent -> cloud_driver_auth",
-    "text/random_text.py:337 (process)": "_get_random_selection -> _generate_with_agent -> _initialize_agent -> cloud_driver_auth",
+    "text/random_text.py:179 (__init__)": "_initialize_agent -> cloud_driver_auth; once per construction, run or not",
+    "text/random_text.py:311 (after_value_set)": "_get_random_selection -> _generate_with_agent -> _initialize_agent -> cloud_driver_auth",
+    "text/random_text.py:339 (process)": "_get_random_selection -> _generate_with_agent -> _initialize_agent -> cloud_driver_auth",
     "text/scrape_web.py:40 (process)": "create_driver -> cloud_driver_auth",
     "text/search_web.py:132 (process)": "create_driver -> cloud_driver_auth",
     "text/summarize_text_task.py:46 (process)": "create_driver -> cloud_driver_auth",

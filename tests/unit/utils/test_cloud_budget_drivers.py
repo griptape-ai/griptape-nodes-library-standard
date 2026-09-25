@@ -27,12 +27,14 @@ import pytest
 import requests
 from griptape.artifacts import ImageArtifact
 from griptape.common import PromptStack
+from griptape.structures import Agent
 from griptape_nodes.utils.budget_refusal import BUDGET_HALT_PREFIX, BudgetExceededError
 
 from griptape_nodes_library.utils.cloud_budget_drivers import (
     GriptapeCloudImageGenerationDriver,
     GriptapeCloudPromptDriver,
 )
+from griptape_nodes_library.utils.error_utils import try_throw_error
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -154,6 +156,27 @@ class TestThePromptDriverStopsOnARefusal:
 
             with pytest.raises(requests.exceptions.HTTPError):
                 driver.run(_prompt_stack())
+
+
+class TestTheHaltSurvivesTheAgent:
+    """Griptape's task layer catches what a driver raises and keeps it as the task's output.
+
+    A node reads that output after the run, so unless the halt is raised again from there it
+    reaches `NodeManager` as generic agent failure, or not at all.
+    """
+
+    @pytest.mark.parametrize("stream", [False, True])
+    def test_the_agent_node_raises_the_halt_itself(self, refusing_cloud: _Cloud, *, stream: bool) -> None:
+        driver = GriptapeCloudPromptDriver(
+            base_url=refusing_cloud.base_url, api_key="key", model="gpt-4.1", stream=stream
+        )
+        agent = Agent(prompt_driver=driver)
+
+        agent.run("hello")
+
+        with pytest.raises(BudgetExceededError) as caught:
+            try_throw_error(agent.output)
+        _assert_names_the_budget(caught.value)
 
 
 class TestTheImageDriverStopsOnARefusal:
