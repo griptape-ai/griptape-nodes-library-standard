@@ -24,7 +24,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
-from griptape_nodes_library.utils.error_utils import raise_if_budget_halt, try_throw_error
+from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run, try_throw_error
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
@@ -261,7 +261,7 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
                     prompt,
                 ]
             )
-            raise_if_budget_halt(result.output)
+            raise_if_budget_halt_in_run(result)
             self.append_value_to_parameter("logs", "Finished enhancing prompt...\n")
             prompt = result.output
         else:
@@ -391,6 +391,7 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
 
     def _create_image(self, agent: GtAgent, prompt: BaseArtifact | str) -> None:
         agent.run(prompt)
+        raise_if_budget_halt_in_run(agent)
         try_throw_error(agent.output)
         dest = self._output_file.build_file()
         saved = dest.write_bytes(agent.output.to_bytes())

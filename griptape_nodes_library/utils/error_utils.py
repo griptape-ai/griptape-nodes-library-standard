@@ -3,6 +3,8 @@ import re
 
 import requests
 from griptape.artifacts import BaseArtifact, ErrorArtifact
+from griptape.structures import Structure
+from griptape.tasks import ActionsSubtask, BaseTask, PromptTask
 from griptape_nodes.utils.budget_refusal import BudgetExceededError
 
 
@@ -41,6 +43,25 @@ def raise_if_budget_halt(agent_output: BaseArtifact | None) -> None:
     """
     if isinstance(agent_output, ErrorArtifact) and isinstance(agent_output.exception, BudgetExceededError):
         raise agent_output.exception
+
+
+def raise_if_budget_halt_in_run(run: Structure | BaseTask) -> None:
+    """Re-raise a budget halt caught anywhere in a finished run, tool calls included.
+
+    A tool's own driver can be refused too -- the Extraction Tool spends through
+    Griptape Cloud whichever model the agent runs. Griptape's `BaseTool.run`
+    catches that and hands it back to the model as the tool's result, and the
+    task then finishes normally with a text answer. The halt is on the action,
+    not the task output, so the actions are read first.
+    """
+    tasks = run.tasks if isinstance(run, Structure) else [run]
+    for task in tasks:
+        if isinstance(task, PromptTask):
+            for subtask in task.subtasks:
+                if isinstance(subtask, ActionsSubtask):
+                    for action in subtask.actions:
+                        raise_if_budget_halt(action.output)
+        raise_if_budget_halt(task.output)
 
 
 def try_throw_error(agent_output: BaseArtifact) -> None:
