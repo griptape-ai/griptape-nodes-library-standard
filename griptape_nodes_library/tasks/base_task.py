@@ -9,7 +9,7 @@ from griptape_nodes.exe_types.param_components.model_access_component import Mod
 
 from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
-from griptape_nodes_library.utils.error_utils import raise_if_budget_halt
+from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
@@ -116,9 +116,7 @@ class BaseTask(ControlNode):
         ):
             if isinstance(event, TextChunkEvent):
                 self.append_value_to_parameter("output", value=event.token)
-        # The task's own output, not `agent.output`, which raises when the run produced none.
-        if agent.output_task is not None:
-            raise_if_budget_halt(agent.output_task.output)
+        raise_if_budget_halt_in_run(agent)
 
         return agent
 

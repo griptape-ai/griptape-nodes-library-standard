@@ -11,7 +11,7 @@ from json_repair import repair_json  # json_repair
 from pydantic import BaseModel
 
 from griptape_nodes_library.tasks.base_task import BaseTask
-from griptape_nodes_library.utils.error_utils import raise_if_budget_halt
+from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 DEFAULT_MODEL = "gpt-4.1-mini"
@@ -87,9 +87,7 @@ class Askulator(BaseTask):
                             last_answer = new_answer
                 except json.JSONDecodeError:
                     pass  # Ignore incomplete JSON
-        # The task's own output, not `agent.output`, which raises when the run produced none.
-        if agent.output_task is not None:
-            raise_if_budget_halt(agent.output_task.output)
+        raise_if_budget_halt_in_run(agent)
 
         return agent
 
