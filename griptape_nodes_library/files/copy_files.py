@@ -68,7 +68,7 @@ class CopyFiles(FileOperationBaseNode):
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             input_types=["str", "list", "any"],
             default_value=[],
-            tooltip="Path(s) to file(s) or directory(ies) to copy. Supports glob patterns (e.g., '/path/*.txt').",
+            tooltip="Path(s) to file(s) or directory(ies) to copy. Supports glob patterns (e.g., `'/path/*.txt'`).",
             converters=[convert_artifact_to_string],
         )
         self.add_parameter(self.source_paths)
