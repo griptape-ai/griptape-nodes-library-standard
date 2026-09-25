@@ -492,7 +492,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             return None
 
         logger.error("%s: %s", self.name, budget_log_line(refusal))
-        return BudgetExceededError(describe_budget_refusal(refusal, node_name=self.name), refusal)
+        return BudgetExceededError(describe_budget_refusal(refusal, node_name=self.name), refusal, node_name=self.name)
 
     def _extract_http_error_message(self, response: httpx.Response) -> str:
         """Extract error message from HTTP error response.

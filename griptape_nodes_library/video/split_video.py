@@ -22,7 +22,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
-from griptape_nodes_library.utils.error_utils import raise_if_budget_halt
+from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run
 from griptape_nodes_library.utils.ffmpeg_utils import (
     build_video_segment_cmd,
     detect_video_properties,
@@ -229,7 +229,7 @@ If no title is provided, just use "Segment X:" format.
 """
         try:
             response = agent.run(msg)
-            raise_if_budget_halt(agent.output)
+            raise_if_budget_halt_in_run(agent)
             self.append_value_to_parameter("logs", f"Agent response: {response}\n")
             self.append_value_to_parameter("logs", f"Agent output: {agent.output}\n")
 

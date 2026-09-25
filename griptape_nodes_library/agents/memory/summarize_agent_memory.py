@@ -9,7 +9,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent
 from griptape_nodes_library.utils.agent_utils import restore_provider_driver, unwrap_agent, wrap_agent
-from griptape_nodes_library.utils.error_utils import raise_if_budget_halt
+from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run
 
 
 class SummarizeAgentMemory(ControlNode):
@@ -76,7 +76,7 @@ class SummarizeAgentMemory(ControlNode):
             return
 
         agent.run(prompt)
-        raise_if_budget_halt(agent.output)
+        raise_if_budget_halt_in_run(agent)
 
         if agent.output is None or isinstance(agent.output, ErrorArtifact):
             return

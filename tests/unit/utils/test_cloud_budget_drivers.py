@@ -27,9 +27,13 @@ from unittest.mock import Mock
 
 import pytest
 import requests
-from griptape.artifacts import ImageArtifact
-from griptape.common import PromptStack
+from attrs import define, field
+from griptape.artifacts import ActionArtifact, ImageArtifact
+from griptape.common import ActionCallMessageContent, Message, PromptStack, ToolAction
+from griptape.drivers.prompt.dummy import DummyPromptDriver
 from griptape.structures import Agent
+from griptape.tools import BaseTool
+from griptape.utils.decorators import activity
 from griptape_nodes.utils.budget_refusal import BUDGET_HALT_PREFIX, BudgetExceededError
 
 from griptape_nodes_library.number.askulator import Askulator
@@ -39,7 +43,7 @@ from griptape_nodes_library.utils.cloud_budget_drivers import (
     GriptapeCloudImageGenerationDriver,
     GriptapeCloudPromptDriver,
 )
-from griptape_nodes_library.utils.error_utils import try_throw_error
+from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run, try_throw_error
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -121,6 +125,32 @@ def _image() -> ImageArtifact:
     return ImageArtifact(value=b"\x89PNG\r\n\x1a\n", format="png", width=1, height=1)
 
 
+@define
+class _SummarizeTool(BaseTool):
+    """A tool that spends through its own Cloud driver, the way Extraction and Prompt Summary do."""
+
+    prompt_driver: GriptapeCloudPromptDriver = field(kw_only=True)
+
+    @activity(config={"description": "Summarizes the conversation."})
+    def summarize(self) -> str:
+        return self.prompt_driver.run(_prompt_stack()).to_text()
+
+
+@define
+class _CallsTheToolThenAnswers(DummyPromptDriver):
+    """A prompt driver outside Cloud that asks for the tool once, then answers with whatever it got."""
+
+    use_native_tools: bool = field(default=True, kw_only=True)
+    calls: int = field(default=0, init=False)
+
+    def try_run(self, prompt_stack: PromptStack) -> Message:
+        self.calls += 1
+        if self.calls == 1:
+            action = ToolAction(tag="call-1", name="_SummarizeTool", path="summarize")
+            return Message([ActionCallMessageContent(ActionArtifact(action))], role=Message.ASSISTANT_ROLE)
+        return Message("Here is my answer.", role=Message.ASSISTANT_ROLE)
+
+
 def _assert_names_the_budget(halt: BudgetExceededError) -> None:
     assert str(halt).startswith(BUDGET_HALT_PREFIX)
     assert "tight" in str(halt)
@@ -199,6 +229,21 @@ class TestTheHaltSurvivesTheAgent:
 
         with pytest.raises(BudgetExceededError) as caught:
             node._process(Agent(prompt_driver=driver), "hello", "gpt-4.1")
+        _assert_names_the_budget(caught.value)
+
+    def test_a_halt_inside_a_tool_call_is_raised_instead_of_answered_around(self, refusing_cloud: _Cloud) -> None:
+        """Griptape hands a tool's exception back to the model as text, and the model answers anyway.
+
+        The run's own output is then a plain answer, so only the tool call still holds the halt.
+        """
+        tool_driver = GriptapeCloudPromptDriver(base_url=refusing_cloud.base_url, api_key="key", model="gpt-4.1")
+        agent = Agent(prompt_driver=_CallsTheToolThenAnswers(), tools=[_SummarizeTool(prompt_driver=tool_driver)])
+
+        agent.run("hello")
+
+        try_throw_error(agent.output)
+        with pytest.raises(BudgetExceededError) as caught:
+            raise_if_budget_halt_in_run(agent)
         _assert_names_the_budget(caught.value)
 
 
