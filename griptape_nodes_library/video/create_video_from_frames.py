@@ -296,7 +296,7 @@ class CreateVideoFromFrames(SuccessFailureNode):
             sequence = Sequence.model_validate(frames_input) if isinstance(frames_input, dict) else frames_input
             paths = []
             for entry in sequence.entries:
-                path = Path(entry.path)
+                path = self._resolve_local_path(str(entry.path))
                 if path.exists() and path.is_file() and path.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS:
                     if self._validate_image_file(path):
                         paths.append(path)
@@ -331,7 +331,7 @@ class CreateVideoFromFrames(SuccessFailureNode):
             if _is_sequence_pattern(frames_input):
                 return self._expand_sequence_pattern(frames_input)
 
-            input_path = Path(frames_input)
+            input_path = self._resolve_local_path(frames_input)
             if not input_path.exists():
                 return []
 
@@ -358,7 +358,7 @@ class CreateVideoFromFrames(SuccessFailureNode):
 
     def _expand_sequence_pattern(self, pattern: str) -> list[Path]:
         """Expand a sequence pattern (frame.####.png) to a sorted list of file paths."""
-        path = Path(pattern)
+        path = self._resolve_local_path(pattern)
         directory = path.parent
         if not directory.exists():
             logger.warning("%s sequence pattern directory does not exist: %s", self.name, directory)
@@ -411,8 +411,17 @@ class CreateVideoFromFrames(SuccessFailureNode):
             if not url_or_path.startswith(("http://localhost:", "https://localhost:")):
                 return self._download_url_to_temp_file(url_or_path)
 
-        resolved = _resolve_file_path(url_or_path)
-        return resolved if resolved else (Path(url_or_path) if url_or_path else None)
+        return self._resolve_local_path(url_or_path) if url_or_path else None
+
+    def _resolve_local_path(self, path_str: str) -> Path:
+        """Resolve a path string to a local Path, expanding macros like {outputs}."""
+        if "{" in path_str:
+            try:
+                return Path(File(path_str).resolve())
+            except Exception as e:
+                logger.warning("%s failed to resolve macro path %s: %s", self.name, path_str, e)
+        resolved = _resolve_file_path(path_str)
+        return resolved if resolved else Path(path_str)
 
     def _download_url_to_temp_file(self, url: str) -> Path | None:
         """Download an image from a remote URL to a temporary file."""
