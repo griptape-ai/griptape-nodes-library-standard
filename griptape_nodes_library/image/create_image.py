@@ -24,7 +24,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
-from griptape_nodes_library.utils.error_utils import try_throw_error
+from griptape_nodes_library.utils.error_utils import raise_if_budget_halt, try_throw_error
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
@@ -261,6 +261,7 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
                     prompt,
                 ]
             )
+            raise_if_budget_halt(result.output)
             self.append_value_to_parameter("logs", "Finished enhancing prompt...\n")
             prompt = result.output
         else:
