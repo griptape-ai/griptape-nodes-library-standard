@@ -17,6 +17,7 @@ from griptape_nodes_library.image.openai_image_generation import (
     GPT_IMAGE_1_MODEL_KEY,
     GPT_IMAGE_2_5_FLARE_MODEL_KEY,
     GPT_IMAGE_2_5_SUNBURST_MODEL_KEY,
+    GPT_IMAGE_2_FAMILY,
     GPT_IMAGE_2_MODEL_KEY,
     OpenAiImageGeneration,
 )
@@ -152,6 +153,58 @@ def test_validate_accepts_valid_gpt_image_2_custom_size(node: OpenAiImageGenerat
     exceptions = node.validate_before_node_run()
 
     assert exceptions is None
+
+
+@pytest.mark.parametrize("model_name", sorted(GPT_IMAGE_2_FAMILY))
+def test_family_tables_cover_every_family_member(model_name: str) -> None:
+    assert OpenAiImageGeneration.BACKGROUND_OPTIONS_BY_MODEL[model_name] == ["auto", "opaque"]
+    assert OpenAiImageGeneration.MAX_REFERENCE_IMAGES_BY_MODEL[model_name] == OpenAiImageGeneration.MAX_REFERENCE_IMAGES
+
+
+def test_family_background_options_are_not_shared_between_models() -> None:
+    option_lists = [OpenAiImageGeneration.BACKGROUND_OPTIONS_BY_MODEL[model] for model in GPT_IMAGE_2_FAMILY]
+    assert len({id(options) for options in option_lists}) == len(option_lists)
+
+
+@pytest.mark.parametrize(
+    ("model_name", "display_name"),
+    [
+        (GPT_IMAGE_2_MODEL_KEY, "GPT Image 2"),
+        (GPT_IMAGE_2_5_SUNBURST_MODEL_KEY, "GPT Image 2.5 Sunburst"),
+        (GPT_IMAGE_2_5_FLARE_MODEL_KEY, "GPT Image 2.5 Flare"),
+    ],
+)
+def test_custom_size_errors_name_the_selected_model(
+    node: OpenAiImageGeneration, model_name: str, display_name: str
+) -> None:
+    node.set_parameter_value("model", model_name)
+    node.set_parameter_value("prompt", "A red circle")
+    node.set_parameter_value("size", "custom")
+    node.set_parameter_value("custom_width", 3840)
+    node.set_parameter_value("custom_height", 1024)  # 3840:1024 is > 3:1
+
+    exceptions = node.validate_before_node_run()
+
+    assert exceptions is not None
+    messages = [str(exception) for exception in exceptions]
+    assert f"{display_name} size aspect ratio cannot exceed 3:1." in " ".join(messages)
+    if model_name != GPT_IMAGE_2_MODEL_KEY:
+        assert not any("GPT Image 2 size" in message for message in messages)
+
+
+def test_custom_size_error_falls_back_to_model_key_without_catalog(node: OpenAiImageGeneration) -> None:
+    node.metadata.pop("library", None)
+
+    exceptions = node._validate_gpt_image_2_size("abc", GPT_IMAGE_2_5_FLARE_MODEL_KEY)
+
+    assert any(f"{GPT_IMAGE_2_5_FLARE_MODEL_KEY} size must be 'auto'" in str(exception) for exception in exceptions)
+
+
+def test_custom_dimension_tooltips_do_not_name_a_model(node: OpenAiImageGeneration) -> None:
+    for name in ("custom_width", "custom_height"):
+        parameter = node.get_parameter_by_name(name)
+        assert parameter is not None
+        assert "GPT Image" not in parameter.tooltip
 
 
 def _size_choices(node: OpenAiImageGeneration) -> list[str]:

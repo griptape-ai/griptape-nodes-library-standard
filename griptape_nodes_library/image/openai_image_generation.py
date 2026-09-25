@@ -17,6 +17,7 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.node_library import library_registry
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
@@ -41,6 +42,8 @@ MODEL_CHOICES = [
 # Models sharing GPT Image 2's parameters: flexible sizes (presets or custom WIDTHxHEIGHT)
 # and the same background and reference-image limits.
 GPT_IMAGE_2_FAMILY = frozenset({GPT_IMAGE_2_MODEL_KEY, GPT_IMAGE_2_5_SUNBURST_MODEL_KEY, GPT_IMAGE_2_5_FLARE_MODEL_KEY})
+# The family in dropdown order, for building per-model tables deterministically.
+_GPT_IMAGE_2_FAMILY_ORDERED = [model_key for model_key in MODEL_CHOICES if model_key in GPT_IMAGE_2_FAMILY]
 
 
 class OpenAiImageGeneration(GriptapeProxyNode):
@@ -79,9 +82,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
     BACKGROUND_OPTIONS_BY_MODEL: ClassVar[dict[str, list[str]]] = {
         GPT_IMAGE_1_MODEL_KEY: ["auto", "opaque", "transparent"],
         GPT_IMAGE_1_5_MODEL_KEY: ["auto", "opaque"],
-        GPT_IMAGE_2_MODEL_KEY: ["auto", "opaque"],
-        GPT_IMAGE_2_5_SUNBURST_MODEL_KEY: ["auto", "opaque"],
-        GPT_IMAGE_2_5_FLARE_MODEL_KEY: ["auto", "opaque"],
+        **{model_key: ["auto", "opaque"] for model_key in _GPT_IMAGE_2_FAMILY_ORDERED},
     }
     MODERATION_OPTIONS: ClassVar[list[str]] = ["auto", "low"]
     OUTPUT_FORMAT_OPTIONS: ClassVar[list[str]] = ["png", "jpeg", "webp"]
@@ -89,9 +90,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
     MAX_REFERENCE_IMAGES_BY_MODEL: ClassVar[dict[str, int]] = {
         GPT_IMAGE_1_MODEL_KEY: MAX_REFERENCE_IMAGES,
         GPT_IMAGE_1_5_MODEL_KEY: MAX_REFERENCE_IMAGES,
-        GPT_IMAGE_2_MODEL_KEY: MAX_REFERENCE_IMAGES,
-        GPT_IMAGE_2_5_SUNBURST_MODEL_KEY: MAX_REFERENCE_IMAGES,
-        GPT_IMAGE_2_5_FLARE_MODEL_KEY: MAX_REFERENCE_IMAGES,
+        **dict.fromkeys(_GPT_IMAGE_2_FAMILY_ORDERED, MAX_REFERENCE_IMAGES),
     }
     MIN_IMAGES: ClassVar[int] = 1
     MAX_IMAGES: ClassVar[int] = 10
@@ -158,7 +157,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         initial_size = initial_size_choices[0]
         is_initial_custom = initial_size == self.GPT_IMAGE_2_CUSTOM_SIZE
         custom_dimension_tooltip = (
-            f"Custom {{dimension}} in pixels for GPT Image 2. Constraints:\n"
+            f"Custom {{dimension}} in pixels. Constraints:\n"
             f"- Snapped automatically to the nearest multiple of {self.GPT_IMAGE_2_EDGE_MULTIPLE}px on entry\n"
             f"- Between {self.GPT_IMAGE_2_EDGE_MULTIPLE} and {self.GPT_IMAGE_2_MAX_EDGE_LENGTH}px\n"
             f"- Aspect ratio of width:height (or height:width) must be {self.GPT_IMAGE_2_MAX_ASPECT_RATIO}:1 or smaller (validated at run time)\n"
@@ -338,7 +337,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         # The GPT Image 2 family accepts any in-range WIDTHxHEIGHT, so don't clobber a custom size.
         if model_name in GPT_IMAGE_2_FAMILY and isinstance(current_size, str):
             match = self.GPT_IMAGE_2_SIZE_PATTERN.fullmatch(current_size.strip())
-            if match is not None and not self._validate_gpt_image_2_size(current_size.strip()):
+            if match is not None and not self._validate_gpt_image_2_size(current_size.strip(), model_name):
                 self._sync_custom_size_visibility(model_name, current_size)
                 return
 
@@ -490,7 +489,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             display_name = "GPT Image 1" if model_name == GPT_IMAGE_1_MODEL_KEY else "GPT Image 1.5"
             exceptions.append(ValueError(f"{self.name}: {display_name} size must be one of: {valid_sizes}."))
         elif model_name in GPT_IMAGE_2_FAMILY:
-            exceptions.extend(self._validate_gpt_image_2_size(size))
+            exceptions.extend(self._validate_gpt_image_2_size(size, model_name))
 
         input_images = self._get_input_images_value()
         max_reference_images = self.MAX_REFERENCE_IMAGES_BY_MODEL.get(model_name, self.MAX_REFERENCE_IMAGES)
@@ -721,15 +720,26 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
         return normalize_artifact_list(input_images, ImageUrlArtifact, accepted_types=(ImageArtifact,))
 
-    def _validate_gpt_image_2_size(self, size: str) -> list[ValueError]:
+    def _model_display_name(self, model_name: str) -> str:
+        """Return the catalog display name for a provider model id, falling back to the id itself."""
+        display_names = {
+            resolved.model.display_name
+            for resolved in library_registry.get_declared_models(self)
+            if resolved.model.provider_model_id == model_name
+        }
+        return display_names.pop() if len(display_names) == 1 else model_name
+
+    def _validate_gpt_image_2_size(self, size: str, model_name: str) -> list[ValueError]:
         if size == "auto":
             return []
+
+        display_name = self._model_display_name(model_name)
 
         match = self.GPT_IMAGE_2_SIZE_PATTERN.fullmatch(size)
         if match is None:
             return [
                 ValueError(
-                    f"{self.name}: GPT Image 2 size must be 'auto' or formatted as WIDTHxHEIGHT, for example 2048x1152."
+                    f"{self.name}: {display_name} size must be 'auto' or formatted as WIDTHxHEIGHT, for example 2048x1152."
                 )
             ]
 
@@ -740,14 +750,14 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         if max(width, height) > self.GPT_IMAGE_2_MAX_EDGE_LENGTH:
             exceptions.append(
                 ValueError(
-                    f"{self.name}: GPT Image 2 size edge lengths must be {self.GPT_IMAGE_2_MAX_EDGE_LENGTH}px or less."
+                    f"{self.name}: {display_name} size edge lengths must be {self.GPT_IMAGE_2_MAX_EDGE_LENGTH}px or less."
                 )
             )
 
         if width % self.GPT_IMAGE_2_EDGE_MULTIPLE != 0 or height % self.GPT_IMAGE_2_EDGE_MULTIPLE != 0:
             exceptions.append(
                 ValueError(
-                    f"{self.name}: GPT Image 2 size width and height must both be multiples of "
+                    f"{self.name}: {display_name} size width and height must both be multiples of "
                     f"{self.GPT_IMAGE_2_EDGE_MULTIPLE}px."
                 )
             )
@@ -757,7 +767,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         if short_edge == 0 or long_edge > short_edge * self.GPT_IMAGE_2_MAX_ASPECT_RATIO:
             exceptions.append(
                 ValueError(
-                    f"{self.name}: GPT Image 2 size aspect ratio cannot exceed {self.GPT_IMAGE_2_MAX_ASPECT_RATIO}:1."
+                    f"{self.name}: {display_name} size aspect ratio cannot exceed {self.GPT_IMAGE_2_MAX_ASPECT_RATIO}:1."
                 )
             )
 
@@ -765,7 +775,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         if not self.GPT_IMAGE_2_MIN_PIXELS <= total_pixels <= self.GPT_IMAGE_2_MAX_PIXELS:
             exceptions.append(
                 ValueError(
-                    f"{self.name}: GPT Image 2 size total pixels must be between "
+                    f"{self.name}: {display_name} size total pixels must be between "
                     f"{self.GPT_IMAGE_2_MIN_PIXELS:,} and {self.GPT_IMAGE_2_MAX_PIXELS:,}."
                 )
             )
