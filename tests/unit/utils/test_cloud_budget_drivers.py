@@ -19,9 +19,11 @@ is not a budget refusal alone.
 from __future__ import annotations
 
 import json
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import TYPE_CHECKING, Any
+from unittest.mock import Mock
 
 import pytest
 import requests
@@ -30,6 +32,9 @@ from griptape.common import PromptStack
 from griptape.structures import Agent
 from griptape_nodes.utils.budget_refusal import BUDGET_HALT_PREFIX, BudgetExceededError
 
+from griptape_nodes_library.number.askulator import Askulator
+from griptape_nodes_library.tasks.base_task import BaseTask
+from griptape_nodes_library.text.search_web import SearchWeb
 from griptape_nodes_library.utils.cloud_budget_drivers import (
     GriptapeCloudImageGenerationDriver,
     GriptapeCloudPromptDriver,
@@ -176,6 +181,24 @@ class TestTheHaltSurvivesTheAgent:
 
         with pytest.raises(BudgetExceededError) as caught:
             try_throw_error(agent.output)
+        _assert_names_the_budget(caught.value)
+
+    @pytest.mark.parametrize(
+        "node_class",
+        [SearchWeb, Askulator],
+        ids=["the shared task run, behind Search Web, Date and Time and Summarize Text", "Askulator's own run"],
+    )
+    def test_a_task_node_raises_the_halt_instead_of_outputting_it(
+        self, refusing_cloud: _Cloud, monkeypatch: pytest.MonkeyPatch, node_class: type[BaseTask]
+    ) -> None:
+        monkeypatch.setattr(sys.modules[node_class._process.__module__], "require_model_invocation_sync", Mock())
+        driver = GriptapeCloudPromptDriver(
+            base_url=refusing_cloud.base_url, api_key="key", model="gpt-4.1", stream=True
+        )
+        node = node_class(name="refused_task")
+
+        with pytest.raises(BudgetExceededError) as caught:
+            node._process(Agent(prompt_driver=driver), "hello", "gpt-4.1")
         _assert_names_the_budget(caught.value)
 
 

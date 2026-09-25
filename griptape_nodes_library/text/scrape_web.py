@@ -6,6 +6,7 @@ from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.node_types import AsyncResult
 
 from griptape_nodes_library.tasks.base_task import BaseTask
+from griptape_nodes_library.utils.error_utils import raise_if_budget_halt
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 DEFAULT_MODEL = "gpt-4.1-mini"
@@ -58,6 +59,7 @@ class ScrapeWeb(BaseTask):
             # Run the task
             output = ""
             response = scrape_task.run(f"Scrape the web for information about: {prompt}")
+            raise_if_budget_halt(response)
             if isinstance(response, ListArtifact):
                 output += str(response[0].value[0].value)
 
