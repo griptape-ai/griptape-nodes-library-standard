@@ -15,6 +15,8 @@ from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.image.openai_image_generation import (
     GPT_IMAGE_1_MODEL_KEY,
+    GPT_IMAGE_2_5_FLARE_MODEL_KEY,
+    GPT_IMAGE_2_5_SUNBURST_MODEL_KEY,
     GPT_IMAGE_2_MODEL_KEY,
     OpenAiImageGeneration,
 )
@@ -22,6 +24,9 @@ from griptape_nodes_library.proxy.griptape_proxy_node import GriptapeProxyNode
 from griptape_nodes_library.proxy.hosted_artifacts import HostedArtifact
 
 LIBRARY_NAME = "Griptape Nodes Library"
+
+# Models that share GPT Image 2's size, background and reference-image rules.
+GPT_IMAGE_2_FAMILY_MODELS = ["GPT Image 2", GPT_IMAGE_2_5_SUNBURST_MODEL_KEY, GPT_IMAGE_2_5_FLARE_MODEL_KEY]
 
 
 def _is_param_hidden(node: OpenAiImageGeneration, name: str) -> bool:
@@ -102,7 +107,7 @@ def test_validate_rejects_transparent_jpeg(node: OpenAiImageGeneration) -> None:
     assert any("Transparent backgrounds require output_format" in str(exception) for exception in exceptions)
 
 
-@pytest.mark.parametrize("model_name", ["GPT Image 1", "GPT Image 1.5", "GPT Image 2"])
+@pytest.mark.parametrize("model_name", ["GPT Image 1", "GPT Image 1.5", *GPT_IMAGE_2_FAMILY_MODELS])
 def test_validate_rejects_too_many_reference_images(node: OpenAiImageGeneration, model_name: str) -> None:
     node.set_parameter_value("model", model_name)
     node.set_parameter_value("prompt", "Use the reference images")
@@ -115,6 +120,7 @@ def test_validate_rejects_too_many_reference_images(node: OpenAiImageGeneration,
     assert any("supports up to 16 reference images" in str(exception) for exception in exceptions)
 
 
+@pytest.mark.parametrize("model_name", GPT_IMAGE_2_FAMILY_MODELS)
 @pytest.mark.parametrize(
     ("size", "message_fragment"),
     [
@@ -125,9 +131,9 @@ def test_validate_rejects_too_many_reference_images(node: OpenAiImageGeneration,
     ],
 )
 def test_validate_rejects_invalid_gpt_image_2_custom_sizes(
-    node: OpenAiImageGeneration, size: str, message_fragment: str
+    node: OpenAiImageGeneration, model_name: str, size: str, message_fragment: str
 ) -> None:
-    node.set_parameter_value("model", "GPT Image 2")
+    node.set_parameter_value("model", model_name)
     node.set_parameter_value("prompt", "A red circle")
     node.parameter_values["size"] = size
 
@@ -137,8 +143,9 @@ def test_validate_rejects_invalid_gpt_image_2_custom_sizes(
     assert any(message_fragment in str(exception) for exception in exceptions)
 
 
-def test_validate_accepts_valid_gpt_image_2_custom_size(node: OpenAiImageGeneration) -> None:
-    node.set_parameter_value("model", "GPT Image 2")
+@pytest.mark.parametrize("model_name", GPT_IMAGE_2_FAMILY_MODELS)
+def test_validate_accepts_valid_gpt_image_2_custom_size(node: OpenAiImageGeneration, model_name: str) -> None:
+    node.set_parameter_value("model", model_name)
     node.set_parameter_value("prompt", "A red circle")
     node.parameter_values["size"] = "2048x1152"
 
@@ -174,6 +181,8 @@ def test_gpt_image_2_dropdown_surfaces_4k_presets(node: OpenAiImageGeneration) -
         ("GPT Image 1", OpenAiImageGeneration.GPT_IMAGE_SIZE_OPTIONS),
         ("GPT Image 1.5", OpenAiImageGeneration.GPT_IMAGE_SIZE_OPTIONS),
         ("GPT Image 2", OpenAiImageGeneration.GPT_IMAGE_2_SIZE_OPTIONS),
+        (GPT_IMAGE_2_5_SUNBURST_MODEL_KEY, OpenAiImageGeneration.GPT_IMAGE_2_SIZE_OPTIONS),
+        (GPT_IMAGE_2_5_FLARE_MODEL_KEY, OpenAiImageGeneration.GPT_IMAGE_2_SIZE_OPTIONS),
     ],
 )
 def test_size_options_update_when_model_changes(
@@ -202,9 +211,12 @@ def test_switching_to_gpt_image_2_preserves_valid_custom_size(node: OpenAiImageG
     assert node.get_parameter_value("size") == "2048x1152"
 
 
+@pytest.mark.parametrize("model_name", GPT_IMAGE_2_FAMILY_MODELS)
 @pytest.mark.parametrize("size", OpenAiImageGeneration.GPT_IMAGE_2_SIZE_OPTIONS)
-def test_validate_accepts_all_listed_gpt_image_2_aspect_ratios(node: OpenAiImageGeneration, size: str) -> None:
-    node.set_parameter_value("model", "GPT Image 2")
+def test_validate_accepts_all_listed_gpt_image_2_aspect_ratios(
+    node: OpenAiImageGeneration, model_name: str, size: str
+) -> None:
+    node.set_parameter_value("model", model_name)
     node.set_parameter_value("prompt", "A red circle")
     node.parameter_values["size"] = size
 
@@ -436,6 +448,8 @@ def _background_choices(node: OpenAiImageGeneration) -> list[str]:
         ("GPT Image 1", ["auto", "opaque", "transparent"]),
         ("GPT Image 1.5", ["auto", "opaque"]),
         ("GPT Image 2", ["auto", "opaque"]),
+        (GPT_IMAGE_2_5_SUNBURST_MODEL_KEY, ["auto", "opaque"]),
+        (GPT_IMAGE_2_5_FLARE_MODEL_KEY, ["auto", "opaque"]),
     ],
 )
 def test_background_options_update_when_model_changes(
@@ -468,13 +482,58 @@ def test_switching_to_supported_model_preserves_opaque_background(node: OpenAiIm
 
 
 def test_default_model_uses_catalog_key(node: OpenAiImageGeneration) -> None:
-    assert node.get_parameter_value("model") == GPT_IMAGE_2_MODEL_KEY
+    assert node.get_parameter_value("model") == GPT_IMAGE_2_5_FLARE_MODEL_KEY
 
 
-def test_provider_model_id_resolves_from_catalog_key(node: OpenAiImageGeneration) -> None:
+@pytest.mark.parametrize(
+    ("model_name", "expected_model_id"),
+    [
+        (GPT_IMAGE_2_MODEL_KEY, "gpt-image-2"),
+        (GPT_IMAGE_2_5_SUNBURST_MODEL_KEY, "gpt-image-2.5-sunburst"),
+        (GPT_IMAGE_2_5_FLARE_MODEL_KEY, "gpt-image-2.5-flare"),
+    ],
+)
+def test_provider_model_id_resolves_from_catalog_key(
+    node: OpenAiImageGeneration, model_name: str, expected_model_id: str
+) -> None:
+    node.set_parameter_value("model", model_name)
+
+    assert node._get_selected_model_id() == expected_model_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model_name", "expected_model_id"),
+    [
+        (GPT_IMAGE_2_5_SUNBURST_MODEL_KEY, "gpt-image-2.5-sunburst"),
+        (GPT_IMAGE_2_5_FLARE_MODEL_KEY, "gpt-image-2.5-flare"),
+    ],
+)
+async def test_build_payload_sends_gpt_image_2_5_model_id(
+    node: OpenAiImageGeneration, model_name: str, expected_model_id: str
+) -> None:
+    node.set_parameter_value("model", model_name)
+    node.set_parameter_value("prompt", "A red circle")
+    node.set_parameter_value("size", "custom")
+    node.set_parameter_value("custom_width", 2048)
+    node.set_parameter_value("custom_height", 1152)
+
+    payload = await node._build_payload()
+
+    assert payload["model"] == expected_model_id
+    assert payload["size"] == "2048x1152"
+
+
+@pytest.mark.parametrize("model_name", [GPT_IMAGE_2_5_SUNBURST_MODEL_KEY, GPT_IMAGE_2_5_FLARE_MODEL_KEY])
+def test_switching_from_gpt_image_2_preserves_custom_size_inputs(node: OpenAiImageGeneration, model_name: str) -> None:
     node.set_parameter_value("model", GPT_IMAGE_2_MODEL_KEY)
+    node.set_parameter_value("size", "custom")
 
-    assert node._get_selected_model_id() == "gpt-image-2"
+    node.set_parameter_value("model", model_name)
+
+    assert node.get_parameter_value("size") == "custom"
+    assert not _is_param_hidden(node, "custom_width")
+    assert not _is_param_hidden(node, "custom_height")
 
 
 def test_size_choices_include_custom_for_gpt_image_2(node: OpenAiImageGeneration) -> None:
