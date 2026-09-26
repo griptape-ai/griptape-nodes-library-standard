@@ -3610,6 +3610,23 @@
       }
     },
     {
+      "class_name": "ExtractFrames",
+      "file_path": "griptape_nodes_library/video/extract_frames.py",
+      "metadata": {
+        "category": "video",
+        "description": "Extract specific frames from a video and save them as images",
+        "display_name": "Extract Frames",
+        "icon": "film",
+        "group": "describe",
+        "tags": [
+          "video",
+          "image",
+          "frames",
+          "ffmpeg"
+        ]
+      }
+    },
+    {
       "class_name": "ExtractLastFrame",
       "file_path": "griptape_nodes_library/video/extract_last_frame.py",
       "metadata": {
