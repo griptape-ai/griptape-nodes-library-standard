@@ -132,7 +132,14 @@ class GoogleImageGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterList(
                 name="input_images",
-                input_types=["ImageUrlArtifact", "ImageArtifact", "str"],
+                input_types=[
+                    "ImageUrlArtifact",
+                    "ImageArtifact",
+                    "str",
+                    "list",
+                    "list[ImageArtifact]",
+                    "list[ImageUrlArtifact]",
+                ],
                 default_value=[],
                 tooltip="Optional reference images for the generation",
                 allowed_modes={ParameterMode.INPUT},
