@@ -5110,6 +5110,38 @@
       }
     },
     {
+      "class_name": "PremultiplyImage",
+      "file_path": "griptape_nodes_library/image/premultiply_image.py",
+      "metadata": {
+        "category": "image",
+        "description": "Convert straight alpha to premultiplied for tools and file pipelines that expect it. Library nodes use straight alpha, so set input_alpha to premultiplied on Merge Images if you connect the result there.",
+        "display_name": "Premultiply Image",
+        "group": "edit",
+        "tags": [
+          "image",
+          "alpha",
+          "composite",
+          "premult"
+        ]
+      }
+    },
+    {
+      "class_name": "UnpremultiplyImage",
+      "file_path": "griptape_nodes_library/image/unpremultiply_image.py",
+      "metadata": {
+        "category": "image",
+        "description": "Recover the original RGB values from a premultiplied render. Fixes dark fringes on transparent edges before colour-grading or further compositing.",
+        "display_name": "Unpremultiply Image",
+        "group": "edit",
+        "tags": [
+          "image",
+          "alpha",
+          "composite",
+          "premult"
+        ]
+      }
+    },
+    {
       "class_name": "SetColorToTransparent",
       "file_path": "griptape_nodes_library/image/set_color_to_transparent.py",
       "metadata": {
