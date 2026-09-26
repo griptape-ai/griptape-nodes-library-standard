@@ -188,7 +188,7 @@ class MergeImages(ControlNode):
             new_width = int(target_height * img_ratio)
 
         # Pillow premultiplies RGBA internally while resampling, so soft edges don't pick
-        # up colour from transparent pixels. Premultiplying here as well would do it twice.
+        # up colour from transparent pixels.
         return img.resize((max(new_width, 1), max(new_height, 1)), Image.Resampling.LANCZOS)
 
     def _process_horizontal_layout(self, images: list[Image.Image]) -> Image.Image:

@@ -7,7 +7,7 @@ import pytest
 from griptape.artifacts import ImageUrlArtifact
 from PIL import Image
 
-from griptape_nodes_library.image import premultiply_image, unpremultiply_image
+from griptape_nodes_library.image import base_alpha_conversion
 from griptape_nodes_library.image.premultiply_image import PremultiplyImage
 from griptape_nodes_library.image.unpremultiply_image import UnpremultiplyImage
 
@@ -19,10 +19,9 @@ NODE_CASES = [
 
 @pytest.fixture
 def loads(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """Stub image loading in both node modules and count the calls."""
+    """Stub image loading in the shared node base and count the calls."""
     load = MagicMock(return_value=Image.new("RGBA", (2, 2), (100, 50, 25, 128)))
-    monkeypatch.setattr(premultiply_image, "load_pil_from_url", load)
-    monkeypatch.setattr(unpremultiply_image, "load_pil_from_url", load)
+    monkeypatch.setattr(base_alpha_conversion, "load_pil_from_url", load)
     return load
 
 

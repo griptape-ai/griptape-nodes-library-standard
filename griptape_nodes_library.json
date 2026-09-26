@@ -5114,7 +5114,7 @@
       "file_path": "griptape_nodes_library/image/premultiply_image.py",
       "metadata": {
         "category": "image",
-        "description": "Scale RGB channels by alpha so transparent pixels carry no colour. Required before blending, blurring, or resizing images with soft edges.",
+        "description": "Convert straight alpha to premultiplied for tools and file pipelines that expect it. Library nodes use straight alpha, so set input_alpha to premultiplied on Merge Images if you connect the result there.",
         "display_name": "Premultiply Image",
         "group": "edit",
         "tags": [
