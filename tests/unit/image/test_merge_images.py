@@ -209,6 +209,10 @@ class TestOpacity:
 
 
 class TestBackground:
+    def test_defaults_to_white(self, node: MergeImages) -> None:
+        """Existing workflows flattened onto white, so the default keeps that output."""
+        assert node.get_parameter_value("background") == Background.WHITE
+
     def test_transparent_background_keeps_alpha(self, node: MergeImages) -> None:
         result = run(node, [solid((255, 0, 0, 0))], background=Background.TRANSPARENT)
 

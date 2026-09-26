@@ -121,7 +121,7 @@ class MergeImages(ControlNode):
             ParameterString(
                 name="background",
                 tooltip="What fills the areas no image covers, and whether the result keeps its alpha channel",
-                default_value=Background.TRANSPARENT,
+                default_value=Background.WHITE,
                 allowed_modes={ParameterMode.PROPERTY},
                 traits={Options(choices=list(Background))},
             )
