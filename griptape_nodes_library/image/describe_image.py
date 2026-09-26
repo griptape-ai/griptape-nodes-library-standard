@@ -3,7 +3,6 @@ from typing import Any, cast
 
 from griptape.artifacts import ImageUrlArtifact, ModelArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
-from griptape.drivers.prompt.griptape_cloud_prompt_driver import GriptapeCloudPromptDriver
 from griptape.drivers.prompt.openai import OpenAiChatPromptDriver as GtOpenAiChatPromptDriver
 from griptape.structures import Structure
 from griptape.tasks import PromptTask
@@ -32,13 +31,14 @@ from griptape_nodes_library.utils.agent_utils import (
     unwrap_agent,
     wrap_agent,
 )
+from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.cloud_legacy_models import cloud_legacy_values_for
-from griptape_nodes_library.utils.error_utils import try_throw_error
+from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run, try_throw_error
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
@@ -506,6 +506,7 @@ class DescribeImage(ControlNode):
         if isinstance(memory_output, (dict, list)):
             memory_output = json.dumps(memory_output, ensure_ascii=False)
         agent.insert_false_memory(prompt=prompt, output=str(memory_output))
+        raise_if_budget_halt_in_run(agent)
         try_throw_error(agent.output)
 
         # Clear live tools before serializing, then wrap with configs for downstream nodes.

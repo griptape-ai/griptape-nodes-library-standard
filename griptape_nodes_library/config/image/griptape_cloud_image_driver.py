@@ -1,10 +1,10 @@
-from griptape.drivers.image_generation.griptape_cloud import (
-    GriptapeCloudImageGenerationDriver as GtGriptapeCloudImageGenerationDriver,
-)
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.config.image.base_image_driver import BaseImageDriver
+from griptape_nodes_library.utils.cloud_budget_drivers import (
+    GriptapeCloudImageGenerationDriver as GtGriptapeCloudImageGenerationDriver,
+)
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,

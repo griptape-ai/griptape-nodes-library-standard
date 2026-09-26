@@ -3,8 +3,6 @@ from typing import Any, cast
 import requests
 from griptape.artifacts import BaseArtifact, ImageUrlArtifact
 from griptape.drivers.image_generation.base_image_generation_driver import BaseImageGenerationDriver
-from griptape.drivers.image_generation.griptape_cloud import GriptapeCloudImageGenerationDriver
-from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.tasks import PromptImageGenerationTask, PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
@@ -17,12 +15,16 @@ from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
 from griptape_nodes_library.utils.agent_utils import restore_provider_driver, unwrap_agent, wrap_agent
+from griptape_nodes_library.utils.cloud_budget_drivers import (
+    GriptapeCloudImageGenerationDriver,
+    GriptapeCloudPromptDriver,
+)
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
-from griptape_nodes_library.utils.error_utils import try_throw_error
+from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run, try_throw_error
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
@@ -259,6 +261,7 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
                     prompt,
                 ]
             )
+            raise_if_budget_halt_in_run(result)
             self.append_value_to_parameter("logs", "Finished enhancing prompt...\n")
             prompt = result.output
         else:
@@ -388,8 +391,9 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
 
     def _create_image(self, agent: GtAgent, prompt: BaseArtifact | str) -> None:
         agent.run(prompt)
+        raise_if_budget_halt_in_run(agent)
+        try_throw_error(agent.output)
         dest = self._output_file.build_file()
         saved = dest.write_bytes(agent.output.to_bytes())
         url_artifact = ImageUrlArtifact(value=saved.location)
         self.publish_update_to_parameter("output", url_artifact)
-        try_throw_error(agent.output)
