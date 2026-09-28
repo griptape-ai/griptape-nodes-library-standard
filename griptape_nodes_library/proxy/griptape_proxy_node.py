@@ -489,6 +489,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._log(f"HTTP error: {e.response.status_code} - {e.response.text}")
             halt = self._budget_halt_for(e)
             if halt is not None:
+                self._set_safe_defaults()
                 self._set_status_results(was_successful=False, result_details=str(halt))
                 raise halt from e
             error_msg = self._extract_http_error_message(e.response)
@@ -881,6 +882,14 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._set_status_results(was_successful=False, result_details=str(e))
         self._handle_failure_exception(e)
 
+    def _handle_budget_halt(self, e: BudgetExceededError) -> None:
+        """Handle a call Griptape Cloud refused over budget.
+
+        Routed like any other failure, so a wired Failed output can fall back to a model the
+        budget does not cover. The call that was refused has already set the outputs and status.
+        """
+        self._handle_failure_exception(e)
+
     def _handle_result_parsing_error(self, e: Exception) -> None:
         """Handle result parsing errors."""
         self._log(f"Error parsing result: {e}")
@@ -991,15 +1000,19 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._handle_api_key_validation_error(e)
             return
 
-        generation_id = await self._begin_generation(submit_headers)
-        if not generation_id:
-            return
+        try:
+            generation_id = await self._begin_generation(submit_headers)
+            if not generation_id:
+                return
 
-        if not await self._poll_generation_status(generation_id, poll_headers):
-            return
+            if not await self._poll_generation_status(generation_id, poll_headers):
+                return
 
-        # Fetch and parse result
-        result_json = await self._fetch_generation_result(generation_id)
+            # Fetch and parse result
+            result_json = await self._fetch_generation_result(generation_id)
+        except BudgetExceededError as e:
+            self._handle_budget_halt(e)
+            return
         if not result_json:
             return
 
