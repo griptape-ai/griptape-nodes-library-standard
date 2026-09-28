@@ -1,4 +1,4 @@
-"""A budget refusal from Griptape Cloud has to stop the node, not be retried or ignored.
+"""A budget refusal from Griptape Cloud has to fail the node, not be retried or ignored.
 
 Cloud answers an over-budget call with 403 and a body naming every budget that refused. The
 proxy node makes three calls that can be answered that way -- submit, poll, fetch result -- and
@@ -7,9 +7,10 @@ the refusal as a transient error and re-asked until the timeout ran out, and the
 returned None so the run carried on with empty outputs.
 
 The wording itself is the engine's (`griptape_nodes.utils.budget_refusal`) and is tested there.
-What these pin is that the node reaches for it, raises rather than continues, and scopes the
-recognition to Griptape's own host -- a 403 from a third-party API a node also talks to is not
-Griptape's to blame on a budget.
+What these pin is that each call reaches for it and raises rather than continues, that the node
+routes the halt like any other failure -- down a wired Failed output, or out to stop the run --
+and that recognition is scoped to Griptape's own host: a 403 from a third-party API a node also
+talks to is not Griptape's to blame on a budget.
 """
 
 from __future__ import annotations
@@ -102,8 +103,8 @@ def _statuses(target: Flux2ImageGeneration) -> list[dict[str, Any]]:
     return captured
 
 
-class TestTheRunStopsWhereverTheRefusalLands:
-    """Each of the three proxy calls has to end the node, and say the same thing when it does."""
+class TestEachCallRaisesTheRefusal:
+    """Each of the three proxy calls has to end the node's work, and say the same thing when it does."""
 
     @pytest.mark.asyncio
     async def test_a_refused_submission_halts(self, node: Flux2ImageGeneration) -> None:
@@ -157,6 +158,56 @@ class TestTheRunStopsWhereverTheRefusalLands:
 
         assert str(raised.value).startswith(BUDGET_HALT_PREFIX)
         assert statuses[-1]["result_details"] == str(raised.value)
+
+
+class TestTheNodeRoutesTheRefusalLikeAnyOtherFailure:
+    """A wired Failed output may lead to a model the budget does not cover, so it is taken."""
+
+    @staticmethod
+    def _ready_to_submit(node: Flux2ImageGeneration, monkeypatch: pytest.MonkeyPatch) -> None:
+        async def no_headers(*_args: Any, **_kwargs: Any) -> dict[str, str]:
+            return HEADERS
+
+        async def permitted(*_args: Any, **_kwargs: Any) -> Any:
+            return type("Permitted", (), {"failed": lambda self: False})()
+
+        async def empty_payload() -> dict[str, Any]:
+            return {}
+
+        monkeypatch.setattr(
+            "griptape_nodes_library.proxy.griptape_proxy_node.build_griptape_cloud_headers_async", no_headers
+        )
+        monkeypatch.setattr("griptape_nodes_library.proxy.griptape_proxy_node.declare_model_invocation", permitted)
+        node._prepare_user_auth_info = lambda: None  # type: ignore[method-assign]
+        node._build_payload = empty_payload  # type: ignore[method-assign]
+        node._get_api_model_id = lambda: "flux"  # type: ignore[method-assign]
+        node._model_access = None
+
+    @pytest.mark.asyncio
+    async def test_a_wired_failure_output_is_taken(
+        self, node: Flux2ImageGeneration, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._ready_to_submit(node, monkeypatch)
+        node._has_outgoing_connections = lambda _parameter: True  # type: ignore[method-assign]
+        statuses = _statuses(node)
+
+        await node.aprocess()
+
+        assert statuses[-1]["was_successful"] is False
+        assert statuses[-1]["result_details"].startswith(BUDGET_HALT_PREFIX)
+
+    @pytest.mark.asyncio
+    async def test_with_nothing_wired_the_halt_stops_the_run(
+        self, node: Flux2ImageGeneration, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._ready_to_submit(node, monkeypatch)
+        node._has_outgoing_connections = lambda _parameter: False  # type: ignore[method-assign]
+        _statuses(node)
+
+        with pytest.raises(BudgetExceededError) as raised:
+            await node.aprocess()
+
+        assert "tight" in str(raised.value)
 
 
 class TestOnlyGriptapesOwnRefusalsAreReadThatWay:
