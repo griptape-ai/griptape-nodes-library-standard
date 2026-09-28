@@ -35,11 +35,8 @@ def _parse_griptape_cloud_error_message(error: str) -> str:
 def raise_if_budget_halt(agent_output: BaseArtifact | None) -> None:
     """Re-raise a budget halt that a griptape task caught and stored as its output.
 
-    Griptape's `BaseTask.run` catches whatever its driver raises and keeps it on an
-    `ErrorArtifact` instead of letting it out. For a Griptape Cloud budget refusal that
-    turns a halt into an ordinary-looking output, so a node reading `agent.output` would
-    carry on, or report the refusal as generic agent failure. Raising the original lets
-    `NodeManager` recognize the halt, name the node, and stop the run.
+    Griptape's `BaseTask.run` keeps a driver's exception on an `ErrorArtifact`, so
+    without this a node would carry on or report a generic failure.
     """
     if isinstance(agent_output, ErrorArtifact) and isinstance(agent_output.exception, BudgetExceededError):
         raise agent_output.exception
@@ -48,11 +45,9 @@ def raise_if_budget_halt(agent_output: BaseArtifact | None) -> None:
 def raise_if_budget_halt_in_run(run: Structure | BaseTask) -> None:
     """Re-raise a budget halt caught anywhere in a finished run, tool calls included.
 
-    A tool's own driver can be refused too -- the Extraction Tool spends through
-    Griptape Cloud whichever model the agent runs. Griptape's `BaseTool.run`
-    catches that and hands it back to the model as the tool's result, and the
-    task then finishes normally with a text answer. The halt is on the action,
-    not the task output, so the actions are read first.
+    Griptape hands a tool's refusal back to the model as the tool's result (the
+    Extraction Tool spends through Cloud), so each action is checked, not just the
+    task output.
     """
     tasks = run.tasks if isinstance(run, Structure) else [run]
     for task in tasks:

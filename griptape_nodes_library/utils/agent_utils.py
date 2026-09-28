@@ -110,14 +110,7 @@ _BUDGET_AWARE_CLOUD_DRIVER_TAGS: frozenset[str] = frozenset(
         GriptapeCloudPromptDriver,
     )
 )
-"""``type`` tags to rebuild as this library's budget-aware driver rather than upstream's.
-
-``to_dict()`` writes the class name and no module, and these subclasses are named after the
-drivers they replace, so a rebuild finds upstream's -- an agent that round-trips through a
-saved workflow or a node boundary would come back retrying budget refusals, and dropping the
-body off a streamed one. Writing ``module_name`` in alongside the credential repair sends
-``from_dict()`` to ours instead.
-"""
+"""``type`` tags to rebuild as this library's budget-aware driver rather than upstream's."""
 
 
 def _restored_cloud_credentials(agent_core_dict: dict, *, require_credential: bool) -> dict:

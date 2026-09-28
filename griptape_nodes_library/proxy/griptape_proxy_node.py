@@ -498,10 +498,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     def _budget_halt_for(self, exc: Exception) -> BudgetExceededError | None:
         """Return the halt to raise when Griptape Cloud refused this call over budget, or None.
 
-        Scoped to the proxy's own host, since a node's other HTTP calls raise the same errors
-        and a 403 from somewhere else is not Griptape's to explain. The log line carries the
-        figures the artist's message leaves out, including the spend_id an administrator needs
-        to find Cloud's receipt for the refusal.
+        Scoped to the proxy's own host. The log line carries the figures and spend_id the
+        message leaves out.
         """
         refusal = refusal_from_exception(exc, cloud_host=urlsplit(self._proxy_base).hostname or "")
         if refusal is None:
@@ -739,9 +737,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
                     except httpx.HTTPStatusError as e:
                         self._log(f"HTTP error while polling: {e.response.status_code} - {e.response.text}")
-                        # A refusal is settled, not transient: retrying it spends the whole
-                        # timeout re-asking a question Cloud has already answered, and the
-                        # artist waits ten minutes to be told what was known on the first poll.
+                        # A refusal is final, so stop polling instead of retrying until the timeout.
                         halt = self._budget_halt_for(e)
                         if halt is not None:
                             self._set_safe_defaults()
@@ -1056,9 +1052,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     async def _refresh_completed(self, generation_id: str) -> None:
         """Fetch and parse the result onto the node.
 
-        Refresh is a button press, not a run, so a budget halt is caught rather than raised:
-        there is no flow to stop, and letting it escape would end in a background thread where
-        the artist never sees it. The wording is the same either way.
+        Refresh is a button press, not a run, so a budget halt is shown on the node rather than
+        raised; there is no flow to stop.
         """
         try:
             result_json = await self._fetch_generation_result(generation_id)
