@@ -30,7 +30,7 @@ from griptape.drivers.prompt.griptape_cloud import (
     GriptapeCloudPromptDriver as GtGriptapeCloudPromptDriver,
 )
 from griptape.utils.griptape_cloud import griptape_cloud_url
-from griptape_nodes.utils.budget_refusal import BudgetExceededError, refusal_from_body
+from griptape_nodes.utils.budget_refusal import BudgetExceededError, refusal_from_exception
 from griptape_nodes.utils.budget_refusal import describe as describe_budget_refusal
 from griptape_nodes.utils.budget_refusal import log_line as budget_log_line
 
@@ -46,23 +46,14 @@ __all__ = ["GriptapeCloudImageGenerationDriver", "GriptapeCloudPromptDriver"]
 MODULE_NAME = __name__
 """Written into a serialized driver's ``module_name`` so ``from_dict()`` rebuilds ours, not upstream's."""
 
-_HTTP_FORBIDDEN = 403
 
+def _budget_halt_for(exc: requests.exceptions.HTTPError, *, base_url: str) -> BudgetExceededError | None:
+    """Return the halt a Cloud HTTP error is refusing with, or None.
 
-def _budget_halt_for_response(response: requests.Response, *, cloud_host: str) -> BudgetExceededError | None:
-    """Return the halt a still-open response is refusing with, or None."""
-    if response.status_code != _HTTP_FORBIDDEN:
-        return None
-    if urlsplit(response.url).hostname != cloud_host:
-        return None
-
-    try:
-        body = response.json()
-    except ValueError:
-        # Not JSON, or empty, so not a budget refusal.
-        return None
-
-    refusal = refusal_from_body(body)
+    Only a response from ``base_url``'s host counts, and it has to be read while its body is
+    still open.
+    """
+    refusal = refusal_from_exception(exc, cloud_host=urlsplit(base_url).hostname or "")
     if refusal is None:
         return None
 
@@ -82,7 +73,7 @@ class GriptapeCloudPromptDriver(GtGriptapeCloudPromptDriver):
         try:
             return super().try_run(prompt_stack)
         except requests.exceptions.HTTPError as exc:
-            halt = _budget_halt_for_response(exc.response, cloud_host=urlsplit(self.base_url).hostname or "")
+            halt = _budget_halt_for(exc, base_url=self.base_url)
             if halt is not None:
                 raise halt from exc
             raise
@@ -93,10 +84,13 @@ class GriptapeCloudPromptDriver(GtGriptapeCloudPromptDriver):
         params = self._base_params(prompt_stack)
         logger.debug(params)
         with requests.post(url, headers=self.headers, json=params, stream=True) as response:
-            halt = _budget_halt_for_response(response, cloud_host=urlsplit(self.base_url).hostname or "")
-            if halt is not None:
-                raise halt
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except requests.exceptions.HTTPError as exc:
+                halt = _budget_halt_for(exc, base_url=self.base_url)
+                if halt is not None:
+                    raise halt from exc
+                raise
 
             for line in response.iter_lines():
                 if not line:
@@ -127,7 +121,7 @@ class GriptapeCloudImageGenerationDriver(GtGriptapeCloudImageGenerationDriver):
         try:
             return super().try_text_to_image(prompts, negative_prompts)
         except requests.exceptions.HTTPError as exc:
-            halt = _budget_halt_for_response(exc.response, cloud_host=urlsplit(self.base_url).hostname or "")
+            halt = _budget_halt_for(exc, base_url=self.base_url)
             if halt is not None:
                 raise halt from exc
             raise
@@ -141,7 +135,7 @@ class GriptapeCloudImageGenerationDriver(GtGriptapeCloudImageGenerationDriver):
         try:
             return super().try_image_variation(prompts, image, negative_prompts)
         except requests.exceptions.HTTPError as exc:
-            halt = _budget_halt_for_response(exc.response, cloud_host=urlsplit(self.base_url).hostname or "")
+            halt = _budget_halt_for(exc, base_url=self.base_url)
             if halt is not None:
                 raise halt from exc
             raise
