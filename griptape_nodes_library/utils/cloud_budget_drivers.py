@@ -1,29 +1,15 @@
 """Griptape Cloud drivers that stop when a budget refuses the call.
 
-A HARD budget with no room makes Cloud answer 403 with a body naming every
-budget that refused. The engine turns that body into a halt the artist can act
-on -- ``griptape_nodes.utils.budget_refusal`` -- but only if the refusal reaches
-it intact, and the framework drivers this library hands to ``griptape`` lose it
-twice on the way.
+Upstream's drivers lose a budget refusal two ways, and these fix both:
 
-**They retry it.** ``ExponentialBackoffMixin`` re-runs anything outside
-``ignored_exception_types``, and a ``requests`` HTTP error is outside it by
-default. A settled refusal is not a transient failure: every attempt is another
-call Cloud refuses, so the node hangs for the backoff and then fails anyway.
-Each driver here adds the halt to that tuple in ``__attrs_post_init__`` rather
-than as a field default, so a call site that sets its own fail-fast list -- the
-image node does -- keeps its choice and still stops on a budget.
+- **They retry it.** Each driver adds ``BudgetExceededError`` to
+  ``ignored_exception_types`` in ``__attrs_post_init__``, which keeps a call
+  site's own list.
+- **Streaming loses the body.** Upstream raises after the response is released,
+  so the budget names are gone. ``try_stream`` is written out here to read the
+  refusal while the response is open.
 
-**Streaming loses the body.** ``try_stream`` raises for status inside
-``with requests.post(..., stream=True)``, and the exception leaves that block
-carrying a response whose connection has been released: status 403 survives,
-the JSON naming the budgets does not. Which is why the streaming method here is
-written out rather than delegated -- the refusal has to be read while the
-response is still open, and there is no hook into the middle of upstream's.
-
-The halt these raise names no node. A driver is several frames below whichever
-node is spending through it and cannot know its name; ``NodeManager`` does, and
-re-words the message once the halt reaches it.
+The halt names no node; ``NodeManager`` re-words it to name one.
 """
 
 from __future__ import annotations
@@ -58,24 +44,13 @@ logger = logging.getLogger("griptape_nodes")
 __all__ = ["GriptapeCloudImageGenerationDriver", "GriptapeCloudPromptDriver"]
 
 MODULE_NAME = __name__
-"""Where ``griptape`` should look when rebuilding one of these from a saved dict.
-
-``to_dict()`` records only the class name, and both classes here are named after
-the upstream driver they replace, so a rebuild finds upstream's unless the dict
-also carries ``module_name``. ``agent_utils`` writes this in as it repairs the
-credentials on a serialized agent, which is the one way a driver of ours crosses
-a node boundary.
-"""
+"""Written into a serialized driver's ``module_name`` so ``from_dict()`` rebuilds ours, not upstream's."""
 
 _HTTP_FORBIDDEN = 403
 
 
 def _budget_halt_for_response(response: requests.Response, *, cloud_host: str) -> BudgetExceededError | None:
-    """Return the halt a still-open response is refusing with, or None.
-
-    Takes the response rather than the exception because the only caller that
-    needs it is streaming, where the exception outlives the body.
-    """
+    """Return the halt a still-open response is refusing with, or None."""
     if response.status_code != _HTTP_FORBIDDEN:
         return None
     if urlsplit(response.url).hostname != cloud_host:
@@ -84,8 +59,7 @@ def _budget_halt_for_response(response: requests.Response, *, cloud_host: str) -
     try:
         body = response.json()
     except ValueError:
-        # Not JSON, or empty. A 403 with nothing to read is somebody else's
-        # refusal to explain.
+        # Not JSON, or empty, so not a budget refusal.
         return None
 
     refusal = refusal_from_body(body)
