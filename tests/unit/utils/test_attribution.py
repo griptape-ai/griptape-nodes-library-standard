@@ -7,8 +7,9 @@ caller as an exception, and none may invent a header value.
 Both spellings are held to that contract by the same tests. `attribution_header` and
 `attribution_header_async` differ only in how they wait, so a claim that holds for one and not
 the other is a bug in whichever was edited alone -- and the async one is the copy that gets
-forgotten, while being the one every billable coroutine call site goes through. The two
-async-only tests at the end cover the part that cannot be shared: that the wait actually yields.
+forgotten, while being the one every billable coroutine call site goes through. The
+async-only tests at the end cover what cannot be shared: that the wait yields the loop, and
+that giving up cancels the request.
 
 The engine is stubbed rather than driven live. A live dispatch in this suite returns "no project
 open", so every assertion would pass for the wrong reason: an empty workspace is not evidence
@@ -56,15 +57,43 @@ def _succeeding(**overrides: Any) -> GetAttributionContextResultSuccess:
 
 
 def _answering(monkeypatch: pytest.MonkeyPatch, responder: Callable[[Any], Any]) -> list[Any]:
-    """Put `responder` where the engine was, and return the list of requests that reach it."""
+    """Put `responder` where the engine was, and return the list of requests that reach it.
+
+    It answers both spellings: the sync one through `handle_request`, the async one through
+    `ahandle_request`.
+    """
     seen: list[Any] = []
 
     def _handle_request(request: Any) -> Any:
         seen.append(request)
         return responder(request)
 
+    async def _ahandle_request(request: Any) -> Any:
+        return _handle_request(request)
+
     monkeypatch.setattr(GriptapeNodes, "handle_request", _handle_request)
+    monkeypatch.setattr(GriptapeNodes, "ahandle_request", _ahandle_request)
     return seen
+
+
+def _wedging(monkeypatch: pytest.MonkeyPatch, released: threading.Event) -> None:
+    """Make the engine hold every request until `released` is set.
+
+    The async stub waits by sleeping, as a forwarded request waits on the orchestrator, so
+    the loop stays free and a timeout can cancel it.
+    """
+
+    def _handle_request(_request: Any) -> Any:
+        released.wait(timeout=5)
+        return _succeeding()
+
+    async def _ahandle_request(_request: Any) -> Any:
+        while not released.is_set():
+            await asyncio.sleep(0.005)
+        return _succeeding()
+
+    monkeypatch.setattr(GriptapeNodes, "handle_request", _handle_request)
+    monkeypatch.setattr(GriptapeNodes, "ahandle_request", _ahandle_request)
 
 
 @_VARIANTS
@@ -141,13 +170,8 @@ def test_a_wedged_engine_costs_the_bound_and_not_the_call(
     assert 0 < attribution_module._TIMEOUT_SECONDS < 30  # noqa: SLF001
 
     released = threading.Event()
-
-    def _never_answers(_request: Any) -> Any:
-        released.wait(timeout=5)
-        return _succeeding()
-
     monkeypatch.setattr(attribution_module, "_TIMEOUT_SECONDS", 0.05)
-    _answering(monkeypatch, _never_answers)
+    _wedging(monkeypatch, released)
 
     try:
         started = time.monotonic()
@@ -167,27 +191,17 @@ def test_a_wedged_engine_costs_the_bound_and_not_the_call(
     ids=["sync", "async"],
 )
 def test_a_wedged_engine_does_not_outlive_the_process(call: str) -> None:
-    """The bound has to hold at interpreter exit too, which is where a thread pool quietly voids it.
+    """The bound has to hold at interpreter exit too, where a thread pool would quietly void it.
 
-    `ThreadPoolExecutor` registers every worker it starts with
-    `concurrent.futures.thread._python_exit`, and that handler `join()`s all of them at shutdown
-    no matter how the pool was closed -- `shutdown(wait=False)` returns immediately but detaches
-    nothing. With the worker still blocked on a wedged engine, quitting then waits out the full
-    30s transport timeout that the caller-side bound just finished escaping. The cost is not
-    removed, only moved: a hung node becomes a hung quit, somewhere the timing assertions above
-    cannot see it. A daemon thread is never joined, which is why this module does not use a pool.
+    The interpreter joins every `ThreadPoolExecutor` worker at exit, however the pool was
+    closed, and `asyncio.run` joins the loop's default executor, which `asyncio.to_thread`
+    uses. With a lookup still blocked on a wedged engine, quitting would wait out the 30s
+    transport timeout the caller-side bound just escaped: a hung node becomes a hung quit.
 
-    The async parameter is not a formality: `asyncio.to_thread` is the obvious way to write that
-    wait and is a pool in disguise -- it dispatches to the running loop's default
-    `ThreadPoolExecutor`, which `asyncio.run` joins in `shutdown_default_executor` on its way
-    out. Only this parameter would have caught that.
-
-    Only a real interpreter exit can show any of it, hence the subprocess. The child wedges the
-    engine for far longer than it bounds the call, so the two outcomes are unmistakable rather
-    than a close call: measured against both mutants, a pool and an `asyncio.to_thread` each
-    exit in ~30s -- the wedge's full duration -- and a daemon thread in ~0.3s. Quoted to the
-    second on purpose; the tenths are sampling noise on top of a 30s sleep, and pinning them is
-    how two copies of this number came to disagree.
+    The sync spelling survives this by using a daemon thread, which is never joined. The async
+    spelling survives it by owning no thread at all: `wait_for` cancels the request. Either way,
+    only a real interpreter exit can show it, hence the subprocess. The child wedges the engine
+    for 30s, so a regression takes ~30s to exit, against well under a second.
     """
     child = textwrap.dedent(f"""
         import asyncio
@@ -198,6 +212,10 @@ def test_a_wedged_engine_does_not_outlive_the_process(call: str) -> None:
             @staticmethod
             def handle_request(_request):
                 time.sleep(30)
+
+            @staticmethod
+            async def ahandle_request(_request):
+                await asyncio.sleep(30)
 
         attribution.GriptapeNodes = _Wedged
         attribution._TIMEOUT_SECONDS = 0.05
@@ -252,7 +270,7 @@ async def test_the_async_wait_lets_the_rest_of_the_loop_run(monkeypatch: pytest.
     """
     monkeypatch.setattr(attribution_module, "_TIMEOUT_SECONDS", 0.2)
     released = threading.Event()
-    _answering(monkeypatch, lambda _: released.wait(timeout=5))
+    _wedging(monkeypatch, released)
 
     ticks = 0
 
@@ -272,70 +290,26 @@ async def test_the_async_wait_lets_the_rest_of_the_loop_run(monkeypatch: pytest.
 
 
 @pytest.mark.asyncio
-async def test_a_late_answer_after_a_timeout_is_dropped_quietly(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The worker outlives the caller that gave up on it, and must not disturb the loop on its way back.
+async def test_giving_up_cancels_the_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A timed-out async lookup leaves nothing running behind it.
 
-    Nothing joins the dispatch thread, so a timed-out lookup leaves it running with a future
-    nobody is waiting on any more. `wait_for` cancelled that future on its way out, and settling
-    a cancelled future raises `InvalidStateError` -- inside a `call_soon_threadsafe` callback,
-    where no caller exists to catch it.
-
-    The loop's exception handler is what makes that visible. Without it the failure is invisible
-    from a test: a raise inside a loop callback never reaches the awaiting code, it is handed to
-    the handler, which by default logs it and moves on. In a real node it surfaces as
-    "Exception in callback" on whatever unrelated task happened to be running, some seconds after
-    the Cloud call it belongs to already returned -- an error report with no path back to its
-    cause, which is the worst kind to leave lying around for a reporting field.
+    The request is awaited on the caller's loop, so `wait_for` cancels it at the bound. If it
+    kept running, its answer would arrive after the Cloud call it belonged to had gone out, with
+    no caller left to hand it to.
     """
     monkeypatch.setattr(attribution_module, "_TIMEOUT_SECONDS", 0.05)
-    reported: list[dict[str, Any]] = []
-    asyncio.get_running_loop().set_exception_handler(lambda _loop, context: reported.append(context))
-    answered = threading.Event()
+    outcome: list[str] = []
 
-    def _answers_late(_request: Any) -> Any:
-        time.sleep(0.2)
-        answered.set()
+    async def _ahandle_request(_request: Any) -> Any:
+        try:
+            await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            outcome.append("cancelled")
+            raise
+        outcome.append("finished")
         return _succeeding()
 
-    _answering(monkeypatch, _answers_late)
+    monkeypatch.setattr(GriptapeNodes, "ahandle_request", _ahandle_request)
 
     assert await attribution_header_async() == {}
-
-    # Hold the loop open past the late answer, so the callback runs where the handler sees it.
-    await asyncio.sleep(0.4)
-    assert answered.is_set(), "the engine never answered; the late-delivery path was not exercised"
-    assert reported == []
-
-
-def test_a_late_answer_after_the_loop_closed_is_dropped_quietly(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The other way the caller can be gone: not just done waiting, but out of loop entirely.
-
-    A node that bridges into async with `asyncio.run` closes its loop the moment the coroutine
-    returns -- and on the timeout path it returns with the dispatch thread still blocked on the
-    engine. `call_soon_threadsafe` on a closed loop raises `RuntimeError`, and it raises on the
-    dispatch thread, where there is no caller at all: it goes to `threading.excepthook` and
-    prints a traceback the user cannot connect to anything, seconds after the call it belongs to
-    already succeeded.
-
-    Recorded through that hook rather than left to pytest, so the assertion is about the thread
-    rather than about which warnings the runner happens to promote.
-    """
-    monkeypatch.setattr(attribution_module, "_TIMEOUT_SECONDS", 0.05)
-    escaped: list[Any] = []
-    monkeypatch.setattr(threading, "excepthook", escaped.append)
-    answered = threading.Event()
-
-    def _answers_late(_request: Any) -> Any:
-        time.sleep(0.2)
-        answered.set()
-        return _succeeding()
-
-    _answering(monkeypatch, _answers_late)
-
-    # The loop closes on the way out of `run`, while the dispatch thread is still sleeping.
-    assert asyncio.run(attribution_header_async()) == {}
-
-    assert answered.wait(timeout=5), "the engine never answered; the late-delivery path was not exercised"
-    # `excepthook` fires after the target returns, so give the thread a moment to finish unwinding.
-    time.sleep(0.1)
-    assert escaped == []
+    assert outcome == ["cancelled"]
