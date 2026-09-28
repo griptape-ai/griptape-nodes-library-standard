@@ -311,6 +311,9 @@ export default function VideoCapture(container, props) {
     acceptBtn.disabled = true;
     discardBtn.disabled = true;
     playPauseBtn.disabled = true;
+    // _uploading only guards against duplicate upload_ready deliveries within
+    // one accept. Clear it here so a second Accept on the same recording uploads.
+    _uploading = false;
     requestAnimationFrame(() => {
       _emitSeq++;
       onChange?.({ state: "requesting_upload_url", _mime: mime, _emitSeq });

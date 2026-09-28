@@ -78,7 +78,7 @@ class DeleteFile(SuccessFailureNode):
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             input_types=["str", "list"],
             default_value=None,
-            tooltip="Paths to files or directories to delete. Supports glob patterns (e.g., '/path/*.txt').",
+            tooltip="Paths to files or directories to delete. Supports glob patterns (e.g., `'/path/*.txt'`).",
         )
         self.add_parameter(self.file_paths)
 

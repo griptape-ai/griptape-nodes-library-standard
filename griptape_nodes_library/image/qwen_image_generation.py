@@ -118,7 +118,7 @@ class QwenImageGeneration(GriptapeProxyNode):
             ParameterString(
                 name="size",
                 default_value="1328*1328",
-                tooltip="Output image resolution (1328*1328=1:1, 1664*928=16:9, 1472*1140=4:3, 1140*1472=3:4, 928*1664=9:16)",
+                tooltip="Output image resolution:\n\n- `1328×1328` — 1:1\n- `1664×928` — 16:9\n- `1472×1140` — 4:3\n- `1140×1472` — 3:4\n- `928×1664` — 9:16",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=SIZE_OPTIONS)},
             )
