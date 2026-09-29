@@ -52,13 +52,7 @@ class WebSearch(BaseTool):
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "search_engine":
-            if value == "DuckDuckGo":
-                self.update_tool_info(
-                    variant="warning",
-                    title="DuckDuckGo Currently Unavailable",
-                    value="DuckDuckGo is temporarily broken due to a package rename in the underlying library.\n\nTracked in [griptape-ai/griptape#2198](https://github.com/griptape-ai/griptape/issues/2198) — use Exa or Google in the meantime.",
-                )
-            elif not self.check_api_keys():
+            if not self.check_api_keys():
                 self.update_tool_info(
                     value=f"{value} requires the following API keys to be set: {SEARCH_ENGINE_MAP[value]['api_keys']}",
                     title="API Keys Required",
