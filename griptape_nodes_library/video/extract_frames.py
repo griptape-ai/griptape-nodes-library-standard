@@ -10,6 +10,7 @@ import subprocess
 from enum import StrEnum
 from typing import Any
 
+from griptape_nodes.common.sequences import MissingItemPolicy, Sequence
 from griptape_nodes.exe_types.core_types import (
     NodeMessageResult,
     Parameter,
@@ -25,6 +26,10 @@ from griptape_nodes.files.file import File, FileDestinationProvider
 from griptape_nodes.retained_mode.events.connection_events import (
     ListConnectionsForNodeRequest,
     ListConnectionsForNodeResultSuccess,
+)
+from griptape_nodes.retained_mode.events.os_events import (
+    ScanSequencesRequest,
+    ScanSequencesResultSuccess,
 )
 from griptape_nodes.retained_mode.events.static_file_events import (
     CreateStaticFileDownloadUrlFromPathRequest,
@@ -197,6 +202,21 @@ class ExtractFrames(SuccessFailureNode):
                 allowed_modes={ParameterMode.OUTPUT},
                 tooltip="Absolute paths to the extracted frame images.",
                 ui_options={"pulse_on_run": True},
+            )
+        )
+        self.add_parameter(
+            Parameter(
+                name="sequence",
+                type="Sequence",
+                output_type="Sequence",
+                default_value=None,
+                allowed_modes={ParameterMode.OUTPUT},
+                tooltip=(
+                    "The extracted frames as a sequence, with frame numbers, paths, and the "
+                    "filename pattern in one object. Wire into Inspect Sequence or any other "
+                    "node that takes a sequence."
+                ),
+                ui_options={"display_name": "Sequence"},
             )
         )
         self.add_parameter(
@@ -613,17 +633,43 @@ class ExtractFrames(SuccessFailureNode):
         )
 
         out_dir_str = str(output_dir)
+        details = f"Extracted {len(saved_paths)} frame(s) to {out_dir_str}"
+
+        sequence = self._scan_output_sequence(output_dir, prefix, padding, fmt, frame_numbers)
+        if sequence is None:
+            details += " (could not build the sequence output)"
 
         self.parameter_output_values["output_directory"] = out_dir_str
         self.parameter_output_values["output_frames"] = [str(p.resolve()) for p in saved_paths]
-        self._set_status_results(
-            was_successful=True,
-            result_details=f"Extracted {len(saved_paths)} frame(s) to {out_dir_str}",
+        self.parameter_output_values["sequence"] = sequence
+        self._set_status_results(was_successful=True, result_details=details)
+
+    def _scan_output_sequence(
+        self,
+        output_dir: pathlib.Path,
+        prefix: str,
+        padding: int,
+        fmt: str,
+        frame_numbers: list[int],
+    ) -> Sequence | None:
+        """Scan the frames just written into a Sequence, bounded to the requested frame range."""
+        result = GriptapeNodes.handle_request(
+            ScanSequencesRequest(
+                path=str(output_dir / f"{prefix}.{'#' * padding}.{fmt}"),
+                policy=MissingItemPolicy.SKIP,
+                start_number=min(frame_numbers),
+                end_number=max(frame_numbers),
+            )
         )
+        if isinstance(result, ScanSequencesResultSuccess) and result.sequences:
+            return result.sequences[0]
+        logger.warning("%s: could not build sequence output: %s", self.name, result.result_details)
+        return None
 
     def _set_safe_defaults(self) -> None:
         self.parameter_output_values["output_directory"] = ""
         self.parameter_output_values["output_frames"] = []
+        self.parameter_output_values["sequence"] = None
 
 
 # ── Module-level frame string parser ───────────────────────────────────────────
