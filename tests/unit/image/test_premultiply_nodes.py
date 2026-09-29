@@ -45,10 +45,10 @@ class TestRun:
         assert loads.call_count == 1
         assert node.get_parameter_value("output") is not None
 
-    def test_changing_invert_reruns(self, node_cls: type, loads: MagicMock) -> None:
+    def test_changing_invert_alpha_reruns(self, node_cls: type, loads: MagicMock) -> None:
         node = make_node(node_cls, "rerun")
         node.set_parameter_value("input_image", ImageUrlArtifact("a.png"))
-        node.set_parameter_value("invert", True)  # noqa: FBT003
+        node.set_parameter_value("invert_alpha", True)  # noqa: FBT003
 
         assert loads.call_count == 2  # noqa: PLR2004
 
@@ -59,6 +59,14 @@ class TestRun:
 
         with pytest.raises(ValueError, match="unreadable image"):
             node.process()
+
+    def test_no_parameter_named_invert(self, node_cls: type, loads: MagicMock) -> None:  # noqa: ARG002
+        """The editor inverts a node's display when it has a parameter named 'invert'."""
+        node = make_node(node_cls, "names")
+        names = {p.name for p in node.parameters}
+
+        assert "invert" not in names
+        assert "invert_alpha" in names
 
     def test_process_without_input_does_nothing(self, node_cls: type, loads: MagicMock) -> None:
         node = make_node(node_cls, "empty")

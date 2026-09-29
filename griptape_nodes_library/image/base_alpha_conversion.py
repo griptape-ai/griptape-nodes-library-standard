@@ -44,7 +44,7 @@ class BaseAlphaConversion(DataNode, ABC):
 
         self.add_parameter(
             ParameterBool(
-                name="invert",
+                name="invert_alpha",
                 default_value=False,
                 tooltip=self.INVERT_TOOLTIP,
             )
@@ -71,7 +71,7 @@ class BaseAlphaConversion(DataNode, ABC):
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
-        if parameter.name not in {"input_image", "invert"} or self.get_parameter_value("input_image") is None:
+        if parameter.name not in {"input_image", "invert_alpha"} or self.get_parameter_value("input_image") is None:
             return
         # Live preview: a failure here is reported but must not break setting the value.
         try:
@@ -88,7 +88,7 @@ class BaseAlphaConversion(DataNode, ABC):
         input_image = self.get_parameter_value("input_image")
         if isinstance(input_image, dict):
             input_image = dict_to_image_url_artifact(input_image)
-        invert = bool(self.get_parameter_value("invert"))
+        invert = bool(self.get_parameter_value("invert_alpha"))
 
         run_key = (input_image.value, invert)
         if run_key == self._last_run_key and self.get_parameter_value("output") is not None:

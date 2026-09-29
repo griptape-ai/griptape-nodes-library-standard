@@ -75,7 +75,7 @@ class MergeImages(ControlNode):
                 default_value=None,
                 tooltip="Images to merge (add up to 4)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={"max": 4, "min": 1, "display_name": "Images"},
+                ui_options={"max": 4, "min": 1, "display_name": "Images", "hide_property": True},
             )
         )
 
