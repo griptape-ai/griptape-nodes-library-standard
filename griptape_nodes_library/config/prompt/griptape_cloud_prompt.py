@@ -9,7 +9,6 @@ node configuration, and instantiates the `GriptapeCloudPromptDriver`.
 
 from typing import Any
 
-import requests
 from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver as GtGriptapeCloudPromptDriver
 from griptape_nodes.drivers.cloud_models import (
     MODEL_CHOICES,
@@ -17,7 +16,6 @@ from griptape_nodes.drivers.cloud_models import (
     O_SERIES_MODELS,
 )
 from griptape_nodes.exe_types.core_types import Parameter
-from griptape_nodes.retained_mode.griptape_nodes import logger
 
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
 from griptape_nodes_library.utils.cloud_credential_utils import (
@@ -26,14 +24,12 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
 )
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
-from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 # --- Constants ---
 
 SERVICE = "Griptape"
 BASE_URL = "https://cloud.griptape.ai"
 API_KEY_URL = f"{BASE_URL}/configuration/api-keys"
-CHAT_MODELS_URL = f"{BASE_URL}/api/models?model_type=chat"
 DEFAULT_MODEL = "gpt-4.1-mini"
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
@@ -68,10 +64,6 @@ class GriptapeCloudPrompt(BasePrompt):
         # --- Customize Inherited Parameters ---
 
         # Offer Griptape Cloud's models as a license-filtered dropdown.
-        models, default_model = self._list_models()
-        logger.debug(f"All models on Griptape Cloud: {models}")
-        logger.debug(f"Default model on Griptape Cloud: {default_model}")
-
         self._install_model_access(
             model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=CLOUD_LEGACY_MODEL_VALUES
         )
@@ -195,25 +187,3 @@ class GriptapeCloudPrompt(BasePrompt):
             resolved_credential=resolve_cloud_api_key(),
             missing_credential_msg=missing_credential_message("configure the Griptape Cloud prompt driver"),
         )
-
-    def _list_models(self) -> tuple[list[str], str]:
-        """Returns the list of available models from Griptape Cloud, and the default model.
-
-        This method fetches the list of models from the Griptape Cloud API and
-        returns them. If the API call fails, it falls back to the default list
-        of models defined in the `MODEL_CHOICES` constant.
-
-        Returns:
-            tuple: A tuple containing a list of available model names and the default model name.
-        """
-        # Fetch the list of available models from the Griptape Cloud API.
-        response = requests.get(
-            CHAT_MODELS_URL,
-            headers=build_griptape_cloud_headers(resolve_cloud_api_key(), attribution=False),
-            timeout=10,
-        )
-        response.raise_for_status()
-        models_data = response.json()["models"]
-        models = [model["model_name"] for model in models_data]
-        default_model = next(filter(lambda x: x["default"], models_data))["model_name"]
-        return models, default_model

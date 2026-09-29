@@ -14,8 +14,8 @@ LIBRARY_ROOT = Path(__file__).parents[3] / "griptape_nodes_library"
 # order, so a second call in a listed function lengthens the tuple rather than overwriting the
 # first one's answer.
 #
-# The `False` entries consume no credits, so there is nothing to attribute: two model/bucket
-# listings, an asset-access probe, and the proxy's reads of a generation already paid
+# The `False` entries consume no credits, so there is nothing to attribute: a bucket listing,
+# an asset-access probe, and the proxy's reads of a generation already paid
 # for at submit, including its hosted media.
 # Flipping any `True` here to `False` is how spend silently stops being
 # attributed, which is why the map is asserted whole rather than as an allowlist.
@@ -23,7 +23,6 @@ LIBRARY_ROOT = Path(__file__).parents[3] / "griptape_nodes_library"
 # `test_cloud_driver_auth.py` reads construction sites, so it covers the first two but is blind
 # to `_restored_cloud_credentials`, which writes into a serialized dict for `from_dict`.
 CLOUD_HEADER_CALLS = {
-    ("config/prompt/griptape_cloud_prompt.py", "_list_models"): (False,),
     ("proxy/griptape_proxy_node.py", "_fetch_generation_result"): (False,),
     ("proxy/griptape_proxy_node.py", "_process_generation"): (True,),
     ("proxy/griptape_proxy_node.py", "_refresh_async"): (False,),

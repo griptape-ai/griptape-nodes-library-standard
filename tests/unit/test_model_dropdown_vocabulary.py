@@ -23,7 +23,6 @@ from test_legacy_model_value_migration import (
     _create_node,
     _model_access_component,
     _offered_choice_names,
-    _stub_griptape_cloud_model_list,  # noqa: F401  (autouse fixture GriptapeCloudPrompt needs)
 )
 
 if TYPE_CHECKING:

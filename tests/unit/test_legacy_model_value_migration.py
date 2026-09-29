@@ -24,7 +24,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-import requests
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.node_library.library_registry import LibraryRegistry
 
@@ -168,27 +167,6 @@ def _create_node(node_type: str) -> BaseNode:
     """
     library = LibraryRegistry.get_library(name=LIBRARY_NAME)
     return library.create_node(node_type=node_type, name=node_type)
-
-
-class _FakeCloudModelsResponse:
-    """Stand-in for the `requests.Response` `GriptapeCloudPrompt._list_models` reads."""
-
-    def raise_for_status(self) -> None:
-        return
-
-    def json(self) -> dict[str, list[dict[str, Any]]]:
-        return {"models": [{"model_name": "gpt-4.1-mini", "default": True}]}
-
-
-@pytest.fixture(autouse=True)
-def _stub_griptape_cloud_model_list(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`GriptapeCloudPrompt.__init__` calls `_list_models`, which hits Griptape Cloud's
-    API over HTTP; stub `requests.get` so constructing the node never depends on network
-    access. The library loader reimports each node's module from its file path, so
-    patching the `GriptapeCloudPrompt` class imported here would miss the module
-    instance the library actually registers; `requests.get` is shared regardless.
-    """
-    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: _FakeCloudModelsResponse())  # noqa: ARG005
 
 
 def _model_access_component(node: BaseNode) -> ModelAccessComponent:
