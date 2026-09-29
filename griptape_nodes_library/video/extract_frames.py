@@ -156,6 +156,9 @@ class ExtractFrames(SuccessFailureNode):
                     "Click the gear to connect a FileOutputSettings node."
                 ),
                 ui_options={"placeholder_text": DEFAULT_DIRECTORY},
+                # The engine treats any "{name" in a value as a workflow variable and unresolves the
+                # node before every run. This node resolves {outputs} and {###} itself.
+                allow_variable_substitution=False,
                 traits={
                     Button(
                         icon="cog",
