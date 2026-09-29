@@ -366,6 +366,18 @@
                 "provider_model_id": "gpt-image-2",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
+              "gtc_gpt_image_2_5_sunburst": {
+                "display_name": "GPT Image 2.5 Sunburst",
+                "family": "GPT Image",
+                "provider_model_id": "gpt-image-2.5-sunburst",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_image_2_5_flare": {
+                "display_name": "GPT Image 2.5 Flare",
+                "family": "GPT Image",
+                "provider_model_id": "gpt-image-2.5-flare",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
               "gtc_sora_2": {
                 "display_name": "Sora 2",
                 "family": "Sora",
@@ -5570,7 +5582,9 @@
             "model_ids": [
               "gtc_gpt_image_1",
               "gtc_gpt_image_1_5",
-              "gtc_gpt_image_2"
+              "gtc_gpt_image_2",
+              "gtc_gpt_image_2_5_sunburst",
+              "gtc_gpt_image_2_5_flare"
             ]
           }
         ]
