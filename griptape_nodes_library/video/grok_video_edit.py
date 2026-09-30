@@ -11,6 +11,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
 
+from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 __all__ = ["GrokVideoEdit"]
@@ -126,39 +127,20 @@ class GrokVideoEdit(GriptapeProxyNode):
             return bool(value.value)
         return bool(value)
 
-    def _extract_video_value(self, video_input: Any) -> str | None:
-        if isinstance(video_input, str):
-            return video_input
-
-        try:
-            if hasattr(video_input, "value"):
-                value = getattr(video_input, "value", None)
-                if isinstance(value, str):
-                    return value
-            if hasattr(video_input, "base64"):
-                b64 = getattr(video_input, "base64", None)
-                if isinstance(b64, str) and b64:
-                    return b64
-        except Exception:
-            return None
-
-        return None
-
-    async def _prepare_video_data_uri(self, video_input: Any) -> str | None:
-        if not video_input:
-            return None
-
-        video_value = self._extract_video_value(video_input)
+    async def _prepare_video_data_uri(self, video_input: Any) -> str:
+        video_value = coerce_media_url_or_data_uri(video_input, kind="video")
         if not video_value:
-            return None
+            msg = f"{self.name}: Video input has no usable value."
+            raise ValueError(msg)
 
         if video_value.startswith("data:"):
             return video_value
 
         try:
             return await File(video_value).aread_data_uri(fallback_mime="video/mp4")
-        except FileLoadError:
-            return None
+        except FileLoadError as e:
+            msg = f"{self.name}: Could not load video from '{video_value}': {e}"
+            raise ValueError(msg) from e
 
     def _get_api_model_id(self) -> str:
         return f"{self._get_selected_model_id()}:edit"
@@ -184,15 +166,11 @@ class GrokVideoEdit(GriptapeProxyNode):
         api_model_id = self._get_payload_model_id()
         video_data_uri = await self._prepare_video_data_uri(self.get_parameter_value("video"))
 
-        payload: dict[str, Any] = {
+        return {
             "model": api_model_id,
             "prompt": prompt,
+            "video": {"url": video_data_uri},
         }
-
-        if video_data_uri:
-            payload["video"] = {"url": video_data_uri}
-
-        return payload
 
     async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
         await self._save_generated_media(
