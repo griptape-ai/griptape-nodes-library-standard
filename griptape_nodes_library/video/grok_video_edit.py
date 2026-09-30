@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import logging
+from pathlib import Path
 from typing import Any, ClassVar
+from urllib.parse import urlsplit
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterMode
@@ -13,8 +17,17 @@ from griptape_nodes.files.file import File, FileLoadError
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.utils.ffmpeg_utils import extract_video_metadata_structured
+
+logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["GrokVideoEdit"]
+
+# xAI's documented input limits for video editing
+# (docs.x.ai/developers/model-capabilities/video/editing). xAI accepts a request that breaks
+# them and then fails the job with no reason, so they are checked before submitting.
+MAX_INPUT_DURATION_SECONDS = 8.7
+SUPPORTED_CONTAINER = "mp4"
 
 
 class GrokVideoEdit(GriptapeProxyNode):
@@ -72,16 +85,23 @@ class GrokVideoEdit(GriptapeProxyNode):
             )
         )
 
-        self.add_parameter(
-            ParameterVideo(
-                name="video",
-                default_value="",
-                tooltip="Input video to edit",
-                allowed_modes={ParameterMode.INPUT},
-                hide_property=True,
-                ui_options={"display_name": "Video"},
-            )
+        video_param = ParameterVideo(
+            name="video",
+            default_value="",
+            tooltip="Input video to edit",
+            allowed_modes={ParameterMode.INPUT},
+            hide_property=True,
+            ui_options={"display_name": "Video"},
         )
+        video_param.set_badge(
+            variant="info",
+            title="Video requirements",
+            message=(
+                f"- .mp4 file\n- {MAX_INPUT_DURATION_SECONDS:g} seconds or less\n\n"
+                "Use a Trim Video node to convert or shorten a video."
+            ),
+        )
+        self.add_parameter(video_param)
 
         # OUTPUTS
         self.add_parameter(
@@ -127,11 +147,69 @@ class GrokVideoEdit(GriptapeProxyNode):
             return bool(value.value)
         return bool(value)
 
+    @staticmethod
+    def _container_token(video_value: str) -> str:
+        """Return the container named by the value's extension or MIME subtype, or "" if neither."""
+        if video_value.startswith("data:"):
+            header = video_value.removeprefix("data:").split(",", 1)[0]
+            return header.split(";", 1)[0].split("/", 1)[-1].lower()
+        return Path(urlsplit(video_value).path).suffix.lstrip(".").lower()
+
+    def _probe_duration(self, video_value: str) -> float | None:
+        """Return the video's duration in seconds, or None when it cannot be determined.
+
+        Probing is best-effort. A missing ffprobe or an unreadable remote URL should not block a
+        request that xAI might accept, so failures are logged and skipped.
+        """
+        try:
+            location = File(video_value).resolve()
+            metadata = extract_video_metadata_structured(location)
+        except (FileLoadError, ValueError) as e:
+            logger.warning("%s: could not probe input video duration, skipping the check: %s", self.name, e)
+            return None
+        return metadata.file_details.optional_duration
+
+    def _find_input_problems(self, video_value: str) -> list[str]:
+        """Return one short sentence pair per xAI input limit the video breaks.
+
+        Returns an empty list when the video is fine. A missing container token carries no
+        signal (a signed URL that strips the filename, say) and is let through. ffprobe can't
+        take a multi-megabyte data URI as an argument, so a data URI's duration goes unchecked
+        and xAI enforces it.
+        """
+        problems = []
+
+        token = self._container_token(video_value)
+        if token and token != SUPPORTED_CONTAINER:
+            problems.append(f"It's a .{token} file. Grok needs .mp4.")
+
+        if not video_value.startswith("data:"):
+            duration = self._probe_duration(video_value)
+            if duration is not None and duration > MAX_INPUT_DURATION_SECONDS:
+                problems.append(
+                    f"It's {duration:.2f} seconds long. Grok's limit is {MAX_INPUT_DURATION_SECONDS:g} seconds."
+                )
+
+        return problems
+
+    async def _check_input_limits(self, video_value: str) -> None:
+        """Raise a short, user-facing error if the video breaks any of xAI's input limits.
+
+        The engine already wraps this message with the node name several times, so it leaves
+        the name out.
+        """
+        problems = await asyncio.to_thread(self._find_input_problems, video_value)
+        if problems:
+            msg = f"Grok can't edit this video. {' '.join(problems)} Use a Trim Video node to fix this."
+            raise ValueError(msg)
+
     async def _prepare_video_data_uri(self, video_input: Any) -> str:
         video_value = coerce_media_url_or_data_uri(video_input, kind="video")
         if not video_value:
             msg = f"{self.name}: Video input has no usable value."
             raise ValueError(msg)
+
+        await self._check_input_limits(video_value)
 
         if video_value.startswith("data:"):
             return video_value
