@@ -164,7 +164,7 @@ class GrokVideoEdit(GriptapeProxyNode):
         try:
             location = File(video_value).resolve()
             metadata = extract_video_metadata_structured(location)
-        except (FileLoadError, ValueError) as e:
+        except (FileLoadError, ValueError, RuntimeError) as e:
             logger.warning("%s: could not probe input video duration, skipping the check: %s", self.name, e)
             return None
         return metadata.file_details.optional_duration
@@ -193,20 +193,21 @@ class GrokVideoEdit(GriptapeProxyNode):
         return problems
 
     async def _check_input_limits(self, video_value: str) -> None:
-        """Raise a short, user-facing error if the video breaks any of xAI's input limits.
-
-        The engine already wraps this message with the node name several times, so it leaves
-        the name out.
-        """
+        """Raise a short, user-facing error if the video breaks any of xAI's input limits."""
         problems = await asyncio.to_thread(self._find_input_problems, video_value)
         if problems:
             msg = f"Grok can't edit this video. {' '.join(problems)} Use a Trim Video node to fix this."
             raise ValueError(msg)
 
     async def _prepare_video_data_uri(self, video_input: Any) -> str:
+        """Return the video as a data URI, raising a user-facing error if it can't be sent.
+
+        These errors are raised during execution, where the engine already prefixes the message
+        with the node name several times, so they leave the name out.
+        """
         video_value = coerce_media_url_or_data_uri(video_input, kind="video")
         if not video_value:
-            msg = f"{self.name}: Video input has no usable value."
+            msg = "Video input has no usable value."
             raise ValueError(msg)
 
         await self._check_input_limits(video_value)
@@ -217,7 +218,7 @@ class GrokVideoEdit(GriptapeProxyNode):
         try:
             return await File(video_value).aread_data_uri(fallback_mime="video/mp4")
         except FileLoadError as e:
-            msg = f"{self.name}: Could not load video from '{video_value}': {e}"
+            msg = f"Could not load video from '{video_value}': {e}"
             raise ValueError(msg) from e
 
     def _get_api_model_id(self) -> str:

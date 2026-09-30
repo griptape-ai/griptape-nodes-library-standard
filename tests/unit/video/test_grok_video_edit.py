@@ -62,7 +62,7 @@ class TestPrepareVideoDataUri:
 
         monkeypatch.setattr(file_module.File, "aread_data_uri", failing_aread)
 
-        with pytest.raises(ValueError, match=r"\{outputs\}/missing\.mp4"):
+        with pytest.raises(ValueError, match=r"^Could not load video from '\{outputs\}/missing\.mp4'"):
             await _node()._prepare_video_data_uri("{outputs}/missing.mp4")
 
     async def test_empty_input_raises(self) -> None:
@@ -113,6 +113,23 @@ def test_probe_failure_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
         raise FileLoadError(FileIOFailureReason.FILE_NOT_FOUND, "no project")
 
     monkeypatch.setattr(file_module.File, "resolve", failing_resolve)
+    node = GrokVideoEdit.__new__(GrokVideoEdit)
+    node.name = "GrokVideoEdit"
+    assert node._probe_duration("{inputs}/clip.mp4") is None
+
+
+def test_missing_ffprobe_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    def resolve(self: file_module.File) -> str:
+        return "/tmp/clip.mp4"  # noqa: S108
+
+    def missing_ffprobe(_location: str) -> None:
+        msg = "FFmpeg/FFprobe not found."
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(file_module.File, "resolve", resolve)
+    monkeypatch.setattr(
+        "griptape_nodes_library.video.grok_video_edit.extract_video_metadata_structured", missing_ffprobe
+    )
     node = GrokVideoEdit.__new__(GrokVideoEdit)
     node.name = "GrokVideoEdit"
     assert node._probe_duration("{inputs}/clip.mp4") is None
