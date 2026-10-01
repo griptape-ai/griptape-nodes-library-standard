@@ -227,7 +227,7 @@ class LTXVideoExtend(PublicVideoUrlMixin, GriptapeProxyNode):
         try:
             await super()._process_generation()
         finally:
-            self._cleanup_video_uploads()
+            await self._cleanup_video_uploads()
 
     def _validate_duration(self, duration: Any) -> str | None:
         if not isinstance(duration, int) or isinstance(duration, bool):

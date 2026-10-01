@@ -393,7 +393,7 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
         try:
             await super()._process_generation()
         finally:
-            self._cleanup_video_uploads()
+            await self._cleanup_video_uploads()
 
     def _get_parameters(self) -> dict[str, Any]:
         return {

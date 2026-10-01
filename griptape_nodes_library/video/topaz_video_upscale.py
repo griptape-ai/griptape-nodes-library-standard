@@ -24,6 +24,7 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifact, aget_public_url
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.ffmpeg_utils import VideoMetadata, extract_video_metadata_structured
 
@@ -324,7 +325,7 @@ class TopazVideoUpscale(GriptapeProxyNode):
             # Only once polling has finished: Topaz fetches the source from this
             # URL when the job starts, so deleting it any earlier would pull the
             # video out from under a queued job.
-            self._public_video_url_parameter.delete_uploaded_artifact()
+            await adelete_uploaded_artifact(self._public_video_url_parameter)
 
     # -- model routing -----------------------------------------------------
 
@@ -644,7 +645,7 @@ class TopazVideoUpscale(GriptapeProxyNode):
 
         # Upload after probing: the probe needs the original local path, and there
         # is no point paying for an upload if the file turns out to be unusable.
-        video_url = self._public_video_url_parameter.get_public_url_for_parameter()
+        video_url = await aget_public_url(self._public_video_url_parameter)
         if not video_url:
             msg = f"{self.name} could not produce a public URL for the input video."
             raise ValueError(msg)

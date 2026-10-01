@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
@@ -32,6 +31,7 @@ from griptape_nodes_library.assets import (
     get_provider_asset_kind,
     is_provider_asset_reference,
 )
+from griptape_nodes_library.media.public_urls import aget_public_url
 from griptape_nodes_library.proxy import ArtifactKind
 from griptape_nodes_library.video.seedance_common import (
     SeedanceProxyNode,
@@ -512,17 +512,13 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
         try:
             await super()._process_generation()
         finally:
-            # Each delete is a network call, so one failing must not skip the rest of the teardown:
-            # _pending_asset_uploads is reset at the top of the next run, so a skipped cleanup strands
-            # its scratch parameters on the node permanently and leaks the uploaded objects.
-            for reference_video_parameter in (
-                self._public_reference_video_parameter_1,
-                self._public_reference_video_parameter_2,
-                self._public_reference_video_parameter_3,
-            ):
-                with suppress(Exception):
-                    reference_video_parameter.delete_uploaded_artifact()
-            self._cleanup_pending_asset_uploads()
+            await self._cleanup_pending_asset_uploads(
+                (
+                    self._public_reference_video_parameter_1,
+                    self._public_reference_video_parameter_2,
+                    self._public_reference_video_parameter_3,
+                )
+            )
 
     def validate_before_node_run(self) -> list[Exception] | None:
         """Validate parameters before execution."""
@@ -828,7 +824,7 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
                     )
                     order_log.append(f"Video {idx}: private asset")
                 else:
-                    video_url = self._get_reference_video_url(ref_video["parameter_name"], value)
+                    video_url = await self._get_reference_video_url(ref_video["parameter_name"], value)
                     if not video_url:
                         msg = (
                             f"{self.name}: {ref_video['parameter_name']} only supports public URLs, uploaded asset URLs, "
@@ -899,7 +895,7 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
             if params.get(parameter_name)
         ]
 
-    def _get_reference_video_url(self, parameter_name: str, value: Any) -> str | None:
+    async def _get_reference_video_url(self, parameter_name: str, value: Any) -> str | None:
         direct_url = coerce_video_url(value)
         if direct_url:
             return direct_url
@@ -914,7 +910,7 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
             return None
 
         try:
-            public_url = helper.get_public_url_for_parameter()
+            public_url = await aget_public_url(helper)
         except Exception as e:
             self._log(f"{self.name} failed to prepare public URL for {parameter_name}: {e}")
             return None

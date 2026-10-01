@@ -19,6 +19,7 @@ import io
 import json as _json
 import logging
 from abc import ABC
+from collections.abc import Iterable
 from contextlib import suppress
 from typing import Any, NamedTuple
 from urllib.parse import urljoin, urlparse
@@ -45,6 +46,7 @@ from griptape_nodes_library.media import (
     is_publicly_reachable_url,
     prepare_media_data_uri,
 )
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, aget_public_url
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers_async
 
@@ -319,7 +321,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             if downscaled_uri:
                 return downscaled_uri
 
-        public_url = self._upload_image_to_public_url(frame_url)
+        public_url = await self._upload_image_to_public_url(frame_url)
         if public_url:
             self._log(f"{self.name} {frame_label} prepared as public URL")
             return public_url
@@ -376,7 +378,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             f"{SEEDANCE_MAX_IMAGE_DIMENSION_PX}px limit; downscaled to {new_w}x{new_h}px"
         )
 
-    def _upload_image_to_public_url(self, image_value: str) -> str | None:
+    async def _upload_image_to_public_url(self, image_value: str) -> str | None:
         """Upload an image that names a file and return its public URL, or None to inline it instead.
 
         Mirrors PublicVideoUrlMixin._upload_video_to_public_url. Seedance rejects oversized JSON
@@ -393,7 +395,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             return None
 
         try:
-            return self._resolve_public_url_for_media(
+            return await self._resolve_public_url_for_media(
                 image_value, artifact_type=_ASSET_KIND_ARTIFACT_TYPES[ASSET_KIND_IMAGE]
             )
         except Exception as e:  # noqa: BLE001 - any upload failure degrades to base64
@@ -445,7 +447,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             )
             raise ValueError(msg)
 
-        public_url = self._resolve_public_url_for_asset(ref, asset_kind=expected_kind)
+        public_url = await self._resolve_public_url_for_asset(ref, asset_kind=expected_kind)
         api_key = self._validate_api_key()
         create_headers = await build_griptape_cloud_headers_async(api_key, attribution=True)
         provider_asset_id = await self._create_provider_asset(public_url, expected_kind, create_headers)
@@ -455,7 +457,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         asset_id = await self._poll_provider_asset(provider_asset_id, poll_headers)
         return f"asset://{asset_id}"
 
-    def _resolve_public_url_for_asset(self, ref: Any, *, asset_kind: str) -> str:
+    async def _resolve_public_url_for_asset(self, ref: Any, *, asset_kind: str) -> str:
         """Return a publicly fetchable URL for the reference's media.
 
         CreateProviderAsset requires a fetchable URL, so data URIs / unresolvable inputs raise.
@@ -465,7 +467,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             msg = f"{self.name}: private-asset reference has no media value to register."
             raise ValueError(msg)
 
-        public_url = self._resolve_public_url_for_media(
+        public_url = await self._resolve_public_url_for_media(
             media_value, artifact_type=_ASSET_KIND_ARTIFACT_TYPES[asset_kind]
         )
         if not is_publicly_reachable_url(public_url):
@@ -495,7 +497,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         candidate = GriptapeNodes.ConfigManager().workspace_path / workspace_relative
         return str(candidate) if candidate.is_file() else None
 
-    def _resolve_public_url_for_media(self, media_value: Any, *, artifact_type: str) -> str:
+    async def _resolve_public_url_for_media(self, media_value: Any, *, artifact_type: str) -> str:
         """Upload media to GTC static storage through a transient parameter and return its URL.
 
         A URL the provider can already fetch passes through untouched, per
@@ -552,9 +554,9 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         self._pending_asset_uploads.append((helper, scratch_name))
         self.set_parameter_value(scratch_name, upload_value)
 
-        public_url = helper.get_public_url_for_parameter()
+        public_url = await aget_public_url(helper)
 
-        # get_public_url_for_parameter opens with its own "is this already public?" test, and in
+        # The engine's upload opens with its own "is this already public?" test, and in
         # engine 0.96.0 that test is the weak substring form this module no longer uses
         # (public_artifact_url_parameter.py:172). So for a URL it considers public but we do not --
         # a LAN IP, a container name, plain http on a non-routable host -- it returns the value
@@ -654,7 +656,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         )
         raise RuntimeError(msg)
 
-    def _cleanup_pending_asset_uploads(self) -> None:
+    async def _cleanup_pending_asset_uploads(self, extra_helpers: Iterable[PublicArtifactUrlParameter] = ()) -> None:
         """Delete the transient uploads and scratch parameters minted during a run.
 
         Provider assets are reclaimed by the backend: a submitted generation deletes its linked
@@ -662,14 +664,18 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         after registration) are reclaimed by the backend's orphan sweeper. The transient GTC
         static-storage upload made to feed CreateProviderAsset is ours to clean up, along with the
         scratch parameter created to perform the upload (its name is unique per call, so leaving it
-        would accumulate parameters on the node).
+        would accumulate parameters on the node). `extra_helpers` are deleted in the same concurrent
+        pass, after the scratch parameters are gone.
         """
-        for helper, scratch_name in self._pending_asset_uploads:
-            with suppress(Exception):
-                helper.delete_uploaded_artifact()
+        pending = self._pending_asset_uploads
+        self._pending_asset_uploads = []
+        # Scratch parameters go first, because a second cancel can cut the awaited deletes short.
+        for _, scratch_name in pending:
             with suppress(Exception):
                 self.remove_parameter_element_by_name(scratch_name)
-        self._pending_asset_uploads = []
+            # Removing the parameter leaves its value behind, which the next run would replay.
+            self.parameter_values.pop(scratch_name, None)
+        await adelete_uploaded_artifacts([*(helper for helper, _ in pending), *extra_helpers], node_name=self.name)
 
     # --- Provider error reporting ------------------------------------------------------------
 

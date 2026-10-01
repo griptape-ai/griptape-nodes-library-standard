@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from urllib.parse import urlparse
@@ -510,7 +511,8 @@ async def test_oversized_file_reference_image_is_downscaled_not_uploaded(
     assert len(upload_env.uploaded_keys) == 0
 
 
-def test_private_asset_accepts_a_public_http_url(upload_env) -> None:
+@pytest.mark.asyncio
+async def test_private_asset_accepts_a_public_http_url(upload_env) -> None:
     # Provider asset registration needs a URL the provider can fetch, and plain http on a real
     # domain qualifies. Requiring https here rejected an input that registers fine, because the
     # upload it assumed would happen instead is one the engine declines to perform.
@@ -519,11 +521,12 @@ def test_private_asset_accepts_a_public_http_url(upload_env) -> None:
     node._pending_asset_uploads = []
     ref = create_provider_asset_reference(value=public_http_url, asset_kind=ASSET_KIND_IMAGE)
 
-    assert node._resolve_public_url_for_asset(ref, asset_kind=ASSET_KIND_IMAGE) == public_http_url
+    assert await node._resolve_public_url_for_asset(ref, asset_kind=ASSET_KIND_IMAGE) == public_http_url
     assert upload_env.uploaded_keys == []
 
 
-def test_private_asset_rejects_an_unreachable_host(upload_env) -> None:
+@pytest.mark.asyncio
+async def test_private_asset_rejects_an_unreachable_host(upload_env) -> None:
     # The provider cannot fetch a LAN address. Registering it anyway leaves the asset stuck and
     # discloses an internal host, so this fails at our own gate with a message that says why.
     node = Seedance20VideoGeneration(name="Seedance20")
@@ -531,7 +534,7 @@ def test_private_asset_rejects_an_unreachable_host(upload_env) -> None:
     ref = create_provider_asset_reference(value="http://192.168.1.20:9000/face.png", asset_kind=ASSET_KIND_IMAGE)
 
     with pytest.raises(RuntimeError, match="was not uploaded"):
-        node._resolve_public_url_for_asset(ref, asset_kind=ASSET_KIND_IMAGE)
+        await node._resolve_public_url_for_asset(ref, asset_kind=ASSET_KIND_IMAGE)
     assert upload_env.uploaded_keys == []
 
 
@@ -881,13 +884,14 @@ async def test_build_payload_does_not_register_assets_when_byok_enabled(
     ]
 
 
-def test_scratch_upload_parameters_are_removed_after_cleanup(upload_env) -> None:
+@pytest.mark.asyncio
+async def test_scratch_upload_parameters_are_removed_after_cleanup(upload_env) -> None:
     # Registering an asset whose media needs uploading creates a uniquely-named scratch
     # parameter. The cleanup must remove it so parameters don't accumulate across runs.
     node = Seedance20VideoGeneration(name="Seedance20")
 
     # A non-public (data URI) value forces the upload path that mints a scratch parameter.
-    public_url = node._resolve_public_url_for_asset(
+    public_url = await node._resolve_public_url_for_asset(
         create_provider_asset_reference(value="data:image/png;base64,AAAA", asset_kind=ASSET_KIND_IMAGE),
         asset_kind=ASSET_KIND_IMAGE,
     )
@@ -896,10 +900,44 @@ def test_scratch_upload_parameters_are_removed_after_cleanup(upload_env) -> None
     scratch_names = [name for _, name in node._pending_asset_uploads]
     assert scratch_names, "expected a scratch upload parameter to be created"
     assert all(node.get_parameter_by_name(name) is not None for name in scratch_names)
+    assert all(name in node.parameter_values for name in scratch_names)
 
-    # Run the cleanup the way _process_generation's finally block does.
-    for helper, scratch_name in node._pending_asset_uploads:
-        helper.delete_uploaded_artifact()
-        node.remove_parameter_element_by_name(scratch_name)
+    await node._cleanup_pending_asset_uploads()
 
     assert all(node.get_parameter_by_name(name) is None for name in scratch_names)
+    # A leftover value would be replayed onto the next run as a parameter that no longer exists.
+    assert all(name not in node.parameter_values for name in scratch_names)
+    assert node._pending_asset_uploads == []
+
+
+@pytest.mark.asyncio
+async def test_scratch_upload_parameters_are_removed_even_when_cleanup_is_cancelled(
+    upload_env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The engine can cancel a node again while its cleanup awaits the deletes.
+    node = Seedance20VideoGeneration(name="Seedance20")
+    await node._resolve_public_url_for_asset(
+        create_provider_asset_reference(value="data:image/png;base64,AAAA", asset_kind=ASSET_KIND_IMAGE),
+        asset_kind=ASSET_KIND_IMAGE,
+    )
+    scratch_names = [name for _, name in node._pending_asset_uploads]
+    assert scratch_names
+
+    deleting = asyncio.Event()
+
+    async def adelete_uploaded_artifact(_self: PublicArtifactUrlParameter) -> None:
+        deleting.set()
+        await asyncio.sleep(10)
+
+    monkeypatch.setattr(
+        PublicArtifactUrlParameter, "adelete_uploaded_artifact", adelete_uploaded_artifact, raising=False
+    )
+
+    task = asyncio.create_task(node._cleanup_pending_asset_uploads())
+    await asyncio.wait_for(deleting.wait(), timeout=5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert all(node.get_parameter_by_name(name) is None for name in scratch_names)
+    assert all(name not in node.parameter_values for name in scratch_names)

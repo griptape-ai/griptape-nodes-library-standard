@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import subprocess
 from typing import TYPE_CHECKING, Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -112,7 +113,7 @@ async def test_build_payload_rejects_a_resolution_the_endpoint_would_reject(
     node.parameter_values["resolution"] = "2560x1440"
 
     monkeypatch.setattr(node, "_validate_video_input", lambda _video: None)
-    monkeypatch.setattr(node, "_upload_video_to_public_url", lambda _video: "https://example.com/v.mp4")
+    monkeypatch.setattr(node, "_upload_video_to_public_url", AsyncMock(return_value="https://example.com/v.mp4"))
 
     with pytest.raises(ValueError, match="Unsupported resolution"):
         await node._build_payload()

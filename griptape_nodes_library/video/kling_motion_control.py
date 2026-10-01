@@ -16,6 +16,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, aget_public_url, gather_limited
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -169,8 +170,9 @@ class KlingMotionControl(GriptapeProxyNode):
             await super().aprocess()
         finally:
             # Always cleanup uploaded artifacts
-            self._public_image_url_parameter.delete_uploaded_artifact()
-            self._public_video_url_parameter.delete_uploaded_artifact()
+            await adelete_uploaded_artifacts(
+                (self._public_image_url_parameter, self._public_video_url_parameter), node_name=self.name
+            )
 
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
@@ -179,6 +181,11 @@ class KlingMotionControl(GriptapeProxyNode):
         """
         return "kling:motion-control"
 
+    async def _upload_reference(self, parameter_name: str, helper: PublicArtifactUrlParameter) -> str | None:
+        if not self.get_parameter_value(parameter_name):
+            return None
+        return await aget_public_url(helper)
+
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for Kling Motion Control API.
 
@@ -186,16 +193,12 @@ class KlingMotionControl(GriptapeProxyNode):
             dict: The request payload (model field excluded, handled by base class)
         """
         # Get image parameter - use PublicArtifactUrlParameter to get public URL
-        reference_image_param = self.get_parameter_value("reference_image")
-        image_url = None
-        if reference_image_param:
-            image_url = self._public_image_url_parameter.get_public_url_for_parameter()
-
-        # Get video parameter - use PublicArtifactUrlParameter to get public URL
-        reference_video_param = self.get_parameter_value("reference_video")
-        video_url = None
-        if reference_video_param:
-            video_url = self._public_video_url_parameter.get_public_url_for_parameter()
+        image_url, video_url = await gather_limited(
+            [
+                self._upload_reference("reference_image", self._public_image_url_parameter),
+                self._upload_reference("reference_video", self._public_video_url_parameter),
+            ]
+        )
 
         keep_sound = self.get_parameter_value("keep_original_sound")
         if keep_sound is None:

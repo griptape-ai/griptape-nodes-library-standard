@@ -11,6 +11,7 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
 )
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri, is_public_https_domain_url
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, aget_public_url
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -60,22 +61,25 @@ class PublicVideoUrlMixin:
     def _reset_video_uploads(self) -> None:
         self._pending_video_uploads = []
 
-    def _cleanup_video_uploads(self) -> None:
+    async def _cleanup_video_uploads(self) -> None:
         """Delete uploaded Griptape Cloud artifacts and remove their scratch parameters.
 
         Each scratch parameter name is unique per upload, so leaving them would accumulate
         parameters on the node across runs.
         """
-        for helper, scratch_name in getattr(self, "_pending_video_uploads", []):
-            with suppress(Exception):
-                helper.delete_uploaded_artifact()
+        pending = getattr(self, "_pending_video_uploads", [])
+        self._pending_video_uploads = []
+        # Scratch parameters go first, because a second cancel can cut the awaited deletes short.
+        for _, scratch_name in pending:
             with suppress(Exception):
                 self.remove_parameter_element_by_name(scratch_name)  # type: ignore[attr-defined]
-        self._pending_video_uploads = []
+            # Removing the parameter leaves its value behind, which the next run would replay.
+            self.parameter_values.pop(scratch_name, None)  # type: ignore[attr-defined]
+        await adelete_uploaded_artifacts((helper for helper, _ in pending), node_name=self.name)  # type: ignore[attr-defined]
 
     async def _resolve_video_uri(self, video_input: Any) -> str:
         """Return the value for the proxy ``video_uri`` field (public URL or base64 data URI)."""
-        public_url = self._upload_video_to_public_url(video_input)
+        public_url = await self._upload_video_to_public_url(video_input)
         if public_url:
             return public_url
 
@@ -99,7 +103,7 @@ class PublicVideoUrlMixin:
             raise ValueError(msg)
         return data_uri
 
-    def _upload_video_to_public_url(self, video_input: Any) -> str | None:
+    async def _upload_video_to_public_url(self, video_input: Any) -> str | None:
         """Upload the video to Griptape Cloud and return a public URL, or None to fall back.
 
         Already-public remote https URLs pass through unchanged (LTX fetches them directly).
@@ -134,7 +138,7 @@ class PublicVideoUrlMixin:
             helper.add_input_parameters()
             self._pending_video_uploads.append((helper, scratch_name))
             self.set_parameter_value(scratch_name, video_value)  # type: ignore[attr-defined]
-            return helper.get_public_url_for_parameter()
+            return await aget_public_url(helper)
         except Exception as e:  # noqa: BLE001 - any upload failure should degrade to base64
             logger.warning(
                 "%s: public-URL upload failed, falling back to base64: %s",

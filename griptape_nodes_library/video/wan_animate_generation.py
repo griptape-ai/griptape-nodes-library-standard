@@ -19,6 +19,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, aget_public_url, gather_limited
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.video_utils import get_video_duration
 
@@ -211,8 +212,9 @@ class WanAnimateGeneration(GriptapeProxyNode):
         try:
             await super()._process_generation()
         finally:
-            self._public_image_url_parameter.delete_uploaded_artifact()
-            self._public_video_url_parameter.delete_uploaded_artifact()
+            await adelete_uploaded_artifacts(
+                (self._public_image_url_parameter, self._public_video_url_parameter), node_name=self.name
+            )
 
     async def _get_parameters(self) -> dict[str, Any]:
         # The DashScope Animate endpoint requires a real video URL, so the
@@ -273,6 +275,12 @@ class WanAnimateGeneration(GriptapeProxyNode):
             return raw
         return None
 
+    async def _upload_input(self, helper: PublicArtifactUrlParameter, empty_message: str) -> str:
+        url = await aget_public_url(helper)
+        if not url:
+            raise ValueError(empty_message)
+        return url
+
     async def _build_payload(self) -> dict[str, Any]:
         params = await self._get_parameters()
 
@@ -282,15 +290,12 @@ class WanAnimateGeneration(GriptapeProxyNode):
         # HTTP URLs there; ``data:`` URIs come back as ``InvalidVideo.FileFormat``.
         # Upload via ``PublicArtifactUrlParameter`` so the request carries a
         # short-lived public URL the provider can fetch.
-        image_url = self._public_image_url_parameter.get_public_url_for_parameter()
-        if not image_url:
-            msg = "Failed to upload input image"
-            raise ValueError(msg)
-
-        video_url = self._public_video_url_parameter.get_public_url_for_parameter()
-        if not video_url:
-            msg = "Failed to upload input video"
-            raise ValueError(msg)
+        image_url, video_url = await gather_limited(
+            [
+                self._upload_input(self._public_image_url_parameter, "Failed to upload input image"),
+                self._upload_input(self._public_video_url_parameter, "Failed to upload input video"),
+            ]
+        )
 
         return {
             "input": {
