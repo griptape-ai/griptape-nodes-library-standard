@@ -30,7 +30,7 @@
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
     "library_version": "0.87.0",
-    "engine_version": "0.99.0",
+    "engine_version": "0.103.0",
     "tags": [
       "Griptape",
       "AI"
@@ -86,6 +86,18 @@
                 "display_name": "Claude Haiku 4.5",
                 "family": "Claude 4",
                 "provider_model_id": "claude-haiku-4-5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_claude_sonnet_5_5": {
+                "display_name": "Claude Sonnet 5.5",
+                "family": "Claude 5",
+                "provider_model_id": "claude-sonnet-5-5",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_claude_opus_5_5": {
+                "display_name": "Claude Opus 5.5",
+                "family": "Claude 5",
+                "provider_model_id": "claude-opus-5-5",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_claude_opus_5": {
@@ -228,6 +240,18 @@
           "openai": {
             "display_name": "OpenAI",
             "models": {
+              "gtc_gpt_6_sol": {
+                "display_name": "GPT-6 Sol",
+                "family": "GPT",
+                "provider_model_id": "gpt-6-sol",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_6_luna": {
+                "display_name": "GPT-6 Luna",
+                "family": "GPT",
+                "provider_model_id": "gpt-6-luna",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
               "gtc_gpt_5_6_sol": {
                 "display_name": "GPT-5.6 Sol",
                 "family": "GPT",
@@ -2102,6 +2126,8 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_claude_sonnet_5",
+              "gtc_claude_sonnet_5_5",
+              "gtc_claude_opus_5_5",
               "gtc_claude_opus_5",
               "gtc_claude_haiku_4_5",
               "gtc_gemini_3_6_flash",
@@ -2113,6 +2139,8 @@
               "gtc_gemini_2_5_pro",
               "gtc_gemini_2_5_flash",
               "gtc_gemini_2_5_flash_lite",
+              "gtc_gpt_6_sol",
+              "gtc_gpt_6_luna",
               "gtc_gpt_5_6_sol",
               "gtc_gpt_5_6_terra",
               "gtc_gpt_5_6_luna",
@@ -4446,6 +4474,8 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_claude_sonnet_5",
+              "gtc_claude_sonnet_5_5",
+              "gtc_claude_opus_5_5",
               "gtc_claude_opus_5",
               "gtc_claude_haiku_4_5",
               "gtc_gemini_3_6_flash",
@@ -4457,6 +4487,8 @@
               "gtc_gemini_2_5_pro",
               "gtc_gemini_2_5_flash",
               "gtc_gemini_2_5_flash_lite",
+              "gtc_gpt_6_sol",
+              "gtc_gpt_6_luna",
               "gtc_gpt_5_6_sol",
               "gtc_gpt_5_6_terra",
               "gtc_gpt_5_6_luna",
@@ -4720,6 +4752,8 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_claude_sonnet_5",
+              "gtc_claude_sonnet_5_5",
+              "gtc_claude_opus_5_5",
               "gtc_claude_opus_5",
               "gtc_gemini_3_6_flash",
               "gtc_gemini_3_5_flash",
@@ -4730,6 +4764,8 @@
               "gtc_gemini_2_5_pro",
               "gtc_gemini_2_5_flash",
               "gtc_gemini_2_5_flash_lite",
+              "gtc_gpt_6_sol",
+              "gtc_gpt_6_luna",
               "gtc_gpt_5_6_sol",
               "gtc_gpt_5_6_terra",
               "gtc_gpt_5_6_luna",

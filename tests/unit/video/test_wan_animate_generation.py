@@ -199,9 +199,11 @@ async def test_build_payload_normalizes_serialized_artifact_dicts(monkeypatch: p
 
     # The dict was unwrapped to its inner string before duration probing.
     assert seen_duration_url == ["/abs/path/reference.mp4"]
-    # Both parameters are now plain strings the upload helpers can consume.
-    assert node.get_parameter_value("image_url") == "/abs/path/source.png"
-    assert node.get_parameter_value("video_url") == "/abs/path/reference.mp4"
+    # Both parameters now hold the inner path rather than the serialized dict.
+    for name, path in (("image_url", "/abs/path/source.png"), ("video_url", "/abs/path/reference.mp4")):
+        value = node.get_parameter_value(name)
+        assert not isinstance(value, dict)
+        assert getattr(value, "value", value) == path
     assert payload["input"] == {
         "image_url": "https://public.example/source.png",
         "video_url": "https://public.example/reference.mp4",

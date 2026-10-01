@@ -25,6 +25,7 @@ from griptape_nodes_library.utils.situation_utils import (
 )
 
 PREVIEW_LENGTH = 50
+DEFAULT_FILENAME = "griptape_nodes.png"
 
 
 class SaveImageStatus(StrEnum):
@@ -66,7 +67,7 @@ class SaveImage(SuccessFailureNode):
         self._output_file = ProjectFileParameter(
             node=self,
             name="output_file",
-            default_filename="griptape_nodes.png",
+            default_filename=DEFAULT_FILENAME,
         )
         add_situation_parameter(self, self._output_file)
         self._output_file.add_parameter()
@@ -74,7 +75,7 @@ class SaveImage(SuccessFailureNode):
     def _get_target_pil_format(self) -> str:
         """Determine the target PIL format string from the output_file parameter."""
         param_value = self.get_parameter_value("output_file")
-        filename = param_value if isinstance(param_value, str) and param_value else self._output_file._default_filename
+        filename = param_value if isinstance(param_value, str) and param_value else DEFAULT_FILENAME
         ext = Path(filename).suffix.lstrip(".").upper()
         return "JPEG" if ext == "JPG" else ext
 

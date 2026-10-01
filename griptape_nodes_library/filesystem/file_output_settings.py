@@ -20,7 +20,8 @@ from griptape_nodes.exe_types.param_types.parameter_button import ParameterButto
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import FileDestination
 from griptape_nodes.files.path_utils import FilenameParts
-from griptape_nodes.files.project_file import FALLBACK_MACRO_TEMPLATE, SITUATION_TO_FILE_POLICY, ProjectFileDestination
+from griptape_nodes.files.project_file import FALLBACK_MACRO_TEMPLATE, ProjectFileDestination
+from griptape_nodes.files.situation_resolver import SITUATION_TO_FILE_POLICY
 from griptape_nodes.retained_mode.events.connection_events import (
     ListConnectionsForNodeRequest,
     ListConnectionsForNodeResultSuccess,

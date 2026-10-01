@@ -11,18 +11,18 @@ snapshot) is covered in the engine test suite.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
+from griptape_nodes.retained_mode.engine import Engine
 from griptape_nodes.retained_mode.events.access_events import (
     ModelAccessVerdict,
     QueryModelAccessForNodeRequest,
     QueryModelAccessForNodeResultSuccess,
 )
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.managers.authorization_checkpoint import CheckpointDenial, CheckpointFailure
 from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
@@ -49,11 +49,11 @@ class _ModelNode(DataNode):
 @pytest.fixture
 def stub_access_query(monkeypatch: pytest.MonkeyPatch) -> None:
     """Answer every access query with `kling-v3` denied and `kling-v2-6` allowed."""
-    original_handle_request = GriptapeNodes.handle_request
+    original_handle_request = Engine.handle_request
 
-    def handle_request(request: RequestPayload, **kwargs: Any) -> ResultPayload:
+    def handle_request(engine: Engine, request: RequestPayload) -> ResultPayload:
         if not isinstance(request, QueryModelAccessForNodeRequest):
-            return original_handle_request(request, **kwargs)
+            return original_handle_request(engine, request)
         choices = MODEL_CHOICES
         if request.candidate_model_ids is not None:
             catalog_ids = set(request.candidate_model_ids)
@@ -70,7 +70,7 @@ def stub_access_query(monkeypatch: pytest.MonkeyPatch) -> None:
             ],
         )
 
-    monkeypatch.setattr(GriptapeNodes, "handle_request", handle_request)
+    monkeypatch.setattr(Engine, "handle_request", handle_request)
 
 
 def _build_node_with_dropdown(*, default_model: str) -> tuple[_ModelNode, Parameter]:
