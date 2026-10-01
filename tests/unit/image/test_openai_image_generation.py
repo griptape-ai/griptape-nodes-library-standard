@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -373,6 +374,45 @@ async def test_build_payload_raises_for_invalid_input_image(
 
     with pytest.raises(ValueError, match="Failed to prepare input image"):
         await node._build_payload()
+
+
+@pytest.mark.asyncio
+async def test_scratch_parameters_removed_even_when_cleanup_is_cancelled(
+    node: OpenAiImageGeneration, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The engine can cancel a node again while its cleanup awaits the deletes.
+    deleting = asyncio.Event()
+
+    async def aget_public_url(_helper: PublicArtifactUrlParameter) -> str:
+        return "https://public.example/uploaded.png"
+
+    async def adelete_uploaded_artifact(_helper: PublicArtifactUrlParameter) -> None:
+        deleting.set()
+        await asyncio.sleep(10)
+
+    node_module = sys.modules[type(node).__module__]
+    monkeypatch.setattr(node_module, "aget_public_url", aget_public_url)
+    monkeypatch.setattr(node_module, "adelete_uploaded_artifact", adelete_uploaded_artifact)
+    node.set_parameter_value("input_images", [ImageArtifact(value=b"bytes", format="png", width=1, height=1)])
+
+    captured: dict[str, list[str]] = {}
+
+    async def fake_base_generation(self: OpenAiImageGeneration) -> None:
+        await self._build_input_images_payload()
+        captured["scratch_names"] = [name for _, name in self._pending_reference_uploads]
+
+    monkeypatch.setattr(GriptapeProxyNode, "_process_generation", fake_base_generation)
+
+    task = asyncio.create_task(node._process_generation())
+    await asyncio.wait_for(deleting.wait(), timeout=5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    scratch_names = captured["scratch_names"]
+    assert scratch_names
+    assert all(node.get_parameter_by_name(name) is None for name in scratch_names)
+    assert all(name not in node.parameter_values for name in scratch_names)
 
 
 @pytest.mark.asyncio

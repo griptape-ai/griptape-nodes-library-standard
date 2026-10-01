@@ -530,12 +530,14 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             # unique per upload, so leaving it would accumulate parameters on the node across runs.
             pending = self._pending_reference_uploads
             self._pending_reference_uploads = []
-            await asyncio.gather(*(adelete_uploaded_artifact(helper) for helper, _ in pending), return_exceptions=True)
+            # Scratch parameters go first: the awaited deletes below can be cut short by a second
+            # cancel, and the deletes themselves carry on in the background regardless.
             for _, scratch_name in pending:
                 with suppress(Exception):
                     self.remove_parameter_element_by_name(scratch_name)
                 # Removing the parameter leaves its value behind, which the next run would replay.
                 self.parameter_values.pop(scratch_name, None)
+            await asyncio.gather(*(adelete_uploaded_artifact(helper) for helper, _ in pending), return_exceptions=True)
 
     async def _build_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
