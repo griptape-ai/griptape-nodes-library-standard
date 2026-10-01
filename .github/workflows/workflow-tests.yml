@@ -42,10 +42,12 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
-        run: uv pip install --system griptape-nodes pytest pytest-asyncio pytest-timeout python-dotenv
+        run: uv pip install --system griptape-nodes pytest pytest-asyncio pytest-timeout pytest-xdist python-dotenv
 
       - name: Run workflow tests
         # --timeout-method=signal so a single hung provider fails one test
         # rather than killing the whole pytest run; --timeout-method=thread
         # cannot preempt the asyncio event loop.
-        run: pytest -v --timeout=900 --timeout-method=signal tests/workflows
+        # Tests mostly wait on provider generations, so workers outnumber CPUs.
+        # 8 stays under the CI org's 16 concurrent proxy generations.
+        run: pytest -v -n 8 --dist worksteal --timeout=900 --timeout-method=signal tests/workflows

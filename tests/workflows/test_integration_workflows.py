@@ -12,7 +12,7 @@ def get_integration_workflows() -> list[tuple[str, dict]]:
     workflows_dir = Path(__file__).parents[1] / "integration"
     return [
         (str(f), FLOW_INPUTS.get(f.name, {}))
-        for f in workflows_dir.iterdir()
+        for f in sorted(workflows_dir.iterdir())
         if f.is_file() and f.suffix == ".py" and f.name.startswith("test_")
     ]
 

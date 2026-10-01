@@ -61,6 +61,7 @@ dev = [
   "ruff>=0.8.0",
   "pytest",
   "lxml-stubs>=0.5.1",
+  "pytest-xdist>=3.8.0",
 ]
 
 [tool.pyright]
