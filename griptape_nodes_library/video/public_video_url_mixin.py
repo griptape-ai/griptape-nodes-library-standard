@@ -11,7 +11,7 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
 )
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri, is_public_https_domain_url
-from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, aget_public_url
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -138,7 +138,7 @@ class PublicVideoUrlMixin:
             helper.add_input_parameters()
             self._pending_video_uploads.append((helper, scratch_name))
             self.set_parameter_value(scratch_name, video_value)  # type: ignore[attr-defined]
-            return await aget_public_url(helper)
+            return await helper.aget_public_url_for_parameter()
         except Exception as e:  # noqa: BLE001 - any upload failure should degrade to base64
             logger.warning(
                 "%s: public-URL upload failed, falling back to base64: %s",

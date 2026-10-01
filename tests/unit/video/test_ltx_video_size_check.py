@@ -34,9 +34,12 @@ _LARGE_DATA_URI = "data:video/mp4;base64," + "A" * _LARGE_B64_LEN
 _PUBLIC_URL = "https://storage.griptapecloud.com/bucket/video.mp4?sig=abc123"
 
 
-def _sync_only_helper() -> MagicMock:
-    """A PublicArtifactUrlParameter stand-in offering only the blocking methods, as older engines do."""
-    return MagicMock(spec=["add_input_parameters", "get_public_url_for_parameter", "delete_uploaded_artifact"])
+def _upload_helper() -> MagicMock:
+    """A PublicArtifactUrlParameter stand-in whose async methods defer to the sync mocks tests configure."""
+    helper = MagicMock()
+    helper.aget_public_url_for_parameter = AsyncMock(side_effect=lambda: helper.get_public_url_for_parameter())
+    helper.adelete_uploaded_artifact = AsyncMock(side_effect=lambda: helper.delete_uploaded_artifact())
+    return helper
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +224,7 @@ async def test_upload_uploads_localhost_url(monkeypatch: pytest.MonkeyPatch) -> 
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
 
-    helper = _sync_only_helper()
+    helper = _upload_helper()
     helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
     monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
     monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
@@ -240,7 +243,7 @@ async def test_upload_uploads_plain_http_url(monkeypatch: pytest.MonkeyPatch) ->
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
 
-    helper = _sync_only_helper()
+    helper = _upload_helper()
     helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
     monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
     monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
@@ -257,7 +260,7 @@ async def test_upload_uploads_ip_address_url(monkeypatch: pytest.MonkeyPatch) ->
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
 
-    helper = _sync_only_helper()
+    helper = _upload_helper()
     helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
     monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
     monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
@@ -274,7 +277,7 @@ async def test_upload_uploads_zero_zero_ip_url(monkeypatch: pytest.MonkeyPatch) 
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
 
-    helper = _sync_only_helper()
+    helper = _upload_helper()
     helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
     monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
     monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
@@ -291,7 +294,7 @@ async def test_upload_uploads_bare_hostname_url(monkeypatch: pytest.MonkeyPatch)
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
 
-    helper = _sync_only_helper()
+    helper = _upload_helper()
     helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
     monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
     monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
@@ -330,7 +333,7 @@ async def test_cleanup_deletes_artifacts_and_removes_scratch_params() -> None:
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
 
-    helper = _sync_only_helper()
+    helper = _upload_helper()
     node._pending_video_uploads.append((helper, "_video_upload_deadbeef"))
     node.parameter_values["_video_upload_deadbeef"] = "/tmp/video.mp4"  # noqa: S108
 

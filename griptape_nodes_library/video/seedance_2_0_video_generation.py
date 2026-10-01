@@ -31,7 +31,6 @@ from griptape_nodes_library.assets import (
     get_provider_asset_kind,
     is_provider_asset_reference,
 )
-from griptape_nodes_library.media.public_urls import aget_public_url
 from griptape_nodes_library.proxy import ArtifactKind
 from griptape_nodes_library.video.seedance_common import (
     SeedanceProxyNode,
@@ -910,7 +909,7 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
             return None
 
         try:
-            public_url = await aget_public_url(helper)
+            public_url = await helper.aget_public_url_for_parameter()
         except Exception as e:
             self._log(f"{self.name} failed to prepare public URL for {parameter_name}: {e}")
             return None

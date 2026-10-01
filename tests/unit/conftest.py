@@ -74,12 +74,9 @@ def stub_public_artifact_bucket_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         PublicArtifactUrlParameter, "_get_bucket_id", staticmethod(lambda *_args, **_kwargs: "test-bucket")
     )
-    # Engines with async uploads resolve the bucket through this instead (griptape-nodes-engine#5731).
+    # The async upload path resolves the bucket through this instead.
     monkeypatch.setattr(
-        PublicArtifactUrlParameter,
-        "_resolve_bucket_id",
-        staticmethod(lambda *_args, **_kwargs: "test-bucket"),
-        raising=False,
+        PublicArtifactUrlParameter, "_resolve_bucket_id", staticmethod(lambda *_args, **_kwargs: "test-bucket")
     )
 
 
@@ -87,9 +84,8 @@ def stub_public_artifact_bucket_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
 def route_async_public_urls_through_sync(monkeypatch: pytest.MonkeyPatch) -> None:
     """Send the async upload and delete through the sync methods tests patch.
 
-    Nodes call the async variants where the engine has them, so a test that patches
-    `get_public_url_for_parameter` or `delete_uploaded_artifact` holds on any engine version.
-    The async engine path itself is the engine's to test.
+    Nodes call the async variants, so a test that patches `get_public_url_for_parameter` or
+    `delete_uploaded_artifact` still intercepts them. The async engine path is the engine's to test.
     """
 
     async def aget_public_url_for_parameter(self: PublicArtifactUrlParameter) -> str:
@@ -98,12 +94,8 @@ def route_async_public_urls_through_sync(monkeypatch: pytest.MonkeyPatch) -> Non
     async def adelete_uploaded_artifact(self: PublicArtifactUrlParameter) -> None:
         self.delete_uploaded_artifact()
 
-    monkeypatch.setattr(
-        PublicArtifactUrlParameter, "aget_public_url_for_parameter", aget_public_url_for_parameter, raising=False
-    )
-    monkeypatch.setattr(
-        PublicArtifactUrlParameter, "adelete_uploaded_artifact", adelete_uploaded_artifact, raising=False
-    )
+    monkeypatch.setattr(PublicArtifactUrlParameter, "aget_public_url_for_parameter", aget_public_url_for_parameter)
+    monkeypatch.setattr(PublicArtifactUrlParameter, "adelete_uploaded_artifact", adelete_uploaded_artifact)
 
 
 @pytest.fixture

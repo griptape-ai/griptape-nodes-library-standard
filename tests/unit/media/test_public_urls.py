@@ -6,38 +6,7 @@ from typing import Any
 
 import pytest
 
-from griptape_nodes_library.media.public_urls import (
-    adelete_uploaded_artifact,
-    adelete_uploaded_artifacts,
-    aget_public_url,
-    gather_limited,
-)
-
-
-class TestEngineCompatibility:
-    @pytest.mark.asyncio
-    async def test_prefers_the_async_upload(self) -> None:
-        async def aget() -> str:
-            return "https://async"
-
-        helper: Any = SimpleNamespace(aget_public_url_for_parameter=aget, get_public_url_for_parameter=lambda: "sync")
-
-        assert await aget_public_url(helper) == "https://async"
-
-    @pytest.mark.asyncio
-    async def test_falls_back_to_the_blocking_upload(self) -> None:
-        helper: Any = SimpleNamespace(get_public_url_for_parameter=lambda: "https://sync")
-
-        assert await aget_public_url(helper) == "https://sync"
-
-    @pytest.mark.asyncio
-    async def test_delete_falls_back_to_the_blocking_delete(self) -> None:
-        deleted: list[bool] = []
-        helper: Any = SimpleNamespace(delete_uploaded_artifact=lambda: deleted.append(True))
-
-        await adelete_uploaded_artifact(helper)
-
-        assert deleted == [True]
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, gather_limited
 
 
 class TestGatherLimited:
@@ -113,13 +82,16 @@ class TestDeleteAll:
     async def test_one_failed_delete_does_not_skip_the_rest(self, caplog: pytest.LogCaptureFixture) -> None:
         deleted: list[str] = []
 
-        def fail() -> None:
+        async def fail() -> None:
             msg = "delete failed"
             raise RuntimeError(msg)
 
+        async def delete_second() -> None:
+            deleted.append("second")
+
         helpers: list[Any] = [
-            SimpleNamespace(delete_uploaded_artifact=fail),
-            SimpleNamespace(delete_uploaded_artifact=lambda: deleted.append("second")),
+            SimpleNamespace(adelete_uploaded_artifact=fail),
+            SimpleNamespace(adelete_uploaded_artifact=delete_second),
         ]
 
         await adelete_uploaded_artifacts(helpers, node_name="Node")

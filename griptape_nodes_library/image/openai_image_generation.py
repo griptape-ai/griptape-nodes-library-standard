@@ -21,7 +21,7 @@ from griptape_nodes.node_library import library_registry
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
-from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, aget_public_url, gather_limited
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, gather_limited
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -685,7 +685,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         self._pending_reference_uploads.append((helper, scratch_name))
         self.set_parameter_value(scratch_name, image_value)
 
-        return await aget_public_url(helper)
+        return await helper.aget_public_url_for_parameter()
 
     def _extract_input_image_value(self, image_input: Any) -> str | None:
         if isinstance(image_input, str):

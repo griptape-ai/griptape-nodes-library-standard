@@ -929,9 +929,7 @@ async def test_scratch_upload_parameters_are_removed_even_when_cleanup_is_cancel
         deleting.set()
         await asyncio.sleep(10)
 
-    monkeypatch.setattr(
-        PublicArtifactUrlParameter, "adelete_uploaded_artifact", adelete_uploaded_artifact, raising=False
-    )
+    monkeypatch.setattr(PublicArtifactUrlParameter, "adelete_uploaded_artifact", adelete_uploaded_artifact)
 
     task = asyncio.create_task(node._cleanup_pending_asset_uploads())
     await asyncio.wait_for(deleting.wait(), timeout=5)

@@ -24,7 +24,6 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
-from griptape_nodes_library.media.public_urls import adelete_uploaded_artifact, aget_public_url
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -414,7 +413,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             await super().aprocess()
         finally:
             # Always cleanup uploaded video artifact
-            await adelete_uploaded_artifact(self._public_video_url_parameter)
+            await self._public_video_url_parameter.adelete_uploaded_artifact()
 
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
@@ -534,7 +533,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         reference_video_param = self.get_parameter_value("reference_video")
         reference_video_url = None
         if reference_video_param:
-            reference_video_url = await aget_public_url(self._public_video_url_parameter)
+            reference_video_url = await self._public_video_url_parameter.aget_public_url_for_parameter()
 
         video_keep_sound = self.get_parameter_value("video_keep_sound")
         if video_keep_sound is None:

@@ -16,7 +16,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, aget_public_url, gather_limited
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, gather_limited
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -184,7 +184,7 @@ class KlingMotionControl(GriptapeProxyNode):
     async def _upload_reference(self, parameter_name: str, helper: PublicArtifactUrlParameter) -> str | None:
         if not self.get_parameter_value(parameter_name):
             return None
-        return await aget_public_url(helper)
+        return await helper.aget_public_url_for_parameter()
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for Kling Motion Control API.

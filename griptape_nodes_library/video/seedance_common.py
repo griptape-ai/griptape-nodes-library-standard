@@ -46,7 +46,7 @@ from griptape_nodes_library.media import (
     is_publicly_reachable_url,
     prepare_media_data_uri,
 )
-from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, aget_public_url
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers_async
 
@@ -554,7 +554,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         self._pending_asset_uploads.append((helper, scratch_name))
         self.set_parameter_value(scratch_name, upload_value)
 
-        public_url = await aget_public_url(helper)
+        public_url = await helper.aget_public_url_for_parameter()
 
         # The engine's upload opens with its own "is this already public?" test, and in
         # engine 0.96.0 that test is the weak substring form this module no longer uses

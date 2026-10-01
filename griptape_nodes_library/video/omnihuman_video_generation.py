@@ -25,7 +25,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
 from PIL import Image
 
-from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, aget_public_url, gather_limited
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, gather_limited
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers_async
 from griptape_nodes_library.utils.image_utils import (
@@ -254,7 +254,7 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
             await resized_file.awrite_bytes(resized_bytes)
             self.set_parameter_value("image_url", ImageUrlArtifact(resized_file.location))
 
-        return await aget_public_url(self._public_image_url_parameter)
+        return await self._public_image_url_parameter.aget_public_url_for_parameter()
 
     def _resized_image_path(self) -> str:
         """Workspace path for the resized copy of the input image."""
@@ -372,7 +372,7 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         # OmniHuman downloads the image and audio server-side, so they need
         # publicly reachable URLs rather than inline data URIs.
         image_url, audio_url = await gather_limited(
-            [self._resolve_public_image_url(), aget_public_url(self._public_audio_url_parameter)]
+            [self._resolve_public_image_url(), self._public_audio_url_parameter.aget_public_url_for_parameter()]
         )
 
         # Handle artifacts

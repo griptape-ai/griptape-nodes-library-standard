@@ -14,7 +14,6 @@ from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
-from griptape_nodes_library.media.public_urls import adelete_uploaded_artifact, aget_public_url
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.image_utils import extract_image_url
 
@@ -117,7 +116,7 @@ class OmnihumanSubjectRecognition(GriptapeProxyNode):
         try:
             await super()._process_generation()
         finally:
-            await adelete_uploaded_artifact(self._public_image_url_parameter)
+            await self._public_image_url_parameter.adelete_uploaded_artifact()
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []
@@ -137,7 +136,7 @@ class OmnihumanSubjectRecognition(GriptapeProxyNode):
 
         # OmniHuman downloads the image server-side, so it needs a publicly
         # reachable URL rather than an inline data URI.
-        image_url = await aget_public_url(self._public_image_url_parameter)
+        image_url = await self._public_image_url_parameter.aget_public_url_for_parameter()
 
         return {
             "req_key": self._get_req_key(provider_model_id),

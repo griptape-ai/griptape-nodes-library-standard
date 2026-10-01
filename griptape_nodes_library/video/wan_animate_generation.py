@@ -19,7 +19,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
-from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, aget_public_url, gather_limited
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, gather_limited
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.video_utils import get_video_duration
 
@@ -276,7 +276,7 @@ class WanAnimateGeneration(GriptapeProxyNode):
         return None
 
     async def _upload_input(self, helper: PublicArtifactUrlParameter, empty_message: str) -> str:
-        url = await aget_public_url(helper)
+        url = await helper.aget_public_url_for_parameter()
         if not url:
             raise ValueError(empty_message)
         return url

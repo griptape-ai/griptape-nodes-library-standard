@@ -17,29 +17,12 @@ logger = logging.getLogger("griptape_nodes")
 MAX_CONCURRENT_UPLOADS = 4
 
 
-async def aget_public_url(helper: PublicArtifactUrlParameter) -> str:
-    # TODO: Call the async methods directly once the engine floor includes griptape-ai/griptape-nodes-engine#5731,
-    # which added them. Older engines only offer the blocking call.
-    aget = getattr(helper, "aget_public_url_for_parameter", None)
-    if aget is None:
-        return helper.get_public_url_for_parameter()
-    return await aget()
-
-
-async def adelete_uploaded_artifact(helper: PublicArtifactUrlParameter) -> None:
-    adelete = getattr(helper, "adelete_uploaded_artifact", None)
-    if adelete is None:
-        helper.delete_uploaded_artifact()
-        return
-    await adelete()
-
-
 async def adelete_uploaded_artifacts(helpers: Iterable[PublicArtifactUrlParameter], *, node_name: str) -> None:
     """Delete every helper's upload concurrently, logging failures instead of raising them.
 
     For cleanup paths: one failed delete must not skip the others or mask the run's own error.
     """
-    results = await asyncio.gather(*(adelete_uploaded_artifact(helper) for helper in helpers), return_exceptions=True)
+    results = await asyncio.gather(*(helper.adelete_uploaded_artifact() for helper in helpers), return_exceptions=True)
     for result in results:
         if isinstance(result, Exception):
             logger.warning("%s: failed to delete a temporary upload, so it stays in the bucket: %s", node_name, result)

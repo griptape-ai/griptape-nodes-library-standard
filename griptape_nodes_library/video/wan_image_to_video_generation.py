@@ -23,7 +23,6 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import prepare_media_data_uri
-from griptape_nodes_library.media.public_urls import adelete_uploaded_artifact
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -415,7 +414,7 @@ class WanImageToVideoGeneration(GriptapeProxyNode):
         try:
             await super()._process_generation()
         finally:
-            await adelete_uploaded_artifact(self._public_audio_url_parameter)
+            await self._public_audio_url_parameter.adelete_uploaded_artifact()
 
     def _get_parameters(self) -> dict[str, Any]:
         model = self.get_parameter_value("model")
