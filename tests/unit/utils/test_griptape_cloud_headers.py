@@ -561,7 +561,7 @@ SYNC_ENTRY_POINTS_THAT_BLOCK = {
     "agents/memory/replace_item_in_agent_memory.py:233 (process)": "unwrap_agent -> _restored_cloud_credentials; rewrites memory, sends nothing",
     "agents/memory/summarize_agent_memory.py:63 (process)": "_get_agent -> unwrap_agent",
     "config/image/griptape_cloud_image_driver.py:65 (process)": "cloud_driver_auth",
-    "config/prompt/griptape_cloud_prompt.py:113 (process)": "cloud_driver_auth",
+    "config/prompt/griptape_cloud_prompt.py:105 (process)": "cloud_driver_auth",
     "image/create_image.py:200 (process)": "cloud_driver_auth; unwrap_agent -> _restored_cloud_credentials",
     "image/describe_image.py:342 (process)": "cloud_driver_auth; build_tools; unwrap_agent -- three routes",
     "number/askulator.py:94 (process)": "create_driver -> cloud_driver_auth",
