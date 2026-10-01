@@ -235,3 +235,45 @@ class TestSetVariableEagerRegistration:
         assert _has_variable("X", flow), "Node A's variable was orphaned by Node C's edit"
         assert _has_variable("Y", flow)
         assert _has_variable("Z", flow)
+
+
+class TestSetVariableInSubflow:
+    """A SetVariable inside a subflow (a loop body, a group) names a variable its parent flow owns.
+
+    The node's lookup is hierarchical, so it already reaches the parent's variable. Naming it must
+    not register a second, empty one in the subflow, which every lookup from inside the subflow
+    would then find first.
+    """
+
+    SUBFLOW_NAME = "body"
+
+    @pytest.fixture
+    def subflow_node(self, flow: str) -> SetVariable:
+        subflow_result = GriptapeNodes.handle_request(
+            CreateFlowRequest(parent_flow_name=flow, flow_name=self.SUBFLOW_NAME)
+        )
+        assert isinstance(subflow_result, CreateFlowResultSuccess)
+        node_result = GriptapeNodes.handle_request(
+            CreateNodeRequest(node_type="SetVariable", override_parent_flow_name=self.SUBFLOW_NAME)
+        )
+        assert isinstance(node_result, CreateNodeResultSuccess)
+        return cast(SetVariable, GriptapeNodes.NodeManager().get_node_by_name(node_result.node_name))
+
+    def test_naming_a_parent_flow_variable_does_not_copy_it_into_the_subflow(
+        self, subflow_node: SetVariable, flow: str
+    ) -> None:
+        _add_to_dropdown(subflow_node, "outer", flow)
+
+        subflow_node.set_parameter_value("variable_name", "outer")
+
+        assert not _has_variable("outer", self.SUBFLOW_NAME)
+
+    @pytest.mark.asyncio
+    async def test_running_writes_the_parent_flow_variable(self, subflow_node: SetVariable, flow: str) -> None:
+        _add_to_dropdown(subflow_node, "outer", flow)
+        subflow_node.set_parameter_value("variable_name", "outer")
+        subflow_node.set_parameter_value("value", "from the subflow")
+
+        await subflow_node.aprocess()
+
+        assert _get_variable_value("outer", flow) == "from the subflow"

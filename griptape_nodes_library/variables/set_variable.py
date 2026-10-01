@@ -101,9 +101,15 @@ class SetVariable(ControlNode):
         self.add_node_element(advanced.parameter_group)
 
     def _get_variable_names(self) -> list[str]:
+        return list_variables(node_name=self.name, scope=self._get_lookup_scope())
+
+    def _get_lookup_scope(self) -> VariableScope:
+        # Read by name: the variable dropdown asks for this while __init__ is still building
+        # the parameters, before self.scope_param is assigned.
         scope_str = self.get_parameter_value("scope")
-        scope = scope_string_to_variable_scope(scope_str) if scope_str else VariableScope.HIERARCHICAL
-        return list_variables(node_name=self.name, scope=scope)
+        if not scope_str:
+            return VariableScope.HIERARCHICAL
+        return scope_string_to_variable_scope(scope_str)
 
     def _build_variable_data(self, names: list[str]) -> list[dict]:
         return [{"name": name} for name in names] + [{"name": CREATE_NEW_SENTINEL, "icon": "circle-plus"}]
@@ -197,11 +203,15 @@ class SetVariable(ControlNode):
         return value
 
     def _eager_create_variable(self, variable_name: str) -> None:
-        """Create the variable in the engine if it does not already exist in this flow."""
+        """Create the variable in the engine unless this node's lookup already finds one.
+
+        Inside a subflow (a loop body, a group) the variable is usually owned by a parent flow.
+        Creating another in the subflow would hide the parent's from every lookup made inside it.
+        """
         current_flow_name = _get_flow_for_node(self.name)
 
-        if has_variable(node_name=self.name, variable_name=variable_name, scope=VariableScope.CURRENT_FLOW_ONLY):
-            # Already exists in this flow; adopt it silently.
+        if has_variable(node_name=self.name, variable_name=variable_name, scope=self._get_lookup_scope()):
+            # Already reachable from this node; adopt it silently.
             return
 
         initial_value = self.get_parameter_value(self.value_param.name)
@@ -320,10 +330,8 @@ class SetVariable(ControlNode):
 
         variable_name = self._resolve_variable_name()
         if isinstance(variable_name, str) and variable_name:
-            scope_str = self.get_parameter_value(self.scope_param.name)
-            scope = scope_string_to_variable_scope(scope_str) if scope_str else VariableScope.HIERARCHICAL
             deps.variable_references.add(
-                VariableReference(name=variable_name, scope=scope, access=VariableAccess.READ_WRITE)
+                VariableReference(name=variable_name, scope=self._get_lookup_scope(), access=VariableAccess.READ_WRITE)
             )
 
         return deps
