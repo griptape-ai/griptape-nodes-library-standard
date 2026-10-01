@@ -24,7 +24,10 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
+from griptape_nodes_library.utils.griptape_cloud_headers import (
+    build_griptape_cloud_headers,
+    build_griptape_cloud_headers_async,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -145,7 +148,7 @@ async def fetch_hosted_artifacts(proxy_base: str, generation_id: str, api_key: s
     """
     url = urljoin(proxy_base, f"generations/{generation_id}/artifacts")
     # Reading the list costs nothing; the generation was paid for at submit.
-    headers = build_griptape_cloud_headers(api_key, attribution=False)
+    headers = await build_griptape_cloud_headers_async(api_key, attribution=False)
 
     try:
         async with httpx.AsyncClient() as client:

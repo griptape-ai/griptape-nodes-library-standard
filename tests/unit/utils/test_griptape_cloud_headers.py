@@ -391,12 +391,11 @@ def _sync_helpers_that_attribute() -> _Reach:
 
     Seeded on the *sites that attribute* rather than on the factory's name, which is the
     difference between this and a call graph rooted at `build_griptape_cloud_headers`. Rooting
-    it at the name counts `_list_models`, `get_bucket_list` and `check_provider_asset_access`,
-    all three of which build with `attribution=False` and therefore dispatch nothing. That
-    over-count is invisible while the consumer only asks about `process` bodies -- none of the
-    three is reachable from one -- and produces four bogus entries the moment the consumer asks
-    about lifecycle hooks, where all three are reached from an `__init__` or an
-    `after_value_set`. The seed is the honest root: a stall starts where a dispatch does.
+    it at the name counts `get_bucket_list` and `check_provider_asset_access`, both of which
+    build with `attribution=False` and therefore dispatch nothing. That over-count is invisible
+    while the consumer only asks about `process` bodies -- neither is reachable from one -- and
+    produces three bogus entries the moment the consumer asks about lifecycle hooks, where both
+    are reached from an `__init__` or an `after_value_set`. The seed is the honest root: a stall starts where a dispatch does.
     """
     functions = _library_functions()
     by_name = collections.Counter(function.name for function in functions.values())
@@ -562,7 +561,7 @@ SYNC_ENTRY_POINTS_THAT_BLOCK = {
     "agents/memory/replace_item_in_agent_memory.py:233 (process)": "unwrap_agent -> _restored_cloud_credentials; rewrites memory, sends nothing",
     "agents/memory/summarize_agent_memory.py:62 (process)": "_get_agent -> unwrap_agent",
     "config/image/griptape_cloud_image_driver.py:65 (process)": "cloud_driver_auth",
-    "config/prompt/griptape_cloud_prompt.py:111 (process)": "cloud_driver_auth",
+    "config/prompt/griptape_cloud_prompt.py:103 (process)": "cloud_driver_auth",
     "image/create_image.py:198 (process)": "cloud_driver_auth; unwrap_agent -> _restored_cloud_credentials",
     "image/describe_image.py:342 (process)": "cloud_driver_auth; build_tools; unwrap_agent -- three routes",
     "number/askulator.py:92 (process)": "create_driver -> cloud_driver_auth",
@@ -605,14 +604,14 @@ def test_a_free_build_is_not_a_stall() -> None:
     """Pins the flag-awareness of the seed, which is otherwise invisible in the maps above.
 
     A census rooted at the factory's name rather than at the attributing call sites reports
-    four entry points that dispatch nothing -- two `__init__`s reaching `_list_models` and
-    `get_bucket_list`, and the `seedance_human_reference_asset` probe pair reaching
-    `check_provider_asset_access`. All four build with `attribution=False`. They are the
+    three entry points that dispatch nothing -- an `__init__` reaching `get_bucket_list`, and
+    the `seedance_human_reference_asset` probe pair reaching `check_provider_asset_access`. All
+    three build with `attribution=False`. They are the
     difference between a map that says where the loop stalls and one that says where a dict
     gets built, and nothing else in this file would notice the seed drifting back.
     """
     reach = _sync_helpers_that_attribute()
-    free_builders = {"_list_models", "get_bucket_list", "check_provider_asset_access"}
+    free_builders = {"get_bucket_list", "check_provider_asset_access"}
 
     assert not (free_builders & reach.everywhere)
     assert not {name for _, name in reach.in_file} & free_builders
