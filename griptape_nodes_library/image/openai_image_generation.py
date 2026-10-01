@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from contextlib import suppress
@@ -22,7 +21,7 @@ from griptape_nodes.node_library import library_registry
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
-from griptape_nodes_library.media.public_urls import adelete_uploaded_artifact, aget_public_url, gather_limited
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, aget_public_url, gather_limited
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -530,14 +529,13 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             # unique per upload, so leaving it would accumulate parameters on the node across runs.
             pending = self._pending_reference_uploads
             self._pending_reference_uploads = []
-            # Scratch parameters go first: the awaited deletes below can be cut short by a second
-            # cancel, and the deletes themselves carry on in the background regardless.
+            # Scratch parameters go first, because a second cancel can cut the awaited deletes short.
             for _, scratch_name in pending:
                 with suppress(Exception):
                     self.remove_parameter_element_by_name(scratch_name)
                 # Removing the parameter leaves its value behind, which the next run would replay.
                 self.parameter_values.pop(scratch_name, None)
-            await asyncio.gather(*(adelete_uploaded_artifact(helper) for helper, _ in pending), return_exceptions=True)
+            await adelete_uploaded_artifacts((helper for helper, _ in pending), node_name=self.name)
 
     async def _build_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {

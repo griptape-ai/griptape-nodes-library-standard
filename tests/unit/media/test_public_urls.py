@@ -6,7 +6,12 @@ from typing import Any
 
 import pytest
 
-from griptape_nodes_library.media.public_urls import adelete_uploaded_artifact, aget_public_url, gather_limited
+from griptape_nodes_library.media.public_urls import (
+    adelete_uploaded_artifact,
+    adelete_uploaded_artifacts,
+    aget_public_url,
+    gather_limited,
+)
 
 
 class TestEngineCompatibility:
@@ -79,3 +84,45 @@ class TestGatherLimited:
             await gather_limited([slow(), fail()])
 
         assert stopped == ["slow"]
+
+
+class TestGatherLimitedQueuedCoroutines:
+    @pytest.mark.asyncio
+    async def test_queued_coroutines_are_closed_after_a_failure(self) -> None:
+        started: list[int] = []
+
+        async def work(index: int) -> None:
+            started.append(index)
+            if index == 0:
+                msg = "upload failed"
+                raise ValueError(msg)
+            await asyncio.sleep(5)
+
+        coros = [work(index) for index in range(6)]
+        with pytest.raises(ValueError, match="upload failed"):
+            await gather_limited(coros, limit=2)
+
+        # Some were still queued when the failure cancelled the rest, and every one was closed
+        # rather than left unawaited.
+        assert len(started) < len(coros)
+        assert all(coro.cr_frame is None for coro in coros)
+
+
+class TestDeleteAll:
+    @pytest.mark.asyncio
+    async def test_one_failed_delete_does_not_skip_the_rest(self, caplog: pytest.LogCaptureFixture) -> None:
+        deleted: list[str] = []
+
+        def fail() -> None:
+            msg = "delete failed"
+            raise RuntimeError(msg)
+
+        helpers: list[Any] = [
+            SimpleNamespace(delete_uploaded_artifact=fail),
+            SimpleNamespace(delete_uploaded_artifact=lambda: deleted.append("second")),
+        ]
+
+        await adelete_uploaded_artifacts(helpers, node_name="Node")
+
+        assert deleted == ["second"]
+        assert "delete failed" in caplog.text
