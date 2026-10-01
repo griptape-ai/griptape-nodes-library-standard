@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from griptape.artifacts import ImageArtifact
@@ -23,6 +24,9 @@ from griptape_nodes_library.image.openai_image_generation import (
 )
 from griptape_nodes_library.proxy.griptape_proxy_node import GriptapeProxyNode
 from griptape_nodes_library.proxy.hosted_artifacts import HostedArtifact
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 LIBRARY_NAME = "Griptape Nodes Library"
 
@@ -288,18 +292,34 @@ async def test_build_payload_sends_new_aspect_ratio_to_api(node: OpenAiImageGene
     assert payload["size"] == "1792x1024"
 
 
+def _stub_uploads(
+    node: OpenAiImageGeneration,
+    monkeypatch: pytest.MonkeyPatch,
+    get_url: Callable[[PublicArtifactUrlParameter], str],
+    deleted: list[PublicArtifactUrlParameter] | None = None,
+) -> None:
+    """Stub reference uploads through the node's helpers, so tests hold on any engine version."""
+
+    async def aget_public_url(helper: PublicArtifactUrlParameter) -> str:
+        return get_url(helper)
+
+    async def adelete_uploaded_artifact(helper: PublicArtifactUrlParameter) -> None:
+        if deleted is not None:
+            deleted.append(helper)
+
+    # The registry loads the node's module under its own name, so patch that module, not the import path.
+    node_module = sys.modules[type(node).__module__]
+    monkeypatch.setattr(node_module, "aget_public_url", aget_public_url)
+    monkeypatch.setattr(node_module, "adelete_uploaded_artifact", adelete_uploaded_artifact)
+
+
 @pytest.mark.asyncio
 async def test_build_payload_uploads_reference_image_and_sends_public_url(
     node: OpenAiImageGeneration, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Reference images are uploaded to Griptape Cloud and passed to the proxy as public URLs
     # rather than base64-inlined into the request body.
-    monkeypatch.setattr(
-        PublicArtifactUrlParameter,
-        "get_public_url_for_parameter",
-        lambda self: "https://public.example/reference.png",
-    )
-    monkeypatch.setattr(PublicArtifactUrlParameter, "delete_uploaded_artifact", lambda self: None)
+    _stub_uploads(node, monkeypatch, lambda _helper: "https://public.example/reference.png")
 
     node.set_parameter_value("model", "GPT Image 1")
     node.set_parameter_value("prompt", "Use the artifact image")
@@ -323,7 +343,7 @@ async def test_build_payload_passes_public_url_reference_through_unchanged(
         msg = "should not upload an already-public URL"
         raise AssertionError(msg)
 
-    monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", fail_if_uploaded)
+    _stub_uploads(node, monkeypatch, fail_if_uploaded)
 
     node.set_parameter_value("model", "GPT Image 1.5")
     node.set_parameter_value("prompt", "Use the reference image")
@@ -344,8 +364,7 @@ async def test_build_payload_raises_for_invalid_input_image(
         msg = "file not found"
         raise RuntimeError(msg)
 
-    monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", raise_load_error)
-    monkeypatch.setattr(PublicArtifactUrlParameter, "delete_uploaded_artifact", lambda self: None)
+    _stub_uploads(node, monkeypatch, raise_load_error)
 
     node.set_parameter_value("model", "GPT Image 1.5")
     node.set_parameter_value("prompt", "Use the reference image")
@@ -364,13 +383,8 @@ async def test_reference_upload_scratch_parameters_removed_after_generation(
     # Each uploaded reference creates a uniquely-named scratch parameter; _process_generation's
     # finally block must remove it so parameters don't accumulate across runs — even when the
     # underlying generation raises.
-    monkeypatch.setattr(
-        PublicArtifactUrlParameter,
-        "get_public_url_for_parameter",
-        lambda self: "https://public.example/uploaded.png",
-    )
     delete_calls: list[PublicArtifactUrlParameter] = []
-    monkeypatch.setattr(PublicArtifactUrlParameter, "delete_uploaded_artifact", lambda self: delete_calls.append(self))
+    _stub_uploads(node, monkeypatch, lambda _helper: "https://public.example/uploaded.png", delete_calls)
 
     # A data URI forces the upload path that mints a scratch parameter. Build the payload from
     # inside the stubbed base generation so the scratch params exist when the finally block runs.
@@ -397,6 +411,8 @@ async def test_reference_upload_scratch_parameters_removed_after_generation(
     scratch_names = captured["scratch_names"]
     assert scratch_names, "expected a scratch upload parameter to be created"
     assert all(node.get_parameter_by_name(name) is None for name in scratch_names)
+    # A leftover value would be replayed onto the next run as a parameter that no longer exists.
+    assert all(name not in node.parameter_values for name in scratch_names)
     assert len(delete_calls) == len(scratch_names)
     assert node._pending_reference_uploads == []
 
