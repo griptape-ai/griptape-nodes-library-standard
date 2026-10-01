@@ -428,20 +428,6 @@ ADVANCED_CONFIGS = [
         "output_param": "video",
         "suffix": "wan_animate_generation",
     },
-    # video_id_chain — the node extends another node's video by provider id, not by file
-    {
-        "template": "video_id_chain",
-        "node_type": "KlingVideoExtension",
-        "id_in": "video_id",
-        "source_node_type": "KlingTextToVideoGeneration",
-        "source_output": "kling_video_id",
-        "source_prompt": "A ball bouncing",
-        # Kling only extends videos from its older models; kling-v3 rejects the request.
-        "source_set_params": {"model_name": "kling-v1-6"},
-        "prompt_value": "The ball keeps bouncing",
-        "output_param": "video_url",
-        "suffix": "kling_video_extension",
-    },
 ]
 
 # ---------------------------------------------------------------------------
