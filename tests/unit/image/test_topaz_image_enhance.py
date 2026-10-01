@@ -211,7 +211,7 @@ def test_percentage_outside_the_slider_range_is_rejected(value: int) -> None:
     """Slider validates rather than clamping, so an out-of-range percentage surfaces instead of silently becoming 500."""
     node = _node()
 
-    with pytest.raises(ValueError, match="out of range"):
+    with pytest.raises(ValueError, match=f"between {MIN_PERCENTAGE_SCALE} and {MAX_PERCENTAGE_SCALE}"):
         node.set_parameter_value("percentage", value)
 
 
