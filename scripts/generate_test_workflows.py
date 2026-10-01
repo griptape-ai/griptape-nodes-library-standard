@@ -25,7 +25,6 @@ TEXT_PROMPT_CONFIGS = [
     ("GrokVideoGeneration", "prompt", "video_url", "A ball bouncing", "grok_video_generation"),
     ("KlingTextToVideoGeneration", "prompt", "video_url", "A ball bouncing", "kling_text_to_video_generation"),
     ("Veo3VideoGeneration", "prompt", "video_url", "A ball bouncing", "veo3_video_generation"),
-    ("SoraVideoGeneration", "prompt", "video_url", "A ball bouncing", "sora_video_generation"),
     ("LTXTextToVideoGeneration", "prompt", "video_url", "A ball bouncing", "ltx_text_to_video_generation"),
     ("WanTextToVideoGeneration", "prompt", "video_url", "A ball bouncing", "wan_text_to_video_generation"),
     ("MinimaxHailuoVideoGeneration", "prompt", "video_url", "A ball bouncing", "minimax_hailuo_video_generation"),
