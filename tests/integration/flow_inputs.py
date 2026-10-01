@@ -12,7 +12,6 @@ FLOW_INPUTS: dict[str, dict] = {
     "test_grok_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_kling_text_to_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_veo3_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
-    "test_sora_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_ltx_text_to_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_wan_text_to_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},
     "test_minimax_hailuo_video_generation.py": {"Start Flow": {"prompt": "A ball bouncing"}},

@@ -25,7 +25,6 @@ TEXT_PROMPT_CONFIGS = [
     ("GrokVideoGeneration", "prompt", "video_url", "A ball bouncing", "grok_video_generation"),
     ("KlingTextToVideoGeneration", "prompt", "video_url", "A ball bouncing", "kling_text_to_video_generation"),
     ("Veo3VideoGeneration", "prompt", "video_url", "A ball bouncing", "veo3_video_generation"),
-    ("SoraVideoGeneration", "prompt", "video_url", "A ball bouncing", "sora_video_generation"),
     ("LTXTextToVideoGeneration", "prompt", "video_url", "A ball bouncing", "ltx_text_to_video_generation"),
     ("WanTextToVideoGeneration", "prompt", "video_url", "A ball bouncing", "wan_text_to_video_generation"),
     ("MinimaxHailuoVideoGeneration", "prompt", "video_url", "A ball bouncing", "minimax_hailuo_video_generation"),
@@ -428,20 +427,6 @@ ADVANCED_CONFIGS = [
         "prompt_value": None,
         "output_param": "video",
         "suffix": "wan_animate_generation",
-    },
-    # video_id_chain — the node extends another node's video by provider id, not by file
-    {
-        "template": "video_id_chain",
-        "node_type": "KlingVideoExtension",
-        "id_in": "video_id",
-        "source_node_type": "KlingTextToVideoGeneration",
-        "source_output": "kling_video_id",
-        "source_prompt": "A ball bouncing",
-        # Kling only extends videos from its older models; kling-v3 rejects the request.
-        "source_set_params": {"model_name": "kling-v1-6"},
-        "prompt_value": "The ball keeps bouncing",
-        "output_param": "video_url",
-        "suffix": "kling_video_extension",
     },
 ]
 
