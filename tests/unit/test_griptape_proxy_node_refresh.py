@@ -69,7 +69,7 @@ async def test_polling_timeout_preserves_generation_id_and_sets_timed_out_status
 
     node = Flux2ImageGeneration(name="Flux2")
     node.set_parameter_value("timeout", 5)
-    # Simulate that submission already wrote the generation_id (as _submit_and_poll does).
+    # Simulate that submission already wrote the generation_id (as _begin_generation does).
     node.parameter_output_values["generation_id"] = "gen-preserved"
     node._set_safe_defaults = lambda: None  # type: ignore[method-assign]
 
