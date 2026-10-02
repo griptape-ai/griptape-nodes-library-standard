@@ -169,3 +169,52 @@ class TestResolveToMacroPath:
 
         assert result.resolved_path == url
         assert result.is_external is True
+
+
+class TestResolveToMacroPathUrls:
+    """Remote URLs are external and returned verbatim, without raising."""
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://example.com/image.png",
+            "http://example.com/image.png",
+            "https://example.com/image.png?token=abc&expires=123",
+        ],
+    )
+    def test_url_is_external_and_unchanged(self, griptape_nodes: GriptapeNodes, url: str) -> None:
+        result = resolve_to_macro_path(url)
+
+        assert result.is_external is True
+        assert result.resolved_path == url
+
+    def test_long_signed_url_does_not_raise(self, griptape_nodes: GriptapeNodes) -> None:
+        """Regression: a long signed URL crashed with 'File name too long'."""
+        url = (
+            "https://bucket.s3.amazonaws.com/a/b/image.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256"
+            "&X-Amz-Expires=900&X-Amz-Signature=" + ("a" * 400)
+        )
+
+        result = resolve_to_macro_path(url)
+
+        assert result.is_external is True
+        assert result.resolved_path == url
+
+    def test_oserror_during_filesystem_resolution_degrades_to_external(
+        self, griptape_nodes: GriptapeNodes, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        over_long_name = "/" + ("a" * 1000)
+
+        class _FakeFile:
+            def __init__(self, path: str) -> None:
+                self._path = path
+
+            def resolve(self) -> str:
+                return self._path
+
+        monkeypatch.setattr(macro_path_utils_module, "File", _FakeFile)
+
+        result = resolve_to_macro_path(over_long_name)
+
+        assert result.is_external is True
+        assert result.resolved_path == over_long_name
