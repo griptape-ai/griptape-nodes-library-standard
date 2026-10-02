@@ -82,7 +82,6 @@ class GriptapeCloudPromptDriver(GtGriptapeCloudPromptDriver):
     def try_stream(self, prompt_stack: PromptStack) -> Iterator[DeltaMessage]:
         url = griptape_cloud_url(self.base_url, "api/chat/messages/stream")
         params = self._base_params(prompt_stack)
-        logger.debug(params)
         with requests.post(url, headers=self.headers, json=params, stream=True) as response:
             try:
                 response.raise_for_status()
