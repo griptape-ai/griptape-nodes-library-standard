@@ -607,7 +607,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         try:
             await super()._process_generation()
         finally:
-            self._cleanup_pending_asset_uploads()
+            await self._cleanup_pending_asset_uploads()
 
     def validate_before_node_run(self) -> list[Exception] | None:
         """Validate parameters before execution."""
@@ -949,7 +949,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
                 content_list.append({"type": "video_url", "video_url": {"url": asset_url}, "role": "reference_video"})
                 order_log.append(f"Video {idx}: private asset")
             else:
-                video_url = self._get_reference_video_url(ref_video, label=f"reference video {idx}")
+                video_url = await self._get_reference_video_url(ref_video, label=f"reference video {idx}")
                 content_list.append({"type": "video_url", "video_url": {"url": video_url}, "role": "reference_video"})
                 order_log.append(f"Video {idx}: reference")
 
@@ -971,7 +971,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         if order_log:
             self._log(f"{self.name} resolved reference order: " + "; ".join(order_log))
 
-    def _get_reference_video_url(self, value: Any, *, label: str) -> str:
+    async def _get_reference_video_url(self, value: Any, *, label: str) -> str:
         """Resolve one reference video to a URL Seedance can fetch.
 
         Public URLs and ``asset://`` IDs pass through; anything else is uploaded to Griptape Cloud
@@ -982,7 +982,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
             return direct_url
 
         try:
-            public_url = self._resolve_public_url_for_media(value, artifact_type="VideoUrlArtifact")
+            public_url = await self._resolve_public_url_for_media(value, artifact_type="VideoUrlArtifact")
         except Exception as e:
             msg = f"{self.name}: failed to prepare a public URL for {label}: {e}"
             raise ValueError(msg) from e

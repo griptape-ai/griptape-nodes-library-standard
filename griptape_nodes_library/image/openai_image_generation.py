@@ -21,6 +21,7 @@ from griptape_nodes.node_library import library_registry
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, gather_limited
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -526,12 +527,15 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         finally:
             # Delete each uploaded reference and remove its scratch parameter. The scratch name is
             # unique per upload, so leaving it would accumulate parameters on the node across runs.
-            for helper, scratch_name in self._pending_reference_uploads:
-                with suppress(Exception):
-                    helper.delete_uploaded_artifact()
+            pending = self._pending_reference_uploads
+            self._pending_reference_uploads = []
+            # Scratch parameters go first, because a second cancel can cut the awaited deletes short.
+            for _, scratch_name in pending:
                 with suppress(Exception):
                     self.remove_parameter_element_by_name(scratch_name)
-            self._pending_reference_uploads = []
+                # Removing the parameter leaves its value behind, which the next run would replay.
+                self.parameter_values.pop(scratch_name, None)
+            await adelete_uploaded_artifacts((helper for helper, _ in pending), node_name=self.name)
 
     async def _build_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -629,13 +633,8 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
     async def _build_input_images_payload(self) -> list[dict[str, str]]:
         input_images = self._get_input_images_value()
-        image_references: list[dict[str, str]] = []
-
-        for image_input in input_images:
-            image_url = await self._process_input_image(image_input)
-            image_references.append({"image_url": image_url})
-
-        return image_references
+        image_urls = await gather_limited(self._process_input_image(image_input) for image_input in input_images)
+        return [{"image_url": image_url} for image_url in image_urls]
 
     async def _process_input_image(self, image_input: Any) -> str:
         if not image_input:
@@ -649,12 +648,12 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         # base64-inlining the bytes. Base64 inflates the payload ~33%, so a couple of large
         # references can exceed the proxy's request-body cap; a URL keeps the body tiny.
         try:
-            return self._resolve_public_url_for_reference(image_value)
+            return await self._resolve_public_url_for_reference(image_value)
         except Exception as e:
             msg = f"{self.name}: Failed to prepare input image {image_input!r}: {e}"
             raise ValueError(msg) from e
 
-    def _resolve_public_url_for_reference(self, image_value: str) -> str:
+    async def _resolve_public_url_for_reference(self, image_value: str) -> str:
         """Return a publicly fetchable URL for a reference image.
 
         Already-public http(s) URLs pass through unchanged. Everything else — local paths, data
@@ -686,9 +685,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         self._pending_reference_uploads.append((helper, scratch_name))
         self.set_parameter_value(scratch_name, image_value)
 
-        # Must run on the aprocess event loop, not a worker thread: the upload resolves macro paths
-        # (e.g. "{inputs}/...") via GriptapeNodes.handle_request, which needs the node's project context.
-        return helper.get_public_url_for_parameter()
+        return await helper.aget_public_url_for_parameter()
 
     def _extract_input_image_value(self, image_input: Any) -> str | None:
         if isinstance(image_input, str):

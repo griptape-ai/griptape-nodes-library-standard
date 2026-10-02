@@ -74,6 +74,28 @@ def stub_public_artifact_bucket_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         PublicArtifactUrlParameter, "_get_bucket_id", staticmethod(lambda *_args, **_kwargs: "test-bucket")
     )
+    # The async upload path resolves the bucket through this instead.
+    monkeypatch.setattr(
+        PublicArtifactUrlParameter, "_resolve_bucket_id", staticmethod(lambda *_args, **_kwargs: "test-bucket")
+    )
+
+
+@pytest.fixture(autouse=True)
+def route_async_public_urls_through_sync(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Send the async upload and delete through the sync methods tests patch.
+
+    Nodes call the async variants, so a test that patches `get_public_url_for_parameter` or
+    `delete_uploaded_artifact` still intercepts them. The async engine path is the engine's to test.
+    """
+
+    async def aget_public_url_for_parameter(self: PublicArtifactUrlParameter) -> str:
+        return self.get_public_url_for_parameter()
+
+    async def adelete_uploaded_artifact(self: PublicArtifactUrlParameter) -> None:
+        self.delete_uploaded_artifact()
+
+    monkeypatch.setattr(PublicArtifactUrlParameter, "aget_public_url_for_parameter", aget_public_url_for_parameter)
+    monkeypatch.setattr(PublicArtifactUrlParameter, "adelete_uploaded_artifact", adelete_uploaded_artifact)
 
 
 @pytest.fixture

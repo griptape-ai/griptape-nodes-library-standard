@@ -414,7 +414,7 @@ class WanImageToVideoGeneration(GriptapeProxyNode):
         try:
             await super()._process_generation()
         finally:
-            self._public_audio_url_parameter.delete_uploaded_artifact()
+            await self._public_audio_url_parameter.adelete_uploaded_artifact()
 
     def _get_parameters(self) -> dict[str, Any]:
         model = self.get_parameter_value("model")

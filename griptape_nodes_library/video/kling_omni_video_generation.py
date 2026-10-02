@@ -413,7 +413,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             await super().aprocess()
         finally:
             # Always cleanup uploaded video artifact
-            self._public_video_url_parameter.delete_uploaded_artifact()
+            await self._public_video_url_parameter.adelete_uploaded_artifact()
 
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
@@ -533,7 +533,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         reference_video_param = self.get_parameter_value("reference_video")
         reference_video_url = None
         if reference_video_param:
-            reference_video_url = self._public_video_url_parameter.get_public_url_for_parameter()
+            reference_video_url = await self._public_video_url_parameter.aget_public_url_for_parameter()
 
         video_keep_sound = self.get_parameter_value("video_keep_sound")
         if video_keep_sound is None:

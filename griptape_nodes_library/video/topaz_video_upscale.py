@@ -324,7 +324,7 @@ class TopazVideoUpscale(GriptapeProxyNode):
             # Only once polling has finished: Topaz fetches the source from this
             # URL when the job starts, so deleting it any earlier would pull the
             # video out from under a queued job.
-            self._public_video_url_parameter.delete_uploaded_artifact()
+            await self._public_video_url_parameter.adelete_uploaded_artifact()
 
     # -- model routing -----------------------------------------------------
 
@@ -644,7 +644,7 @@ class TopazVideoUpscale(GriptapeProxyNode):
 
         # Upload after probing: the probe needs the original local path, and there
         # is no point paying for an upload if the file turns out to be unusable.
-        video_url = self._public_video_url_parameter.get_public_url_for_parameter()
+        video_url = await self._public_video_url_parameter.aget_public_url_for_parameter()
         if not video_url:
             msg = f"{self.name} could not produce a public URL for the input video."
             raise ValueError(msg)

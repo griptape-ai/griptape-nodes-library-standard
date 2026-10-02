@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -357,6 +358,45 @@ async def test_build_payload_raises_for_invalid_input_image(
 
 
 @pytest.mark.asyncio
+async def test_scratch_parameters_removed_even_when_cleanup_is_cancelled(
+    node: OpenAiImageGeneration, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The engine can cancel a node again while its cleanup awaits the deletes.
+    deleting = asyncio.Event()
+
+    async def adelete_uploaded_artifact(_self: PublicArtifactUrlParameter) -> None:
+        deleting.set()
+        await asyncio.sleep(10)
+
+    monkeypatch.setattr(
+        PublicArtifactUrlParameter, "get_public_url_for_parameter", lambda self: "https://public.example/uploaded.png"
+    )
+    monkeypatch.setattr(
+        PublicArtifactUrlParameter, "adelete_uploaded_artifact", adelete_uploaded_artifact, raising=False
+    )
+    node.set_parameter_value("input_images", [ImageArtifact(value=b"bytes", format="png", width=1, height=1)])
+
+    captured: dict[str, list[str]] = {}
+
+    async def fake_base_generation(self: OpenAiImageGeneration) -> None:
+        await self._build_input_images_payload()
+        captured["scratch_names"] = [name for _, name in self._pending_reference_uploads]
+
+    monkeypatch.setattr(GriptapeProxyNode, "_process_generation", fake_base_generation)
+
+    task = asyncio.create_task(node._process_generation())
+    await asyncio.wait_for(deleting.wait(), timeout=5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    scratch_names = captured["scratch_names"]
+    assert scratch_names
+    assert all(node.get_parameter_by_name(name) is None for name in scratch_names)
+    assert all(name not in node.parameter_values for name in scratch_names)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("base_raises", [False, True])
 async def test_reference_upload_scratch_parameters_removed_after_generation(
     node: OpenAiImageGeneration, monkeypatch: pytest.MonkeyPatch, *, base_raises: bool
@@ -397,6 +437,8 @@ async def test_reference_upload_scratch_parameters_removed_after_generation(
     scratch_names = captured["scratch_names"]
     assert scratch_names, "expected a scratch upload parameter to be created"
     assert all(node.get_parameter_by_name(name) is None for name in scratch_names)
+    # A leftover value would be replayed onto the next run as a parameter that no longer exists.
+    assert all(name not in node.parameter_values for name in scratch_names)
     assert len(delete_calls) == len(scratch_names)
     assert node._pending_reference_uploads == []
 

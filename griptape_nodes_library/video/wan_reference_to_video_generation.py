@@ -21,6 +21,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import prepare_media_data_uri
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -374,10 +375,15 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
         try:
             await super()._process_generation()
         finally:
-            self._public_video_url_parameter_1.delete_uploaded_artifact()
-            self._public_video_url_parameter_2.delete_uploaded_artifact()
-            self._public_video_url_parameter_3.delete_uploaded_artifact()
-            self._public_audio_url_parameter.delete_uploaded_artifact()
+            await adelete_uploaded_artifacts(
+                (
+                    self._public_video_url_parameter_1,
+                    self._public_video_url_parameter_2,
+                    self._public_video_url_parameter_3,
+                    self._public_audio_url_parameter,
+                ),
+                node_name=self.name,
+            )
 
     def _get_parameters(self) -> dict[str, Any]:
         model = self.get_parameter_value("model")

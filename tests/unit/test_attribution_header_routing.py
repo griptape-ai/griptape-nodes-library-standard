@@ -22,6 +22,7 @@ wire, so a swapped argument fails rather than a re-assertion of the same source 
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -181,7 +182,7 @@ async def test_only_the_asset_registration_post_carries_attribution(
     monkeypatch.setattr(
         type(node),
         "_resolve_public_url_for_asset",
-        lambda self, ref, *, asset_kind: "https://public.example/portrait.png",
+        AsyncMock(return_value="https://public.example/portrait.png"),
     )
 
     ref = create_provider_asset_reference(value="https://public.example/portrait.png", asset_kind=ASSET_KIND_IMAGE)

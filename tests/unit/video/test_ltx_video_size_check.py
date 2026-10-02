@@ -7,6 +7,7 @@ Tier 2: fall back to a base64 ``data:`` URI with a pre-flight size check (local 
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -31,6 +32,14 @@ _LARGE_B64_LEN = ((MAX_VIDEO_DATA_URI_SIZE_BYTES // 3) + 1) * 4
 _LARGE_DATA_URI = "data:video/mp4;base64," + "A" * _LARGE_B64_LEN
 
 _PUBLIC_URL = "https://storage.griptapecloud.com/bucket/video.mp4?sig=abc123"
+
+
+def _upload_helper() -> MagicMock:
+    """A PublicArtifactUrlParameter stand-in whose async methods defer to the sync mocks tests configure."""
+    helper = MagicMock()
+    helper.aget_public_url_for_parameter = AsyncMock(side_effect=lambda: helper.get_public_url_for_parameter())
+    helper.adelete_uploaded_artifact = AsyncMock(side_effect=lambda: helper.delete_uploaded_artifact())
+    return helper
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +73,7 @@ async def test_retake_rejects_video_exceeding_size_limit(monkeypatch: pytest.Mon
     node.set_parameter_value("resolution", "1920x1080")
 
     monkeypatch.setattr(node, "_validate_video_input", lambda _video: None)
-    monkeypatch.setattr(node, "_upload_video_to_public_url", lambda _video: None)
+    monkeypatch.setattr(node, "_upload_video_to_public_url", AsyncMock(return_value=None))
     monkeypatch.setattr(node, "_prepare_video_data_uri_async", AsyncMock(return_value=_LARGE_DATA_URI))
 
     with pytest.raises(ValueError, match="too large"):
@@ -80,7 +89,7 @@ async def test_retake_error_message_includes_size_and_limit(monkeypatch: pytest.
     node.set_parameter_value("resolution", "1920x1080")
 
     monkeypatch.setattr(node, "_validate_video_input", lambda _video: None)
-    monkeypatch.setattr(node, "_upload_video_to_public_url", lambda _video: None)
+    monkeypatch.setattr(node, "_upload_video_to_public_url", AsyncMock(return_value=None))
     monkeypatch.setattr(node, "_prepare_video_data_uri_async", AsyncMock(return_value=_LARGE_DATA_URI))
 
     with pytest.raises(ValueError) as exc_info:
@@ -100,7 +109,7 @@ async def test_retake_accepts_video_within_size_limit(monkeypatch: pytest.Monkey
     node.set_parameter_value("resolution", "1920x1080")
 
     monkeypatch.setattr(node, "_validate_video_input", lambda _video: None)
-    monkeypatch.setattr(node, "_upload_video_to_public_url", lambda _video: None)
+    monkeypatch.setattr(node, "_upload_video_to_public_url", AsyncMock(return_value=None))
     monkeypatch.setattr(node, "_prepare_video_data_uri_async", AsyncMock(return_value=_SMALL_DATA_URI))
 
     payload = await node._build_payload()
@@ -122,7 +131,7 @@ async def test_retake_uses_public_url_when_available(monkeypatch: pytest.MonkeyP
 
     prepare_mock = AsyncMock()
     monkeypatch.setattr(node, "_validate_video_input", lambda _video: None)
-    monkeypatch.setattr(node, "_upload_video_to_public_url", lambda _video: _PUBLIC_URL)
+    monkeypatch.setattr(node, "_upload_video_to_public_url", AsyncMock(return_value=_PUBLIC_URL))
     monkeypatch.setattr(node, "_prepare_video_data_uri_async", prepare_mock)
 
     payload = await node._build_payload()
@@ -144,7 +153,7 @@ async def test_extend_rejects_video_exceeding_size_limit(monkeypatch: pytest.Mon
     node.set_parameter_value("duration", 2)
     node.set_parameter_value("context", 1)
 
-    monkeypatch.setattr(node, "_upload_video_to_public_url", lambda _video: None)
+    monkeypatch.setattr(node, "_upload_video_to_public_url", AsyncMock(return_value=None))
     monkeypatch.setattr(node, "_prepare_video_data_uri_async", AsyncMock(return_value=_LARGE_DATA_URI))
 
     with pytest.raises(ValueError, match="too large"):
@@ -159,7 +168,7 @@ async def test_extend_accepts_video_within_size_limit(monkeypatch: pytest.Monkey
     node.set_parameter_value("duration", 2)
     node.set_parameter_value("context", 1)
 
-    monkeypatch.setattr(node, "_upload_video_to_public_url", lambda _video: None)
+    monkeypatch.setattr(node, "_upload_video_to_public_url", AsyncMock(return_value=None))
     monkeypatch.setattr(node, "_prepare_video_data_uri_async", AsyncMock(return_value=_SMALL_DATA_URI))
 
     payload = await node._build_payload()
@@ -180,7 +189,7 @@ async def test_extend_uses_public_url_when_available(monkeypatch: pytest.MonkeyP
     node.set_parameter_value("context", 1)
 
     prepare_mock = AsyncMock()
-    monkeypatch.setattr(node, "_upload_video_to_public_url", lambda _video: _PUBLIC_URL)
+    monkeypatch.setattr(node, "_upload_video_to_public_url", AsyncMock(return_value=_PUBLIC_URL))
     monkeypatch.setattr(node, "_prepare_video_data_uri_async", prepare_mock)
 
     payload = await node._build_payload()
@@ -194,7 +203,8 @@ async def test_extend_uses_public_url_when_available(monkeypatch: pytest.MonkeyP
 # ---------------------------------------------------------------------------
 
 
-def test_upload_passes_through_remote_https_url(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.asyncio
+async def test_upload_passes_through_remote_https_url(monkeypatch: pytest.MonkeyPatch) -> None:
     """An already-public remote https URL is handed to LTX as-is — no upload attempted."""
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
@@ -202,93 +212,101 @@ def test_upload_passes_through_remote_https_url(monkeypatch: pytest.MonkeyPatch)
     ctor = MagicMock()
     monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", ctor)
 
-    result = node._upload_video_to_public_url(VideoUrlArtifact(_PUBLIC_URL))
+    result = await node._upload_video_to_public_url(VideoUrlArtifact(_PUBLIC_URL))
 
     assert result == _PUBLIC_URL
     ctor.assert_not_called()
 
 
-def test_upload_uploads_localhost_url(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.asyncio
+async def test_upload_uploads_localhost_url(monkeypatch: pytest.MonkeyPatch) -> None:
     """A localhost URL is not publicly reachable, so it is uploaded to Griptape Cloud."""
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
 
-    helper = MagicMock()
+    helper = _upload_helper()
     helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
     monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
     monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
 
-    result = node._upload_video_to_public_url(VideoUrlArtifact("http://localhost:9999/static/video.mp4?token=abc"))
+    result = await node._upload_video_to_public_url(
+        VideoUrlArtifact("http://localhost:9999/static/video.mp4?token=abc")
+    )
 
     assert result == _PUBLIC_URL
     assert node._pending_video_uploads  # tracked for cleanup
 
 
-def test_upload_uploads_plain_http_url(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.asyncio
+async def test_upload_uploads_plain_http_url(monkeypatch: pytest.MonkeyPatch) -> None:
     """http:// URLs must upload — LTX requires HTTPS-only with a domain name."""
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
 
-    helper = MagicMock()
+    helper = _upload_helper()
     helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
     monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
     monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
 
-    result = node._upload_video_to_public_url(VideoUrlArtifact("http://example.com/video.mp4"))
+    result = await node._upload_video_to_public_url(VideoUrlArtifact("http://example.com/video.mp4"))
 
     assert result == _PUBLIC_URL
     helper.get_public_url_for_parameter.assert_called_once()
 
 
-def test_upload_uploads_ip_address_url(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.asyncio
+async def test_upload_uploads_ip_address_url(monkeypatch: pytest.MonkeyPatch) -> None:
     """LAN IP URLs must upload — LTX requires a domain name, not a bare IP."""
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
 
-    helper = MagicMock()
+    helper = _upload_helper()
     helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
     monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
     monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
 
-    result = node._upload_video_to_public_url(VideoUrlArtifact("https://192.168.1.20:8124/static/v.mp4"))
+    result = await node._upload_video_to_public_url(VideoUrlArtifact("https://192.168.1.20:8124/static/v.mp4"))
 
     assert result == _PUBLIC_URL
     helper.get_public_url_for_parameter.assert_called_once()
 
 
-def test_upload_uploads_zero_zero_ip_url(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.asyncio
+async def test_upload_uploads_zero_zero_ip_url(monkeypatch: pytest.MonkeyPatch) -> None:
     """0.0.0.0 URLs must upload — not publicly reachable."""
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
 
-    helper = MagicMock()
+    helper = _upload_helper()
     helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
     monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
     monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
 
-    result = node._upload_video_to_public_url(VideoUrlArtifact("https://0.0.0.0:8124/static/v.mp4"))
+    result = await node._upload_video_to_public_url(VideoUrlArtifact("https://0.0.0.0:8124/static/v.mp4"))
 
     assert result == _PUBLIC_URL
     helper.get_public_url_for_parameter.assert_called_once()
 
 
-def test_upload_uploads_bare_hostname_url(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.asyncio
+async def test_upload_uploads_bare_hostname_url(monkeypatch: pytest.MonkeyPatch) -> None:
     """Bare single-label hostnames (container names, etc.) must upload — not publicly reachable."""
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
 
-    helper = MagicMock()
+    helper = _upload_helper()
     helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
     monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
     monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
 
-    result = node._upload_video_to_public_url(VideoUrlArtifact("https://my-container:8124/static/v.mp4"))
+    result = await node._upload_video_to_public_url(VideoUrlArtifact("https://my-container:8124/static/v.mp4"))
 
     assert result == _PUBLIC_URL
     helper.get_public_url_for_parameter.assert_called_once()
 
 
-def test_upload_falls_back_to_none_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.asyncio
+async def test_upload_falls_back_to_none_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """If the cloud upload raises, resolution degrades to base64 (returns None), not an error."""
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
@@ -299,7 +317,7 @@ def test_upload_falls_back_to_none_on_failure(monkeypatch: pytest.MonkeyPatch) -
         MagicMock(side_effect=RuntimeError("no cloud creds")),
     )
 
-    result = node._upload_video_to_public_url(VideoUrlArtifact("http://localhost:9999/static/video.mp4"))
+    result = await node._upload_video_to_public_url(VideoUrlArtifact("http://localhost:9999/static/video.mp4"))
 
     assert result is None
     assert not node._pending_video_uploads
@@ -310,18 +328,50 @@ def test_upload_falls_back_to_none_on_failure(monkeypatch: pytest.MonkeyPatch) -
 # ---------------------------------------------------------------------------
 
 
-def test_cleanup_deletes_artifacts_and_removes_scratch_params() -> None:
+@pytest.mark.asyncio
+async def test_cleanup_deletes_artifacts_and_removes_scratch_params() -> None:
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
 
-    helper = MagicMock()
+    helper = _upload_helper()
     node._pending_video_uploads.append((helper, "_video_upload_deadbeef"))
+    node.parameter_values["_video_upload_deadbeef"] = "/tmp/video.mp4"  # noqa: S108
 
     with patch.object(node, "remove_parameter_element_by_name") as remove_mock:
-        node._cleanup_video_uploads()
+        await node._cleanup_video_uploads()
 
     helper.delete_uploaded_artifact.assert_called_once()
     remove_mock.assert_called_once_with("_video_upload_deadbeef")
+    # A leftover value would be replayed onto the next run as a parameter that no longer exists.
+    assert "_video_upload_deadbeef" not in node.parameter_values
+    assert node._pending_video_uploads == []
+
+
+@pytest.mark.asyncio
+async def test_cleanup_removes_scratch_params_even_when_cancelled_during_deletes() -> None:
+    node = LTXVideoRetake(name="Retake")
+    node._reset_video_uploads()
+
+    deleting = asyncio.Event()
+
+    async def adelete_uploaded_artifact() -> None:
+        deleting.set()
+        await asyncio.sleep(10)
+
+    helper = MagicMock(spec=["add_input_parameters", "adelete_uploaded_artifact"])
+    helper.adelete_uploaded_artifact = adelete_uploaded_artifact
+    node._pending_video_uploads.append((helper, "_video_upload_deadbeef"))
+    node.parameter_values["_video_upload_deadbeef"] = "/tmp/video.mp4"  # noqa: S108
+
+    with patch.object(node, "remove_parameter_element_by_name") as remove_mock:
+        task = asyncio.create_task(node._cleanup_video_uploads())
+        await asyncio.wait_for(deleting.wait(), timeout=5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    remove_mock.assert_called_once_with("_video_upload_deadbeef")
+    assert "_video_upload_deadbeef" not in node.parameter_values
     assert node._pending_video_uploads == []
 
 
