@@ -3,6 +3,9 @@ import re
 
 import requests
 from griptape.artifacts import BaseArtifact, ErrorArtifact
+from griptape.structures import Structure
+from griptape.tasks import ActionsSubtask, BaseTask, PromptTask
+from griptape_nodes.utils.budget_refusal import BudgetExceededError
 
 
 def _parse_griptape_cloud_error_message(error: str) -> str:
@@ -29,8 +32,36 @@ def _parse_griptape_cloud_error_message(error: str) -> str:
     return error
 
 
+def raise_if_budget_halt(agent_output: BaseArtifact | None) -> None:
+    """Re-raise a budget halt that a griptape task caught and stored as its output.
+
+    Griptape's `BaseTask.run` keeps a driver's exception on an `ErrorArtifact`, so
+    without this a node would carry on or report a generic failure.
+    """
+    if isinstance(agent_output, ErrorArtifact) and isinstance(agent_output.exception, BudgetExceededError):
+        raise agent_output.exception
+
+
+def raise_if_budget_halt_in_run(run: Structure | BaseTask) -> None:
+    """Re-raise a budget halt caught anywhere in a finished run, tool calls included.
+
+    Griptape hands a tool's refusal back to the model as the tool's result (the
+    Extraction Tool spends through Cloud), so each action is checked, not just the
+    task output.
+    """
+    tasks = run.tasks if isinstance(run, Structure) else [run]
+    for task in tasks:
+        if isinstance(task, PromptTask):
+            for subtask in task.subtasks:
+                if isinstance(subtask, ActionsSubtask):
+                    for action in subtask.actions:
+                        raise_if_budget_halt(action.output)
+        raise_if_budget_halt(task.output)
+
+
 def try_throw_error(agent_output: BaseArtifact) -> None:
     """Throws an error if the agent output is an ErrorArtifact."""
+    raise_if_budget_halt(agent_output)
     if isinstance(agent_output, ErrorArtifact):
         if isinstance(agent_output.exception, requests.HTTPError):
             if agent_output.exception.response.text:

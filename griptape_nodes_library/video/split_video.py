@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape.drivers.prompt.griptape_cloud_prompt_driver import GriptapeCloudPromptDriver
 from griptape.structures import Agent as GriptapeAgent
 from griptape.tasks import PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
@@ -17,11 +16,13 @@ from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
+from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run
 from griptape_nodes_library.utils.ffmpeg_utils import (
     build_video_segment_cmd,
     detect_video_properties,
@@ -228,6 +229,7 @@ If no title is provided, just use "Segment X:" format.
 """
         try:
             response = agent.run(msg)
+            raise_if_budget_halt_in_run(agent)
             self.append_value_to_parameter("logs", f"Agent response: {response}\n")
             self.append_value_to_parameter("logs", f"Agent output: {agent.output}\n")
 
