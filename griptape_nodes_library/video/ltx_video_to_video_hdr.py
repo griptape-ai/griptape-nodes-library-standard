@@ -11,12 +11,12 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.files.file import FileLoadError
 
 # static_ffmpeg is dynamically installed by the library loader at runtime
 from static_ffmpeg import run  # type: ignore[import-untyped]
 
-from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri
+from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri, resolve_media_location
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.ffmpeg_utils import describe_ffmpeg_failure
 
@@ -138,9 +138,8 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         try:
             _, ffprobe_path = run.get_or_fetch_platform_executables_else_raise()
 
-            # Project-saved inputs carry macro paths like {outputs}/clip.mp4 that ffprobe
-            # can't open. Data URIs are left alone because File would treat them as paths.
-            location = video_url if video_url.startswith("data:") else File(video_url).resolve()
+            # Project-saved inputs carry macro paths like {outputs}/clip.mp4 that ffprobe can't open
+            location = resolve_media_location(video_url)
 
             cmd = [
                 ffprobe_path,

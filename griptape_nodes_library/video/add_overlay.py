@@ -3,10 +3,10 @@ from typing import Any, ClassVar
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.files.file import File
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
+from griptape_nodes_library.media import resolve_media_location
 from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 
 
@@ -214,6 +214,10 @@ class AddOverlay(BaseVideoProcessor):
 
         Project-saved artifacts carry macro paths like ``{outputs}/images/foo.png``,
         which FFmpeg can't open until they are resolved.
+
+        Raises:
+            ValueError: If the input has no string location (e.g. a raw byte artifact).
+            FileLoadError: If macro resolution fails.
         """
         if isinstance(overlay_video, dict):
             location = overlay_video.get("value")
@@ -222,7 +226,7 @@ class AddOverlay(BaseVideoProcessor):
         if not isinstance(location, str) or not location:
             msg = f"{self.name}: overlay_video must reference a file or URL, got {type(overlay_video).__name__}"
             raise ValueError(msg)  # noqa: TRY004
-        return File(location).resolve()
+        return resolve_media_location(location)
 
     def _validate_custom_parameters(self) -> list[Exception] | None:
         """Validate overlay parameters."""
