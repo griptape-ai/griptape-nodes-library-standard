@@ -26,7 +26,6 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 from griptape_nodes.traits.options import Options
-from griptape_nodes.utils.artifact_normalization import _resolve_file_path
 from PIL import Image
 
 # static_ffmpeg is dynamically installed by the library loader at runtime
@@ -656,11 +655,8 @@ class CreateVideoFromFrames(SuccessFailureNode):
         if not audio_url:
             return None
 
-        try:
-            return File(audio_url).resolve()
-        except Exception:
-            resolved = _resolve_file_path(audio_url)
-            return str(resolved) if resolved else audio_url
+        # Let FileLoadError propagate so the node reports why the audio path failed to resolve
+        return File(audio_url).resolve()
 
     def _build_ffmpeg_command(
         self,

@@ -17,8 +17,9 @@ from typing import Any
 import pytest
 from griptape.artifacts import ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
+from griptape_nodes.files import file as file_module
 
-from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri
+from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri, resolve_media_location
 from griptape_nodes_library.media.coercion import MediaKind
 from griptape_nodes_library.video.ltx_video_retake import LTXVideoRetake
 from griptape_nodes_library.video.ltx_video_to_video_hdr import LTXVideoToVideoHDR
@@ -548,3 +549,24 @@ class TestLTXVideoRetakePrepareDataUriAsync:
 
         result = await node._prepare_video_data_uri_async("data:video/mp4;base64,ALREADY_BASE64")
         assert result == "data:video/mp4;base64,ALREADY_BASE64"
+
+
+# ---------------------------------------------------------------------------
+# resolve_media_location
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "location",
+    ["data:image/png;base64,iVBORw0KGgo=", "data:video/mp4;base64,AAAA", "https://example.com/clip.mp4"],
+    ids=["image_data_uri", "video_data_uri", "remote_url"],
+)
+def test_resolve_media_location_passes_uris_through(location: str) -> None:
+    """Real ``File.resolve()`` anchors a data URI under the workspace, so it must be skipped."""
+    assert resolve_media_location(location) == location
+
+
+def test_resolve_media_location_resolves_paths_through_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(file_module.File, "resolve", lambda _self: "/project/outputs/clip.mp4")
+
+    assert resolve_media_location("{outputs}/clip.mp4") == "/project/outputs/clip.mp4"

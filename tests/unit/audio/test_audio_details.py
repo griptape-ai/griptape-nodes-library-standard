@@ -69,6 +69,35 @@ def test_audio_url_artifact_http_url_is_resolved_via_file(captured_paths: list[s
     assert "https://example.com/clip.mp3" in captured_paths
 
 
+@pytest.mark.parametrize(
+    "audio",
+    [{"type": "AudioUrlArtifact", "value": "{outputs}/clip.mp3"}, "{outputs}/clip.mp3"],
+    ids=["serialized_dict", "bare_string"],
+)
+def test_unconverted_macro_path_is_resolved_via_file(audio: Any, captured_paths: list[str]) -> None:
+    """``set_parameter_value`` runs before the ParameterAudio converter, so these shapes reach the node."""
+    node = AudioDetails.__new__(AudioDetails)
+    node.name = "audio_details"
+
+    result = node._get_audio_url(audio)
+
+    assert result == "/resolved{outputs}/clip.mp3"
+    assert captured_paths == ["{outputs}/clip.mp3"]
+
+
+@pytest.mark.parametrize(
+    "audio",
+    [{"type": "AudioUrlArtifact", "value": "data:audio/mpeg;base64,SUQz"}, "data:audio/mpeg;base64,SUQz"],
+    ids=["serialized_dict", "bare_string"],
+)
+def test_data_uri_reaches_ffprobe_unchanged(audio: Any) -> None:
+    """Uses the real ``File``, which would anchor a data URI under the workspace."""
+    node = AudioDetails.__new__(AudioDetails)
+    node.name = "audio_details"
+
+    assert node._get_audio_url(audio) == "data:audio/mpeg;base64,SUQz"
+
+
 def test_falsy_audio_returns_none() -> None:
     node = AudioDetails.__new__(AudioDetails)
     node.name = "audio_details"
