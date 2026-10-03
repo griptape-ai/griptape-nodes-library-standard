@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from griptape_nodes.exe_types.core_types import Parameter
+from griptape_nodes.files.file import FileLoadError
 from griptape_nodes.retained_mode.events.os_events import (
     DeleteFileRequest,
     DeleteFileResultFailure,
@@ -19,6 +20,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.files.copy_files import CopyFiles
 from griptape_nodes_library.files.file_operation_base import BaseFileOperationInfo
+from griptape_nodes_library.utils.macro_path_utils import resolve_macro_path
 
 
 class MoveStatus(Enum):
@@ -196,6 +198,15 @@ class MoveFiles(CopyFiles):
         # FAILURE CASE: Empty destination
         if not destination_dir:
             msg = f"{self.name} attempted to move but destination path is empty. Failed due to no destination provided"
+            self.set_parameter_value(self.moved_paths_output.name, [])
+            self._set_status_results(was_successful=False, result_details=msg)
+            return
+
+        # Resolve a project macro destination like "{outputs}/archive" to the folder on disk
+        try:
+            destination_dir = resolve_macro_path(destination_dir)
+        except FileLoadError as e:
+            msg = f"{self.name} attempted to move but could not resolve destination path '{destination_dir}': {e}"
             self.set_parameter_value(self.moved_paths_output.name, [])
             self._set_status_results(was_successful=False, result_details=msg)
             return

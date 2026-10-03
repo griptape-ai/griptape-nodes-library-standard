@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from griptape.artifacts import UrlArtifact
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.files.file import FileLoadError
 from griptape_nodes.retained_mode.events.os_events import (
     GetFileInfoRequest,
     GetFileInfoResultFailure,
@@ -18,6 +19,7 @@ from griptape_nodes.retained_mode.events.os_events import (
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.utils.image_utils import resolve_localhost_url_to_path
+from griptape_nodes_library.utils.macro_path_utils import resolve_macro_path
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -63,7 +65,7 @@ class FileOperationBaseNode(SuccessFailureNode):
     """Base class for file operation nodes (copy, move, rename, etc.).
 
     Provides common functionality for:
-    - Resolving localhost URLs to workspace paths
+    - Resolving localhost URLs and project macro paths to workspace paths
     - Extracting values from artifacts
     - Checking if paths exist
     - Glob pattern detection
@@ -310,7 +312,14 @@ class FileOperationBaseNode(SuccessFailureNode):
         Returns:
             List of Info objects with status set (PENDING for valid paths, INVALID for invalid paths)
         """
-        for path_str in paths:
+        for raw_path in paths:
+            # Resolve project macro paths like "{outputs}/image.png" to the file on disk
+            try:
+                path_str = resolve_macro_path(raw_path)
+            except FileLoadError as e:
+                all_targets.append(create_invalid_info(raw_path, f"Could not resolve macro path: {e}"))
+                continue
+
             # Check if this is a glob pattern
             if self._is_glob_pattern(path_str):
                 # Expand the pattern using the provided function

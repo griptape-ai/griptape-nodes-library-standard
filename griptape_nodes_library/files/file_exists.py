@@ -3,12 +3,15 @@ from typing import Any
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.file import FileLoadError
 from griptape_nodes.retained_mode.events.os_events import (
     GetFileInfoRequest,
     GetFileInfoResultSuccess,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
+
+from griptape_nodes_library.utils.macro_path_utils import resolve_macro_path
 
 
 class FileExists(DataNode):
@@ -60,6 +63,13 @@ class FileExists(DataNode):
         is_directory = False
 
         if path_str:
+            # Resolve project macro paths like "{outputs}/image.png" to the file on disk
+            try:
+                path_str = resolve_macro_path(path_str)
+            except FileLoadError as e:
+                msg = f"Could not resolve macro path {path_str!r}: {e}"
+                raise ValueError(msg) from e
+
             result = GriptapeNodes.handle_request(GetFileInfoRequest(path=path_str, workspace_only=False))
             if isinstance(result, GetFileInfoResultSuccess) and result.file_entry is not None:
                 exists = True

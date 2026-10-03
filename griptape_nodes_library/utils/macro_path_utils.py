@@ -30,6 +30,24 @@ class MacroPathResult:
     is_external: bool  # True if path is outside project or is a URL
 
 
+def resolve_macro_path(path: str) -> str:
+    """Resolve a project macro path (e.g. "{outputs}/image.png") to an absolute path.
+
+    Strings with no macro variables are returned unchanged, so plain paths, glob
+    patterns, and URLs keep whatever handling the caller already gives them.
+
+    Raises:
+        FileLoadError: If macro resolution fails (e.g. no project loaded).
+    """
+    try:
+        parsed = ParsedMacro(path)
+    except MacroSyntaxError:
+        return path
+    if not parsed.get_variables():
+        return path
+    return File(path).resolve()
+
+
 def resolve_to_macro_path(path: str) -> MacroPathResult:
     """Attempt to resolve a path to a project macro path.
 

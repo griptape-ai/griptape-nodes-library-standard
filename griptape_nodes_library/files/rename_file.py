@@ -5,6 +5,7 @@ from typing import Any, cast
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.file import FileLoadError
 from griptape_nodes.retained_mode.events.os_events import (
     DeleteFileRequest,
     DeleteFileResultFailure,
@@ -16,6 +17,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 
 from griptape_nodes_library.files.file_operation_base import FileOperationBaseNode
+from griptape_nodes_library.utils.macro_path_utils import resolve_macro_path
 
 
 class RenameFile(FileOperationBaseNode):
@@ -180,6 +182,17 @@ class RenameFile(FileOperationBaseNode):
         # Clean paths to remove newlines/carriage returns that cause Windows errors
         old_path = GriptapeNodes.OSManager().sanitize_path_string(old_path)
         new_path_input = GriptapeNodes.OSManager().sanitize_path_string(new_path_input)
+
+        # Resolve project macro paths like "{outputs}/image.png" to the file on disk
+        try:
+            old_path = resolve_macro_path(old_path)
+            new_path_input = resolve_macro_path(new_path_input)
+        except FileLoadError as e:
+            msg = f"{self.name} attempted to rename but could not resolve macro path: {e}"
+            self.set_parameter_value(self.old_path_output.name, "")
+            self.set_parameter_value(self.new_path_output.name, "")
+            self._set_status_results(was_successful=False, result_details=msg)
+            return
 
         # Resolve new path
         new_path = self._resolve_new_path(old_path, new_path_input)
