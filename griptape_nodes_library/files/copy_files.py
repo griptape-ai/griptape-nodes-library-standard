@@ -8,6 +8,7 @@ from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.progress_bar_component import ProgressBarComponent
+from griptape_nodes.files.file import FileLoadError
 from griptape_nodes.retained_mode.events.os_events import (
     CopyFileRequest,
     CopyFileResultFailure,
@@ -18,6 +19,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 
 from griptape_nodes_library.files.file_operation_base import BaseFileOperationInfo, FileOperationBaseNode
+from griptape_nodes_library.utils.macro_path_utils import resolve_macro_path
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +272,15 @@ class CopyFiles(FileOperationBaseNode):
         # FAILURE CASE: Empty destination
         if not destination_dir:
             msg = f"{self.name} attempted to copy but destination path is empty. Failed due to no destination provided"
+            self.set_parameter_value(self.copied_paths_output.name, [])
+            self._set_status_results(was_successful=False, result_details=msg)
+            return
+
+        # Resolve a project macro destination like "{outputs}/archive" to the folder on disk
+        try:
+            destination_dir = resolve_macro_path(destination_dir)
+        except FileLoadError as e:
+            msg = f"{self.name} attempted to copy but could not resolve destination path '{destination_dir}': {e}"
             self.set_parameter_value(self.copied_paths_output.name, [])
             self._set_status_results(was_successful=False, result_details=msg)
             return

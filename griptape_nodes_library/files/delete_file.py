@@ -13,6 +13,7 @@ from griptape_nodes.exe_types.core_types import (
     ParameterMode,
 )
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.files.file import FileLoadError
 from griptape_nodes.retained_mode.events.os_events import (
     DeleteFileRequest,
     DeleteFileResultFailure,
@@ -26,6 +27,8 @@ from griptape_nodes.retained_mode.events.os_events import (
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
+
+from griptape_nodes_library.utils.macro_path_utils import resolve_macro_path
 
 # Default warning message for destructive operation
 DEFAULT_DELETION_WARNING = (
@@ -435,7 +438,22 @@ class DeleteFile(SuccessFailureNode):
         self._listing_truncated = False
         all_targets: list[DeleteFileInfo] = []
 
-        for path_str in paths:
+        for raw_path in paths:
+            # Resolve project macro paths like "{outputs}/image.png" to the file on disk
+            try:
+                path_str = resolve_macro_path(raw_path)
+            except FileLoadError as e:
+                all_targets.append(
+                    DeleteFileInfo(
+                        path=raw_path,
+                        is_directory=False,
+                        absolute_path=raw_path,
+                        status=DeletionStatus.INVALID,
+                        failure_reason=f"Could not resolve macro path: {e}",
+                    )
+                )
+                continue
+
             # Check if this is a glob pattern
             if self._is_glob_pattern(path_str):
                 # Expand the pattern using ListDirectoryRequest
