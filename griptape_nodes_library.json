@@ -6946,6 +6946,22 @@
       }
     },
     {
+      "class_name": "DeleteVariable",
+      "file_path": "griptape_nodes_library/variables/delete_variable.py",
+      "metadata": {
+        "category": "variables",
+        "description": "Delete one or more variables by name. Accepts a single name or a list of names.",
+        "display_name": "Delete Variable",
+        "icon": "Trash",
+        "group": "edit",
+        "tags": [
+          "data",
+          "variable",
+          "workflow"
+        ]
+      }
+    },
+    {
       "class_name": "SetVariableSubstitution",
       "file_path": "griptape_nodes_library/variables/set_variable_substitution.py",
       "metadata": {
