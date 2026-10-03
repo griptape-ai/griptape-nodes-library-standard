@@ -153,3 +153,75 @@ def test_declares_connected_agents_model_over_stale_dropdown_value(
     next(gen)
 
     assert captured["api_model_id"] == "gpt-4.1"
+
+
+def _record_budget_requests(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    """Clear permission, answer the budget check, and record every budget request."""
+    from griptape_nodes.retained_mode.events.budget_events import (
+        BudgetAccessRequest,
+        BudgetAccessResultSuccess,
+        ReportUsageRequest,
+        ReportUsageResultSuccess,
+    )
+
+    seen: list[Any] = []
+    real_handle_request = model_invocation_module.GriptapeNodes.handle_request
+
+    def _handle(request: Any) -> Any:
+        if isinstance(request, BudgetAccessRequest):
+            seen.append(request)
+            return BudgetAccessResultSuccess(correlation_id="corr-1", checked=True, result_details="ok")
+        if isinstance(request, ReportUsageRequest):
+            seen.append(request)
+            return ReportUsageResultSuccess(idempotency_key="k", result_details="queued")
+        return real_handle_request(request)
+
+    monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", lambda *_: _FakeDeclaration(ok=True))
+    monkeypatch.setattr(model_invocation_module.GriptapeNodes, "handle_request", _handle)
+    return seen
+
+
+def test_griptape_cloud_agent_is_not_budget_checked(agent_node: Agent, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The proxy enforces budgets server-side; a client check would count the call twice."""
+    seen = _record_budget_requests(monkeypatch)
+
+    next(agent_node.process())
+
+    assert seen == []
+
+
+def test_connected_direct_driver_is_budget_checked_and_reported(
+    agent_node: Agent, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from griptape.drivers.prompt.openai import OpenAiChatPromptDriver
+    from griptape.events import EventBus, FinishPromptEvent
+    from griptape_nodes.retained_mode.events.budget_events import BudgetAccessRequest, ReportUsageRequest
+
+    seen = _record_budget_requests(monkeypatch)
+    # A connected Prompt Model Config supplies the driver; the dropdown's Options trait would
+    # reject a driver set directly, so stand in for the connection.
+    driver = OpenAiChatPromptDriver(model="gpt-4o", api_key="k")
+    node_cls = type(agent_node)  # the registry loads its own copy of the class
+    real_get = node_cls.get_parameter_value
+    monkeypatch.setattr(
+        node_cls, "get_parameter_value", lambda self, name: driver if name == "model" else real_get(self, name)
+    )
+
+    def _fake_process(self: Agent, agent: Any, prompt: Any) -> Any:
+        EventBus.publish_event(
+            FinishPromptEvent(model="gpt-4o", result="hi", input_token_count=1000, output_token_count=500)
+        )
+        return agent
+
+    monkeypatch.setattr(node_cls, "_process", _fake_process)
+
+    gen = agent_node.process()
+    runner = next(gen)
+    runner()
+
+    check, report = seen
+    assert isinstance(check, BudgetAccessRequest)
+    # The check is keyed on the catalog id; the node label is never sent.
+    assert (check.model_id, check.node_type, check.node_id) == ("gtc_gpt_4o", "Agent", None)
+    assert isinstance(report, ReportUsageRequest)
+    assert (report.declared_cost_micro_usd, report.correlation_id) == (7500, "corr-1")

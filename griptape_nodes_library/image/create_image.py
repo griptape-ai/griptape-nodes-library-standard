@@ -22,8 +22,8 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
+from griptape_nodes_library.utils.direct_provider_usage import require_driver_access
 from griptape_nodes_library.utils.error_utils import try_throw_error
-from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
@@ -241,13 +241,15 @@ class GenerateImage(ControlNode):
             # connected agent's) -- a model invocation distinct from the image-generation
             # driver below, and one no dropdown selects, so its model comes from the task
             # driver. Declare it so a denied invocation fails closed before the call.
-            enhance_model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
-            require_model_invocation_sync(self, enhance_model, purpose="prompt enhancement")
+            enhance_meter = require_driver_access(
+                self, cast(PromptTask, agent.tasks[0]).prompt_driver, purpose="prompt enhancement"
+            )
             # agent.run is a blocking operation that will hold up the rest of the engine.
             # By using `yield lambda`, the engine can run this in the background and resume when it's done.
-            result = yield lambda: agent.run(
-                [
-                    """
+            result = yield lambda: enhance_meter.run(
+                lambda: agent.run(
+                    [
+                        """
 Enhance the following prompt for an image generation engine. Return only the image generation prompt.
 Include unique details that make the subject stand out.
 Specify a specific depth of field, and time of day.
@@ -256,8 +258,9 @@ Use a slight vignetting on the edges of the image.
 Use a color palette that is complementary to the subject.
 Focus on qualities that will make this the most professional looking photo in the world.
 IMPORTANT: Output must be a single, raw prompt string for an image generation model. Do not include any preamble, explanation, or conversational language.""",
-                    prompt,
-                ]
+                        prompt,
+                    ]
+                )
             )
             self.append_value_to_parameter("logs", "Finished enhancing prompt...\n")
             prompt = result.output
@@ -296,7 +299,7 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
         # resolves that provider model id to its stable catalog key (via the node's
         # model_usage) before declaring. Declare before swapping in the task (and the
         # network call it triggers below) so a denied invocation fails closed here.
-        require_model_invocation_sync(self, driver.model)
+        image_meter = require_driver_access(self, driver)
 
         # Set new Image Generation Task
         # Cool trick to swap the task of the agent from PromptTask to ImageGenerationTask
@@ -304,7 +307,7 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
 
         # Run the agent asynchronously
         self.append_value_to_parameter("logs", "Starting processing image..\n")
-        yield lambda: self._create_image(agent, prompt)
+        yield lambda: image_meter.run(lambda: self._create_image(agent, prompt))
         self.append_value_to_parameter("logs", "Finished processing image.\n")
 
         # Create a false memory for the agent

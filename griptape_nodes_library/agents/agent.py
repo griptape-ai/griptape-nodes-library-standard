@@ -61,8 +61,8 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
 )
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
+from griptape_nodes_library.utils.direct_provider_usage import require_driver_access
 from griptape_nodes_library.utils.error_utils import try_throw_error
-from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
 _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
@@ -904,14 +904,15 @@ class Agent(ControlNode):
             # trustworthy source: it keeps its last dropdown value (hidden, not cleared)
             # while a connected Agent supplies the real driver. The util resolves the
             # provider model id to its stable catalog key (via the node's model_usage)
-            # before declaring. Declare before the network call below so a denied
-            # invocation fails closed rather than reaching the provider.
-            model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
-            require_model_invocation_sync(self, model)
+            # before declaring. Gate before the network call below so a denied
+            # invocation fails closed rather than reaching the provider; a direct
+            # provider call is also budget-checked here and metered by `run`.
+            driver = cast(PromptTask, agent.tasks[0]).prompt_driver
+            meter = require_driver_access(self, driver)
 
             # Run the agent asynchronously
             self.append_value_to_parameter("logs", "[Started processing agent..]\n")
-            yield lambda: self._process(agent, prompt)
+            yield lambda: meter.run(lambda: self._process(agent, prompt))
             self.append_value_to_parameter("logs", "\n[Finished processing agent.]\n")
             try_throw_error(agent.output)
             # Settle the output field to the final answer only — not the [Verified tool use: ...]

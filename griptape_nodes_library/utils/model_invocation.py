@@ -1,4 +1,4 @@
-"""Declare an impending model invocation so the permission layer can gate it.
+"""Gate an impending model invocation on the permission layer and, for direct calls, on budgets.
 
 Callers dispatch `declare_model_invocation` before making any network call to
 the model provider and treat a failed result as do-not-invoke: the engine
@@ -6,6 +6,14 @@ clears the call by default, but a registered policy can deny it, in which
 case the result reports failure and the caller must not proceed. This is a
 fail-closed contract -- if the declaration fails for any reason, the model
 must not be invoked.
+
+A node that calls a provider directly (BYOK, not through the Griptape proxy)
+also goes through `require_model_access_sync`, which adds Griptape Cloud's
+budget check after the permission declaration, and reports what the call cost
+with `report_model_usage_sync` afterwards. The budget check is the opposite of
+the permission gate: it fails open when Cloud cannot be asked and fails closed
+only on an explicit deny. Calls through the Griptape proxy are budgeted
+server-side and must use neither.
 
 This file is the canonical implementation. Other node libraries cannot import
 across each other's Python packages, so any library that needs this behavior
@@ -18,10 +26,17 @@ directory.
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.node_library.library_registry import get_declared_models
 from griptape_nodes.retained_mode.events.base_events import ResultPayload
+from griptape_nodes.retained_mode.events.budget_events import (
+    BudgetAccessRequest,
+    BudgetAccessResultFailure,
+    BudgetAccessResultSuccess,
+    ReportUsageRequest,
+)
 from griptape_nodes.retained_mode.events.model_events import DeclareModelInvocationRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
@@ -30,6 +45,8 @@ logger = logging.getLogger("griptape_nodes")
 __all__ = [
     "declare_model_invocation",
     "declare_model_invocation_sync",
+    "report_model_usage_sync",
+    "require_model_access_sync",
     "require_model_invocation_sync",
     "resolve_catalog_model_id",
 ]
@@ -122,6 +139,71 @@ def require_model_invocation_sync(node: BaseNode, api_model_id: str | None, *, p
         details = f"invocation of model '{api_model_id}' was not permitted."
     msg = f"Cannot run {subject}: {details}"
     raise RuntimeError(msg)
+
+
+def require_model_access_sync(
+    node: BaseNode,
+    api_model_id: str | None,
+    *,
+    estimated_cost_micro_usd: int | None = None,
+    purpose: str | None = None,
+) -> str | None:
+    """Gate a direct provider call on the permission layer, then on Griptape Cloud budgets.
+
+    Permission runs first so a model the license forbids never reaches the budget
+    check. `estimated_cost_micro_usd` is optional; without it only a budget with no
+    headroom left refuses the call.
+
+    Returns the check's correlation id, to pass to `report_model_usage_sync`, or None
+    when the check never ran.
+
+    Raises:
+        RuntimeError: as `require_model_invocation_sync` does.
+        BudgetExceededError: the engine's own exception, raised unwrapped so the run
+            halts with its "Budget stopped this run." message.
+    """
+    require_model_invocation_sync(node, api_model_id, purpose=purpose)
+    # The declaration above refused a missing model and already warned about an undeclared one.
+    api_model_id = cast("str", api_model_id)
+    result = GriptapeNodes.handle_request(
+        BudgetAccessRequest(
+            model_id=resolve_catalog_model_id(node, api_model_id) or api_model_id,
+            estimated_cost_micro_usd=estimated_cost_micro_usd,
+            node_type=type(node).__name__,
+        )
+    )
+    if isinstance(result, BudgetAccessResultFailure):
+        raise result.exception  # pyright: ignore[reportGeneralTypeIssues]
+    if isinstance(result, BudgetAccessResultSuccess):
+        return result.correlation_id
+    # Any other payload means the check never ran; fail open like the engine does.
+    logger.warning("%s: budget check returned %s; proceeding unchecked.", type(node).__name__, type(result).__name__)
+    return None
+
+
+def report_model_usage_sync(  # noqa: PLR0913
+    node: BaseNode,
+    *,
+    declared_cost_micro_usd: int,
+    provider: str | None,
+    model: str | None,
+    correlation_id: str | None,
+    activity_type: str = "chat_completion",
+) -> None:
+    """Report what a direct provider call cost. Best-effort: never raises, result ignored."""
+    try:
+        GriptapeNodes.handle_request(
+            ReportUsageRequest(
+                declared_cost_micro_usd=declared_cost_micro_usd,
+                provider=provider,
+                model=model,
+                activity_type=activity_type,
+                node_type=type(node).__name__,
+                correlation_id=correlation_id,
+            )
+        )
+    except Exception:
+        logger.warning("%s: could not report model usage.", type(node).__name__, exc_info=True)
 
 
 def _build_declaration(node: BaseNode, api_model_id: str) -> DeclareModelInvocationRequest:

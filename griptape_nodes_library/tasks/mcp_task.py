@@ -30,13 +30,13 @@ from griptape_nodes_library.utils.agent_utils import (
 )
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.cloud_legacy_models import cloud_legacy_values_for
+from griptape_nodes_library.utils.direct_provider_usage import require_driver_access
 from griptape_nodes_library.utils.mcp_utils import (
     create_mcp_tool,
     get_available_mcp_servers,
     get_server_config,
     validate_mcp_server,
 )
-from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
 _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
@@ -502,9 +502,6 @@ class MCPTaskNode(SuccessFailureNode):
     def _process_with_streaming(self, agent: Agent, prompt: BaseArtifact | str) -> Agent:
         """Process the agent with proper streaming, similar to the Agent node."""
         args = [prompt] if prompt else []
-        structure_id_stack = []
-        active_structure_id = None
-
         task = agent.tasks[0]
         if not isinstance(task, PromptTask):
             msg = "Agent must have a PromptTask"
@@ -517,10 +514,15 @@ class MCPTaskNode(SuccessFailureNode):
         # while a connected agent supplies the real driver. The util resolves the provider model
         # id to its stable catalog key (via this node's `model_usage`) before declaring. This is
         # the fail-closed backstop behind the dropdown's OFFER_MODEL gate, and the only gate for
-        # a model that never came from the dropdown at all.
-        require_model_invocation_sync(self, prompt_driver.model)
+        # a model that never came from the dropdown at all. A direct provider call is also
+        # budget-checked here and metered by `run`.
+        meter = require_driver_access(self, prompt_driver)
+        return meter.run(lambda: self._run_agent(agent, args, stream=prompt_driver.stream))
 
-        if prompt_driver.stream:
+    def _run_agent(self, agent: Agent, args: list, *, stream: bool) -> Agent:
+        structure_id_stack = []
+        active_structure_id = None
+        if stream:
             for event in agent.run_stream(
                 *args, event_types=[StartStructureRunEvent, TextChunkEvent, ActionChunkEvent, FinishStructureRunEvent]
             ):
