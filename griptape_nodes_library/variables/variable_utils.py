@@ -198,3 +198,36 @@ def _get_flow_for_node(node_name: str) -> str:
         raise RuntimeError(error_msg)  # noqa: TRY004
 
     return flow_result.flow_name
+
+
+def delete_variable(node_name: str, variable_name: str, scope: "VariableScope") -> None:
+    """Attempts to delete a variable at the specified scope.
+
+    Args:
+        node_name: The name of the node requesting the deletion
+        variable_name: The name of the variable to delete
+        scope: The scope to search for the variable within
+
+    Raises:
+        RuntimeError: If the flow for the node cannot be found, or the engine refuses the deletion
+            (missing or read-only variable)
+    """
+    # Lazy imports to avoid circular import issues
+    from griptape_nodes.retained_mode.events.variable_events import (
+        DeleteVariableRequest,
+        DeleteVariableResultSuccess,
+    )
+    from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
+    current_flow_name = _get_flow_for_node(node_name)
+
+    request = DeleteVariableRequest(
+        name=variable_name,
+        lookup_scope=scope,
+        starting_flow=current_flow_name,
+    )
+
+    result = GriptapeNodes.handle_request(request)
+    if not isinstance(result, DeleteVariableResultSuccess):
+        msg = f"Failed to delete variable: {result.result_details}"
+        raise RuntimeError(msg)  # noqa: TRY004
