@@ -3,6 +3,7 @@ from typing import Any, ClassVar
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.file import File
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
@@ -127,15 +128,13 @@ class AddOverlay(BaseVideoProcessor):
                 output_path,
             ]
 
-        # Get the overlay URL
-        overlay_url = overlay_video.url if hasattr(overlay_video, "url") else str(overlay_video)
+        overlay_url = self._resolve_overlay_location(overlay_video)
 
         # Get base video duration for proper trimming
         ffmpeg_path, ffprobe_path = self._get_ffmpeg_paths()
-        _, _, base_duration = self._detect_video_properties(input_url, ffprobe_path)
+        _, (base_width, base_height), base_duration = self._detect_video_properties(input_url, ffprobe_path)
 
-        # For now, skip scaling for "Scale to cover" and "Scale to fit" to get basic overlay working
-        # Always center the overlay for simplicity
+        # The overlay filter accepts any overlay size, so overlay mode always centers the overlay unscaled
         overlay_position = "(W-w)/2:(H-h)/2"
 
         # Build overlay filter complex based on blend mode and channel selection
@@ -146,8 +145,14 @@ class AddOverlay(BaseVideoProcessor):
             # Use overlay filter for alpha blending
             custom_filter = f"[0]loop=loop=-1,trim=duration={base_duration},format=rgba,colorchannelmixer=aa={amount}[fg];[1][fg]overlay={overlay_position}[out]"
         else:
-            # Use blend filter for other blend modes - blend all components
-            custom_filter = f"[0]loop=loop=-1,trim=duration={base_duration}[fg];[1][fg]blend=all_mode={blend_mode}:all_opacity={amount}[out]"
+            # The blend filter requires both inputs to share size and pixel format, so scale
+            # the overlay to the base video and convert both to planar RGB
+            sizing_filter = self._get_sizing_filter(kwargs.get("sizing", "Scale to cover"), base_width, base_height)
+            custom_filter = (
+                f"[0]loop=loop=-1,trim=duration={base_duration},{sizing_filter},setsar=1,format=gbrp[fg];"
+                f"[1]setsar=1,format=gbrp[bg];"
+                f"[bg][fg]blend=all_mode={blend_mode}:all_opacity={amount}[out]"
+            )
 
         # Add frame rate filter if needed (after the overlay effect)
         frame_rate_filter = self._get_frame_rate_filter(input_frame_rate)
@@ -192,6 +197,32 @@ class AddOverlay(BaseVideoProcessor):
             "-y",
             output_path,
         ]
+
+    def _get_sizing_filter(self, sizing: str, width: int, height: int) -> str:
+        """Return an FFmpeg filter that sizes the overlay to exactly width x height."""
+        match sizing:
+            case "Scale to cover":
+                return f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
+            case "Scale to fit":
+                return f"scale={width}:{height}"
+            case _:
+                msg = f"{self.name}: Unknown sizing option: {sizing!r}"
+                raise ValueError(msg)
+
+    def _resolve_overlay_location(self, overlay_video: Any) -> str:
+        """Return a path or URL FFmpeg can open for the overlay input.
+
+        Project-saved artifacts carry macro paths like ``{outputs}/images/foo.png``,
+        which FFmpeg can't open until they are resolved.
+        """
+        if isinstance(overlay_video, dict):
+            location = overlay_video.get("value")
+        else:
+            location = getattr(overlay_video, "value", None)
+        if not isinstance(location, str) or not location:
+            msg = f"{self.name}: overlay_video must reference a file or URL, got {type(overlay_video).__name__}"
+            raise ValueError(msg)  # noqa: TRY004
+        return File(location).resolve()
 
     def _validate_custom_parameters(self) -> list[Exception] | None:
         """Validate overlay parameters."""

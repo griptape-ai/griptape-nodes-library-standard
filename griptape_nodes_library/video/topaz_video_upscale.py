@@ -486,6 +486,10 @@ class TopazVideoUpscale(GriptapeProxyNode):
             msg = f"{self.name} could not resolve the input video."
             raise ValueError(msg)
 
+        # Data URIs go straight to ffprobe because File would treat them as paths
+        if video_url.startswith("data:"):
+            return extract_video_metadata_structured(video_url)
+
         try:
             resolved_path = File(video_url).resolve()
         except FileLoadError as e:

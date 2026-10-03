@@ -165,21 +165,31 @@ class AudioDetails(DataNode):
         audio = self.get_parameter_value("audio")
         self._update_audio_details(audio)
 
-    def _get_audio_url(self, audio: AudioUrlArtifact | AudioArtifact) -> str | None:
+    def _get_audio_url(self, audio: AudioUrlArtifact | AudioArtifact | dict | str) -> str | None:
         """Extract URL from audio artifact or save bytes to temp file."""
         # FAILURE CASES FIRST
         if not audio:
             return None
 
+        # A serialized artifact dict or a bare string can arrive here because
+        # set_parameter_value calls this before the ParameterAudio converter runs.
+        location = None
         if isinstance(audio, AudioUrlArtifact):
-            # ``audio.value`` may be an HTTP URL, a project macro path
+            location = audio.value
+        elif isinstance(audio, dict) and isinstance(audio.get("value"), str):
+            location = audio["value"]
+        elif isinstance(audio, str):
+            location = audio
+
+        if location:
+            # ``location`` may be an HTTP URL, a project macro path
             # (``{outputs}/clip.mp3``), or a plain filesystem path. ffprobe
             # cannot resolve macro paths, so route through ``File`` first;
             # for HTTP URLs ``File.resolve()`` is a no-op pass-through.
             try:
-                return File(audio.value).resolve()
+                return File(location).resolve()
             except FileLoadError as e:
-                logger.error(f"{self.name}: Failed to resolve audio path {audio.value}: {e}")
+                logger.error(f"{self.name}: Failed to resolve audio path {location}: {e}")
                 return None
 
         if isinstance(audio, AudioArtifact):
@@ -191,9 +201,6 @@ class AudioDetails(DataNode):
             except Exception as e:
                 logger.error(f"{self.name}: Failed to create temp file for AudioArtifact: {e}")
                 return None
-
-        if isinstance(audio, dict) and "value" in audio:
-            return audio["value"]
 
         return None
 
