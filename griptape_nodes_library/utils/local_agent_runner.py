@@ -10,6 +10,7 @@ from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.drivers.cloud_models import OLLAMA_DEFAULT_BASE_URL, model_settings_for
+from griptape_nodes.files.project_file import ProjectFileDestination
 from openai import AsyncOpenAI
 from pydantic_ai import Agent, StructuredDict
 from pydantic_ai.messages import (
@@ -165,15 +166,27 @@ def _inline(item: UserContent) -> UserContent:
 
 
 def _store_image_urls(new_messages: list[ModelMessage], prompt: Sequence[UserContent]) -> list[ModelMessage]:
-    """Return ``new_messages`` with the run's prompt stored as it was given, URLs and all."""
+    """Return ``new_messages`` with the run's prompt stored by reference.
+
+    URLs stay as given. Image bytes are written to a project file and stored as its URL,
+    so history, and the workflow it's saved in, never carries image data.
+    """
     if not new_messages or not isinstance(new_messages[0], ModelRequest):
         return new_messages
     first = new_messages[0]
+    stored = [_to_file_url(item) for item in prompt]
     parts = [
-        UserPromptPart(content=list(prompt), timestamp=part.timestamp) if isinstance(part, UserPromptPart) else part
+        UserPromptPart(content=stored, timestamp=part.timestamp) if isinstance(part, UserPromptPart) else part
         for part in first.parts
     ]
     return [ModelRequest(parts=parts, instructions=first.instructions), *new_messages[1:]]
+
+
+def _to_file_url(item: UserContent) -> UserContent:
+    if isinstance(item, BinaryContent) and item.is_image:
+        dest = ProjectFileDestination.from_situation(filename=f"agent_input.{item.format}", situation="save_file")
+        return ImageUrl(url=dest.write_bytes(item.data).location)
+    return item
 
 
 # ---------------------------------------------------------------------------

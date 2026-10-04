@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator, Callable
+from types import SimpleNamespace
 
 import pytest
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
@@ -124,6 +126,37 @@ def test_history_image_urls_are_inlined_for_the_model_and_kept_as_urls(monkeypat
     assert isinstance(sent_prompt, ModelRequest)
     stored_prompt = run.state.turns()[-1].user_content
     assert list(stored_prompt) == ["And this?", url]
+
+
+def test_prompt_image_bytes_are_stored_as_a_file_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    written: list[tuple[str, bytes]] = []
+
+    class _Dest:
+        def __init__(self, filename: str) -> None:
+            self.filename = filename
+
+        def write_bytes(self, data: bytes) -> SimpleNamespace:
+            written.append((self.filename, data))
+            return SimpleNamespace(location=f"http://localhost/static/{self.filename}")
+
+    monkeypatch.setattr(
+        local_runner_module.ProjectFileDestination,
+        "from_situation",
+        lambda filename, situation: _Dest(filename),
+    )
+    image = BinaryContent(data=PNG, media_type="image/png")
+    seen: list[list[ModelMessage]] = []
+
+    run = LocalAgentRunner(model_override=_echo_model(seen)).run(AgentState(model="m"), ["What is this?", image])
+
+    sent_prompt = seen[0][-1]
+    assert isinstance(sent_prompt, ModelRequest)
+    assert isinstance(sent_prompt.parts[0], UserPromptPart)
+    assert sent_prompt.parts[0].content[1] == image  # pyright: ignore[reportIndexIssue]
+    assert written == [("agent_input.png", PNG)]
+    stored_prompt = run.state.turns()[-1].user_content
+    assert list(stored_prompt) == ["What is this?", ImageUrl(url="http://localhost/static/agent_input.png")]
+    assert "base64" not in json.dumps(run.state.to_wire()) and PNG.hex() not in json.dumps(run.state.to_wire())
 
 
 def test_tool_calls_run_griptape_activities_and_report_events() -> None:
