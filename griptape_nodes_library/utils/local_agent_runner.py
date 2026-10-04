@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
@@ -42,6 +44,7 @@ from griptape_nodes_library.utils.agent_tools import build_pydantic_tools
 from griptape_nodes_library.utils.cloud_credential_utils import missing_credential_message, resolve_cloud_api_key
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
+from griptape_nodes_library.utils.macro_path_utils import resolve_to_macro_path
 
 GRIPTAPE_CLOUD_BASE_URL = "https://cloud.griptape.ai"
 
@@ -183,10 +186,15 @@ def _store_image_urls(new_messages: list[ModelMessage], prompt: Sequence[UserCon
 
 
 def _to_file_url(item: UserContent) -> UserContent:
-    if isinstance(item, BinaryContent) and item.is_image:
-        dest = ProjectFileDestination.from_situation(filename=f"agent_input.{item.format}", situation="save_file")
-        return ImageUrl(url=dest.write_bytes(item.data).location)
-    return item
+    """Store image bytes as a project file named by content hash, reusing the file if it exists."""
+    if not (isinstance(item, BinaryContent) and item.is_image):
+        return item
+    digest = hashlib.sha256(item.data).hexdigest()[:16]
+    dest = ProjectFileDestination.from_situation(filename=f"agent_input_{digest}.{item.format}", situation="save_file")
+    existing = Path(dest.resolve())
+    if existing.exists():
+        return ImageUrl(url=resolve_to_macro_path(str(existing)).resolved_path)
+    return ImageUrl(url=dest.write_bytes(item.data).location)
 
 
 # ---------------------------------------------------------------------------

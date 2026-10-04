@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import AsyncIterator, Callable
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -128,22 +130,41 @@ def test_history_image_urls_are_inlined_for_the_model_and_kept_as_urls(monkeypat
     assert list(stored_prompt) == ["And this?", url]
 
 
-def test_prompt_image_bytes_are_stored_as_a_file_url(monkeypatch: pytest.MonkeyPatch) -> None:
+class _FakeDest:
+    def __init__(self, filename: str, root: Path, written: list[tuple[str, bytes]]) -> None:
+        self.filename = filename
+        self.root = root
+        self.written = written
+
+    def resolve(self) -> str:
+        return str(self.root / self.filename)
+
+    def write_bytes(self, data: bytes) -> SimpleNamespace:
+        (self.root / self.filename).write_bytes(data)
+        self.written.append((self.filename, data))
+        return SimpleNamespace(location=f"{{outputs}}/{self.filename}")
+
+
+PNG_NAME = f"agent_input_{hashlib.sha256(PNG).hexdigest()[:16]}.png"
+
+
+@pytest.fixture
+def fake_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[tuple[str, bytes]]:
     written: list[tuple[str, bytes]] = []
-
-    class _Dest:
-        def __init__(self, filename: str) -> None:
-            self.filename = filename
-
-        def write_bytes(self, data: bytes) -> SimpleNamespace:
-            written.append((self.filename, data))
-            return SimpleNamespace(location=f"http://localhost/static/{self.filename}")
-
     monkeypatch.setattr(
         local_runner_module.ProjectFileDestination,
         "from_situation",
-        lambda filename, situation: _Dest(filename),
+        lambda filename, situation: _FakeDest(filename, tmp_path, written),
     )
+    monkeypatch.setattr(
+        local_runner_module,
+        "resolve_to_macro_path",
+        lambda path: SimpleNamespace(resolved_path=f"{{outputs}}/{Path(path).name}"),
+    )
+    return written
+
+
+def test_prompt_image_bytes_are_stored_as_a_file_url(fake_project: list[tuple[str, bytes]]) -> None:
     image = BinaryContent(data=PNG, media_type="image/png")
     seen: list[list[ModelMessage]] = []
 
@@ -153,10 +174,37 @@ def test_prompt_image_bytes_are_stored_as_a_file_url(monkeypatch: pytest.MonkeyP
     assert isinstance(sent_prompt, ModelRequest)
     assert isinstance(sent_prompt.parts[0], UserPromptPart)
     assert sent_prompt.parts[0].content[1] == image  # pyright: ignore[reportIndexIssue]
-    assert written == [("agent_input.png", PNG)]
+    assert fake_project == [(PNG_NAME, PNG)]
     stored_prompt = run.state.turns()[-1].user_content
-    assert list(stored_prompt) == ["What is this?", ImageUrl(url="http://localhost/static/agent_input.png")]
+    assert list(stored_prompt) == ["What is this?", ImageUrl(url=f"{{outputs}}/{PNG_NAME}")]
     assert "base64" not in json.dumps(run.state.to_wire()) and PNG.hex() not in json.dumps(run.state.to_wire())
+
+
+def test_the_same_image_bytes_reuse_the_existing_file(
+    fake_project: list[tuple[str, bytes]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        local_runner_module,
+        "load_image_from_url_artifact",
+        lambda artifact: ImageArtifact(PNG, format="png", width=1, height=1),
+    )
+    image = BinaryContent(data=PNG, media_type="image/png")
+    runner = LocalAgentRunner(model_override=_echo_model([]))
+
+    first = runner.run(AgentState(model="m"), ["What is this?", image])
+    second = runner.run(first.state, ["And again?", image])
+
+    assert fake_project == [(PNG_NAME, PNG)]
+    assert list(second.state.turns()[-1].user_content) == ["And again?", ImageUrl(url=f"{{outputs}}/{PNG_NAME}")]
+
+
+def test_prompt_image_urls_are_stored_without_writing_a_file(fake_project: list[tuple[str, bytes]]) -> None:
+    url = ImageUrl(url="{outputs}/cat.png")
+
+    run = LocalAgentRunner(model_override=_echo_model([])).run(AgentState(model="m"), ["What is this?", url])
+
+    assert fake_project == []
+    assert list(run.state.turns()[-1].user_content) == ["What is this?", url]
 
 
 def test_tool_calls_run_griptape_activities_and_report_events() -> None:

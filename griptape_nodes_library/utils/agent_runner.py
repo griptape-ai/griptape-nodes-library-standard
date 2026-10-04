@@ -85,8 +85,9 @@ class AgentRunner(Protocol):
 def image_prompt_content(image: object) -> UserContent | None:
     """Convert an image a node received into prompt content.
 
-    URL artifacts and path strings stay URLs. An ``ImageArtifact`` is sent as its bytes;
-    the runner stores those in history as a file URL, not inline.
+    URL artifacts and path strings stay URLs, so a project image is referenced, never copied.
+    An ``ImageArtifact`` is sent as its bytes; the runner stores those in history as a
+    content-addressed project file URL, not inline.
     """
     if isinstance(image, ImageUrlArtifact):
         return ImageUrl(url=image.value)
