@@ -27,6 +27,7 @@ from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgen
 from griptape_nodes_library.utils.agent_utils import (
     build_rulesets_from_configs,
     build_tools,
+    legacy_wrapper_for,
     restore_provider_driver,
     unwrap_agent,
     wrap_agent,
@@ -513,7 +514,7 @@ class DescribeImage(ControlNode):
         if agent.tasks:
             cast(PromptTask, agent.tasks[0]).tools = []
 
-        incoming_provider = agent_value.get("provider") if isinstance(agent_value, dict) else None
+        incoming_provider = legacy_wrapper_for(agent_value).get("provider") if isinstance(agent_value, dict) else None
 
         self.parameter_output_values["agent"] = wrap_agent(
             agent.to_dict(),

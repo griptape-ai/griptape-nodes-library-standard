@@ -17,8 +17,9 @@ dependencies = [
   "asteval>=1.0.8",
   "color-matcher",
   "zstandard>=0.22.0",
-    "tokenizers>=0.22.0,<0.23",
+  "tokenizers>=0.22.0,<0.23",
   "lxml>=5.0.0",
+  "pydantic-ai-slim[openai]>=2.52.0",
 ]
 
 [build-system]
