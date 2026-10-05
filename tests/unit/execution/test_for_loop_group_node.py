@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import copy
+
 import pytest
+from griptape_nodes.exe_types.node_groups.subflow_node_group import LEFT_PARAMETERS_KEY, RIGHT_PARAMETERS_KEY
 
 from griptape_nodes_library.execution.for_loop_group import ForLoopGroupNode
 
@@ -65,19 +68,67 @@ class TestGetAllIterationValues:
 
 class TestLeftParametersMetadata:
     def test_start_in_left_parameters(self, default_node: ForLoopGroupNode) -> None:
-        from griptape_nodes.exe_types.node_groups.subflow_node_group import LEFT_PARAMETERS_KEY
-
         left = default_node.metadata.get(LEFT_PARAMETERS_KEY, [])
         assert "start" in left
 
     def test_end_in_left_parameters(self, default_node: ForLoopGroupNode) -> None:
-        from griptape_nodes.exe_types.node_groups.subflow_node_group import LEFT_PARAMETERS_KEY
-
         left = default_node.metadata.get(LEFT_PARAMETERS_KEY, [])
         assert "end" in left
 
     def test_step_in_left_parameters(self, default_node: ForLoopGroupNode) -> None:
-        from griptape_nodes.exe_types.node_groups.subflow_node_group import LEFT_PARAMETERS_KEY
-
         left = default_node.metadata.get(LEFT_PARAMETERS_KEY, [])
         assert "step" in left
+
+    def test_left_rail_membership(self, default_node: ForLoopGroupNode) -> None:
+        expected_left = {"exec_in", "start", "end", "step", "group_exec_in", "on_each", "index"}
+
+        assert set(default_node.metadata[LEFT_PARAMETERS_KEY]) == expected_left
+        assert len(default_node.metadata[LEFT_PARAMETERS_KEY]) == len(expected_left)
+
+    def test_right_rail_membership(self, default_node: ForLoopGroupNode) -> None:
+        expected_right = {
+            "exec_out",
+            "group_exec_out",
+            "loop_complete",
+            "new_item_to_add",
+            "skip_iteration",
+            "break_loop",
+            "results",
+        }
+
+        assert set(default_node.metadata[RIGHT_PARAMETERS_KEY]) == expected_right
+        assert len(default_node.metadata[RIGHT_PARAMETERS_KEY]) == len(expected_right)
+
+
+class TestRestoredRailsAreStable:
+    """Rebuilding a node from a saved node's metadata must not grow the rails."""
+
+    def test_left_rail_survives_three_generations(self, default_node: ForLoopGroupNode) -> None:
+        generation_2 = ForLoopGroupNode(name="gen_2", metadata=copy.deepcopy(default_node.metadata))
+        generation_3 = ForLoopGroupNode(name="gen_3", metadata=copy.deepcopy(generation_2.metadata))
+
+        expected_left = set(default_node.metadata[LEFT_PARAMETERS_KEY])
+
+        assert set(generation_3.metadata[LEFT_PARAMETERS_KEY]) == expected_left
+        assert len(generation_3.metadata[LEFT_PARAMETERS_KEY]) == len(expected_left)
+
+    def test_right_rail_survives_three_generations(self, default_node: ForLoopGroupNode) -> None:
+        generation_2 = ForLoopGroupNode(name="gen_2", metadata=copy.deepcopy(default_node.metadata))
+        generation_3 = ForLoopGroupNode(name="gen_3", metadata=copy.deepcopy(generation_2.metadata))
+
+        expected_right = set(default_node.metadata[RIGHT_PARAMETERS_KEY])
+
+        assert set(generation_3.metadata[RIGHT_PARAMETERS_KEY]) == expected_right
+        assert len(generation_3.metadata[RIGHT_PARAMETERS_KEY]) == len(expected_right)
+
+    def test_left_rail_backfills_a_rail_saved_without_start_end_or_step(self, default_node: ForLoopGroupNode) -> None:
+        """A workflow saved before start/end/step existed gains them back."""
+        metadata = copy.deepcopy(default_node.metadata)
+        metadata[LEFT_PARAMETERS_KEY] = ["exec_in", "group_exec_in", "on_each", "index"]
+
+        restored = ForLoopGroupNode(name="gen_2", metadata=metadata)
+
+        expected_left = set(default_node.metadata[LEFT_PARAMETERS_KEY])
+
+        assert set(restored.metadata[LEFT_PARAMETERS_KEY]) == expected_left
+        assert len(restored.metadata[LEFT_PARAMETERS_KEY]) == len(expected_left)
