@@ -3,7 +3,7 @@
 from collections.abc import Generator
 
 import pytest
-from griptape_nodes.exe_types.node_types import NodeResolutionState
+from griptape_nodes.exe_types.node_types import NodeResolutionState, VariableAccess, VariableReference
 from griptape_nodes.retained_mode.events.flow_events import (
     CreateFlowRequest,
     CreateFlowResultSuccess,
@@ -123,3 +123,24 @@ class TestDeleteVariableState:
 
         _create_variable("a", flow)
         assert delete_variable_node.state == NodeResolutionState.UNRESOLVED
+
+
+class TestDeleteVariableDependencies:
+    def test_declares_each_requested_name_as_write(self, delete_variable_node: DeleteVariable) -> None:
+        delete_variable_node.set_parameter_value("variable_names", ["a", "b"])
+
+        deps = delete_variable_node.get_node_dependencies()
+
+        assert deps is not None
+        assert deps.variable_references == {
+            VariableReference(name="a", scope=VariableScope.HIERARCHICAL, access=VariableAccess.WRITE),
+            VariableReference(name="b", scope=VariableScope.HIERARCHICAL, access=VariableAccess.WRITE),
+        }
+
+    def test_malformed_names_declare_nothing(self, delete_variable_node: DeleteVariable) -> None:
+        delete_variable_node.set_parameter_value("variable_names", ["a", 1])
+
+        deps = delete_variable_node.get_node_dependencies()
+
+        assert deps is not None
+        assert deps.variable_references == set()

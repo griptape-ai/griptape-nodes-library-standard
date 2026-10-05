@@ -1,26 +1,16 @@
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import (
-    ControlNode,
-    NodeDependencies,
-    NodeResolutionState,
-    VariableAccess,
-    VariableReference,
-)
-from griptape_nodes.retained_mode.variable_types import VariableScope
-from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
-from griptape_nodes.traits.options import Options
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.node_types import VariableAccess
 
-from griptape_nodes_library.variables.variable_utils import (
-    create_advanced_parameter_group,
-    has_variable,
-    list_variables,
-    scope_string_to_variable_scope,
-)
+from griptape_nodes_library.variables.base_variable_node import BaseVariableNode
+from griptape_nodes_library.variables.variable_utils import has_variable
 
 
-class HasVariable(ControlNode):
+class HasVariable(BaseVariableNode):
+    # process() only calls HasVariableRequest; the existence check is a read with no side effects.
+    VARIABLE_ACCESS = VariableAccess.READ
+
     def __init__(
         self,
         name: str,
@@ -28,23 +18,14 @@ class HasVariable(ControlNode):
     ) -> None:
         super().__init__(name, metadata)
 
-        self.variable_name_param = Parameter(
-            name="variable_name",
-            type="str",
-            allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT, ParameterMode.PROPERTY},
-            tooltip="Name of the variable to check for existence",
-        )
-        available_names = self._get_variable_names()
-        self.variable_name_param.add_trait(Options(choices=available_names))
-        self.variable_name_param.add_trait(
-            Button(
-                icon="list-restart",
-                size="icon",
-                variant="secondary",
-                on_click=self._refresh_variable_names,
+        self._add_variable_name_parameter(
+            Parameter(
+                name="variable_name",
+                type="str",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT, ParameterMode.PROPERTY},
+                tooltip="Name of the variable to check for existence",
             )
         )
-        self.add_parameter(self.variable_name_param)
 
         self.exists_param = Parameter(
             name="exists",
@@ -55,35 +36,13 @@ class HasVariable(ControlNode):
         )
         self.add_parameter(self.exists_param)
 
-        # Advanced parameters group (collapsed by default)
-        advanced = create_advanced_parameter_group()
-        self.scope_param = advanced.scope_param
-        self.add_node_element(advanced.parameter_group)
-
-    def _get_variable_names(self) -> list[str]:
-        scope_str = self.get_parameter_value("scope")
-        scope = scope_string_to_variable_scope(scope_str) if scope_str else VariableScope.HIERARCHICAL
-        return list_variables(node_name=self.name, scope=scope)
-
-    def _refresh_variable_names(
-        self, button: Button, button_details: ButtonDetailsMessagePayload
-    ) -> NodeMessageResult | None:  # noqa: ARG002
-        names = self._get_variable_names()
-        current = self.get_parameter_value("variable_name")
-        self._update_option_choices(param="variable_name", choices=names, default=names[0] if names else "")
-        if current and current in names:
-            self.set_parameter_value("variable_name", current)
-        return None
+        self._add_scope_parameter()
 
     def process(self) -> None:
         variable_name = self.get_parameter_value(self.variable_name_param.name)
-        scope_str = self.get_parameter_value(self.scope_param.name)
-
-        # Convert scope string to VariableScope enum
-        scope = scope_string_to_variable_scope(scope_str)
 
         # This can throw.
-        exists = has_variable(node_name=self.name, variable_name=variable_name, scope=scope)
+        exists = has_variable(node_name=self.name, variable_name=variable_name, scope=self._get_scope())
 
         self.set_parameter_value(self.exists_param.name, exists)
 
@@ -91,51 +50,8 @@ class HasVariable(ControlNode):
         self.parameter_output_values[self.exists_param.name] = exists
         self.parameter_output_values[self.variable_name_param.name] = variable_name
 
-    def get_node_dependencies(self) -> NodeDependencies | None:
-        """Declare the variable this node checks so it survives serialization.
-
-        Access is READ: ``process()`` only calls ``HasVariableRequest``; the existence check
-        is a read with no side effects.
-
-        Reads the current value of ``variable_name`` via ``get_parameter_value`` — if the parameter
-        is driven by an incoming connection, this returns the last propagated value (or ``None`` if
-        nothing has propagated yet). No declaration is emitted for empty/None names.
-        """
-        deps = super().get_node_dependencies()
-        if deps is None:
-            deps = NodeDependencies()
-
+    def _is_stale(self) -> bool:
+        # Stale if the variable's existence differs from what we last emitted.
         variable_name = self.get_parameter_value(self.variable_name_param.name)
-        if isinstance(variable_name, str) and variable_name:
-            scope_str = self.get_parameter_value(self.scope_param.name)
-            scope = scope_string_to_variable_scope(scope_str) if scope_str else VariableScope.HIERARCHICAL
-            deps.variable_references.add(VariableReference(name=variable_name, scope=scope, access=VariableAccess.READ))
-
-        return deps
-
-    @property
-    def state(self) -> NodeResolutionState:
-        """Overrides BaseNode.state @property to treat it as volatile (always be re-evaluated every time it is executed)."""
-        if self._state == NodeResolutionState.RESOLVED:
-            variable_name = self.get_parameter_value(self.variable_name_param.name)
-            scope_str = self.get_parameter_value(self.scope_param.name)
-
-            # Convert scope string to VariableScope enum
-            scope = scope_string_to_variable_scope(scope_str)
-
-            # This can throw.
-            try:
-                var_exists = has_variable(node_name=self.name, variable_name=variable_name, scope=scope)
-                our_exists = self.get_parameter_value(self.exists_param.name)
-                if var_exists != our_exists:
-                    # We're dirty.
-                    return NodeResolutionState.UNRESOLVED
-            except RuntimeError:
-                # Variable may not be created yet; assume unresolved.
-                return NodeResolutionState.UNRESOLVED
-        return super().state
-
-    @state.setter
-    def state(self, new_state: NodeResolutionState) -> None:
-        # Have to override the setter if we override the getter.
-        self._state = new_state
+        var_exists = has_variable(node_name=self.name, variable_name=variable_name, scope=self._get_scope())
+        return var_exists != self.get_parameter_value(self.exists_param.name)

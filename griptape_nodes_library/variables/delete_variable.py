@@ -1,27 +1,21 @@
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import ControlNode, NodeResolutionState
-from griptape_nodes.retained_mode.variable_types import VariableScope
-from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
-from griptape_nodes.traits.options import Options
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.node_types import VariableAccess
 
-from griptape_nodes_library.variables.variable_utils import (
-    create_advanced_parameter_group,
-    delete_variable,
-    has_variable,
-    list_variables,
-    scope_string_to_variable_scope,
-)
+from griptape_nodes_library.variables.base_variable_node import BaseVariableNode
+from griptape_nodes_library.variables.variable_utils import delete_variable, has_variable
 
 
-class DeleteVariable(ControlNode):
+class DeleteVariable(BaseVariableNode):
     """Delete one or more workflow variables.
 
     ``variable_names`` accepts a single name (picked from the dropdown or connected as a str)
     or a list of names. Missing variables are skipped unless ``fail_if_missing`` is enabled.
     Read-only variables are refused by the engine and fail the node.
     """
+
+    VARIABLE_ACCESS = VariableAccess.WRITE
 
     def __init__(
         self,
@@ -30,25 +24,17 @@ class DeleteVariable(ControlNode):
     ) -> None:
         super().__init__(name, metadata)
 
-        self.variable_names_param = Parameter(
-            name="variable_names",
-            type="str",
-            input_types=["str", "list"],
-            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            tooltip="Name of the variable to delete, or a list of names",
-        )
-        available_names = self._get_variable_names()
         # allow_custom keeps connected lists and not-yet-created names from being coerced to the first choice.
-        self.variable_names_param.add_trait(Options(choices=available_names, allow_custom=True))
-        self.variable_names_param.add_trait(
-            Button(
-                icon="list-restart",
-                size="icon",
-                variant="secondary",
-                on_click=self._refresh_variable_names,
-            )
+        self._add_variable_name_parameter(
+            Parameter(
+                name="variable_names",
+                type="str",
+                input_types=["str", "list"],
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                tooltip="Name of the variable to delete, or a list of names",
+            ),
+            allow_custom=True,
         )
-        self.add_parameter(self.variable_names_param)
 
         self.fail_if_missing_param = Parameter(
             name="fail_if_missing",
@@ -68,31 +54,11 @@ class DeleteVariable(ControlNode):
         )
         self.add_parameter(self.deleted_names_param)
 
-        # Advanced parameters group (collapsed by default)
-        advanced = create_advanced_parameter_group()
-        self.scope_param = advanced.scope_param
-        self.add_node_element(advanced.parameter_group)
-
-    def _get_variable_names(self) -> list[str]:
-        scope_str = self.get_parameter_value("scope")
-        scope = scope_string_to_variable_scope(scope_str) if scope_str else VariableScope.HIERARCHICAL
-        return list_variables(node_name=self.name, scope=scope)
-
-    def _refresh_variable_names(
-        self, button: Button, button_details: ButtonDetailsMessagePayload
-    ) -> NodeMessageResult | None:  # noqa: ARG002
-        names = self._get_variable_names()
-        current = self.get_parameter_value(self.variable_names_param.name)
-        self._update_option_choices(
-            param=self.variable_names_param.name, choices=names, default=names[0] if names else ""
-        )
-        if isinstance(current, str) and current in names:
-            self.set_parameter_value(self.variable_names_param.name, current)
-        return None
+        self._add_scope_parameter()
 
     def _requested_names(self) -> list[str]:
         """Normalize ``variable_names`` to a de-duplicated list, preserving order and dropping blanks."""
-        value = self.get_parameter_value(self.variable_names_param.name)
+        value = self.get_parameter_value(self.variable_name_param.name)
         if value is None:
             return []
         if isinstance(value, str):
@@ -111,10 +77,17 @@ class DeleteVariable(ControlNode):
                 names.append(stripped)
         return names
 
+    def _resolve_variable_names(self) -> list[str]:
+        # Malformed input is reported by process(); declaring nothing at save time is the safe fallback.
+        try:
+            return self._requested_names()
+        except TypeError:
+            return []
+
     def process(self) -> None:
         names = self._requested_names()
         fail_if_missing = bool(self.get_parameter_value(self.fail_if_missing_param.name))
-        scope = scope_string_to_variable_scope(self.get_parameter_value(self.scope_param.name))
+        scope = self._get_scope()
 
         deleted: list[str] = []
         errors: list[str] = []
@@ -137,20 +110,7 @@ class DeleteVariable(ControlNode):
             msg = f"{self.name}: deleted {len(deleted)} of {len(names)} variable(s). " + " ".join(errors)
             raise RuntimeError(msg)
 
-    @property
-    def state(self) -> NodeResolutionState:
-        """Overrides BaseNode.state @property to treat it as volatile (re-run if any named variable exists again)."""
-        if self._state == NodeResolutionState.RESOLVED:
-            try:
-                names = self._requested_names()
-                scope = scope_string_to_variable_scope(self.get_parameter_value(self.scope_param.name))
-                if any(has_variable(node_name=self.name, variable_name=n, scope=scope) for n in names):
-                    return NodeResolutionState.UNRESOLVED
-            except (RuntimeError, TypeError, ValueError):
-                return NodeResolutionState.UNRESOLVED
-        return super().state
-
-    @state.setter
-    def state(self, new_state: NodeResolutionState) -> None:
-        # Have to override the setter if we override the getter.
-        self._state = new_state
+    def _is_stale(self) -> bool:
+        # Re-run if any named variable exists again.
+        scope = self._get_scope()
+        return any(has_variable(node_name=self.name, variable_name=n, scope=scope) for n in self._requested_names())
