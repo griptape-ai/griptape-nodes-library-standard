@@ -39,6 +39,7 @@ class BaseVariableNode(ControlNode):
     def _add_variable_name_parameter(self, parameter: Parameter, *, allow_custom: bool = False) -> None:
         """Attach the variable dropdown and refresh button to ``parameter`` and add it to the node."""
         self.variable_name_param = parameter
+        self._allow_custom_variable_name = allow_custom
         choices = self._variable_name_choices(self._get_variable_names())
         parameter.add_trait(Options(choices=choices, allow_custom=allow_custom))
         parameter.add_trait(
@@ -76,7 +77,9 @@ class BaseVariableNode(ControlNode):
         choices = self._variable_name_choices(self._get_variable_names())
         current = self.get_parameter_value(param_name)
         self._update_option_choices(param=param_name, choices=choices, default=choices[0] if choices else "")
-        if isinstance(current, str) and current in choices:
+        # _update_option_choices resets the value to the default. Put the user's value back if it is
+        # still a valid choice, or if custom values are allowed so a typed name isn't swapped for another.
+        if current and (self._allow_custom_variable_name or current in choices):
             self.set_parameter_value(param_name, current)
         return None
 

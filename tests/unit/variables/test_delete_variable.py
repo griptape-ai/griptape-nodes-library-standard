@@ -125,6 +125,26 @@ class TestDeleteVariableState:
         assert delete_variable_node.state == NodeResolutionState.UNRESOLVED
 
 
+class TestDeleteVariableRefresh:
+    def test_refresh_keeps_typed_name_that_does_not_exist(
+        self, delete_variable_node: DeleteVariable, flow: str
+    ) -> None:
+        _create_variable("a", flow)
+        delete_variable_node.set_parameter_value("variable_names", "not_yet")
+
+        delete_variable_node._refresh_variable_names(button=None, button_details=None)  # type: ignore[arg-type]
+
+        assert delete_variable_node.get_parameter_value("variable_names") == "not_yet"
+
+    def test_refresh_keeps_list_value(self, delete_variable_node: DeleteVariable, flow: str) -> None:
+        _create_variable("a", flow)
+        delete_variable_node.set_parameter_value("variable_names", ["b", "c"])
+
+        delete_variable_node._refresh_variable_names(button=None, button_details=None)  # type: ignore[arg-type]
+
+        assert delete_variable_node.get_parameter_value("variable_names") == ["b", "c"]
+
+
 class TestDeleteVariableDependencies:
     def test_declares_no_variable_dependency(self, delete_variable_node: DeleteVariable) -> None:
         delete_variable_node.set_parameter_value("variable_names", ["a", "b"])
