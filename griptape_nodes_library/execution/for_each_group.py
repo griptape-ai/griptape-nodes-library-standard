@@ -10,7 +10,7 @@ from griptape_nodes.exe_types.core_types import (
     ParameterMode,
     ParameterTypeBuiltin,
 )
-from griptape_nodes.exe_types.node_groups import BaseIterativeNodeGroup
+from griptape_nodes.exe_types.node_groups import LEFT_PARAMETERS_KEY, BaseIterativeNodeGroup
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 
@@ -57,11 +57,9 @@ class ForEachGroupNode(BaseIterativeNodeGroup):
         )
         self.add_parameter(self.items_param)
 
-        # Add to left parameters for UI layout (insert at beginning)
-        if "left_parameters" in self.metadata:
-            self.metadata["left_parameters"].insert(0, "items")
-        else:
-            self.metadata["left_parameters"] = ["items"]
+        # Record items as belonging on the left rail. The rail list is an unordered membership set —
+        # visual order comes from the physical parameter order set below.
+        self._register_side_parameter(LEFT_PARAMETERS_KEY, self.items_param.name)
 
         # ForEach-specific: current_item output parameter (left side - feeds into group)
         self.current_item = Parameter(
@@ -73,13 +71,8 @@ class ForEachGroupNode(BaseIterativeNodeGroup):
         )
         self.add_parameter(self.current_item)
 
-        # Add current_item to left parameters (after items, before index)
-        if "left_parameters" in self.metadata:
-            # Insert after items but before index
-            idx = self.metadata["left_parameters"].index("index")
-            self.metadata["left_parameters"].insert(idx, "current_item")
-        else:
-            self.metadata["left_parameters"] = ["items", "current_item", "index"]
+        # Record current_item as belonging on the left rail.
+        self._register_side_parameter(LEFT_PARAMETERS_KEY, self.current_item.name)
 
         # Testing mode — run the loop body for a single chosen item
         self.testing_mode = ParameterBool(
