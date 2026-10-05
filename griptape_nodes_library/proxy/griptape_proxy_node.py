@@ -10,7 +10,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlsplit
 
 import httpx
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
@@ -22,6 +22,9 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.events.budget_events import ATTRIBUTION_HEADER_NAME
 from griptape_nodes.traits.options import Options
+from griptape_nodes.utils.budget_refusal import BudgetExceededError, refusal_from_exception
+from griptape_nodes.utils.budget_refusal import describe as describe_budget_refusal
+from griptape_nodes.utils.budget_refusal import log_line as budget_log_line
 
 from griptape_nodes_library.proxy.hosted_artifacts import (
     HostedArtifact,
@@ -484,6 +487,11 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 self._log("Request submitted successfully")
         except httpx.HTTPStatusError as e:
             self._log(f"HTTP error: {e.response.status_code} - {e.response.text}")
+            halt = self._budget_halt_for(e)
+            if halt is not None:
+                self._set_safe_defaults()
+                self._set_status_results(was_successful=False, result_details=str(halt))
+                raise halt from e
             error_msg = self._extract_http_error_message(e.response)
             raise RuntimeError(error_msg) from e
         except Exception as e:
@@ -498,6 +506,19 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         self._log("No generation_id returned from POST response")
         return None
+
+    def _budget_halt_for(self, exc: Exception) -> BudgetExceededError | None:
+        """Return the halt to raise when Griptape Cloud refused this call over budget, or None.
+
+        Scoped to the proxy's own host. The log line carries the figures and spend_id the
+        message leaves out.
+        """
+        refusal = refusal_from_exception(exc, cloud_host=urlsplit(self._proxy_base).hostname or "")
+        if refusal is None:
+            return None
+
+        logger.error("%s: %s", self.name, budget_log_line(refusal))
+        return BudgetExceededError(describe_budget_refusal(refusal, node_name=self.name), refusal, node_name=self.name)
 
     def _extract_http_error_message(self, response: httpx.Response) -> str:
         """Extract error message from HTTP error response.
@@ -728,6 +749,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
                     except httpx.HTTPStatusError as e:
                         self._log(f"HTTP error while polling: {e.response.status_code} - {e.response.text}")
+                        # A refusal is final, so stop polling instead of retrying until the timeout.
+                        halt = self._budget_halt_for(e)
+                        if halt is not None:
+                            self._set_safe_defaults()
+                            self.parameter_output_values["generation_id"] = generation_id
+                            self._set_status_results(was_successful=False, result_details=str(halt))
+                            raise halt from e
                         attempt += 1
                         if max_attempts is not None and attempt >= max_attempts:
                             self._set_safe_defaults()
@@ -796,6 +824,10 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         except httpx.HTTPStatusError as e:
             self._log(f"HTTP error fetching result: {e.response.status_code} - {e.response.text}")
             self._set_safe_defaults()
+            halt = self._budget_halt_for(e)
+            if halt is not None:
+                self._set_status_results(was_successful=False, result_details=str(halt))
+                raise halt from e
             error_msg = f"Failed to fetch generation result: HTTP {e.response.status_code}"
             self._set_status_results(was_successful=False, result_details=error_msg)
             return None
@@ -848,6 +880,14 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """Handle generation submission errors."""
         self._set_safe_defaults()
         self._set_status_results(was_successful=False, result_details=str(e))
+        self._handle_failure_exception(e)
+
+    def _handle_budget_halt(self, e: BudgetExceededError) -> None:
+        """Handle a call Griptape Cloud refused over budget.
+
+        Routed like any other failure, so a wired Failed output can fall back to a model the
+        budget does not cover. The call that was refused has already set the outputs and status.
+        """
         self._handle_failure_exception(e)
 
     def _handle_result_parsing_error(self, e: Exception) -> None:
@@ -960,15 +1000,19 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._handle_api_key_validation_error(e)
             return
 
-        generation_id = await self._begin_generation(submit_headers)
-        if not generation_id:
-            return
+        try:
+            generation_id = await self._begin_generation(submit_headers)
+            if not generation_id:
+                return
 
-        if not await self._poll_generation_status(generation_id, poll_headers):
-            return
+            if not await self._poll_generation_status(generation_id, poll_headers):
+                return
 
-        # Fetch and parse result
-        result_json = await self._fetch_generation_result(generation_id)
+            # Fetch and parse result
+            result_json = await self._fetch_generation_result(generation_id)
+        except BudgetExceededError as e:
+            self._handle_budget_halt(e)
+            return
         if not result_json:
             return
 
@@ -1014,6 +1058,10 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPStatusError as e:
+            halt = self._budget_halt_for(e)
+            if halt is not None:
+                self._set_status_results(was_successful=False, result_details=str(halt))
+                return None
             self._set_status_results(
                 was_successful=False,
                 result_details=f"Failed to fetch status for `{generation_id}`: HTTP {e.response.status_code}",
@@ -1026,8 +1074,17 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         return None
 
     async def _refresh_completed(self, generation_id: str) -> None:
-        """Fetch and parse the result onto the node."""
-        result_json = await self._fetch_generation_result(generation_id)
+        """Fetch and parse the result onto the node.
+
+        Refresh is a button press, not a run, so a budget halt is shown on the node rather than
+        raised; there is no flow to stop.
+        """
+        try:
+            result_json = await self._fetch_generation_result(generation_id)
+        except BudgetExceededError as e:
+            self._set_status_results(was_successful=False, result_details=str(e))
+            return
+
         if not result_json:
             self._set_status_results(
                 was_successful=False,

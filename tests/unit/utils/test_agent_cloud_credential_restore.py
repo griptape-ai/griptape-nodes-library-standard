@@ -17,8 +17,10 @@ import copy
 from importlib import import_module
 
 import pytest
+from griptape_nodes.utils.budget_refusal import BudgetExceededError
 
 import griptape_nodes_library.utils.agent_utils as agent_utils
+import griptape_nodes_library.utils.cloud_budget_drivers as cloud_budget_drivers
 from griptape_nodes_library.utils.agent_utils import unwrap_agent, wrap_agent
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
@@ -490,3 +492,61 @@ def test_every_cloud_driver_type_the_walk_matches_stays_loadable(
     )
     assert rebuilt.headers == expected
     assert rebuilt.api_key == _LICENSE
+
+
+# ---------------------------------------------------------------------------
+# Budget-aware driver class
+# ---------------------------------------------------------------------------
+
+
+def test_cloud_driver_is_rebuilt_as_the_budget_aware_subclass(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The repair points the rebuild at this library's driver, not upstream's.
+
+    ``to_dict()`` writes the class name and no module, and the subclass is named after the
+    driver it replaces, so a rebuild finds upstream's unless the dict says otherwise.
+    """
+    _stub_resolved_credential(monkeypatch, _LICENSE)
+
+    restored = agent_utils._restored_cloud_credentials(_cloud_agent_dict(), require_credential=True)
+
+    driver_dict = restored["tasks"][0]["prompt_driver"]
+    assert driver_dict["module_name"] == cloud_budget_drivers.__name__
+
+
+def test_a_cloud_driver_with_no_budget_aware_subclass_is_left_pointing_upstream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the two drivers this library subclasses are redirected; the rest rebuild as they were."""
+    _stub_resolved_credential(monkeypatch, _LICENSE)
+    agent_dict = {
+        "type": "Agent",
+        "conversation_memory": {"type": "GriptapeCloudConversationMemoryDriver", "thread_id": "t"},
+    }
+
+    restored = agent_utils._restored_cloud_credentials(agent_dict, require_credential=True)
+
+    assert "module_name" not in restored["conversation_memory"]
+
+
+def test_round_trip_through_griptape_rebuilds_the_budget_aware_driver(monkeypatch: pytest.MonkeyPatch) -> None:
+    """End-to-end against real griptape: an agent that crosses the wire still stops on a budget.
+
+    Without this the halt survives only until the first save or node hand-off, after which the
+    agent quietly goes back to retrying refusals and losing the body off a streamed one.
+    """
+    from griptape.structures import Agent as GtAgent
+
+    monkeypatch.setenv("GT_CLOUD_API_KEY", _OTHER_ORG_KEY)
+    _stub_resolved_credential(monkeypatch, _LICENSE)
+
+    upstream = GtAgent(
+        prompt_driver=cloud_budget_drivers.GriptapeCloudPromptDriver(model="gpt-4.1", api_key=_LICENSE, stream=True)
+    )
+    wrapper = wrap_agent(upstream.to_dict(), [], [])
+
+    agent_core_dict, _, _ = unwrap_agent(wrapper)
+    rebuilt = GtAgent().from_dict(agent_core_dict)
+
+    driver = rebuilt.tasks[0].prompt_driver
+    assert type(driver) is cloud_budget_drivers.GriptapeCloudPromptDriver
+    assert BudgetExceededError in driver.ignored_exception_types

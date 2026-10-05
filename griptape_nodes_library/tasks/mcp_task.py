@@ -3,7 +3,6 @@ from typing import Any
 
 from griptape.artifacts import BaseArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
-from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.events import ActionChunkEvent, FinishStructureRunEvent, StartStructureRunEvent, TextChunkEvent
 from griptape.rules import Rule, Ruleset
 from griptape.structures import Agent
@@ -28,8 +27,10 @@ from griptape_nodes_library.utils.agent_utils import (
     unwrap_agent,
     wrap_agent,
 )
+from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.cloud_legacy_models import cloud_legacy_values_for
+from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run
 from griptape_nodes_library.utils.mcp_utils import (
     create_mcp_tool,
     get_available_mcp_servers,
@@ -537,8 +538,10 @@ class MCPTaskNode(SuccessFailureNode):
                         self.append_value_to_parameter("output", value=event.token)
                     if isinstance(event, ActionChunkEvent) and event.name:
                         self.append_value_to_parameter("output", f"\n[Using tool {event.name}]\n")
+            raise_if_budget_halt_in_run(agent)
         else:
             agent.run(*args)
+            raise_if_budget_halt_in_run(agent)
             self.append_value_to_parameter("output", value=str(agent.output))
 
         return agent

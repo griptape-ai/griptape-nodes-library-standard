@@ -713,7 +713,7 @@ loaders-pdf = [
 
 [[package]]
 name = "griptape-nodes-engine"
-version = "0.103.1"
+version = "0.103.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -750,9 +750,9 @@ dependencies = [
     { name = "websockets" },
     { name = "xdg-base-dirs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4e/65/d6515e5d49c9e178b367d2b41f1ef8268c96abc896f2368dc315dc690bff/griptape_nodes_engine-0.103.1.tar.gz", hash = "sha256:7815491db2b7772656f6e94a40cdab6b613cb2f9504fa26a3a5e4da536ba26e5", size = 1450525, upload-time = "2026-10-01T21:57:56.706Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/41/c0/c8068d9ebb9daa22392407b04158a17601a2bf2bc5f70c9c05b65265f95d/griptape_nodes_engine-0.103.2.tar.gz", hash = "sha256:69c68b5138698f7665116fe3e0b2eb2de180e711c417e10a227e895047268ae3", size = 1456965, upload-time = "2026-10-05T22:24:42.313Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b3/5f/c69376458a9de9ea6807880db73c4a23cee4fdd1691bfac15ade5fb605fe/griptape_nodes_engine-0.103.1-py3-none-any.whl", hash = "sha256:62d10e4bc3d0caa84a6128bbb3b732891214a85e2ba4730f23d9f0e20b7fe413", size = 1721057, upload-time = "2026-10-01T21:57:55.167Z" },
+    { url = "https://files.pythonhosted.org/packages/3e/42/e149b1004c25e3449791cc1b35eaf23dd322f5494d9cc866d431a311f1f3/griptape_nodes_engine-0.103.2-py3-none-any.whl", hash = "sha256:c6200e7c0c46164c642be7a2ecbf5dd88074afce7a744a450c173f20ab579c49", size = 1728142, upload-time = "2026-10-05T22:24:40.806Z" },
 ]
 
 [[package]]
@@ -807,7 +807,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "griptape-nodes-engine", specifier = ">=0.103.1" },
+    { name = "griptape-nodes-engine", specifier = ">=0.103.2" },
     { name = "lxml-stubs", specifier = ">=0.5.1" },
     { name = "pyright", specifier = ">=1.1.396" },
     { name = "pytest" },

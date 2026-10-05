@@ -11,7 +11,6 @@ from typing import Any, cast  # cast used for handle_request narrowing
 
 from griptape.artifacts import BaseArtifact, ModelArtifact, TextArtifact
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
-from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
 from griptape.events import (
     ActionChunkEvent,
     FinishActionsSubtaskEvent,
@@ -55,13 +54,14 @@ from griptape_nodes_library.utils.agent_utils import (
     unwrap_agent,
     wrap_agent,
 )
+from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
-from griptape_nodes_library.utils.error_utils import try_throw_error
+from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run, try_throw_error
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
@@ -913,6 +913,7 @@ class Agent(ControlNode):
             self.append_value_to_parameter("logs", "[Started processing agent..]\n")
             yield lambda: self._process(agent, prompt)
             self.append_value_to_parameter("logs", "\n[Finished processing agent.]\n")
+            raise_if_budget_halt_in_run(agent)
             try_throw_error(agent.output)
             # Settle the output field to the final answer only — not the [Verified tool use: ...]
             # block we prepend to memory for downstream agents.  _process() saves the raw answer
@@ -1038,6 +1039,7 @@ class Agent(ControlNode):
                 self.set_parameter_value("output", agent_output.value.model_dump_json())
             else:
                 self.set_parameter_value("output", str(agent_output))
+            raise_if_budget_halt_in_run(agent)
             try_throw_error(agent.output)
 
         return agent
