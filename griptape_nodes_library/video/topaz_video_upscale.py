@@ -19,11 +19,11 @@ from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.files.file import FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
-from griptape_nodes_library.media import coerce_media_url_or_data_uri
+from griptape_nodes_library.media import coerce_media_url_or_data_uri, resolve_media_location
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.ffmpeg_utils import VideoMetadata, extract_video_metadata_structured
 
@@ -487,7 +487,7 @@ class TopazVideoUpscale(GriptapeProxyNode):
             raise ValueError(msg)
 
         try:
-            resolved_path = File(video_url).resolve()
+            resolved_path = resolve_media_location(video_url)
         except FileLoadError as e:
             msg = f"{self.name} could not resolve video path {video_url!r}: {e}"
             raise ValueError(msg) from e
