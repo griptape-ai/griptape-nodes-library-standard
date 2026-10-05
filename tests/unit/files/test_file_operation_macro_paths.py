@@ -13,6 +13,8 @@ from griptape_nodes.retained_mode.events.project_events import (
     GetPathForMacroRequest,
     GetPathForMacroResultFailure,
     GetPathForMacroResultSuccess,
+    GetStateForMacroRequest,
+    GetStateForMacroResultSuccess,
     PathResolutionFailureReason,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
@@ -40,12 +42,27 @@ def outputs_dir(tmp_path: Path) -> Path:
     return path
 
 
+def _macro_state(request: GetStateForMacroRequest, *, known: set[str]) -> GetStateForMacroResultSuccess:
+    """Report a macro as resolvable only when every variable in it is in ``known``."""
+    names = {variable.name for variable in request.parsed_macro.get_variables()}
+    return GetStateForMacroResultSuccess(
+        result_details="",
+        all_variables=set(),
+        satisfied_variables=names & known,
+        missing_required_variables=names - known,
+        conflicting_variables=set(),
+        can_resolve=names <= known,
+    )
+
+
 @pytest.fixture
 def stub_project(monkeypatch: pytest.MonkeyPatch, outputs_dir: Path) -> None:
     """Resolve "{outputs}" to outputs_dir, passing every other request to the real engine."""
     real_handle_request = GriptapeNodes.handle_request
 
     def handle_request(request: Any) -> Any:
+        if isinstance(request, GetStateForMacroRequest):
+            return _macro_state(request, known={"outputs"})
         if isinstance(request, GetPathForMacroRequest):
             resolved = Path(request.parsed_macro.template.replace("{outputs}", str(outputs_dir)))
             return GetPathForMacroResultSuccess(result_details="", resolved_path=resolved, absolute_path=resolved)
@@ -55,14 +72,16 @@ def stub_project(monkeypatch: pytest.MonkeyPatch, outputs_dir: Path) -> None:
 
 
 @pytest.fixture
-def stub_no_project(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fail every macro resolution, as the engine does when no project is loaded."""
+def stub_resolution_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Report "{outputs}" as resolvable, then fail the resolution itself."""
     real_handle_request = GriptapeNodes.handle_request
 
     def handle_request(request: Any) -> Any:
+        if isinstance(request, GetStateForMacroRequest):
+            return _macro_state(request, known={"outputs"})
         if isinstance(request, GetPathForMacroRequest):
             return GetPathForMacroResultFailure(
-                result_details="No project loaded",
+                result_details="Resolution failed",
                 failure_reason=PathResolutionFailureReason.MACRO_RESOLUTION_ERROR,
             )
         return real_handle_request(request)
@@ -92,9 +111,9 @@ class TestResolveMacroPath:
     def test_returns_non_macro_path_unchanged(self, path: str) -> None:
         assert resolve_macro_path(path) == path
 
-    @pytest.mark.usefixtures("stub_no_project")
+    @pytest.mark.usefixtures("stub_resolution_failure")
     def test_raises_when_resolution_fails(self) -> None:
-        with pytest.raises(FileLoadError, match="No project loaded"):
+        with pytest.raises(FileLoadError, match="Resolution failed"):
             resolve_macro_path("{outputs}/foo.png")
 
 
@@ -123,11 +142,11 @@ class TestFileExists:
         assert node.parameter_output_values["exists"] is True
         assert node.parameter_output_values["is_directory"] is True
 
-    @pytest.mark.usefixtures("stub_no_project")
+    @pytest.mark.usefixtures("stub_resolution_failure")
     def test_raises_when_macro_cannot_resolve(self, node: FileExists) -> None:
         node.parameter_values["path"] = "{outputs}/foo.png"
 
-        with pytest.raises(ValueError, match="No project loaded"):
+        with pytest.raises(ValueError, match="Resolution failed"):
             node.process()
 
 
@@ -164,7 +183,7 @@ class TestCopyFiles:
         assert node.get_parameter_value("was_successful") is True
         assert sorted(p.name for p in destination.iterdir()) == ["a.png", "b.png"]
 
-    @pytest.mark.usefixtures("stub_no_project")
+    @pytest.mark.usefixtures("stub_resolution_failure")
     def test_fails_when_source_macro_cannot_resolve(self, node: CopyFiles, tmp_path: Path) -> None:
         _set_list(node, "source_paths", ["{outputs}/foo.png"])
         node.parameter_values["destination_path"] = str(tmp_path)
@@ -172,9 +191,9 @@ class TestCopyFiles:
         node.process()
 
         assert node.get_parameter_value("was_successful") is False
-        assert "No project loaded" in node.get_parameter_value("result_details")
+        assert "Resolution failed" in node.get_parameter_value("result_details")
 
-    @pytest.mark.usefixtures("stub_no_project")
+    @pytest.mark.usefixtures("stub_resolution_failure")
     def test_fails_when_destination_macro_cannot_resolve(self, node: CopyFiles, tmp_path: Path) -> None:
         source = tmp_path / "foo.png"
         source.write_bytes(b"png")
@@ -184,7 +203,7 @@ class TestCopyFiles:
         node.process()
 
         assert node.get_parameter_value("was_successful") is False
-        assert "No project loaded" in node.get_parameter_value("result_details")
+        assert "Resolution failed" in node.get_parameter_value("result_details")
         assert not (tmp_path / "{outputs}").exists()
 
 
@@ -252,7 +271,7 @@ class TestRenameFile:
         assert (outputs_dir / "bar.png").read_bytes() == b"new"
         assert not (outputs_dir / "foo.png").exists()
 
-    @pytest.mark.usefixtures("stub_no_project")
+    @pytest.mark.usefixtures("stub_resolution_failure")
     def test_fails_when_macro_cannot_resolve(self, node: RenameFile) -> None:
         node.parameter_values["old_path"] = "{outputs}/foo.png"
         node.parameter_values["new_path"] = "bar.png"
@@ -260,7 +279,7 @@ class TestRenameFile:
         node.process()
 
         assert node.get_parameter_value("was_successful") is False
-        assert "No project loaded" in node.get_parameter_value("result_details")
+        assert "Resolution failed" in node.get_parameter_value("result_details")
 
 
 class TestDeleteFile:
@@ -292,11 +311,110 @@ class TestDeleteFile:
         assert node.get_parameter_value("was_successful") is True
         assert sorted(p.name for p in outputs_dir.iterdir()) == ["c.txt"]
 
-    @pytest.mark.usefixtures("stub_no_project")
+    @pytest.mark.usefixtures("stub_resolution_failure")
     def test_fails_without_deleting_when_macro_cannot_resolve(self, node: DeleteFile) -> None:
         _set_list(node, "file_paths", ["{outputs}/foo.png"])
 
         node.process()
 
         assert node.get_parameter_value("was_successful") is False
-        assert "No project loaded" in node.get_parameter_value("result_details")
+        assert "Resolution failed" in node.get_parameter_value("result_details")
+
+
+# ---------------------------------------------------------------------------
+# Braces in real filenames
+#
+# These run against the real engine and its default project. Braces are legal in
+# filenames, so only variables the project defines may be treated as macros.
+# ---------------------------------------------------------------------------
+
+ENV_VAR = "GTN_FILE_OPS_TEST_VAR"
+
+
+@pytest.fixture
+def env_var(monkeypatch: pytest.MonkeyPatch) -> str:
+    """A shell environment variable the engine would substitute into a macro."""
+    monkeypatch.setenv(ENV_VAR, "substituted")
+    return ENV_VAR
+
+
+class TestBracesInFilenames:
+    def test_existing_brace_filename_is_returned_unchanged(self, tmp_path: Path) -> None:
+        path = tmp_path / "notes {draft}.txt"
+        path.write_text("draft")
+
+        assert resolve_macro_path(str(path)) == str(path)
+
+    @pytest.mark.parametrize("name", ["report {v2}.txt", "{ouputs}/foo.png"], ids=["new_file", "typo"])
+    def test_unknown_variable_is_returned_unchanged(self, name: str) -> None:
+        assert resolve_macro_path(name) == name
+
+    def test_shell_environment_variable_is_not_substituted(self, tmp_path: Path, env_var: str) -> None:
+        path = str(tmp_path / f"{{{env_var}}}.txt")
+
+        assert resolve_macro_path(path) == path
+
+    def test_project_variable_still_resolves(self) -> None:
+        assert "{outputs}" not in resolve_macro_path("{outputs}/foo.png")
+
+    def test_file_exists_finds_brace_filename(self, griptape_nodes: GriptapeNodes, tmp_path: Path) -> None:  # noqa: ARG002
+        path = tmp_path / "notes {draft}.txt"
+        path.write_text("draft")
+        node = FileExists("file_exists")
+        node.parameter_values["path"] = str(path)
+
+        node.process()
+
+        assert node.parameter_output_values["exists"] is True
+
+    def test_delete_file_deletes_brace_filename(self, griptape_nodes: GriptapeNodes, tmp_path: Path) -> None:  # noqa: ARG002
+        path = tmp_path / "notes {draft}.txt"
+        path.write_text("draft")
+        node = DeleteFile("delete_file")
+        _set_list(node, "file_paths", [str(path)])
+
+        node.process()
+
+        assert node.get_parameter_value("was_successful") is True
+        assert not path.exists()
+
+    def test_delete_file_never_targets_the_env_substituted_file(
+        self,
+        griptape_nodes: GriptapeNodes,  # noqa: ARG002
+        tmp_path: Path,
+        env_var: str,
+    ) -> None:
+        """The engine would turn "{VAR}.txt" into "substituted.txt" and delete that instead."""
+        other_file = tmp_path / "substituted.txt"
+        other_file.write_text("keep me")
+        node = DeleteFile("delete_file")
+        _set_list(node, "file_paths", [str(tmp_path / f"{{{env_var}}}.txt")])
+
+        node.process()
+
+        assert other_file.read_text() == "keep me"
+
+    def test_rename_file_to_brace_filename(self, griptape_nodes: GriptapeNodes, tmp_path: Path) -> None:  # noqa: ARG002
+        old_path = tmp_path / "report.txt"
+        old_path.write_text("report")
+        node = RenameFile("rename_file")
+        node.parameter_values["old_path"] = str(old_path)
+        node.parameter_values["new_path"] = "report {v2}.txt"
+
+        node.process()
+
+        assert node.get_parameter_value("was_successful") is True
+        assert (tmp_path / "report {v2}.txt").read_text() == "report"
+        assert not old_path.exists()
+
+    def test_rename_brace_filename(self, griptape_nodes: GriptapeNodes, tmp_path: Path) -> None:  # noqa: ARG002
+        old_path = tmp_path / "notes {draft}.txt"
+        old_path.write_text("draft")
+        node = RenameFile("rename_file")
+        node.parameter_values["old_path"] = str(old_path)
+        node.parameter_values["new_path"] = "notes.txt"
+
+        node.process()
+
+        assert node.get_parameter_value("was_successful") is True
+        assert (tmp_path / "notes.txt").read_text() == "draft"
