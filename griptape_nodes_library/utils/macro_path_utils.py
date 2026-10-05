@@ -47,7 +47,9 @@ def resolve_macro_path(path: str) -> str:
       and point a file operation at a different file than the one named.
 
     Raises:
-        FileLoadError: If the project can fill every variable but resolution still fails.
+        FileLoadError: If resolution fails for a path that names project variables,
+            including a builtin the project can't fill right now (e.g. {workflow_name}
+            with no workflow open).
     """
     try:
         parsed = ParsedMacro(path)
@@ -58,8 +60,11 @@ def resolve_macro_path(path: str) -> str:
     if Path(path).exists():
         return path
 
+    # A failed state check means the project recognizes a builtin but can't fill it
+    # right now (e.g. {workflow_name} with no workflow open). That isn't a filename,
+    # so fall through and let File raise the reason.
     state = GriptapeNodes.handle_request(GetStateForMacroRequest(parsed_macro=parsed, variables={}))
-    if not isinstance(state, GetStateForMacroResultSuccess) or not state.can_resolve:
+    if isinstance(state, GetStateForMacroResultSuccess) and not state.can_resolve:
         return path
     return File(path).resolve()
 

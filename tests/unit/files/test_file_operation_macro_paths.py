@@ -418,3 +418,33 @@ class TestBracesInFilenames:
 
         assert node.get_parameter_value("was_successful") is True
         assert (tmp_path / "notes.txt").read_text() == "draft"
+
+
+# ---------------------------------------------------------------------------
+# Builtins the project recognizes but can't fill
+#
+# With no workflow open, the engine knows {workflow_name} but can't supply it. That's
+# not a filename, so it must fail rather than be used as a literal path.
+# ---------------------------------------------------------------------------
+
+
+class TestUnavailableBuiltins:
+    def test_resolve_raises_for_unavailable_builtin(self) -> None:
+        with pytest.raises(FileLoadError, match="workflow_name"):
+            resolve_macro_path("{outputs}/{workflow_name}")
+
+    def test_copy_fails_instead_of_writing_to_literal_folder(
+        self,
+        griptape_nodes: GriptapeNodes,  # noqa: ARG002
+        tmp_path: Path,
+    ) -> None:
+        source = tmp_path / "foo.png"
+        source.write_bytes(b"png")
+        node = CopyFiles("copy_files")
+        _set_list(node, "source_paths", [str(source)])
+        node.parameter_values["destination_path"] = "{outputs}/{workflow_name}"
+
+        node.process()
+
+        assert node.get_parameter_value("was_successful") is False
+        assert "workflow_name" in node.get_parameter_value("result_details")
