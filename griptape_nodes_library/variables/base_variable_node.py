@@ -26,11 +26,12 @@ class BaseVariableNode(ControlNode):
 
     Subclasses build their name parameter and register it with ``_add_variable_name_parameter``,
     then call ``_add_scope_parameter`` after their other parameters so the Advanced group sits last.
-    ``VARIABLE_ACCESS`` declares how the node touches the variable for save-time serialization.
-    Override ``_is_stale`` to make the node re-run when the engine-side variable changes.
+    ``VARIABLE_ACCESS`` declares how the node touches the variable for save-time serialization;
+    leave it ``None`` to declare nothing. Override ``_is_stale`` to make the node re-run when the
+    engine-side variable changes.
     """
 
-    VARIABLE_ACCESS: ClassVar[VariableAccess]
+    VARIABLE_ACCESS: ClassVar[VariableAccess | None] = None
 
     variable_name_param: Parameter
     scope_param: Parameter
@@ -95,11 +96,15 @@ class BaseVariableNode(ControlNode):
         if deps is None:
             deps = NodeDependencies()
 
+        access = self.VARIABLE_ACCESS
+        if access is None:
+            return deps
+
         names = self._resolve_variable_names()
         if names:
             scope = self._get_scope()
             for name in names:
-                deps.variable_references.add(VariableReference(name=name, scope=scope, access=self.VARIABLE_ACCESS))
+                deps.variable_references.add(VariableReference(name=name, scope=scope, access=access))
 
         return deps
 

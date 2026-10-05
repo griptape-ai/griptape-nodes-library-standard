@@ -1,7 +1,6 @@
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import VariableAccess
 
 from griptape_nodes_library.variables.base_variable_node import BaseVariableNode
 from griptape_nodes_library.variables.variable_utils import delete_variable, has_variable
@@ -13,9 +12,10 @@ class DeleteVariable(BaseVariableNode):
     ``variable_names`` accepts a single name (picked from the dropdown or connected as a str)
     or a list of names. Missing variables are skipped unless ``fail_if_missing`` is enabled.
     Read-only variables are refused by the engine and fail the node.
-    """
 
-    VARIABLE_ACCESS = VariableAccess.WRITE
+    Declares no variable dependency: declaring WRITE would persist the variable this node exists
+    to remove. A variable named only by this node is therefore not saved with the workflow.
+    """
 
     def __init__(
         self,
@@ -76,13 +76,6 @@ class DeleteVariable(BaseVariableNode):
             if stripped and stripped not in names:
                 names.append(stripped)
         return names
-
-    def _resolve_variable_names(self) -> list[str]:
-        # Malformed input is reported by process(); declaring nothing at save time is the safe fallback.
-        try:
-            return self._requested_names()
-        except TypeError:
-            return []
 
     def process(self) -> None:
         names = self._requested_names()
