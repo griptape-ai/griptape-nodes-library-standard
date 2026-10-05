@@ -2,14 +2,7 @@ import logging
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode, ParameterTypeBuiltin
-from griptape_nodes.exe_types.node_types import (
-    BaseNode,
-    ControlNode,
-    NodeDependencies,
-    NodeResolutionState,
-    VariableAccess,
-    VariableReference,
-)
+from griptape_nodes.exe_types.node_types import BaseNode, VariableAccess
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.events.node_events import (
     GetFlowForNodeRequest,
@@ -28,15 +21,12 @@ from griptape_nodes.retained_mode.events.variable_events import (
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.variable_types import VariableScope
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
-from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.variables.base_variable_node import BaseVariableNode
 from griptape_nodes_library.variables.variable_utils import (
     _get_flow_for_node,
-    create_advanced_parameter_group,
     get_variable,
     has_variable,
-    list_variables,
-    scope_string_to_variable_scope,
 )
 
 logger = logging.getLogger("griptape_nodes")
@@ -44,7 +34,11 @@ logger = logging.getLogger("griptape_nodes")
 CREATE_NEW_SENTINEL = "Create new variable"
 
 
-class SetVariable(ControlNode):
+class SetVariable(BaseVariableNode):
+    # process() calls HasVariableRequest before deciding whether to SetVariableValueRequest or
+    # CreateVariableRequest, so the node both reads and writes the variable's state.
+    VARIABLE_ACCESS = VariableAccess.READ_WRITE
+
     def __init__(
         self,
         name: str,
@@ -52,27 +46,18 @@ class SetVariable(ControlNode):
     ) -> None:
         super().__init__(name, metadata)
 
-        self.variable_name_param = ParameterString(
-            name="variable_name",
-            placeholder_text="Select an existing variable or create a new one",
-            allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT, ParameterMode.PROPERTY},
-            ui_options={"dropdown_row_icons": True},
-            tooltip="Name of the variable to set. The variable is created if it does not exist.",
-        )
-        available_names = self._get_variable_names()
-        self.variable_name_param.add_trait(Options(choices=[*available_names, CREATE_NEW_SENTINEL], show_search=True))
-        self.variable_name_param.add_trait(
-            Button(
-                icon="list-restart",
-                size="icon",
-                variant="secondary",
-                on_click=self._refresh_variable_names,
+        self._add_variable_name_parameter(
+            ParameterString(
+                name="variable_name",
+                placeholder_text="Select an existing variable or create a new one",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT, ParameterMode.PROPERTY},
+                ui_options={"dropdown_row_icons": True},
+                tooltip="Name of the variable to set. The variable is created if it does not exist.",
             )
         )
-        self.add_parameter(self.variable_name_param)
         self.variable_name_param.update_ui_options(
             {
-                "data": self._build_variable_data(available_names),
+                "data": self._build_variable_data(self._get_variable_names()),
                 "dropdown_row_icons": True,
             }
         )
@@ -95,15 +80,10 @@ class SetVariable(ControlNode):
         )
         self.add_parameter(self.value_param)
 
-        # Advanced parameters group (collapsed by default)
-        advanced = create_advanced_parameter_group()
-        self.scope_param = advanced.scope_param
-        self.add_node_element(advanced.parameter_group)
+        self._add_scope_parameter()
 
-    def _get_variable_names(self) -> list[str]:
-        scope_str = self.get_parameter_value("scope")
-        scope = scope_string_to_variable_scope(scope_str) if scope_str else VariableScope.HIERARCHICAL
-        return list_variables(node_name=self.name, scope=scope)
+    def _variable_name_choices(self, names: list[str]) -> list[str]:
+        return [*names, CREATE_NEW_SENTINEL]
 
     def _build_variable_data(self, names: list[str]) -> list[dict]:
         return [{"name": name} for name in names] + [{"name": CREATE_NEW_SENTINEL, "icon": "circle-plus"}]
@@ -115,17 +95,15 @@ class SetVariable(ControlNode):
             name = self.get_parameter_value(self.new_variable_name_param.name)
         return name or ""
 
+    def _resolve_variable_names(self) -> list[str]:
+        name = self._resolve_variable_name()
+        return [name] if name else []
+
     def _refresh_variable_names(
         self, button: Button, button_details: ButtonDetailsMessagePayload
-    ) -> NodeMessageResult | None:  # noqa: ARG002
-        names = self._get_variable_names()
-        choices = [*names, CREATE_NEW_SENTINEL]
-        current = self.get_parameter_value("variable_name")
-        default = names[0] if names else CREATE_NEW_SENTINEL
-        self._update_option_choices(param="variable_name", choices=choices, default=default)
-        self.variable_name_param.update_ui_options({"data": self._build_variable_data(names)})
-        if current and current in choices:
-            self.set_parameter_value("variable_name", current)
+    ) -> NodeMessageResult | None:
+        super()._refresh_variable_names(button, button_details)
+        self.variable_name_param.update_ui_options({"data": self._build_variable_data(self._get_variable_names())})
         return None
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
@@ -251,8 +229,7 @@ class SetVariable(ControlNode):
             raise ValueError(msg)
 
         value = self.get_parameter_value(self.value_param.name)
-        scope_str = self.get_parameter_value(self.scope_param.name)
-        scope = scope_string_to_variable_scope(scope_str)
+        scope = self._get_scope()
 
         flow_request = GetFlowForNodeRequest(node_name=self.name)
         flow_result = await GriptapeNodes.ahandle_request(flow_request)
@@ -303,55 +280,9 @@ class SetVariable(ControlNode):
         if self.get_parameter_value(self.variable_name_param.name) != CREATE_NEW_SENTINEL:
             self.parameter_output_values[self.variable_name_param.name] = variable_name
 
-    def get_node_dependencies(self) -> NodeDependencies | None:
-        """Declare the variable this node reads/writes so it survives serialization.
-
-        Access is READ_WRITE: ``process()`` calls ``HasVariableRequest`` before deciding whether to
-        ``SetVariableValueRequest`` or ``CreateVariableRequest``, so the node both reads and writes
-        the variable's state.
-
-        Reads the current value of ``variable_name`` via ``get_parameter_value`` — if the parameter
-        is driven by an incoming connection, this returns the last propagated value (or ``None`` if
-        nothing has propagated yet). No declaration is emitted for empty/None names.
-        """
-        deps = super().get_node_dependencies()
-        if deps is None:
-            deps = NodeDependencies()
-
-        variable_name = self._resolve_variable_name()
-        if isinstance(variable_name, str) and variable_name:
-            scope_str = self.get_parameter_value(self.scope_param.name)
-            scope = scope_string_to_variable_scope(scope_str) if scope_str else VariableScope.HIERARCHICAL
-            deps.variable_references.add(
-                VariableReference(name=variable_name, scope=scope, access=VariableAccess.READ_WRITE)
-            )
-
-        return deps
-
-    @property
-    def state(self) -> NodeResolutionState:
-        """Overrides BaseNode.state @property to treat it as volatile (if the value has changed, mark as unresolved)."""
-        if self._state == NodeResolutionState.RESOLVED:
-            variable_name = self._resolve_variable_name()
-            scope_str = self.get_parameter_value(self.scope_param.name)
-
-            # Convert scope string to VariableScope enum
-            scope = scope_string_to_variable_scope(scope_str)
-
-            # This can throw if the variable doesn't exist.
-            try:
-                variable = get_variable(node_name=self.name, variable_name=variable_name, scope=scope)
-
-                var_value = variable.value
-                our_value = self.get_parameter_value(self.value_param.name)
-                if var_value != our_value:
-                    return NodeResolutionState.UNRESOLVED
-            except LookupError:
-                # Variable may not have been created yet; assume unresolved.
-                return NodeResolutionState.UNRESOLVED
-        return super().state
-
-    @state.setter
-    def state(self, new_state: NodeResolutionState) -> None:
-        # Have to override the setter if we override the getter.
-        self._state = new_state
+    def _is_stale(self) -> bool:
+        # Stale if the variable's value differs from what we last wrote.
+        variable = get_variable(
+            node_name=self.name, variable_name=self._resolve_variable_name(), scope=self._get_scope()
+        )
+        return variable.value != self.get_parameter_value(self.value_param.name)
