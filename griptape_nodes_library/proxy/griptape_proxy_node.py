@@ -21,6 +21,7 @@ from griptape_nodes.exe_types.param_types.parameter_button import ParameterButto
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.events.budget_events import ATTRIBUTION_HEADER_NAME
+from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy.hosted_artifacts import (
     HostedArtifact,
@@ -197,6 +198,16 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     def register_user_auth_info(self, user_auth_info: str | None) -> None:
         """Register optional user auth info to send with generation submissions."""
         self._user_auth_info = user_auth_info
+
+    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
+        # Options converters run before ParameterInt's int coercion, so a numeric string such as
+        # "8" from an API client would otherwise be replaced by the first choice.
+        if isinstance(value, str):
+            for options in parameter.find_elements_by_type(Options):
+                for choice in options.choices:
+                    if not isinstance(choice, str) and str(choice) == value.strip():
+                        return choice
+        return super().before_value_set(parameter, value)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
