@@ -137,6 +137,22 @@ def _coerce_from_dict(
     return stripped
 
 
+def resolve_media_location(location: str) -> str:
+    """Return a location FFmpeg or ffprobe can open.
+
+    Project macro paths (``{outputs}/clip.mp4``), relative paths, and localhost
+    static-server URLs resolve to absolute local paths through ``File``. Other
+    URLs come back unchanged. ``data:`` URIs skip ``File`` entirely because it
+    treats them as relative file paths; FFmpeg opens them natively.
+
+    Raises:
+        FileLoadError: If macro resolution fails (e.g. no project loaded).
+    """
+    if location.startswith("data:"):
+        return location
+    return File(location).resolve()
+
+
 async def prepare_media_data_uri(
     val: Any,
     *,
