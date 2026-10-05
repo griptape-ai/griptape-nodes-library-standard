@@ -11,6 +11,8 @@ from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.retained_mode.events.project_events import (
     AttemptMapAbsolutePathToProjectRequest,
     AttemptMapAbsolutePathToProjectResultSuccess,
+    GetStateForMacroRequest,
+    GetStateForMacroResultSuccess,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 
@@ -28,6 +30,43 @@ _WARNING_TEXT_INCOMING = (
 class MacroPathResult:
     resolved_path: str
     is_external: bool  # True if path is outside project or is a URL
+
+
+def resolve_macro_path(path: str) -> str:
+    """Resolve a project macro path (e.g. "{outputs}/image.png") to an absolute path.
+
+    Braces are legal in filenames, so a path is only treated as a macro when every
+    variable in it is one the current project can fill (a project directory, builtin,
+    or stored project variable). Anything else is returned unchanged:
+
+    - Strings with no macro variables, so plain paths, glob patterns, and URLs keep
+      whatever handling the caller already gives them.
+    - A path that already exists on disk, such as "notes {draft}.txt".
+    - Paths naming variables the project doesn't define, such as "{draft}" or
+      "{USER}". The engine would otherwise fill "{USER}" from the shell environment
+      and point a file operation at a different file than the one named.
+
+    Raises:
+        FileLoadError: If resolution fails for a path that names project variables,
+            including a builtin the project can't fill right now (e.g. {workflow_name}
+            with no workflow open).
+    """
+    try:
+        parsed = ParsedMacro(path)
+    except MacroSyntaxError:
+        return path
+    if not parsed.get_variables():
+        return path
+    if Path(path).exists():
+        return path
+
+    # A failed state check means the project recognizes a builtin but can't fill it
+    # right now (e.g. {workflow_name} with no workflow open). That isn't a filename,
+    # so fall through and let File raise the reason.
+    state = GriptapeNodes.handle_request(GetStateForMacroRequest(parsed_macro=parsed, variables={}))
+    if isinstance(state, GetStateForMacroResultSuccess) and not state.can_resolve:
+        return path
+    return File(path).resolve()
 
 
 def resolve_to_macro_path(path: str) -> MacroPathResult:
