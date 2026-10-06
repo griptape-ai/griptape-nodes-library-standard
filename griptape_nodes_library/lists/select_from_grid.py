@@ -31,6 +31,9 @@ from griptape_nodes_library.utils.video_utils import is_video_url_artifact
 _IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"})
 _VIDEO_EXTENSIONS = frozenset({".mp4", ".webm", ".mov", ".avi", ".mkv"})
 _AUDIO_EXTENSIONS = frozenset({".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a"})
+_MEDIA_ITEM_TYPES = frozenset({"image", "video", "audio"})
+# Browser URLs name this machine's engine port and preview cache, so they are kept out of saved state.
+_URL_KEYS = frozenset({"url", "thumbnail"})
 
 # Thumbnails are resolved in chunks so the browser receives incremental updates
 # rather than waiting for all items to be processed in one silent blocking pass.
@@ -69,8 +72,25 @@ class SelectFromGrid(ControlNode):
             tooltip="Interactive grid selector — click items to select them.",
             allowed_modes={ParameterMode.PROPERTY},
             traits={Widget(name="SelectFromGrid", library="Griptape Nodes Library")},
+            converters=[self._mirror_grid_state],
+            serializable=False,
         )
         self.add_parameter(self.grid_param)
+
+        # What the workflow saves in place of the grid: the same value with each media
+        # item's browser URLs replaced by its source path (macro form when the input
+        # was a macro). Loading it rebuilds the grid's URLs on this machine.
+        # Both sides sync in converters because a workflow load sets values with
+        # initial_setup, which skips after_value_set.
+        self.grid_state_param = ParameterDict(
+            name="grid_state",
+            default_value={},
+            tooltip="Saved grid selection and layout, with item source paths in place of browser URLs.",
+            allowed_modes={ParameterMode.PROPERTY},
+            converters=[self._restore_grid_from_state],
+            hide=True,
+        )
+        self.add_parameter(self.grid_state_param)
 
         self.multi_select = Parameter(
             name="multi_select",
@@ -123,17 +143,19 @@ class SelectFromGrid(ControlNode):
 
         # Phase 2 — resolve image previews via the engine's async preview generator,
         # pushing chunk updates so the browser receives thumbnails incrementally.
-        widget_items = list(current.get("items", [self._serialize_item_placeholder(v) for v in list_values]))
+        widget_items = list(
+            current.get("items", [self._with_source(self._serialize_item_placeholder(v), v) for v in list_values])
+        )
         for chunk_start in range(0, len(list_values), _RESOLVE_CHUNK_SIZE):
             chunk_end = min(chunk_start + _RESOLVE_CHUNK_SIZE, len(list_values))
             changed = False
             for i in range(chunk_start, chunk_end):
                 item = list_values[i]
                 if self._is_image_item(item):
-                    widget_items[i] = await self._serialize_image_item_async(item)
+                    widget_items[i] = self._with_source(await self._serialize_image_item_async(item), item)
                     changed = True
                 elif self._is_video_item(item):
-                    widget_items[i] = await self._serialize_video_item_async(item)
+                    widget_items[i] = self._with_source(await self._serialize_video_item_async(item), item)
                     changed = True
             if changed:
                 self.set_parameter_value(
@@ -174,13 +196,73 @@ class SelectFromGrid(ControlNode):
         # All items resolve synchronously in Phase 1 — images get a direct file URL
         # (no thumbnail generation), everything else resolves as normal. aprocess
         # upgrades image cells to engine-generated previews when the node runs.
-        phase1_items = [self._serialize_item_sync(item) for item in list_values]
+        phase1_items = [self._with_source(self._serialize_item_sync(item), item) for item in list_values]
         kept_indices = current.get("selected_indices", []) if len(phase1_items) == current_len else []
 
         self.set_parameter_value(
             self.grid_param.name,
             {**base, "items": phase1_items, "selected_indices": kept_indices},
         )
+
+    def _mirror_grid_state(self, grid_value: Any) -> Any:
+        """Converter for the grid: store a URL-free copy as the saved state, and pass the value through.
+
+        Writes parameter_values directly so the state's own converter doesn't rebuild the grid
+        from a copy of the value being set.
+        """
+        if isinstance(grid_value, dict):
+            list_values = self.get_parameter_value(self.list_input.name)
+            self.parameter_values[self.grid_state_param.name] = self._portable_grid_state(
+                grid_value, list_values if isinstance(list_values, list) else []
+            )
+        return grid_value
+
+    def _restore_grid_from_state(self, state: Any) -> Any:
+        """Converter for the saved state: rebuild the grid, resolving each media source to a browser URL."""
+        if not isinstance(state, dict) or not state:
+            return state
+        current = self.get_parameter_value(self.grid_param.name)
+        if isinstance(current, dict) and self._portable_grid_state(current) == state:
+            return state
+        items = []
+        for entry in state.get("items", []):
+            if isinstance(entry, dict) and entry.get("type") in _MEDIA_ITEM_TYPES:
+                items.append({**entry, "url": self._resolve_url_string(entry.get("source", ""))})
+            else:
+                items.append(entry)
+        self.parameter_values[self.grid_param.name] = {**state, "items": items}
+        return state
+
+    @staticmethod
+    def _portable_grid_state(grid_value: dict, list_values: list | None = None) -> dict:
+        """Return the grid value with each media item's browser URLs replaced by its source path.
+
+        Grids saved before items carried a source take it from the matching list item,
+        and failing that keep their URL.
+        """
+        items = []
+        for index, entry in enumerate(grid_value.get("items", [])):
+            if isinstance(entry, dict) and entry.get("type") in _MEDIA_ITEM_TYPES:
+                if "source" not in entry and list_values and index < len(list_values):
+                    entry = SelectFromGrid._with_source(entry, list_values[index])  # noqa: PLW2901
+                portable = {key: value for key, value in entry.items() if key not in _URL_KEYS}
+                portable["source"] = entry.get("source") or entry.get("url", "")
+                items.append(portable)
+            else:
+                items.append(entry)
+        return {**grid_value, "items": items}
+
+    @staticmethod
+    def _with_source(entry: dict[str, Any], item: Any) -> dict[str, Any]:
+        """Tag a media grid entry with the input item's original path, so saves keep its macro form."""
+        if entry.get("type") not in _MEDIA_ITEM_TYPES:
+            return entry
+        if isinstance(item, dict) and "value" in item:
+            item = item["value"]
+        source = item if isinstance(item, str) else getattr(item, "value", "")
+        if not isinstance(source, str) or not source:
+            return entry
+        return {**entry, "source": source}
 
     def _apply_multi_select(self, is_multi: bool) -> None:
         """Switch between multi-select and single-select mode."""
