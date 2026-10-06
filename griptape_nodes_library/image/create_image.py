@@ -1,9 +1,6 @@
-from typing import Any, cast
+from typing import Any
 
-import requests
-from griptape.artifacts import BaseArtifact, ImageUrlArtifact
-from griptape.drivers.image_generation.base_image_generation_driver import BaseImageGenerationDriver
-from griptape.tasks import PromptImageGenerationTask, PromptTask
+from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
@@ -12,19 +9,16 @@ from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
+from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 
-from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
-from griptape_nodes_library.utils.agent_utils import restore_provider_driver, unwrap_agent, wrap_agent
-from griptape_nodes_library.utils.cloud_budget_drivers import (
-    GriptapeCloudImageGenerationDriver,
-    GriptapeCloudPromptDriver,
-)
+from griptape_nodes_library.llm.agent_state import AgentState
+from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, ImageProvider, generate_image
+from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
+from griptape_nodes_library.llm.runner import prompt_model
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
-from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
-from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run, try_throw_error
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
@@ -36,13 +30,24 @@ MODEL_CHOICES = [
 AVAILABLE_SIZES = ["1024x1024", "1536x1024", "1024x1536"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 DEFAULT_SIZE = AVAILABLE_SIZES[0]
+ENHANCEMENT_MODEL = "gpt-4o"
+ENHANCEMENT_INSTRUCTIONS = """
+Enhance the following prompt for an image generation engine. Return only the image generation prompt.
+Include unique details that make the subject stand out.
+Specify a specific depth of field, and time of day.
+Use dust in the air to create a sense of depth.
+Use a slight vignetting on the edges of the image.
+Use a color palette that is complementary to the subject.
+Focus on qualities that will make this the most professional looking photo in the world.
+IMPORTANT: Output must be a single, raw prompt string for an image generation model. Do not include any preamble, explanation, or conversational language."""
+GENERATED_IMAGE_MEMORY = 'I created an image based on your prompt.\n<THOUGHT>\nmeta={"used_tool": True, "tool": "GenerateImageTool"}\n</THOUGHT>'
 
 # Migrates values saved before the dropdown stored the provider's own model id. "dall-e-3"
 # and "gpt-image-1" predate this node's own MODEL_CHOICES history and were folded in
 # from the DEPRECATED_MODELS dict this replaces. "GPT-4o" / "gpt-4o" are deliberately
 # excluded even though the generated catalog table lists them: this node's dropdown
 # never offered "gpt-4o" as an image model (it's the hardcoded model of the separate
-# prompt-enhancement driver below), and its catalog key gtc_gpt_4o is not one of this
+# prompt-enhancement model below), and its catalog key gtc_gpt_4o is not one of this
 # node's own MODEL_CHOICES, so mapping to it here would fail ModelAccessComponent's
 # construction-time validation that every deprecated_values target is a current choice.
 LEGACY_MODEL_VALUES = {
@@ -186,7 +191,7 @@ class GenerateImage(ControlNode):
                 self.hide_parameter_by_name("output_compression")
 
         if parameter.name == "model":
-            # "model" supports either a string OR an Image Generation Driver. We can serialize strings, but not driver objects.
+            # "model" supports either a string OR an Image Generation Driver. Only strings serialize.
             if isinstance(value, str):
                 # Strings can serialize.
                 parameter.serializable = True
@@ -214,120 +219,81 @@ class GenerateImage(ControlNode):
         self._model_access.raise_if_selection_denied()
 
         agent_input = self.get_parameter_value("agent")
-        tool_configs: list = []
-        ruleset_configs: list = []
-        if not agent_input:
-            prompt_driver = GriptapeCloudPromptDriver(
-                model="gpt-4o",
-                stream=True,
-                **cloud_driver_auth(),
-            )
-            agent = GtAgent(prompt_driver=prompt_driver)
-        else:
-            agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_input)
-            agent = GtAgent.from_dict(agent_core_dict)
-            restore_provider_driver(agent, agent_input)
+        state = AgentState.from_wire(agent_input)
+        if state.model is None:
+            state.model = ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=ENHANCEMENT_MODEL)
 
         # Add some context to the prompt based on the agent's conversation memory.
-        # We use this because otherwise the agent will not have the context of the prompt.
-        # This is due to the fact that when you temporarily swap the task from a prompt_task to an image generation task,
-        # the context is lost.
-        prompt = agent.build_context(prompt=orig_prompt)
+        # We use this because otherwise the image model will not have the context of the prompt.
+        prompt = self._build_context(state, orig_prompt)
 
         # Check if we have a connection to the prompt parameter
         enhance_prompt = params.get("enhance_prompt", False)
 
         if enhance_prompt:
             self.append_value_to_parameter("logs", "Enhancing prompt...\n")
-            # This runs the agent's own prompt driver (the default gpt-4o driver, or a
-            # connected agent's) -- a model invocation distinct from the image-generation
-            # driver below, and one no dropdown selects, so its model comes from the task
-            # driver. Declare it so a denied invocation fails closed before the call.
-            enhance_model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
-            require_model_invocation_sync(self, enhance_model, purpose="prompt enhancement")
-            # agent.run is a blocking operation that will hold up the rest of the engine.
-            # By using `yield lambda`, the engine can run this in the background and resume when it's done.
-            result = yield lambda: agent.run(
-                [
-                    """
-Enhance the following prompt for an image generation engine. Return only the image generation prompt.
-Include unique details that make the subject stand out.
-Specify a specific depth of field, and time of day.
-Use dust in the air to create a sense of depth.
-Use a slight vignetting on the edges of the image.
-Use a color palette that is complementary to the subject.
-Focus on qualities that will make this the most professional looking photo in the world.
-IMPORTANT: Output must be a single, raw prompt string for an image generation model. Do not include any preamble, explanation, or conversational language.""",
-                    prompt,
-                ]
+            # This runs the agent's own model (the default gpt-4o, or a connected agent's) -- a
+            # model invocation distinct from the image-generation model below, and one no
+            # dropdown selects. Declare it so a denied invocation fails closed before the call.
+            enhance_model = state.model
+            require_model_invocation_sync(self, enhance_model.model, purpose="prompt enhancement")
+            # The model call blocks, so hand it to the engine to run in the background
+            # via `yield lambda` and resume when it's done.
+            prompt = yield lambda: prompt_model(
+                enhance_model, [ENHANCEMENT_INSTRUCTIONS, prompt], rulesets=state.rulesets
             )
             raise_if_budget_halt_in_run(result)
             self.append_value_to_parameter("logs", "Finished enhancing prompt...\n")
-            prompt = result.output
         else:
             self.append_value_to_parameter("logs", "Prompt enhancement disabled.\n")
-        # Initialize driver kwargs with required parameters
-        kwargs = {}
 
-        # Driver
+        # Image model
         model_input = self.get_parameter_value("model")
-        driver = None
-        if isinstance(model_input, BaseImageGenerationDriver):
-            driver = model_input
-        elif isinstance(model_input, str):
-            if model_input not in self._model_access.model_choices:
+        image_config = ImageGenerationConfig.from_wire(model_input)
+        if image_config is None:
+            if not isinstance(model_input, str) or model_input not in self._model_access.model_choices:
                 model_input = DEFAULT_MODEL
-            driver = GriptapeCloudImageGenerationDriver(
+            image_config = ImageGenerationConfig(
+                provider=ImageProvider.GRIPTAPE_CLOUD,
                 model=model_input,
                 image_size=self.get_parameter_value("image_size"),
-                # Don't retry on HTTP errors, we want to fail fast.
-                ignored_exception_types=(requests.exceptions.HTTPError,),
-                **cloud_driver_auth(),
-            )
-        else:
-            driver = GriptapeCloudImageGenerationDriver(
-                model=DEFAULT_MODEL,
-                image_size=self.get_parameter_value("image_size"),
-                ignored_exception_types=(requests.HTTPError,),
-                **cloud_driver_auth(),
             )
 
-        kwargs["image_generation_driver"] = driver
+        # The image model is settled above. The util resolves its provider model id to the
+        # stable catalog key (via the node's model_usage) before declaring. Declare before the
+        # network call below so a denied invocation fails closed here.
+        require_model_invocation_sync(self, image_config.model)
 
-        # The image generation driver is settled above -- every branch produces a
-        # concrete BaseImageGenerationDriver whose `model` is a required field. The util
-        # resolves that provider model id to its stable catalog key (via the node's
-        # model_usage) before declaring. Declare before swapping in the task (and the
-        # network call it triggers below) so a denied invocation fails closed here.
-        require_model_invocation_sync(self, driver.model)
-
-        # Set new Image Generation Task
-        # Cool trick to swap the task of the agent from PromptTask to ImageGenerationTask
-        agent.swap_task(PromptImageGenerationTask(**kwargs))
-
-        # Run the agent asynchronously
+        # The generation call blocks, so run it in the background.
         self.append_value_to_parameter("logs", "Starting processing image..\n")
-        yield lambda: self._create_image(agent, prompt)
+        yield lambda: self._create_image(image_config, prompt)
         self.append_value_to_parameter("logs", "Finished processing image.\n")
 
-        # Create a false memory for the agent
-        # This is because the agent will have the base64 image in its memory, which is huge.
-        # So we replace it with a simple, false memory - but tell it is used a tool.
-        agent.insert_false_memory(
-            prompt=orig_prompt, output="I created an image based on your prompt.", tool="GenerateImageTool"
-        )
+        # Record the exchange as a short text memory: the image itself is huge, so the agent
+        # is told it used a tool instead.
+        state.messages = [
+            *state.messages,
+            ModelRequest(parts=[UserPromptPart(content=orig_prompt)]),
+            ModelResponse(parts=[TextPart(content=GENERATED_IMAGE_MEMORY)]),
+        ]
+        self.parameter_output_values["agent"] = state.to_wire()
 
-        # Restore the task
-        # Now restore the original prompt task for the agent.
-        agent.restore_task()
-
-        # Output the agent
-        if agent.tasks:
-            cast(PromptTask, agent.tasks[0]).tools = []
-        provider = agent_input.get("provider") if isinstance(agent_input, dict) else None
-        self.parameter_output_values["agent"] = wrap_agent(
-            agent.to_dict(), tool_configs, ruleset_configs, provider=provider
-        )
+    @staticmethod
+    def _build_context(state: AgentState, prompt: str) -> str:
+        """Prefix `prompt` with the agent's conversation, since the image model has no memory."""
+        context = ""
+        runs = state.runs()
+        if runs:
+            lines = []
+            for run in runs:
+                if run["input"]:
+                    lines.append(f"User: {run['input']}")
+                if run["output"]:
+                    lines.append(f"Assistant: {run['output']}")
+            context = f"<Conversation History>\n{chr(10).join(lines)}</Conversation History>\n"
+        if prompt:
+            context = f"{context}\nUser:\n{prompt}\n"
+        return context
 
     def after_incoming_connection(
         self,
@@ -389,11 +355,9 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
 
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
-    def _create_image(self, agent: GtAgent, prompt: BaseArtifact | str) -> None:
-        agent.run(prompt)
-        raise_if_budget_halt_in_run(agent)
-        try_throw_error(agent.output)
+    def _create_image(self, config: ImageGenerationConfig, prompt: str) -> None:
+        image_bytes = generate_image(config, prompt)
         dest = self._output_file.build_file()
-        saved = dest.write_bytes(agent.output.to_bytes())
+        saved = dest.write_bytes(image_bytes)
         url_artifact = ImageUrlArtifact(value=saved.location)
         self.publish_update_to_parameter("output", url_artifact)

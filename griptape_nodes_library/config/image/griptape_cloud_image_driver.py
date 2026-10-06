@@ -2,14 +2,11 @@ from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.config.image.base_image_driver import BaseImageDriver
-from griptape_nodes_library.utils.cloud_budget_drivers import (
-    GriptapeCloudImageGenerationDriver as GtGriptapeCloudImageGenerationDriver,
-)
+from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, ImageProvider
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
-from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 
 # --- Constants ---
 
@@ -35,7 +32,7 @@ LEGACY_MODEL_VALUES = {
 class GriptapeCloudImage(BaseImageDriver):
     """Node for Griptape Cloud Image Generation Driver.
 
-    This node creates an Griptape Cloud image generation driver and outputs its configuration.
+    This node outputs a Griptape Cloud image generation configuration.
     """
 
     def __init__(self, **kwargs) -> None:
@@ -63,30 +60,16 @@ class GriptapeCloudImage(BaseImageDriver):
         )
 
     def process(self) -> None:
-        # Get the parameters from the node
-        params = self.parameter_values
-
         # A model the license denies must not reach a downstream node as a driver.
         self._raise_if_model_denied()
 
-        # --- Get Common Driver Arguments ---
-        # Use the helper method from BaseImageDriver to get common driver arguments
-        common_args = self._get_common_driver_args(params)
-
-        # --- Prepare Griptape Cloud Specific Arguments ---
-        specific_args = {}
-
-        # Retrieve the mandatory API key, alongside the headers that carry attribution.
-        specific_args.update(cloud_driver_auth())
-
         # The provider's own id for the selected model.
-        specific_args["model"] = self._get_selected_model_id()
-
-        specific_args["quality"] = self.get_parameter_value("quality")
-
-        all_kwargs = {**common_args, **specific_args}
-
-        self.parameter_output_values["image_model_config"] = GtGriptapeCloudImageGenerationDriver(**all_kwargs)
+        self.parameter_output_values["image_model_config"] = ImageGenerationConfig(
+            provider=ImageProvider.GRIPTAPE_CLOUD,
+            model=self._get_selected_model_id(),
+            image_size=self.get_parameter_value("image_size"),
+            quality=self.get_parameter_value("quality"),
+        )
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
         """Validates that the Griptape Cloud API key is configured correctly.

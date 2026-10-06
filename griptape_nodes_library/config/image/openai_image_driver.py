@@ -1,14 +1,11 @@
 from typing import Any
 
-from griptape.drivers.image_generation.openai import (
-    OpenAiImageGenerationDriver as GtOpenAiImageGenerationDriver,
-)
 from griptape_nodes.exe_types.core_types import Parameter
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
 from griptape_nodes_library.config.image.base_image_driver import BaseImageDriver
+from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, ImageProvider
 
 # --- Constants ---
 
@@ -51,7 +48,7 @@ LEGACY_MODEL_VALUES = {
 class OpenAiImage(BaseImageDriver):
     """Node for OpenAI Image Generation Driver.
 
-    This node creates an OpenAI image generation driver and outputs its configuration.
+    This node outputs an OpenAI image generation configuration.
     """
 
     def __init__(self, **kwargs) -> None:
@@ -196,45 +193,35 @@ class OpenAiImage(BaseImageDriver):
         return super().after_value_set(parameter, value)
 
     def process(self) -> None:
-        # Get the parameters from the node
-        params = self.parameter_values
-
         # A model the license denies must not reach a downstream node as a driver.
         self._raise_if_model_denied()
 
-        # --- Get Common Driver Arguments ---
-        # Use the helper method from BaseImageDriver to get common driver arguments
-        common_args = self._get_common_driver_args(params)
-
-        # --- Prepare Griptape Cloud Specific Arguments ---
-        specific_args = {}
-
-        # Retrieve the mandatory API key.
-        specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
-
         model = self.get_parameter_value("model")
-        specific_args["model"] = self._get_selected_model_id()
-
+        options: dict[str, Any] = {}
         if model == "dall-e-3":
-            specific_args["style"] = self.get_parameter_value("style")
-            specific_args["quality"] = self.get_parameter_value("quality")
+            options["style"] = self.get_parameter_value("style")
+            options["quality"] = self.get_parameter_value("quality")
         elif model == "gpt-image-1":
-            specific_args["style"] = self.get_parameter_value("style")
-            specific_args["quality"] = self.get_parameter_value("quality")
-            specific_args["background"] = self.get_parameter_value("background")
-            specific_args["moderation"] = self.get_parameter_value("moderation")
-            specific_args["output_format"] = self.get_parameter_value("output_format")
-            if specific_args["output_format"] == "jpeg":
-                specific_args["output_compression"] = self.get_parameter_value("output_compression")
+            options["style"] = self.get_parameter_value("style")
+            options["quality"] = self.get_parameter_value("quality")
+            options["background"] = self.get_parameter_value("background")
+            options["moderation"] = self.get_parameter_value("moderation")
+            options["output_format"] = self.get_parameter_value("output_format")
+            if options["output_format"] == "jpeg":
+                options["output_compression"] = self.get_parameter_value("output_compression")
 
-        all_kwargs = {**common_args, **specific_args}
-
-        self.parameter_output_values["image_model_config"] = GtOpenAiImageGenerationDriver(**all_kwargs)
+        self.parameter_output_values["image_model_config"] = ImageGenerationConfig(
+            provider=ImageProvider.OPENAI,
+            model=self._get_selected_model_id(),
+            api_key_secret=API_KEY_ENV_VAR,
+            image_size=self.get_parameter_value("image_size"),
+            **options,
+        )
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
-        """Validates that the Griptape Cloud API key is configured correctly.
+        """Validates that the OpenAI API key is configured correctly.
 
-        Calls the base class helper `_validate_api_key` with Griptape-specific
+        Calls the base class helper `_validate_api_key` with OpenAI-specific
         configuration details.
         """
         return self._validate_api_key(

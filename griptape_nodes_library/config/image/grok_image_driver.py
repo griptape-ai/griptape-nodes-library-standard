@@ -1,9 +1,5 @@
-from griptape.drivers.image_generation.openai_image_generation_driver import (
-    OpenAiImageGenerationDriver as GtGrokImageGenerationDriver,
-)
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
 from griptape_nodes_library.config.image.base_image_driver import BaseImageDriver
+from griptape_nodes_library.llm.image_generation import GROK_BASE_URL, ImageGenerationConfig, ImageProvider
 
 # --- Constants ---
 
@@ -21,9 +17,9 @@ LEGACY_MODEL_VALUES = {
 
 
 class GrokImage(BaseImageDriver):
-    """Node for OpenAI Image Generation Driver.
+    """Node for Grok Image Generation Driver.
 
-    This node creates an OpenAI image generation driver and outputs its configuration.
+    This node outputs a Grok image generation configuration.
     """
 
     def __init__(self, **kwargs) -> None:
@@ -40,36 +36,20 @@ class GrokImage(BaseImageDriver):
         self.remove_parameter_element_by_name("image_size")
 
     def process(self) -> None:
-        # Get the parameters from the node
-        params = self.parameter_values
-
         # A model the license denies must not reach a downstream node as a driver.
         self._raise_if_model_denied()
 
-        # --- Get Common Driver Arguments ---
-        # Use the helper method from BaseImageDriver to get common driver arguments
-        common_args = self._get_common_driver_args(params)
-
-        # --- Prepare Griptape Cloud Specific Arguments ---
-        specific_args = {}
-
-        # Set up the grok url
-        specific_args["base_url"] = "https://api.x.ai/v1"
-
-        # Retrieve the mandatory API key.
-        specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
-
-        # The provider's own id for the selected model.
-        specific_args["model"] = self._get_selected_model_id()
-
-        all_kwargs = {**common_args, **specific_args}
-
-        self.parameter_output_values["image_model_config"] = GtGrokImageGenerationDriver(**all_kwargs)
+        self.parameter_output_values["image_model_config"] = ImageGenerationConfig(
+            provider=ImageProvider.GROK,
+            model=self._get_selected_model_id(),
+            base_url=GROK_BASE_URL,
+            api_key_secret=API_KEY_ENV_VAR,
+        )
 
     def validate_node(self) -> list[Exception] | None:
-        """Validates that the Griptape Cloud API key is configured correctly.
+        """Validates that the Grok API key is configured correctly.
 
-        Calls the base class helper `_validate_api_key` with Griptape-specific
+        Calls the base class helper `_validate_api_key` with Grok-specific
         configuration details.
         """
         return self._validate_api_key(
