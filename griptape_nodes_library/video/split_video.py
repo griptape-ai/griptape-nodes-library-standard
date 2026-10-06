@@ -562,7 +562,7 @@ If no title is provided, just use "Segment X:" format.
                 segments = self._parse_frame_ranges(frame_ranges, frame_rate)
             else:
                 self.append_value_to_parameter("logs", "Parsing timecodes...\n")
-                segments = self._parse_timecodes(timecodes, frame_rate, drop_frame=drop_frame)
+                segments = await asyncio.to_thread(self._parse_timecodes, timecodes, frame_rate, drop_frame=drop_frame)
             self.append_value_to_parameter("logs", f"Parsed {len(segments)} segments\n")
 
             # Trim segments that exceed video duration

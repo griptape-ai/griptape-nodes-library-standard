@@ -117,6 +117,13 @@ class TestAgentState:
         assert state.model is None
         assert state.runs() == [{"input": "q", "output": "a"}]
 
+    def test_bare_legacy_agent_keeps_inline_rulesets(self) -> None:
+        state = AgentState.from_wire(
+            {"rulesets": [{"type": "Ruleset", "name": "r", "rules": [{"type": "Rule", "value": "be nice"}]}]}
+        )
+
+        assert state.rulesets == [{"name": "r", "rules": ["be nice"]}]
+
     def test_garbage_yields_empty_state(self) -> None:
         assert AgentState.from_wire(None).messages == []
         assert AgentState.from_wire("not json").messages == []

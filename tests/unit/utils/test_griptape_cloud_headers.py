@@ -31,10 +31,10 @@ LIBRARY_ROOT = Path(__file__).parents[3] / "griptape_nodes_library"
 # the map is asserted whole rather than as an allowlist. The reverse matters too: `(True, False)`
 # collapsing back to `(True,)` means the poll loop went back to reusing the submit's attributed
 # dict, which is invisible on the wire and caught by no other test.
-# The `utils/` entries hand the dict to a `griptape` driver rather than to `requests`.
-# `test_cloud_driver_auth.py` reads construction sites, so it covers the first two but is blind
-# to `_restored_cloud_credentials`, which writes into a serialized dict for `from_dict`.
+# `llm/models.py` hands the dict to the OpenAI client as `default_headers` for Griptape Cloud chat.
 CLOUD_HEADER_CALLS = {
+    ("llm/image_generation.py", "_generate_griptape_cloud"): (True,),
+    ("llm/models.py", "build_model"): (True,),
     ("proxy/griptape_proxy_node.py", "_fetch_generation_result"): (False,),
     ("proxy/griptape_proxy_node.py", "_process_generation"): (True, False),
     ("proxy/griptape_proxy_node.py", "_refresh_async"): (False,),
@@ -42,9 +42,6 @@ CLOUD_HEADER_CALLS = {
     ("proxy/hosted_artifacts.py", "fetch_hosted_artifacts"): (False,),
     ("proxy/provider_asset_access.py", "check_provider_asset_access"): (False,),
     ("tools/file_manager_tool.py", "get_bucket_list"): (False,),
-    ("utils/agent_utils.py", "_restored_cloud_credentials"): (True,),
-    ("utils/agent_utils.py", "build_tool_from_config"): (True,),
-    ("utils/cloud_driver_auth.py", "cloud_driver_auth"): (True,),
     ("video/omnihuman_video_generation.py", "_auto_detect_masks"): (True,),
     ("video/seedance_common.py", "_append_private_asset"): (True, False),
 }
@@ -56,12 +53,10 @@ SYNC_FACTORY = "build_griptape_cloud_headers"
 ASYNC_FACTORY = "build_griptape_cloud_headers_async"
 
 # Everything that parks its thread on the engine, and what a coroutine should do instead.
-# `cloud_driver_auth` is here because it wraps the sync factory: it is not a header build, so the
-# map above never sees it, and a coroutine calling it stalls the loop with nothing in this file
-# pointing at the reason.
+# `build_model` is here because it wraps the sync factory for Griptape Cloud models.
 BLOCKING_IN_A_COROUTINE = {
     SYNC_FACTORY: f"call {ASYNC_FACTORY}",
-    "cloud_driver_auth": f"give it an async sibling over {ASYNC_FACTORY} first",
+    "build_model": "build the model in a worker thread (`asyncio.to_thread`)",
 }
 
 _BASE_HEADERS = {"Authorization": "Bearer tok", "Content-Type": "application/json"}
@@ -309,13 +304,13 @@ def test_the_spelling_matches_the_caller() -> None:
 
     A coroutine that reaches the sync builder through a sync helper passes here, because the
     name in the body is the helper's. `test_no_coroutine_reaches_a_sync_build_indirectly` below
-    is the companion that walks those hops, and it holds the two sites that already do.
+    is the companion that walks those hops.
 
     "Runs on the event loop" is wider than `async def`. A node's `process()` runs there too, as
-    do its `__init__` and its value and connection hooks, so a sync `cloud_driver_auth()` in any
+    do its `__init__` and its value and connection hooks, so a sync `build_model()` in any
     of them parks the loop exactly as the case above does.
     `test_no_sync_entry_point_reaches_a_build_unrecorded` is the companion that counts those;
-    closing them means an async sibling for `cloud_driver_auth` and an async entry point at each
+    closing them means an async `build_model` and an async entry point at each
     site, which is a change to the nodes rather than to the check.
     """
     mismatched = set()
@@ -343,11 +338,8 @@ def test_the_spelling_matches_the_caller() -> None:
 # here. Every one parks the engine event loop for the length of an engine round trip -- on a
 # worker, a forwarded request to the orchestrator, and the full `_TIMEOUT_SECONDS` when the
 # orchestrator is wedged. Recorded rather than fixed because the fix is not in this layer: each
-# needs an async sibling for the helper it calls, and `cloud_driver_auth` has none yet.
-COROUTINES_THAT_BLOCK_TRANSITIVELY = {
-    "audio/transcribe_audio.py:313 (_parse_result)": "unwrap_agent -> _restored_cloud_credentials, once per Cloud driver dict in the agent",
-    "video/split_video.py:541 (aprocess)": "_parse_timecodes -> _parse_timecodes_with_agent -> cloud_driver_auth",
-}
+# needs an async sibling for the helper it calls. Empty: keep it that way.
+COROUTINES_THAT_BLOCK_TRANSITIVELY: dict[str, str] = {}
 
 
 class _Function(NamedTuple):
@@ -467,7 +459,7 @@ def test_no_coroutine_reaches_a_sync_build_indirectly() -> None:
     """A sync helper between the coroutine and the builder hides the stall from the direct check.
 
     `test_the_spelling_matches_the_caller` reads the names in the body, so
-    `async def _parse_result` calling `unwrap_agent` looks clean -- the blocking build is two
+    `async def aprocess` calling `prompt_model` looks clean -- the blocking build is two
     hops down. The stall is the same one either way: the loop stops until the engine answers,
     and on a worker that is a round trip to the orchestrator.
 
@@ -539,42 +531,17 @@ LOOP_ENTRY_POINTS = frozenset(
 # `COROUTINES_THAT_BLOCK_TRANSITIVELY` rather than a softer version of it.
 #
 # Recorded rather than fixed for the same reason as that map: the fix is an async sibling for
-# the helper each one calls, and `cloud_driver_auth` has none yet. What the count buys in the
-# meantime is visibility -- a build site is a call to a helper's helper, and nothing at the
-# entry point names it. Asserted whole so a twenty-third arrives as a failing test.
-#
-# A route through `unwrap_agent` fires once per Griptape Cloud driver dict in the agent, and
-# fires even on the paths passing `require_credential=False`: that flag governs whether a
-# missing credential raises, not whether `_restored_cloud_credentials` runs. The four memory
-# nodes are the sharp end of that -- they read or rewrite the agent's wire dict and send no
-# request at all, so they park the loop for attribution with nothing to attribute.
-#
-# `random_text.py:178` is the one that is not paid per run. Constructing a `RandomText` builds
-# its agent eagerly, so the round trip lands on every construction -- deserializing a saved
-# workflow included, where a node the user never runs still waits on the engine.
+# the helper each one calls (`build_model`). What the count buys in the meantime is
+# visibility -- a build site is a call to a helper's helper, and nothing at the entry point
+# names it. Asserted whole so an eighth arrives as a failing test.
 SYNC_ENTRY_POINTS_THAT_BLOCK = {
-    "agents/agent.py:730 (process)": "cloud_driver_auth; build_tools; unwrap_agent -- three routes, each its own round trip",
-    "agents/memory/clear_agent_memory.py:25 (process)": "unwrap_agent -> _restored_cloud_credentials; rewrites memory, sends nothing",
-    "agents/memory/display_agent_memory.py:83 (process)": "_get_memory_dict -> unwrap_agent; reads memory, sends nothing",
-    "agents/memory/replace_item_in_agent_memory.py:170 (after_incoming_connection)": "_update_memory_choices -> _get_agent -> unwrap_agent; on every connection made",
-    "agents/memory/replace_item_in_agent_memory.py:196 (after_value_set)": "_update_memory_choices -> _get_agent -> unwrap_agent; on every agent value set",
-    "agents/memory/replace_item_in_agent_memory.py:233 (process)": "unwrap_agent -> _restored_cloud_credentials; rewrites memory, sends nothing",
-    "agents/memory/summarize_agent_memory.py:63 (process)": "_get_agent -> unwrap_agent",
-    "config/image/griptape_cloud_image_driver.py:65 (process)": "cloud_driver_auth",
-    "config/prompt/griptape_cloud_prompt.py:105 (process)": "cloud_driver_auth",
-    "image/create_image.py:200 (process)": "cloud_driver_auth; unwrap_agent -> _restored_cloud_credentials",
-    "image/describe_image.py:342 (process)": "cloud_driver_auth; build_tools; unwrap_agent -- three routes",
-    "number/askulator.py:94 (process)": "create_driver -> cloud_driver_auth",
-    "tasks/mcp_task.py:343 (process)": "_setup_agent -> _create_driver -> cloud_driver_auth",
-    "text/date_and_time.py:80 (process)": "create_driver -> cloud_driver_auth",
-    "text/evaluate_text_result.py:163 (process)": "create_driver -> cloud_driver_auth",
-    "text/random_text.py:179 (__init__)": "_initialize_agent -> cloud_driver_auth; once per construction, run or not",
-    "text/random_text.py:311 (after_value_set)": "_get_random_selection -> _generate_with_agent -> _initialize_agent -> cloud_driver_auth",
-    "text/random_text.py:339 (process)": "_get_random_selection -> _generate_with_agent -> _initialize_agent -> cloud_driver_auth",
-    "text/scrape_web.py:41 (process)": "create_driver -> cloud_driver_auth",
-    "text/search_web.py:132 (process)": "create_driver -> cloud_driver_auth",
-    "text/summarize_text_task.py:46 (process)": "create_driver -> cloud_driver_auth",
-    "tools/extraction_tool.py:18 (process)": "cloud_driver_auth",
+    "agents/agent.py:535 (process)": "build_agent_from_state -> build_model",
+    "agents/memory/summarize_agent_memory.py:46 (process)": "prompt_model -> build_model",
+    "image/create_image.py:205 (process)": "prompt_model -> build_model; generate_image -> _generate_griptape_cloud",
+    "image/describe_image.py:404 (process)": "build_agent_from_state -> build_model",
+    "tasks/mcp_task.py:307 (process)": "build_agent -> build_model",
+    "text/random_text.py:280 (after_value_set)": "_get_random_selection -> prompt_model -> build_model",
+    "text/random_text.py:308 (process)": "_get_random_selection -> prompt_model -> build_model",
 }
 
 

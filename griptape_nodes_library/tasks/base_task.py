@@ -136,7 +136,4 @@ class BaseTask(ControlNode):
 
     def process(self) -> AsyncResult[str]:
         # Base implementation does nothing
-        def _process() -> str:
-            return ""
-
-        yield _process
+        yield lambda: ""

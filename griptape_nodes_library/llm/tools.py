@@ -6,6 +6,7 @@ serializable; toolsets are rebuilt fresh wherever an agent runs.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -235,7 +236,8 @@ def _agent_tool(config: dict) -> FunctionToolset:
     state = AgentState.from_wire(config.get("agent_dict"))
 
     async def run_agent_tool(input: str) -> str:  # noqa: A002
-        agent = build_agent_from_state(state)
+        # Building resolves credentials and attribution synchronously; keep it off the loop.
+        agent = await asyncio.to_thread(build_agent_from_state, state)
         result = await run_agent_async(agent, input, message_history=state.messages)
         return output_to_text(result.output)
 

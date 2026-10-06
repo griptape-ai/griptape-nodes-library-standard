@@ -33,6 +33,7 @@ from pydantic_ai.messages import (
 )
 
 from griptape_nodes_library.llm.model_config import ModelConfig, model_config_from_legacy_driver
+from griptape_nodes_library.llm.rulesets import ruleset_to_config
 
 AGENT_TYPE = "Agent"
 WIRE_FORMAT = "pydantic_ai_agent"
@@ -188,7 +189,9 @@ def _from_legacy(value: dict) -> AgentState:
         rulesets = list(value.get("rulesets") or [])
         provider = value.get("provider")
     else:
-        agent_dict, tools, rulesets, provider = value, [], [], None
+        # A bare `Agent.to_dict()` keeps its rulesets inline.
+        agent_dict, tools, provider = value, [], None
+        rulesets = [c for c in (ruleset_to_config(r) for r in value.get("rulesets") or []) if c]
     if not isinstance(agent_dict, dict):
         return AgentState(tools=tools, rulesets=rulesets)
 

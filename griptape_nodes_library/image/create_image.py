@@ -242,7 +242,6 @@ class GenerateImage(ControlNode):
             prompt = yield lambda: prompt_model(
                 enhance_model, [ENHANCEMENT_INSTRUCTIONS, prompt], rulesets=state.rulesets
             )
-            raise_if_budget_halt_in_run(result)
             self.append_value_to_parameter("logs", "Finished enhancing prompt...\n")
         else:
             self.append_value_to_parameter("logs", "Prompt enhancement disabled.\n")

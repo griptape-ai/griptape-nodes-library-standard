@@ -25,8 +25,8 @@ from griptape_nodes_library.llm.model_config import (
     ModelConfig,
     ModelProvider,
 )
-from griptape_nodes_library.utils.attribution import attribution_header
 from griptape_nodes_library.utils.cloud_credential_utils import missing_credential_message, resolve_cloud_api_key
+from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
@@ -102,7 +102,10 @@ def build_model(config: ModelConfig) -> Model:
                 raise KeyError(missing_credential_message(f"run model '{config.model}' on Griptape Cloud"))
             root = (config.base_url or os.environ.get("GT_CLOUD_BASE_URL") or GRIPTAPE_CLOUD_BASE_URL).rstrip("/")
             return _openai_compatible(
-                config, base_url=f"{root}/api/v1", api_key=api_key, headers=attribution_header() or None
+                config,
+                base_url=f"{root}/api/v1",
+                api_key=api_key,
+                headers=build_griptape_cloud_headers(api_key, attribution=True),
             )
         case ModelProvider.OPENAI:
             api_key = _require_key(config)

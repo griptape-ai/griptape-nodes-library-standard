@@ -12,12 +12,19 @@ def ruleset_to_config(ruleset: Any) -> dict | None:
     if isinstance(ruleset, dict):
         if "name" not in ruleset:
             return None
-        return {"name": ruleset["name"], "rules": [str(r) for r in ruleset.get("rules", [])]}
+        return {"name": ruleset["name"], "rules": [_rule_text(r) for r in ruleset.get("rules", [])]}
     name = getattr(ruleset, "name", None)
     rules = getattr(ruleset, "rules", None)
     if name is None or rules is None:
         return None
     return {"name": name, "rules": [str(getattr(r, "value", r)) for r in rules]}
+
+
+def _rule_text(rule: Any) -> str:
+    # Griptape `Rule.to_dict()` is `{"type": "Rule", "value": ...}`.
+    if isinstance(rule, dict) and "value" in rule:
+        return str(rule["value"])
+    return str(rule)
 
 
 def rulesets_from_inputs(values: list[Any]) -> list[dict]:
