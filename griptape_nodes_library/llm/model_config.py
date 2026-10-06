@@ -72,7 +72,6 @@ class ModelConfig(BaseModel):
 
 
 def model_config_for_engine_provider(provider_config: ProviderConfig, model: str) -> ModelConfig:
-    """`model` on an engine-configured third-party chat provider (Ollama, LM Studio, or OpenAI-compatible)."""
     match provider_config.type:
         case ModelProvider.OLLAMA:
             provider = ModelProvider.OLLAMA
@@ -122,7 +121,7 @@ def model_config_from_legacy_driver(driver: dict[str, Any], provider: dict[str, 
             base_url=provider.get("base_url") or None,
             api_key=provider.get("api_key") or None,
             settings=settings,
-            # The legacy blob held the key itself; the name lets later hops find the secret.
+            # Keep the provider name so wire round-trips can resolve a secret omitted from serialization.
             options={ENGINE_PROVIDER_OPTION: provider["name"]} if provider.get("name") else {},
         )
 
