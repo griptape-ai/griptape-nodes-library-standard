@@ -25,6 +25,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.widget import Widget
 
 from griptape_nodes_library.utils.audio_utils import is_audio_url_artifact
+from griptape_nodes_library.utils.macro_path_utils import resolve_to_macro_path
 from griptape_nodes_library.utils.video_utils import is_video_url_artifact
 
 # Used only when list items are plain strings — artifacts are detected by type, not extension.
@@ -221,13 +222,22 @@ class SelectFromGrid(ControlNode):
         """Converter for the saved state: rebuild the grid, resolving each media source to a browser URL."""
         if not isinstance(state, dict) or not state:
             return state
+        state = {
+            **state,
+            "items": [
+                {**entry, "source": self._macro_source(entry.get("source", ""))}
+                if isinstance(entry, dict) and entry.get("type") in _MEDIA_ITEM_TYPES
+                else entry
+                for entry in state.get("items", [])
+            ],
+        }
         current = self.get_parameter_value(self.grid_param.name)
         if isinstance(current, dict) and self._portable_grid_state(current) == state:
             return state
         items = []
-        for entry in state.get("items", []):
+        for entry in state["items"]:
             if isinstance(entry, dict) and entry.get("type") in _MEDIA_ITEM_TYPES:
-                items.append({**entry, "url": self._resolve_url_string(entry.get("source", ""))})
+                items.append({**entry, "url": self._resolve_url_string(entry["source"])})
             else:
                 items.append(entry)
         self.parameter_values[self.grid_param.name] = {**state, "items": items}
@@ -254,7 +264,11 @@ class SelectFromGrid(ControlNode):
 
     @staticmethod
     def _with_source(entry: dict[str, Any], item: Any) -> dict[str, Any]:
-        """Tag a media grid entry with the input item's original path, so saves keep its macro form."""
+        """Tag a media grid entry with the input item's path in macro form, so saves stay portable.
+
+        Upstream nodes often hand over absolute paths, so an in-project path is mapped
+        back to its macro form (see _macro_source).
+        """
         if entry.get("type") not in _MEDIA_ITEM_TYPES:
             return entry
         if isinstance(item, dict) and "value" in item:
@@ -262,7 +276,17 @@ class SelectFromGrid(ControlNode):
         source = item if isinstance(item, str) else getattr(item, "value", "")
         if not isinstance(source, str) or not source:
             return entry
-        return {**entry, "source": source}
+        return {**entry, "source": SelectFromGrid._macro_source(source)}
+
+    @staticmethod
+    def _macro_source(path: str) -> str:
+        """Return an in-project absolute path in macro form, and any other path as given."""
+        if not path:
+            return path
+        try:
+            return resolve_to_macro_path(path).resolved_path
+        except Exception:
+            return path
 
     def _apply_multi_select(self, is_multi: bool) -> None:
         """Switch between multi-select and single-select mode."""

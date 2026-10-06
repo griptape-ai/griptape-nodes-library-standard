@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from griptape_nodes_library.lists.select_from_grid import SelectFromGrid
+from griptape_nodes_library.utils.macro_path_utils import MacroPathResult
 
 _PREVIEW_URL = "http://localhost:8124/workspace/.griptape-nodes-previews/outputs/images/a.png"
 
@@ -34,6 +35,19 @@ class TestSavedGridState:
         assert state["items"][0] == {"type": "image", "label": "a.png", "source": "{outputs}/images/a.png"}
         assert state["items"][1] == {"type": "text", "value": "note"}
 
+    def test_absolute_project_path_is_saved_in_macro_form(self, node: SelectFromGrid) -> None:
+        mapped = MacroPathResult(resolved_path="{outputs}/images/a.png", is_external=False)
+        with (
+            patch.object(SelectFromGrid, "_resolve_url_string", side_effect=_resolve_to_localhost),
+            patch(
+                "griptape_nodes_library.lists.select_from_grid.resolve_to_macro_path", return_value=mapped
+            ) as to_macro,
+        ):
+            node.set_parameter_value("list", ["/home/user/project/outputs/images/a.png"])
+
+        to_macro.assert_called_once_with("/home/user/project/outputs/images/a.png")
+        assert node.get_parameter_value("grid_state")["items"][0]["source"] == "{outputs}/images/a.png"
+
     def test_selection_change_reaches_saved_state(self, node: SelectFromGrid) -> None:
         with patch.object(SelectFromGrid, "_resolve_url_string", side_effect=_resolve_to_localhost):
             node.set_parameter_value("list", ["{outputs}/images/a.png", "{outputs}/images/b.png"])
@@ -62,6 +76,20 @@ class TestSavedGridState:
         assert grid["selected_indices"] == [0]
         assert grid["columns"] == 4
         assert node.get_parameter_value("grid_state") == saved
+
+    def test_loading_absolute_source_saves_it_in_macro_form(self, node: SelectFromGrid) -> None:
+        saved = {"items": [{"type": "image", "label": "a.png", "source": "/home/user/project/outputs/images/a.png"}]}
+        mapped = MacroPathResult(resolved_path="{outputs}/images/a.png", is_external=False)
+        with (
+            patch.object(SelectFromGrid, "_resolve_url_string", side_effect=_resolve_to_localhost),
+            patch("griptape_nodes_library.lists.select_from_grid.resolve_to_macro_path", return_value=mapped),
+        ):
+            node.set_parameter_value("grid_state", saved, initial_setup=True)
+
+        assert node.get_parameter_value("grid_state")["items"][0]["source"] == "{outputs}/images/a.png"
+        assert node.get_parameter_value("grid")["items"][0]["url"] == (
+            "http://localhost:9999/resolved/{outputs}/images/a.png"
+        )
 
     def test_grid_from_older_save_without_source_falls_back_to_url(self, node: SelectFromGrid) -> None:
         node.set_parameter_value(
