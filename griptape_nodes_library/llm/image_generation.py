@@ -44,20 +44,10 @@ DEFAULT_API_KEY_SECRETS: dict[ImageProvider, str] = {
 
 
 class ImageGenerationConfig(BaseModel):
-    """Provider, model id, and generation options for one image model.
+    """Image model configuration.
 
-    Attributes:
-        provider: Which API to call.
-        model: The provider's model id.
-        base_url: Endpoint override. Grok defaults to :data:`GROK_BASE_URL`; Griptape Cloud to
-            `GT_CLOUD_BASE_URL` or :data:`GRIPTAPE_CLOUD_BASE_URL`.
-        api_key_secret: Name of the secret holding the API key. Defaults per provider in
-            :data:`DEFAULT_API_KEY_SECRETS`. Ignored for Griptape Cloud, which resolves the
-            License-aware credential itself.
-        image_size: e.g. `1024x1024`. Omitted from the request when None.
-        quality, style, background, moderation, output_format, output_compression:
-            Sent only when set and supported by the model (OpenAI: `style` for dall-e-3;
-            `background`, `moderation`, `output_format`, `output_compression` for gpt-image models).
+    OpenAI sends `style` only for DALL-E 3 and sends `background`, `moderation`,
+    `output_format`, and `output_compression` only for GPT Image models.
     """
 
     provider: ImageProvider
@@ -77,7 +67,6 @@ class ImageGenerationConfig(BaseModel):
 
     @classmethod
     def from_wire(cls, value: Any) -> ImageGenerationConfig | None:
-        """Accept an `ImageGenerationConfig`, its wire dict, or anything else (returns None)."""
         if isinstance(value, ImageGenerationConfig):
             return value
         if isinstance(value, dict) and "provider" in value and "model" in value:
@@ -86,14 +75,6 @@ class ImageGenerationConfig(BaseModel):
 
 
 def generate_image(config: ImageGenerationConfig, prompt: str) -> bytes:
-    """Generate one image from `prompt` and return its encoded bytes.
-
-    Raises:
-        KeyError: A required credential is missing.
-        ValueError: `config` is invalid for its provider.
-        httpx.HTTPStatusError: Griptape Cloud rejected the request.
-        openai.OpenAIError: The OpenAI-compatible API rejected the request.
-    """
     match config.provider:
         case ImageProvider.GRIPTAPE_CLOUD:
             return _generate_griptape_cloud(config, prompt)

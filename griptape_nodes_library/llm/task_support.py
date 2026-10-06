@@ -1,5 +1,3 @@
-"""Shared run path for the task nodes and single-shot text nodes."""
-
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
@@ -48,13 +46,9 @@ def model_config_for_provider(
 @dataclass
 class TaskRunResult:
     output: Any
-    """The agent's final output (a string unless `output_type` was given)."""
     text: str
-    """`output` rendered as text."""
     tool_results: list[str] = field(default_factory=list)
-    """Every tool return value, in call order."""
     messages: list[ModelMessage] = field(default_factory=list)
-    """The full message history including the new turn."""
 
 
 def run_task_agent(  # noqa: PLR0913
@@ -69,7 +63,6 @@ def run_task_agent(  # noqa: PLR0913
     on_text: Callable[[str], None] | None = None,
     on_tool_call: Callable[[str, str], None] | None = None,
 ) -> TaskRunResult:
-    """Run one agent turn, collecting tool results and forwarding streamed text."""
     agent = build_agent(
         model_config, instructions=instructions, rulesets=rulesets, toolsets=toolsets, output_type=output_type
     )

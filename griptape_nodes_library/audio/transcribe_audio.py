@@ -37,29 +37,7 @@ DEFAULT_RESPONSE_FORMAT = "json"
 
 
 class TranscribeAudio(GriptapeProxyNode):
-    """Transcribe audio to text using OpenAI models via the Griptape Cloud model proxy.
-
-    Routing transcription through the proxy means users no longer need to set their own
-    ``OPENAI_API_KEY`` — the request is authenticated with the Griptape Cloud API key and
-    billed against Griptape Cloud credits. Supports GPT-4o transcription models and Whisper.
-
-    Inputs:
-        - audio: Audio file to transcribe (mp3, mp4, mpeg, mpga, m4a, wav, webm, flac)
-        - model: Transcription model to use
-        - language: ISO-639-1 language code to improve accuracy
-        - prompt: Optional text to guide transcription style
-        - response_format: Output format (json or verbose_json)
-        - temperature: Sampling temperature (0 = deterministic)
-
-    Outputs:
-        - output (str): Transcribed text from the audio
-        - words (list): Word-level timing data (only with verbose_json)
-        - segments (list): Segment-level data with timing (only with verbose_json)
-        - detected_language (str): Detected language of the audio
-        - duration (float): Duration of the audio in seconds
-        - generation_id (str): Generation ID from the proxy (in the Status group)
-        - provider_response (dict): Verbatim response from the proxy
-    """
+    """Transcribe audio through the Griptape Cloud model proxy."""
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)

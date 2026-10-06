@@ -66,11 +66,6 @@ def tool_display_name(config: dict) -> str:
     return str(config.get("mcp_server_name") or config.get("name") or config.get("tool_type", "unknown"))
 
 
-# ---------------------------------------------------------------------------
-# Built-in tools
-# ---------------------------------------------------------------------------
-
-
 def _error(e: Exception) -> str:
     return f"Error: {e}"
 
@@ -294,7 +289,6 @@ def build_toolsets(configs: list[dict]) -> list[AbstractToolset[Any]]:
 def build_agent_from_state(
     state: AgentState, *, output_type: Any = str, instructions: str | None = None
 ) -> Agent[None, Any]:
-    """Build a runnable agent from an `AgentState`'s model, rulesets, and tools."""
     if state.model is None:
         msg = "Agent has no model configured."
         raise ValueError(msg)

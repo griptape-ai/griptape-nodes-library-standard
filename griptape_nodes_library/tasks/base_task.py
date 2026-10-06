@@ -38,8 +38,6 @@ LEGACY_MODEL_VALUES = {
 
 
 class BaseTask(ControlNode):
-    """Base task node for creating Griptape Tasks that can run on their own."""
-
     def __init__(self, name: str, metadata: dict | None = None) -> None:
         super().__init__(name, metadata)
         # Installed by `_add_model_parameter`. Every task node calls it, but where the
@@ -89,7 +87,6 @@ class BaseTask(ControlNode):
         return self._model_access.selected_value or ""
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        """Keep the model dropdown's denial badge in step with the selection."""
         if self._model_access is not None:
             self._model_access.on_value_set(parameter, value)
         return super().after_value_set(parameter, value)
@@ -135,5 +132,4 @@ class BaseTask(ControlNode):
         self.publish_update_to_parameter("output", value)
 
     def process(self) -> AsyncResult[str]:
-        # Base implementation does nothing
         yield lambda: ""

@@ -17,22 +17,13 @@ LEGACY_MODEL_VALUES = {
 
 
 class GrokImage(BaseImageDriver):
-    """Node for Grok Image Generation Driver.
-
-    This node outputs a Grok image generation configuration.
-    """
-
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        # --- Customize Inherited Parameters ---
-
-        # Offer Grok's models as a license-filtered dropdown.
         self._install_model_access(
             model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=LEGACY_MODEL_VALUES
         )
 
-        # remove the 'size' parameter
         self.remove_parameter_element_by_name("image_size")
 
     def process(self) -> None:
@@ -47,11 +38,6 @@ class GrokImage(BaseImageDriver):
         )
 
     def validate_node(self) -> list[Exception] | None:
-        """Validates that the Grok API key is configured correctly.
-
-        Calls the base class helper `_validate_api_key` with Grok-specific
-        configuration details.
-        """
         return self._validate_api_key(
             service_name=SERVICE,
             api_key_env_var=API_KEY_ENV_VAR,

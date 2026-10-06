@@ -39,21 +39,18 @@ Prompt = str | Sequence[UserContent]
 
 
 class AgentRunCancelledError(Exception):
-    """The caller's `is_cancelled` callback returned True mid-run."""
+    """Raised when cancellation is requested during a run."""
 
 
 @dataclass
 class RunCallbacks:
     on_text: Callable[[str], None] | None = None
     on_tool_call: Callable[[str, str], None] | None = None
-    """`(tool_name, args_json)` when the model calls a tool."""
     on_tool_result: Callable[[str, str], None] | None = None
-    """`(tool_name, result_text)` when a tool returns."""
     is_cancelled: Callable[[], bool] | None = None
 
 
 def output_type_from_schema(schema: dict[str, Any], *, name: str | None = None) -> Any:
-    """A pydantic-ai output type that makes the model return JSON matching `schema`."""
     return StructuredDict(schema, name=name or schema.get("title") or "output")
 
 
@@ -65,7 +62,6 @@ def build_agent(
     toolsets: Sequence[AbstractToolset[Any]] = (),
     output_type: Any = str,
 ) -> Agent[None, Any]:
-    """Return an agent for `model_config` with rulesets rendered into its instructions."""
     parts = [p for p in (instructions, render_rulesets(list(rulesets))) if p]
     return Agent(
         build_model(model_config),
@@ -146,7 +142,6 @@ def run_agent(
 
 
 def output_to_text(output: Any) -> str:
-    """Render an agent output (text or structured) as a string."""
     if isinstance(output, str):
         return output
     if hasattr(output, "model_dump_json"):
@@ -165,7 +160,6 @@ def prompt_model(
     message_history: list[ModelMessage] | None = None,
     callbacks: RunCallbacks | None = None,
 ) -> Any:
-    """One-shot: build an agent, run `prompt`, return its output."""
     agent = build_agent(
         model_config, instructions=instructions, rulesets=rulesets, toolsets=toolsets, output_type=output_type
     )

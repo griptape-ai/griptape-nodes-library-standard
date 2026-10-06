@@ -1,9 +1,4 @@
-"""Defines the Agent node, providing an interface to chat with an LLM agent.
-
-This node creates a new agent or continues an existing one. It defaults to a
-Griptape Cloud model but supports connecting a Prompt Model Config. It handles
-parameters for tools, rulesets, prompts, and streams output back to the user interface.
-"""
+"""Agent node for chatting with an LLM agent."""
 
 from typing import Any
 
@@ -59,24 +54,7 @@ DEFAULT_MODEL = DEFAULT_CLOUD_MODEL
 
 
 class Agent(ControlNode):
-    """A node that provides an interface to chat with an LLM agent.
-
-    This node facilitates communication with an agent, allowing for
-    sending prompts and receiving streamed responses. It can initialize a new
-    agent or operate on an existing agent representation passed as input.
-
-    Attributes:
-        Inherits parameters and methods from ControlNode.
-        Defines specific parameters for agent configuration (model, tools, rulesets),
-        prompting, context, and output handling.
-    """
-
     def __init__(self, **kwargs) -> None:
-        """Initializes the Agent node, setting up its parameters and UI elements.
-
-        This involves defining input/output parameters, grouping related settings,
-        and establishing default values and behaviors.
-        """
         super().__init__(**kwargs)
 
         # -- Converters --
@@ -496,7 +474,6 @@ class Agent(ControlNode):
             names = ", ".join(tool_display_name(tool) for tool in node_tools)
             self.append_value_to_parameter("logs", f"[Tools]: {names}\n")
 
-        # Strings are promoted to single-rule rulesets named behavior_1, behavior_2, etc.
         node_rulesets = rulesets_from_inputs(self.get_parameter_list_value("rulesets"))
         if include_details and node_rulesets:
             names = ", ".join(r["name"] for r in node_rulesets)
@@ -532,11 +509,6 @@ class Agent(ControlNode):
         return output_type
 
     def process(self) -> AsyncResult[AgentRunResult[Any] | None]:
-        """Build the agent state, then run the prompt on a worker thread and emit the updated agent.
-
-        Yields:
-            A callable that streams the agent run via `_process`; the run result is sent back (None if cancelled).
-        """
         model_input = self.get_parameter_value("model")
         provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
         agent_input = self.get_parameter_value("agent")
@@ -573,7 +545,6 @@ class Agent(ControlNode):
             result = yield lambda: self._process(state, prompt, output_type)
             self.append_value_to_parameter("logs", "\n[Finished processing agent.]\n")
             if result is not None:
-                # Settle the output field to the final answer.
                 self.set_parameter_value("output", output_to_text(result.output))
                 state.messages = result.all_messages()
         else:
@@ -583,11 +554,7 @@ class Agent(ControlNode):
         self.parameter_output_values["agent"] = state.to_wire()
 
     def _process(self, state: AgentState, prompt: str, output_type: Any) -> AgentRunResult[Any] | None:
-        """Run the prompt on a worker thread, streaming text into `output` and tool calls into `logs`.
-
-        Returns:
-            The run result, or None if the user cancelled the run.
-        """
+        """Run the prompt, streaming text into `output` and tool calls into `logs`."""
         include_details = self.get_parameter_value("include_details")
 
         def on_text(text: str) -> None:

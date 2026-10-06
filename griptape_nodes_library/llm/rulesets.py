@@ -1,5 +1,3 @@
-"""Ruleset wire format (`{"name": str, "rules": [str]}`) and prompt rendering."""
-
 from __future__ import annotations
 
 from typing import Any
@@ -51,7 +49,6 @@ def rulesets_from_inputs(values: list[Any]) -> list[dict]:
 
 
 def render_rulesets(rulesets: list[dict]) -> str:
-    """Render rulesets as system instructions, matching griptape's `rulesets.j2` layout."""
     if not rulesets:
         return ""
     lines = ["When responding, always use rules from the following rulesets.", ""]

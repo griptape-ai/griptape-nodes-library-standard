@@ -46,17 +46,9 @@ LEGACY_MODEL_VALUES = {
 
 
 class OpenAiImage(BaseImageDriver):
-    """Node for OpenAI Image Generation Driver.
-
-    This node outputs an OpenAI image generation configuration.
-    """
-
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        # --- Customize Inherited Parameters ---
-
-        # Add additional parameters specific to OpenAI
         self.add_parameter(
             Parameter(
                 name="style",
@@ -117,19 +109,12 @@ class OpenAiImage(BaseImageDriver):
             )
         )
 
-        # Offer OpenAI's models as a license-filtered dropdown.
         self._install_model_access(
             model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=LEGACY_MODEL_VALUES
         )
         self._update_option_choices(param="image_size", choices=GPT_IMAGE_SIZES, default=DEFAULT_SIZE)
 
     def _set_parameter_visibility(self, names: str | list[str], *, visible: bool) -> None:
-        """Sets the visibility of one or more parameters.
-
-        Args:
-            names (str or list of str): The parameter name(s) to update.
-            visible (bool): Whether to show (True) or hide (False) the parameters.
-        """
         if isinstance(names, str):
             names = [names]
 
@@ -141,11 +126,9 @@ class OpenAiImage(BaseImageDriver):
                 parameter.ui_options = ui_options
 
     def hide_parameter_by_name(self, names: str | list[str]) -> None:
-        """Hides one or more parameters by name."""
         self._set_parameter_visibility(names, visible=False)
 
     def show_parameter_by_name(self, names: str | list[str]) -> None:
-        """Shows one or more parameters by name."""
         self._set_parameter_visibility(names, visible=True)
 
     def after_value_set(
@@ -153,7 +136,6 @@ class OpenAiImage(BaseImageDriver):
         parameter: Parameter,
         value: Any,
     ) -> None:
-        """Certain options are only available for certain models."""
         if parameter.name == "output_format":
             if value == "jpeg":
                 self.show_parameter_by_name("output_compression")
@@ -161,12 +143,10 @@ class OpenAiImage(BaseImageDriver):
                 self.hide_parameter_by_name("output_compression")
 
         if parameter.name == "model":
-            # If the model is gpt-image-1, update the size options accordingly
             if value == "gpt-image-1":
                 self._update_option_choices(param="image_size", choices=GPT_IMAGE_SIZES, default=GPT_IMAGE_SIZES[0])
                 self._update_option_choices(param="quality", choices=GPT_IMAGE_QUALITY, default=GPT_IMAGE_QUALITY[0])
 
-                # show gpt-image-1 specific parameters
                 param_list = ["style", "quality", "background", "moderation", "output_format"]
                 self.show_parameter_by_name(param_list)
 
@@ -183,7 +163,6 @@ class OpenAiImage(BaseImageDriver):
                     self._update_option_choices(param="image_size", choices=DALL_E_3_SIZES, default=DALL_E_3_SIZES[0])
                     self._update_option_choices(param="quality", choices=DALL_E_3_QUALITY, default=DALL_E_3_QUALITY[0])
 
-                # If the model is DALL-E 2, update the size options accordingly
                 if value == "dall-e-2":
                     self._update_option_choices(param="image_size", choices=DALL_E_2_SIZES, default=DALL_E_2_SIZES[0])
                     self.hide_parameter_by_name("quality")
@@ -219,11 +198,6 @@ class OpenAiImage(BaseImageDriver):
         )
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
-        """Validates that the OpenAI API key is configured correctly.
-
-        Calls the base class helper `_validate_api_key` with OpenAI-specific
-        configuration details.
-        """
         return self._validate_api_key(
             service_name=SERVICE,
             api_key_env_var=API_KEY_ENV_VAR,

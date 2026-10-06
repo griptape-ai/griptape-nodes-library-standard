@@ -1,5 +1,3 @@
-"""Behavior of the task and single-shot text nodes running on the pydantic-ai adapter layer."""
-
 from __future__ import annotations
 
 import json

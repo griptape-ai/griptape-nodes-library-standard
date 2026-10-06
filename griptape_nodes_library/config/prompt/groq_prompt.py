@@ -1,12 +1,3 @@
-"""Defines the GroqPrompt node for configuring a Groq prompt model.
-
-This module provides the `GroqPrompt` class, which allows users
-to configure and utilize the OpenAi prompt service within the Griptape
-Nodes framework. It inherits common prompt parameters from `BasePrompt`, sets
-Groq specific model options, requires a Groq API key via
-node configuration, and emits a `ModelConfig`.
-"""
-
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
 from griptape_nodes_library.llm.model_config import ModelProvider
 
@@ -56,50 +47,20 @@ LEGACY_MODEL_VALUES = {
 
 
 class GroqPrompt(BasePrompt):
-    """Node for configuring a Groq prompt model.
-
-    Inherits from `BasePrompt` to leverage common LLM parameters. This node
-    customizes the available models to those supported by Groq,
-    removes parameters not applicable to Groq (like 'seed'), and
-    requires a Groq API key to be set in the node's configuration
-    under the 'Groq' service.
-
-    The `process` method turns the configured parameters into a `ModelConfig` that
-    names the API key secret, and assigns it to the 'prompt_model_config' output parameter.
-    """
-
     def __init__(self, **kwargs) -> None:
-        """Initializes the GroqPrompt node.
-
-        Calls the superclass initializer, then modifies the inherited 'model'
-        parameter to use Groq specific models and sets a default.
-        It also removes the 'seed' parameter inherited from `BasePrompt` as it's
-        not directly supported by the Groq implementation.
-        """
         super().__init__(**kwargs)
 
-        # --- Customize Inherited Parameters ---
-
-        # Offer Groq's models as a license-filtered dropdown.
         self._install_model_access(
             model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=LEGACY_MODEL_VALUES
         )
 
-        # Remove the 'seed' parameter as it's not directly used by Groq.
         self.remove_parameter_element_by_name("seed")
 
-        # Remove `top_k` parameter as it's not used by Groq.
         self.remove_parameter_element_by_name("top_k")
 
-        # Replace `min_p` with `top_p` for Groq.
         self._replace_param_by_name(param_name="min_p", new_param_name="top_p", default_value=0.9)
 
     def process(self) -> None:
-        """Emits the `ModelConfig` for the selected Groq model.
-
-        Fails closed if the license denies the selected model. The API key is
-        referenced by secret name only.
-        """
         self._raise_if_model_denied()
 
         config = self._build_model_config(
@@ -111,11 +72,6 @@ class GroqPrompt(BasePrompt):
         self.parameter_output_values["prompt_model_config"] = config
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
-        """Validates that the Groq API key is configured correctly.
-
-        Calls the base class helper `_validate_api_key` with Groq-specific
-        configuration details.
-        """
         return self._validate_api_key(
             service_name=SERVICE,
             api_key_env_var=API_KEY_ENV_VAR,

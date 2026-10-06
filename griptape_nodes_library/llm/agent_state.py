@@ -48,8 +48,6 @@ class AgentState:
     tools: list[dict] = field(default_factory=list)
     rulesets: list[dict] = field(default_factory=list)
 
-    # --- Wire ---
-
     def to_wire(self) -> dict[str, Any]:
         return {
             "format": WIRE_FORMAT,
@@ -81,8 +79,6 @@ class AgentState:
             )
         return _from_legacy(value)
 
-    # --- Runs view: one entry per user prompt and the final answer to it ---
-
     def runs(self) -> list[dict[str, str]]:
         return runs_from_messages(self.messages)
 
@@ -92,11 +88,6 @@ class AgentState:
 
 def is_agent_value(value: Any) -> bool:
     return isinstance(value, (AgentState, dict)) and bool(value)
-
-
-# ---------------------------------------------------------------------------
-# Messages <-> runs
-# ---------------------------------------------------------------------------
 
 
 def _user_text(part: UserPromptPart) -> str:
@@ -169,11 +160,6 @@ def find_runs(data: Any) -> list[dict[str, Any]]:
     return []
 
 
-# ---------------------------------------------------------------------------
-# Legacy griptape formats
-# ---------------------------------------------------------------------------
-
-
 def _legacy_driver(agent_dict: dict) -> dict | None:
     for task in agent_dict.get("tasks") or []:
         if isinstance(task, dict) and isinstance(task.get("prompt_driver"), dict):
@@ -189,7 +175,6 @@ def _from_legacy(value: dict) -> AgentState:
         rulesets = list(value.get("rulesets") or [])
         provider = value.get("provider")
     else:
-        # A bare `Agent.to_dict()` keeps its rulesets inline.
         agent_dict, tools, provider = value, [], None
         rulesets = [c for c in (ruleset_to_config(r) for r in value.get("rulesets") or []) if c]
     if not isinstance(agent_dict, dict):

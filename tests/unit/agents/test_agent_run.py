@@ -1,5 +1,3 @@
-"""Tests for running the Agent node end to end against scripted pydantic-ai models."""
-
 from __future__ import annotations
 
 import json

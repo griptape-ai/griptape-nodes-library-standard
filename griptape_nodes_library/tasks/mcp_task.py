@@ -66,13 +66,7 @@ MCP_TASK_LEGACY_MODEL_VALUES = cloud_legacy_values_for(MCP_TASK_MODEL_CHOICES)
 
 
 def _ruleset_from_rules_string(rules_string: str | None, server_name: str) -> dict | None:
-    """Build a ruleset dict from an MCP server's rules-string config.
-
-    Returns None when the string is missing or whitespace-only so the caller
-    can skip without conditional ladders. Mirrors the helper that used to
-    live on `AgentManager._create_ruleset_from_rules_string` (removed in
-    engine 0.86.0). Closes #307.
-    """
+    """Return an MCP ruleset, or None for blank input. See #307."""
     if not rules_string or not rules_string.strip():
         return None
     return {"name": f"mcp_{server_name}_rules", "rules": [rules_string.strip()]}
@@ -82,7 +76,6 @@ class MCPTaskNode(SuccessFailureNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        # Get available MCP servers for the dropdown
         mcp_servers = get_available_mcp_servers()
         default_mcp_server = mcp_servers[0] if mcp_servers else None
         self.add_parameter(
@@ -191,7 +184,6 @@ class MCPTaskNode(SuccessFailureNode):
         )
         self.add_parameter(self.output)
 
-        # Add status parameters using the helper method
         self._create_status_parameters(
             result_details_tooltip="Details about the MCP task execution result",
             result_details_placeholder="Details on the MCP task execution will be presented here.",
@@ -199,12 +191,9 @@ class MCPTaskNode(SuccessFailureNode):
         )
 
     def _reload_mcp_servers(self, button: Button, button_details: ButtonDetailsMessagePayload) -> None:  # noqa: ARG002
-        """Reload MCP servers when the refresh button is clicked."""
         try:
-            # Get fresh list of MCP servers
             mcp_servers = get_available_mcp_servers()
 
-            # Update the parameter's choices using the proper method
             if mcp_servers:
                 current_value = self.get_parameter_value("mcp_server_name")
                 if current_value in mcp_servers:
@@ -212,12 +201,10 @@ class MCPTaskNode(SuccessFailureNode):
                 else:
                     default_value = mcp_servers[0]
 
-                # Use _update_option_choices to properly update both trait and UI options
                 self._update_option_choices("mcp_server_name", mcp_servers, default_value)
                 msg = f"{self.name}: Refreshed MCP servers: {len(mcp_servers)} servers available"
                 logger.info(f"Refreshed MCP servers: {len(mcp_servers)} servers available")
             else:
-                # No servers available - use proper method
                 self._update_option_choices("mcp_server_name", ["No MCP servers available"], "No MCP servers available")
                 msg = f"{self.name}: No MCP servers available"
                 logger.info(msg)
@@ -283,19 +270,16 @@ class MCPTaskNode(SuccessFailureNode):
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
     def validate_before_node_run(self) -> list[Exception] | None:
-        """Validate node parameters before execution."""
         exceptions = []
 
         # Get parameter values
         mcp_server_name = self.get_parameter_value("mcp_server_name")
         prompt = self.get_parameter_value("prompt")
 
-        # Validate prompt
         if not prompt:
             msg = f"{self.name}: No prompt provided. Please enter a prompt to process."
             exceptions.append(ValueError(msg))
 
-        # Validate MCP server exists and is enabled
         if mcp_server_name:
             is_valid, error_msg = validate_mcp_server(mcp_server_name)
             if not is_valid:
@@ -305,7 +289,6 @@ class MCPTaskNode(SuccessFailureNode):
         return exceptions if exceptions else None
 
     def process(self) -> AsyncResult:
-        # Reset execution state and set failure defaults
         self._clear_execution_status()
         self._set_failure_output_values()
         self.publish_update_to_parameter("output", "")
@@ -329,11 +312,9 @@ class MCPTaskNode(SuccessFailureNode):
         prompt = self.get_parameter_value("prompt")
         context = self.get_parameter_list_value("context")
 
-        # add any context to the prompt
         if context:
             prompt += f"\n{context!s}"
 
-        # Get MCP server configuration
         server_config = get_server_config(mcp_server_name)
         if server_config is None:
             error_details = f"MCP server '{mcp_server_name}' not found or not enabled"
@@ -341,7 +322,6 @@ class MCPTaskNode(SuccessFailureNode):
             logger.error(f"{self.name}: {error_details}")
             return
 
-        # Resolve the incoming agent (or the node's own selection) into a model and history
         setup = self._setup_agent()
         if setup is None:
             error_details = "Failed to setup agent"
@@ -350,7 +330,6 @@ class MCPTaskNode(SuccessFailureNode):
             return
         state, model_config = setup
 
-        # MCP server rules join the agent's own rulesets for this run only
         mcp_ruleset = _ruleset_from_rules_string(server_config.get("rules"), mcp_server_name)
         rulesets = [*state.rulesets, mcp_ruleset] if mcp_ruleset else list(state.rulesets)
         mcp_tool_config = {
@@ -359,7 +338,6 @@ class MCPTaskNode(SuccessFailureNode):
             "server_config": server_config,
         }
 
-        # Execute with streaming
         yield lambda: self._execute_with_streaming(
             state, model_config, mcp_tool_config, rulesets, prompt, mcp_server_name
         )
@@ -394,7 +372,6 @@ class MCPTaskNode(SuccessFailureNode):
         prompt: str,
         mcp_server_name: str,
     ) -> None:
-        """Execute agent with streaming."""
         try:
             toolsets = self._build_toolsets(state, mcp_tool_config, mcp_server_name)
             execution_start = time.time()
@@ -477,7 +454,6 @@ class MCPTaskNode(SuccessFailureNode):
         return cloud_model_config(str(model))
 
     def _set_success_output_values(self, result: TaskRunResult, state: AgentState, model_config: ModelConfig) -> None:
-        """Set output parameter values on success."""
         self.parameter_output_values["output"] = result.text
         # The MCP toolset is rebuilt per run and not carried downstream, so the agent keeps the incoming tools.
         self.parameter_output_values["agent"] = AgentState(
@@ -485,5 +461,4 @@ class MCPTaskNode(SuccessFailureNode):
         ).to_wire()
 
     def _set_failure_output_values(self) -> None:
-        """Set output parameter values to defaults on failure."""
         self.parameter_output_values["output"] = ""

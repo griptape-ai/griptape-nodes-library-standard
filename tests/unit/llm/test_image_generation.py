@@ -1,5 +1,3 @@
-"""Tests for `llm/image_generation.py`: request shape per provider and config wire format."""
-
 from __future__ import annotations
 
 import base64

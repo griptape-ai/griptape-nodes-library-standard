@@ -1,5 +1,3 @@
-"""Tests for the agent memory nodes and the Agent To Tool node."""
-
 from __future__ import annotations
 
 import pytest

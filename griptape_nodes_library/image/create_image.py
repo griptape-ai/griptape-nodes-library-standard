@@ -42,14 +42,7 @@ Focus on qualities that will make this the most professional looking photo in th
 IMPORTANT: Output must be a single, raw prompt string for an image generation model. Do not include any preamble, explanation, or conversational language."""
 GENERATED_IMAGE_MEMORY = 'I created an image based on your prompt.\n<THOUGHT>\nmeta={"used_tool": True, "tool": "GenerateImageTool"}\n</THOUGHT>'
 
-# Migrates values saved before the dropdown stored the provider's own model id. "dall-e-3"
-# and "gpt-image-1" predate this node's own MODEL_CHOICES history and were folded in
-# from the DEPRECATED_MODELS dict this replaces. "GPT-4o" / "gpt-4o" are deliberately
-# excluded even though the generated catalog table lists them: this node's dropdown
-# never offered "gpt-4o" as an image model (it's the hardcoded model of the separate
-# prompt-enhancement model below), and its catalog key gtc_gpt_4o is not one of this
-# node's own MODEL_CHOICES, so mapping to it here would fail ModelAccessComponent's
-# construction-time validation that every deprecated_values target is a current choice.
+# GPT-4o is the separate prompt-enhancement model, not an image-model choice.
 LEGACY_MODEL_VALUES = {
     "GPT Image 1 Mini": "gpt-image-1-mini",
     "GPT Image 1.5": "gpt-image-1.5",
@@ -144,7 +137,6 @@ class GenerateImage(ControlNode):
         )
         self._output_file.add_parameter()
 
-        # Group for logging information.
         with ParameterGroup(name="Logs") as logs_group:
             Parameter(name="include_details", type="bool", default_value=False, tooltip="Include extra details.")
 
@@ -171,7 +163,6 @@ class GenerateImage(ControlNode):
                 msg = missing_credential_message("generate an image")
                 exceptions.append(KeyError(msg))
 
-        # Validate that we have a prompt.
         prompt_error = self.validate_empty_parameter(param="prompt")
         if prompt_error and not self._has_connection_to_prompt:
             exceptions.append(prompt_error)
@@ -203,10 +194,8 @@ class GenerateImage(ControlNode):
         return super().after_value_set(parameter, value)
 
     def process(self) -> AsyncResult:
-        # Get the parameters from the node
         params = self.parameter_values
 
-        # Validate that we have a prompt.
         orig_prompt = self.get_parameter_value("prompt")
 
         exception = self.validate_empty_parameter(param="prompt")
@@ -223,11 +212,8 @@ class GenerateImage(ControlNode):
         if state.model is None:
             state.model = ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=ENHANCEMENT_MODEL)
 
-        # Add some context to the prompt based on the agent's conversation memory.
-        # We use this because otherwise the image model will not have the context of the prompt.
         prompt = self._build_context(state, orig_prompt)
 
-        # Check if we have a connection to the prompt parameter
         enhance_prompt = params.get("enhance_prompt", False)
 
         if enhance_prompt:
@@ -246,7 +232,6 @@ class GenerateImage(ControlNode):
         else:
             self.append_value_to_parameter("logs", "Prompt enhancement disabled.\n")
 
-        # Image model
         model_input = self.get_parameter_value("model")
         image_config = ImageGenerationConfig.from_wire(model_input)
         if image_config is None:
@@ -263,7 +248,6 @@ class GenerateImage(ControlNode):
         # network call below so a denied invocation fails closed here.
         require_model_invocation_sync(self, image_config.model)
 
-        # The generation call blocks, so run it in the background.
         self.append_value_to_parameter("logs", "Starting processing image..\n")
         yield lambda: self._create_image(image_config, prompt)
         self.append_value_to_parameter("logs", "Finished processing image.\n")

@@ -48,21 +48,6 @@ DEFAULT_BASE_URLS: dict[ModelProvider, str] = {
 
 
 class ModelConfig(BaseModel):
-    """Provider, model id, and generation settings for one LLM.
-
-    Attributes:
-        provider: Which API to call.
-        model: The provider's model id.
-        base_url: Endpoint override. Defaults per provider in :data:`DEFAULT_BASE_URLS`.
-        api_key_secret: Name of the secret holding the API key. Defaults per provider
-            in :data:`DEFAULT_API_KEY_SECRETS`. Ignored for Griptape Cloud, which
-            resolves the License-aware credential itself.
-        settings: pydantic-ai `ModelSettings` (temperature, top_p, max_tokens, seed, ...).
-        max_retries: HTTP retry count for the provider client.
-        options: Provider-specific extras, e.g. `{"region_secret": "AWS_DEFAULT_REGION"}` for Bedrock.
-        api_key: In-memory key for callers that only have a raw value. Never serialized.
-    """
-
     provider: ModelProvider
     model: str
     base_url: str | None = None
@@ -77,7 +62,6 @@ class ModelConfig(BaseModel):
 
     @classmethod
     def from_wire(cls, value: Any) -> ModelConfig | None:
-        """Accept a `ModelConfig`, its wire dict, or anything else (returns None)."""
         if isinstance(value, ModelConfig):
             return value
         if isinstance(value, dict) and "provider" in value and "model" in value:
@@ -100,7 +84,6 @@ _LEGACY_SETTING_KEYS = ("temperature", "max_tokens", "seed")
 
 
 def model_config_from_legacy_driver(driver: dict[str, Any], provider: dict[str, Any] | None = None) -> ModelConfig:
-    """Map a griptape prompt driver dict (and optional wrapper `provider` blob) to a `ModelConfig`."""
     model = str(driver.get("model") or "")
     settings: dict[str, Any] = {k: driver[k] for k in _LEGACY_SETTING_KEYS if driver.get(k) is not None}
     if settings.get("max_tokens") is not None and settings["max_tokens"] <= 0:

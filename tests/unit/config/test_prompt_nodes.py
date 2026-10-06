@@ -1,5 +1,3 @@
-"""Tests that each prompt config node emits the `ModelConfig` its provider needs."""
-
 from __future__ import annotations
 
 from types import SimpleNamespace

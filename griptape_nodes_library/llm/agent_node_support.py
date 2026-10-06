@@ -1,5 +1,3 @@
-"""Helpers shared by the Agent node and the agent memory nodes."""
-
 from __future__ import annotations
 
 import json
@@ -34,7 +32,6 @@ def model_config_for_provider(provider_config: ProviderConfig, model: str) -> Mo
 
 
 def parse_agent_memory(memory_data: Any) -> dict[str, Any] | None:
-    """Normalize the `agent_memory` parameter to a non-empty dict, or None when absent or unusable."""
     if isinstance(memory_data, str):
         if not memory_data.strip():
             return None

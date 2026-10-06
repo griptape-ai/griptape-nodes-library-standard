@@ -30,25 +30,15 @@ LEGACY_MODEL_VALUES = {
 
 
 class GriptapeCloudImage(BaseImageDriver):
-    """Node for Griptape Cloud Image Generation Driver.
-
-    This node outputs a Griptape Cloud image generation configuration.
-    """
-
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        # --- Customize Inherited Parameters ---
-
-        # Offer Griptape Cloud's models as a license-filtered dropdown.
         self._install_model_access(
             model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=LEGACY_MODEL_VALUES
         )
 
-        # Update the 'size' parameter for Griptape Cloud specifics.
         self._update_option_choices(param="image_size", choices=AVAILABLE_SIZES, default=str(DEFAULT_SIZE))
 
-        # Add additional parameters specific to Griptape Cloud
         self.add_parameter(
             Parameter(
                 name="quality",
@@ -63,7 +53,6 @@ class GriptapeCloudImage(BaseImageDriver):
         # A model the license denies must not reach a downstream node as a driver.
         self._raise_if_model_denied()
 
-        # The provider's own id for the selected model.
         self.parameter_output_values["image_model_config"] = ImageGenerationConfig(
             provider=ImageProvider.GRIPTAPE_CLOUD,
             model=self._get_selected_model_id(),
@@ -72,11 +61,6 @@ class GriptapeCloudImage(BaseImageDriver):
         )
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
-        """Validates that the Griptape Cloud API key is configured correctly.
-
-        Calls the base class helper `_validate_api_key` with Griptape-specific
-        configuration details.
-        """
         return self._validate_api_key(
             service_name=SERVICE,
             api_key_env_var=API_KEY_ENV_VAR,

@@ -1,11 +1,4 @@
-"""Defines the BaseImageDriver node, an abstract base class for image generation driver configuration nodes.
-
-This module provides the `BaseImageDriver` class, which serves as a foundation
-for creating specific image generation driver configuration nodes within the Griptape
-Nodes framework. It inherits from `BaseDriver` and defines common parameters
-used by image generation drivers (like quality, style, etc.). Subclasses build an
-`ImageGenerationConfig` from the node's parameters.
-"""
+"""Base class for image generation configuration nodes."""
 
 from typing import Any
 
@@ -16,35 +9,15 @@ from griptape_nodes_library.config.base_driver import BaseDriver
 
 
 class BaseImageDriver(BaseDriver):
-    """Node for Griptape Cloud Image Generation Driver configuration.
-
-    Subclasses create an `ImageGenerationConfig` from the node's parameters and
-    output it as an `Image Generation Driver`. It provides parameters for
-    customizing the image generation process, including model and size.
-    """
-
     def __init__(self, **kwargs) -> None:
-        """Initializes the BaseImageDriver node.
-
-        Sets up the node by calling the superclass initializer and adding
-        parameters specific to image generation configuration. Also updates
-        the inherited 'driver' output parameter to specify it's an Image
-        Generation Driver.
-        """
         super().__init__(**kwargs)
 
-        # Update the inherited driver parameter to specify it's for image generation
         driver_parameter = self.get_parameter_by_name("driver")
         if driver_parameter is not None:
             driver_parameter.name = "image_model_config"
             driver_parameter.output_type = "Image Generation Driver"
             driver_parameter._ui_options = {"display_name": "image model config"}
 
-        # --- Common Prompt Driver Parameters ---
-        # These parameters represent settings frequently used by Image Generation drivers.
-        # Subclasses will typically use these values when instantiating their specific driver.
-
-        # Parameter for user messages.
         self.add_parameter(
             Parameter(
                 name="message",
