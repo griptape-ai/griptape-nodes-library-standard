@@ -411,6 +411,10 @@ class ArtifactPathTethering:
             tooltip=tooltip,
             ui_options={"display_name": display_name},
             allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT},
+            # Project directories such as {outputs} are workflow variables, so substitution would
+            # write an absolute path out of process() and the saved workflow would lose its macro.
+            # Macro paths are resolved where the file is read.
+            allow_variable_substitution=False,
         )
 
         # Add file system picker trait
