@@ -60,25 +60,27 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         - result_details (str): Details about the generation result or error
     """
 
-    # Migrates values saved before the dropdown stored the provider's own model id: old
-    # display labels and catalog keys.
+    # Migrates values saved before the dropdown stored the provider's own model id (old
+    # display labels and catalog keys), and models Kling has discontinued for text2video.
     LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
-        "Kling v1.6": "kling-v1-6",
-        "Kling v2 Master": "kling-v2-master",
-        "Kling v2.1 Master": "kling-v2-1-master",
+        "Kling v1.6": "kling-v3",
+        "Kling v2 Master": "kling-v3",
+        "Kling v2.1 Master": "kling-v3",
         "Kling v2.5 Turbo": "kling-v2-5-turbo",
         "Kling v2.6": "kling-v2-6",
         "Kling v3.0": "kling-v3",
-        "gtc_kling_v1_6": "kling-v1-6",
-        "gtc_kling_v2_1_master": "kling-v2-1-master",
+        "gtc_kling_v1_6": "kling-v3",
+        "gtc_kling_v2_1_master": "kling-v3",
         "gtc_kling_v2_5_turbo": "kling-v2-5-turbo",
         "gtc_kling_v2_6": "kling-v2-6",
-        "gtc_kling_v2_master": "kling-v2-master",
+        "gtc_kling_v2_master": "kling-v3",
         "gtc_kling_v3": "kling-v3",
+        "kling-v1-6": "kling-v3",
+        "kling-v2-master": "kling-v3",
+        "kling-v2-1-master": "kling-v3",
     }
 
     # Model capability definitions
-    # modes: [] means no mode selection (model has a single fixed quality tier)
     MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
         "kling-v3": {
             "modes": V3_MODE_CHOICES,
@@ -86,24 +88,6 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
             "aspect_ratios": ["16:9", "9:16", "1:1"],
             "supports_sound": False,
             "supports_multi_shot": True,
-        },
-        "kling-v1-6": {
-            "modes": BASE_MODE_CHOICES,
-            "durations": [5, 10],
-            "aspect_ratios": ["16:9", "9:16", "1:1"],
-            "supports_sound": False,
-        },
-        "kling-v2-master": {
-            "modes": [],
-            "durations": [5, 10],
-            "aspect_ratios": ["16:9", "9:16", "1:1"],
-            "supports_sound": False,
-        },
-        "kling-v2-1-master": {
-            "modes": [],
-            "durations": [5, 10],
-            "aspect_ratios": ["16:9", "9:16", "1:1"],
-            "supports_sound": False,
         },
         "kling-v2-5-turbo": {
             "modes": BASE_MODE_CHOICES,
@@ -138,9 +122,6 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
                 "kling-v3",
                 "kling-v2-6",
                 "kling-v2-5-turbo",
-                "kling-v2-1-master",
-                "kling-v2-master",
-                "kling-v1-6",
             ],
             default_model="kling-v3",
             deprecated_values=self.LEGACY_MODEL_VALUES,
@@ -352,15 +333,8 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         modes = capabilities.get("modes", BASE_MODE_CHOICES)
 
         self.show_parameter_by_name("duration")
-
-        if not modes:
-            # No mode selection for this model — hide selector, keep value as pro
-            self.hide_parameter_by_name("mode")
-            if self.get_parameter_value("mode") != MODE_PRO:
-                self.set_parameter_value("mode", MODE_PRO)
-        else:
-            self.show_parameter_by_name("mode")
-            self._update_mode_choices(modes)
+        self.show_parameter_by_name("mode")
+        self._update_mode_choices(modes)
 
         aspect_ratios = capabilities.get("aspect_ratios", ["16:9", "9:16", "1:1"])
         if len(aspect_ratios) == 1:
@@ -765,8 +739,7 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
         model_modes = capabilities.get("modes", BASE_MODE_CHOICES)
 
-        # Skip mode validation for no-mode models (modes: []) — mode is always pro internally
-        if model_modes and mode not in model_modes:
+        if mode not in model_modes:
             exceptions.append(
                 ValueError(
                     f"{self.name}: Model {model_name} does not support mode '{mode}'. "

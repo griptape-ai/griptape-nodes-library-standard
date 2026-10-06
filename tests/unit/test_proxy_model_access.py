@@ -92,7 +92,7 @@ NODE_MODEL_CASES: list[tuple[str, str, str, str]] = [
     ("GrokVideoEdit", "gtc_grok_imagine_video", "grok-imagine-video", "model"),  # only declared model
     ("MinimaxHailuoVideoGeneration", "gtc_minimax_hailuo_2_3_fast", "MiniMax-Hailuo-2.3-Fast", "model_id"),
     ("KlingTextToVideoGeneration", "gtc_kling_v2_6", "kling-v2-6", "model_name"),
-    ("KlingImageToVideoGeneration", "gtc_kling_v1_5", "kling-v1-5", "model_name"),
+    ("KlingImageToVideoGeneration", "gtc_kling_v2_5_turbo", "kling-v2-5-turbo", "model_name"),
     ("KlingOmniVideoGeneration", "gtc_kling_video_o1_omni", "kling-video-o1", "model_name"),
     ("Veo3VideoGeneration", "gtc_veo_3_1_fast", "veo-3.1-fast-generate-001", "model_id"),
     ("LTXTextToVideoGeneration", "gtc_ltx_2_pro", "ltx-2-pro", "model"),

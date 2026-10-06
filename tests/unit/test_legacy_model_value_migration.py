@@ -154,6 +154,19 @@ EXPLICIT_LEGACY_VALUES: dict[str, dict[str, str]] = {
     "GoogleImageGeneration": {
         "nano-banana-3-pro": "gemini-3-pro-image",
     },
+    "KlingTextToVideoGeneration": {
+        "kling-v1-6": "kling-v3",
+        "kling-v2-master": "kling-v3",
+        "kling-v2-1-master": "kling-v3",
+    },
+    "KlingImageToVideoGeneration": {
+        "kling-v1": "kling-v3",
+        "kling-v1-5": "kling-v3",
+        "kling-v1-6": "kling-v3",
+        "kling-v2-master": "kling-v3",
+        "kling-v2-1": "kling-v3",
+        "kling-v2-1-master": "kling-v3",
+    },
 }
 
 

@@ -73,31 +73,36 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         - result_details (str): Details about the generation result or error
     """
 
-    # Migrates values saved before the dropdown stored the provider's own model id: old
-    # display labels and catalog keys.
+    # Migrates values saved before the dropdown stored the provider's own model id (old
+    # display labels and catalog keys), and models Kling has discontinued for image2video.
     LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
-        "Kling v1": "kling-v1",
-        "Kling v1.5": "kling-v1-5",
-        "Kling v1.6": "kling-v1-6",
-        "Kling v2 Master": "kling-v2-master",
-        "Kling v2.1": "kling-v2-1",
-        "Kling v2.1 Master": "kling-v2-1-master",
+        "Kling v1": "kling-v3",
+        "Kling v1.5": "kling-v3",
+        "Kling v1.6": "kling-v3",
+        "Kling v2 Master": "kling-v3",
+        "Kling v2.1": "kling-v3",
+        "Kling v2.1 Master": "kling-v3",
         "Kling v2.5 Turbo": "kling-v2-5-turbo",
         "Kling v2.6": "kling-v2-6",
         "Kling v3.0": "kling-v3",
-        "gtc_kling_v1": "kling-v1",
-        "gtc_kling_v1_5": "kling-v1-5",
-        "gtc_kling_v1_6": "kling-v1-6",
-        "gtc_kling_v2_1": "kling-v2-1",
-        "gtc_kling_v2_1_master": "kling-v2-1-master",
+        "gtc_kling_v1": "kling-v3",
+        "gtc_kling_v1_5": "kling-v3",
+        "gtc_kling_v1_6": "kling-v3",
+        "gtc_kling_v2_1": "kling-v3",
+        "gtc_kling_v2_1_master": "kling-v3",
         "gtc_kling_v2_5_turbo": "kling-v2-5-turbo",
         "gtc_kling_v2_6": "kling-v2-6",
-        "gtc_kling_v2_master": "kling-v2-master",
+        "gtc_kling_v2_master": "kling-v3",
         "gtc_kling_v3": "kling-v3",
+        "kling-v1": "kling-v3",
+        "kling-v1-5": "kling-v3",
+        "kling-v1-6": "kling-v3",
+        "kling-v2-master": "kling-v3",
+        "kling-v2-1": "kling-v3",
+        "kling-v2-1-master": "kling-v3",
     }
 
     # Model capability definitions
-    # modes: [] means no mode selection (model has a single fixed quality tier)
     MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
         "kling-v3": {
             "modes": V3_MODE_CHOICES,
@@ -105,44 +110,6 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             "supports_sound": False,
             "supports_tail_frame": True,
             "supports_multi_shot": True,
-        },
-        "kling-v1": {
-            "modes": BASE_MODE_CHOICES,
-            "durations": [5, 10],
-            "supports_sound": False,
-            "supports_tail_frame": True,
-            # tail frame only works at 5s — enforced in validation
-            "tail_frame_durations": [5],
-        },
-        "kling-v1-5": {
-            "modes": BASE_MODE_CHOICES,
-            "durations": [5, 10],
-            "supports_sound": False,
-            "supports_tail_frame": True,  # pro mode only — enforced by existing pro-mode validation
-        },
-        "kling-v1-6": {
-            "modes": BASE_MODE_CHOICES,
-            "durations": [5, 10],
-            "supports_sound": False,
-            "supports_tail_frame": True,  # pro mode only
-        },
-        "kling-v2-master": {
-            "modes": [],
-            "durations": [5, 10],
-            "supports_sound": False,
-            "supports_tail_frame": False,
-        },
-        "kling-v2-1": {
-            "modes": BASE_MODE_CHOICES,
-            "durations": [5, 10],
-            "supports_sound": False,
-            "supports_tail_frame": True,  # pro mode only
-        },
-        "kling-v2-1-master": {
-            "modes": [],
-            "durations": [5, 10],
-            "supports_sound": False,
-            "supports_tail_frame": False,
         },
         "kling-v2-5-turbo": {
             "modes": BASE_MODE_CHOICES,
@@ -179,12 +146,6 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 "kling-v3",
                 "kling-v2-6",
                 "kling-v2-5-turbo",
-                "kling-v2-1-master",
-                "kling-v2-1",
-                "kling-v2-master",
-                "kling-v1-6",
-                "kling-v1-5",
-                "kling-v1",
             ],
             default_model="kling-v3",
             deprecated_values=self.LEGACY_MODEL_VALUES,
@@ -416,7 +377,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         model_id = model_name
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
         new_durations = list(capabilities.get("durations", [5, 10]))
-        # kling-v1: end frame restricts to 5s only
+        # A model's end frame can restrict it to a subset of its durations
         if self.get_parameter_value("image_tail") and capabilities.get("tail_frame_durations"):
             new_durations = list(capabilities["tail_frame_durations"])
         current_duration = self.get_parameter_value("duration")
@@ -453,15 +414,8 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         modes = capabilities.get("modes", BASE_MODE_CHOICES)
 
         self.show_parameter_by_name("duration")
-
-        if not modes:
-            # No mode selection for this model — hide selector, keep value as pro
-            self.hide_parameter_by_name("mode")
-            if self.get_parameter_value("mode") != MODE_PRO:
-                self.set_parameter_value("mode", MODE_PRO)
-        else:
-            self.show_parameter_by_name("mode")
-            self._update_mode_choices(modes)
+        self.show_parameter_by_name("mode")
+        self._update_mode_choices(modes)
 
         if capabilities.get("supports_sound", False):
             self._update_mode_dependent_features()
@@ -978,8 +932,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
         model_modes = capabilities.get("modes", BASE_MODE_CHOICES)
 
-        # Skip mode validation for no-mode models (modes: []) — mode is always pro internally
-        if model_modes and mode not in model_modes:
+        if mode not in model_modes:
             exceptions.append(
                 ValueError(
                     f"{self.name}: Model {model_name} does not support mode '{mode}'. "
@@ -1008,7 +961,6 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             if supports_tail and mode != "pro":
                 exceptions.append(ValueError(f"{self.name}: End frame (image_tail) requires pro mode."))
 
-            # kling-v1 tail frame only works at 5s
             tail_frame_durations = capabilities.get("tail_frame_durations")
             if supports_tail and tail_frame_durations and duration not in tail_frame_durations:
                 exceptions.append(

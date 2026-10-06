@@ -2809,10 +2809,7 @@
             "model_ids": [
               "gtc_kling_v3",
               "gtc_kling_v2_6",
-              "gtc_kling_v2_5_turbo",
-              "gtc_kling_v2_1_master",
-              "gtc_kling_v2_master",
-              "gtc_kling_v1_6"
+              "gtc_kling_v2_5_turbo"
             ]
           }
         ]
@@ -2840,13 +2837,7 @@
             "model_ids": [
               "gtc_kling_v3",
               "gtc_kling_v2_6",
-              "gtc_kling_v2_5_turbo",
-              "gtc_kling_v2_1_master",
-              "gtc_kling_v2_1",
-              "gtc_kling_v2_master",
-              "gtc_kling_v1_6",
-              "gtc_kling_v1_5",
-              "gtc_kling_v1"
+              "gtc_kling_v2_5_turbo"
             ]
           }
         ]
