@@ -1,20 +1,31 @@
 import json
-from typing import Any
+from collections.abc import Callable
 
-from griptape.artifacts import BaseArtifact
-from griptape.events import ActionChunkEvent, TextChunkEvent
-from griptape.rules import Rule
-from griptape.structures import Agent, Structure
-from griptape.tools import CalculatorTool as GtCalculatorTool
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.node_types import AsyncResult
 from json_repair import repair_json  # json_repair
 from pydantic import BaseModel
+from pydantic_ai import PromptedOutput
 
+from griptape_nodes_library.llm.tools import ToolType, build_toolsets
 from griptape_nodes_library.tasks.base_task import BaseTask
-from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run
-from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 DEFAULT_MODEL = "gpt-4.1-mini"
+
+RULESETS = [
+    {
+        "name": "Default Ruleset",
+        "rules": [
+            "You are a natural language calculator.",
+            "If given a prompt you don't have a number for, make something up that seems appropriate. Ex: Gajillion = 1,000,000,0000,0000",
+            "If there is insufficient information to answer the question, like a missing variable or something, use some likely number and explain why in your reasoning.",
+            "You try your best to answer the question, your reasoning can be creative an interesting.",
+            "Feel free to use newlines in your reasoning to make it more readable.",
+            "Use the Calculate action with expression in the Calculator tool to do the math.",
+            "Your final answer should be concise. Only a number and unit if applicable.",
+        ],
+    }
+]
 
 
 class Output(BaseModel):
@@ -57,68 +68,50 @@ class Askulator(BaseTask):
             )
         )
 
-    def _process(self, agent: Agent, prompt: BaseArtifact | str, model: str) -> Structure:
-        # License-policy gate immediately before the framework driver call. Askulator overrides
-        # BaseTask._process wholesale (different streaming/parsing loop), so it declares here
-        # rather than relying on the base implementation's declaration.
-        require_model_invocation_sync(self, model)
+    def _stream_answer(self, tokens: list[str]) -> Callable[[str], None]:
+        """Stream the JSON answer's `reasoning` into `output` and `final_answer` into `result` as it grows."""
+        last = {"reasoning": "", "final_answer": ""}
+        destinations = {"reasoning": "output", "final_answer": "result"}
 
-        args = [prompt] if prompt else []
-        full_result = ""
-        last_reasoning = ""
-        last_answer = ""
+        def on_text(token: str) -> None:
+            tokens.append(token)
+            try:
+                partial = json.loads(repair_json("".join(tokens)))  # pyright: ignore[reportArgumentType]
+            except json.JSONDecodeError:
+                return  # Incomplete JSON
+            if not isinstance(partial, dict):
+                return
+            for key, destination in destinations.items():
+                current = partial.get(key)
+                if isinstance(current, str) and current != last[key]:
+                    self.append_value_to_parameter(destination, value=current[len(last[key]) :])
+                    last[key] = current
 
-        for event in agent.run_stream(*args, event_types=[TextChunkEvent, ActionChunkEvent]):
-            if isinstance(event, ActionChunkEvent) and event.name:
-                self.append_value_to_parameter("output", value=(f"Using a {event.name}\n"))
-            if isinstance(event, TextChunkEvent):
-                full_result += event.token
-                try:
-                    result_json = json.loads(repair_json(full_result))  # pyright: ignore[reportArgumentType]
-                    if "reasoning" in result_json:
-                        new_reasoning = result_json["reasoning"]
-                        if new_reasoning != last_reasoning:
-                            self.append_value_to_parameter("output", value=new_reasoning[len(last_reasoning) :])
-                            last_reasoning = new_reasoning
-                    if "final_answer" in result_json:
-                        new_answer = result_json["final_answer"]
-                        if new_answer != last_answer:
-                            self.append_value_to_parameter("result", value=new_answer[len(last_answer) :])
-                            last_answer = new_answer
-                except json.JSONDecodeError:
-                    pass  # Ignore incomplete JSON
-        raise_if_budget_halt_in_run(agent)
+        return on_text
 
-        return agent
-
-    def process(self) -> Any:
+    def process(self) -> AsyncResult[str]:
         instruction = self.get_parameter_value("instruction")
         model = self._require_permitted_model()
 
-        # Create the tool
-        tool = GtCalculatorTool()
-
-        # Run the task
-        agent = Agent(
-            tools=[tool],
-            rules=[
-                Rule("You are a natural language calculator."),
-                Rule(
-                    "If given a prompt you don't have a number for, make something up that seems appropriate. Ex: Gajillion = 1,000,000,0000,0000"
-                ),
-                Rule(
-                    "If there is insufficient information to answer the question, like a missing variable or something, use some likely number and explain why in your reasoning."
-                ),
-                Rule("You try your best to answer the question, your reasoning can be creative an interesting."),
-                Rule("Feel free to use newlines in your reasoning to make it more readable."),
-                Rule("Use the Calculate action with expression in the Calculator tool to do the math."),
-                Rule("Your final answer should be concise. Only a number and unit if applicable."),
-            ],
-            prompt_driver=self.create_driver(model=model),
-            output_schema=Output,
-        )
+        toolsets = build_toolsets([{"tool_type": ToolType.CALCULATOR}])
         user_input = f"Give me the answer for: {instruction}\n."
 
         if instruction and not instruction.isspace():
-            # Run the agent asynchronously
-            yield lambda: self._process(agent, user_input, model)
+            tokens: list[str] = []
+
+            def on_tool_call(tool_name: str, _args: str) -> None:
+                self.append_value_to_parameter("output", value=f"Using a {tool_name}\n")
+
+            def _process() -> str:
+                # PromptedOutput makes the model answer in JSON text, which streams; a tool-call answer would not.
+                return self._process(
+                    user_input,
+                    model,
+                    rulesets=RULESETS,
+                    toolsets=toolsets,
+                    output_type=PromptedOutput(Output),
+                    on_text=self._stream_answer(tokens),
+                    on_tool_call=on_tool_call,
+                ).text
+
+            yield _process

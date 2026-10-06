@@ -1,13 +1,8 @@
-from griptape.artifacts import ListArtifact
-from griptape.structures import Agent, Structure
-from griptape.tasks import PromptTask
-from griptape.tools import WebScraperTool as GtWebScraperTool
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.node_types import AsyncResult
 
+from griptape_nodes_library.llm.tools import ToolType, build_toolsets
 from griptape_nodes_library.tasks.base_task import BaseTask
-from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run
-from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 DEFAULT_MODEL = "gpt-4.1-mini"
 
@@ -38,33 +33,21 @@ class ScrapeWeb(BaseTask):
             )
         )
 
-    def process(self) -> AsyncResult[Structure]:
+    def process(self) -> AsyncResult[str]:
         prompt = self.get_parameter_value("prompt")
         model = self._require_permitted_model()
+        toolsets = build_toolsets([{"tool_type": ToolType.WEB_SCRAPER}])
 
-        # Create the tool
-        tool = GtWebScraperTool()
-        scrape_task = PromptTask(
-            tools=[tool],
-            reflect_on_tool_use=False,
-            prompt_driver=self.create_driver(model=model),
-        )
-
-        def _process() -> Structure:
-            # License-policy gate immediately before the framework driver call. PromptTask.run
-            # invokes the prompt driver directly rather than through BaseTask._process, so it
-            # declares here rather than relying on the base implementation's declaration.
-            require_model_invocation_sync(self, model)
-
-            # Run the task
-            output = ""
-            response = scrape_task.run(f"Scrape the web for information about: {prompt}")
-            raise_if_budget_halt_in_run(scrape_task)
-            if isinstance(response, ListArtifact):
-                output += str(response[0].value[0].value)
-
-            # Set the output
-            self.parameter_output_values["output"] = output
-            return Agent()  # Return a proper Structure instance
+        def _process() -> str:
+            # The tool's own result is the output: the scraped page is not reflected on by the model.
+            result = self._process(
+                f"Scrape the web for information about: {prompt}",
+                model,
+                toolsets=toolsets,
+                stream_output=False,
+            )
+            output = result.tool_results[0] if result.tool_results else ""
+            self._set_output(output)
+            return output
 
         yield _process

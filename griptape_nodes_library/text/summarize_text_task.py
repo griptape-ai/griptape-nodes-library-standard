@@ -1,12 +1,18 @@
-from griptape.engines import PromptSummaryEngine
-from griptape.structures import Agent, Structure
-from griptape.tasks import TextSummaryTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
 
 from griptape_nodes_library.tasks.base_task import BaseTask
 
 DEFAULT_MODEL = "gpt-4.1-nano"
+
+# The prompts griptape's PromptSummaryEngine used. The text is sent in one request
+# rather than chunked, so inputs beyond the model's context window are not supported.
+SUMMARY_INSTRUCTIONS = "You are an expert in text summarization."
+SUMMARY_USER_TEMPLATE = '''Summarize the following text: """
+{text}
+"""
+
+Summary:'''
 
 
 class SummarizeText(BaseTask):
@@ -43,13 +49,10 @@ class SummarizeText(BaseTask):
             )
         )
 
-    def process(self) -> AsyncResult[Structure]:
+    def process(self) -> AsyncResult[str]:
         model = self._require_permitted_model()
 
-        engine = PromptSummaryEngine(prompt_driver=self.create_driver(model=model))
-        task = TextSummaryTask(summary_engine=engine)
-        agent = Agent(tasks=[task])
-        prompt = self.get_parameter_value("prompt")
-        if prompt and not prompt.isspace():
-            # Run the agent asynchronously
-            yield lambda: self._process(agent, prompt, model)
+        text = self.get_parameter_value("prompt")
+        if text and not text.isspace():
+            user_prompt = SUMMARY_USER_TEMPLATE.format(text=text)
+            yield lambda: self._process(user_prompt, model, instructions=SUMMARY_INSTRUCTIONS).text
