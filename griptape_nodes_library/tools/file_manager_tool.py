@@ -1,6 +1,9 @@
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 import httpx
+from griptape.utils.griptape_cloud import griptape_cloud_url
+from griptape_nodes.drivers.cloud_credentials import BASE_URL_SETTING_NAME, DEFAULT_CLOUD_BASE_URL
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
@@ -15,16 +18,30 @@ LOCATIONS = ["Workspace Directory", "GriptapeCloud"]
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
-BASE_URL = "https://cloud.griptape.ai/api"
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def buckets_url() -> str:
+    """Return the bucket-list endpoint of the configured Griptape Cloud deployment.
+
+    Raises:
+        ValueError: If ``GT_CLOUD_BASE_URL`` is not ``https``, unless it points at a loopback host.
+    """
+    base_url = (
+        GriptapeNodes.SecretsManager().get_secret(BASE_URL_SETTING_NAME, should_error_on_not_found=False)
+        or DEFAULT_CLOUD_BASE_URL
+    )
+    parts = urlsplit(base_url)
+    if parts.scheme != "https" and not (parts.scheme == "http" and parts.hostname in LOOPBACK_HOSTS):
+        msg = f"Attempted to fetch buckets. Failed because {BASE_URL_SETTING_NAME} must be an https URL, got {base_url!r}."
+        raise ValueError(msg)
+    return griptape_cloud_url(base_url, "api/buckets")
 
 
 class FileManager(BaseTool):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self.api_key = resolve_cloud_api_key()
-        self.bucket_list = self.get_bucket_list()
-        self.bucket_map = dict(self.bucket_list)
         self.workdir = GriptapeNodes.ConfigManager().get_config_value("workspace_directory")
 
         self.update_tool_info(
@@ -78,10 +95,11 @@ class FileManager(BaseTool):
         Returns:
             list[tuple[str, str]]: List of tuples containing (bucket_name, bucket_id)
         """
+        url = buckets_url()
         try:
             response = httpx.get(
-                f"{BASE_URL}/buckets",
-                headers=build_griptape_cloud_headers(self.api_key, attribution=False),
+                url,
+                headers=build_griptape_cloud_headers(resolve_cloud_api_key(), attribution=False),
                 timeout=10,
             )
             response.raise_for_status()
@@ -101,7 +119,7 @@ class FileManager(BaseTool):
         config: dict = {"tool_type": "FileManager", "off_prompt": off_prompt, "file_location": file_location}
         if file_location == LOCATIONS[1]:
             bucket_name = cast("str", self.parameter_values.get("bucket_id"))
-            bucket_id = self.bucket_map.get(bucket_name)
+            bucket_id = dict(self.get_bucket_list()).get(bucket_name)
             if not bucket_id:
                 msg = f"Invalid bucket name: {bucket_name}"
                 raise ValueError(msg)
