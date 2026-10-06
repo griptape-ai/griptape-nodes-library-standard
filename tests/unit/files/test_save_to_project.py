@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from griptape_nodes.exe_types.node_types import aprocess_scope
 from griptape_nodes.files.file import FileDestination
 from griptape_nodes.retained_mode.events.project_events import (
     AttemptMapAbsolutePathToProjectRequest,
@@ -45,7 +46,13 @@ def stub_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 def _run(node: SaveToProject, monkeypatch: pytest.MonkeyPatch, source: Path, destination: Path) -> None:
     monkeypatch.setattr(node._file_param, "build_file", lambda: FileDestination(str(destination)))
     node.parameter_values["source"] = str(source)
-    asyncio.run(node.aprocess())
+
+    async def run() -> None:
+        # Run as the engine does, with the project's {outputs} variable available for substitution.
+        with aprocess_scope(precomputed_variables={"outputs": str(source.parent / "outputs")}):
+            await node.aprocess()
+
+    asyncio.run(run())
 
 
 class TestSaveToProjectResultDetails:
@@ -59,7 +66,7 @@ class TestSaveToProjectResultDetails:
         _run(node, monkeypatch, source, destination)
 
         assert node.parameter_output_values["saved_url"].value == "{outputs}/saved.txt"
-        result_details = node.get_parameter_value("result_details")
+        result_details = node.parameter_output_values["result_details"]
         assert "{outputs}/saved.txt" in result_details
         assert str(tmp_path) not in result_details
 
@@ -77,4 +84,4 @@ class TestSaveToProjectResultDetails:
         _run(node, monkeypatch, source, destination)
 
         assert node.parameter_output_values["saved_url"].value == str(destination)
-        assert str(destination) in node.get_parameter_value("result_details")
+        assert str(destination) in node.parameter_output_values["result_details"]
