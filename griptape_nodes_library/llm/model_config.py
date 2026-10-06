@@ -1,0 +1,136 @@
+"""Serializable description of an LLM, passed between nodes as a `Prompt Model Config`.
+
+Holds secret *names*, never secret values, so it is safe to persist inside an
+`Agent` wire value. :func:`griptape_nodes_library.llm.models.build_model` resolves
+the secrets and returns a live pydantic-ai model at the point of use.
+"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+PROMPT_MODEL_CONFIG_TYPE = "Prompt Model Config"
+
+
+class ModelProvider(StrEnum):
+    GRIPTAPE_CLOUD = "griptape_cloud"
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+    BEDROCK = "bedrock"
+    COHERE = "cohere"
+    GROQ = "groq"
+    GROK = "grok"
+    NIM = "nim"
+    OLLAMA = "ollama"
+    LMSTUDIO = "lmstudio"
+    OPENAI_COMPATIBLE = "openai_compatible"
+
+
+DEFAULT_API_KEY_SECRETS: dict[ModelProvider, str] = {
+    ModelProvider.OPENAI: "OPENAI_API_KEY",
+    ModelProvider.ANTHROPIC: "ANTHROPIC_API_KEY",
+    ModelProvider.COHERE: "COHERE_API_KEY",
+    ModelProvider.GROQ: "GROQ_API_KEY",
+    ModelProvider.GROK: "GROK_API_KEY",
+    ModelProvider.NIM: "NVIDIA_API_KEY",
+}
+
+DEFAULT_BASE_URLS: dict[ModelProvider, str] = {
+    ModelProvider.GROQ: "https://api.groq.com/openai/v1",
+    ModelProvider.GROK: "https://api.x.ai/v1",
+    ModelProvider.NIM: "https://integrate.api.nvidia.com/v1",
+    ModelProvider.OLLAMA: "http://localhost:11434/v1",
+    ModelProvider.LMSTUDIO: "http://localhost:1234/v1",
+}
+
+
+class ModelConfig(BaseModel):
+    """Provider, model id, and generation settings for one LLM.
+
+    Attributes:
+        provider: Which API to call.
+        model: The provider's model id.
+        base_url: Endpoint override. Defaults per provider in :data:`DEFAULT_BASE_URLS`.
+        api_key_secret: Name of the secret holding the API key. Defaults per provider
+            in :data:`DEFAULT_API_KEY_SECRETS`. Ignored for Griptape Cloud, which
+            resolves the License-aware credential itself.
+        settings: pydantic-ai `ModelSettings` (temperature, top_p, max_tokens, seed, ...).
+        max_retries: HTTP retry count for the provider client.
+        options: Provider-specific extras, e.g. `{"region_secret": "AWS_DEFAULT_REGION"}` for Bedrock.
+        api_key: In-memory key for callers that only have a raw value. Never serialized.
+    """
+
+    provider: ModelProvider
+    model: str
+    base_url: str | None = None
+    api_key_secret: str | None = None
+    settings: dict[str, Any] = Field(default_factory=dict)
+    max_retries: int | None = None
+    options: dict[str, Any] = Field(default_factory=dict)
+    api_key: str | None = Field(default=None, exclude=True, repr=False)
+
+    def to_wire(self) -> dict[str, Any]:
+        return self.model_dump(mode="json", exclude_none=True)
+
+    @classmethod
+    def from_wire(cls, value: Any) -> ModelConfig | None:
+        """Accept a `ModelConfig`, its wire dict, or anything else (returns None)."""
+        if isinstance(value, ModelConfig):
+            return value
+        if isinstance(value, dict) and "provider" in value and "model" in value:
+            return cls.model_validate(value)
+        return None
+
+
+# Griptape driver `type` tags written by `to_dict()` in saved workflows.
+_LEGACY_DRIVER_PROVIDERS: dict[str, ModelProvider] = {
+    "GriptapeCloudPromptDriver": ModelProvider.GRIPTAPE_CLOUD,
+    "OpenAiChatPromptDriver": ModelProvider.OPENAI,
+    "AnthropicPromptDriver": ModelProvider.ANTHROPIC,
+    "AmazonBedrockPromptDriver": ModelProvider.BEDROCK,
+    "CoherePromptDriver": ModelProvider.COHERE,
+    "GrokPromptDriver": ModelProvider.GROK,
+    "OllamaPromptDriver": ModelProvider.OLLAMA,
+}
+
+_LEGACY_SETTING_KEYS = ("temperature", "max_tokens", "seed")
+
+
+def model_config_from_legacy_driver(driver: dict[str, Any], provider: dict[str, Any] | None = None) -> ModelConfig:
+    """Map a griptape prompt driver dict (and optional wrapper `provider` blob) to a `ModelConfig`."""
+    model = str(driver.get("model") or "")
+    settings: dict[str, Any] = {k: driver[k] for k in _LEGACY_SETTING_KEYS if driver.get(k) is not None}
+    if settings.get("max_tokens") is not None and settings["max_tokens"] <= 0:
+        settings.pop("max_tokens")
+    extra = driver.get("extra_params") or {}
+    if isinstance(extra, dict) and extra.get("top_p") is not None:
+        settings["top_p"] = extra["top_p"]
+
+    if provider:
+        provider_type = provider.get("type")
+        kind = ModelProvider.OLLAMA if provider_type == ModelProvider.OLLAMA else ModelProvider.OPENAI_COMPATIBLE
+        if provider_type == ModelProvider.LMSTUDIO:
+            kind = ModelProvider.LMSTUDIO
+        return ModelConfig(
+            provider=kind,
+            model=model,
+            base_url=provider.get("base_url") or None,
+            api_key=provider.get("api_key") or None,
+            settings=settings,
+        )
+
+    kind = _LEGACY_DRIVER_PROVIDERS.get(str(driver.get("type")), ModelProvider.GRIPTAPE_CLOUD)
+    base_url = driver.get("base_url") or None
+    if kind == ModelProvider.OPENAI and base_url:
+        kind = next(
+            (p for p, url in DEFAULT_BASE_URLS.items() if url.rstrip("/") == str(base_url).rstrip("/")),
+            ModelProvider.OPENAI_COMPATIBLE,
+        )
+    if kind == ModelProvider.GRIPTAPE_CLOUD:
+        base_url = None
+    if kind == ModelProvider.OLLAMA and driver.get("host"):
+        base_url = f"{str(driver['host']).rstrip('/')}/v1"
+    return ModelConfig(provider=kind, model=model, base_url=base_url, settings=settings)
