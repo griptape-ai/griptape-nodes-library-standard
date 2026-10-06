@@ -1,11 +1,7 @@
 import json
-from typing import Any, cast
+from dataclasses import replace
+from typing import Any
 
-from griptape.artifacts import ImageUrlArtifact, ModelArtifact
-from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
-from griptape.drivers.prompt.openai import OpenAiChatPromptDriver as GtOpenAiChatPromptDriver
-from griptape.structures import Structure
-from griptape.tasks import PromptTask
 from griptape_nodes.drivers.cloud_models import VISION_MODEL_CHOICES
 from griptape_nodes.exe_types.core_types import (
     Parameter,
@@ -18,28 +14,22 @@ from griptape_nodes.exe_types.param_components.model_access_component import Mod
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.retained_mode.events.agent_events import ProviderConfig
 from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest, DeleteConnectionRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.options import Options
-from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
+from pydantic_ai.agent import AgentRunResult
 
-from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
-from griptape_nodes_library.utils.agent_utils import (
-    build_rulesets_from_configs,
-    build_tools,
-    restore_provider_driver,
-    unwrap_agent,
-    wrap_agent,
-)
-from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
+from griptape_nodes_library.llm.agent_state import AgentState, is_agent_value, messages_from_runs
+from griptape_nodes_library.llm.content import image_content
+from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
+from griptape_nodes_library.llm.runner import output_to_text, output_type_from_schema, run_agent
+from griptape_nodes_library.llm.tools import build_agent_from_state
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
-from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.cloud_legacy_models import cloud_legacy_values_for
-from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run, try_throw_error
-from griptape_nodes_library.utils.image_utils import load_image_from_url_artifact
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
@@ -339,182 +329,120 @@ class DescribeImage(ControlNode):
         if parameter.name == "model_provider":
             self._provider.on_provider_changed(str(value))
 
-    def process(self) -> AsyncResult[Structure]:  # noqa: C901, PLR0915, PLR0912
-        # Get the parameters from the node
-        params = self.parameter_values
-        model_input = self.get_parameter_value("model")
-        provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
-        agent_value = self.get_parameter_value("agent")
+    def _parse_output_schema(self) -> dict | None:
+        schema_value = self.get_parameter_value("output_schema")
+        if isinstance(schema_value, str):
+            if not schema_value.strip():
+                return None
+            try:
+                schema_value = json.loads(schema_value)
+            except json.JSONDecodeError as e:
+                msg = (
+                    f"DescribeImage '{self.name}': Unable to parse output_schema as JSON: {e}. "
+                    "Try using the `Create Agent Schema` node to generate a schema."
+                )
+                raise ValueError(msg) from e
+        if schema_value is not None and not isinstance(schema_value, dict):
+            msg = (
+                f"DescribeImage '{self.name}': output_schema must be a JSON schema object (dict) "
+                f"or a JSON string, got: {type(schema_value).__name__}"
+            )
+            raise TypeError(msg)
+        return schema_value
 
-        # License-policy runtime gate, scoped to Griptape Cloud models (the only ones the
-        # catalog declares) and skipped when an Agent is connected: it supplies its own
-        # driver, so the node's (hidden, not cleared) dropdown value is stale. The
-        # INVOKE_MODEL declaration below gates the model that actually runs.
-        if agent_value is None and provider_name == "griptape_cloud":
-            self._model_access.raise_if_selection_denied()
-
-        agent = None
-
-        default_prompt_driver = GriptapeCloudPromptDriver(
-            model=DEFAULT_MODEL,
-            stream=False,  # TODO: enable once https://github.com/griptape-ai/griptape-cloud/issues/1593 is resolved
-            **cloud_driver_auth(),
+    def _third_party_model_config(self, provider_name: str, model: str) -> ModelConfig:
+        providers: list[ProviderConfig] = self._provider._fetch_providers()
+        provider_config = next((p for p in providers if p.name == provider_name), None)
+        if provider_config is None:
+            msg = f"DescribeImage '{self.name}': provider '{provider_name}' not found in configured providers."
+            raise ValueError(msg)
+        match provider_config.type:
+            case ModelProvider.OLLAMA | ModelProvider.LMSTUDIO as kind:
+                pass
+            case _:
+                kind = ModelProvider.OPENAI_COMPATIBLE
+        return ModelConfig(
+            provider=kind,
+            model=model,
+            base_url=provider_config.base_url or None,
+            api_key_secret=provider_config.api_key_secret_name or None,
         )
 
-        output_schema = self.get_parameter_value("output_schema")
-        pydantic_schema = None
-        if output_schema is not None:
-            schema_value = output_schema
-            if isinstance(schema_value, str):
-                if not schema_value.strip():
-                    schema_value = None
-                else:
-                    try:
-                        schema_value = json.loads(schema_value)
-                    except json.JSONDecodeError as e:
-                        msg = (
-                            f"DescribeImage '{self.name}': Unable to parse output_schema as JSON: {e}. "
-                            "Try using the `Create Agent Schema` node to generate a schema."
-                        )
-                        raise ValueError(msg) from e
+    def _resolve_model_config(self, state: AgentState | None) -> ModelConfig:
+        """The model that will run: a connected Agent's, a connected Prompt Model Config, or the dropdown selection."""
+        if state is not None and state.model is not None:
+            return state.model
+        model_input = self.get_parameter_value("model")
+        connected = ModelConfig.from_wire(model_input)
+        if connected is not None:
+            return connected
+        model_name = model_input if isinstance(model_input, str) else DEFAULT_MODEL
+        provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
+        if provider_name != "griptape_cloud":
+            return self._third_party_model_config(provider_name, model_name)
+        if model_name not in self._model_access.model_choices:
+            model_name = DEFAULT_MODEL
+        return ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=model_name)
 
-            if schema_value is not None and not isinstance(schema_value, dict):
-                msg = (
-                    f"DescribeImage '{self.name}': output_schema must be a JSON schema object (dict) "
-                    f"or a JSON string, got: {type(schema_value).__name__}"
-                )
-                raise TypeError(msg)
-
-            if schema_value is not None:
-                try:
-                    pydantic_schema = create_model(schema_value)
-                except Exception as e:
-                    msg = (
-                        f"DescribeImage '{self.name}': Unable to create output schema model: {e}. "
-                        "Try using the `Create Agent Schema` node to generate a schema."
-                    )
-                    raise ValueError(msg) from e
-
-        tool_configs: list = []
-        ruleset_configs: list = []
-        provider_info: dict | None = None
-        if isinstance(agent_value, dict):
-            agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_value)
-            agent = GtAgent().from_dict(agent_core_dict)
-            restore_provider_driver(agent, agent_value)
-            if tool_configs:
-                live_tools, _ = build_tools(tool_configs)
-                if live_tools and agent.tasks:
-                    cast(PromptTask, agent.tasks[0]).tools = live_tools
-            if ruleset_configs:
-                agent._rulesets = build_rulesets_from_configs(ruleset_configs)
-            # make sure the agent is using a PromptTask — replace rather than add to avoid two tasks
-            if not isinstance(agent.tasks[0], PromptTask):
-                agent.tasks[0] = PromptTask(prompt_driver=default_prompt_driver, output_schema=pydantic_schema)
-            else:
-                agent.tasks[0].output_schema = pydantic_schema
-        elif isinstance(model_input, BasePromptDriver):
-            agent = GtAgent(prompt_driver=model_input, output_schema=pydantic_schema)
-        elif provider_name != "griptape_cloud":
-            providers = self._provider._fetch_providers()
-            non_gtc_provider_config = next((p for p in providers if p.name == provider_name), None)
-            if non_gtc_provider_config is None:
-                msg = f"DescribeImage '{self.name}': provider '{provider_name}' not found in configured providers."
-                raise ValueError(msg)
-            api_key = self._provider.resolve_provider_api_key(non_gtc_provider_config)
-            base_url = non_gtc_provider_config.base_url or ""
-            prompt_driver = GtOpenAiChatPromptDriver(
-                model=model_input if isinstance(model_input, str) else DEFAULT_MODEL,
-                base_url=base_url,
-                api_key=api_key,
-                stream=True,
-            )
-            provider_info = {"name": provider_name, "base_url": base_url, "api_key": api_key}
-            agent = GtAgent(prompt_driver=prompt_driver, output_schema=pydantic_schema)
-        elif isinstance(model_input, str):
-            if model_input not in self._model_access.model_choices:
-                model_input = DEFAULT_MODEL
-            prompt_driver = GriptapeCloudPromptDriver(
-                model=model_input,
-                stream=False,  # TODO: enable once https://github.com/griptape-ai/griptape-cloud/issues/1593 is resolved
-                **cloud_driver_auth(),
-            )
-            agent = GtAgent(prompt_driver=prompt_driver, output_schema=pydantic_schema)
-        else:
-            agent = GtAgent(prompt_driver=default_prompt_driver, output_schema=pydantic_schema)
-
-        prompt = params.get("prompt", "")
-        if prompt == "":
-            prompt = "Describe the image"
-
-        get_description_only = self.get_parameter_value("description_only")
-        if get_description_only:
-            prompt += "\n\nOutput image description only."
-
-        # Flatten nested lists — a ParameterList child may receive a list of artifacts
+    def _collect_image_contents(self) -> list:
+        # Flatten nested lists: a ParameterList child may receive a list of artifacts
         # when connected to an output that produces List[ImageUrlArtifact].
-        raw_images = self.get_parameter_value("images") or []
         flat_images: list = []
-        for img in raw_images:
+        for img in self.get_parameter_value("images") or []:
             if isinstance(img, list):
                 flat_images.extend(img)
             else:
                 flat_images.append(img)
+        return [
+            image_content(img)
+            for img in flat_images
+            if img is not None and not (isinstance(img, str) and not img.strip())
+        ]
 
-        image_artifacts = []
-        for img in flat_images:
-            if img is None or img == "":
-                continue
-            if isinstance(img, ImageUrlArtifact):
-                image_artifacts.append(load_image_from_url_artifact(img))
-            elif isinstance(img, str) and img.strip():
-                # String path or URL — load as image bytes rather than passing as text.
-                image_artifacts.append(load_image_from_url_artifact(ImageUrlArtifact(img)))
-            else:
-                image_artifacts.append(img)
+    def process(self) -> AsyncResult[AgentRunResult[Any]]:
+        agent_value = self.get_parameter_value("agent")
+        provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
 
-        if not image_artifacts:
+        # License-policy runtime gate, scoped to Griptape Cloud models (the only ones the
+        # catalog declares) and skipped when an Agent is connected: it supplies its own
+        # model, so the node's (hidden, not cleared) dropdown value is stale. The
+        # INVOKE_MODEL declaration below gates the model that actually runs.
+        if agent_value is None and provider_name == "griptape_cloud":
+            self._model_access.raise_if_selection_denied()
+
+        output_schema = self._parse_output_schema()
+
+        prompt = self.get_parameter_value("prompt") or "Describe the image"
+        if self.get_parameter_value("description_only"):
+            prompt += "\n\nOutput image description only."
+
+        image_contents = self._collect_image_contents()
+        if not image_contents:
             self.parameter_output_values["output"] = "No image provided"
             return
 
-        # Declare the model that will actually run. Every construction branch above
-        # ends with the concrete prompt driver installed on the agent's PromptTask,
-        # so read the model from there. The node's own `model` parameter is not a
-        # trustworthy source: it keeps its last dropdown value (hidden, not cleared)
-        # while a connected Agent supplies the real driver. The util resolves the
-        # provider model id to its stable catalog key (via the node's model_usage)
-        # before declaring. Declare before the network call below so a denied
-        # invocation fails closed rather than reaching the provider.
-        model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
-        require_model_invocation_sync(self, model)
-
-        # Run the agent
-        yield lambda: agent.run([prompt, *image_artifacts])
-        agent_output = agent.output
-        output_value = agent_output.value
-        if isinstance(agent_output, ModelArtifact):
-            output_value = agent_output.value.model_dump()
-
-        self.parameter_output_values["output"] = output_value
-
-        # Replace the run's image bytes with text — without this, those bytes get serialized
-        # into conversation history and resent on every downstream API call.
-        memory_output = output_value
-        if isinstance(memory_output, (dict, list)):
-            memory_output = json.dumps(memory_output, ensure_ascii=False)
-        agent.insert_false_memory(prompt=prompt, output=str(memory_output))
-        raise_if_budget_halt_in_run(agent)
-        try_throw_error(agent.output)
-
-        # Clear live tools before serializing, then wrap with configs for downstream nodes.
-        if agent.tasks:
-            cast(PromptTask, agent.tasks[0]).tools = []
-
-        incoming_provider = agent_value.get("provider") if isinstance(agent_value, dict) else None
-
-        self.parameter_output_values["agent"] = wrap_agent(
-            agent.to_dict(),
-            tool_configs,
-            ruleset_configs,
-            provider=provider_info or incoming_provider,
+        state = AgentState.from_wire(agent_value) if is_agent_value(agent_value) else None
+        model_config = self._resolve_model_config(state)
+        agent_state = replace(state, model=model_config) if state is not None else AgentState(model=model_config)
+        agent = build_agent_from_state(
+            agent_state, output_type=output_type_from_schema(output_schema) if output_schema else str
         )
+
+        # Declare the model that will actually run, read from the resolved config rather than
+        # the node's `model` parameter, which keeps its last dropdown value (hidden, not cleared)
+        # while a connected Agent supplies the real model. The util resolves the provider model
+        # id to its stable catalog key before declaring. Declare before the network call below
+        # so a denied invocation fails closed rather than reaching the provider.
+        require_model_invocation_sync(self, model_config.model)
+
+        result = yield lambda: run_agent(agent, [prompt, *image_contents], message_history=agent_state.messages)
+        output = result.output
+        output_text = output_to_text(output)
+        self.parameter_output_values["output"] = output if output_schema else output_text
+
+        # Store the run as text: image bytes in conversation history would bloat the saved
+        # workflow and be resent on every downstream API call.
+        run_messages = messages_from_runs([{"input": prompt, "output": output_text}])
+        self.parameter_output_values["agent"] = replace(
+            agent_state, messages=[*agent_state.messages, *run_messages]
+        ).to_wire()

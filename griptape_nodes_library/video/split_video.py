@@ -5,8 +5,6 @@ from pathlib import Path
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape.structures import Agent as GriptapeAgent
-from griptape.tasks import PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
@@ -16,13 +14,12 @@ from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
+from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
+from griptape_nodes_library.llm.runner import output_to_text, prompt_model
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
-from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
-from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run
 from griptape_nodes_library.utils.ffmpeg_utils import (
     build_video_segment_cmd,
     detect_video_properties,
@@ -208,11 +205,6 @@ class SplitVideo(SuccessFailureNode):
             error_msg = missing_credential_message("parse the timecodes")
             raise ValueError(error_msg)
 
-        prompt_driver = GriptapeCloudPromptDriver(
-            model=MODEL, stream=True, structured_output_strategy="tool", **cloud_driver_auth(api_key)
-        )
-        agent = GriptapeAgent()
-        agent.add_task(PromptTask(prompt_driver=prompt_driver))
         msg = f"""
 Please parse the timecodes from the following string:
 {timecodes_str}
@@ -228,19 +220,11 @@ Return in this EXACT format with no commentary or other text:
 If no title is provided, just use "Segment X:" format.
 """
         try:
-            response = agent.run(msg)
-            raise_if_budget_halt_in_run(agent)
-            self.append_value_to_parameter("logs", f"Agent response: {response}\n")
-            self.append_value_to_parameter("logs", f"Agent output: {agent.output}\n")
-
-            # The agent.output should contain the actual response text
-            if hasattr(agent, "output") and agent.output:
-                return str(agent.output)
-            if hasattr(response, "output") and hasattr(response.output, "value"):
-                return response.output.value
-            error_msg = f"Unexpected agent response format: {response}"
-            raise ValueError(error_msg)  # noqa: TRY301
-
+            output = prompt_model(ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=MODEL), msg)
+            if not output:
+                error_msg = "Agent returned an empty response"
+                raise ValueError(error_msg)  # noqa: TRY301
+            return output_to_text(output)
         except Exception as e:
             error_msg = f"Agent failed to parse timecodes: {e!s}"
             self.append_value_to_parameter("logs", f"ERROR: {error_msg}\n")

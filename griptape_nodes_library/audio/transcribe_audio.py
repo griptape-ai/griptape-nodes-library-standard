@@ -3,9 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from griptape.artifacts import TextArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
-from griptape.memory.structure import Run
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
@@ -16,9 +14,8 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
-from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
+from griptape_nodes_library.llm.agent_state import AgentState, messages_from_runs
 from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.utils.agent_utils import unwrap_agent, wrap_agent
 
 logger = logging.getLogger(__name__)
 
@@ -323,37 +320,19 @@ class TranscribeAudio(GriptapeProxyNode):
 
         self.parameter_output_values["output"] = text
 
-        # Thread the agent through using the new wire format (unwrap_agent / wrap_agent).
-        # The proxy handles transcription so no agent.run() is called — we append a Run
-        # directly rather than using insert_false_memory (which replaces runs[-1]).
-        tool_configs: list = []
-        ruleset_configs: list = []
+        # The proxy handles transcription so no agent run happens; append the transcript to
+        # the agent's history as a completed run.
         try:
-            agent_input = self.get_parameter_value("agent")
-            if isinstance(agent_input, dict):
-                # Transcription is already done by this point and the agent is never run
-                # here, so a missing Cloud credential must not fail threading memory
-                # through — the proxy reports its own credential gap.
-                agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_input, require_credential=False)
-                agent = GtAgent().from_dict(agent_core_dict)
-            else:
-                agent = GtAgent()
-            if agent.conversation_memory is not None:
-                agent.conversation_memory.runs.append(
-                    Run(
-                        input=TextArtifact("I'm passing you some audio to transcribe."),
-                        output=TextArtifact(
-                            f"<Thought>I temporarily used an Audio Transcription tool</Thought>{text}"
-                            '\n<THOUGHT>\nmeta={"used_tool": true, "tool": "AudioTranscriptionTool"}\n</THOUGHT>'
-                        ),
-                    )
-                )
-            self.parameter_output_values["agent"] = wrap_agent(
-                agent.to_dict(),
-                tool_configs,
-                ruleset_configs,
-                provider=agent_input.get("provider") if isinstance(agent_input, dict) else None,
-            )
+            state = AgentState.from_wire(self.get_parameter_value("agent"))
+            transcript_run = {
+                "input": "I'm passing you some audio to transcribe.",
+                "output": (
+                    f"<Thought>I temporarily used an Audio Transcription tool</Thought>{text}"
+                    '\n<THOUGHT>\nmeta={"used_tool": true, "tool": "AudioTranscriptionTool"}\n</THOUGHT>'
+                ),
+            }
+            state.messages = [*state.messages, *messages_from_runs([transcript_run])]
+            self.parameter_output_values["agent"] = state.to_wire()
         except Exception as e:
             logger.warning("TranscribeAudio: failed to thread agent: %s", e)
 

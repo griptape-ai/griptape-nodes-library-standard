@@ -12,6 +12,8 @@ from griptape_nodes.retained_mode.events.os_events import FileIOFailureReason
 
 import griptape_nodes_library.audio.transcribe_audio as transcribe_audio_module
 from griptape_nodes_library.audio.transcribe_audio import TranscribeAudio
+from griptape_nodes_library.llm.agent_state import AgentState
+from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
 
 DATA_URI = "data:audio/mpeg;base64,QUFB"
 
@@ -172,6 +174,31 @@ class TestParseResult:
         await node._parse_result({"text": "Hello world"}, generation_id="gen-1")
 
         assert node.parameter_output_values["output"] == "Hello world"
+
+    @pytest.mark.asyncio
+    async def test_appends_transcript_run_to_incoming_agent(self) -> None:
+        node = _make_node()
+        model = ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model="gpt-4.1")
+        upstream = AgentState(model=model).with_runs([{"input": "hello", "output": "hi"}])
+        node.set_parameter_value("agent", upstream.to_wire())
+
+        await node._parse_result({"text": "Hello world"}, generation_id="gen-1")
+
+        state = AgentState.from_wire(node.parameter_output_values["agent"])
+        assert state.model == model
+        runs = state.runs()
+        assert runs[0] == {"input": "hello", "output": "hi"}
+        assert runs[1]["input"] == "I'm passing you some audio to transcribe."
+        assert "Hello world" in runs[1]["output"]
+
+    @pytest.mark.asyncio
+    async def test_creates_agent_when_none_connected(self) -> None:
+        node = _make_node()
+
+        await node._parse_result({"text": "Hello world"}, generation_id="gen-1")
+
+        state = AgentState.from_wire(node.parameter_output_values["agent"])
+        assert len(state.runs()) == 1
 
     @pytest.mark.asyncio
     async def test_verbose_json_fields(self) -> None:
