@@ -3,7 +3,8 @@ from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCall
 from pydantic_ai.models.function import AgentInfo
 from pydantic_ai.models.test import TestModel
 
-from griptape_nodes_library.llm.agent_state import AgentState, messages_from_runs
+from griptape_nodes_library.llm import models
+from griptape_nodes_library.llm.agent_state import AgentState, compact_messages, messages_from_runs
 from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider, model_config_from_legacy_driver
 from griptape_nodes_library.llm.models import override_model
 from griptape_nodes_library.llm.rulesets import render_rulesets, rulesets_from_inputs
@@ -62,6 +63,19 @@ class TestModelConfig:
 
         assert config.provider == ModelProvider.OPENAI_COMPATIBLE
         assert config.api_key == "k"
+
+    def test_legacy_provider_key_resolves_from_engine_after_round_trip(self, monkeypatch) -> None:
+        config = model_config_from_legacy_driver(
+            {"type": "OpenAiChatPromptDriver", "model": "m"},
+            {"name": "my-llm", "type": "custom", "base_url": "http://x/v1", "api_key": "k"},
+        )
+        restored = ModelConfig.from_wire(config.to_wire())
+        assert restored is not None
+        monkeypatch.setattr(models, "_engine_provider_secret", lambda name: "MY_LLM_KEY" if name == "my-llm" else None)
+        monkeypatch.setattr(models, "_secret", lambda name: "from-secret" if name == "MY_LLM_KEY" else None)
+
+        assert restored.api_key is None
+        assert models.resolve_api_key(restored) == "from-secret"
 
 
 class TestAgentState:
@@ -123,6 +137,47 @@ class TestAgentState:
         )
 
         assert state.rulesets == [{"name": "r", "rules": ["be nice"]}]
+
+    def test_legacy_list_artifact_input_keeps_text_only(self) -> None:
+        legacy = {
+            "conversation_memory": {
+                "runs": [
+                    {
+                        "input": {
+                            "type": "ListArtifact",
+                            "value": [
+                                {"type": "TextArtifact", "value": "Describe"},
+                                {"type": "ImageArtifact", "value": "aGVsbG8="},
+                            ],
+                        },
+                        "output": {"type": "TextArtifact", "value": "A cat."},
+                    }
+                ]
+            }
+        }
+
+        assert AgentState.from_wire(legacy).runs() == [{"input": "Describe", "output": "A cat."}]
+
+    def test_compact_messages_inlines_tool_use_and_drops_tool_parts(self) -> None:
+        def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+            if len(messages) == 1:
+                return ModelResponse(parts=[ToolCallPart("calculate", {"expression": "2 + 3"})])
+            return ModelResponse(parts=[TextPart("5")])
+
+        with override_model(fake_model(respond)):
+            result = run_agent(
+                build_agent_from_state(AgentState(model=CLOUD, tools=[{"tool_type": "Calculator"}])), "add"
+            )
+
+        compacted = compact_messages(result.all_messages())
+
+        assert all(not isinstance(p, ToolCallPart) for m in compacted for p in m.parts)
+        assert AgentState(messages=compacted).runs() == [
+            {
+                "input": "add",
+                "output": '[Verified tool use:\n  Tool: calculate\n  Input: {"expression":"2 + 3"}\n  Result: 5\n]\n\n5',
+            }
+        ]
 
     def test_garbage_yields_empty_state(self) -> None:
         assert AgentState.from_wire(None).messages == []

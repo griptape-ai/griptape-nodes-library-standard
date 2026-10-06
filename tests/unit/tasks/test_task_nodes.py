@@ -286,7 +286,12 @@ class TestMCPTaskNode:
         assert node._execution_succeeded is True
         state = AgentState.from_wire(node.parameter_output_values["agent"])
         assert state.model is not None
-        assert state.runs() == [{"input": "ping the server", "output": "The server said pong."}]
+        assert state.runs() == [
+            {
+                "input": "ping the server",
+                "output": "[Verified tool use:\n  Tool: ping\n  Result: pong\n]\n\nThe server said pong.",
+            }
+        ]
         assert "Be brief." in _instructions(model.requests[0])
 
     def test_continues_a_connected_agents_conversation(self, monkeypatch: pytest.MonkeyPatch) -> None:

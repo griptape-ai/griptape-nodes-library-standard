@@ -10,9 +10,11 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
+from griptape_nodes.retained_mode.events.agent_events import ProviderConfig
 from pydantic import BaseModel, Field
 
 PROMPT_MODEL_CONFIG_TYPE = "Prompt Model Config"
+ENGINE_PROVIDER_OPTION = "engine_provider"
 
 
 class ModelProvider(StrEnum):
@@ -69,6 +71,23 @@ class ModelConfig(BaseModel):
         return None
 
 
+def model_config_for_engine_provider(provider_config: ProviderConfig, model: str) -> ModelConfig:
+    """`model` on an engine-configured third-party chat provider (Ollama, LM Studio, or OpenAI-compatible)."""
+    match provider_config.type:
+        case ModelProvider.OLLAMA:
+            provider = ModelProvider.OLLAMA
+        case ModelProvider.LMSTUDIO:
+            provider = ModelProvider.LMSTUDIO
+        case _:
+            provider = ModelProvider.OPENAI_COMPATIBLE
+    return ModelConfig(
+        provider=provider,
+        model=model,
+        base_url=provider_config.base_url or None,
+        api_key_secret=provider_config.api_key_secret_name or None,
+    )
+
+
 # Griptape driver `type` tags written by `to_dict()` in saved workflows.
 _LEGACY_DRIVER_PROVIDERS: dict[str, ModelProvider] = {
     "GriptapeCloudPromptDriver": ModelProvider.GRIPTAPE_CLOUD,
@@ -103,6 +122,8 @@ def model_config_from_legacy_driver(driver: dict[str, Any], provider: dict[str, 
             base_url=provider.get("base_url") or None,
             api_key=provider.get("api_key") or None,
             settings=settings,
+            # The legacy blob held the key itself; the name lets later hops find the secret.
+            options={ENGINE_PROVIDER_OPTION: provider["name"]} if provider.get("name") else {},
         )
 
     kind = _LEGACY_DRIVER_PROVIDERS.get(str(driver.get("type")), ModelProvider.GRIPTAPE_CLOUD)

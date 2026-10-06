@@ -29,13 +29,13 @@ from pydantic_ai.messages import (
     ModelResponse,
     TextPart,
     ToolCallPart,
+    ToolReturnPart,
     UserPromptPart,
 )
 
 from griptape_nodes_library.llm.model_config import ModelConfig, model_config_from_legacy_driver
 from griptape_nodes_library.llm.rulesets import ruleset_to_config
 
-AGENT_TYPE = "Agent"
 WIRE_FORMAT = "pydantic_ai_agent"
 WIRE_VERSION = 1
 FINAL_RESULT_TOOL_PREFIX = "final_result"
@@ -121,14 +121,74 @@ def runs_from_messages(messages: list[ModelMessage]) -> list[dict[str, str]]:
     return runs
 
 
+_NON_TEXT_ARTIFACTS = frozenset(
+    {"ImageArtifact", "ImageUrlArtifact", "BlobArtifact", "AudioArtifact", "AudioUrlArtifact"}
+)
+
+
 def _as_text(value: Any) -> str:
     if isinstance(value, dict):
-        value = value.get("value", "")
-    elif isinstance(value, list):
-        return "\n".join(_as_text(v) for v in value)
+        if value.get("type") in _NON_TEXT_ARTIFACTS:
+            return ""
+        return _as_text(value.get("value", ""))
+    if isinstance(value, list):
+        return "\n".join(t for t in (_as_text(v) for v in value) if t)
     if value is None:
         return ""
     return value if isinstance(value, str) else json.dumps(value)
+
+
+_TOOL_RESULT_PREVIEW = 400
+
+
+def _tool_exchange(calls: list[ToolCallPart], results: dict[str, str]) -> str:
+    lines = ["[Verified tool use:"]
+    for call in calls:
+        lines.append(f"  Tool: {call.tool_name}")
+        args = call.args_as_json_str()
+        if args and args != "{}":
+            lines.append(f"  Input: {args}")
+        result = results.get(call.tool_call_id)
+        if result is not None:
+            if len(result) > _TOOL_RESULT_PREVIEW:
+                result = result[:_TOOL_RESULT_PREVIEW] + "…"
+            lines.append(f"  Result: {result}")
+    lines.append("]")
+    return "\n".join(lines) + "\n\n"
+
+
+def compact_messages(messages: list[ModelMessage]) -> list[ModelMessage]:
+    """Collapse each run to user text and assistant text, recording tool use inline.
+
+    Raw tool call/return parts break replay on a downstream agent whose tools differ:
+    Anthropic and Bedrock reject `tool_use` blocks without matching tool definitions.
+    """
+    runs: list[dict[str, str]] = []
+    calls: list[ToolCallPart] = []
+    results: dict[str, str] = {}
+    for message in messages:
+        if isinstance(message, ModelRequest):
+            prompts = [p for p in message.parts if isinstance(p, UserPromptPart)]
+            if prompts:
+                if runs and calls:
+                    runs[-1]["output"] = _tool_exchange(calls, results) + runs[-1]["output"]
+                calls, results = [], {}
+                runs.append({"input": "\n".join(_user_text(p) for p in prompts), "output": ""})
+            for part in message.parts:
+                if isinstance(part, ToolReturnPart):
+                    results[part.tool_call_id] = part.model_response_str()
+        elif isinstance(message, ModelResponse) and runs:
+            calls.extend(
+                p
+                for p in message.parts
+                if isinstance(p, ToolCallPart) and not p.tool_name.startswith(FINAL_RESULT_TOOL_PREFIX)
+            )
+            text = _response_text(message)
+            if text:
+                runs[-1]["output"] = text
+    if runs and calls:
+        runs[-1]["output"] = _tool_exchange(calls, results) + runs[-1]["output"]
+    return messages_from_runs(runs)
 
 
 def messages_from_runs(runs: list[dict[str, Any]]) -> list[ModelMessage]:

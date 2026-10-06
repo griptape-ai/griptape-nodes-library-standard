@@ -182,13 +182,8 @@ class GenerateImage(ControlNode):
                 self.hide_parameter_by_name("output_compression")
 
         if parameter.name == "model":
-            # "model" supports either a string OR an Image Generation Driver. Only strings serialize.
-            if isinstance(value, str):
-                # Strings can serialize.
-                parameter.serializable = True
-            else:
-                # It's an Image Generation Driver, which we canNOT serialize.
-                parameter.serializable = False
+            # A connected Image Generation Driver is rebuilt by its node on every run; persist only dropdown strings.
+            parameter.serializable = isinstance(value, str)
             self._model_access.on_value_set(parameter, value)
 
         return super().after_value_set(parameter, value)

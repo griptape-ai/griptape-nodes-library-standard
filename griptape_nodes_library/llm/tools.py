@@ -29,8 +29,6 @@ if TYPE_CHECKING:
     from pydantic_ai import Agent
     from pydantic_ai.toolsets import AbstractToolset
 
-TOOL_TYPE = "Tool"
-
 
 class ToolType(StrEnum):
     MCP = "MCPTool"
@@ -245,7 +243,12 @@ def _mcp(config: dict) -> AbstractToolset[Any] | None:
     server_name = str(config.get("mcp_server_name", ""))
     clean_name = "".join(c for c in server_name if c.isalnum())
     built = mcp_server_from_config(f"mcp{clean_name.title()}", config.get("server_config") or {})
-    return built.toolset if built else None
+    if built is None:
+        return None
+    # Toolsets are rebuilt per run, so let the stdio subprocess exit when the run disconnects.
+    if hasattr(built.transport, "keep_alive"):
+        built.transport.keep_alive = False  # pyright: ignore[reportAttributeAccessIssue]
+    return built.toolset
 
 
 def build_toolset(config: dict) -> AbstractToolset[Any] | None:

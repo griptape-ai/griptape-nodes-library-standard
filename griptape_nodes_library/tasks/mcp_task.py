@@ -12,12 +12,11 @@ from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 from pydantic_ai.toolsets import AbstractToolset
 
-from griptape_nodes_library.llm.agent_state import AgentState, is_agent_value
-from griptape_nodes_library.llm.model_config import ModelConfig
+from griptape_nodes_library.llm.agent_state import AgentState, compact_messages, is_agent_value
+from griptape_nodes_library.llm.model_config import ModelConfig, model_config_for_engine_provider
 from griptape_nodes_library.llm.task_support import (
     TaskRunResult,
     cloud_model_config,
-    model_config_for_provider,
     run_task_agent,
 )
 from griptape_nodes_library.llm.tools import ToolType, build_toolset, build_toolsets
@@ -441,12 +440,7 @@ class MCPTaskNode(SuccessFailureNode):
         if provider_name != "griptape_cloud":
             providers = self._provider_selection._fetch_providers()
             provider_config = next((p for p in providers if p.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
-            return model_config_for_provider(
-                provider_config.type,
-                str(model_input),
-                base_url=provider_config.base_url,
-                api_key_secret=provider_config.api_key_secret_name,
-            )
+            return model_config_for_engine_provider(provider_config, str(model_input))
 
         # A model outside the Cloud catalog cannot be resolved to a catalog key, so the
         # license gate would fail closed on it. Fall back to the declared default instead.
@@ -457,7 +451,7 @@ class MCPTaskNode(SuccessFailureNode):
         self.parameter_output_values["output"] = result.text
         # The MCP toolset is rebuilt per run and not carried downstream, so the agent keeps the incoming tools.
         self.parameter_output_values["agent"] = AgentState(
-            model=model_config, messages=result.messages, tools=state.tools, rulesets=state.rulesets
+            model=model_config, messages=compact_messages(result.messages), tools=state.tools, rulesets=state.rulesets
         ).to_wire()
 
     def _set_failure_output_values(self) -> None:

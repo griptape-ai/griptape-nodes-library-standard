@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-RULESET_TYPE = "Ruleset"
-
 
 def ruleset_to_config(ruleset: Any) -> dict | None:
     """Normalize a ruleset value to its wire dict. Accepts dicts and legacy objects with `name`/`rules`."""

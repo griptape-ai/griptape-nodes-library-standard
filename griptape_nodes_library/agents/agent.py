@@ -25,11 +25,10 @@ from pydantic_ai.agent import AgentRunResult
 
 from griptape_nodes_library.llm.agent_node_support import (
     DEFAULT_CLOUD_MODEL,
-    model_config_for_provider,
     parse_agent_memory,
 )
-from griptape_nodes_library.llm.agent_state import AgentState, find_runs, messages_from_runs
-from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
+from griptape_nodes_library.llm.agent_state import AgentState, compact_messages, find_runs, messages_from_runs
+from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider, model_config_for_engine_provider
 from griptape_nodes_library.llm.rulesets import rulesets_from_inputs
 from griptape_nodes_library.llm.runner import (
     AgentRunCancelledError,
@@ -463,7 +462,7 @@ class Agent(ControlNode):
             return ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=model_input)
         providers = self._provider._fetch_providers()
         provider_config = next((p for p in providers if p.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
-        return model_config_for_provider(provider_config, model_input)
+        return model_config_for_engine_provider(provider_config, model_input)
 
     def _build_state(self, model_input: Any, provider_name: str, agent_input: Any) -> AgentState:
         """Combine the incoming agent (if any) with this node's model, tools, and rulesets."""
@@ -546,7 +545,7 @@ class Agent(ControlNode):
             self.append_value_to_parameter("logs", "\n[Finished processing agent.]\n")
             if result is not None:
                 self.set_parameter_value("output", output_to_text(result.output))
-                state.messages = result.all_messages()
+                state.messages = compact_messages(result.all_messages())
         else:
             self.append_value_to_parameter("logs", "[No prompt provided, creating Agent.]\n")
             self.parameter_output_values["output"] = "Agent created."

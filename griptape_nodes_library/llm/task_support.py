@@ -18,31 +18,6 @@ def cloud_model_config(model: str) -> ModelConfig:
     return ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=model)
 
 
-def model_config_for_provider(
-    provider_type: str | None,
-    model: str,
-    *,
-    base_url: str | None,
-    api_key_secret: str | None,
-    api_key: str | None = None,
-) -> ModelConfig:
-    """Map an engine chat provider entry (`ollama`, `lmstudio`, or an OpenAI-compatible `custom`) to a `ModelConfig`."""
-    match provider_type:
-        case "ollama":
-            provider = ModelProvider.OLLAMA
-        case "lmstudio":
-            provider = ModelProvider.LMSTUDIO
-        case _:
-            provider = ModelProvider.OPENAI_COMPATIBLE
-    return ModelConfig(
-        provider=provider,
-        model=model,
-        base_url=base_url or None,
-        api_key_secret=api_key_secret or None,
-        api_key=api_key or None,
-    )
-
-
 @dataclass
 class TaskRunResult:
     output: Any

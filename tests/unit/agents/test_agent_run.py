@@ -242,7 +242,12 @@ def test_tool_calls_are_logged_when_details_are_on(agent_node: Agent, monkeypatc
     assert "[Using tool calculate:" in logs
     assert agent_node.get_parameter_value("output") == "The answer is 4"
     state = AgentState.from_wire(agent_node.parameter_output_values["agent"])
-    assert state.runs() == [{"input": "what is 2+2", "output": "The answer is 4"}]
+    assert state.runs() == [
+        {
+            "input": "what is 2+2",
+            "output": '[Verified tool use:\n  Tool: calculate\n  Input: {"expression":"2+2"}\n  Result: 4\n]\n\nThe answer is 4',
+        }
+    ]
 
 
 def test_tool_calls_are_not_logged_without_details(agent_node: Agent, monkeypatch: pytest.MonkeyPatch) -> None:

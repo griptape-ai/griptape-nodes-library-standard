@@ -7,7 +7,9 @@ import os
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, cast
 
+from anthropic import AsyncAnthropic
 from griptape_nodes.drivers.cloud_models import model_settings_for
+from griptape_nodes.retained_mode.events.agent_events import ListAgentProvidersRequest, ListAgentProvidersResultSuccess
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from openai import AsyncOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel
@@ -22,6 +24,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from griptape_nodes_library.llm.model_config import (
     DEFAULT_API_KEY_SECRETS,
     DEFAULT_BASE_URLS,
+    ENGINE_PROVIDER_OPTION,
     ModelConfig,
     ModelProvider,
 )
@@ -52,7 +55,18 @@ def resolve_api_key(config: ModelConfig) -> str | None:
         return config.api_key or resolve_cloud_api_key() or None
     if config.api_key:
         return config.api_key
-    return _secret(config.api_key_secret or DEFAULT_API_KEY_SECRETS.get(config.provider))
+    secret_name = config.api_key_secret or DEFAULT_API_KEY_SECRETS.get(config.provider)
+    if secret_name is None and config.options.get(ENGINE_PROVIDER_OPTION):
+        secret_name = _engine_provider_secret(str(config.options[ENGINE_PROVIDER_OPTION]))
+    return _secret(secret_name)
+
+
+def _engine_provider_secret(provider_name: str) -> str | None:
+    result = GriptapeNodes.handle_request(ListAgentProvidersRequest())
+    if not isinstance(result, ListAgentProvidersResultSuccess):
+        return None
+    provider = next((p for p in result.providers if p.name == provider_name), None)
+    return provider.api_key_secret_name if provider else None
 
 
 def _settings(config: ModelConfig) -> ModelSettings | None:
@@ -124,7 +138,10 @@ def build_model(config: ModelConfig) -> Model:
             base_url = config.base_url or DEFAULT_BASE_URLS[config.provider]
             return _openai_compatible(config, base_url=base_url, api_key=resolve_api_key(config) or "not-needed")
         case ModelProvider.ANTHROPIC:
-            provider = AnthropicProvider(api_key=_require_key(config), base_url=config.base_url)
+            client_kwargs: dict[str, Any] = {"api_key": _require_key(config), "base_url": config.base_url}
+            if config.max_retries is not None:
+                client_kwargs["max_retries"] = config.max_retries
+            provider = AnthropicProvider(anthropic_client=AsyncAnthropic(**client_kwargs))
             return AnthropicModel(config.model, provider=provider, settings=_settings(config))
         case ModelProvider.COHERE:
             provider = CohereProvider(api_key=_require_key(config))

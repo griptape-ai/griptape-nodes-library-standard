@@ -22,7 +22,7 @@ from pydantic_ai.agent import AgentRunResult
 
 from griptape_nodes_library.llm.agent_state import AgentState, is_agent_value, messages_from_runs
 from griptape_nodes_library.llm.content import image_content
-from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
+from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider, model_config_for_engine_provider
 from griptape_nodes_library.llm.runner import output_to_text, output_type_from_schema, run_agent
 from griptape_nodes_library.llm.tools import build_agent_from_state
 from griptape_nodes_library.utils.cloud_credential_utils import (
@@ -356,17 +356,7 @@ class DescribeImage(ControlNode):
         if provider_config is None:
             msg = f"DescribeImage '{self.name}': provider '{provider_name}' not found in configured providers."
             raise ValueError(msg)
-        match provider_config.type:
-            case ModelProvider.OLLAMA | ModelProvider.LMSTUDIO as kind:
-                pass
-            case _:
-                kind = ModelProvider.OPENAI_COMPATIBLE
-        return ModelConfig(
-            provider=kind,
-            model=model,
-            base_url=provider_config.base_url or None,
-            api_key_secret=provider_config.api_key_secret_name or None,
-        )
+        return model_config_for_engine_provider(provider_config, model)
 
     def _resolve_model_config(self, state: AgentState | None) -> ModelConfig:
         """The model that will run: a connected Agent's, a connected Prompt Model Config, or the dropdown selection."""
