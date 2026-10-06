@@ -137,7 +137,7 @@ class SaveToProject(SuccessFailureNode):
 
         self._set_status_results(
             was_successful=True,
-            result_details=f"File saved successfully to {saved_path}",
+            result_details=f"File saved successfully to {url_artifact.value}",
         )
 
     def _update_default_filename(self, source_path: str) -> None:
