@@ -1,30 +1,13 @@
-"""Defines the ExampleAgent node, providing an interface to interact with a Griptape Agent.
+"""Defines the Agent node, providing an interface to chat with an LLM agent.
 
-This node allows users to create a new Griptape Agent or continue interaction
-with an existing one. It defaults to using the Griptape Cloud prompt driver
-but supports connecting custom prompt_model_configurations. It handles parameters
-for tools, rulesets, prompts, and streams output back to the user interface.
+This node creates a new agent or continues an existing one. It defaults to a
+Griptape Cloud model but supports connecting a Prompt Model Config. It handles
+parameters for tools, rulesets, prompts, and streams output back to the user interface.
 """
 
-import json
-from typing import Any, cast  # cast used for handle_request narrowing
+from typing import Any
 
-from griptape.artifacts import BaseArtifact, ModelArtifact, TextArtifact
-from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
-from griptape.events import (
-    ActionChunkEvent,
-    FinishActionsSubtaskEvent,
-    FinishStructureRunEvent,
-    StartStructureRunEvent,
-    TextChunkEvent,
-)
-from griptape.memory.structure import ConversationMemory, Run
-from griptape.structures import Structure
-from griptape.tasks import PromptTask
-from griptape_nodes.drivers.cloud_models import (
-    MODEL_CHOICES,
-    MODEL_CHOICES_ARGS,
-)
+from griptape_nodes.drivers.cloud_models import MODEL_CHOICES
 from griptape_nodes.exe_types.core_types import (
     NodeMessageResult,
     Parameter,
@@ -43,40 +26,42 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 from jinja2 import Template
-from json_schema_to_pydantic import create_model  # pyright: ignore[reportMissingImports]
+from pydantic_ai.agent import AgentRunResult
 
-from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
-from griptape_nodes_library.utils.agent_utils import (
-    build_prompt_driver,
-    build_rulesets_from_configs,
-    build_tools,
-    ruleset_to_config,
-    unwrap_agent,
-    wrap_agent,
+from griptape_nodes_library.llm.agent_node_support import (
+    DEFAULT_CLOUD_MODEL,
+    model_config_for_provider,
+    parse_agent_memory,
 )
-from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
+from griptape_nodes_library.llm.agent_state import AgentState, find_runs, messages_from_runs
+from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
+from griptape_nodes_library.llm.rulesets import rulesets_from_inputs
+from griptape_nodes_library.llm.runner import (
+    AgentRunCancelledError,
+    RunCallbacks,
+    output_to_text,
+    output_type_from_schema,
+    run_agent,
+)
+from griptape_nodes_library.llm.tools import build_agent_from_state, tool_configs_from_inputs, tool_display_name
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
-from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
-from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run, try_throw_error
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
 _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
 
 # --- Constants ---
-API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
-SERVICE = "Griptape"
-DEFAULT_MODEL = "claude-sonnet-5"
+DEFAULT_MODEL = DEFAULT_CLOUD_MODEL
 
 
 class Agent(ControlNode):
-    """A Griptape Node that provides an interface to interact with a Griptape Agent.
+    """A node that provides an interface to chat with an LLM agent.
 
-    This node facilitates communication with a Griptape Agent, allowing for
+    This node facilitates communication with an agent, allowing for
     sending prompts and receiving streamed responses. It can initialize a new
     agent or operate on an existing agent representation passed as input.
 
@@ -87,7 +72,7 @@ class Agent(ControlNode):
     """
 
     def __init__(self, **kwargs) -> None:
-        """Initializes the ExampleAgent node, setting up its parameters and UI elements.
+        """Initializes the Agent node, setting up its parameters and UI elements.
 
         This involves defining input/output parameters, grouping related settings,
         and establishing default values and behaviors.
@@ -265,32 +250,6 @@ class Agent(ControlNode):
 
         self.add_node_element(logs_group)
 
-    def _build_tool_exchange(self, subtask_events: list) -> str:
-        """Build a verified tool-use record from FinishActionsSubtaskEvents.
-
-        This is prepended to the stored run output so memory faithfully reflects
-        every tool call that happened, giving downstream agents clear evidence.
-        """
-        lines = ["[Verified tool use:"]
-        for event in subtask_events:
-            if event.subtask_thought:
-                lines.append(f"  Thought: {event.subtask_thought}")
-            for action in event.subtask_actions or []:
-                name = action.get("name", "?")
-                path = action.get("path", "")
-                tool_input = action.get("input", {})
-                prefix = f"{path}/" if path else ""
-                lines.append(f"  Tool: {prefix}{name}")
-                if tool_input:
-                    lines.append(f"  Input: {json.dumps(tool_input)}")
-            if event.task_output:
-                result = event.task_output.to_text()
-                if len(result) > 400:
-                    result = result[:400] + "…"
-                lines.append(f"  Result: {result}")
-        lines.append("]")
-        return "\n".join(lines) + "\n\n"
-
     # --- Provider / Model Methods ---
     def _refresh_models_button(
         self, button: Button, button_details: ButtonDetailsMessagePayload
@@ -299,221 +258,6 @@ class Agent(ControlNode):
         return self._provider._refresh_models_button(button, button_details)
 
     # --- Helper Methods ---
-
-    def _find_runs_in_data(self, data: Any) -> list[dict[str, Any]]:
-        """Recursively find 'runs' array in data structure.
-
-        Args:
-            data: Any data structure (dict, list, etc.)
-
-        Returns:
-            List of run dicts, or empty list if not found.
-        """
-        if isinstance(data, dict):
-            # Check if this dict has a 'runs' key
-            if "runs" in data and isinstance(data["runs"], list):
-                return data["runs"]
-
-            # Recursively search in all values
-            for value in data.values():
-                result = self._find_runs_in_data(value)
-                if result:
-                    return result
-
-        elif isinstance(data, list):
-            # Recursively search in list items
-            for item in data:
-                result = self._find_runs_in_data(item)
-                if result:
-                    return result
-
-        return []
-
-    def _extract_value_from_artifact(self, artifact: Any) -> str:
-        """Extract value from an artifact (dict with 'value' key, list of artifacts, or string).
-
-        Args:
-            artifact: Artifact data (dict, list, or string)
-
-        Returns:
-            Extracted string value
-        """
-        if isinstance(artifact, dict):
-            return artifact.get("value", "")
-        if isinstance(artifact, list):
-            # If it's a list of artifacts, concatenate their values
-            values = []
-            for item in artifact:
-                if isinstance(item, dict):
-                    values.append(item.get("value", ""))
-                else:
-                    values.append(str(item) if item else "")
-            return "\n".join(values)
-        return str(artifact) if artifact else ""
-
-    def _convert_memory_to_runs(self, memory_data: dict[str, Any]) -> list[Run]:
-        """Convert memory data to a list of Run objects.
-
-        Finds 'runs' anywhere in the data structure, extracts input/output values,
-        and creates Run objects.
-
-        Args:
-            memory_data: Memory data dict in any format (simplified or full conversation_memory).
-
-        Returns:
-            List of Run objects, or empty list if conversion fails.
-        """
-        runs = []
-
-        if not isinstance(memory_data, dict):
-            return runs
-
-        # Find runs anywhere in the data structure
-        runs_data = self._find_runs_in_data(memory_data)
-
-        # If no runs found, check if it's a single run format
-        if not runs_data:
-            if "input" in memory_data and "output" in memory_data:
-                runs_data = [memory_data]
-            else:
-                return runs
-
-        for run_data in runs_data:
-            if not isinstance(run_data, dict):
-                continue
-
-            if "input" not in run_data or "output" not in run_data:
-                continue
-
-            input_data = run_data["input"]
-            output_data = run_data["output"]
-
-            # Extract values from artifacts
-            input_value = self._extract_value_from_artifact(input_data)
-            output_value = self._extract_value_from_artifact(output_data)
-
-            runs.append(
-                Run(
-                    input=TextArtifact(value=input_value),
-                    output=TextArtifact(value=output_value),
-                )
-            )
-
-        return runs
-
-    def _parse_memory_data(self, memory_data: dict[str, Any] | str | None) -> dict[str, Any] | None:
-        """Parse and validate memory data.
-
-        Args:
-            memory_data: Memory data dict, JSON string, or None.
-
-        Returns:
-            Parsed dict or None if invalid/empty.
-        """
-        if memory_data is None:
-            return None
-
-        # Handle string input (JSON that needs parsing)
-        if isinstance(memory_data, str):
-            if not memory_data.strip():
-                return None
-            try:
-                memory_data = json.loads(memory_data)
-            except json.JSONDecodeError:
-                return None
-
-        if not isinstance(memory_data, dict):
-            return None
-
-        # Skip empty dicts (default value)
-        if not memory_data:
-            return None
-
-        return memory_data
-
-    def _is_simplified_format(self, memory_data: dict[str, Any]) -> bool:
-        """Check if memory data is in simplified format.
-
-        Simplified format has direct string inputs/outputs, full format has nested artifacts.
-
-        Args:
-            memory_data: Memory data dict.
-
-        Returns:
-            True if simplified format, False if full format.
-        """
-        if "runs" not in memory_data or not isinstance(memory_data["runs"], list) or not memory_data["runs"]:
-            return False
-
-        first_run = memory_data["runs"][0]
-        if not isinstance(first_run, dict):
-            return False
-
-        input_data = first_run.get("input")
-        # Simplified format has direct strings, full format has nested dicts with "type" and "value"
-        return isinstance(input_data, str) or (isinstance(input_data, dict) and "type" not in input_data)
-
-    def _apply_memory_via_from_dict(self, agent: GtAgent, memory_data: dict[str, Any]) -> bool:
-        """Apply memory using ConversationMemory.from_dict().
-
-        Args:
-            agent: The agent to apply memory to.
-            memory_data: Memory data dict in full format.
-
-        Returns:
-            True if successful, False otherwise.
-        """
-        if not hasattr(ConversationMemory, "from_dict"):
-            return False
-
-        if agent.conversation_memory is None:
-            return False
-
-        try:
-            # Preserve the original memory driver if it exists
-            original_driver = agent.conversation_memory.conversation_memory_driver
-            new_memory = ConversationMemory.from_dict(memory_data)
-            # Restore the original driver to maintain persistence
-            if original_driver is not None:
-                new_memory.conversation_memory_driver = original_driver
-            agent.conversation_memory = new_memory
-            return True  # noqa: TRY300
-        except (ValueError, TypeError, AttributeError):
-            # Fall back to manual conversion if from_dict() fails with expected errors
-            return False
-
-    def _apply_memory_to_agent(self, agent: GtAgent, memory_data: dict[str, Any] | str | None) -> None:
-        """Apply memory data to an agent's conversation memory.
-
-        Uses ConversationMemory.from_dict() if available, otherwise falls back to manual conversion.
-
-        Args:
-            agent: The agent to apply memory to.
-            memory_data: Memory data dict, JSON string, or None to skip.
-        """
-        # Failure cases first
-        if agent.conversation_memory is None:
-            return
-
-        parsed_data = self._parse_memory_data(memory_data)
-        if parsed_data is None:
-            return
-
-        # Try to use ConversationMemory.from_dict() only for full format
-        if not self._is_simplified_format(parsed_data) and self._apply_memory_via_from_dict(agent, parsed_data):
-            return
-
-        # Success path - manual conversion
-        if agent.conversation_memory is None:
-            return
-
-        runs = self._convert_memory_to_runs(parsed_data)
-        if not runs:
-            # If no valid runs, clear the memory
-            agent.conversation_memory.runs = []
-        else:
-            # Success path - replace memory with new runs
-            agent.conversation_memory.runs = runs
 
     def _update_output_type_and_validate_connections(self, new_output_type: str) -> None:
         """Update the output parameter type and remove incompatible connections.
@@ -662,9 +406,9 @@ class Agent(ControlNode):
         """Performs pre-run validation checks for the node.
 
         A Griptape Cloud credential is only required when the node would fall back
-        to the default Griptape Cloud prompt driver. A connected agent carries its
-        own driver, and a connected prompt driver (Prompt Model Config) supplies its
-        own credentials, so neither needs the cloud credential.
+        to a Griptape Cloud model. A connected agent carries its own model, and a
+        connected Prompt Model Config supplies its own credentials, so neither needs
+        the cloud credential.
 
         Either credential is accepted: a Griptape Nodes License or a Griptape Cloud
         API key. Griptape Cloud's chat endpoints authenticate a License, so a
@@ -675,8 +419,8 @@ class Agent(ControlNode):
         """
         exceptions = []
 
-        # Mirror the driver-selection precedence in process(): a connected agent or a
-        # connected prompt driver bypass the default Griptape Cloud driver entirely.
+        # Mirror the model-selection precedence in process(): a connected agent or a
+        # connected Prompt Model Config bypass Griptape Cloud entirely.
         if not self._provider.uses_griptape_cloud_driver():
             return None
 
@@ -727,318 +471,140 @@ class Agent(ControlNode):
         return prompt
 
     # --- Processing ---
-    def process(self) -> AsyncResult[Structure]:  # noqa: C901, PLR0915, PLR0912
-        """Executes the main logic of the node asynchronously.
+    def _resolve_model_config(self, model_input: Any, provider_name: str) -> ModelConfig:
+        """Pick the model for a node with no incoming agent: a connected config, or the dropdown selection."""
+        connected = ModelConfig.from_wire(model_input)
+        if connected is not None:
+            return connected
+        if not isinstance(model_input, str):
+            msg = f"Unsupported model value of type {type(model_input).__name__}; choose a model or connect a Prompt Model Config."
+            raise TypeError(msg)
+        if provider_name == "griptape_cloud":
+            if model_input not in self._model_access.model_choices:
+                model_input = DEFAULT_MODEL
+            return ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=model_input)
+        providers = self._provider._fetch_providers()
+        provider_config = next((p for p in providers if p.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
+        return model_config_for_provider(provider_config, model_input)
 
-        Sets up the Griptape Agent (either new or from input), configures the
-        prompt driver, prepares the prompt with context, and then yields
-        a lambda function to perform the actual agent interaction via `_process`.
-        Handles setting output parameters after execution.
+    def _build_state(self, model_input: Any, provider_name: str, agent_input: Any) -> AgentState:
+        """Combine the incoming agent (if any) with this node's model, tools, and rulesets."""
+        include_details = self.get_parameter_value("include_details")
+
+        node_tools = tool_configs_from_inputs(self.get_parameter_list_value("tools"))
+        if include_details and node_tools:
+            names = ", ".join(tool_display_name(tool) for tool in node_tools)
+            self.append_value_to_parameter("logs", f"[Tools]: {names}\n")
+
+        # Strings are promoted to single-rule rulesets named behavior_1, behavior_2, etc.
+        node_rulesets = rulesets_from_inputs(self.get_parameter_list_value("rulesets"))
+        if include_details and node_rulesets:
+            names = ", ".join(r["name"] for r in node_rulesets)
+            self.append_value_to_parameter("logs", f"\n[Rulesets]: {names}\n")
+
+        if agent_input is None:
+            state = AgentState(model=self._resolve_model_config(model_input, provider_name))
+            state.tools = node_tools
+            state.rulesets = node_rulesets
+        else:
+            state = AgentState.from_wire(agent_input)
+            state.model = state.model or ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=DEFAULT_MODEL)
+            state.tools = state.tools + [tool for tool in node_tools if tool not in state.tools]
+            state.rulesets = state.rulesets + node_rulesets
+
+        memory = parse_agent_memory(self.get_parameter_value("agent_memory"))
+        if memory is not None:
+            state.messages = messages_from_runs(find_runs(memory))
+        return state
+
+    def _build_output_type(self) -> Any:
+        output_schema = self.get_parameter_value("output_schema")
+        if output_schema is None:
+            return str
+        try:
+            output_type = output_type_from_schema(output_schema)
+        except Exception as e:
+            msg = f"[ERROR]: Unable to create output schema model: {e}. Try using the `Create Agent Schema` node to generate a schema."
+            self.append_value_to_parameter("logs", msg + "\n")
+            raise ValueError(msg) from e
+        if self.get_parameter_value("include_details"):
+            self.append_value_to_parameter("logs", "[Schema]: Structured output schema provided\n")
+        return output_type
+
+    def process(self) -> AsyncResult[AgentRunResult[Any] | None]:
+        """Build the agent state, then run the prompt on a worker thread and emit the updated agent.
 
         Yields:
-            A lambda function wrapping the call to `_process` for asynchronous execution.
-
-        Returns:
-            An AsyncResult indicating the structure being processed (the agent).
+            A callable that streams the agent run via `_process`; the run result is sent back (None if cancelled).
         """
         model_input = self.get_parameter_value("model")
         provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
         agent_input = self.get_parameter_value("agent")
         # License-policy runtime gate, scoped to Griptape Cloud models (the only ones the
         # catalog declares) and skipped when an Agent is connected: it supplies its own
-        # driver, so the node's (hidden, not cleared) dropdown value is stale. The
+        # model, so the node's (hidden, not cleared) dropdown value is stale. The
         # INVOKE_MODEL declaration below gates the model that actually runs.
         if agent_input is None and provider_name == "griptape_cloud":
             self._model_access.raise_if_selection_denied()
-        agent = None
         include_details = self.get_parameter_value("include_details")
-        default_prompt_driver = GriptapeCloudPromptDriver(
-            model=DEFAULT_MODEL,
-            stream=True,
-            **cloud_driver_auth(),
-        )
 
-        # Initialize the logs parameter
         self.append_value_to_parameter("logs", "[Processing..]\n")
 
-        # Get any tools — may be live objects or serializable config dicts (e.g. MCPTool)
-        raw_tool_inputs = self.get_parameter_list_value("tools")
-        live_tools, tool_configs = build_tools(raw_tool_inputs)
-        tools = live_tools
-        if include_details and live_tools:
-            names = []
-            for item in raw_tool_inputs:
-                if isinstance(item, dict):
-                    names.append(item.get("mcp_server_name", item.get("tool_type", "unknown")))
-                else:
-                    names.append(item.name)
-            self.append_value_to_parameter("logs", f"[Tools]: {', '.join(names)}\n")
+        output_type = self._build_output_type()
+        state = self._build_state(model_input, provider_name, agent_input)
 
-        # Get any rulesets — convert live objects to serializable configs so they survive chaining.
-        # Strings are auto-promoted to single-rule rulesets named behavior_1, behavior_2, etc.
-        raw_rulesets = self.get_parameter_list_value("rulesets")
-        str_counter = 0
-        promoted_rulesets = []
-        for r in raw_rulesets:
-            if isinstance(r, str) and r.strip():
-                str_counter += 1
-                promoted_rulesets.append({"name": f"behavior_{str_counter}", "rules": [r.strip()]})
-            else:
-                promoted_rulesets.append(r)
-        ruleset_configs: list = [c for c in (ruleset_to_config(r) for r in promoted_rulesets) if c]
-        rulesets = build_rulesets_from_configs(ruleset_configs)
-        if include_details and rulesets:
-            self.append_value_to_parameter(
-                "logs",
-                f"\n[Rulesets]: {', '.join([r.name for r in rulesets])}\n",
-            )
-
-        # Get the output schema
-        output_schema = self.get_parameter_value("output_schema")
-        pydantic_schema = None
-        if output_schema is not None:
-            try:
-                pydantic_schema = create_model(output_schema)
-            except Exception as e:
-                msg = f"[ERROR]: Unable to create output schema model: {e}. Try using the `Create Agent Schema` node to generate a schema."
-                self.append_value_to_parameter("logs", msg + "\n")
-                raise ValueError(msg) from e
-
-        if include_details and pydantic_schema:
-            self.append_value_to_parameter("logs", "[Schema]: Structured output schema provided\n")
-
-        # Get the prompt
         prompt = self.get_parameter_value("prompt")
-
-        # Use any additional context provided by the user.
         additional_context = self.get_parameter_value("additional_context")
         if additional_context:
             prompt = self._handle_additional_context(prompt, additional_context)
-
-        # If the user has connected a prompt, we want to show it in the logs.
         if include_details and prompt:
             self.append_value_to_parameter("logs", f"[Prompt]:\n{prompt}\n")
 
-        # If an agent is provided, we'll use and ensure it's using a PromptTask
-        # If a prompt_driver is provided, we'll use that
-        # If neither are provided, we'll create a new one with the selected model.
-        # Otherwise, we'll just use the default model
-        incoming_provider: dict | None = None
-        if isinstance(agent_input, dict):
-            # Unwrap the new-format wrapper (or handle old raw agent dict gracefully).
-            agent_core_dict, incoming_tool_configs, incoming_ruleset_configs = unwrap_agent(agent_input)
-            incoming_provider = agent_input.get("provider")  # non-GTC provider config forwarded by upstream node
-            agent = GtAgent().from_dict(agent_core_dict)
-            # Rebuild tools from the incoming config so the live connection is fresh.
-            if incoming_tool_configs:
-                incoming_live_tools, _ = build_tools(incoming_tool_configs)
-                if incoming_live_tools and agent.tasks:
-                    cast(PromptTask, agent.tasks[0]).tools = incoming_live_tools
-                tool_configs = incoming_tool_configs  # carry forward for output wrap
-            # Merge incoming rulesets with any rulesets connected at this node; set directly on _rulesets.
-            ruleset_configs = incoming_ruleset_configs + ruleset_configs
-            agent._rulesets = build_rulesets_from_configs(ruleset_configs)
-            # make sure the agent is using a PromptTask — replace rather than add to avoid two tasks
-            if not isinstance(agent.tasks[0], PromptTask):
-                if incoming_provider:
-                    msg = (
-                        f"Incoming agent has a {type(agent.tasks[0]).__name__} as its first task, "
-                        "not a PromptTask. Cannot apply a non-GTC provider driver to this agent. "
-                        "Check your chain topology."
-                    )
-                    raise RuntimeError(msg)
-                agent.tasks[0] = PromptTask(prompt_driver=default_prompt_driver, output_schema=pydantic_schema)
-            else:
-                agent.tasks[0].output_schema = pydantic_schema
-            # Rebuild the prompt driver for non-GTC providers — griptape strips api_key during serialization.
-            # Wrappers from older versions lack "type"; those fall through to the OpenAI-compat driver.
-            if incoming_provider:
-                cast(PromptTask, agent.tasks[0]).prompt_driver = build_prompt_driver(
-                    provider_type=incoming_provider.get("type"),
-                    model=agent.tasks[0].prompt_driver.model,
-                    base_url=incoming_provider.get("base_url", ""),
-                    api_key=incoming_provider.get("api_key"),
-                )
-        elif isinstance(model_input, BasePromptDriver):
-            agent = GtAgent(prompt_driver=model_input, tools=tools, rulesets=rulesets, output_schema=pydantic_schema)
-        elif isinstance(model_input, str):
-            if provider_name == "griptape_cloud":
-                if model_input not in self._model_access.model_choices:
-                    model_input = DEFAULT_MODEL
-                # Get the appropriate args (stream setting, structured output strategy, etc.)
-                args = next((model["args"] for model in MODEL_CHOICES_ARGS if model["name"] == model_input), {})
-                args = {k: v for k, v in args.items() if v is not None}
-                prompt_driver = GriptapeCloudPromptDriver(
-                    model=model_input,
-                    **args,
-                    **cloud_driver_auth(),
-                )
-            else:
-                # Non-Griptape-Cloud provider: resolve config and pick the right driver.
-                providers = self._provider._fetch_providers()
-                provider_config = next((p for p in providers if p.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
-                base_url = provider_config.base_url or ""
-                api_key = self._provider.resolve_provider_api_key(provider_config)
-                prompt_driver = build_prompt_driver(
-                    provider_type=provider_config.type,
-                    model=model_input,
-                    base_url=base_url,
-                    api_key=api_key,
-                )
-            agent = GtAgent(prompt_driver=prompt_driver, tools=tools, rulesets=rulesets, output_schema=pydantic_schema)
-
-        if agent is None:
-            msg = "Agent was not initialized"
-            raise RuntimeError(msg)
-
-        # Apply memory if provided
-        agent_memory = self.get_parameter_value("agent_memory")
-        if agent_memory is not None:
-            self._apply_memory_to_agent(agent, agent_memory)
-
         if prompt and not prompt.isspace():
-            # Declare the model that will actually run. Every construction branch above
-            # ends with the concrete prompt driver installed on the agent's PromptTask,
-            # so read the model from there. The node's own `model` parameter is not a
-            # trustworthy source: it keeps its last dropdown value (hidden, not cleared)
-            # while a connected Agent supplies the real driver. The util resolves the
-            # provider model id to its stable catalog key (via the node's model_usage)
-            # before declaring. Declare before the network call below so a denied
-            # invocation fails closed rather than reaching the provider.
-            model = cast(PromptTask, agent.tasks[0]).prompt_driver.model
-            require_model_invocation_sync(self, model)
+            if state.model is None:
+                msg = "Agent has no model configured."
+                raise RuntimeError(msg)
+            # Declare the model that will actually run, before any network call, so a denied
+            # invocation fails closed. A connected Agent supplies the real model; the node's own
+            # `model` parameter keeps its last dropdown value while hidden.
+            require_model_invocation_sync(self, state.model.model)
 
-            # Run the agent asynchronously
             self.append_value_to_parameter("logs", "[Started processing agent..]\n")
-            yield lambda: self._process(agent, prompt)
+            result = yield lambda: self._process(state, prompt, output_type)
             self.append_value_to_parameter("logs", "\n[Finished processing agent.]\n")
-            raise_if_budget_halt_in_run(agent)
-            try_throw_error(agent.output)
-            # Settle the output field to the final answer only — not the [Verified tool use: ...]
-            # block we prepend to memory for downstream agents.  _process() saves the raw answer
-            # in self._last_raw_output before modifying memory; fall back to memory when no tools ran.
-            raw_output = getattr(self, "_last_raw_output", None)
-            if raw_output is not None:
-                self.set_parameter_value("output", raw_output)
-                self._last_raw_output = None
-            elif agent is not None and agent.conversation_memory and agent.conversation_memory.runs:
-                self.set_parameter_value("output", agent.conversation_memory.runs[-1].output.to_text())
+            if result is not None:
+                # Settle the output field to the final answer.
+                self.set_parameter_value("output", output_to_text(result.output))
+                state.messages = result.all_messages()
         else:
             self.append_value_to_parameter("logs", "[No prompt provided, creating Agent.]\n")
             self.parameter_output_values["output"] = "Agent created."
-        # Clear tools from the live agent before serializing — MCPTool connections are not
-        # serializable. They're rebuilt from tool_configs when the next node unwraps.
-        if agent.tasks:
-            cast(PromptTask, agent.tasks[0]).tools = []
-        wrapper = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs)
-        # Forward provider credentials so downstream nodes can rebuild the driver —
-        # griptape strips api_key from non-GTC drivers during to_dict() serialization.
-        if provider_name != "griptape_cloud":
-            providers = self._provider._fetch_providers()
-            p = next((x for x in providers if x.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
-            wrapper["provider"] = {
-                "name": provider_name,
-                "type": p.type,
-                "base_url": p.base_url or "",
-                "api_key": self._provider.resolve_provider_api_key(p),
-            }
-        elif incoming_provider:
-            # Passthrough: this node uses griptape_cloud but an upstream agent used a non-GTC provider.
-            wrapper["provider"] = incoming_provider
-        self.parameter_output_values["agent"] = wrapper
 
-    def _process(self, agent: GtAgent, prompt: BaseArtifact | str) -> Structure:  # noqa: C901, PLR0912
-        """Performs the synchronous, streaming interaction with the Griptape Agent.
+        self.parameter_output_values["agent"] = state.to_wire()
 
-        Iterates through events generated by `agent.run_stream`, updating the
-        'output' parameter with text chunks and the 'logs' parameter with
-        action details (if enabled).
-
-        Normally we would use the pattern:
-        for artifact in Stream(agent).run(prompt):
-        But for this example, we'll use the run_stream method to get the events so we can
-        show the user when the Agent is using a tool.
-
-        Args:
-            agent: The configured Griptape Agent instance.
-            prompt: The final prompt string or BaseArtifact to send to the agent.
+    def _process(self, state: AgentState, prompt: str, output_type: Any) -> AgentRunResult[Any] | None:
+        """Run the prompt on a worker thread, streaming text into `output` and tool calls into `logs`.
 
         Returns:
-            The agent structure after processing.
+            The run result, or None if the user cancelled the run.
         """
         include_details = self.get_parameter_value("include_details")
 
-        args = [prompt] if prompt else []
-        structure_id_stack = []
-        active_structure_id = None
-        subtask_events: list[FinishActionsSubtaskEvent] = []
+        def on_text(text: str) -> None:
+            self.append_value_to_parameter("output", value=text)
+            if include_details:
+                self.append_value_to_parameter("logs", value=text)
 
-        task = agent.tasks[0]
-        if not isinstance(task, PromptTask):
-            msg = "Agent must have a PromptTask"
-            raise TypeError(msg)
-        prompt_driver = task.prompt_driver
-        prompt_driver.stream = True
-        if prompt_driver.stream:
-            for event in agent.run_stream(
-                *args,
-                event_types=[
-                    StartStructureRunEvent,
-                    TextChunkEvent,
-                    ActionChunkEvent,
-                    FinishActionsSubtaskEvent,
-                    FinishStructureRunEvent,
-                ],
-            ):
-                if isinstance(event, StartStructureRunEvent):
-                    active_structure_id = event.structure_id
-                    structure_id_stack.append(active_structure_id)
-                if isinstance(event, FinishStructureRunEvent):
-                    structure_id_stack.pop()
-                    active_structure_id = structure_id_stack[-1] if structure_id_stack else None
+        def on_tool_call(name: str, args_json: str) -> None:
+            if include_details:
+                self.append_value_to_parameter("logs", f"\n[Using tool {name}: ({args_json})]\n")
 
-                # If an Agent uses other Agents (via `StructureRunTool`), we will receive those events too.
-                # We want to ignore those events and only show the events for this node's Agent.
-                # TODO: https://github.com/griptape-ai/griptape-nodes/issues/984
-                if agent.id == active_structure_id:
-                    # Check for cancellation request
-                    if self.is_cancellation_requested:
-                        self.append_value_to_parameter("logs", "\n[Agent execution cancelled by user.]\n")
-                        return agent
-
-                    if isinstance(event, TextChunkEvent):
-                        self.append_value_to_parameter("output", value=event.token)
-                        if include_details:
-                            self.append_value_to_parameter("logs", value=event.token)
-
-                    if isinstance(event, ActionChunkEvent) and event.name and event.tag:
-                        if include_details:
-                            self.append_value_to_parameter("logs", f"\n[Using tool {event.name}: ({event.path})]\n")
-
-                    # Capture completed subtask exchanges for faithful memory reconstruction.
-                    if isinstance(event, FinishActionsSubtaskEvent) and event.subtask_parent_task_id == task.id:
-                        subtask_events.append(event)
-
-            # Prepend verified tool-use record to memory so downstream agents have
-            # clear evidence of every tool call.  Save the raw final answer first so
-            # the output field shows just the answer, not the metadata block.
-            if subtask_events and agent.conversation_memory and agent.conversation_memory.runs:
-                exchange = self._build_tool_exchange(subtask_events)
-                last_run = agent.conversation_memory.runs[-1]
-                self._last_raw_output = last_run.output.to_text()
-                agent.conversation_memory.runs[-1] = Run(
-                    input=TextArtifact(value=last_run.input.to_text()),
-                    output=TextArtifact(value=exchange + self._last_raw_output),
-                )
-
-        else:
-            agent.run(*args)
-            agent_output = agent.output
-            if isinstance(agent_output, ModelArtifact):
-                self.set_parameter_value("output", agent_output.value.model_dump_json())
-            else:
-                self.set_parameter_value("output", str(agent_output))
-            raise_if_budget_halt_in_run(agent)
-            try_throw_error(agent.output)
-
-        return agent
+        callbacks = RunCallbacks(
+            on_text=on_text, on_tool_call=on_tool_call, is_cancelled=lambda: self.is_cancellation_requested
+        )
+        agent = build_agent_from_state(state, output_type=output_type)
+        try:
+            return run_agent(agent, prompt, message_history=state.messages, callbacks=callbacks)
+        except AgentRunCancelledError:
+            self.append_value_to_parameter("logs", "\n[Agent execution cancelled by user.]\n")
+            return None

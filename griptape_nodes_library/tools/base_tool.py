@@ -1,6 +1,5 @@
 from typing import Literal
 
-from griptape.tools import BaseTool as GtBaseTool
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 
@@ -8,12 +7,12 @@ VariantType = Literal["info", "warning", "error", "success", "tip", "note", "hel
 
 
 class BaseTool(DataNode):
-    """Base tool node for creating Griptape tools.
+    """Base tool node for creating agent tools.
 
-    This node provides a generic implementation for initializing Griptape tools with configurable parameters.
+    This node provides a generic implementation for emitting agent tool configs with configurable parameters.
 
     Attributes:
-        off_prompt (bool): Indicates whether the tool should operate in off-prompt mode.
+        off_prompt (bool): Accepted for compatibility with saved workflows; ignored.
         tool (BaseTool): A dictionary representation of the created tool.
     """
 
@@ -60,10 +59,5 @@ class BaseTool(DataNode):
         )
 
     def process(self) -> None:
-        off_prompt = self.parameter_values.get("off_prompt", False)
-
-        # Create the tool
-        tool = GtBaseTool(off_prompt=off_prompt)
-
-        # Set the output
-        self.parameter_output_values["tool"] = tool
+        # The base node has no tool of its own; subclasses emit a `{"tool_type": ...}` config.
+        self.parameter_output_values["tool"] = None

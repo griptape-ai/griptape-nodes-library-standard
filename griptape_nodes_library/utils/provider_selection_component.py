@@ -1,6 +1,5 @@
 from typing import cast
 
-from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.retained_mode.events.agent_events import (
@@ -13,6 +12,8 @@ from griptape_nodes.retained_mode.events.agent_events import (
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
+
+from griptape_nodes_library.llm.model_config import ModelConfig
 
 _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
 
@@ -87,7 +88,7 @@ class ProviderSelectionComponent:
     def uses_griptape_cloud_driver(self) -> bool:
         if self._node.get_parameter_value("agent") is not None:
             return False
-        if isinstance(self._node.get_parameter_value("model"), BasePromptDriver):
+        if ModelConfig.from_wire(self._node.get_parameter_value("model")) is not None:
             return False
         provider_name = self._node.get_parameter_value("model_provider") or "griptape_cloud"
         return provider_name == "griptape_cloud"

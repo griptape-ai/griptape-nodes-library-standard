@@ -1,10 +1,9 @@
 """Tests that ``Agent.process`` declares the model invocation before running the
 model (issue #431).
 
-``Agent`` runs models through griptape framework prompt drivers without ever
-declaring the call to the engine's permission layer. ``process`` now declares
-the invocation right before the network call, once the driver's model is
-settled, and fails closed (raises) when the declaration is denied.
+``process`` declares the invocation to the engine's permission layer right
+before the network call, once the model is settled, and fails closed (raises)
+when the declaration is denied.
 """
 
 from __future__ import annotations
@@ -12,12 +11,15 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
-from griptape_nodes.exe_types.node_types import BaseNode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.node_types import BaseNode, DataNode
 from griptape_nodes.node_library.library_registry import LibraryRegistry
 
 import griptape_nodes_library.agents.agent as agent_module
 import griptape_nodes_library.utils.model_invocation as model_invocation_module
 from griptape_nodes_library.agents.agent import Agent
+from griptape_nodes_library.llm.agent_state import AgentState
+from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
 
 LIBRARY_NAME = "Griptape Nodes Library"
 
@@ -125,19 +127,10 @@ def test_declares_connected_agents_model_over_stale_dropdown_value(
 
     The node's own `model` dropdown keeps its last value when an upstream Agent
     is connected -- the parameter is hidden, not cleared -- so the declaration
-    must read the model from the restored agent's task driver, not from the
-    stale parameter value.
+    must read the model from the incoming agent, not from the stale parameter value.
     """
-    from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
-    from griptape.structures import Agent as GtStructureAgent
-
-    from griptape_nodes_library.utils.agent_utils import wrap_agent
-
-    # Restoring the wrapper rebuilds a GriptapeCloudPromptDriver, whose api_key
-    # default reads this env var.
-    monkeypatch.setenv("GT_CLOUD_API_KEY", "fake-key")
-    upstream = GtStructureAgent(prompt_driver=GriptapeCloudPromptDriver(model="gpt-4.1", api_key="fake-key"))
-    agent_node.set_parameter_value("agent", wrap_agent(upstream.to_dict(), [], []))
+    upstream = AgentState(model=ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model="gpt-4.1"))
+    agent_node.set_parameter_value("agent", upstream.to_wire())
     # The dropdown still holds its previous selection (set in the fixture).
     assert agent_node.get_parameter_value("model") == "claude-opus-5"
 
@@ -153,3 +146,29 @@ def test_declares_connected_agents_model_over_stale_dropdown_value(
     next(gen)
 
     assert captured["api_model_id"] == "gpt-4.1"
+
+
+def test_declares_connected_model_config_model(agent_node: Agent, monkeypatch: pytest.MonkeyPatch) -> None:
+    model_param = agent_node.get_parameter_by_name("model")
+    assert model_param is not None
+    source_node = DataNode(name="Prompt Model Config")
+    source_param = Parameter(
+        name="prompt_model_config",
+        type="Prompt Model Config",
+        output_type="Prompt Model Config",
+        allowed_modes={ParameterMode.OUTPUT},
+    )
+    source_node.add_parameter(source_param)
+    agent_node.after_incoming_connection(source_node, source_param, model_param)
+    agent_node.set_parameter_value("model", ModelConfig(provider=ModelProvider.OPENAI, model="gpt-5"))
+    captured: dict[str, Any] = {}
+
+    def _fake_declare(node: Agent, api_model_id: str) -> _FakeDeclaration:
+        captured["api_model_id"] = api_model_id
+        return _FakeDeclaration(ok=True)
+
+    monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", _fake_declare)
+
+    next(agent_node.process())
+
+    assert captured["api_model_id"] == "gpt-5"

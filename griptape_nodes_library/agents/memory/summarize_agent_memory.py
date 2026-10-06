@@ -1,15 +1,12 @@
-from typing import Any, cast
+from typing import Any
 
-from griptape.artifacts import ErrorArtifact, TextArtifact
-from griptape.memory.structure import Run
-from griptape.tasks import PromptTask
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
-from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent
-from griptape_nodes_library.utils.agent_utils import restore_provider_driver, unwrap_agent, wrap_agent
-from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run
+from griptape_nodes_library.llm.agent_node_support import default_cloud_model_config
+from griptape_nodes_library.llm.agent_state import AgentState, messages_from_runs
+from griptape_nodes_library.llm.runner import output_to_text, prompt_model
 
 
 class SummarizeAgentMemory(ControlNode):
@@ -46,55 +43,32 @@ class SummarizeAgentMemory(ControlNode):
 
         self.add_parameter(self.summary)
 
-    def _get_agent(self) -> tuple[GriptapeNodesAgent | None, list, list]:
-        """Unwrap the agent wire and reconstruct the live agent."""
+    def process(self) -> None:
         agent_value = self.get_parameter_value("agent")
         if agent_value is None:
-            return None, [], []
+            return
 
-        agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_value)
-        agent = GriptapeNodesAgent().from_dict(agent_core_dict)
-        restore_provider_driver(agent, agent_value)
-        if agent is None or agent.conversation_memory is None:
-            return None, [], []
+        state = AgentState.from_wire(agent_value)
+        runs = state.runs()
+        if not runs:
+            updated = state.to_wire()
+            self.parameter_output_values["agent"] = updated
+            self.publish_update_to_parameter("agent", updated)
+            return
 
-        return agent, tool_configs, ruleset_configs
-
-    def process(self) -> None:
-        agent, tool_configs, ruleset_configs = self._get_agent()
         prompt = self.get_parameter_value("prompt")
-        if agent is None or agent.conversation_memory is None:
-            return
-
-        agent_value = self.get_parameter_value("agent")
-        provider = agent_value.get("provider") if isinstance(agent_value, dict) else None
-
-        if len(agent.conversation_memory.runs) == 0:
-            updated_agent_dict = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs, provider=provider)
-            self.parameter_output_values["agent"] = updated_agent_dict
-            self.publish_update_to_parameter("agent", updated_agent_dict)
-            return
-
-        agent.run(prompt)
-        raise_if_budget_halt_in_run(agent)
-
-        if agent.output is None or isinstance(agent.output, ErrorArtifact):
-            return
-
-        summary_text = agent.output.value if hasattr(agent.output, "value") else str(agent.output)
+        summary_text = output_to_text(
+            prompt_model(
+                state.model or default_cloud_model_config(),
+                prompt,
+                rulesets=state.rulesets,
+                message_history=messages_from_runs(runs),
+            )
+        )
 
         self.parameter_output_values["summary"] = summary_text
         self.publish_update_to_parameter("summary", summary_text)
 
-        agent.conversation_memory.runs = [
-            Run(
-                input=TextArtifact(value="conversation summary"),
-                output=TextArtifact(value=summary_text),
-            )
-        ]
-
-        if agent.tasks:
-            cast(PromptTask, agent.tasks[0]).tools = []
-        updated_agent_dict = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs, provider=provider)
-        self.parameter_output_values["agent"] = updated_agent_dict
-        self.publish_update_to_parameter("agent", updated_agent_dict)
+        updated = state.with_runs([{"input": "conversation summary", "output": summary_text}]).to_wire()
+        self.parameter_output_values["agent"] = updated
+        self.publish_update_to_parameter("agent", updated)
