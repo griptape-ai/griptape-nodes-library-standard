@@ -1,16 +1,14 @@
-"""Defines the AnthropicPrompt node for configuring the Anthropic Prompt Driver.
+"""Defines the CoherePrompt node for configuring a Cohere prompt model.
 
-This module provides the `AnthropicPrompt` class, which allows users
-to configure and utilize the Anthropic prompt service within the Griptape
+This module provides the `CoherePrompt` class, which allows users
+to configure and utilize the Cohere prompt service within the Griptape
 Nodes framework. It inherits common prompt parameters from `BasePrompt`, sets
 Cohere specific model options, requires a Cohere API key via
-node configuration, and instantiates the `GtCoherePromptDriver`.
+node configuration, and emits a `ModelConfig`.
 """
 
-from griptape.drivers.prompt.cohere import CoherePromptDriver as GtCoherePromptDriver
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
+from griptape_nodes_library.llm.model_config import ModelProvider
 
 # --- Constants ---
 
@@ -28,16 +26,15 @@ LEGACY_MODEL_VALUES = {
 
 
 class CoherePrompt(BasePrompt):
-    """Node for configuring and providing a Cohere Prompt Driver.
+    """Node for configuring a Cohere prompt model.
 
     Inherits from `BasePrompt` to leverage common LLM parameters. This node
     customizes the available models to those supported by Cohere, requires a
     Cohere API key set in the node's configuration under the 'Cohere' service, and potentially handles parameter conversions specific to the
-    Cohere driver (like min_p to top_p).
+    Cohere (like min_p to top_p).
 
-    The `process` method uses the `_get_common_driver_args` helper, adds
-    Cohere-specific configurations, and instantiates the
-    `CoherePromptDriver`.
+    The `process` method turns the configured parameters into a `ModelConfig` that
+    names the API key secret, and assigns it to the 'prompt_model_config' output parameter.
     """
 
     def __init__(self, **kwargs) -> None:
@@ -66,56 +63,27 @@ class CoherePrompt(BasePrompt):
         self.remove_parameter_element_by_name("response_format")
 
     def process(self) -> None:
-        """Processes the node configuration to create a CoherePromptDriver.
+        """Emits the `ModelConfig` for the selected Cohere model.
 
-        Retrieves parameter values, uses the `_get_common_driver_args` helper
-        for common settings, then adds Cohere-specific arguments like API key
-        and model. Handles the conversion of `min_p` to `p` if `p` is set. Handles
-        the conversion of `top_k` to `k` if `k` is set.
-        Finally, instantiates the `CoherePromptDriver` and assigns it to the
-        'prompt_model_config' output parameter.
-
-        Raises:
-            KeyError: If the Cohere API key is not found in the node configuration.
+        Cohere's `p` and `k` parameters map to the standard `top_p` and `top_k` settings.
+        Fails closed if the license denies the selected model. The API key is
+        referenced by secret name only.
         """
-        # Retrieve all parameter values set on the node.
-        params = self.parameter_values
-
-        # A model the license denies must not reach a downstream node as a driver.
         self._raise_if_model_denied()
 
-        # --- Get Common Driver Arguments ---
-        # Use the helper method from BasePrompt. This gets temperature, stream,
-        # max_attempts, max_tokens, use_native_tools, min_p, top_k if they are set.
-        common_args = self._get_common_driver_args(params)
+        settings = self._common_settings()
+        for param_name, setting_name in (("p", "top_p"), ("k", "top_k")):
+            value = self.get_parameter_value(param_name)
+            if value is not None:
+                settings[setting_name] = value
 
-        # --- Prepare Anthropic Specific Arguments ---
-        specific_args = {}
-
-        # Retrieve the mandatory API key.
-        specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
-
-        # Get the upstream provider's id for the selected model.
-        specific_args["model"] = self._get_selected_model_id()
-
-        # Handle parameters that go into 'extra_params' for Griptape Cloud.
-        extra_params = {}
-
-        extra_params["p"] = self.get_parameter_value("p")
-        extra_params["k"] = self.get_parameter_value("k")
-
-        if extra_params:
-            specific_args["extra_params"] = extra_params
-
-        # --- Combine Arguments and Instantiate Driver ---
-        # Combine common arguments (potentially modified) with Cohere specific arguments.
-        all_kwargs = {**common_args, **specific_args}
-
-        # Create the Cohere prompt driver instance.
-        driver = GtCoherePromptDriver(**all_kwargs)
-
-        # Set the output parameter 'prompt_model_config'.
-        self.parameter_output_values["prompt_model_config"] = driver
+        config = self._build_model_config(
+            ModelProvider.COHERE,
+            self._get_selected_model_id(),
+            settings=settings,
+            api_key_secret=API_KEY_ENV_VAR,
+        )
+        self.parameter_output_values["prompt_model_config"] = config
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
         """Validates that the Cohere API key is configured correctly.

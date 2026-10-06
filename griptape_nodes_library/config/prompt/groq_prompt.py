@@ -1,16 +1,14 @@
-"""Defines the GroqPrompt node for configuring the OpenAi Prompt Driver.
+"""Defines the GroqPrompt node for configuring a Groq prompt model.
 
 This module provides the `GroqPrompt` class, which allows users
 to configure and utilize the OpenAi prompt service within the Griptape
 Nodes framework. It inherits common prompt parameters from `BasePrompt`, sets
 Groq specific model options, requires a Groq API key via
-node configuration, and instantiates the `OpenAiPromptDriver`.
+node configuration, and emits a `ModelConfig`.
 """
 
-from griptape.drivers.prompt.openai import OpenAiChatPromptDriver as GtOpenAiChatPromptDriver
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
+from griptape_nodes_library.llm.model_config import ModelProvider
 
 # --- Constants ---
 
@@ -58,7 +56,7 @@ LEGACY_MODEL_VALUES = {
 
 
 class GroqPrompt(BasePrompt):
-    """Node for configuring and providing a Groq Chat Prompt Driver.
+    """Node for configuring a Groq prompt model.
 
     Inherits from `BasePrompt` to leverage common LLM parameters. This node
     customizes the available models to those supported by Groq,
@@ -66,11 +64,8 @@ class GroqPrompt(BasePrompt):
     requires a Groq API key to be set in the node's configuration
     under the 'Groq' service.
 
-    The `process` method gathers the configured parameters and the API key,
-    utilizes the `_get_common_driver_args` helper from `BasePrompt`, adds
-    OpenAi specific configurations, then instantiates a
-    `OpenAiPromptDriver` and assigns it to the 'prompt_model_config'
-    output parameter.
+    The `process` method turns the configured parameters into a `ModelConfig` that
+    names the API key secret, and assigns it to the 'prompt_model_config' output parameter.
     """
 
     def __init__(self, **kwargs) -> None:
@@ -79,7 +74,7 @@ class GroqPrompt(BasePrompt):
         Calls the superclass initializer, then modifies the inherited 'model'
         parameter to use Groq specific models and sets a default.
         It also removes the 'seed' parameter inherited from `BasePrompt` as it's
-        not directly supported by the Groq driver implementation.
+        not directly supported by the Groq implementation.
         """
         super().__init__(**kwargs)
 
@@ -90,7 +85,7 @@ class GroqPrompt(BasePrompt):
             model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=LEGACY_MODEL_VALUES
         )
 
-        # Remove the 'seed' parameter as it's not directly used by GroqPromptDriver.
+        # Remove the 'seed' parameter as it's not directly used by Groq.
         self.remove_parameter_element_by_name("seed")
 
         # Remove `top_k` parameter as it's not used by Groq.
@@ -100,59 +95,20 @@ class GroqPrompt(BasePrompt):
         self._replace_param_by_name(param_name="min_p", new_param_name="top_p", default_value=0.9)
 
     def process(self) -> None:
-        """Processes the node configuration to create a GroqPromptDriver.
+        """Emits the `ModelConfig` for the selected Groq model.
 
-        Retrieves parameter values set on the node and the required API key from
-        the node's configuration system. It constructs the arguments dictionary
-        for the `GroqPromptDriver`, handles optional parameters and
-        any necessary conversions (like 'min_p' to 'top_p'), instantiates the
-        driver, and assigns it to the 'prompt_model_config' output parameter.
-
-        Raises:
-            KeyError: If the Groq API key is not found in the node configuration
-                      (though `validate_before_workflow_run` should prevent this during execution).
+        Fails closed if the license denies the selected model. The API key is
+        referenced by secret name only.
         """
-        # Retrieve all parameter values set on the node UI or via input connections.
-        params = self.parameter_values
-
-        # A model the license denies must not reach a downstream node as a driver.
         self._raise_if_model_denied()
 
-        # --- Get Common Driver Arguments ---
-        # Use the helper method from BasePrompt to get args like temperature, stream, max_attempts, etc.
-        common_args = self._get_common_driver_args(params)
-
-        # --- Prepare OpenAi Specific Arguments ---
-        specific_args = {}
-
-        # Retrieve the mandatory API key.
-        specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
-
-        # Set the base URL for the Groq API.
-        specific_args["base_url"] = BASE_URL
-
-        # Get the upstream provider's id for the selected model.
-        specific_args["model"] = self._get_selected_model_id()
-
-        # Handle parameters that go into 'extra_params' for Groq.
-        extra_params = {}
-
-        extra_params["top_p"] = self.get_parameter_value("top_p")
-
-        # Assign extra_params if not empty
-        if extra_params:
-            specific_args["extra_params"] = extra_params
-
-        # --- Combine Arguments and Instantiate Driver ---
-        # Combine common arguments with Groq specific arguments.
-        # Specific args take precedence if there's an overlap (though unlikely here).
-        all_kwargs = {**common_args, **specific_args}
-
-        # Create the Groq prompt driver instance.
-        driver = GtOpenAiChatPromptDriver(**all_kwargs)
-
-        # Set the output parameter 'prompt_model_config'.
-        self.parameter_output_values["prompt_model_config"] = driver
+        config = self._build_model_config(
+            ModelProvider.GROQ,
+            self._get_selected_model_id(),
+            api_key_secret=API_KEY_ENV_VAR,
+            base_url=BASE_URL,
+        )
+        self.parameter_output_values["prompt_model_config"] = config
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
         """Validates that the Groq API key is configured correctly.

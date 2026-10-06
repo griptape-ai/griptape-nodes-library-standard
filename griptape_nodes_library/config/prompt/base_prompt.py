@@ -1,26 +1,26 @@
-"""Defines the BasePrompt node, an abstract base class for prompt driver configuration nodes.
+"""Defines the BasePrompt node, an abstract base class for prompt model config nodes.
 
 This module provides the `BasePrompt` class, which serves as a foundation
-for creating specific prompt driver configuration nodes within the Griptape
+for creating specific prompt model config nodes within the Griptape
 Nodes framework. It inherits from `BaseDriver` and defines common parameters
-used by most prompt drivers (like temperature, model, etc.). Subclasses
-should inherit from `BasePrompt` and override the `process` method to instantiate
-and configure a specific Griptape prompt driver.
+used by most LLM providers (like temperature, model, etc.). Subclasses
+should inherit from `BasePrompt` and override the `process` method to emit a
+`ModelConfig` for their provider.
 """
 
 from typing import Any
 
-from griptape.drivers.prompt.dummy import DummyPromptDriver
 from griptape_nodes.exe_types.core_types import Parameter
 
 from griptape_nodes_library.config.base_driver import BaseDriver
+from griptape_nodes_library.llm.model_config import PROMPT_MODEL_CONFIG_TYPE, ModelConfig, ModelProvider
 
 
 class BasePrompt(BaseDriver):
-    """Abstract base node for configuring Griptape Prompt Drivers.
+    """Abstract base node for configuring prompt models.
 
     Inherits from `BaseDriver` and provides a standard set of parameters common
-    to many Large Language Model (LLM) prompt drivers, such as temperature,
+    to many Large Language Model (LLM) providers, such as temperature,
     model selection, and token limits.
 
     It renames the inherited 'driver' output parameter to 'prompt_model_config'
@@ -28,14 +28,12 @@ class BasePrompt(BaseDriver):
 
     Key Features for Subclasses:
     - Defines common LLM parameters accessible via `self.parameter_values`.
-    - Provides `_get_common_driver_args` to easily collect arguments for drivers based on base parameters.
+    - Provides `_build_model_config` to turn the base parameters into a `ModelConfig`.
     - Provides `_validate_api_key` to standardize API key validation logic.
     - Provides `_install_model_access` to turn the 'model' parameter into a
       license-filtered dropdown of driver-specific models.
-    Note: The `process` method in this base class creates a `DummyPromptDriver`
-    primarily to establish the output socket type. It does not utilize the
-    configuration parameters defined herein. Direct use of `BasePrompt` is
-    generally not intended.
+    Note: The `process` method in this base class has no provider to describe and
+    raises. Direct use of `BasePrompt` is not intended.
     """
 
     def __init__(self, **kwargs) -> None:
@@ -49,11 +47,11 @@ class BasePrompt(BaseDriver):
 
         # Rename the inherited output parameter for clarity in this context.
         # The base 'BaseDriver' likely outputs a generic 'driver', but here we
-        # specifically output a 'Prompt Model Config' (which is a driver).
+        # specifically output a 'Prompt Model Config'.
         driver_parameter = self.get_parameter_by_name("driver")
         if driver_parameter is not None:
             driver_parameter.name = "prompt_model_config"
-            driver_parameter.output_type = "Prompt Model Config"
+            driver_parameter.output_type = PROMPT_MODEL_CONFIG_TYPE
             driver_parameter._ui_options = {"display_name": "prompt model config"}
 
         # --- Common Prompt Driver Parameters ---
@@ -184,76 +182,64 @@ class BasePrompt(BaseDriver):
             )
         )
 
-    def _get_common_driver_args(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Constructs a dictionary of arguments common to most Griptape prompt drivers.
+    def _common_settings(self) -> dict[str, Any]:
+        """Collects the generation settings shared by the prompt nodes.
 
-        Retrieves values for parameters defined in `BasePrompt` from the provided
-        `params` dictionary (typically `self.parameter_values`). It includes arguments
-        in the result only if their corresponding parameter value is not `None`.
-        It also handles common transformations like renaming 'max_attempts_on_fail'
-        to 'max_attempts' and only including 'max_tokens' if it's greater than 0.
+        A parameter a subclass removed (or one whose value is `None`) is skipped,
+        and `max_tokens` is only included when it is greater than 0.
+        `stream` and `use_native_tools` have no pydantic-ai equivalent and are ignored.
+        """
+        settings: dict[str, Any] = {}
+        for name in ("temperature", "seed", "top_k", "top_p"):
+            value = self.get_parameter_value(name) if self.get_parameter_by_name(name) is not None else None
+            if value is not None:
+                settings[name] = value
+
+        max_tokens = self.get_parameter_value("max_tokens")
+        if max_tokens is not None and max_tokens > 0:
+            settings["max_tokens"] = max_tokens
+        return settings
+
+    def _build_model_config(  # noqa: PLR0913
+        self,
+        provider: ModelProvider,
+        model: str,
+        *,
+        settings: dict[str, Any] | None = None,
+        api_key_secret: str | None = None,
+        base_url: str | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> ModelConfig:
+        """Builds the `ModelConfig` this node outputs.
 
         Args:
-            params: A dictionary containing the current parameter values for the node.
-
-        Returns:
-            A dictionary containing keyword arguments derived from the common base
-            parameters, suitable for unpacking into a Griptape driver constructor.
-            Arguments corresponding to `None` parameter values are excluded, except
-            for boolean flags where `False` is explicitly included. 'max_tokens'
-            is only included if its value is > 0.
+            provider: Which API the config targets.
+            model: The provider's model id.
+            settings: Replaces the shared settings from `_common_settings` when given.
+            api_key_secret: Name of the secret holding the API key. Never the key itself.
+            base_url: Endpoint override.
+            options: Provider-specific extras.
         """
-        driver_args = {}
-
-        # Define mapping from node parameter name to driver argument name
-        # None value means the name is the same.
-        param_to_driver_arg_map = {
-            "temperature": "temperature",
-            "max_attempts_on_fail": "max_attempts",  # Renamed to fit what the driver expects
-            "seed": "seed",
-            "min_p": "min_p",
-            "top_k": "top_k",
-            "use_native_tools": "use_native_tools",
-            "stream": "stream",
-            # "max_tokens" is handled separately below
-        }
-
-        for node_param, driver_param in param_to_driver_arg_map.items():
-            value = params.get(node_param)
-            # Include if the value is explicitly set (not None).
-            # This correctly includes boolean flags set to False.
-            if value is not None:
-                driver_args[driver_param] = value
-
-        # Special handling for max_tokens: only include if > 0
-        max_tokens_val = params.get("max_tokens")
-        if max_tokens_val is not None and max_tokens_val > 0:
-            driver_args["max_tokens"] = max_tokens_val
-
-        return driver_args
+        max_retries = self.get_parameter_value("max_attempts_on_fail")
+        return ModelConfig(
+            provider=provider,
+            model=model,
+            base_url=base_url,
+            api_key_secret=api_key_secret,
+            settings=self._common_settings() if settings is None else settings,
+            max_retries=max_retries,
+            options=options or {},
+        )
 
     def process(self) -> None:
-        """Processes the node to generate the output prompt_model_configuration.
+        """Subclasses MUST override this to set 'prompt_model_config' to their `ModelConfig`.
 
-        In this base class, this method creates a `DummyPromptDriver` instance
-        and assigns it to the 'prompt_model_config' output parameter. This primarily
-        serves to define the output socket type for the node graph and provide a
-        non-functional default if the node is used directly (which is discouraged).
+        Typical shape: read the node's parameters, call `_build_model_config` with
+        the provider, model id and API key secret name, and assign the result to
+        `self.parameter_output_values["prompt_model_config"]`.
 
-        Subclasses MUST override this method to:
-        1. Retrieve all parameter values: `params = self.parameter_values`.
-        2. Optionally get common arguments: `common_args = self._get_common_driver_args(params)`.
-        3. Retrieve driver-specific arguments (e.g., API key, model from `params`).
-        4. Handle any specific parameter conversions or logic.
-        5. Combine common and specific arguments into a final `kwargs` dictionary.
-        6. Instantiate their specific Griptape prompt driver: `driver = SpecificDriver(**kwargs)`.
-        7. Assign the created driver instance to the output:
-           `self.parameter_output_values["prompt_model_config"] = driver`
+        Raises:
+            NotImplementedError: Always; the base node has no provider.
         """
-        # Create a placeholder driver for the base class output type definition.
-        # This ensures the output socket has the correct type ('Prompt Model Config')
-        # even though this base node doesn't configure a real driver.
-        driver = DummyPromptDriver()
-
-        # Set the output parameter with the placeholder driver.
-        self.parameter_output_values["prompt_model_config"] = driver
+        msg = f"{type(self).__name__} does not configure a model provider. Use a provider-specific prompt node."
+        raise NotImplementedError(msg)

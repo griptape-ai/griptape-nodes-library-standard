@@ -1,17 +1,16 @@
-"""Defines the OpenAiPrompt node for configuring the OpenAi Prompt Driver.
+"""Defines the OpenAiPrompt node for configuring an OpenAI prompt model.
 
 This module provides the `OpenAiPrompt` class, which allows users
 to configure and utilize the OpenAi prompt service within the Griptape
 Nodes framework. It inherits common prompt parameters from `BasePrompt`, sets
 OpenAi specific model options, requires a OpenAi API key via
-node configuration, and instantiates the `OpenAiPromptDriver`.
+node configuration, and emits a `ModelConfig`.
 """
 
-from griptape.drivers.prompt.openai import OpenAiChatPromptDriver as GtOpenAiChatPromptDriver
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
+from griptape_nodes_library.llm.model_config import ModelProvider
 
 # --- Constants ---
 
@@ -42,7 +41,7 @@ DEFAULT_MODEL = MODEL_CHOICES[0]
 
 
 class OpenAiPrompt(BasePrompt):
-    """Node for configuring and providing a OpenAi Chat Prompt Driver.
+    """Node for configuring an OpenAI prompt model.
 
     Inherits from `BasePrompt` to leverage common LLM parameters. This node
     customizes the available models to those supported by OpenAi,
@@ -50,11 +49,8 @@ class OpenAiPrompt(BasePrompt):
     requires a OpenAi API key to be set in the node's configuration
     under the 'OpenAi' service.
 
-    The `process` method gathers the configured parameters and the API key,
-    utilizes the `_get_common_driver_args` helper from `BasePrompt`, adds
-    OpenAi specific configurations, then instantiates a
-    `OpenAiPromptDriver` and assigns it to the 'prompt_model_config'
-    output parameter.
+    The `process` method turns the configured parameters into a `ModelConfig` that
+    names the API key secret, and assigns it to the 'prompt_model_config' output parameter.
     """
 
     def __init__(self, **kwargs) -> None:
@@ -63,7 +59,7 @@ class OpenAiPrompt(BasePrompt):
         Calls the superclass initializer, then modifies the inherited 'model'
         parameter to use OpenAi specific models and sets a default.
         It also removes the 'seed' parameter inherited from `BasePrompt` as it's
-        not directly supported by the OpenAi driver implementation.
+        not directly supported by the OpenAi implementation.
         """
         super().__init__(**kwargs)
 
@@ -84,7 +80,7 @@ class OpenAiPrompt(BasePrompt):
             param="model", choices=available_models, default=available_models[0] if available_models else ""
         )
 
-        # Remove the 'seed' parameter as it's not directly used by OpenAiPromptDriver.
+        # Remove the 'seed' parameter as it's not directly used by OpenAI.
         self.remove_parameter_element_by_name("seed")
 
         # Remove `top_k` parameter as it's not used by OpenAi.
@@ -94,53 +90,16 @@ class OpenAiPrompt(BasePrompt):
         self._replace_param_by_name(param_name="min_p", new_param_name="top_p", default_value=0.9)
 
     def process(self) -> None:
-        """Processes the node configuration to create a OpenAiPromptDriver.
+        """Emits the `ModelConfig` for the selected OpenAI model.
 
-        Retrieves parameter values set on the node and the required API key from
-        the node's configuration system. It constructs the arguments dictionary
-        for the `OpenAiPromptDriver`, handles optional parameters and
-        any necessary conversions (like 'min_p' to 'top_p'), instantiates the
-        driver, and assigns it to the 'prompt_model_config' output parameter.
-
-        Raises:
-            KeyError: If the OpenAi API key is not found in the node configuration
-                      (though `validate_before_workflow_run` should prevent this during execution).
+        The API key is referenced by secret name only; it is resolved when the model is built.
         """
-        # Retrieve all parameter values set on the node UI or via input connections.
-        params = self.parameter_values
-
-        # --- Get Common Driver Arguments ---
-        # Use the helper method from BasePrompt to get args like temperature, stream, max_attempts, etc.
-        common_args = self._get_common_driver_args(params)
-
-        # --- Prepare OpenAi Specific Arguments ---
-        specific_args = {}
-
-        # Retrieve the mandatory API key.
-        specific_args["api_key"] = GriptapeNodes.SecretsManager().get_secret(API_KEY_ENV_VAR)
-
-        # Get the selected model.
-        specific_args["model"] = self.get_parameter_value("model")
-
-        # Handle parameters that go into 'extra_params' for OpenAi.
-        extra_params = {}
-
-        extra_params["top_p"] = self.get_parameter_value("top_p")
-
-        # Assign extra_params if not empty
-        if extra_params:
-            specific_args["extra_params"] = extra_params
-
-        # --- Combine Arguments and Instantiate Driver ---
-        # Combine common arguments with OpenAi specific arguments.
-        # Specific args take precedence if there's an overlap (though unlikely here).
-        all_kwargs = {**common_args, **specific_args}
-
-        # Create the OpenAi prompt driver instance.
-        driver = GtOpenAiChatPromptDriver(**all_kwargs)
-
-        # Set the output parameter 'prompt_model_config'.
-        self.parameter_output_values["prompt_model_config"] = driver
+        config = self._build_model_config(
+            ModelProvider.OPENAI,
+            self.get_parameter_value("model"),
+            api_key_secret=API_KEY_ENV_VAR,
+        )
+        self.parameter_output_values["prompt_model_config"] = config
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
         """Validates that the OpenAi API key is configured correctly.

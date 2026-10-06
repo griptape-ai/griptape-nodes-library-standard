@@ -1,10 +1,10 @@
-"""Defines the GriptapeCloudPrompt node for configuring the Griptape Cloud Prompt Driver.
+"""Defines the GriptapeCloudPrompt node for configuring a Griptape Cloud prompt model.
 
 This module provides the `GriptapeCloudPrompt` class, which allows users
 to configure and utilize the Griptape Cloud prompt service within the Griptape
 Nodes framework. It inherits common prompt parameters from `BasePrompt`, sets
 Griptape Cloud specific model options, requires a Griptape Cloud API key via
-node configuration, and instantiates the `GriptapeCloudPromptDriver`.
+node configuration, and emits a `ModelConfig`.
 """
 
 from typing import Any
@@ -17,14 +17,11 @@ from griptape_nodes.drivers.cloud_models import (
 from griptape_nodes.exe_types.core_types import Parameter
 
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
-from griptape_nodes_library.utils.cloud_budget_drivers import (
-    GriptapeCloudPromptDriver as GtGriptapeCloudPromptDriver,
-)
+from griptape_nodes_library.llm.model_config import ModelProvider
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
-from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
 
 # --- Constants ---
@@ -36,9 +33,12 @@ DEFAULT_MODEL = "gpt-4.1-mini"
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 
+# Catalog model args that map onto generation settings; the rest (stream, ...) are griptape-only.
+GENERATION_SETTINGS = frozenset({"temperature", "top_p", "top_k", "seed", "max_tokens"})
+
 
 class GriptapeCloudPrompt(BasePrompt):
-    """Node for configuring and providing a Griptape Cloud Prompt Driver.
+    """Node for configuring a Griptape Cloud prompt model.
 
     Inherits from `BasePrompt` to leverage common LLM parameters. This node
     customizes the available models to those supported by Griptape Cloud,
@@ -46,11 +46,8 @@ class GriptapeCloudPrompt(BasePrompt):
     requires a Griptape Cloud API key to be set in the node's configuration
     under the 'Griptape' service.
 
-    The `process` method gathers the configured parameters and the API key,
-    utilizes the `_get_common_driver_args` helper from `BasePrompt`, adds
-    Griptape Cloud specific configurations, then instantiates a
-    `GriptapeCloudPromptDriver` and assigns it to the 'prompt_model_config'
-    output parameter.
+    The `process` method turns the configured parameters into a `ModelConfig` that
+    names the secrets to use, and assigns it to the 'prompt_model_config' output parameter.
     """
 
     def __init__(self, **kwargs) -> None:
@@ -59,7 +56,7 @@ class GriptapeCloudPrompt(BasePrompt):
         Calls the superclass initializer, then modifies the inherited 'model'
         parameter to use Griptape Cloud specific models and sets a default.
         It also removes the 'seed' parameter inherited from `BasePrompt` as it's
-        not directly supported by the Griptape Cloud driver implementation.
+        not directly supported by the Griptape Cloud implementation.
         """
         super().__init__(**kwargs)
 
@@ -70,7 +67,7 @@ class GriptapeCloudPrompt(BasePrompt):
             model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=CLOUD_LEGACY_MODEL_VALUES
         )
 
-        # Remove the 'seed' parameter as it's not directly used by GriptapeCloudPromptDriver.
+        # Remove the 'seed' parameter as it's not directly used by Griptape Cloud.
         self.remove_parameter_element_by_name("seed")
 
         # Remove `top_k` parameter as it's not used by Griptape Cloud.
@@ -103,76 +100,34 @@ class GriptapeCloudPrompt(BasePrompt):
         return super().after_value_set(parameter, value)
 
     def process(self) -> None:
-        """Processes the node configuration to create a GriptapeCloudPromptDriver.
+        """Emits the `ModelConfig` for the selected Griptape Cloud model.
 
-        Retrieves parameter values set on the node and the required API key from
-        the node's configuration system. It constructs the arguments dictionary
-        for the `GriptapeCloudPromptDriver`, handles optional parameters and
-        any necessary conversions (like 'min_p' to 'top_p'), instantiates the
-        driver, and assigns it to the 'prompt_model_config' output parameter.
-
-        Raises:
-            KeyError: If the Griptape Cloud API key is not found in the node configuration
-                      (though `validate_before_workflow_run` should prevent this during execution).
+        Fails closed if the license denies the selected model. The credential
+        (API key or License) is resolved when the model is built, and
+        `validate_before_workflow_run` checks that one exists. The catalog's
+        per-model argument overrides are applied to the settings: a `None` value
+        drops a setting the model rejects, and a value replaces the node's. Overrides
+        for `stream` and `structured_output_strategy` have no pydantic-ai equivalent
+        and are ignored.
         """
-        # Retrieve all parameter values set on the node UI or via input connections.
-        params = self.parameter_values
-
-        # A model the license denies must not reach a downstream node as a driver.
         self._raise_if_model_denied()
 
-        # --- Get Common Driver Arguments ---
-        # Use the helper method from BasePrompt to get args like temperature, stream, max_attempts, etc.
-        common_args = self._get_common_driver_args(params)
-
-        # --- Prepare Griptape Cloud Specific Arguments ---
-        specific_args = {}
-
-        # Retrieve the mandatory API key, alongside the headers that carry attribution.
-        # Neither is touched by the MODEL_CHOICES_ARGS override loop below.
-        specific_args.update(cloud_driver_auth())
-
-        # Get the upstream provider's id for the selected model.
         provider_model_id = self._get_selected_model_id()
-        specific_args["model"] = provider_model_id
+        settings = self._common_settings()
+        if provider_model_id in O_SERIES_MODELS:
+            settings.pop("top_p", None)
 
-        # Handle parameters that go into 'extra_params' for Griptape Cloud.
-        extra_params = {}
-        if provider_model_id not in O_SERIES_MODELS:
-            top_p = self.get_parameter_value("top_p")
-            if top_p is not None:
-                extra_params["top_p"] = top_p
-
-        # Assign extra_params if not empty
-        if extra_params:
-            specific_args["extra_params"] = extra_params
-
-        # --- Combine Arguments and Instantiate Driver ---
-        # Combine common arguments with Griptape Cloud specific arguments.
-        all_kwargs = {**common_args, **specific_args}
-
-        # Override with model specific args
         model_args = next((model["args"] for model in MODEL_CHOICES_ARGS if model["name"] == provider_model_id), {})
-
-        # Update with model args and remove any that are None
         for arg, value in model_args.items():
+            if arg not in GENERATION_SETTINGS:
+                continue
             if value is None:
-                all_kwargs.pop(arg, None)  # Remove if exists
-                # Also remove from extra_params if it exists there
-                if "extra_params" in all_kwargs and arg in all_kwargs["extra_params"]:
-                    del all_kwargs["extra_params"][arg]
+                settings.pop(arg, None)
             else:
-                all_kwargs[arg] = value
+                settings[arg] = value
 
-        # Clean up empty extra_params
-        if "extra_params" in all_kwargs and not all_kwargs["extra_params"]:
-            del all_kwargs["extra_params"]
-
-        # Create the Griptape Cloud prompt driver instance.
-        driver = GtGriptapeCloudPromptDriver(**all_kwargs)
-
-        # Set the output parameter 'prompt_model_config'.
-        self.parameter_output_values["prompt_model_config"] = driver
+        config = self._build_model_config(ModelProvider.GRIPTAPE_CLOUD, provider_model_id, settings=settings)
+        self.parameter_output_values["prompt_model_config"] = config
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
         """Validates that the Griptape Cloud API key is configured correctly.
