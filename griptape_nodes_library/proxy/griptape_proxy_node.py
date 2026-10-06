@@ -80,6 +80,10 @@ class CancelOutcome(StrEnum):
     UNKNOWN = "unknown"
 
 
+class GenerationFailedError(RuntimeError):
+    """The provider accepted a generation and then ended it as FAILED or ERRORED."""
+
+
 class GriptapeProxyNode(SuccessFailureNode, ABC):
     """Base class for nodes that use the Griptape Cloud v2 async model proxy API.
 
@@ -542,6 +546,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         Returns:
             tuple: (is_terminal, result_json_or_none)
+
+        Raises:
+            GenerationFailedError: If the provider ended the generation as FAILED or ERRORED.
         """
         if status == STATUS_COMPLETED:
             return True, result_json
@@ -561,7 +568,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                     f"{self.name} generation failed with status {status} but no error details were provided."
                 )
             self._set_status_results(was_successful=False, result_details=error_message)
-            return True, None
+            raise GenerationFailedError(error_message)
 
         if status == STATUS_CANCELLED:
             logger.info("%s: Generation cancelled.", self.name)
@@ -705,6 +712,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         Returns:
             dict | None: The final status response, or None if polling failed
+
+        Raises:
+            GenerationFailedError: If the provider ended the generation as FAILED or ERRORED.
         """
         get_url = urljoin(self._proxy_base, f"generations/{generation_id}")
         poll_interval = self.DEFAULT_POLL_INTERVAL
@@ -747,6 +757,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                         # Still processing (QUEUED or RUNNING), wait before next poll
                         await asyncio.sleep(poll_interval)
 
+                    except GenerationFailedError:
+                        # The provider's answer is final; retrying the poll will not change it.
+                        raise
                     except httpx.HTTPStatusError as e:
                         self._log(f"HTTP error while polling: {e.response.status_code} - {e.response.text}")
                         # A refusal is final, so stop polling instead of retrying until the timeout.
@@ -890,6 +903,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         self._handle_failure_exception(e)
 
+    def _handle_generation_failed(self, e: GenerationFailedError) -> None:
+        """Handle a generation the provider ended as FAILED or ERRORED.
+
+        The poll that saw the terminal status has already set the outputs and status.
+        """
+        self._handle_failure_exception(e)
+
     def _handle_result_parsing_error(self, e: Exception) -> None:
         """Handle result parsing errors."""
         self._log(f"Error parsing result: {e}")
@@ -1012,6 +1032,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             result_json = await self._fetch_generation_result(generation_id)
         except BudgetExceededError as e:
             self._handle_budget_halt(e)
+            return
+        except GenerationFailedError as e:
+            self._handle_generation_failed(e)
             return
         if not result_json:
             return
