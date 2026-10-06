@@ -158,6 +158,13 @@ class TestAgentState:
 
         assert AgentState.from_wire(legacy).runs() == [{"input": "Describe", "output": "A cat."}]
 
+    def test_legacy_model_artifact_output_is_json(self) -> None:
+        legacy = {
+            "conversation_memory": {"runs": [{"input": "q", "output": {"type": "ModelArtifact", "value": {"n": 1}}}]}
+        }
+
+        assert AgentState.from_wire(legacy).runs() == [{"input": "q", "output": '{"n": 1}'}]
+
     def test_compact_messages_inlines_tool_use_and_drops_tool_parts(self) -> None:
         def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
             if len(messages) == 1:

@@ -130,7 +130,11 @@ def _as_text(value: Any) -> str:
     if isinstance(value, dict):
         if value.get("type") in _NON_TEXT_ARTIFACTS:
             return ""
-        return _as_text(value.get("value", ""))
+        inner = value.get("value", "")
+        # ModelArtifact / JsonArtifact hold a dict value: render it, don't unwrap it.
+        if "type" in value and isinstance(inner, dict):
+            return json.dumps(inner)
+        return _as_text(inner)
     if isinstance(value, list):
         return "\n".join(t for t in (_as_text(v) for v in value) if t)
     if value is None:
