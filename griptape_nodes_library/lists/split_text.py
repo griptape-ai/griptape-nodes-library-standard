@@ -122,7 +122,7 @@ class SplitText(ControlNode):
             self.trim_whitespace.name,
             self.split_mode.name,
         ]:
-            self._process_text()
+            self._process_text(raise_on_failure=False)
 
         # Control parameter visibility based on split_mode
         if parameter.name == self.split_mode.name:
@@ -144,8 +144,12 @@ class SplitText(ControlNode):
             exceptions.append(Exception(f"'Text' must be a string, got {type(text).__name__}."))
         return exceptions
 
-    def _process_text(self) -> None:
-        """Process the text input according to the selected mode (split or parse)."""
+    def _process_text(self, *, raise_on_failure: bool) -> None:
+        """Process the text input according to the selected mode (split or parse).
+
+        raise_on_failure is True on the process() path so failures fail the node. It is False from
+        after_value_set(), which only logs and clears the output.
+        """
         # Get all input parameters
         text = self.get_parameter_value(self.text_input.name)
         split_mode = self.get_parameter_value(self.split_mode.name)
@@ -175,6 +179,9 @@ class SplitText(ControlNode):
             logger.error(msg)
             self.parameter_output_values[self.output.name] = []
             self.publish_update_to_parameter(self.output.name, [])
+            if raise_on_failure:
+                err = f"Could not split the text: {e}"
+                raise ValueError(err) from e
 
     def _split_by_delimiter(
         self, text: str, delimiter_type: str, *, include_delimiter: bool, trim_whitespace: bool
@@ -249,4 +256,4 @@ class SplitText(ControlNode):
             self.show_parameter_by_name("include_delimiter")
 
     def process(self) -> None:
-        self._process_text()
+        self._process_text(raise_on_failure=True)

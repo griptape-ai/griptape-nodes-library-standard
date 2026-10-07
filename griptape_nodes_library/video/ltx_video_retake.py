@@ -560,6 +560,7 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
         if isinstance(e, ValueError):
             self._set_safe_defaults()
             self._set_status_results(was_successful=False, result_details=str(e))
+            self._handle_failure_exception(e)
             return
 
         super()._handle_payload_build_error(e)

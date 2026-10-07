@@ -66,6 +66,11 @@ class ExecutePython(SuccessFailureNode):
             return "\n".join(variable_assignments) + "\n" + python_code
         return python_code
 
+    def _fail(self, error: Exception) -> None:
+        """Mark the node failed and route the error down Failed, or raise it when Failed is not wired."""
+        self._set_status_results(was_successful=False, result_details=f"Failure: {error}")
+        self._handle_failure_exception(error)
+
     def process(self) -> None:
         self._clear_execution_status()
         python_code = self.get_parameter_value("python_code")
@@ -73,9 +78,7 @@ class ExecutePython(SuccessFailureNode):
 
         if not python_code.strip():
             self.set_parameter_value("result", "No Python code provided for execution")
-            self._set_status_results(
-                was_successful=False, result_details="Failure: No Python code provided for execution"
-            )
+            self._fail(ValueError("No Python code provided for execution. Enter code in 'python_code'."))
             return
 
         full_code = self._assign_vars(python_code, input_variables)
@@ -87,26 +90,23 @@ class ExecutePython(SuccessFailureNode):
 
         # Process the response
         if isinstance(response, RunArbitraryPythonStringResultFailure):
-            error_output = response.python_output
-            self._set_status_results(was_successful=False, result_details=f"Failure: {error_output}")
             self.set_parameter_value("result", "")
-        elif not isinstance(
-            response, RunArbitraryPythonStringResultSuccess
-        ):  # if it's not a success either, it is some response type we don't know
-            # Fallback for unexpected response type
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"Failure: Unexpected response type from RunArbitraryPythonStringRequest: {type(response)}",
+            self._fail(RuntimeError(f"The Python code raised an error:\n{response.python_output}"))
+            return
+
+        if not isinstance(response, RunArbitraryPythonStringResultSuccess):
+            # Some response type we don't know
+            self._fail(
+                RuntimeError(f"Running the Python code returned an unexpected result type: {type(response).__name__}")
             )
-        elif isinstance(response, RunArbitraryPythonStringResultSuccess):
-            if "result" in response.missing_variables:
-                self._set_status_results(
-                    was_successful=False,
-                    result_details="Failure: The executed Python code did not assign a 'result' variable.",
-                )
-                self.set_parameter_value("result", "")
-            else:
-                self.set_parameter_value("result", response.found_variable_values["result"])
-                self._set_status_results(
-                    was_successful=True, result_details="The Python code executed successfully with no exceptions."
-                )
+            return
+
+        if "result" in response.missing_variables:
+            self.set_parameter_value("result", "")
+            self._fail(ValueError("The executed Python code did not assign a 'result' variable."))
+            return
+
+        self.set_parameter_value("result", response.found_variable_values["result"])
+        self._set_status_results(
+            was_successful=True, result_details="The Python code executed successfully with no exceptions."
+        )

@@ -741,4 +741,3 @@ class VideoColorMatch(SuccessFailureNode):
 
             # Handle failure
             self._handle_failure_exception(e)
-            raise

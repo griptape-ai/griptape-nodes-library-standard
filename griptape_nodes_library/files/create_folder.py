@@ -83,6 +83,11 @@ class CreateFolder(FileOperationBaseNode):
             parameter_group_initially_collapsed=True,
         )
 
+    def _fail(self, error: Exception) -> None:
+        """Mark the node failed and route the error down Failed, or raise it when Failed is not wired."""
+        self._set_status_results(was_successful=False, result_details=str(error))
+        self._handle_failure_exception(error)
+
     def process(self) -> None:
         """Create a folder at the requested path."""
         self._clear_execution_status()
@@ -99,19 +104,19 @@ class CreateFolder(FileOperationBaseNode):
 
         if not folder_path:
             msg = "'folder_path' is empty. Set the folder to create."
-            self._set_status_results(was_successful=False, result_details=msg)
+            self._fail(ValueError(msg))
             return
 
         existing_path = self._check_path_exists(folder_path)
         if existing_path.exists:
             if not existing_path.is_directory:
                 msg = f"A file already exists at this path: {folder_path}"
-                self._set_status_results(was_successful=False, result_details=msg)
+                self._fail(FileExistsError(msg))
                 return
 
             if fail_if_already_exists:
                 msg = f"The folder already exists: {folder_path}. Turn off 'fail_if_already_exists' to accept an existing folder."
-                self._set_status_results(was_successful=False, result_details=msg)
+                self._fail(FileExistsError(msg))
                 return
 
             self.set_parameter_value(self.created_path_output.name, folder_path)
@@ -128,11 +133,11 @@ class CreateFolder(FileOperationBaseNode):
             parent_path = self._check_path_exists(str(Path(folder_path).parent))
             if not parent_path.exists:
                 msg = f"The parent folder does not exist: {folder_path}. Turn on 'create_parents' to create it."
-                self._set_status_results(was_successful=False, result_details=msg)
+                self._fail(FileNotFoundError(msg))
                 return
             if not parent_path.is_directory:
                 msg = f"The parent path is not a folder: {folder_path}"
-                self._set_status_results(was_successful=False, result_details=msg)
+                self._fail(NotADirectoryError(msg))
                 return
 
         create_result = GriptapeNodes.handle_request(
@@ -150,7 +155,7 @@ class CreateFolder(FileOperationBaseNode):
             )
             error_details = f" - {create_result.result_details}" if create_result.result_details else ""
             msg = f"Could not create folder '{folder_path}': {failure_reason}{error_details}"
-            self._set_status_results(was_successful=False, result_details=msg)
+            self._fail(OSError(msg))
             return
 
         self.set_parameter_value(self.created_path_output.name, folder_path)

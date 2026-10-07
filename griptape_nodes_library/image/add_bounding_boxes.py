@@ -250,11 +250,14 @@ class AddBoundingBoxes(BaseImageProcessor):
         # Try to get image input data safely
         image_data = self._get_image_input_data_safe()
 
-        # If no image provided, this is acceptable for this node
         if image_data is None:
-            error_details = "No input image provided - image input is required"
+            if self.parameter_values.get("input_image"):
+                error_details = "Could not load the image connected to 'Input Image'. Check that it is a valid image."
+            else:
+                error_details = "An image is required. Connect an image to 'Input Image'."
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
             logger.warning(f"{self.__class__.__name__} '{self.name}': {error_details}")
+            self._handle_failure_exception(ValueError(error_details))
             return
 
         try:

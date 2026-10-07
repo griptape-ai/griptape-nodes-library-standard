@@ -188,7 +188,8 @@ class TestCopyFiles:
         _set_list(node, "source_paths", ["{outputs}/foo.png"])
         node.parameter_values["destination_path"] = str(tmp_path)
 
-        node.process()
+        with pytest.raises(ValueError, match="Resolution failed"):
+            node.process()
 
         assert node.get_parameter_value("was_successful") is False
         assert "Resolution failed" in node.get_parameter_value("result_details")
@@ -200,11 +201,25 @@ class TestCopyFiles:
         _set_list(node, "source_paths", [str(source)])
         node.parameter_values["destination_path"] = "{outputs}/archive"
 
-        node.process()
+        with pytest.raises(ValueError, match="Resolution failed"):
+            node.process()
 
         assert node.get_parameter_value("was_successful") is False
         assert "Resolution failed" in node.get_parameter_value("result_details")
         assert not (tmp_path / "{outputs}").exists()
+
+    def test_failure_routes_to_failed_output_when_wired(self, node: CopyFiles, tmp_path: Path) -> None:
+        """With Failed wired, a copy where nothing succeeded reports per-file details instead of raising."""
+        _set_list(node, "source_paths", [str(tmp_path / "missing.png")])
+        node.parameter_values["destination_path"] = str(tmp_path / "dest")
+        node._has_outgoing_connections = lambda _param: True  # type: ignore[method-assign]
+
+        node.process()
+
+        assert node.get_parameter_value("was_successful") is False
+        details = node.get_parameter_value("result_details")
+        assert "All source paths were invalid" in details
+        assert "missing.png" in details
 
 
 class TestMoveFiles:
@@ -238,6 +253,19 @@ class TestMoveFiles:
 
         assert node.get_parameter_value("was_successful") is True
         assert (outputs_dir / "archive" / "foo.png").read_bytes() == b"new"
+
+    def test_raises_when_destination_is_empty(self, node: MoveFiles, tmp_path: Path) -> None:
+        source = tmp_path / "foo.png"
+        source.write_bytes(b"png")
+        _set_list(node, "source_paths", [str(source)])
+        node.parameter_values["destination_path"] = ""
+        node._has_outgoing_connections = lambda _param: False  # type: ignore[method-assign]
+
+        with pytest.raises(ValueError, match="'destination_path' is empty"):
+            node.process()
+
+        assert node.get_parameter_value("was_successful") is False
+        assert source.exists()
 
 
 class TestRenameFile:
@@ -276,7 +304,8 @@ class TestRenameFile:
         node.parameter_values["old_path"] = "{outputs}/foo.png"
         node.parameter_values["new_path"] = "bar.png"
 
-        node.process()
+        with pytest.raises(ValueError, match="Resolution failed"):
+            node.process()
 
         assert node.get_parameter_value("was_successful") is False
         assert "Resolution failed" in node.get_parameter_value("result_details")
@@ -311,11 +340,22 @@ class TestDeleteFile:
         assert node.get_parameter_value("was_successful") is True
         assert sorted(p.name for p in outputs_dir.iterdir()) == ["c.txt"]
 
+    def test_raises_with_per_file_details_when_nothing_is_deleted(self, node: DeleteFile, tmp_path: Path) -> None:
+        _set_list(node, "file_paths", [str(tmp_path / "missing.png")])
+        node._has_outgoing_connections = lambda _param: False  # type: ignore[method-assign]
+
+        with pytest.raises(ValueError, match="All paths were invalid") as exc_info:
+            node.process()
+
+        assert "missing.png" in str(exc_info.value)
+        assert node.get_parameter_value("was_successful") is False
+
     @pytest.mark.usefixtures("stub_resolution_failure")
     def test_fails_without_deleting_when_macro_cannot_resolve(self, node: DeleteFile) -> None:
         _set_list(node, "file_paths", ["{outputs}/foo.png"])
 
-        node.process()
+        with pytest.raises(ValueError, match="Resolution failed"):
+            node.process()
 
         assert node.get_parameter_value("was_successful") is False
         assert "Resolution failed" in node.get_parameter_value("result_details")
@@ -390,7 +430,8 @@ class TestBracesInFilenames:
         node = DeleteFile("delete_file")
         _set_list(node, "file_paths", [str(tmp_path / f"{{{env_var}}}.txt")])
 
-        node.process()
+        with pytest.raises(ValueError, match="No files were deleted|All paths were invalid"):
+            node.process()
 
         assert other_file.read_text() == "keep me"
 
@@ -444,7 +485,8 @@ class TestUnavailableBuiltins:
         _set_list(node, "source_paths", [str(source)])
         node.parameter_values["destination_path"] = "{outputs}/{workflow_name}"
 
-        node.process()
+        with pytest.raises(ValueError, match="workflow_name"):
+            node.process()
 
         assert node.get_parameter_value("was_successful") is False
         assert "workflow_name" in node.get_parameter_value("result_details")

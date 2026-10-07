@@ -174,6 +174,11 @@ class DeleteFile(SuccessFailureNode):
         # Remove duplicates
         return set(cleaned_paths)
 
+    def _fail(self, error: Exception) -> None:
+        """Mark the node failed and route the error down Failed, or raise it when Failed is not wired."""
+        self._set_status_results(was_successful=False, result_details=str(error))
+        self._handle_failure_exception(error)
+
     def process(self) -> None:
         """Execute the file deletion."""
         self._clear_execution_status()
@@ -202,10 +207,10 @@ class DeleteFile(SuccessFailureNode):
             msg = "All paths were invalid. No files were deleted."
             details = self._format_result_details(all_targets)
             self.set_parameter_value(self.deleted_paths_output.name, None)
-            self._set_status_results(was_successful=False, result_details=f"{msg}\n\n{details}")
             # Update warning message with error
             self.deletion_warning.variant = "error"
             self.deletion_warning.value = details
+            self._fail(ValueError(f"{msg}\n\n{details}"))
             return
 
         # Only delete explicitly requested items
@@ -236,10 +241,10 @@ class DeleteFile(SuccessFailureNode):
             # Show all targets in details (including children)
             details = self._format_result_details(all_targets)
             self.set_parameter_value(self.deleted_paths_output.name, None)
-            self._set_status_results(was_successful=False, result_details=f"{msg}\n\n{details}")
             # Update warning message with error
             self.deletion_warning.variant = "error"
             self.deletion_warning.value = details
+            self._fail(OSError(f"{msg}\n\n{details}"))
             return
 
         # SUCCESS PATH AT END (even if some failed, as long as at least one succeeded)

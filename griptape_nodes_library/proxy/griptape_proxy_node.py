@@ -979,6 +979,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         self._handle_failure_exception(e)
 
+    def _failure_details(self) -> str:
+        """The failure a subclass reported with _set_status_results, for the error the base raises."""
+        details = self.get_parameter_value("result_details")
+        if isinstance(details, str) and details.strip():
+            return details.strip()
+        return "The generation finished, but its result could not be used."
+
     def _handle_result_parsing_error(self, e: Exception) -> None:
         """Handle result parsing errors."""
         self._log(f"Error parsing result: {e}")
@@ -1115,11 +1122,18 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         if "provider_response" in self.parameter_output_values:
             self.parameter_output_values["provider_response"] = result_json
 
-        # Parse model-specific result
+        # Parse model-specific result. A subclass that can't use the result reports it with
+        # _set_status_results instead of raising, so check for that too.
+        self._execution_succeeded = None
         try:
             await self._parse_result(result_json, generation_id)
         except Exception as e:
             self._handle_result_parsing_error(e)
+            return
+        if self._execution_succeeded is False:
+            self._handle_failure_exception(
+                GenerationIncompleteError(self._failure_details(), fields=error_fields(generation_id=generation_id))
+            )
 
     def _on_refresh_clicked(self, _button: Any, _details: Any) -> None:
         """Sync entry point for the Refresh button — bridges into the async refresh flow.

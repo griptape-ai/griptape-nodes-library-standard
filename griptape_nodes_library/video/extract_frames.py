@@ -587,23 +587,17 @@ class ExtractFrames(SuccessFailureNode):
         try:
             video_url = self._resolve_video_for_ffmpeg(raw_video)
         except ValueError as e:
-            self._set_safe_defaults()
-            self._set_status_results(was_successful=False, result_details=str(e))
+            self._fail(e)
             return
 
         try:
             frame_numbers = self._build_frame_list(video_url)
         except ValueError as e:
-            self._set_safe_defaults()
-            self._set_status_results(was_successful=False, result_details=str(e))
+            self._fail(e)
             return
 
         if not frame_numbers:
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details="No frames to extract with the current settings.",
-            )
+            self._fail(ValueError("No frames to extract with the current settings."))
             return
 
         try:
@@ -612,6 +606,12 @@ class ExtractFrames(SuccessFailureNode):
             self._set_safe_defaults()
             self._set_status_results(was_successful=False, result_details=f"Frame extraction failed: {e}")
             self._handle_failure_exception(e)
+
+    def _fail(self, error: Exception) -> None:
+        """Clear outputs, record the failure, and raise unless Failed is wired."""
+        self._set_safe_defaults()
+        self._set_status_results(was_successful=False, result_details=str(error))
+        self._handle_failure_exception(error)
 
     def _perform_extraction(self, video_url: str, frame_numbers: list[int]) -> None:
         output_dir = self._resolve_output_dir()

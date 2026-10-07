@@ -285,4 +285,3 @@ class ColorMatch(SuccessFailureNode):
 
             # Handle failure based on whether failure output is connected
             self._handle_failure_exception(e)
-            raise

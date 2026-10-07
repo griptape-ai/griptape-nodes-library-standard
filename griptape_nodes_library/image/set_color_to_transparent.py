@@ -124,7 +124,8 @@ class SetColorToTransparent(DataNode):
         input_image = self.get_parameter_value("input_image")
 
         if input_image is None:
-            return
+            msg = "Connect an image to 'Input Image'."
+            raise ValueError(msg)
 
         # Normalize input to ImageUrlArtifact
         if isinstance(input_image, dict):
@@ -206,3 +207,5 @@ class SetColorToTransparent(DataNode):
         except Exception as e:
             error_msg = f"Failed to process image: {e!s}"
             logger.error(f"{self.name}: {error_msg}")
+            msg = f"Could not make the color transparent: {e}"
+            raise RuntimeError(msg) from e

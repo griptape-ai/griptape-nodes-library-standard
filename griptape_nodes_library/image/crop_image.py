@@ -391,16 +391,15 @@ class CropImage(ControlNode):
 
         path = self._extract_image_path(params["input_artifact"])
         if not path:
-            logger.error("%s: No valid input image to crop", self.name)
-            return
+            msg = "Connect an image to 'Input Image'."
+            raise ValueError(msg)
 
         # Load image
         try:
             img = load_pil_from_url(path)
         except Exception as e:
-            msg = f"{self.name}: Error loading image: {e}"
-            logger.error(msg)
-            return
+            msg = f"Could not load the image connected to 'Input Image': {e}"
+            raise ValueError(msg) from e
 
         # Calculate and apply crop area
         crop_area = self._calculate_crop_area(params, img.size)
@@ -478,12 +477,7 @@ class CropImage(ControlNode):
         save_format = params["output_format"].upper()
 
         # Validate that the save format is supported by PIL
-        try:
-            validate_pil_format(save_format, "output_format")
-        except ValueError as e:
-            msg = f"{self.name}: {e}"
-            logger.error(msg)
-            return
+        validate_pil_format(save_format, "output_format")
 
         output_quality = max(0.0, min(1.0, params["output_quality"]))  # Clamp to 0.0-1.0
 
@@ -512,9 +506,8 @@ class CropImage(ControlNode):
 
         # Verify we have valid data before proceeding
         if img_data is None or len(img_data) == 0:
-            msg = f"{self.name}: Failed to save image data"
-            logger.error(msg)
-            return
+            msg = f"The cropped image could not be encoded as {save_format}."
+            raise RuntimeError(msg)
 
         dest = self._output_file.build_file()
         saved = dest.write_bytes(img_data)

@@ -127,3 +127,31 @@ def test_file_load_error_is_wrapped_as_value_error(monkeypatch: pytest.MonkeyPat
 
     with pytest.raises(ValueError, match="Failed to extract image data"):
         node._image_to_bytes(artifact)
+
+
+def _failing_node(monkeypatch: pytest.MonkeyPatch, *, failed_wired: bool) -> ExtractKeyColors:
+    node = ExtractKeyColors(name="extract")
+    node.set_parameter_value("input_image", ImageUrlArtifact(value="{outputs}/foo.png"))
+    node._has_outgoing_connections = lambda _parameter: failed_wired  # type: ignore[method-assign]
+
+    def fail(_artifact: Any) -> bytes:
+        msg = "Failed to extract image data"
+        raise ValueError(msg)
+
+    monkeypatch.setattr(node, "_image_to_bytes", fail)
+    return node
+
+
+@pytest.mark.asyncio
+async def test_extraction_failure_raises_when_failed_is_not_wired(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _failing_node(monkeypatch, failed_wired=False)
+    with pytest.raises(ValueError, match="Failed to extract image data"):
+        await node.aprocess()
+    assert node.get_parameter_value("was_successful") is False
+
+
+@pytest.mark.asyncio
+async def test_extraction_failure_routes_to_failed_when_wired(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _failing_node(monkeypatch, failed_wired=True)
+    await node.aprocess()
+    assert node.get_parameter_value("was_successful") is False

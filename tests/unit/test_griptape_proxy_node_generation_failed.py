@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 from griptape_nodes_library.image.flux_2_image_generation import Flux2ImageGeneration
-from griptape_nodes_library.proxy.griptape_proxy_node import GenerationFailedError
+from griptape_nodes_library.proxy.griptape_proxy_node import GenerationFailedError, GenerationIncompleteError
 
 HEADERS = {"Authorization": "Bearer key"}
 GENERATION_ID = "gen-failed"
@@ -163,3 +163,53 @@ def test_a_json_error_body_in_details_is_reduced_to_its_message() -> None:
         "error_code": "unprocessable_entity",
         "request_id": "4036c4f8ac7396f02dac34efd4cbc912",
     }
+
+
+async def _run_with_parse_result(
+    node: Flux2ImageGeneration, monkeypatch: pytest.MonkeyPatch, parse_result: Any
+) -> None:
+    async def headers(*_: Any, **__: Any) -> dict[str, str]:
+        return HEADERS
+
+    async def begin(_: dict[str, str]) -> str:
+        return GENERATION_ID
+
+    async def poll(*_: Any) -> dict[str, Any]:
+        return {"status": "COMPLETED"}
+
+    async def fetch(_: str) -> dict[str, Any]:
+        return {"images": []}
+
+    monkeypatch.setattr(node, "_validate_api_key", lambda: "key")
+    monkeypatch.setattr("griptape_nodes_library.proxy.griptape_proxy_node.build_griptape_cloud_headers_async", headers)
+    monkeypatch.setattr(node, "_begin_generation", begin)
+    monkeypatch.setattr(node, "_poll_generation_status", poll)
+    monkeypatch.setattr(node, "_fetch_generation_result", fetch)
+    monkeypatch.setattr(node, "_parse_result", parse_result)
+    await node._process_generation()
+
+
+@pytest.mark.asyncio
+async def test_a_result_the_node_could_not_use_fails_the_node(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A subclass that reports a failure from _parse_result without raising still fails the node."""
+    node = Flux2ImageGeneration(name="Flux2")
+
+    async def parse_result(_: dict[str, Any], __: str) -> None:
+        node._set_status_results(was_successful=False, result_details="The response contained no images.")
+
+    with pytest.raises(GenerationIncompleteError, match="The response contained no images.") as raised:
+        await _run_with_parse_result(node, monkeypatch, parse_result)
+
+    assert raised.value.fields == {"generation_id": GENERATION_ID}
+
+
+@pytest.mark.asyncio
+async def test_a_result_the_node_used_does_not_fail_the_node(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = Flux2ImageGeneration(name="Flux2")
+
+    async def parse_result(_: dict[str, Any], __: str) -> None:
+        node._set_status_results(was_successful=True, result_details="Saved.")
+
+    await _run_with_parse_result(node, monkeypatch, parse_result)
+
+    assert node._execution_succeeded is True

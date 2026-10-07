@@ -208,6 +208,11 @@ class CopyFiles(FileOperationBaseNode):
             target.status = CopyStatus.SUCCESS
             target.copied_paths = [destination_path]
 
+    def _fail(self, error: Exception) -> None:
+        """Mark the node failed and route the error down Failed, or raise it when Failed is not wired."""
+        self._set_status_results(was_successful=False, result_details=str(error))
+        self._handle_failure_exception(error)
+
     def _format_result_details(self, all_targets: list[CopyFileInfo]) -> str:
         """Format detailed results showing what happened to each file."""
         lines = []
@@ -273,7 +278,7 @@ class CopyFiles(FileOperationBaseNode):
         if not destination_dir:
             msg = "'destination_path' is empty. Set the folder or file to copy to."
             self.set_parameter_value(self.copied_paths_output.name, [])
-            self._set_status_results(was_successful=False, result_details=msg)
+            self._fail(ValueError(msg))
             return
 
         # Resolve a project macro destination like "{outputs}/archive" to the folder on disk
@@ -282,7 +287,7 @@ class CopyFiles(FileOperationBaseNode):
         except FileLoadError as e:
             msg = f"Could not resolve destination path '{destination_dir}': {e}"
             self.set_parameter_value(self.copied_paths_output.name, [])
-            self._set_status_results(was_successful=False, result_details=msg)
+            self._fail(ValueError(msg))
             return
 
         # Determine if destination is a directory or file path
@@ -305,7 +310,7 @@ class CopyFiles(FileOperationBaseNode):
             msg = "All source paths were invalid. No files were copied."
             details = self._format_result_details(all_targets)
             self.set_parameter_value(self.copied_paths_output.name, [])
-            self._set_status_results(was_successful=False, result_details=f"{msg}\n\n{details}")
+            self._fail(ValueError(f"{msg}\n\n{details}"))
             return
 
         # Check if destination looks like a file path (has extension)
@@ -316,7 +321,7 @@ class CopyFiles(FileOperationBaseNode):
         if destination_is_file_path and len(pending_targets) > 1:
             msg = f"Cannot copy {len(pending_targets)} files to the single file path '{destination_dir}'. Set 'destination_path' to a folder instead."
             self.set_parameter_value(self.copied_paths_output.name, [])
-            self._set_status_results(was_successful=False, result_details=msg)
+            self._fail(ValueError(msg))
             return
 
         # Execute copies for all explicitly requested items
@@ -347,7 +352,7 @@ class CopyFiles(FileOperationBaseNode):
             msg = "No files were copied."
             details = self._format_result_details(requested_targets)
             self.set_parameter_value(self.copied_paths_output.name, [])
-            self._set_status_results(was_successful=False, result_details=f"{msg}\n\n{details}")
+            self._fail(OSError(f"{msg}\n\n{details}"))
             return
 
         # SUCCESS PATH AT END (even if some failed, as long as at least one succeeded)

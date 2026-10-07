@@ -143,3 +143,23 @@ def test_declares_connected_agents_model_over_stale_dropdown_value(
     next(gen)
 
     assert captured["api_model_id"] == "gpt-4.1"
+
+
+def test_raises_when_no_images_are_connected(
+    describe_image_node: DescribeImage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no images the node fails naming the input instead of writing a placeholder to its output."""
+    declared: list[str] = []
+    monkeypatch.setattr(
+        model_invocation_module,
+        "declare_model_invocation_sync",
+        lambda _node, model: declared.append(model) or _FakeDeclaration(ok=True),
+    )
+    _stub_images(describe_image_node, monkeypatch, [])
+
+    gen = describe_image_node.process()
+    with pytest.raises(ValueError, match=r"image\(s\)"):
+        next(gen)
+
+    assert declared == []
+    assert describe_image_node.parameter_output_values.get("output") != "No image provided"

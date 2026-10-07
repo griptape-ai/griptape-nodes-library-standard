@@ -113,3 +113,11 @@ def test_set_video_output_parameters_keeps_a_failed_slot_empty(
     assert outputs["video_url_2"] is second
     assert outputs["was_successful"] is True
     assert "Video(s) 1 could not be retrieved" in outputs["result_details"]
+
+
+def test_payload_value_error_raises_when_failed_is_not_wired() -> None:
+    node = Veo3VideoGeneration(name="Veo3")
+    node._has_outgoing_connections = lambda _parameter: False  # type: ignore[method-assign]
+    with pytest.raises(ValueError, match="Enter a prompt"):
+        node._handle_payload_build_error(ValueError("Enter a prompt."))
+    assert node.get_parameter_value("was_successful") is False

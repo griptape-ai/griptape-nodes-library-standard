@@ -702,16 +702,12 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         return saved.location
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-        """Parse the World object and populate outputs."""
-        try:
-            await self._handle_success(result_json, generation_id)
-        except Exception as e:
-            self._log(f"Error parsing result: {e}")
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"Failed to parse generation result: {e}",
-            )
+        """Parse the World object and populate outputs.
+
+        Exceptions propagate to the base class, which reports them through
+        `_handle_result_parsing_error`.
+        """
+        await self._handle_success(result_json, generation_id)
 
     async def _handle_success(self, world: dict[str, Any], generation_id: str) -> None:
         """Handle successful world generation result."""

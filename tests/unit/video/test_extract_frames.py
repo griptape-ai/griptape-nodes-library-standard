@@ -96,3 +96,23 @@ class TestSequenceOutputWiring:
         node._set_safe_defaults()
 
         assert node.parameter_output_values["sequence"] is None
+
+
+class TestProcessFailures:
+    """Run-time failures must fail the node, or route down Failed when it is wired."""
+
+    def test_missing_video_raises_when_failed_is_not_wired(self, node: ExtractFrames) -> None:
+        node._has_outgoing_connections = lambda _param: False  # type: ignore[method-assign]
+
+        with pytest.raises(ValueError, match="Video Input"):
+            next(node.process())
+
+        assert node._execution_succeeded is False
+
+    def test_missing_video_routes_to_failed_when_wired(self, node: ExtractFrames) -> None:
+        node._has_outgoing_connections = lambda _param: True  # type: ignore[method-assign]
+
+        with pytest.raises(StopIteration):
+            next(node.process())
+
+        assert node._execution_succeeded is False

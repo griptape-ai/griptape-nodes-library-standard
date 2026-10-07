@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
@@ -16,8 +15,6 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
-
-logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["LTXTextToVideoGeneration"]
 
@@ -478,14 +475,10 @@ class LTXTextToVideoGeneration(GriptapeProxyNode):
         if isinstance(e, ValueError):
             self._set_safe_defaults()
             self._set_status_results(was_successful=False, result_details=str(e))
+            self._handle_failure_exception(e)
             return
 
         super()._handle_payload_build_error(e)
-
-    def _handle_api_key_validation_error(self, e: ValueError) -> None:
-        self._set_safe_defaults()
-        self._set_status_results(was_successful=False, result_details=str(e))
-        logger.error("%s API key validation failed: %s", self.name, e)
 
     def _set_safe_defaults(self) -> None:
         self.parameter_output_values["generation_id"] = ""

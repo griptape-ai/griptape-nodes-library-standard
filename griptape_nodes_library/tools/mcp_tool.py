@@ -85,9 +85,12 @@ class MCPToolNode(BaseTool):
         # Get MCP server configuration
         server_config = get_server_config(mcp_server_name)
         if server_config is None:
-            error_details = f"MCP server '{mcp_server_name}' not found or not enabled"
+            error_details = (
+                f"MCP server '{mcp_server_name}' was not found or is not enabled. "
+                "Enable it in Settings, or pick another server in 'Mcp Server Name'."
+            )
             logger.error(f"{self.name}: {error_details}")
-            return
+            raise ValueError(error_details)
 
         self.parameter_output_values["tool"] = {
             "tool_type": "MCPTool",

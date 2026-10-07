@@ -304,14 +304,10 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         if isinstance(e, ValueError):
             self._set_safe_defaults()
             self._set_status_results(was_successful=False, result_details=str(e))
+            self._handle_failure_exception(e)
             return
 
         super()._handle_payload_build_error(e)
-
-    def _handle_api_key_validation_error(self, e: ValueError) -> None:
-        self._set_safe_defaults()
-        self._set_status_results(was_successful=False, result_details=str(e))
-        logger.error("%s API key validation failed: %s", self.name, e)
 
     def _set_safe_defaults(self) -> None:
         self.parameter_output_values["generation_id"] = ""

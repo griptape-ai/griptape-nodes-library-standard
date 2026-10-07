@@ -878,7 +878,13 @@ class EngineNode(SuccessFailureNode):
             self._handle_execution_error(str(e))
 
     def _handle_result(self, result: ResultPayload) -> None:
-        """Handle successful request execution result."""
+        """Handle successful request execution result.
+
+        A failed request is reported only through the status outputs and the Failed control
+        output, never raised. Unlike other nodes, a failure here is often the answer a workflow
+        asked for, such as whether a node exists, and workflows read it from `was_successful`
+        without wiring Failed.
+        """
         if result.succeeded():
             self._populate_success_outputs(result)
             # Handle result_details for success

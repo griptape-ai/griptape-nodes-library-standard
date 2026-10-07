@@ -152,9 +152,7 @@ class TestSelectionGate:
     ) -> None:
         """A denied selection stops the node before the MCP server connection.
 
-        `SuccessFailureNode` reports through its status parameters rather than
-        raising, so the denial routes down the Failed control output with the
-        policy's own reason attached.
+        With nothing wired to Failed, the denial raises with the policy's own reason.
         """
         mcp_task_node.set_parameter_value("prompt", "hello")
         monkeypatch.setattr(
@@ -170,15 +168,46 @@ class TestSelectionGate:
             lambda self, name, config: tool_calls.append((name, config)),  # noqa: ARG005
         )
 
+        mcp_task_node._has_outgoing_connections = lambda _param: False  # type: ignore[method-assign]
+
         generator = mcp_task_node.process()
         assert generator is not None
-        with pytest.raises(StopIteration):
+        with pytest.raises(RuntimeError, match="not permitted under your license"):
             next(generator)
 
         assert tool_calls == []
         assert mcp_task_node._execution_succeeded is False
         result_details = mcp_task_node.get_parameter_value("result_details")
         assert "not permitted under your license" in result_details
+
+    def test_denied_selection_routes_to_failed_output_when_wired(
+        self, mcp_task_node: MCPTaskNode, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With Failed wired, the denial is reported in the status and the node stops without raising."""
+        mcp_task_node.set_parameter_value("prompt", "hello")
+        monkeypatch.setattr(mcp_task_node._model_access, "selection_denial", lambda: _denial("denied for test"))
+        mcp_task_node._has_outgoing_connections = lambda _param: True  # type: ignore[method-assign]
+
+        generator = mcp_task_node.process()
+        assert generator is not None
+        with pytest.raises(StopIteration):
+            next(generator)
+
+        assert mcp_task_node._execution_succeeded is False
+        assert "denied for test" in mcp_task_node.get_parameter_value("result_details")
+
+    def test_unknown_server_raises_when_failed_is_not_wired(
+        self, mcp_task_node: MCPTaskNode, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mcp_task_node.set_parameter_value("prompt", "hello")
+        monkeypatch.setattr(mcp_task_node._model_access, "selection_denial", lambda: None)
+        monkeypatch.setattr(_node_module(mcp_task_node), "get_server_config", lambda _name: None)
+        mcp_task_node._has_outgoing_connections = lambda _param: False  # type: ignore[method-assign]
+
+        generator = mcp_task_node.process()
+        assert generator is not None
+        with pytest.raises(ValueError, match="was not found or is not enabled"):
+            next(generator)
 
     def test_connected_agent_skips_the_selection_gate(
         self, mcp_task_node: MCPTaskNode, monkeypatch: pytest.MonkeyPatch

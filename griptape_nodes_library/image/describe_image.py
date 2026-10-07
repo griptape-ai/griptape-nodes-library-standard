@@ -476,8 +476,8 @@ class DescribeImage(ControlNode):
                 image_artifacts.append(img)
 
         if not image_artifacts:
-            self.parameter_output_values["output"] = "No image provided"
-            return
+            msg = "An image is required. Connect at least one image to 'image(s)'."
+            raise ValueError(msg)
 
         # Declare the model that will actually run. Every construction branch above
         # ends with the concrete prompt driver installed on the agent's PromptTask,

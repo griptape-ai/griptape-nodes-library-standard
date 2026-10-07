@@ -1,3 +1,4 @@
+import traceback
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
@@ -47,24 +48,29 @@ class InvertMask(DataNode):
                 value = dict_to_image_url_artifact(value)
 
             # Invert the mask
-            self._invert_mask(value)
+            self._invert_mask(value, raise_on_failure=False)
 
     def process(self) -> None:
         # Get input mask
         input_mask = self.get_parameter_value("input_mask")
 
         if input_mask is None:
-            return
+            msg = "Connect a mask to 'Input Mask'."
+            raise ValueError(msg)
 
         # Normalize input to ImageUrlArtifact
         if isinstance(input_mask, dict):
             input_mask = dict_to_image_url_artifact(input_mask)
 
         # Invert the mask
-        self._invert_mask(input_mask)
+        self._invert_mask(input_mask, raise_on_failure=True)
 
-    def _invert_mask(self, mask_artifact: ImageUrlArtifact) -> None:
-        """Invert the input mask and set as output_mask."""
+    def _invert_mask(self, mask_artifact: ImageUrlArtifact, *, raise_on_failure: bool) -> None:
+        """Invert the input mask and set it as output_mask.
+
+        raise_on_failure is True on the process() path so failures fail the node. It is False from
+        after_value_set(), which only logs.
+        """
         try:
             # Load mask
             mask_pil = load_pil_from_url(mask_artifact.value)
@@ -110,6 +116,7 @@ class InvertMask(DataNode):
             # Log the error and set a meaningful error message
             error_msg = f"Failed to invert mask: {e!s}"
             logger.error(f"{self.name}: {error_msg}")
-            import traceback
-
             logger.debug(f"{self.name}: {traceback.format_exc()}")
+            if raise_on_failure:
+                msg = f"Could not invert the mask: {e}"
+                raise RuntimeError(msg) from e

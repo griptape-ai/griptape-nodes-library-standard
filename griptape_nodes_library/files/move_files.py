@@ -199,7 +199,7 @@ class MoveFiles(CopyFiles):
         if not destination_dir:
             msg = "'destination_path' is empty. Set the folder or file to move to."
             self.set_parameter_value(self.moved_paths_output.name, [])
-            self._set_status_results(was_successful=False, result_details=msg)
+            self._fail(ValueError(msg))
             return
 
         # Resolve a project macro destination like "{outputs}/archive" to the folder on disk
@@ -208,7 +208,7 @@ class MoveFiles(CopyFiles):
         except FileLoadError as e:
             msg = f"Could not resolve destination path '{destination_dir}': {e}"
             self.set_parameter_value(self.moved_paths_output.name, [])
-            self._set_status_results(was_successful=False, result_details=msg)
+            self._fail(ValueError(msg))
             return
 
         # Determine if destination is a directory or file path
@@ -231,7 +231,7 @@ class MoveFiles(CopyFiles):
             msg = "All source paths were invalid. No files were moved."
             details = self._format_result_details(all_targets)
             self.set_parameter_value(self.moved_paths_output.name, [])
-            self._set_status_results(was_successful=False, result_details=f"{msg}\n\n{details}")
+            self._fail(ValueError(f"{msg}\n\n{details}"))
             return
 
         # Check if destination looks like a file path (has extension)
@@ -242,7 +242,7 @@ class MoveFiles(CopyFiles):
         if destination_is_file_path and len(pending_targets) > 1:
             msg = f"Cannot move {len(pending_targets)} files to the single file path '{destination_dir}'. Set 'destination_path' to a folder instead."
             self.set_parameter_value(self.moved_paths_output.name, [])
-            self._set_status_results(was_successful=False, result_details=msg)
+            self._fail(ValueError(msg))
             return
 
         # Execute moves for all explicitly requested items
@@ -274,7 +274,7 @@ class MoveFiles(CopyFiles):
             msg = "No files were moved."
             details = self._format_result_details(requested_targets)
             self.set_parameter_value(self.moved_paths_output.name, [])
-            self._set_status_results(was_successful=False, result_details=f"{msg}\n\n{details}")
+            self._fail(OSError(f"{msg}\n\n{details}"))
             return
 
         # SUCCESS PATH AT END (even if some failed, as long as at least one succeeded)

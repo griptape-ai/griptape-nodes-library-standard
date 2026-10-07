@@ -54,3 +54,30 @@ def test_audio_resolution_failure_is_raised(monkeypatch: pytest.MonkeyPatch) -> 
 
     with pytest.raises(file_module.FileLoadError, match="no project loaded"):
         _node()._extract_audio_url(AudioUrlArtifact("{outputs}/track.mp3"))
+
+
+class TestProcessFailures:
+    """Missing or invalid inputs must fail the node, or route down Failed when it is wired."""
+
+    @staticmethod
+    def _real_node(*, failed_wired: bool) -> CreateVideoFromFrames:
+        node = CreateVideoFromFrames(name="create_video_from_frames")
+        node._has_outgoing_connections = lambda _param: failed_wired  # type: ignore[method-assign]
+        return node
+
+    @pytest.mark.asyncio
+    async def test_missing_frames_raises_when_failed_is_not_wired(self) -> None:
+        node = self._real_node(failed_wired=False)
+
+        with pytest.raises(ValueError, match="Frames are required"):
+            await node.aprocess()
+
+        assert node._execution_succeeded is False
+
+    @pytest.mark.asyncio
+    async def test_missing_frames_routes_to_failed_when_wired(self) -> None:
+        node = self._real_node(failed_wired=True)
+
+        await node.aprocess()
+
+        assert node._execution_succeeded is False
