@@ -24,6 +24,8 @@ from pydantic_ai.messages import (
     TextPartDelta,
     UserContent,
 )
+from pydantic_ai.models import Model
+from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.run import AgentRunResultEvent
 
 from griptape_nodes_library.llm.budget import raise_budget_halt
@@ -134,14 +136,20 @@ async def run_agent_async(
         message_history = prune_history(message_history, budget)
     token = CancellationToken()
     watcher = asyncio.create_task(_watch_cancel(callbacks.is_cancelled, token)) if callbacks.is_cancelled else None
+    run_kwargs: dict[str, Any] = {
+        "message_history": message_history or None,
+        "usage_limits": usage_limits,
+        "cancellation_token": token,
+    }
     try:
-        async with agent.run_stream_events(
-            prompt, message_history=message_history or None, usage_limits=usage_limits, cancellation_token=token
-        ) as events:
-            async for event in events:
-                _dispatch(event, callbacks)
-                if isinstance(event, AgentRunResultEvent):
-                    result = event.result
+        if _supports_streaming(agent.model):
+            async with agent.run_stream_events(prompt, **run_kwargs) as events:
+                async for event in events:
+                    _dispatch(event, callbacks)
+                    if isinstance(event, AgentRunResultEvent):
+                        result = event.result
+        else:
+            result = await _run_unstreamed(agent, prompt, run_kwargs, callbacks)
     except RunCancelled as exc:
         raise AgentRunCancelledError from exc
     except Exception as exc:
@@ -154,6 +162,30 @@ async def run_agent_async(
         msg = "Agent run ended without a result."
         raise RuntimeError(msg)
     return result
+
+
+def _supports_streaming(model: Any) -> bool:
+    while isinstance(model, WrapperModel):
+        model = model.wrapped
+    return not isinstance(model, Model) or type(model).request_stream is not Model.request_stream
+
+
+async def _run_unstreamed(
+    agent: Agent[None, Any], prompt: Prompt | None, run_kwargs: dict[str, Any], callbacks: RunCallbacks
+) -> AgentRunResult[Any] | None:
+    """Run a model with no streaming support (Cohere), emitting each response's text and tool events."""
+    async with agent.iter(prompt, **run_kwargs) as run:
+        async for node in run:
+            if not Agent.is_call_tools_node(node):
+                continue
+            if callbacks.on_text:
+                for part in node.model_response.parts:
+                    if isinstance(part, TextPart) and part.content:
+                        callbacks.on_text(part.content)
+            async with node.stream(run.ctx) as events:
+                async for event in events:
+                    _dispatch(event, callbacks)
+        return run.result
 
 
 async def _watch_cancel(is_cancelled: Callable[[], bool], token: CancellationToken) -> None:

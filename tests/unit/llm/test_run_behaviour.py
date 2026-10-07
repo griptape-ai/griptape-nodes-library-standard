@@ -4,6 +4,13 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
+from cohere import (
+    AssistantMessageResponse,
+    TextAssistantMessageResponseContentItem,
+    ToolCallV2,
+    ToolCallV2Function,
+    V2ChatResponse,
+)
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, ToolCallPart, UserPromptPart
 from pydantic_ai.models.function import AgentInfo, DeltaToolCalls, FunctionModel
 
@@ -134,6 +141,50 @@ class TestNativeTools:
             {"type": "OllamaPromptDriver", "model": "m", "use_native_tools": False}
         )
         assert config.options == {USE_NATIVE_TOOLS_OPTION: False}
+
+
+def test_cohere_runs_without_streaming(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(models, "_require_key", lambda config: "key")
+    replies = iter(
+        [
+            V2ChatResponse(
+                id="1",
+                finish_reason="TOOL_CALL",
+                message=AssistantMessageResponse(
+                    tool_calls=[
+                        ToolCallV2(
+                            id="c1",
+                            type="function",
+                            function=ToolCallV2Function(name="calculate", arguments='{"expression": "2+2"}'),
+                        )
+                    ]
+                ),
+            ),
+            V2ChatResponse(
+                id="2",
+                finish_reason="COMPLETE",
+                message=AssistantMessageResponse(content=[TextAssistantMessageResponseContentItem(text="4")]),
+            ),
+        ]
+    )
+
+    async def chat(*args: Any, **kwargs: Any) -> V2ChatResponse:
+        return next(replies)
+
+    monkeypatch.setattr("cohere.AsyncClientV2.chat", chat, raising=False)
+    agent = build_agent(
+        ModelConfig(provider=ModelProvider.COHERE, model="command-a"),
+        toolsets=build_toolsets([{"tool_type": "Calculator"}]),
+    )
+    texts: list[str] = []
+    calls: list[str] = []
+    callbacks = RunCallbacks(on_text=texts.append, on_tool_call=lambda name, args: calls.append(name))
+
+    result = run_agent(agent, "2+2?", callbacks=callbacks)
+
+    assert result.output == "4"
+    assert texts == ["4"]
+    assert calls == ["calculate"]
 
 
 def test_cancel_interrupts_a_model_call_with_no_events() -> None:
