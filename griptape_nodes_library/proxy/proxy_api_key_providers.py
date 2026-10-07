@@ -95,6 +95,12 @@ OPENAI = ProxyApiKeyProviderConfig(
     provider_name="OpenAI",
     api_key_url="https://platform.openai.com/api-keys",
 )
+TYPESAFE = ProxyApiKeyProviderConfig(
+    provider_id="typesafe",
+    api_key_name="TYPESAFE_API_KEY",
+    provider_name="TypeSafe",
+    api_key_url="https://console.typesafe.ai/keys",
+)
 WORLD_LABS = ProxyApiKeyProviderConfig(
     provider_id="world_labs",
     api_key_name="WORLD_LABS_API_KEY",
@@ -146,6 +152,9 @@ _NODE_PROVIDER_CONFIGS = {
     "SoraVideoGeneration": OPENAI,
     "TopazImageEnhance": TOPAZ,
     "TopazVideoUpscale": TOPAZ,
+    "JevAskYesNo": TYPESAFE,
+    "JevPickOne": TYPESAFE,
+    "JevRate": TYPESAFE,
     "TranscribeAudio": OPENAI,
     "TripoImageTo3DGeneration": TRIPO,
     "TripoMultiviewTo3DGeneration": TRIPO,

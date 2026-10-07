@@ -186,6 +186,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 name="generation_status",
                 default_value="",
                 tooltip="Latest known status of the generation (e.g., RUNNING, COMPLETED, TIMED_OUT).",
+                placeholder_text="QUEUED · RUNNING · COMPLETED · FAILED",
                 allowed_modes={ParameterMode.OUTPUT},
                 settable=False,
             )
