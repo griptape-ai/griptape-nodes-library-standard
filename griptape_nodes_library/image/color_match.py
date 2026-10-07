@@ -202,20 +202,20 @@ class ColorMatch(SuccessFailureNode):
         target_image = self.get_parameter_value("target_image")
         ref_image = self.get_parameter_value("reference_image")
         if target_image is None:
-            exceptions.append(ValueError(f"{self.name} - Target image is required"))
+            exceptions.append(ValueError("Connect an image to 'Target Image'."))
         if ref_image is None:
-            exceptions.append(ValueError(f"{self.name} - Reference image is required"))
+            exceptions.append(ValueError("Connect an image to 'Reference Image'."))
 
         # Validate strength
         strength = self.get_parameter_value("strength")
         if strength is not None and (strength < self.MIN_STRENGTH or strength > self.MAX_STRENGTH):
-            msg = f"{self.name} - Strength must be between {self.MIN_STRENGTH} and {self.MAX_STRENGTH}, got {strength}"
+            msg = f"Strength must be between {self.MIN_STRENGTH} and {self.MAX_STRENGTH}, got {strength}"
             exceptions.append(ValueError(msg))
 
         # Validate method
         method = self.get_parameter_value("method")
         if method is not None and method not in self.COLOR_MATCH_METHODS:
-            msg = f"{self.name} - Invalid method '{method}'. Must be one of: {', '.join(self.COLOR_MATCH_METHODS)}"
+            msg = f"Invalid 'Method' '{method}'. Must be one of: {', '.join(self.COLOR_MATCH_METHODS)}"
             exceptions.append(ValueError(msg))
 
         # Set failure status if there are validation errors
@@ -284,5 +284,5 @@ class ColorMatch(SuccessFailureNode):
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {failure_details}")
 
             # Handle failure based on whether failure output is connected
-            self._handle_failure_exception(ValueError(error_message))
+            self._handle_failure_exception(e)
             raise

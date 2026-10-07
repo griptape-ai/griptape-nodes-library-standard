@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from griptape_nodes_library.image.flux_2_image_generation import Flux2ImageGeneration
+from griptape_nodes_library.proxy.griptape_proxy_node import GenerationIncompleteError
 
 
 def _iter_proxy_node_classes() -> Iterator[tuple[str, str]]:
@@ -111,9 +112,10 @@ async def test_timeout_parameter_limits_poll_attempts(monkeypatch: pytest.Monkey
     node._set_safe_defaults = lambda: None  # type: ignore[method-assign]
 
     headers = {"Authorization": "Bearer key"}
-    result = await node._poll_generation_status("gen-abc", headers)
+    with pytest.raises(GenerationIncompleteError) as raised:
+        await node._poll_generation_status("gen-abc", headers)
 
-    assert result is None
+    assert raised.value.fields == {"generation_id": "gen-abc"}
     # poll_interval=5, timeout=10 → max_attempts=2
     assert poll_count == 2
     assert len(status_calls) == 1

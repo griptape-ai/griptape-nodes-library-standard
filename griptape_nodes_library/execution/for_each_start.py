@@ -162,7 +162,7 @@ class ForEachStartNode(BaseIterativeStartNode):
                 self._logger.info("ForEach Start '%s': Empty list provided, skipping loop execution", self.name)
             all_items = items
         else:
-            error_msg = f"ForEach Start '{self.name}' expected a list or dict but got {type(items).__name__}: {items}"
+            error_msg = f"'Items' must be a list or dictionary, got {type(items).__name__}. Connect a list or dictionary to 'Items'."
             raise TypeError(error_msg)
 
         if self.get_parameter_value("testing_mode") and all_items:

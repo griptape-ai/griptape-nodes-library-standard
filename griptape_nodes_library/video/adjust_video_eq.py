@@ -122,22 +122,22 @@ class AdjustVideoEQ(BaseVideoProcessor):
 
         brightness = self.get_parameter_value("brightness")
         if brightness is not None and (brightness < self.MIN_BRIGHTNESS or brightness > self.MAX_BRIGHTNESS):
-            msg = f"{self.name} - Brightness must be between {self.MIN_BRIGHTNESS} and {self.MAX_BRIGHTNESS}, got {brightness}"
+            msg = f"Brightness must be between {self.MIN_BRIGHTNESS} and {self.MAX_BRIGHTNESS}, got {brightness}"
             exceptions.append(ValueError(msg))
 
         contrast = self.get_parameter_value("contrast")
         if contrast is not None and (contrast < self.MIN_CONTRAST or contrast > self.MAX_CONTRAST):
-            msg = f"{self.name} - Contrast must be between {self.MIN_CONTRAST} and {self.MAX_CONTRAST}, got {contrast}"
+            msg = f"Contrast must be between {self.MIN_CONTRAST} and {self.MAX_CONTRAST}, got {contrast}"
             exceptions.append(ValueError(msg))
 
         saturation = self.get_parameter_value("saturation")
         if saturation is not None and (saturation < self.MIN_SATURATION or saturation > self.MAX_SATURATION):
-            msg = f"{self.name} - Saturation must be between {self.MIN_SATURATION} and {self.MAX_SATURATION}, got {saturation}"
+            msg = f"Saturation must be between {self.MIN_SATURATION} and {self.MAX_SATURATION}, got {saturation}"
             exceptions.append(ValueError(msg))
 
         gamma = self.get_parameter_value("gamma")
         if gamma is not None and (gamma < self.MIN_GAMMA or gamma > self.MAX_GAMMA):
-            msg = f"{self.name} - Gamma must be between {self.MIN_GAMMA} and {self.MAX_GAMMA}, got {gamma}"
+            msg = f"Gamma must be between {self.MIN_GAMMA} and {self.MAX_GAMMA}, got {gamma}"
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None

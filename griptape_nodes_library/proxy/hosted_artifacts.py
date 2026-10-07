@@ -23,11 +23,13 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import httpx
+from griptape_nodes.exe_types.core_types import NodeError
 
 from griptape_nodes_library.utils.griptape_cloud_headers import (
     build_griptape_cloud_headers,
     build_griptape_cloud_headers_async,
 )
+from griptape_nodes_library.utils.node_error_utils import error_fields, error_response, request_id_from_headers
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -73,8 +75,11 @@ def _bounded_repr(value: Any, limit: int = _MALFORMED_ENTRY_LOG_LIMIT) -> str:
     return f"{text[:limit]}..."
 
 
-class HostedArtifactError(RuntimeError):
-    """Raised when a generation's hosted media cannot be listed or located."""
+class HostedArtifactError(NodeError, RuntimeError):
+    """Raised when a generation's hosted media cannot be listed or located.
+
+    A RuntimeError too, so callers that already catch one still do.
+    """
 
 
 class ArtifactKind(StrEnum):
@@ -156,16 +161,26 @@ async def fetch_hosted_artifacts(proxy_base: str, generation_id: str, api_key: s
             response.raise_for_status()
             payload = response.json()
     except httpx.HTTPStatusError as e:
-        msg = f"Listing hosted artifacts for generation {generation_id} failed: HTTP {e.response.status_code}"
-        raise HostedArtifactError(msg) from e
+        msg = f"Griptape Cloud refused to list the generated media (HTTP {e.response.status_code})."
+        raise HostedArtifactError(
+            msg,
+            fields=error_fields(
+                generation_id=generation_id,
+                status_code=e.response.status_code,
+                request_id=request_id_from_headers(e.response.headers),
+            ),
+            response=error_response(_json_or_none(e.response)),
+        ) from e
     except Exception as e:
-        msg = f"Listing hosted artifacts for generation {generation_id} failed: {e}"
-        raise HostedArtifactError(msg) from e
+        msg = f"Could not list the generated media: {e}"
+        raise HostedArtifactError(msg, fields=error_fields(generation_id=generation_id)) from e
 
     entries = payload.get("artifacts") if isinstance(payload, dict) else None
     if not isinstance(entries, list):
-        msg = f"Artifact list for generation {generation_id} was not in the expected shape: {payload!r}"
-        raise HostedArtifactError(msg)
+        msg = "Griptape Cloud returned the list of generated media in an unexpected shape."
+        raise HostedArtifactError(
+            msg, fields=error_fields(generation_id=generation_id), response=error_response(payload)
+        )
 
     parsed = [HostedArtifact.from_payload(entry) for entry in entries]
     dropped_count = sum(1 for artifact in parsed if artifact is None)
@@ -199,11 +214,19 @@ def _require_trustworthy_prefix(artifacts: list[HostedArtifact], dropped_count: 
     is_head_truncated = bool(indices) and indices[0] != 0
     if dropped_count or has_gap or has_duplicate or is_head_truncated:
         msg = (
-            f"Artifact list for generation {generation_id} cannot be trusted for positional "
+            "The list of generated media cannot be trusted for positional "
             f"pairing: {dropped_count} entr{'y' if dropped_count == 1 else 'ies'} dropped, "
             f"surviving indices {indices}."
         )
-        raise HostedArtifactError(msg)
+        raise HostedArtifactError(msg, fields=error_fields(generation_id=generation_id))
+
+
+def _json_or_none(response: httpx.Response) -> Any:
+    """The response body as JSON, or None if it is not JSON."""
+    try:
+        return response.json()
+    except Exception:
+        return None
 
 
 def artifact_download_headers(url: str, api_key: str, proxy_base: str) -> dict[str, str]:

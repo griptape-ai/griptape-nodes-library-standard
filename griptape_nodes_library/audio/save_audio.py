@@ -120,7 +120,7 @@ class SaveAudio(SuccessFailureNode):
         logger.error(f"Error saving audio: {error_details}")
 
         # Use the helper to handle exception based on connection status
-        self._handle_failure_exception(RuntimeError(error_details))
+        self._handle_failure_exception(exception or RuntimeError(error_details))
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = []

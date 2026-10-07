@@ -232,11 +232,11 @@ class GrokVideoEdit(GriptapeProxyNode):
 
         prompt = (self.get_parameter_value("prompt") or "").strip()
         if not prompt:
-            exceptions.append(ValueError(f"{self.name}: Prompt is required for video editing."))
+            exceptions.append(ValueError("A prompt is required for video editing. Enter one in 'prompt'."))
 
         video_value = self.get_parameter_value("video")
         if not self._has_media_value(video_value):
-            exceptions.append(ValueError(f"{self.name}: Video is required for editing."))
+            exceptions.append(ValueError("A video is required for editing. Connect one to 'Video'."))
 
         return exceptions if exceptions else None
 

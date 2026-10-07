@@ -139,9 +139,9 @@ class SplitText(ControlNode):
         exceptions = []
         text = self.get_parameter_value(self.text_input.name)
         if text is None:
-            exceptions.append(Exception(f"{self.name}: Text is required to split"))
+            exceptions.append(Exception("Connect text to 'Text' to split."))
         elif not isinstance(text, str):
-            exceptions.append(Exception(f"{self.name}: Text must be a string"))
+            exceptions.append(Exception(f"'Text' must be a string, got {type(text).__name__}."))
         return exceptions
 
     def _process_text(self) -> None:

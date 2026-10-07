@@ -6,6 +6,7 @@ transfer (default) and frame-by-frame processing. Multiple color transfer algori
 supported, and the original video's format, aspect ratio, and frame rate are preserved.
 """
 
+import json
 import subprocess
 import tempfile
 from pathlib import Path
@@ -242,7 +243,7 @@ class VideoColorMatch(SuccessFailureNode):
         """
         # Validate URL before using in subprocess
         if not validate_url(input_url):
-            msg = f"{self.name}: Invalid or unsafe URL provided: {input_url}"
+            msg = f"The video URL is not valid or not safe to open: {input_url}"
             raise ValueError(msg)
 
         try:
@@ -259,7 +260,6 @@ class VideoColorMatch(SuccessFailureNode):
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)  # noqa: S603
-            import json
 
             streams_data = json.loads(result.stdout)
 
@@ -365,10 +365,10 @@ class VideoColorMatch(SuccessFailureNode):
         try:
             subprocess.run(cmd, capture_output=True, check=True, timeout=30)  # noqa: S603
         except subprocess.TimeoutExpired as e:
-            error_msg = f"{self.name}: HALD CLUT generation timed out after 30 seconds"
+            error_msg = "HALD CLUT generation timed out after 30 seconds."
             raise ValueError(error_msg) from e
         except subprocess.CalledProcessError as e:
-            error_msg = f"{self.name}: FFmpeg HALD CLUT generation failed: {e.stderr}"
+            error_msg = f"FFmpeg could not generate the HALD CLUT: {e.stderr}"
             raise ValueError(error_msg) from e
 
     def _process_video_with_haldclut(
@@ -445,10 +445,10 @@ class VideoColorMatch(SuccessFailureNode):
                 # Run ffmpeg to apply HALD CLUT
                 subprocess.run(apply_cmd, capture_output=True, check=True, timeout=600)  # noqa: S603
             except subprocess.TimeoutExpired as e:
-                error_msg = f"{self.name}: Video processing timed out after 600 seconds"
+                error_msg = "Video processing timed out after 600 seconds."
                 raise ValueError(error_msg) from e
             except subprocess.CalledProcessError as e:
-                error_msg = f"{self.name}: FFmpeg HALD CLUT application failed: {e.stderr}"
+                error_msg = f"FFmpeg could not apply the HALD CLUT: {e.stderr}"
                 raise ValueError(error_msg) from e
 
     def _process_video_frame_by_frame(
@@ -495,10 +495,10 @@ class VideoColorMatch(SuccessFailureNode):
             try:
                 subprocess.run(extract_cmd, capture_output=True, check=True, timeout=600)  # noqa: S603
             except subprocess.TimeoutExpired as e:
-                error_msg = f"{self.name}: Frame extraction timed out after 600 seconds"
+                error_msg = "Frame extraction timed out after 600 seconds."
                 raise ValueError(error_msg) from e
             except subprocess.CalledProcessError as e:
-                error_msg = f"{self.name}: FFmpeg frame extraction failed: {e.stderr}"
+                error_msg = f"FFmpeg could not extract frames: {e.stderr}"
                 raise ValueError(error_msg) from e
 
             # Get list of extracted frames
@@ -506,7 +506,7 @@ class VideoColorMatch(SuccessFailureNode):
             total_frames = len(frame_files)
 
             if total_frames == 0:
-                msg = f"{self.name}: No frames extracted from video"
+                msg = "No frames could be extracted from the video."
                 raise ValueError(msg)
 
             logger.debug(f"{self.name}: Processing {total_frames} frames")
@@ -586,10 +586,10 @@ class VideoColorMatch(SuccessFailureNode):
                     self.progress_component.increment()
                     last_progress += 1
             except subprocess.TimeoutExpired as e:
-                error_msg = f"{self.name}: Video reassembly timed out after 600 seconds"
+                error_msg = "Video reassembly timed out after 600 seconds."
                 raise ValueError(error_msg) from e
             except subprocess.CalledProcessError as e:
-                error_msg = f"{self.name}: FFmpeg video reassembly failed: {e.stderr}"
+                error_msg = f"FFmpeg could not reassemble the video: {e.stderr}"
                 raise ValueError(error_msg) from e
 
     def _set_safe_defaults(self) -> None:
@@ -608,29 +608,26 @@ class VideoColorMatch(SuccessFailureNode):
         ref_image = self.get_parameter_value("reference_image")
 
         if target_video is None:
-            exceptions.append(ValueError(f"{self.name} - Target video is required"))
+            exceptions.append(ValueError("Connect a video to 'target_video'."))
         if ref_image is None:
-            exceptions.append(ValueError(f"{self.name} - Reference image is required"))
+            exceptions.append(ValueError("Connect an image to 'reference_image'."))
 
         # Validate strength
         strength = self.get_parameter_value("strength")
         if strength is not None and (strength < self.MIN_STRENGTH or strength > self.MAX_STRENGTH):
-            msg = f"{self.name} - Strength must be between {self.MIN_STRENGTH} and {self.MAX_STRENGTH}, got {strength}"
+            msg = f"'strength' must be between {self.MIN_STRENGTH} and {self.MAX_STRENGTH}, got {strength}."
             exceptions.append(ValueError(msg))
 
         # Validate transfer_algorithm
         transfer_algorithm = self.get_parameter_value("transfer_algorithm")
         if transfer_algorithm is not None and transfer_algorithm not in self.COLOR_MATCH_METHODS:
-            msg = f"{self.name} - Invalid transfer_algorithm '{transfer_algorithm}'. Must be one of: {', '.join(self.COLOR_MATCH_METHODS)}"
+            msg = f"Unknown transfer_algorithm '{transfer_algorithm}'. Must be one of: {', '.join(self.COLOR_MATCH_METHODS)}."
             exceptions.append(ValueError(msg))
 
         # Validate transfer_method
         transfer_method = self.get_parameter_value("transfer_method")
         if transfer_method is not None and transfer_method not in self.TRANSFER_METHODS:
-            msg = (
-                f"{self.name} - Invalid transfer_method '{transfer_method}'. "
-                f"Must be one of: {', '.join(self.TRANSFER_METHODS)}"
-            )
+            msg = f"Unknown transfer_method '{transfer_method}'. Must be one of: {', '.join(self.TRANSFER_METHODS)}."
             exceptions.append(ValueError(msg))
 
         # Set failure status if there are validation errors
@@ -674,7 +671,7 @@ class VideoColorMatch(SuccessFailureNode):
 
             # Validate URL
             if not validate_url(input_url):
-                msg = f"{self.name}: Invalid or unsafe video URL provided"
+                msg = f"The video URL is not valid or not safe to open: {input_url}"
                 raise ValueError(msg)
 
             # Load reference image
@@ -743,5 +740,5 @@ class VideoColorMatch(SuccessFailureNode):
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {failure_details}")
 
             # Handle failure
-            self._handle_failure_exception(ValueError(error_message))
+            self._handle_failure_exception(e)
             raise

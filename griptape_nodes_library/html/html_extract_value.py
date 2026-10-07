@@ -65,7 +65,7 @@ class HtmlExtractValue(DataNode):
                 try:
                     results = root.xpath(path)
                 except etree.XPathEvalError as e:
-                    msg = f"{self.name}: Invalid XPath expression '{path}': {e}"
+                    msg = f"'{path}' in 'Path' is not a valid XPath expression: {e}."
                     raise ValueError(msg) from e
 
                 if not isinstance(results, list):

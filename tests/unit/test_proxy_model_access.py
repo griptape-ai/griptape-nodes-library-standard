@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from griptape_nodes.exe_types.core_types import NodeError
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.node_library.library_registry import LibraryRegistry
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
@@ -221,7 +222,6 @@ async def test_begin_generation_gates_on_denial(monkeypatch: pytest.MonkeyPatch)
 
     async def fake_submit_generation(payload: dict[str, Any], headers: dict[str, str], api_model_id: str) -> None:
         submit_calls.append({"payload": payload, "headers": headers, "api_model_id": api_model_id})
-        # None short-circuits `_begin_generation` before it returns a generation id.
         return None
 
     monkeypatch.setattr(node, "_build_payload", fake_build_payload)
@@ -230,19 +230,22 @@ async def test_begin_generation_gates_on_denial(monkeypatch: pytest.MonkeyPatch)
     hook = _deny_hook(CheckpointAction.OFFER_MODEL, "gtc_sora_2_pro")
     GriptapeNodes.EventManager().add_authorization_hook(hook)
     try:
-        result = await node._begin_generation({})
+        # Nothing is wired to the failure output, so the denial is raised.
+        with pytest.raises(NodeError, match="denied for test"):
+            await node._begin_generation({})
     finally:
         GriptapeNodes.EventManager().remove_authorization_hook(hook)
 
-    assert result is None
     assert node.parameter_output_values.get("was_successful") is False
     assert "denied for test" in node.parameter_output_values.get("result_details", "")
     assert submit_calls == []
     assert build_calls == []
 
     # Mirror case: with the hook removed, the same selection is permitted again
-    # and the flow reaches `_build_payload` and then `_submit_generation`.
-    await node._begin_generation({})
+    # and the flow reaches `_build_payload` and then `_submit_generation`. The fake submit
+    # returns no generation id, which is itself a failure.
+    with pytest.raises(NodeError, match="did not return a generation ID"):
+        await node._begin_generation({})
 
     assert len(build_calls) == 1
     assert len(submit_calls) == 1

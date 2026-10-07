@@ -64,7 +64,7 @@ def test_denied_model_raises_with_the_engines_reason(node: _StubNode, monkeypatc
         lambda _request: DeclareModelInvocationResultFailure(result_details="seat limit reached"),
     )
 
-    with pytest.raises(RuntimeError, match=r"Cannot run _StubNode 'StubNode': seat limit reached"):
+    with pytest.raises(RuntimeError, match=r"^Cannot run the model: seat limit reached$"):
         require_model_invocation_sync(node, "gpt-4o")
 
 
@@ -107,7 +107,7 @@ def test_purpose_distinguishes_two_gates_in_one_node(node: _StubNode, monkeypatc
         lambda _request: DeclareModelInvocationResultFailure(result_details="seat limit reached"),
     )
 
-    with pytest.raises(RuntimeError, match=r"_StubNode 'StubNode' \(prompt enhancement\): seat limit reached"):
+    with pytest.raises(RuntimeError, match=r"^Cannot run the model \(prompt enhancement\): seat limit reached$"):
         require_model_invocation_sync(node, "gpt-4o", purpose="prompt enhancement")
 
 
@@ -118,7 +118,7 @@ def test_purpose_is_omitted_when_not_given(node: _StubNode, monkeypatch: pytest.
         lambda _request: DeclareModelInvocationResultFailure(result_details="seat limit reached"),
     )
 
-    with pytest.raises(RuntimeError, match=r"Cannot run _StubNode 'StubNode': seat limit reached"):
+    with pytest.raises(RuntimeError, match=r"^Cannot run the model: seat limit reached$"):
         require_model_invocation_sync(node, "gpt-4o")
 
 

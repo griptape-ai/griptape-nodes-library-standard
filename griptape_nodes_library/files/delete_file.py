@@ -199,7 +199,7 @@ class DeleteFile(SuccessFailureNode):
 
         # FAILURE CASE: No valid targets at all
         if not pending_targets:
-            msg = f"{self.name} attempted to delete but all paths were invalid. No files deleted"
+            msg = "All paths were invalid. No files were deleted."
             details = self._format_result_details(all_targets)
             self.set_parameter_value(self.deleted_paths_output.name, None)
             self._set_status_results(was_successful=False, result_details=f"{msg}\n\n{details}")
@@ -232,7 +232,7 @@ class DeleteFile(SuccessFailureNode):
 
         # FAILURE CASE: Zero files were successfully deleted
         if succeeded_count == 0:
-            msg = f"{self.name} failed to delete any files"
+            msg = "No files were deleted."
             # Show all targets in details (including children)
             details = self._format_result_details(all_targets)
             self.set_parameter_value(self.deleted_paths_output.name, None)

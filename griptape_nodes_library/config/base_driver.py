@@ -7,6 +7,8 @@ from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
+from griptape_nodes_library.utils.node_error_utils import missing_secret_error
+
 
 class BaseDriver(DataNode):
     """Base class for driver nodes that need to manage parameters and validate configuration.
@@ -193,7 +195,7 @@ class BaseDriver(DataNode):
         if denial is None:
             return None
         selection = self._model_access.selected_value
-        return [RuntimeError(f"Cannot run {type(self).__name__}: '{selection}' is not permitted. {denial.reason()}")]
+        return [RuntimeError(f"Model '{selection}' is not permitted. {denial.reason()}")]
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
         """Refuse a model the caller's license denies before the workflow starts.
@@ -282,8 +284,8 @@ class BaseDriver(DataNode):
                 than pointing at one secret the user may not be meant to set.
 
         Returns:
-            A list of exceptions (KeyError or ValueError) if validation fails,
-            otherwise None. A model the caller's license denies is reported on its
+            A list of exceptions if validation fails, otherwise None. A missing key is
+            a NodeError linking to the secret in Settings and to `api_key_url`. A model the caller's license denies is reported on its
             own, in place of any key error.
         """
         # A denied model is a more fundamental blocker than a missing key: sending
@@ -300,15 +302,14 @@ class BaseDriver(DataNode):
         else:
             api_key = resolved_credential
         if not api_key:
-            if missing_credential_msg is not None:
-                msg = missing_credential_msg
-            else:
-                msg = f"API Key ('{api_key_env_var}') for service '{service_name}' is missing."
-                if api_key_url:
-                    msg += f" Please visit {api_key_url} to obtain a valid key and update your settings."
-                else:
-                    msg += " Please provide a valid API key in your settings."
-            exceptions.append(KeyError(msg))
+            exceptions.append(
+                missing_secret_error(
+                    api_key_env_var,
+                    message=missing_credential_msg,
+                    key_url=api_key_url,
+                    key_url_label=f"Get a {service_name} API key",
+                )
+            )
 
         # Display a message to the user if the API key is missing or empty.
         self._display_api_key_message(

@@ -8,6 +8,7 @@ outputs.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -129,3 +130,36 @@ async def test_a_wired_failure_output_is_taken(node: Flux2ImageGeneration) -> No
     assert statuses[-1]["was_successful"] is False
     assert PROVIDER_ERROR in statuses[-1]["result_details"]
     assert node.parameter_output_values["generation_status"] == "FAILED"
+
+
+def test_a_json_error_body_in_details_is_reduced_to_its_message() -> None:
+    """Some providers put their whole error body in `status_detail.details` as a JSON string.
+
+    The message shows only the provider's explanation, and its error code and request ID become fields.
+    """
+    details = json.dumps(
+        {
+            "detail": {
+                "type": "unprocessable_entity",
+                "code": "unprocessable_entity",
+                "message": "You must provide exactly one of `prompt` or `composition_plan`.",
+                "request_id": "4036c4f8ac7396f02dac34efd4cbc912",
+            }
+        }
+    )
+    node = Flux2ImageGeneration(name="Flux2")
+    node._set_status_results = lambda **_: None  # type: ignore[method-assign]
+    node.parameter_output_values["generation_id"] = GENERATION_ID
+
+    with pytest.raises(GenerationFailedError) as raised:
+        node._handle_terminal_status("FAILED", {"status": "FAILED", "status_detail": {"details": details}})
+
+    assert str(raised.value) == (
+        "The provider could not process the request: You must provide exactly one of `prompt` or `composition_plan`."
+    )
+    assert raised.value.fields == {
+        "generation_id": GENERATION_ID,
+        "status": "FAILED",
+        "error_code": "unprocessable_entity",
+        "request_id": "4036c4f8ac7396f02dac34efd4cbc912",
+    }

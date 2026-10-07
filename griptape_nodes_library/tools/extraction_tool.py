@@ -5,7 +5,7 @@ from griptape.tools import ExtractionTool as GtExtractionTool
 from griptape_nodes_library.tools.base_tool import BaseTool
 from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
 from griptape_nodes_library.utils.cloud_credential_utils import (
-    missing_credential_message,
+    missing_credential_error,
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
@@ -51,7 +51,6 @@ class StructuredDataExtractor(BaseTool):
             return exceptions
         api_key = resolve_cloud_api_key()
         if not api_key:
-            msg = missing_credential_message("create the Extraction tool")
-            exceptions.append(KeyError(msg))
+            exceptions.append(missing_credential_error("create the Extraction tool"))
             return exceptions
         return exceptions if exceptions else None

@@ -143,14 +143,14 @@ class DictGetValueByKey(ControlNode):
         if not isinstance(input_dict, dict):
             if supply_default:
                 return default_value
-            msg = f"{self.name}: Input is not a dictionary (got {type(input_dict).__name__})"
+            msg = f"'Dict' must be a dictionary, got {type(input_dict).__name__}."
             raise ValueError(msg)
 
         # Validate key type
         if not isinstance(key, str):
             if supply_default:
                 return default_value
-            msg = f"{self.name}: Key must be a string, got {type(key).__name__}: {key}"
+            msg = f"'Key' must be text, got {type(key).__name__}."
             raise TypeError(msg)
 
         # Success path: look up key in dictionary
@@ -160,7 +160,7 @@ class DictGetValueByKey(ControlNode):
         # Key not found - return default or raise error
         if supply_default:
             return default_value
-        msg = f"{self.name}: Key '{key}' not found in dictionary"
+        msg = f"Key '{key}' is not in the dictionary. Check 'Key', or turn on 'Supply Default If Not Found'."
         raise KeyError(msg)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:

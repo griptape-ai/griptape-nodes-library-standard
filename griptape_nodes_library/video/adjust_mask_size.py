@@ -199,14 +199,14 @@ class AdjustMaskSize(DataNode):
         # Validate mask video input
         mask_video = self.get_parameter_value("mask_video")
         if not mask_video:
-            msg = f"{self.name}: Mask video is required"
+            msg = "A mask video is required. Connect one to 'Mask Video'."
             exceptions.append(ValueError(msg))
 
         # Validate adjustment value from preview widget
         preview = self.get_parameter_value("preview") or {}
         adjustment = preview.get("adjustment", 0)
         if adjustment < self.MIN_ADJUSTMENT or adjustment > self.MAX_ADJUSTMENT:
-            msg = f"{self.name}: Adjustment must be between {self.MIN_ADJUSTMENT} and {self.MAX_ADJUSTMENT}, got {adjustment}"
+            msg = f"Adjustment must be between {self.MIN_ADJUSTMENT} and {self.MAX_ADJUSTMENT}, got {adjustment}"
             exceptions.append(ValueError(msg))
 
         return exceptions or None
@@ -231,12 +231,7 @@ class AdjustMaskSize(DataNode):
             self.parameter_output_values["output_mask"] = mask_video
             return
 
-        try:
-            yield lambda: self._process_mask_video(mask_video, adjustment)
-        except Exception as e:
-            error_message = str(e)
-            msg = f"{self.name}: Error adjusting mask video: {error_message}"
-            raise ValueError(msg) from e
+        yield lambda: self._process_mask_video(mask_video, adjustment)
 
     def _process_mask_video(self, mask_video: Any, adjustment: int) -> None:
         """Process mask video using FFmpeg's native morphological filters.
@@ -283,10 +278,10 @@ class AdjustMaskSize(DataNode):
             try:
                 subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=600)  # noqa: S603
             except subprocess.CalledProcessError as e:
-                msg = f"{self.name}: FFmpeg morphological filter failed: {e.stderr}"
+                msg = f"FFmpeg could not adjust the mask video: {e.stderr}"
                 raise ValueError(msg) from e
             except subprocess.TimeoutExpired as e:
-                msg = f"{self.name}: FFmpeg morphological filter timed out"
+                msg = "FFmpeg timed out adjusting the mask video after 600 seconds."
                 raise ValueError(msg) from e
 
             self.progress_component.increment()
@@ -318,5 +313,5 @@ class AdjustMaskSize(DataNode):
         from griptape_nodes_library.utils.video_utils import validate_url
 
         if not validate_url(url):
-            msg = f"{self.name}: Invalid or unsafe URL provided: {url}"
+            msg = f"The mask video URL is invalid or unsafe: {url}"
             raise ValueError(msg)

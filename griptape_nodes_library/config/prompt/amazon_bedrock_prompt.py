@@ -157,7 +157,10 @@ class AmazonBedrockPrompt(BasePrompt):
                 region_name=aws_default_region,
             )
         except Exception as e:
-            msg = f"Failed to create AWS session for node {self.name}. Please check your AWS credentials and region."
+            msg = (
+                f"Could not create an AWS session. Check {AWS_ACCESS_KEY_ID_ENV_VAR}, {AWS_SECRET_ACCESS_KEY_ENV_VAR}, "
+                f"and {AWS_DEFAULT_REGION_ENV_VAR} in Settings → API Keys & Secrets."
+            )
             raise RuntimeError(msg) from e
         return session
 
@@ -206,14 +209,19 @@ class AmazonBedrockPrompt(BasePrompt):
         Calls the base class helper `_validate_api_key` with Amazon Bedrock-specific
         configuration details.
         """
-        exceptions = []
+        # Report a denied model once, rather than once per key.
+        model_denial = self._validate_model_selection()
+        if model_denial is not None:
+            return model_denial
+
+        exceptions: list[Exception] = []
         api_keys_to_check = [
             AWS_ACCESS_KEY_ID_ENV_VAR,
             AWS_SECRET_ACCESS_KEY_ENV_VAR,
             AWS_DEFAULT_REGION_ENV_VAR,
         ]
         for key in api_keys_to_check:
-            valid_key = self._validate_api_key(service_name=SERVICE, api_key_env_var=key, api_key_url=API_KEY_URL)
-            if valid_key is not None:
-                exceptions.append(valid_key)
-        return exceptions if any(exceptions) else None
+            key_exceptions = self._validate_api_key(service_name=SERVICE, api_key_env_var=key, api_key_url=API_KEY_URL)
+            if key_exceptions:
+                exceptions.extend(key_exceptions)
+        return exceptions or None

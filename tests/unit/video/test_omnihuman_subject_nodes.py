@@ -19,8 +19,9 @@ def test_validate_before_node_run_reports_missing_image(node_class: type) -> Non
 
     assert exceptions, "an unset image must block the run"
     message = str(exceptions[0])
-    assert "requires an input image" in message
-    assert "Subject" in message, "the message must name the node"
+    assert "An input image is required" in message
+    assert "'Image URL'" in message
+    assert "Subject" not in message, "the editor names the node, so the message must not"
     assert "NoneType" not in message
 
 
@@ -41,7 +42,7 @@ async def test_build_payload_raises_readable_error_without_image(node_class: typ
     """
     node = node_class(name="Subject")
 
-    with pytest.raises(ValueError, match="requires an input image") as excinfo:
+    with pytest.raises(ValueError, match="An input image is required") as excinfo:
         await node._build_payload()
 
     assert "startswith" not in str(excinfo.value)

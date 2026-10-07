@@ -344,13 +344,13 @@ class ListFiles(SuccessFailureNode):
         recursive = self.get_parameter_value("recursive")
         if self._is_path_pattern(match_pattern.strip()):
             if not (directory_path or "").strip():
-                msg = f"{self.name}: directory_path is required when match_pattern contains / or **"
+                msg = "'directory_path' is required when 'match_pattern' contains / or **. Set a folder to search."
                 self._set_status_results(was_successful=False, result_details=f"Failure: {msg}")
                 return
             try:
                 self._compile_path_pattern(match_pattern.strip(), case_sensitive=match_pattern_case_sensitive)
             except re.error as e:
-                msg = f"{self.name}: match_pattern {match_pattern.strip()!r} is not valid — {e}"
+                msg = f"'match_pattern' {match_pattern.strip()!r} is not valid: {e}"
                 self._set_status_results(was_successful=False, result_details=f"Failure: {msg}")
                 return
             # Path patterns need recursion; _collect_entries_recursive does path-relative
@@ -387,7 +387,7 @@ class ListFiles(SuccessFailureNode):
                 match_pattern_case_sensitive=match_pattern_case_sensitive,
             )
             if list_error:
-                msg = f"{self.name} failed to list directory: {list_error}"
+                msg = f"Could not list the folder: {list_error}"
                 self._set_status_results(was_successful=False, result_details=f"Failure: {msg}")
                 return
         else:
@@ -400,12 +400,12 @@ class ListFiles(SuccessFailureNode):
 
             if isinstance(result, ListDirectoryResultFailure):
                 error_msg = getattr(result, "error_message", "Unknown error occurred")
-                msg = f"{self.name} failed to list directory: {error_msg}"
+                msg = f"Could not list the folder: {error_msg}"
                 self._set_status_results(was_successful=False, result_details=f"Failure: {msg}")
                 return
 
             if not isinstance(result, ListDirectoryResultSuccess):
-                msg = f"{self.name} received unexpected result type from directory listing"
+                msg = "The folder listing returned an unexpected result."
                 self._set_status_results(was_successful=False, result_details=f"Failure: {msg}")
                 return
 

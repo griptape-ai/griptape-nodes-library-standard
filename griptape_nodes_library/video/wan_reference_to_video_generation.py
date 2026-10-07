@@ -496,7 +496,10 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
         status = self._extract_status(result_json) or STATUS_UNKNOWN
         if status in {STATUS_FAILED, STATUS_CANCELED}:
             self.parameter_output_values["video"] = None
-            error_details = self._extract_error_message(result_json)
+            error_details = self._provider_failure_message(
+                self._extract_error_message(result_json),
+                f"The generation ended as {status} and the provider gave no reason.",
+            )
             self._set_status_results(was_successful=False, result_details=error_details)
             return
 
@@ -514,22 +517,24 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
         return await prepare_media_data_uri(audio_input, kind="audio", node_name=self.name)
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
-        """Extract error details from API response."""
+        """Extract the provider's reason from a failed generation response.
+
+        Args:
+            response_json: The JSON response from the API that may contain error information
+
+        Returns:
+            The provider's reason, or "" if there is none
+        """
         if not response_json:
-            return "Generation failed with no error details provided by API."
+            return ""
 
-        top_level_error = response_json.get("error")
+        top_level_reason = self._error_reason(response_json.get("error"))
         parsed_provider_response = self._parse_provider_response(response_json.get("provider_response"))
+        provider_reason = self._error_reason((parsed_provider_response or {}).get("error"))
 
-        provider_error_msg = self._format_provider_error(parsed_provider_response, top_level_error)
-        if provider_error_msg:
-            return provider_error_msg
-
-        if top_level_error:
-            return self._format_top_level_error(top_level_error)
-
-        status = self._extract_status(response_json) or STATUS_UNKNOWN
-        return f"Generation failed with status '{status}'.\n\nFull API response:\n{response_json}"
+        if top_level_reason and provider_reason and top_level_reason != provider_reason:
+            return f"{top_level_reason}: {provider_reason}"
+        return provider_reason or top_level_reason
 
     def _parse_provider_response(self, provider_response: Any) -> dict[str, Any] | None:
         """Parse provider_response if it's a JSON string."""
@@ -542,40 +547,14 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
             return provider_response
         return None
 
-    def _format_provider_error(
-        self, parsed_provider_response: dict[str, Any] | None, top_level_error: Any
-    ) -> str | None:
-        """Format error message from parsed provider response."""
-        if not parsed_provider_response:
-            return None
-
-        provider_error = parsed_provider_response.get("error")
-        if not provider_error:
-            return None
-
-        if isinstance(provider_error, dict):
-            error_message = provider_error.get("message", "")
-            details = f"{error_message}"
-
-            if error_code := provider_error.get("code"):
-                details += f"\nError Code: {error_code}"
-            if error_type := provider_error.get("type"):
-                details += f"\nError Type: {error_type}"
-            if top_level_error:
-                details = f"{top_level_error}\n\n{details}"
-            return details
-
-        error_msg = str(provider_error)
-        if top_level_error:
-            return f"{top_level_error}\n\nProvider error: {error_msg}"
-        return f"Generation failed. Provider error: {error_msg}"
-
-    def _format_top_level_error(self, top_level_error: Any) -> str:
-        """Format error message from top-level error field."""
-        if isinstance(top_level_error, dict):
-            error_msg = top_level_error.get("message") or top_level_error.get("error") or str(top_level_error)
-            return f"Generation failed with error: {error_msg}\n\nFull error details:\n{top_level_error}"
-        return f"Generation failed with error: {top_level_error!s}"
+    @staticmethod
+    def _error_reason(error: Any) -> str:
+        """The readable message in an error field, or "" if it has none."""
+        if not error:
+            return ""
+        if isinstance(error, dict):
+            return str(error.get("message") or error.get("error") or "")
+        return str(error)
 
     def _set_safe_defaults(self) -> None:
         """Set safe default values for outputs."""

@@ -121,7 +121,7 @@ class TestSetVariableProcess:
         set_variable_node.set_parameter_value("new_variable_name", "")
         set_variable_node.set_parameter_value("value", "anything")
 
-        with pytest.raises(ValueError, match="requires a non-empty variable_name"):
+        with pytest.raises(ValueError, match="A variable name is required"):
             await set_variable_node.aprocess()
 
 

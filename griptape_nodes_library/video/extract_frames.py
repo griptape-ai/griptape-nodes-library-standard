@@ -284,21 +284,17 @@ class ExtractFrames(SuccessFailureNode):
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions: list[Exception] = []
         if not str(self.get_parameter_value("input_video") or "").strip():
-            exceptions.append(ValueError(f"{self.name}: 'input_video' is required"))
+            exceptions.append(ValueError("A video is required. Connect one to 'Video Input'."))
         mode = self.get_parameter_value("frame_selection_mode") or FrameSelectionMode.LIST
         match mode:
             case FrameSelectionMode.LIST:
                 if not _parse_frame_string(self.get_parameter_value("input_frame_numbers") or ""):
-                    exceptions.append(
-                        ValueError(
-                            f"{self.name}: 'input_frame_numbers' must specify at least one frame (e.g. '1,4,5-9')"
-                        )
-                    )
+                    exceptions.append(ValueError("'Specific Frames' must list at least one frame, e.g. '1,4,5-9'."))
             case FrameSelectionMode.EVERY_NTH:
                 if (self.get_parameter_value("every_n") or 1) < 1:
-                    exceptions.append(ValueError(f"{self.name}: 'every_n' must be >= 1"))
+                    exceptions.append(ValueError("'Every N Frames' must be 1 or more."))
             case _:
-                exceptions.append(ValueError(f"{self.name}: Unknown frame_selection_mode: {mode!r}"))
+                exceptions.append(ValueError(f"Unknown 'Selection' mode: {mode!r}"))
         return exceptions or None
 
     # ── Video URL resolution ────────────────────────────────────────────────────
@@ -324,7 +320,7 @@ class ExtractFrames(SuccessFailureNode):
         """Resolve the video input to a path or URL ffmpeg can read."""
         file_path = raw_video.value if hasattr(raw_video, "value") else str(raw_video or "")
         if not file_path:
-            msg = f"{self.name}: No video loaded in 'input_video'"
+            msg = "No video is loaded in 'Video Input'."
             raise ValueError(msg)
         s = str(file_path).strip()
         if s.startswith(("http://", "https://", "blob:", "data:")):
@@ -332,7 +328,7 @@ class ExtractFrames(SuccessFailureNode):
         try:
             return File(s).resolve()
         except Exception as e:
-            msg = f"{self.name}: Could not resolve video path: {e}"
+            msg = f"Could not resolve the video path: {e}"
             raise ValueError(msg) from e
 
     # ── FFprobe helpers ─────────────────────────────────────────────────────────
@@ -411,7 +407,7 @@ class ExtractFrames(SuccessFailureNode):
             if any(c.target_parameter_name == "directory" for c in conn_result.incoming_connections):
                 return NodeMessageResult(
                     success=False,
-                    details=f"{self.name}: directory already has an incoming connection",
+                    details="'directory' already has an incoming connection.",
                     response=button_details,
                     altered_workflow_state=False,
                 )
@@ -427,7 +423,7 @@ class ExtractFrames(SuccessFailureNode):
         if not isinstance(create_result, str):
             return NodeMessageResult(
                 success=False,
-                details=f"{self.name}: Failed to create FileOutputSettings node",
+                details="Failed to create a FileOutputSettings node.",
                 response=button_details,
                 altered_workflow_state=False,
             )
@@ -449,13 +445,13 @@ class ExtractFrames(SuccessFailureNode):
         if not connection_result.succeeded():
             return NodeMessageResult(
                 success=False,
-                details=f"{self.name}: Failed to connect {configure_node_name}.file_destination to directory",
+                details=f"Failed to connect {configure_node_name}.file_destination to 'directory'.",
                 response=button_details,
                 altered_workflow_state=True,
             )
         return NodeMessageResult(
             success=True,
-            details=f"{self.name}: Created and connected {configure_node_name}",
+            details=f"Created and connected {configure_node_name}",
             response=button_details,
             altered_workflow_state=True,
         )
@@ -606,7 +602,7 @@ class ExtractFrames(SuccessFailureNode):
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=f"{self.name}: No frames to extract with current settings",
+                result_details="No frames to extract with the current settings.",
             )
             return
 
@@ -614,9 +610,8 @@ class ExtractFrames(SuccessFailureNode):
             yield lambda: self._perform_extraction(video_url, frame_numbers)
         except Exception as e:
             self._set_safe_defaults()
-            error_msg = f"{self.name}: Frame extraction failed: {e}"
-            self._set_status_results(was_successful=False, result_details=error_msg)
-            self._handle_failure_exception(RuntimeError(error_msg))
+            self._set_status_results(was_successful=False, result_details=f"Frame extraction failed: {e}")
+            self._handle_failure_exception(e)
 
     def _perform_extraction(self, video_url: str, frame_numbers: list[int]) -> None:
         output_dir = self._resolve_output_dir()

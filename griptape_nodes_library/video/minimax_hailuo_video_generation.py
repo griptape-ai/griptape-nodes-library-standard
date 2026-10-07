@@ -301,20 +301,20 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
         params = self._get_parameters()
 
         if not params["prompt"].strip():
-            msg = f"{self.name} requires a prompt to generate video."
+            msg = "'prompt' is empty. Describe the video you want."
             raise ValueError(msg)
 
         if params["model_id"] == "MiniMax-Hailuo-2.3-Fast" and not params["first_frame_image"]:
-            msg = f"{self.name} requires a first frame image for Hailuo 2.3 Fast model (image-to-video only)."
+            msg = "Hailuo 2.3 Fast only makes video from an image. Connect one to 'First Frame Image'."
             raise ValueError(msg)
 
         capabilities = self.MODEL_CAPABILITIES.get(params["model_id"], {})
         valid_resolutions = capabilities.get("resolutions", {}).get(str(params["duration"]), [])
         if valid_resolutions and params["resolution"] not in valid_resolutions:
             msg = (
-                f"{self.name}: Model {params['model_id']} does not support the combination of "
+                f"Model {params['model_id']} does not support the combination of "
                 f"duration {params['duration']}s and resolution {params['resolution']}. "
-                f"Valid resolutions for {params['duration']}s: {', '.join(valid_resolutions)}"
+                f"Valid resolutions for {params['duration']}s: {', '.join(valid_resolutions)}."
             )
             raise ValueError(msg)
 
@@ -388,32 +388,23 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:
         if not response_json:
-            return f"{self.name} generation failed with no error details provided by API."
+            return ""
 
-        status = str(response_json.get("status") or "").lower()
         status_detail = response_json.get("status_detail")
         if isinstance(status_detail, dict):
             error = status_detail.get("error", "")
             details = status_detail.get("details", "")
             if error and details:
-                message = f"{error}: {details}"
-            elif error:
-                message = error
-            elif details:
-                message = details
-            else:
-                message = f"Generation {status or 'failed'} with no details provided"
-
-            return f"{self.name} generation {status or 'failed'}: {message}"
+                return f"{error}: {details}"
+            return str(error or details or "")
 
         error = response_json.get("error")
+        if isinstance(error, dict):
+            return str(error.get("message") or "")
         if error:
-            if isinstance(error, dict):
-                message = error.get("message", str(error))
-                return f"{self.name} request failed: {message}"
-            return f"{self.name} request failed: {error}"
+            return str(error)
 
-        return f"{self.name} generation failed with no error details in response."
+        return ""
 
     def _handle_payload_build_error(self, e: Exception) -> None:
         if isinstance(e, ValueError):

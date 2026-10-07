@@ -89,9 +89,7 @@ class SaveToProject(SuccessFailureNode):
         source_value = self.get_parameter_value("source")
         source_path = _extract_source_path(source_value)
         if not source_path:
-            exceptions.append(
-                ValueError(f"{self.name} requires a source file to save. Please connect or set the 'source' parameter.")
-            )
+            exceptions.append(ValueError("A source file is required. Connect or set the 'source' parameter."))
 
         parent_exceptions = super().validate_before_node_run()
         if parent_exceptions:
@@ -117,7 +115,10 @@ class SaveToProject(SuccessFailureNode):
             msg = f"Failed to read source file '{source_path}': {e}"
             logger.error(msg)
             self._set_status_results(was_successful=False, result_details=msg)
-            self._handle_failure_exception(RuntimeError(msg))
+            error = RuntimeError(msg)
+            # Keep the original as the cause so its traceback stays in the logs.
+            error.__cause__ = e
+            self._handle_failure_exception(error)
             return
 
         try:
@@ -128,7 +129,10 @@ class SaveToProject(SuccessFailureNode):
             msg = f"Failed to write destination file: {e}"
             logger.error(msg)
             self._set_status_results(was_successful=False, result_details=msg)
-            self._handle_failure_exception(RuntimeError(msg))
+            error = RuntimeError(msg)
+            # Keep the original as the cause so its traceback stays in the logs.
+            error.__cause__ = e
+            self._handle_failure_exception(error)
             return
 
         # Map the saved absolute path back to a macro path

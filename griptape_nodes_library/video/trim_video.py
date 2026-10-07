@@ -156,27 +156,27 @@ class TrimVideo(SuccessFailureNode):
 
         video = self.parameter_values.get("video")
         if not video:
-            exceptions.append(ValueError(f"{self.name}: Video parameter is required"))
+            exceptions.append(ValueError("Connect a video to 'video'."))
         elif not isinstance(video, VideoUrlArtifact):
-            exceptions.append(ValueError(f"{self.name}: Video parameter must be a VideoUrlArtifact"))
+            exceptions.append(ValueError(f"'video' must be a video, got {type(video).__name__}."))
         elif hasattr(video, "value") and not video.value:  # type: ignore  # noqa: PGH003
-            exceptions.append(ValueError(f"{self.name}: Video parameter must have a value"))
+            exceptions.append(ValueError("The video connected to 'video' is empty."))
 
         trim_by = self.get_parameter_value("trim_by") or "timecode"
         if trim_by == "frame range":
             start_frame = self.get_parameter_value("start_frame")
             end_frame = self.get_parameter_value("end_frame")
             if start_frame is None:
-                exceptions.append(ValueError(f"{self.name}: Start frame is required"))
+                exceptions.append(ValueError("'start_frame' is required when trimming by frame range."))
             if end_frame is None:
-                exceptions.append(ValueError(f"{self.name}: End frame is required"))
+                exceptions.append(ValueError("'end_frame' is required when trimming by frame range."))
             if start_frame is not None and end_frame is not None and end_frame <= start_frame:
-                exceptions.append(ValueError(f"{self.name}: End frame must be greater than start frame"))
+                exceptions.append(ValueError("'end_frame' must be greater than 'start_frame'."))
         else:
             if not self.get_parameter_value("start_timecode"):
-                exceptions.append(ValueError(f"{self.name}: Start timecode is required"))
+                exceptions.append(ValueError("'start_timecode' is required when trimming by timecode."))
             if not self.get_parameter_value("end_timecode"):
-                exceptions.append(ValueError(f"{self.name}: End timecode is required"))
+                exceptions.append(ValueError("'end_timecode' is required when trimming by timecode."))
 
         return exceptions if exceptions else None
 
@@ -192,12 +192,12 @@ class TrimVideo(SuccessFailureNode):
             run_ffmpeg_cmd(cmd, log=lambda msg: self.append_value_to_parameter("logs", msg))
 
             if not out_path.exists():
-                raise ValueError(f"{self.name}: expected output file not found: {out_path}")
+                raise ValueError(f"FFmpeg did not write the trimmed video to {out_path}.")
 
             file_size = out_path.stat().st_size
             self.append_value_to_parameter("logs", f"Output file size: {file_size} bytes\n")
             if file_size < MIN_VIDEO_FILE_SIZE:
-                raise ValueError(f"{self.name}: output too small ({file_size} bytes) — likely empty or invalid")
+                raise ValueError(f"The trimmed video is only {file_size} bytes, so it is likely empty or invalid.")
 
             video_bytes = out_path.read_bytes()
 
@@ -223,7 +223,7 @@ class TrimVideo(SuccessFailureNode):
             input_url = File(video_artifact.value).resolve()
 
             if not validate_url(input_url):
-                raise ValueError(f"Invalid or unsafe URL: {input_url}")  # noqa: TRY301
+                raise ValueError(f"The video URL is not valid or not safe to open: {input_url}")  # noqa: TRY301
 
             self.append_value_to_parameter("logs", "Detecting video properties...\n")
             _, ffprobe_path = get_ffmpeg_paths()
@@ -270,10 +270,9 @@ class TrimVideo(SuccessFailureNode):
             self.append_value_to_parameter("logs", "[Finished video trim.]\n")
 
         except Exception as e:
-            msg = f"{self.name}: Error trimming video: {e!s}"
-            self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
+            self.append_value_to_parameter("logs", f"ERROR: Could not trim the video: {e}\n")
             self._set_status_results(was_successful=False, result_details=f"Video trim failed: {e!s}")
-            self._handle_failure_exception(ValueError(msg))
+            self._handle_failure_exception(e)
             return
 
         self._set_status_results(

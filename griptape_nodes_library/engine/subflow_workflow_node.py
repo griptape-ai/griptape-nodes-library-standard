@@ -417,12 +417,12 @@ class SubflowWorkflowNode(SuccessFailureNode):
     async def aprocess(self) -> None:
         workflow_name = self.get_parameter_value("workflow_file")
         if not workflow_name:
-            msg = f"Node '{self.name}' has no workflow selected."
+            msg = "No workflow is selected. Pick one in 'workflow_file'."
             self._set_status_results(was_successful=False, result_details=msg)
             self._handle_failure_exception(RuntimeError(msg))
             return
         if not WorkflowRegistry.has_workflow_with_name(workflow_name):
-            msg = f"Node '{self.name}' references workflow '{workflow_name}' which is not registered."
+            msg = f"Workflow '{workflow_name}' is not registered. Pick another workflow in 'workflow_file'."
             self._set_status_results(was_successful=False, result_details=msg)
             self._handle_failure_exception(RuntimeError(msg))
             return

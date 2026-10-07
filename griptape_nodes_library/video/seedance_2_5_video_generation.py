@@ -671,7 +671,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         task = params["task"]
         if task not in set(SeedanceTask):
             supported = ", ".join(member.value for member in SeedanceTask)
-            msg = f"{self.name}: unknown task {task!r}. Supported tasks: {supported}."
+            msg = f"Unknown task {task!r}. Supported tasks: {supported}."
             raise ValueError(msg)
 
         constraints = TASK_CONSTRAINTS[SeedanceTask(task)]
@@ -698,7 +698,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
 
         if has_frames and not constraints.allows_frames:
             msg = (
-                f"{self.name}: first_frame/last_frame inputs are only used by the "
+                f"first_frame/last_frame inputs are only used by the "
                 f"{SeedanceTask.FIRST_LAST_FRAME.value} task. Switch the task to "
                 f"{SeedanceTask.FIRST_LAST_FRAME.value}, or clear the frame inputs."
             )
@@ -709,14 +709,14 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
                 member.value for member in SeedanceTask if TASK_CONSTRAINTS[member].allows_references
             )
             msg = (
-                f"{self.name}: the reference image/video/audio inputs are only used by the "
+                f"The reference image/video/audio inputs are only used by the "
                 f"{reference_tasks} tasks. Switch the task, or clear the reference inputs."
             )
             raise ValueError(msg)
 
         if constraints.requires_reference_video and not params.get(REFERENCE_VIDEOS_PARAMETER):
             msg = (
-                f"{self.name}: the {task} task requires at least one reference video — the video to "
+                f"The {task} task requires at least one reference video — the video to "
                 f"{'edit' if task == SeedanceTask.VIDEO_EDITING else 'extend'}. Connect a video to "
                 "Reference Videos, or switch the task."
             )
@@ -726,7 +726,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         # none, the request is a text-to-video that contradicts the declared task type.
         if constraints.omni_reference_task_type == OmniReferenceTaskType.REFERENCE and not has_references:
             msg = (
-                f"{self.name}: the {task} task requires at least one reference image, video, or audio "
+                f"The {task} task requires at least one reference image, video, or audio "
                 f"input. Connect a reference, or switch the task to {SeedanceTask.TEXT_TO_VIDEO.value}."
             )
             raise ValueError(msg)
@@ -745,7 +745,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         for parameter_name, (cap, label) in caps.items():
             count = len(params.get(parameter_name) or [])
             if count > cap:
-                msg = f"{self.name}: Seedance 2.5 supports up to {cap} {label}, got {count}."
+                msg = f"Seedance 2.5 supports up to {cap} {label}, got {count}."
                 raise ValueError(msg)
 
     def _validate_trigger_keywords(self, params: dict[str, Any], task: str, constraints: TaskConstraints) -> None:
@@ -764,7 +764,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
 
         keywords = ", ".join(constraints.trigger_keywords)
         msg = (
-            f"{self.name}: the {task} task is inferred from the prompt, which must say what to do to the "
+            f"The {task} task is inferred from the prompt, which must say what to do to the "
             f"reference video. Include at least one of: {keywords}."
         )
         raise ValueError(msg)
@@ -778,7 +778,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         resolution = params.get("resolution")
         if resolution not in RESOLUTION_CHOICES:
             accepted = ", ".join(RESOLUTION_CHOICES)
-            msg = f"{self.name}: Seedance 2.5 supports resolution {accepted}, got {resolution!r}."
+            msg = f"Seedance 2.5 supports resolution {accepted}, got {resolution!r}."
             raise ValueError(msg)
 
     def _validate_ratio_and_duration(self, params: dict[str, Any], task: str, constraints: TaskConstraints) -> None:
@@ -790,7 +790,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         if ratio not in constraints.ratio_choices:
             accepted = ", ".join(constraints.ratio_choices)
             msg = (
-                f"{self.name}: the {task} task only supports ratio {accepted}, got {ratio!r}. "
+                f"The {task} task only supports ratio {accepted}, got {ratio!r}. "
                 "The output keeps the aspect ratio of its input."
             )
             raise ValueError(msg)
@@ -801,12 +801,12 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         if duration not in constraints.duration_choices:
             if constraints.duration_choices == SMART_ONLY_DURATION_CHOICES:
                 msg = (
-                    f"{self.name}: the {task} task only supports duration {SMART_DURATION}, got {duration}. "
+                    f"The {task} task only supports duration {SMART_DURATION}, got {duration}. "
                     "The output duration matches the input video."
                 )
             else:
                 msg = (
-                    f"{self.name}: Seedance 2.5 supports duration between {MIN_DURATION}-{MAX_DURATION} seconds "
+                    f"Seedance 2.5 supports duration between {MIN_DURATION}-{MAX_DURATION} seconds "
                     f"or {SMART_DURATION} to let the model choose, got {duration}."
                 )
             raise ValueError(msg)
@@ -830,7 +830,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         for value, _ in self._iter_reference_asset_checks(params):
             if is_provider_asset_reference(value):
                 msg = (
-                    f"{self.name}: private-asset references (Seedance Human Reference Asset) require "
+                    "Private-asset references (Seedance Human Reference Asset) require "
                     "Griptape authentication and are not available when using your own provider key. "
                     "Switch off the customer key option, or remove the private-asset reference inputs."
                 )
@@ -843,7 +843,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
                 actual_kind = get_provider_asset_kind(value)
                 if actual_kind != expected_kind:
                     msg = (
-                        f"{self.name}: a {actual_kind or 'unknown'} private-asset reference is connected to a "
+                        f"A {actual_kind or 'unknown'} private-asset reference is connected to a "
                         f"{expected_kind} reference input. Set the Seedance Human Reference Asset's Asset Kind "
                         f"to {expected_kind}, or connect it to the matching reference input."
                     )
@@ -984,13 +984,13 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         try:
             public_url = await self._resolve_public_url_for_media(value, artifact_type="VideoUrlArtifact")
         except Exception as e:
-            msg = f"{self.name}: failed to prepare a public URL for {label}: {e}"
+            msg = f"Could not prepare a public URL for {label}: {e}"
             raise ValueError(msg) from e
 
         coerced_url = coerce_video_url(public_url)
         if not coerced_url:
             msg = (
-                f"{self.name}: {label} only supports public URLs, uploaded asset URLs, or asset:// IDs. "
+                f"{label} only supports public URLs, uploaded asset URLs, or asset:// IDs. "
                 "Seedance 2.5 does not accept video base64."
             )
             raise ValueError(msg)

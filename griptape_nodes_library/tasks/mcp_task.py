@@ -309,15 +309,14 @@ class MCPTaskNode(SuccessFailureNode):
 
         # Validate prompt
         if not prompt:
-            msg = f"{self.name}: No prompt provided. Please enter a prompt to process."
+            msg = "No prompt provided. Enter a prompt in 'prompt'."
             exceptions.append(ValueError(msg))
 
         # Validate MCP server exists and is enabled
         if mcp_server_name:
             is_valid, error_msg = validate_mcp_server(mcp_server_name)
             if not is_valid:
-                msg = f"{self.name}: {error_msg}"
-                exceptions.append(ValueError(msg))
+                exceptions.append(ValueError(error_msg))
 
         return exceptions if exceptions else None
 

@@ -154,22 +154,22 @@ class BlurVideo(BaseVideoProcessor):
 
         blur_type = self.get_parameter_value("blur_type")
         if blur_type is not None and blur_type not in self.BLUR_TYPES:
-            msg = f"{self.name} - blur_type must be one of {list(self.BLUR_TYPES)}, got {blur_type}"
+            msg = f"'blur_type' must be one of {list(self.BLUR_TYPES)}, got {blur_type}"
             exceptions.append(ValueError(msg))
 
         radius = self.get_parameter_value("radius")
         if radius is not None and (radius < self.MIN_RADIUS or radius > self.MAX_RADIUS):
-            msg = f"{self.name} - radius must be between {self.MIN_RADIUS} and {self.MAX_RADIUS}, got {radius}"
+            msg = f"'radius' must be between {self.MIN_RADIUS} and {self.MAX_RADIUS}, got {radius}"
             exceptions.append(ValueError(msg))
 
         sigma = self.get_parameter_value("sigma")
         if sigma is not None and (sigma < self.MIN_SIGMA or sigma > self.MAX_SIGMA):
-            msg = f"{self.name} - sigma must be between {self.MIN_SIGMA} and {self.MAX_SIGMA}, got {sigma}"
+            msg = f"'sigma' must be between {self.MIN_SIGMA} and {self.MAX_SIGMA}, got {sigma}"
             exceptions.append(ValueError(msg))
 
         power = self.get_parameter_value("power")
         if power is not None and (power < self.MIN_POWER or power > self.MAX_POWER):
-            msg = f"{self.name} - power must be between {self.MIN_POWER} and {self.MAX_POWER}, got {power}"
+            msg = f"'power' must be between {self.MIN_POWER} and {self.MAX_POWER}, got {power}"
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None

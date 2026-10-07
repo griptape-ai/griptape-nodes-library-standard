@@ -41,7 +41,7 @@ class AgentToTool(DataNode):
 
         def validate_tool_description(_param: Parameter, value: str) -> None:
             if not value:
-                msg = f"{self.name} : A meaningful description is critical for an Agent to know when to use this tool."
+                msg = "'description' is empty. Describe what the tool does so the Agent knows when to use it."
                 raise ValueError(msg)
 
         # Description parameter for the Tool

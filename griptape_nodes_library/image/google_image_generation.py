@@ -335,7 +335,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
         exceptions = super().validate_before_node_run() or []
         prompt = self.get_parameter_value("prompt")
         if not prompt:
-            exceptions.append(ValueError(f"{self.name} prompt must be provided"))
+            exceptions.append(ValueError("'Prompt' is empty. Describe the image you want."))
 
         # Get all image lists
         input_images = self.get_parameter_list_value("input_images") or []
@@ -345,9 +345,11 @@ class GoogleImageGeneration(GriptapeProxyNode):
         # Validate combined image count does not exceed maximum
         total_images = len(input_images) + len(object_images) + len(human_images)
         if total_images > MAX_INPUT_IMAGES:
-            exceptions.append(
-                ValueError(f"{self.name} total input images cannot exceed {MAX_INPUT_IMAGES}, got {total_images}")
+            msg = (
+                f"{total_images} input images are connected and the limit is {MAX_INPUT_IMAGES}. "
+                "Remove some from 'Input Images'."
             )
+            exceptions.append(ValueError(msg))
 
         return exceptions or None
 
@@ -432,7 +434,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=f"{self.name} received empty response from API.",
+                result_details="The provider returned an empty response.",
             )
             return
 
@@ -441,7 +443,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=f"{self.name} no candidates found in response.",
+                result_details="The provider's response contained no candidates.",
             )
             return
 
@@ -508,35 +510,29 @@ class GoogleImageGeneration(GriptapeProxyNode):
             self.parameter_output_values["image"] = None
             self.parameter_output_values["all_images"] = []
             if saved.listing_error:
-                details = f"{self.name} generation completed but its images could not be listed: {saved.listing_error}"
+                details = f"The generation finished, but its images could not be listed: {saved.listing_error}"
             elif saved.unretrieved:
-                details = f"{self.name} generation completed upstream but the image(s) could not be retrieved."
+                details = "The generation finished, but the image(s) could not be retrieved."
             else:
-                details = f"{self.name} no images were hosted."
+                details = "The generation finished, but no images were hosted."
             if text_outputs:
                 details += "\n\nModel text output:\n" + "\n".join(text_outputs)
             self._set_status_results(was_successful=False, result_details=details)
 
-    def _extract_error_details(self, response_json: dict[str, Any] | None) -> str:
-        """Extract error details from API response."""
+    def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
         if not response_json:
-            return f"{self.name} generation failed with no error details provided by API."
+            return ""
 
-        top_level_error = response_json.get("error")
         parsed_provider_response = self._parse_provider_response(response_json.get("provider_response"))
-
-        provider_error_msg = self._format_provider_error(parsed_provider_response, top_level_error)
+        provider_error_msg = self._format_provider_error(parsed_provider_response)
         if provider_error_msg:
             return provider_error_msg
 
+        top_level_error = response_json.get("error")
         if top_level_error:
             return self._format_top_level_error(top_level_error)
 
-        status = self._extract_status(response_json) or "unknown"
-        return f"{self.name} generation failed with status '{status}'.\n\nFull API response:\n{response_json}"
-
-    def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
-        return self._extract_error_details(response_json)
+        return super()._extract_error_message(response_json)
 
     def _parse_provider_response(self, provider_response: Any) -> dict[str, Any] | None:
         """Parse provider_response if it's a JSON string."""
@@ -549,40 +545,24 @@ class GoogleImageGeneration(GriptapeProxyNode):
             return provider_response
         return None
 
-    def _format_provider_error(
-        self, parsed_provider_response: dict[str, Any] | None, top_level_error: Any
-    ) -> str | None:
-        """Format error message from parsed provider response."""
+    def _format_provider_error(self, parsed_provider_response: dict[str, Any] | None) -> str:
+        """The provider's own error message from its parsed response, or "" if there is none."""
         if not parsed_provider_response:
-            return None
+            return ""
 
         provider_error = parsed_provider_response.get("error")
         if not provider_error:
-            return None
+            return ""
 
         if isinstance(provider_error, dict):
-            error_message = provider_error.get("message", "")
-            details = f"{self.name} {error_message}"
-
-            if error_code := provider_error.get("code"):
-                details += f"\nError Code: {error_code}"
-            if error_type := provider_error.get("type"):
-                details += f"\nError Type: {error_type}"
-            if top_level_error:
-                details = f"{self.name} {top_level_error}\n\n{details}"
-            return details
-
-        error_msg = str(provider_error)
-        if top_level_error:
-            return f"{self.name} {top_level_error}\n\nProvider error: {error_msg}"
-        return f"{self.name} generation failed. Provider error: {error_msg}"
+            return str(provider_error.get("message") or "")
+        return str(provider_error)
 
     def _format_top_level_error(self, top_level_error: Any) -> str:
-        """Format error message from top-level error field."""
+        """The message from the top-level error field, or "" if it has none."""
         if isinstance(top_level_error, dict):
-            error_msg = top_level_error.get("message") or top_level_error.get("error") or str(top_level_error)
-            return f"{self.name} generation failed with error: {error_msg}\n\nFull error details:\n{top_level_error}"
-        return f"{self.name} generation failed with error: {top_level_error!s}"
+            return str(top_level_error.get("message") or top_level_error.get("error") or "")
+        return str(top_level_error)
 
     def _set_safe_defaults(self) -> None:
         self.parameter_output_values["image"] = None
@@ -716,7 +696,10 @@ class GoogleImageGeneration(GriptapeProxyNode):
         max_mb = MAX_IMAGE_SIZE_BYTES / (1024 * 1024)
 
         if not auto_image_resize:
-            msg = f"{self.name} input image exceeds maximum size of {max_mb:.0f}MB (image is {size_mb:.2f}MB)"
+            msg = (
+                f"An input image is {size_mb:.2f}MB and the limit is {max_mb:.0f}MB. "
+                "Turn on 'Auto Image Resize' or use a smaller image."
+            )
             raise ValueError(msg)
 
         # Try to shrink the image
@@ -753,14 +736,4 @@ class GoogleImageGeneration(GriptapeProxyNode):
             msg = f"{self.name} failed to extract image value: {e}"
             logger.info(msg)
 
-        return None
-
-    @staticmethod
-    def _extract_status(obj: dict[str, Any] | None) -> str | None:
-        if not obj:
-            return None
-        if "status" in obj:
-            status_val = obj.get("status")
-            if isinstance(status_val, str):
-                return status_val
         return None

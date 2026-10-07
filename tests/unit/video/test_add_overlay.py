@@ -102,7 +102,7 @@ def test_overlay_data_uri_reaches_ffmpeg_unchanged(node: AddOverlay, overlay_inp
     ids=["byte_artifact", "empty_dict_value"],
 )
 def test_overlay_without_a_location_raises(node: AddOverlay, overlay_input: Any) -> None:
-    with pytest.raises(ValueError, match="overlay_video must reference a file or URL"):
+    with pytest.raises(ValueError, match="'overlay_video' must reference a file or URL"):
         node._resolve_overlay_location(overlay_input)
 
 

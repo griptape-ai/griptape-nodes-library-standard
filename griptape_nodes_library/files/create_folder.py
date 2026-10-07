@@ -98,19 +98,19 @@ class CreateFolder(FileOperationBaseNode):
         self.set_parameter_value(self.already_existed_output.name, False)
 
         if not folder_path:
-            msg = f"{self.name} attempted to create folder but folder_path is empty. Failed due to no path provided"
+            msg = "'folder_path' is empty. Set the folder to create."
             self._set_status_results(was_successful=False, result_details=msg)
             return
 
         existing_path = self._check_path_exists(folder_path)
         if existing_path.exists:
             if not existing_path.is_directory:
-                msg = f"{self.name} attempted to create folder but path exists and is not a directory: {folder_path}"
+                msg = f"A file already exists at this path: {folder_path}"
                 self._set_status_results(was_successful=False, result_details=msg)
                 return
 
             if fail_if_already_exists:
-                msg = f"{self.name} attempted to create folder but it already exists and fail_if_already_exists is True: {folder_path}"
+                msg = f"The folder already exists: {folder_path}. Turn off 'fail_if_already_exists' to accept an existing folder."
                 self._set_status_results(was_successful=False, result_details=msg)
                 return
 
@@ -127,14 +127,11 @@ class CreateFolder(FileOperationBaseNode):
         if not create_parents:
             parent_path = self._check_path_exists(str(Path(folder_path).parent))
             if not parent_path.exists:
-                msg = (
-                    f"{self.name} attempted to create folder but parent directory does not exist and "
-                    f"create_parents is False: {folder_path}"
-                )
+                msg = f"The parent folder does not exist: {folder_path}. Turn on 'create_parents' to create it."
                 self._set_status_results(was_successful=False, result_details=msg)
                 return
             if not parent_path.is_directory:
-                msg = f"{self.name} attempted to create folder but parent path is not a directory: {folder_path}"
+                msg = f"The parent path is not a folder: {folder_path}"
                 self._set_status_results(was_successful=False, result_details=msg)
                 return
 
@@ -152,7 +149,7 @@ class CreateFolder(FileOperationBaseNode):
                 else "Unknown error"
             )
             error_details = f" - {create_result.result_details}" if create_result.result_details else ""
-            msg = f"{self.name} failed to create folder '{folder_path}': {failure_reason}{error_details}"
+            msg = f"Could not create folder '{folder_path}': {failure_reason}{error_details}"
             self._set_status_results(was_successful=False, result_details=msg)
             return
 

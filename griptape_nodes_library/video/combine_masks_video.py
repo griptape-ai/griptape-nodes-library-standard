@@ -89,7 +89,7 @@ class CombineMasksVideo(DataNode):
 
         mask_videos = self.get_parameter_list_value("mask_videos")
         if not mask_videos:
-            msg = f"{self.name}: At least one mask video is required"
+            msg = "At least one mask video is required. Connect one to 'Mask Videos'."
             exceptions.append(ValueError(msg))
             return exceptions
 
@@ -97,7 +97,7 @@ class CombineMasksVideo(DataNode):
         for idx, mask_value in enumerate(mask_videos):
             # Accept VideoArtifact, VideoUrlArtifact, or any object with a .value attribute
             if not hasattr(mask_value, "value"):
-                msg = f"{self.name}: mask_videos[{idx}] must be a video artifact with a .value attribute, got {type(mask_value)}."
+                msg = f"Item {idx + 1} in 'Mask Videos' is not a video, got {type(mask_value).__name__}."
                 exceptions.append(ValueError(msg))
 
         return exceptions or None
@@ -117,10 +117,8 @@ class CombineMasksVideo(DataNode):
             yield lambda: self._process_mask_videos(mask_videos)
             self.append_value_to_parameter("logs", "[Finished mask video combination.]\n")
         except Exception as e:
-            error_message = str(e)
-            msg = f"{self.name}: Error combining mask videos: {error_message}"
-            self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
-            raise ValueError(msg) from e
+            self.append_value_to_parameter("logs", f"ERROR: Error combining mask videos: {e!s}\n")
+            raise
 
     def _process_mask_videos(self, mask_videos: list) -> None:
         """Process mask videos by combining them frame-by-frame."""
@@ -244,7 +242,7 @@ class CombineMasksVideo(DataNode):
         from griptape_nodes_library.utils.video_utils import validate_url
 
         if not validate_url(url):
-            msg = f"{self.name}: Invalid or unsafe URL provided: {url}"
+            msg = f"The mask video URL is invalid or unsafe: {url}"
             raise ValueError(msg)
 
     def _get_video_properties(self, video_url: str, ffprobe_path: str) -> dict[str, Any]:
@@ -268,7 +266,7 @@ class CombineMasksVideo(DataNode):
             streams_data = json.loads(result.stdout)
 
             if not streams_data.get("streams") or len(streams_data["streams"]) == 0:
-                msg = f"{self.name}: No video stream found in {video_url}"
+                msg = f"No video stream found in {video_url}"
                 raise ValueError(msg)
 
             video_stream = streams_data["streams"][0]
@@ -297,7 +295,7 @@ class CombineMasksVideo(DataNode):
             return {"width": width, "height": height, "fps": fps, "frame_count": frame_count}
 
         except Exception as e:
-            msg = f"{self.name}: Failed to get video properties for {video_url!r}: {describe_ffmpeg_failure(e)}"
+            msg = f"Failed to get video properties for {video_url!r}: {describe_ffmpeg_failure(e)}"
             raise ValueError(msg) from e
 
     def _validate_video_properties(self, video_properties: list[dict[str, Any]]) -> None:
@@ -315,7 +313,7 @@ class CombineMasksVideo(DataNode):
         for idx, props in enumerate(video_properties[1:], start=1):
             if props["width"] != ref_width or props["height"] != ref_height:
                 msg = (
-                    f"{self.name}: All mask videos must have the same resolution. "
+                    f"All mask videos must have the same resolution. "
                     f"Expected {ref_width}x{ref_height}, got {props['width']}x{props['height']} at index {idx}."
                 )
                 raise ValueError(msg)
@@ -337,10 +335,10 @@ class CombineMasksVideo(DataNode):
         try:
             subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)  # noqa: S603
         except subprocess.CalledProcessError as e:
-            msg = f"{self.name}: FFmpeg frame extraction failed: {e.stderr}"
+            msg = f"FFmpeg frame extraction failed: {e.stderr}"
             raise ValueError(msg) from e
         except subprocess.TimeoutExpired as e:
-            msg = f"{self.name}: FFmpeg frame extraction timed out"
+            msg = "FFmpeg frame extraction timed out after 300 seconds."
             raise ValueError(msg) from e
 
     def _combine_frames(
@@ -385,7 +383,7 @@ class CombineMasksVideo(DataNode):
                 if frame_idx <= video_properties[video_idx]["frame_count"]:
                     # Frame exists - load it
                     if not frame_path.exists():
-                        msg = f"{self.name}: Missing frame {frame_filename} in {frame_dir}"
+                        msg = f"Missing frame {frame_filename} in {frame_dir}"
                         raise ValueError(msg)
 
                     frame_img = Image.open(frame_path)
@@ -444,10 +442,10 @@ class CombineMasksVideo(DataNode):
         try:
             subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=600)  # noqa: S603
         except subprocess.CalledProcessError as e:
-            msg = f"{self.name}: FFmpeg video reassembly failed: {e.stderr}"
+            msg = f"FFmpeg video reassembly failed: {e.stderr}"
             raise ValueError(msg) from e
         except subprocess.TimeoutExpired as e:
-            msg = f"{self.name}: FFmpeg video reassembly timed out"
+            msg = "FFmpeg video reassembly timed out after 600 seconds."
             raise ValueError(msg) from e
 
         return output_video

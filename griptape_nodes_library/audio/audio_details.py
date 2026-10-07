@@ -305,7 +305,7 @@ class AudioDetails(DataNode):
                 return path
 
         # SUCCESS PATH AT END
-        error_msg = f"{self.name}: ffprobe not found. Please install FFmpeg with ffprobe."
+        error_msg = "ffprobe was not found. Install FFmpeg, which includes ffprobe, and try again."
         raise RuntimeError(error_msg)
 
     def _set_default_values(self) -> None:

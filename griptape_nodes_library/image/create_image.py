@@ -20,7 +20,7 @@ from griptape_nodes_library.utils.cloud_budget_drivers import (
     GriptapeCloudPromptDriver,
 )
 from griptape_nodes_library.utils.cloud_credential_utils import (
-    missing_credential_message,
+    missing_credential_error,
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
@@ -163,8 +163,7 @@ class GenerateImage(ControlNode):
             agent_val = self.parameter_values.get("agent", None)
             driver_val = self.parameter_values.get("driver", None)
             if agent_val is None and driver_val is None:
-                msg = missing_credential_message("generate an image")
-                exceptions.append(KeyError(msg))
+                exceptions.append(missing_credential_error("generate an image"))
 
         # Validate that we have a prompt.
         prompt_error = self.validate_empty_parameter(param="prompt")

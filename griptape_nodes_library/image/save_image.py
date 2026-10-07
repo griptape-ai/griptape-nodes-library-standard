@@ -261,7 +261,10 @@ class SaveImage(SuccessFailureNode):
             exception=exception,
         )
         # Use the helper to handle exception based on connection status
-        self._handle_failure_exception(RuntimeError(error_details))
+        error = RuntimeError(error_details)
+        # Chain the original so its traceback stays in the logs, as `raise ... from exception` would.
+        error.__cause__ = exception
+        self._handle_failure_exception(error)
 
     def after_incoming_connection(self, source_node, source_parameter, target_parameter) -> None:
         on_output_file_connected(self, source_node, target_parameter)

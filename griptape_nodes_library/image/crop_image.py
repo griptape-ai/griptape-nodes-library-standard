@@ -696,12 +696,12 @@ class CropImage(ControlNode):
 
         input_artifact = self.get_parameter_value("input_image")
         if not input_artifact:
-            msg = f"{self.name} - Input image is required"
+            msg = "Connect an image to 'Input Image'."
             exceptions.append(Exception(msg))
             return exceptions
 
         if not self._extract_image_path(input_artifact):
-            msg = f"{self.name} - Input image could not be resolved to a valid path"
+            msg = "'Input Image' could not be resolved to a valid path. Connect a valid image to 'Input Image'."
             exceptions.append(Exception(msg))
 
         return exceptions
@@ -713,19 +713,19 @@ class CropImage(ControlNode):
         # Validate zoom parameter
         zoom = self.get_parameter_value("zoom")
         if zoom is not None and (zoom < 0.0 or zoom > MAX_ZOOM):
-            msg = f"{self.name} - Zoom must be between 0.0 and {MAX_ZOOM}, got {zoom}"
+            msg = f"Zoom must be between 0.0 and {MAX_ZOOM}, got {zoom}"
             exceptions.append(Exception(msg))
 
         # Validate rotation parameter
         rotate = self.get_parameter_value("rotate")
         if rotate is not None and (rotate < ROTATION_MIN or rotate > ROTATION_MAX):
-            msg = f"{self.name} - Rotation must be between {ROTATION_MIN} and {ROTATION_MAX} degrees, got {rotate}"
+            msg = f"Rotation must be between {ROTATION_MIN} and {ROTATION_MAX} degrees, got {rotate}"
             exceptions.append(Exception(msg))
 
         # Validate output quality parameter
         output_quality = self.get_parameter_value("output_quality")
         if output_quality is not None and (output_quality < 0.0 or output_quality > 1.0):
-            msg = f"{self.name} - Output quality must be between 0.0 and 1.0, got {output_quality}"
+            msg = f"Output quality must be between 0.0 and 1.0, got {output_quality}"
             exceptions.append(Exception(msg))
 
         # Validate crop coordinates are non-negative
@@ -735,19 +735,19 @@ class CropImage(ControlNode):
         height = self.get_parameter_value("height")
 
         if left is not None and left < 0:
-            msg = f"{self.name} - Left coordinate must be non-negative, got {left}"
+            msg = f"Left coordinate must be non-negative, got {left}"
             exceptions.append(Exception(msg))
 
         if top is not None and top < 0:
-            msg = f"{self.name} - Top coordinate must be non-negative, got {top}"
+            msg = f"Top coordinate must be non-negative, got {top}"
             exceptions.append(Exception(msg))
 
         if width is not None and width < 0:
-            msg = f"{self.name} - Width must be non-negative, got {width}"
+            msg = f"Width must be non-negative, got {width}"
             exceptions.append(Exception(msg))
 
         if height is not None and height < 0:
-            msg = f"{self.name} - Height must be non-negative, got {height}"
+            msg = f"Height must be non-negative, got {height}"
             exceptions.append(Exception(msg))
 
         return exceptions

@@ -170,8 +170,8 @@ class CopyFiles(FileOperationBaseNode):
                 if result.result_details:
                     # ResultDetails.__str__() returns concatenated messages from all ResultDetail objects
                     error_details = f" - {result.result_details}"
-                failure_msg = f"{self.name}: Failed to copy directory '{target.source_path}' to '{destination_path}': {failure_reason}{error_details}"
-                logger.error(failure_msg)
+                failure_msg = f"Failed to copy directory '{target.source_path}' to '{destination_path}': {failure_reason}{error_details}"
+                logger.error("%s: %s", self.name, failure_msg)
                 target.failure_reason = failure_msg
                 return
 
@@ -199,8 +199,8 @@ class CopyFiles(FileOperationBaseNode):
                 if result.result_details:
                     # ResultDetails.__str__() returns concatenated messages from all ResultDetail objects
                     error_details = f" - {result.result_details}"
-                failure_msg = f"{self.name}: Failed to copy file '{target.source_path}' to '{destination_path}': {failure_reason}{error_details}"
-                logger.error(failure_msg)
+                failure_msg = f"Failed to copy file '{target.source_path}' to '{destination_path}': {failure_reason}{error_details}"
+                logger.error("%s: %s", self.name, failure_msg)
                 target.failure_reason = failure_msg
                 return
 
@@ -271,7 +271,7 @@ class CopyFiles(FileOperationBaseNode):
 
         # FAILURE CASE: Empty destination
         if not destination_dir:
-            msg = f"{self.name} attempted to copy but destination path is empty. Failed due to no destination provided"
+            msg = "'destination_path' is empty. Set the folder or file to copy to."
             self.set_parameter_value(self.copied_paths_output.name, [])
             self._set_status_results(was_successful=False, result_details=msg)
             return
@@ -280,7 +280,7 @@ class CopyFiles(FileOperationBaseNode):
         try:
             destination_dir = resolve_macro_path(destination_dir)
         except FileLoadError as e:
-            msg = f"{self.name} attempted to copy but could not resolve destination path '{destination_dir}': {e}"
+            msg = f"Could not resolve destination path '{destination_dir}': {e}"
             self.set_parameter_value(self.copied_paths_output.name, [])
             self._set_status_results(was_successful=False, result_details=msg)
             return
@@ -302,7 +302,7 @@ class CopyFiles(FileOperationBaseNode):
 
         # FAILURE CASE: No valid targets at all
         if not pending_targets:
-            msg = f"{self.name} attempted to copy but all source paths were invalid. No files copied"
+            msg = "All source paths were invalid. No files were copied."
             details = self._format_result_details(all_targets)
             self.set_parameter_value(self.copied_paths_output.name, [])
             self._set_status_results(was_successful=False, result_details=f"{msg}\n\n{details}")
@@ -314,7 +314,7 @@ class CopyFiles(FileOperationBaseNode):
 
         # FAILURE CASE: Multiple source files but destination is a file path
         if destination_is_file_path and len(pending_targets) > 1:
-            msg = f"{self.name} attempted to copy {len(pending_targets)} files to a single file path '{destination_dir}'. Cannot copy multiple files to a single file destination. Use a directory path instead."
+            msg = f"Cannot copy {len(pending_targets)} files to the single file path '{destination_dir}'. Set 'destination_path' to a folder instead."
             self.set_parameter_value(self.copied_paths_output.name, [])
             self._set_status_results(was_successful=False, result_details=msg)
             return
@@ -344,7 +344,7 @@ class CopyFiles(FileOperationBaseNode):
 
         # FAILURE CASE: Zero files were successfully copied
         if succeeded_count == 0:
-            msg = f"{self.name} failed to copy any files"
+            msg = "No files were copied."
             details = self._format_result_details(requested_targets)
             self.set_parameter_value(self.copied_paths_output.name, [])
             self._set_status_results(was_successful=False, result_details=f"{msg}\n\n{details}")

@@ -177,7 +177,7 @@ class ForLoopGroupNode(BaseIterativeNodeGroup):
         end_inclusive = self.get_parameter_value("end_inclusive")
 
         if step < 1:
-            msg = f"{self.name}: Step value must be positive (>= 1), got {step}"
+            msg = f"'Step' must be 1 or more, got {step}."
             exceptions.append(Exception(msg))
 
         if start == end:

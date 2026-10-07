@@ -379,14 +379,14 @@ class ImageBlendCompositor(BaseImageProcessor):
         input_image = self.get_parameter_value("input_image")
         blend_image = self.get_parameter_value("blend_image")
         if input_image is None:
-            exceptions.append(ValueError(f"{self.name} - Input image is required"))
+            exceptions.append(ValueError("Connect an image to 'Input Image'."))
         if blend_image is None:
-            exceptions.append(ValueError(f"{self.name} - Blend image is required"))
+            exceptions.append(ValueError("Connect an image to 'Blend Image'."))
 
         # Validate opacity
         opacity = self.get_parameter_value("opacity")
         if opacity is not None and (opacity < self.MIN_OPACITY or opacity > self.MAX_OPACITY):
-            msg = f"{self.name} - Opacity must be between {self.MIN_OPACITY} and {self.MAX_OPACITY}, got {opacity}"
+            msg = f"'Opacity' must be between {self.MIN_OPACITY} and {self.MAX_OPACITY}, got {opacity}."
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None
@@ -459,5 +459,5 @@ class ImageBlendCompositor(BaseImageProcessor):
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {failure_details}")
 
             # Handle failure based on whether failure output is connected
-            self._handle_failure_exception(ValueError(error_message))
+            self._handle_failure_exception(e)
             raise

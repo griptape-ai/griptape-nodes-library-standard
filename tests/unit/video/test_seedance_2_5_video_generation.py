@@ -421,7 +421,7 @@ def test_unknown_task_is_reported() -> None:
     params = node._get_parameters()
     params["task"] = "Motion Transfer"
 
-    with pytest.raises(ValueError, match="unknown task"):
+    with pytest.raises(ValueError, match="Unknown task"):
         node._validate_parameters(params)
 
 
@@ -753,7 +753,7 @@ def test_mismatched_private_asset_kind_is_rejected() -> None:
         [create_provider_asset_reference(value="https://public.example/clip.mp4", asset_kind=ASSET_KIND_VIDEO)],
     )
 
-    with pytest.raises(ValueError, match=f"a {ASSET_KIND_VIDEO} private-asset reference is connected"):
+    with pytest.raises(ValueError, match=f"A {ASSET_KIND_VIDEO} private-asset reference is connected"):
         node._validate_parameters(node._get_parameters())
 
 

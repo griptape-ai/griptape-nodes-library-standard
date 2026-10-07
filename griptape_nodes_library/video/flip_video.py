@@ -76,7 +76,7 @@ class FlipVideo(BaseVideoProcessor):
         direction = self.get_parameter_value("direction")
         valid_choices = ["horizontal", "vertical", "both"]
         if direction is not None and direction not in valid_choices:
-            msg = f"{self.name} - Direction must be one of {valid_choices}, got {direction}"
+            msg = f"Direction must be one of {valid_choices}, got {direction}"
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None

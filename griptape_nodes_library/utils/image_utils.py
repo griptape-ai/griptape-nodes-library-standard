@@ -332,7 +332,7 @@ def load_pil_image_from_artifact(image: ImageUrlArtifact | ImageArtifact | str, 
 
     Args:
         image: ImageUrlArtifact, ImageArtifact, or str URL
-        context_name: Name for error messages (e.g., node name)
+        context_name: Name for log lines (e.g., node name)
 
     Returns:
         PIL Image object
@@ -342,8 +342,8 @@ def load_pil_image_from_artifact(image: ImageUrlArtifact | ImageArtifact | str, 
         ValueError: If image loading fails
     """
     if not isinstance(image, ImageUrlArtifact | ImageArtifact | str):
-        error_msg = f"{context_name}: Unsupported image type: {type(image).__name__}"
-        logger.warning(error_msg)
+        error_msg = f"Unsupported image type: {type(image).__name__}"
+        logger.warning("%s: %s", context_name, error_msg)
         raise TypeError(error_msg)
 
     try:
@@ -352,9 +352,13 @@ def load_pil_image_from_artifact(image: ImageUrlArtifact | ImageArtifact | str, 
         if isinstance(image, ImageArtifact):
             return Image.open(BytesIO(image.value))
         return load_pil_from_url(image)
+    except ValueError as e:
+        # load_pil_from_url already says which image failed and why.
+        logger.warning("%s: %s", context_name, e)
+        raise
     except Exception as e:
-        error_msg = f"{context_name}: Failed to load image: {e}"
-        logger.warning(error_msg)
+        error_msg = f"Failed to load image: {e}"
+        logger.warning("%s: %s", context_name, error_msg)
         raise ValueError(error_msg) from e
 
 

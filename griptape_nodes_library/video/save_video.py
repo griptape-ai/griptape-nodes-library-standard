@@ -144,8 +144,9 @@ class SaveVideo(SuccessFailureNode):
         self._set_status_results(was_successful=False, result_details=f"FAILURE: {failure_details}")
         logger.error(f"Error saving video: {error_details}")
 
-        # Use the helper to handle exception based on connection status
-        self._handle_failure_exception(RuntimeError(error_details))
+        # Use the helper to handle exception based on connection status. Pass the original
+        # exception on so the editor shows its real type.
+        self._handle_failure_exception(exception if exception is not None else RuntimeError(error_details))
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = []

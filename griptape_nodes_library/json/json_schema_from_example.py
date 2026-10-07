@@ -611,7 +611,7 @@ class CreateAgentSchema(SuccessFailureNode):
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
             self.parameter_output_values["schema"] = {}
             self.publish_update_to_parameter("schema", {})
-            self._handle_failure_exception(RuntimeError(error_details))
+            self._handle_failure_exception(e)
             return
 
         if json_schema is None:

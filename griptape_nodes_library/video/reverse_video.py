@@ -91,7 +91,7 @@ class ReverseVideo(BaseVideoProcessor):
         audio_handling = self.get_parameter_value("audio_handling")
         valid_choices = ["reverse", "mute", "keep"]
         if audio_handling is not None and audio_handling not in valid_choices:
-            msg = f"{self.name} - Audio handling must be one of {valid_choices}, got {audio_handling}"
+            msg = f"'audio_handling' must be one of {valid_choices}, got {audio_handling!r}."
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None

@@ -148,28 +148,28 @@ class AddVignette(BaseVideoProcessor):
 
         angle = self.get_parameter_value("angle")
         if angle is not None and (angle < self.MIN_ANGLE or angle > self.MAX_ANGLE):
-            msg = f"{self.name} - Angle must be between {self.MIN_ANGLE} and {self.MAX_ANGLE}, got {angle}"
+            msg = f"Angle must be between {self.MIN_ANGLE} and {self.MAX_ANGLE}, got {angle}"
             exceptions.append(ValueError(msg))
 
         center_x = self.get_parameter_value("center_x")
         if center_x is not None and (center_x < self.MIN_CENTER_OFFSET or center_x > self.MAX_CENTER_OFFSET):
-            msg = f"{self.name} - Center X must be between {self.MIN_CENTER_OFFSET} and {self.MAX_CENTER_OFFSET}, got {center_x}"
+            msg = f"Center X must be between {self.MIN_CENTER_OFFSET} and {self.MAX_CENTER_OFFSET}, got {center_x}"
             exceptions.append(ValueError(msg))
 
         center_y = self.get_parameter_value("center_y")
         if center_y is not None and (center_y < self.MIN_CENTER_OFFSET or center_y > self.MAX_CENTER_OFFSET):
-            msg = f"{self.name} - Center Y must be between {self.MIN_CENTER_OFFSET} and {self.MAX_CENTER_OFFSET}, got {center_y}"
+            msg = f"Center Y must be between {self.MIN_CENTER_OFFSET} and {self.MAX_CENTER_OFFSET}, got {center_y}"
             exceptions.append(ValueError(msg))
 
         aspect = self.get_parameter_value("aspect")
         if aspect is not None and (aspect < self.MIN_ASPECT or aspect > self.MAX_ASPECT):
-            msg = f"{self.name} - Aspect must be between {self.MIN_ASPECT} and {self.MAX_ASPECT}, got {aspect}"
+            msg = f"Aspect must be between {self.MIN_ASPECT} and {self.MAX_ASPECT}, got {aspect}"
             exceptions.append(ValueError(msg))
 
         mode = self.get_parameter_value("mode")
         valid_modes = ["forward", "backward"]
         if mode is not None and mode not in valid_modes:
-            msg = f"{self.name} - Mode must be one of {valid_modes}, got {mode}"
+            msg = f"Mode must be one of {valid_modes}, got {mode}"
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None

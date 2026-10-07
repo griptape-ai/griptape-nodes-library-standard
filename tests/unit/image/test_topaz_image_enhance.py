@@ -229,7 +229,7 @@ async def test_source_dependent_modes_raise_when_the_source_cannot_be_read(
     node.set_parameter_value("output_width", 2000)
     node.set_parameter_value("output_height", 1500)
 
-    with pytest.raises(ValueError, match="could not read the source image"):
+    with pytest.raises(ValueError, match="Could not read the source image"):
         await node._build_payload()
 
 

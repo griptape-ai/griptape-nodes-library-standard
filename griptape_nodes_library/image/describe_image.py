@@ -33,7 +33,7 @@ from griptape_nodes_library.utils.agent_utils import (
 )
 from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
 from griptape_nodes_library.utils.cloud_credential_utils import (
-    missing_credential_message,
+    missing_credential_error,
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
@@ -273,8 +273,7 @@ class DescribeImage(ControlNode):
             return None
         api_key = resolve_cloud_api_key()
         if not api_key:
-            msg = missing_credential_message("describe an image")
-            exceptions.append(KeyError(msg))
+            exceptions.append(missing_credential_error("describe an image"))
             return exceptions
         return exceptions if exceptions else None
 
@@ -373,18 +372,18 @@ class DescribeImage(ControlNode):
                         schema_value = json.loads(schema_value)
                     except json.JSONDecodeError as e:
                         msg = (
-                            f"DescribeImage '{self.name}': Unable to parse output_schema as JSON: {e}. "
+                            f"Unable to parse 'Output Schema' as JSON: {e}. "
                             "Try using the `Create Agent Schema` node to generate a schema."
                         )
-                        logger.error(msg)
-                        raise
+                        logger.error(f"DescribeImage '{self.name}': {msg}")
+                        raise ValueError(msg) from e
 
             if schema_value is not None and not isinstance(schema_value, dict):
                 msg = (
-                    f"DescribeImage '{self.name}': output_schema must be a JSON schema object (dict) "
+                    "'Output Schema' must be a JSON schema object (dict) "
                     f"or a JSON string, got: {type(schema_value).__name__}"
                 )
-                logger.error(msg)
+                logger.error(f"DescribeImage '{self.name}': {msg}")
                 raise TypeError(msg)
 
             if schema_value is not None:
@@ -392,11 +391,11 @@ class DescribeImage(ControlNode):
                     pydantic_schema = create_model(schema_value)
                 except Exception as e:
                     msg = (
-                        f"DescribeImage '{self.name}': Unable to create output schema model: {e}. "
+                        f"Unable to create a model from 'Output Schema': {e}. "
                         "Try using the `Create Agent Schema` node to generate a schema."
                     )
-                    logger.error(msg)
-                    raise
+                    logger.error(f"DescribeImage '{self.name}': {msg}")
+                    raise ValueError(msg) from e
 
         tool_configs: list = []
         ruleset_configs: list = []
@@ -422,7 +421,7 @@ class DescribeImage(ControlNode):
             providers = self._provider._fetch_providers()
             non_gtc_provider_config = next((p for p in providers if p.name == provider_name), None)
             if non_gtc_provider_config is None:
-                msg = f"DescribeImage '{self.name}': provider '{provider_name}' not found in configured providers."
+                msg = f"Provider '{provider_name}' is not one of the configured providers. Pick another 'provider'."
                 raise ValueError(msg)
             api_key = self._provider.resolve_provider_api_key(non_gtc_provider_config)
             base_url = non_gtc_provider_config.base_url or ""

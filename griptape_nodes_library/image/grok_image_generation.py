@@ -199,11 +199,11 @@ class GrokImageGeneration(GriptapeProxyNode):
 
         prompt = (self.get_parameter_value("prompt") or "").strip()
         if not prompt:
-            exceptions.append(ValueError(f"{self.name}: Prompt is required for image generation."))
+            exceptions.append(ValueError("'Prompt' is empty. Describe the image you want."))
 
         n_value = self.get_parameter_value("n")
         if n_value is None or not self.MIN_IMAGES <= int(n_value) <= self.MAX_IMAGES:
-            exceptions.append(ValueError(f"{self.name}: n must be between {self.MIN_IMAGES} and {self.MAX_IMAGES}."))
+            exceptions.append(ValueError(f"'n' must be between {self.MIN_IMAGES} and {self.MAX_IMAGES}."))
 
         return exceptions if exceptions else None
 
@@ -233,7 +233,7 @@ class GrokImageGeneration(GriptapeProxyNode):
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=f"{self.name} generation completed but its images could not be listed: {e}",
+                result_details=f"The generation finished, but its images could not be listed: {e}",
             )
             return
 
@@ -241,7 +241,7 @@ class GrokImageGeneration(GriptapeProxyNode):
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=f"{self.name} generation completed but no images were hosted.",
+                result_details="The generation finished, but no images were hosted.",
             )
             return
 
@@ -252,7 +252,7 @@ class GrokImageGeneration(GriptapeProxyNode):
         image_artifacts = [artifact for artifact in saved_by_position if artifact is not None]
         if not image_artifacts:
             self._set_safe_defaults()
-            details = f"{self.name} generation completed upstream but the image(s) could not be retrieved."
+            details = "The generation finished, but the image(s) could not be retrieved."
             self._set_status_results(was_successful=False, result_details=details)
             return
 

@@ -1,35 +1,21 @@
-import ast
-import re
+from typing import Any
 
 import requests
 from griptape.artifacts import BaseArtifact, ErrorArtifact
 from griptape.structures import Structure
 from griptape.tasks import ActionsSubtask, BaseTask, PromptTask
+from griptape_nodes.exe_types.core_types import NodeError
 from griptape_nodes.utils.budget_refusal import BudgetExceededError
 
-
-def _parse_griptape_cloud_error_message(error: str) -> str:
-    """Griptape Cloud has a quirk where it returns the error message in a format that is not not easily parseable as JSON.
-
-    To workaround this, we must parse the error message to extract the dictionary part.
-
-    TODO: https://github.com/griptape-ai/griptape/issues/1946
-    """
-    try:
-        # Find the JSON dictionary part that starts after "Error code: 401 - "
-        match = re.search(r'Error code: \d+ - (\{.*\})"', error)
-        if match:
-            error_dict = match.group(1)
-            # ast.literal_eval can parse strings that aren't perfectly JSON formatted
-            error_dict = ast.literal_eval(error_dict)
-            if isinstance(error_dict, dict) and "error" in error_dict:
-                if "message" in error_dict["error"]:
-                    return str(error_dict["error"]["message"])
-                return str(error_dict["error"])
-            return str(error_dict)
-    except (SyntaxError, ValueError, KeyError):
-        pass
-    return error
+from griptape_nodes_library.utils.node_error_utils import (
+    FieldValue,
+    error_fields,
+    error_response,
+    parse_error_body,
+    provider_error_fields,
+    provider_error_message,
+    request_id_from_headers,
+)
 
 
 def raise_if_budget_halt(agent_output: BaseArtifact | None) -> None:
@@ -60,16 +46,87 @@ def raise_if_budget_halt_in_run(run: Structure | BaseTask) -> None:
 
 
 def try_throw_error(agent_output: BaseArtifact) -> None:
-    """Throws an error if the agent output is an ErrorArtifact."""
+    """Raise a NodeError if the agent output is an ErrorArtifact.
+
+    The message is the provider's own explanation. Its error body, status code, and request ID
+    are attached to the NodeError.
+    """
     raise_if_budget_halt(agent_output)
-    if isinstance(agent_output, ErrorArtifact):
-        if isinstance(agent_output.exception, requests.HTTPError):
-            if agent_output.exception.response.text:
-                error_message = _parse_griptape_cloud_error_message(agent_output.exception.response.text)
-            else:
-                error_message = str(agent_output.exception)
-        else:
-            error_message = str(agent_output.value)
-        msg = f"Agent run failed because of an exception: {error_message}"
-        # It wants me to return a TypeError, but this is a runtime error since we're checking for errors that occurred at runtime.
-        raise RuntimeError(msg)  # noqa: TRY004
+    if not isinstance(agent_output, ErrorArtifact):
+        return
+    exc = agent_output.exception
+    response = _provider_error_body(exc)
+    response = _find_embedded_body(exc, response, agent_output) or response
+    msg = _provider_error_reason(exc, response, agent_output)
+    raise NodeError(msg, fields=_provider_error_fields(exc, response), response=error_response(response)) from exc
+
+
+def _provider_error_body(exc: BaseException | None) -> dict[str, Any] | None:
+    """The provider's JSON error body, read from the exception's HTTP response.
+
+    `requests.HTTPError` and the OpenAI and Anthropic SDK errors keep the response as `.response`.
+    The SDK errors also keep the parsed body as `.body`, used when the response can't be read.
+    """
+    read_json = getattr(getattr(exc, "response", None), "json", None)
+    if callable(read_json):
+        try:
+            body = read_json()
+        # A body that isn't JSON, or a streamed response that was never read.
+        except (ValueError, RuntimeError):
+            body = None
+        if isinstance(body, dict) and body:
+            return body
+    sdk_body = getattr(exc, "body", None)
+    if isinstance(sdk_body, dict) and sdk_body:
+        return sdk_body
+    return None
+
+
+def _find_embedded_body(
+    exc: BaseException | None, response: dict[str, Any] | None, agent_output: ErrorArtifact
+) -> dict[str, Any] | None:
+    """The provider body Griptape Cloud passed on as text, wherever it ended up.
+
+    It can be a string under the JSON body's "error", "detail", or "message" key, the raw
+    response text, or only the exception's message.
+    """
+    candidates = [response.get(key) for key in ("error", "detail", "message")] if response else []
+    http_response = getattr(exc, "response", None)
+    candidates.extend([getattr(http_response, "text", None), str(exc) if exc else None, str(agent_output.value)])
+    for candidate in candidates:
+        if isinstance(candidate, str):
+            body = parse_error_body(candidate)
+            if body is not None:
+                return body
+    return None
+
+
+def _provider_error_reason(
+    exc: BaseException | None, response: dict[str, Any] | None, agent_output: ErrorArtifact
+) -> str:
+    """The provider's own explanation, used as the whole message.
+
+    Without one, the response text or the exception's text, saying the agent run failed.
+    """
+    message = provider_error_message(response)
+    if message is not None:
+        return message
+    if isinstance(exc, requests.HTTPError) and exc.response is not None and exc.response.text:
+        return f"Agent run failed: {exc.response.text.strip()}"
+    return f"Agent run failed: {agent_output.value}"
+
+
+def _provider_error_fields(exc: BaseException | None, response: dict[str, Any] | None) -> dict[str, FieldValue]:
+    """The status code, the provider's error code and the parameter it rejected, and the request ID."""
+    http_response = getattr(exc, "response", None)
+    status_code = getattr(exc, "status_code", None)
+    if not isinstance(status_code, int):
+        status_code = getattr(http_response, "status_code", None)
+    fields = error_fields(status_code=status_code if isinstance(status_code, int) else None)
+    fields.update(provider_error_fields(response))
+    request_id = getattr(exc, "request_id", None)
+    if not isinstance(request_id, str) or not request_id:
+        request_id = request_id_from_headers(getattr(http_response, "headers", None))
+    if request_id and "request_id" not in fields:
+        fields["request_id"] = request_id
+    return fields

@@ -242,8 +242,13 @@ async def test_fetch_bounds_a_dropped_entrys_size_in_the_log(
 async def test_unexpected_payload_shape_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_list_client(monkeypatch, {"unexpected": True}, [])
 
-    with pytest.raises(HostedArtifactError):
+    with pytest.raises(HostedArtifactError) as excinfo:
         await fetch_hosted_artifacts(PROXY_BASE, GENERATION_ID, "test-key")
+
+    # The payload is attached, not pasted into the message.
+    assert "True" not in str(excinfo.value)
+    assert excinfo.value.fields == {"generation_id": GENERATION_ID}
+    assert excinfo.value.response == {"unexpected": True}
 
 
 @pytest.mark.asyncio

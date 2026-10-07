@@ -61,10 +61,10 @@ class JsonExtractValue(DataNode):
             try:
                 json_data = json.loads(json_data)
             except json.JSONDecodeError as e:
-                msg = f"{self.name}: Invalid JSON string provided. Failed to parse JSON: {e}. Input was: {json_data[:200]!r}"
+                msg = f"Invalid JSON string provided. Failed to parse JSON: {e}. Input was: {json_data[:200]!r}"
                 raise ValueError(msg) from e
             except TypeError as e:
-                msg = f"{self.name}: Unable to parse JSON data due to type error: {e}. Input type: {type(json_data)}, value: {json_data[:200]!r}"
+                msg = f"Unable to parse JSON data due to type error: {e}. Input type: {type(json_data)}, value: {json_data[:200]!r}"
                 raise ValueError(msg) from e
 
         # Extract value using JMESPath - failure cases first
@@ -74,7 +74,7 @@ class JsonExtractValue(DataNode):
             try:
                 result = jmespath.search(path, json_data)
             except (ValueError, TypeError) as e:
-                msg = f"{self.name}: Invalid JMESPath expression '{path}': {e}"
+                msg = f"Invalid JMESPath expression '{path}': {e}"
                 raise ValueError(msg) from e
 
         # Handle None result - return empty dict like other JSON nodes

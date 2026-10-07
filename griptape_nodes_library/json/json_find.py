@@ -282,9 +282,7 @@ class JsonFind(DataNode):
             try:
                 json_data = json.loads(json_data)
             except json.JSONDecodeError as e:
-                msg = (
-                    f"JsonFind: Invalid JSON string provided. Failed to parse JSON: {e}. Input was: {json_data[:200]!r}"
-                )
+                msg = f"Invalid JSON string provided. Failed to parse JSON: {e}. Input was: {json_data[:200]!r}"
                 raise ValueError(msg) from e
 
         # Create search criteria

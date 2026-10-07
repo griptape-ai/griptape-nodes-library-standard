@@ -88,7 +88,7 @@ class AddColorCurves(BaseVideoProcessor):
 
         curve_preset = self.get_parameter_value("curve_preset")
         if curve_preset is not None and curve_preset not in self.CURVE_PRESETS:
-            msg = f"{self.name} - Curve preset must be one of the available presets, got {curve_preset}"
+            msg = f"Curve preset must be one of the available presets, got {curve_preset}."
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None

@@ -746,8 +746,8 @@ class ImageBash(DataNode):
             img_data = img_byte_arr.getvalue()
 
         if img_data is None or len(img_data) == 0:
-            msg = f"{self.name}: Failed to convert image to bytes"
-            logger.error(msg)
+            msg = "The composed image could not be encoded as PNG."
+            logger.error("%s: %s", self.name, msg)
             raise ValueError(msg)
 
         return img_data

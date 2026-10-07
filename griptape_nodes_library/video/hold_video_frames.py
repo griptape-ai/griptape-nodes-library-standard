@@ -84,7 +84,7 @@ class HoldVideoFrames(BaseVideoProcessor):
         # Validate hold_frames
         hold_frames = self.parameter_values.get("hold_frames", self.DEFAULT_HOLD_FRAMES)
         if hold_frames < self.MIN_HOLD_FRAMES or hold_frames > self.MAX_HOLD_FRAMES:
-            msg = f"{self.name}: Hold frames must be between {self.MIN_HOLD_FRAMES} and {self.MAX_HOLD_FRAMES}"
+            msg = f"Hold frames must be between {self.MIN_HOLD_FRAMES} and {self.MAX_HOLD_FRAMES}."
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None

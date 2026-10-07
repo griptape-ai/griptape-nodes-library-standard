@@ -26,7 +26,7 @@ from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 
 import httpx
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterMode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
@@ -49,6 +49,7 @@ from griptape_nodes_library.media import (
 from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers_async
+from griptape_nodes_library.utils.node_error_utils import error_fields, error_response, request_id_from_headers
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -441,7 +442,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         actual_kind = get_provider_asset_kind(ref)
         if actual_kind != expected_kind:
             msg = (
-                f"{self.name}: {label} received a {actual_kind or 'unknown'} private-asset reference, "
+                f"'{label}' received a {actual_kind or 'unknown'} private-asset reference, "
                 f"but this input requires a {expected_kind} reference. "
                 f"Set the Seedance Human Reference Asset's Asset Kind to {expected_kind}."
             )
@@ -464,7 +465,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         """
         media_value = get_provider_asset_value(ref)
         if not media_value:
-            msg = f"{self.name}: private-asset reference has no media value to register."
+            msg = "The private-asset reference has no media to register. Connect media to the Seedance Human Reference Asset."
             raise ValueError(msg)
 
         public_url = await self._resolve_public_url_for_media(
@@ -472,7 +473,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         )
         if not is_publicly_reachable_url(public_url):
             msg = (
-                f"{self.name}: could not obtain a public URL for the {asset_kind} private asset. "
+                f"Could not get a public URL for the {asset_kind} private asset. "
                 "Provider asset registration requires a publicly fetchable URL (data URIs are not supported)."
             )
             raise RuntimeError(msg)
@@ -517,7 +518,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         else:
             url = getattr(media_value, "value", media_value)
         if not isinstance(url, str) or not url:
-            msg = f"{self.name}: cannot obtain a public URL for {media_value!r}, which carries no media path or URL."
+            msg = f"Could not get a public URL for a {type(media_value).__name__} value: it has no media path or URL."
             raise ValueError(msg)
         if is_publicly_reachable_url(url):
             return url
@@ -565,7 +566,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         # keys off it), and it stays None on that pass-through, so it is what distinguishes the two.
         if helper.gtc_file_path is None:
             msg = (
-                f"{self.name}: {url} was not uploaded -- the engine treated it as already public "
+                f"{url} was not uploaded. The engine treated it as already public "
                 "and returned it unchanged, but the provider cannot fetch it."
             )
             raise RuntimeError(msg)
@@ -593,16 +594,25 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
                 response.raise_for_status()
                 response_json = response.json()
         except httpx.HTTPStatusError as e:
-            msg = f"{self.name}: failed to create private asset: HTTP {e.response.status_code} - {e.response.text}"
-            raise RuntimeError(msg) from e
+            body = self._json_or_none(e.response)
+            reason = self._extract_error_message(body) if isinstance(body, dict) else e.response.text.strip()
+            msg = f"Could not register the {asset_kind} private asset"
+            msg = f"{msg}: {reason}" if reason else f"{msg}. Griptape Cloud refused the request."
+            raise NodeError(
+                msg,
+                fields=error_fields(
+                    status_code=e.response.status_code, request_id=request_id_from_headers(e.response.headers)
+                ),
+                response=error_response(body),
+            ) from e
         except Exception as e:
-            msg = f"{self.name}: failed to create private asset: {e}"
+            msg = f"Could not reach Griptape Cloud to register the {asset_kind} private asset: {e}"
             raise RuntimeError(msg) from e
 
         provider_asset_id = response_json.get("provider_asset_id")
         if not provider_asset_id:
-            msg = f"{self.name}: CreateProviderAsset returned no provider_asset_id."
-            raise RuntimeError(msg)
+            msg = f"Griptape Cloud registered the {asset_kind} private asset but returned no provider_asset_id."
+            raise NodeError(msg, response=error_response(response_json))
         return str(provider_asset_id)
 
     async def _poll_provider_asset(self, provider_asset_id: str, headers: dict[str, str]) -> str:
@@ -639,19 +649,27 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
                 if status == ASSET_STATUS_ACTIVE:
                     asset_id = result_json.get("asset_id")
                     if not asset_id:
-                        msg = f"{self.name}: private asset {provider_asset_id} is ACTIVE but no asset_id was returned."
-                        raise RuntimeError(msg)
+                        msg = f"Private asset {provider_asset_id} is ACTIVE but Griptape Cloud returned no asset_id."
+                        raise NodeError(msg, fields=error_fields(status=status), response=error_response(result_json))
                     return str(asset_id)
 
                 if status in (ASSET_STATUS_FAILED, ASSET_STATUS_DELETED):
                     detail = result_json.get("status_detail")
-                    msg = f"{self.name}: private asset {provider_asset_id} ended with status {status}: {detail}"
-                    raise RuntimeError(msg)
+                    if isinstance(detail, dict):
+                        reason = str(detail.get("details") or detail.get("error") or "")
+                    else:
+                        reason = str(detail or "")
+                    msg = (
+                        f"The provider could not register private asset {provider_asset_id}: {reason.rstrip('.')}."
+                        if reason
+                        else f"Private asset {provider_asset_id} ended as {status} and the provider gave no reason."
+                    )
+                    raise NodeError(msg, fields=error_fields(status=status), response=error_response(result_json))
 
                 await asyncio.sleep(ASSET_POLL_INTERVAL)
 
         msg = (
-            f"{self.name}: private asset {provider_asset_id} did not become ACTIVE within "
+            f"Private asset {provider_asset_id} did not become ACTIVE within "
             f"{ASSET_MAX_ATTEMPTS * ASSET_POLL_INTERVAL} seconds."
         )
         raise RuntimeError(msg)
@@ -688,14 +706,9 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         if parsed_provider_response:
             provider_error = parsed_provider_response.get("error")
             if provider_error:
+                # The base attaches the full response, so the code and type stay visible there.
                 if isinstance(provider_error, dict):
-                    error_message = provider_error.get("message", "")
-                    details = f"{self.name} {error_message}"
-                    if error_code := provider_error.get("code"):
-                        details += f"\nError Code: {error_code}"
-                    if error_type := provider_error.get("type"):
-                        details += f"\nError Type: {error_type}"
-                    return details
-                return f"{self.name} Provider error: {provider_error}"
+                    return str(provider_error.get("message") or provider_error.get("code") or "")
+                return str(provider_error)
 
         return super()._extract_error_message(response_json)

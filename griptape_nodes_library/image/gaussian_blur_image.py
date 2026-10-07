@@ -96,7 +96,7 @@ class GaussianBlurImage(BaseImageProcessor):
 
         radius = self.get_parameter_value("radius")
         if radius is not None and (radius < self.MIN_RADIUS or radius > self.MAX_RADIUS):
-            msg = f"{self.name} - Radius must be between {self.MIN_RADIUS} and {self.MAX_RADIUS}, got {radius}"
+            msg = f"Radius must be between {self.MIN_RADIUS} and {self.MAX_RADIUS}, got {radius}"
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None

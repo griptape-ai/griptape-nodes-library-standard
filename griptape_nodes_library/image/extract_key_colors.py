@@ -479,8 +479,8 @@ class ExtractKeyColors(SuccessFailureNode):
 
         # Validate input image
         if input_image is None:
-            error_msg = f"{self.name}: No input image provided"
-            logger.warning(error_msg)
+            error_msg = "Connect an image to 'Input Image'."
+            logger.warning("%s: %s", self.name, error_msg)
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_msg}")
             self._handle_failure_exception(ValueError(error_msg))
             return
@@ -545,5 +545,5 @@ class ExtractKeyColors(SuccessFailureNode):
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {failure_details}")
 
             # Handle failure based on whether failure output is connected
-            self._handle_failure_exception(ValueError(error_message))
+            self._handle_failure_exception(e)
             raise

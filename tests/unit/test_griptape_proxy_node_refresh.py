@@ -14,6 +14,7 @@ from griptape_nodes_library.proxy.griptape_proxy_node import (
     STATUS_RUNNING,
     STATUS_TIMED_OUT,
     GenerationFailedError,
+    GenerationIncompleteError,
 )
 
 
@@ -74,9 +75,9 @@ async def test_polling_timeout_preserves_generation_id_and_sets_timed_out_status
     node.parameter_output_values["generation_id"] = "gen-preserved"
     node._set_safe_defaults = lambda: None  # type: ignore[method-assign]
 
-    result = await node._poll_generation_status("gen-preserved", {"Authorization": "Bearer key"})
+    with pytest.raises(GenerationIncompleteError):
+        await node._poll_generation_status("gen-preserved", {"Authorization": "Bearer key"})
 
-    assert result is None
     assert node.parameter_output_values["generation_id"] == "gen-preserved"
     assert node.parameter_output_values["generation_status"] == STATUS_TIMED_OUT
 

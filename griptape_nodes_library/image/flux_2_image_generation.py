@@ -311,7 +311,7 @@ class Flux2ImageGeneration(GriptapeProxyNode):
             ValueError: If value is None or not one of the expected options
         """
         if not value:
-            msg = "safety_tolerance cannot be None or empty"
+            msg = "Pick a 'Safety Tolerance' value."
             raise ValueError(msg)
 
         if value == "most restrictive":
@@ -321,7 +321,7 @@ class Flux2ImageGeneration(GriptapeProxyNode):
         if value == "least restrictive":
             return 5
 
-        msg = f"Invalid safety_tolerance value: '{value}'. Must be one of: {SAFETY_TOLERANCE_OPTIONS}"
+        msg = f"Invalid 'Safety Tolerance' value: '{value}'. Must be one of: {SAFETY_TOLERANCE_OPTIONS}"
         raise ValueError(msg)
 
     def _round_to_nearest_multiple_of_16(self, value: int) -> int:

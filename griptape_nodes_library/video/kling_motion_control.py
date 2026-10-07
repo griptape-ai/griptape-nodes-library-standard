@@ -258,17 +258,15 @@ class KlingMotionControl(GriptapeProxyNode):
         # Validate prompt length
         if prompt and len(prompt) > MAX_PROMPT_LENGTH:
             exceptions.append(
-                ValueError(
-                    f"{self.name} prompt exceeds {MAX_PROMPT_LENGTH} characters (got: {len(prompt)} characters)."
-                )
+                ValueError(f"'prompt' exceeds {MAX_PROMPT_LENGTH} characters (got: {len(prompt)} characters).")
             )
 
         # Validate required image
         if not reference_image_param:
-            exceptions.append(ValueError(f"{self.name} requires a reference image."))
+            exceptions.append(ValueError("A reference image is required. Connect one to 'reference_image'."))
 
         # Validate required video
         if not reference_video_param:
-            exceptions.append(ValueError(f"{self.name} requires a reference video."))
+            exceptions.append(ValueError("A reference video is required. Connect one to 'reference_video'."))
 
         return exceptions if exceptions else None

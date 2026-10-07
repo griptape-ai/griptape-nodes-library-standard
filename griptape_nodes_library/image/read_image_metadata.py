@@ -312,7 +312,7 @@ class ReadImageMetadataNode(SuccessFailureNode):
 
         # Handle None/empty case - clear output and return
         if not image:
-            error_msg = "No image provided"
+            error_msg = "Connect an image to 'Image'."
             self._remove_dynamic_parameters()
             self._set_status_results(was_successful=False, result_details=error_msg)
             return
@@ -330,11 +330,11 @@ class ReadImageMetadataNode(SuccessFailureNode):
         # Detect format
         image_format = pil_image.format
         if not image_format:
-            error_msg = "Could not detect image format"
+            error_msg = "The image format could not be detected."
             logger.warning(f"{self.name}: {error_msg}")
             self._remove_dynamic_parameters()
             self._set_status_results(was_successful=False, result_details=error_msg)
-            self._handle_failure_exception(ValueError(f"{self.name}: {error_msg}"))
+            self._handle_failure_exception(ValueError(error_msg))
             return
 
         # Read metadata using driver
@@ -350,7 +350,7 @@ class ReadImageMetadataNode(SuccessFailureNode):
                 logger.warning(f"{self.name}: {error_msg}")
                 self._remove_dynamic_parameters()
                 self._set_status_results(was_successful=False, result_details=error_msg)
-                self._handle_failure_exception(ValueError(f"{self.name}: {error_msg}"))
+                self._handle_failure_exception(ValueError(error_msg))
                 return
 
         # Success - set outputs

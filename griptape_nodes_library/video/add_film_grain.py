@@ -158,19 +158,19 @@ class AddFilmGrain(BaseVideoProcessor):
         # Validate grain intensity
         grain_intensity = self.parameter_values.get("grain_intensity", self.DEFAULT_GRAIN_INTENSITY)
         if grain_intensity < self.MIN_GRAIN_INTENSITY or grain_intensity > self.MAX_GRAIN_INTENSITY:
-            msg = f"{self.name}: Grain intensity must be between {self.MIN_GRAIN_INTENSITY} and {self.MAX_GRAIN_INTENSITY}"
+            msg = f"Grain intensity must be between {self.MIN_GRAIN_INTENSITY} and {self.MAX_GRAIN_INTENSITY}."
             exceptions.append(ValueError(msg))
 
         # Validate luminance threshold
         luminance_threshold = self.parameter_values.get("luminance_threshold", self.DEFAULT_LUMINANCE_THRESHOLD)
         if luminance_threshold < self.MIN_LUMINANCE_THRESHOLD or luminance_threshold > self.MAX_LUMINANCE_THRESHOLD:
-            msg = f"{self.name}: Luminance threshold must be between {self.MIN_LUMINANCE_THRESHOLD} and {self.MAX_LUMINANCE_THRESHOLD}"
+            msg = f"Luminance threshold must be between {self.MIN_LUMINANCE_THRESHOLD} and {self.MAX_LUMINANCE_THRESHOLD}."
             exceptions.append(ValueError(msg))
 
         # Validate grain scale
         grain_scale = self.parameter_values.get("grain_scale", self.DEFAULT_GRAIN_SCALE)
         if grain_scale < self.MIN_GRAIN_SCALE or grain_scale > self.MAX_GRAIN_SCALE:
-            msg = f"{self.name}: Grain scale must be between {self.MIN_GRAIN_SCALE} and {self.MAX_GRAIN_SCALE}"
+            msg = f"Grain scale must be between {self.MIN_GRAIN_SCALE} and {self.MAX_GRAIN_SCALE}."
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None

@@ -105,19 +105,11 @@ class RenameFile(FileOperationBaseNode):
 
         # FAILURE CASE: Empty old_path
         if not old_path:
-            exceptions.append(
-                ValueError(
-                    f"{self.name} attempted to rename but old_path is empty. Failed due to no source path provided"
-                )
-            )
+            exceptions.append(ValueError("'old_path' is empty. Set the file or folder to rename."))
 
         # FAILURE CASE: Empty new_path
         if not new_path:
-            exceptions.append(
-                ValueError(
-                    f"{self.name} attempted to rename but new_path is empty. Failed due to no destination path provided"
-                )
-            )
+            exceptions.append(ValueError("'new_path' is empty. Set the new name or path."))
 
         # Call parent validation
         parent_exceptions = super().validate_before_node_run()
@@ -188,7 +180,7 @@ class RenameFile(FileOperationBaseNode):
             old_path = resolve_macro_path(old_path)
             new_path_input = resolve_macro_path(new_path_input)
         except FileLoadError as e:
-            msg = f"{self.name} attempted to rename but could not resolve macro path: {e}"
+            msg = f"Could not resolve macro path: {e}"
             self.set_parameter_value(self.old_path_output.name, "")
             self.set_parameter_value(self.new_path_output.name, "")
             self._set_status_results(was_successful=False, result_details=msg)
@@ -200,7 +192,7 @@ class RenameFile(FileOperationBaseNode):
         # FAILURE CASE: Old path doesn't exist
         old_path_result = self._check_path_exists(old_path)
         if not old_path_result.exists:
-            msg = f"{self.name} attempted to rename but old_path does not exist: {old_path}"
+            msg = f"'old_path' does not exist: {old_path}"
             self.set_parameter_value(self.old_path_output.name, "")
             self.set_parameter_value(self.new_path_output.name, "")
             self._set_status_results(was_successful=False, result_details=msg)
@@ -209,7 +201,7 @@ class RenameFile(FileOperationBaseNode):
         # FAILURE CASE: New path exists and overwrite is False
         new_path_result = self._check_path_exists(new_path)
         if new_path_result.exists and not overwrite:
-            msg = f"{self.name} attempted to rename but new_path already exists and overwrite is False: {new_path}"
+            msg = f"'new_path' already exists: {new_path}. Turn on 'overwrite' to replace it."
             self.set_parameter_value(self.old_path_output.name, "")
             self.set_parameter_value(self.new_path_output.name, "")
             self._set_status_results(was_successful=False, result_details=msg)
@@ -231,7 +223,7 @@ class RenameFile(FileOperationBaseNode):
                 if delete_result.result_details:
                     # ResultDetails.__str__() returns concatenated messages from all ResultDetail objects
                     error_details = f" - {delete_result.result_details}"
-                msg = f"{self.name} attempted to rename but failed to delete existing destination: {failure_reason}{error_details}"
+                msg = f"Could not delete the existing destination before renaming: {failure_reason}{error_details}"
                 self.set_parameter_value(self.old_path_output.name, "")
                 self.set_parameter_value(self.new_path_output.name, "")
                 self._set_status_results(was_successful=False, result_details=msg)
@@ -252,7 +244,7 @@ class RenameFile(FileOperationBaseNode):
             if rename_result.result_details:
                 # ResultDetails.__str__() returns concatenated messages from all ResultDetail objects
                 error_details = f" - {rename_result.result_details}"
-            msg = f"{self.name} failed to rename: {failure_reason}{error_details}"
+            msg = f"Could not rename: {failure_reason}{error_details}"
             self.set_parameter_value(self.old_path_output.name, "")
             self.set_parameter_value(self.new_path_output.name, "")
             self._set_status_results(was_successful=False, result_details=msg)

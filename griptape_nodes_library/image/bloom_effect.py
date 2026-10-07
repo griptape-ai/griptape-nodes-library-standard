@@ -124,12 +124,16 @@ class BloomEffect(BaseImageProcessor):
 
         bloom_amount = self.get_parameter_value("bloom_amount")
         if bloom_amount is not None and (bloom_amount < self.MIN_BLOOM_AMOUNT or bloom_amount > self.MAX_BLOOM_AMOUNT):
-            msg = f"{self.name} - Bloom amount must be between {self.MIN_BLOOM_AMOUNT} and {self.MAX_BLOOM_AMOUNT}, got {bloom_amount}"
+            msg = (
+                f"Bloom amount must be between {self.MIN_BLOOM_AMOUNT} and {self.MAX_BLOOM_AMOUNT}, got {bloom_amount}"
+            )
             exceptions.append(ValueError(msg))
 
         bloom_radius = self.get_parameter_value("bloom_radius")
         if bloom_radius is not None and (bloom_radius < self.MIN_BLOOM_RADIUS or bloom_radius > self.MAX_BLOOM_RADIUS):
-            msg = f"{self.name} - Bloom radius must be between {self.MIN_BLOOM_RADIUS} and {self.MAX_BLOOM_RADIUS}, got {bloom_radius}"
+            msg = (
+                f"Bloom radius must be between {self.MIN_BLOOM_RADIUS} and {self.MAX_BLOOM_RADIUS}, got {bloom_radius}"
+            )
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None

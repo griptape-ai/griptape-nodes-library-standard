@@ -146,7 +146,7 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
         # Only validate if there's actually a value to validate
         image = self.parameter_values.get("input_image")
         if image is not None and (not hasattr(image, "value") or not image.value):
-            msg = f"{self.name}: Input image parameter must have a valid value"
+            msg = "'Input Image' has no image data. Connect a valid image to 'Input Image'."
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None
@@ -156,7 +156,7 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
         image = self.parameter_values.get("input_image")
 
         if not image:
-            msg = f"{self.name}: Input image parameter is required"
+            msg = "Connect an image to 'Input Image'."
             raise ValueError(msg)
 
         # Convert to ImageUrlArtifact if needed
@@ -165,7 +165,7 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
 
         # Ensure we have a valid image artifact with a value
         if not hasattr(image, "value") or not image.value:
-            msg = f"{self.name}: Input image parameter must have a valid value"
+            msg = "'Input Image' has no image data. Connect a valid image to 'Input Image'."
             raise ValueError(msg)
 
         # Load PIL image using existing utility
@@ -265,7 +265,7 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
                 pass
 
             case _:
-                msg = f"{self.name}: Unsupported image format '{format_extension}'"
+                msg = f"Unsupported image format '{format_extension}'. Pick another 'Output Format'."
                 raise ValueError(msg)
 
         # Success path: current mode is compatible
