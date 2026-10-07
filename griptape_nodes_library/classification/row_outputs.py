@@ -47,7 +47,7 @@ class RowOutputsMixin(BaseNode):
 
     @state.setter
     def state(self, new_state: NodeResolutionState) -> None:
-        self._state = new_state
+        super(RowOutputsMixin, type(self)).state.fset(self, new_state)
         if new_state == NodeResolutionState.UNRESOLVED:
             self._sync_row_outputs()
 
