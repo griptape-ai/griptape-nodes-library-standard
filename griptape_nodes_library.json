@@ -1645,6 +1645,14 @@
         "description": "Nodes for configuring and managing file paths",
         "icon": "FolderCog"
       }
+    },
+    {
+      "classification": {
+        "color": "border-emerald-500",
+        "title": "Classification",
+        "icon": "Scale",
+        "description": "Text classification nodes"
+      }
     }
   ],
   "nodes": [
@@ -7313,6 +7321,39 @@
           "load",
           "file"
         ]
+      }
+    },
+    {
+      "class_name": "JevAskYesNo",
+      "file_path": "griptape_nodes_library/classification/jev_ask_yes_no.py",
+      "metadata": {
+        "category": "classification",
+        "description": "Ask a yes/no question about text using TypeSafe JEV.",
+        "display_name": "Ask Yes/No (JEV)",
+        "icon": "check-circle",
+        "group": "classification"
+      }
+    },
+    {
+      "class_name": "JevPickOne",
+      "file_path": "griptape_nodes_library/classification/jev_pick_one.py",
+      "metadata": {
+        "category": "classification",
+        "description": "Pick the option that best fits some text using TypeSafe JEV.",
+        "display_name": "Pick One (JEV)",
+        "icon": "list-checks",
+        "group": "classification"
+      }
+    },
+    {
+      "class_name": "JevRate",
+      "file_path": "griptape_nodes_library/classification/jev_rate.py",
+      "metadata": {
+        "category": "classification",
+        "description": "Rate text against levels you describe using TypeSafe JEV.",
+        "display_name": "Rate (JEV)",
+        "icon": "bar-chart-2",
+        "group": "classification"
       }
     }
   ],
