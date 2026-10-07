@@ -1,7 +1,4 @@
-"""Give each row of a ParameterList its own flow output, kept in step with the list.
-
-Ported from griptape-ai/griptape-nodes-library-jev with minimal changes.
-"""
+"""Give each row of a ParameterList its own flow output, kept in step with the list."""
 
 from typing import Any, ClassVar
 

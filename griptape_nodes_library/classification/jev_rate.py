@@ -1,16 +1,20 @@
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.classification.jev_common import (
+    QUESTION_KEY,
+    add_context_parameter,
+    add_model_group,
+    to_state,
+)
 from griptape_nodes_library.classification.row_outputs import RowOutputsMixin, parse_row
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
@@ -18,23 +22,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["JevRate"]
 
-MODEL_CHOICES = ["jev-latest", "jev-preview"]
-DEFAULT_MODEL = MODEL_CHOICES[0]
-CONTEXT_INPUT_TYPES = ["str", "json", "dict", "list", "TextArtifact", "JsonArtifact"]
-QUESTION_KEY = "answer"
 MAX_LEVELS = 10
-
-
-def _to_state(text: str | None) -> str | dict | list | None:
-    text = (text or "").strip()
-    if not text:
-        return None
-    if text[0] in "{[":
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-    return text
 
 
 class JevRate(RowOutputsMixin, GriptapeProxyNode):
@@ -71,18 +59,7 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
         self.remove_parameter_element(self.control_parameter_out)
         self.remove_parameter_element(self.failure_output)
 
-        self.add_parameter(
-            ParameterString(
-                name="context",
-                display_name="Context",
-                tooltip="The text JEV reads to rate. JSON works too.",
-                default_value="",
-                multiline=True,
-                placeholder_text="Text to rate",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                input_types=CONTEXT_INPUT_TYPES,
-            )
-        )
+        add_context_parameter(self)
 
         self.add_parameter(
             ParameterString(
@@ -163,17 +140,7 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
             )
         )
 
-        with ParameterGroup(name="Advanced", ui_options={"collapsed": True}) as advanced_group:
-            ParameterString(
-                name="model",
-                display_name="Model",
-                tooltip="jev-latest is the newest stable model. jev-preview is the newest release.",
-                default_value=DEFAULT_MODEL,
-                allow_input=False,
-                allow_output=False,
-                traits={Options(choices=MODEL_CHOICES)},
-            )
-        self.add_node_element(advanced_group)
+        add_model_group(self)
 
         self._create_status_parameters(
             result_details_tooltip="Details about the JEV result or any errors.",
@@ -181,7 +148,7 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
         )
 
     def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or DEFAULT_MODEL
+        return self.get_parameter_value("model") or "jev-latest"
 
     def _row_output_label(self, index: int, text: str) -> str:
         label, description = parse_row(text)
@@ -190,28 +157,13 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
     def _row_output_tooltip(self, label: str) -> str:
         return f"Taken when the score rounds to {label}."
 
-    def _level_rows(self) -> list[tuple[str, str]]:
-        """Return (output_name, description) for each non-empty level row."""
-        rows_param = self.get_parameter_by_name("levels")
-        if not isinstance(rows_param, ParameterList):
-            return []
-        result = []
-        for row in rows_param.get_child_parameters():
-            text = (self.get_parameter_value(row.name) or "").strip()
-            if not text:
-                continue
-            _, description = parse_row(text)
-            output_name = self.OUTPUT_PREFIX + row.name.rsplit("_", 1)[-1]
-            result.append((output_name, description or text))
-        return result
-
     async def _build_payload(self) -> dict[str, Any]:
-        state = _to_state(self.get_parameter_value("context"))
+        state = to_state(self.get_parameter_value("context"))
         if state is None:
             raise ValueError(f"{self.name}: Context is empty.")
 
-        level_rows = self._level_rows()
-        descriptions = [desc for _, desc in level_rows]
+        rows = self._rows()
+        descriptions = [parse_row(text)[1] or text for _, text in rows]
         if len(descriptions) < 2:  # noqa: PLR2004
             raise ValueError(f"{self.name}: Levels needs at least two levels for JEV to rate against.")
         if len(descriptions) > MAX_LEVELS:
@@ -232,17 +184,14 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
         raw_score = answer_data.get("score")
         if raw_score is None:
             self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name}: No score found in JEV response.",
-            )
-            return
+            raise RuntimeError(f"{self.name}: No score found in JEV response.")
 
-        level_rows = self._level_rows()
+        rows = self._rows()
         jev_score = float(raw_score)
         # Round half-up; JEV numbers from 0, display from 1.
-        index = min(int(jev_score + 0.5), len(level_rows) - 1)
-        output_name, description = level_rows[index]
+        index = min(int(jev_score + 0.5), len(rows) - 1)
+        output_name, text = rows[index]
+        description = parse_row(text)[1] or text
 
         self.parameter_output_values["score"] = jev_score + 1
         self.parameter_output_values["level"] = index + 1

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -8,31 +7,19 @@ from griptape_nodes.exe_types.core_types import ControlParameterOutput, Paramete
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
+from griptape_nodes_library.classification.jev_common import (
+    QUESTION_KEY,
+    add_context_parameter,
+    add_model_group,
+    to_state,
+)
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["JevAskYesNo"]
-
-MODEL_CHOICES = ["jev-latest", "jev-preview"]
-DEFAULT_MODEL = MODEL_CHOICES[0]
-CONTEXT_INPUT_TYPES = ["str", "json", "dict", "list", "TextArtifact", "JsonArtifact"]
-QUESTION_KEY = "answer"
-
-
-def _to_state(text: str | None) -> str | dict | list | None:
-    text = (text or "").strip()
-    if not text:
-        return None
-    if text[0] in "{[":
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-    return text
 
 
 class JevAskYesNo(GriptapeProxyNode):
@@ -78,18 +65,7 @@ class JevAskYesNo(GriptapeProxyNode):
             )
         )
 
-        self.add_parameter(
-            ParameterString(
-                name="context",
-                display_name="Context",
-                tooltip="The text JEV reads to answer the question. JSON works too.",
-                default_value="",
-                multiline=True,
-                placeholder_text="Text to ask about",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                input_types=CONTEXT_INPUT_TYPES,
-            )
-        )
+        add_context_parameter(self)
 
         self.add_parameter(
             ParameterString(
@@ -157,17 +133,7 @@ class JevAskYesNo(GriptapeProxyNode):
             )
         )
 
-        with ParameterGroup(name="Advanced", ui_options={"collapsed": True}) as advanced_group:
-            ParameterString(
-                name="model",
-                display_name="Model",
-                tooltip="jev-latest is the newest stable model. jev-preview is the newest release.",
-                default_value=DEFAULT_MODEL,
-                allow_input=False,
-                allow_output=False,
-                traits={Options(choices=MODEL_CHOICES)},
-            )
-        self.add_node_element(advanced_group)
+        add_model_group(self)
 
         self._create_status_parameters(
             result_details_tooltip="Details about the JEV result or any errors.",
@@ -175,10 +141,10 @@ class JevAskYesNo(GriptapeProxyNode):
         )
 
     def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or DEFAULT_MODEL
+        return self.get_parameter_value("model") or "jev-latest"
 
     async def _build_payload(self) -> dict[str, Any]:
-        state = _to_state(self.get_parameter_value("context"))
+        state = to_state(self.get_parameter_value("context"))
         if state is None:
             raise ValueError(f"{self.name}: Context is empty.")
 
@@ -202,14 +168,12 @@ class JevAskYesNo(GriptapeProxyNode):
         noul_value = answer_data.get("noul")
         if noul_value is None:
             self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name}: No answer found in JEV response.",
-            )
-            return
+            raise RuntimeError(f"{self.name}: No answer found in JEV response.")
 
         probability = float(noul_value)
-        threshold = self.get_parameter_value("threshold") or 0.5
+        threshold = self.get_parameter_value("threshold")
+        if threshold is None:
+            threshold = 0.5
         self.parameter_output_values["probability"] = probability
         self.parameter_output_values["answer"] = probability >= threshold
         self._set_status_results(was_successful=True, result_details="JEV answered.")
