@@ -4,16 +4,15 @@ import json
 import logging
 from typing import Any
 
-import httpx
-from griptape_nodes.exe_types.core_types import ControlParameterInput, Parameter, ParameterGroup, ParameterList, ParameterMode
-from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
+from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.exe_types.node_types import AsyncResult
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.classification.row_outputs import RowOutputsMixin, parse_row
+from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger(__name__)
 
@@ -21,15 +20,25 @@ __all__ = ["JevRate"]
 
 MODEL_CHOICES = ["jev-latest", "jev-preview"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
-API_KEY_NAME = "TYPESAFE_API_KEY"
-MAX_LEVELS = 10
-
 CONTEXT_INPUT_TYPES = ["str", "json", "dict", "list", "TextArtifact", "JsonArtifact"]
 QUESTION_KEY = "answer"
+MAX_LEVELS = 10
 
 
-class JevRate(RowOutputsMixin):
-    """Rate text against levels you describe using TypeSafe JEV.
+def _to_state(text: str | None) -> str | dict | list | None:
+    text = (text or "").strip()
+    if not text:
+        return None
+    if text[0] in "{[":
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+    return text
+
+
+class JevRate(RowOutputsMixin, GriptapeProxyNode):
+    """Rate text against levels you describe using TypeSafe JEV via Griptape Cloud.
 
     Define levels lowest-first. Each level gets its own flow output.
     JEV routes the flow to the level it scores.
@@ -43,21 +52,24 @@ class JevRate(RowOutputsMixin):
 
     Outputs:
         - One flow output per level (dynamic, added as you fill in the list).
-        - score (float): JEV's score, from 1 to the number of levels. Can fall between levels.
+        - score (float): JEV's score, from 1 to the number of levels.
         - level (int): The score rounded to the nearest level, starting at 1.
         - level_description (str): The description of the level JEV scored.
         - confidence (float): How sure JEV is, from 0 to 1.
-        - probabilities (dict): JEV's probability for every level, keyed by level number.
+        - probabilities (json): JEV's probability for every level, keyed by level number.
     """
 
     ROWS_PARAM = "levels"
     OUTPUT_PREFIX = "rate_level_"
 
-    def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
-        super().__init__(name, metadata)
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
         self._route: str | None = None
 
-        self.add_parameter(ControlParameterInput(tooltip="Run this node", name="exec_in"))
+        # SuccessFailureNode adds exec_out (Succeeded) and failure (Failed).
+        # Remove them — our dynamic level outputs handle control flow instead.
+        self.remove_parameter_element(self.control_parameter_out)
+        self.remove_parameter_element(self.failure_output)
 
         self.add_parameter(
             ParameterString(
@@ -76,7 +88,8 @@ class JevRate(RowOutputsMixin):
             ParameterString(
                 name="question",
                 display_name="Question",
-                tooltip="Optional. What JEV should rate, for example 'How urgent is this message?'",
+                tooltip="Optional. What JEV should rate, "
+                "for example 'How urgent is this message?'",
                 default_value="",
                 placeholder_text="How ... is the text?",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
@@ -87,9 +100,9 @@ class JevRate(RowOutputsMixin):
             ParameterList(
                 name="levels",
                 display_name="Levels",
-                tooltip="One level per row, lowest first, up to 10. Describe the situation at each level, "
-                "like 'Broken, but a workaround exists'. To name a level, put a label before a colon: "
-                "'Minor: broken, but a workaround exists'. Each level gets its own flow output.",
+                tooltip="One level per row, lowest first, up to 10. Describe the situation at each level. "
+                "To name a level, put a label before a colon: 'Minor: broken but a workaround exists'. "
+                "Each level gets its own flow output.",
                 type="str",
                 ui_options={"placeholder_text": "Describe this level"},
                 max_items=MAX_LEVELS,
@@ -100,8 +113,8 @@ class JevRate(RowOutputsMixin):
             ParameterFloat(
                 name="score",
                 display_name="Score",
-                tooltip="JEV's score, from 1 to the number of levels. It weighs every level by its "
-                "probability, so it can fall between levels, like 1.7.",
+                tooltip="JEV's score, from 1 to the number of levels. "
+                "It weighs every level by its probability, so it can fall between levels.",
                 allow_input=False,
                 allow_property=False,
             )
@@ -132,8 +145,8 @@ class JevRate(RowOutputsMixin):
             ParameterFloat(
                 name="confidence",
                 display_name="Confidence",
-                tooltip="How sure JEV is of its score, from 0 to 1. Low values mean JEV spread its "
-                "probability across levels.",
+                tooltip="How sure JEV is of its score, from 0 to 1. "
+                "Low values mean JEV spread its probability across levels.",
                 allow_input=False,
                 allow_property=False,
             )
@@ -150,7 +163,7 @@ class JevRate(RowOutputsMixin):
             )
         )
 
-        with ParameterGroup(name="Advanced", ui_options={"collapsed": True}):
+        with ParameterGroup(name="Advanced", ui_options={"collapsed": True}) as advanced_group:
             ParameterString(
                 name="model",
                 display_name="Model",
@@ -158,7 +171,17 @@ class JevRate(RowOutputsMixin):
                 default_value=DEFAULT_MODEL,
                 allow_input=False,
                 allow_output=False,
+                traits={Options(choices=MODEL_CHOICES)},
             )
+        self.add_node_element(advanced_group)
+
+        self._create_status_parameters(
+            result_details_tooltip="Details about the JEV result or any errors.",
+            result_details_placeholder="JEV result will appear here.",
+        )
+
+    def _get_api_model_id(self) -> str:
+        return self.get_parameter_value("model") or DEFAULT_MODEL
 
     def _row_output_label(self, index: int, text: str) -> str:
         label, description = parse_row(text)
@@ -173,7 +196,7 @@ class JevRate(RowOutputsMixin):
         if not isinstance(rows_param, ParameterList):
             return []
         result = []
-        for i, row in enumerate(rows_param.get_child_parameters()):
+        for row in rows_param.get_child_parameters():
             text = (self.get_parameter_value(row.name) or "").strip()
             if not text:
                 continue
@@ -182,63 +205,42 @@ class JevRate(RowOutputsMixin):
             result.append((output_name, description or text))
         return result
 
-    def validate_before_node_run(self) -> list[Exception] | None:
-        if not GriptapeNodes.SecretsManager().get_secret(API_KEY_NAME, should_error_on_not_found=False):
-            return [
-                ValueError(
-                    f"{self.name}: {API_KEY_NAME} is not set. "
-                    "Add it in Settings > API Keys & Secrets. Get a key at https://console.typesafe.ai/keys"
-                )
-            ]
-        return None
-
-    def process(self) -> AsyncResult[None]:
-        self._route = None
-        yield lambda: self._ask()
-
-    def _ask(self) -> None:
-        context = (self.get_parameter_value("context") or "").strip()
-        if not context:
+    async def _build_payload(self) -> dict[str, Any]:
+        state = _to_state(self.get_parameter_value("context"))
+        if state is None:
             raise ValueError(f"{self.name}: Context is empty.")
-
-        state: str | dict | list = context
-        if context[0] in "{[":
-            try:
-                state = json.loads(context)
-            except json.JSONDecodeError:
-                pass
 
         level_rows = self._level_rows()
         descriptions = [desc for _, desc in level_rows]
         if len(descriptions) < 2:  # noqa: PLR2004
             raise ValueError(f"{self.name}: Levels needs at least two levels for JEV to rate against.")
         if len(descriptions) > MAX_LEVELS:
-            raise ValueError(f"{self.name}: Levels has {len(descriptions)} levels. JEV accepts up to {MAX_LEVELS}.")
+            raise ValueError(
+                f"{self.name}: Levels has {len(descriptions)} levels. JEV accepts up to {MAX_LEVELS}."
+            )
 
         question = (self.get_parameter_value("question") or "").strip()
         score_q: dict[str, Any] = {"type": "score", "criteria": descriptions}
         if question:
             score_q["instructions"] = question
 
-        api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_NAME, should_error_on_not_found=False)
-        model = self.get_parameter_value("model") or DEFAULT_MODEL
+        return {"state": state, "questions": {QUESTION_KEY: score_q}}
 
-        response = httpx.post(
-            "https://api.typesafe.ai/v1/systemone",
-            json={"model": model, "state": state, "questions": {QUESTION_KEY: score_q}},
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            timeout=60,
-        )
-        response.raise_for_status()
-        body = response.json()
-
-        answer_data = (body.get("answers") or {}).get(QUESTION_KEY) or {}
+    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:  # noqa: ARG002
+        self._route = None
+        answer_data = (result_json.get("answers") or {}).get(QUESTION_KEY) or {}
         raw_score = answer_data.get("score")
         if raw_score is None:
-            raise RuntimeError(f"{self.name}: No score found in JEV response.")
+            self._set_safe_defaults()
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"{self.name}: No score found in JEV response.",
+            )
+            return
 
+        level_rows = self._level_rows()
         jev_score = float(raw_score)
-        # Round half-up: 1.5 → 2 rather than to-even. JEV numbers from 0; display from 1.
+        # Round half-up; JEV numbers from 0, display from 1.
         index = min(int(jev_score + 0.5), len(level_rows) - 1)
         output_name, description = level_rows[index]
 
@@ -249,6 +251,12 @@ class JevRate(RowOutputsMixin):
         raw_probs = answer_data.get("probabilities") or {}
         self.parameter_output_values["probabilities"] = {str(int(k) + 1): v for k, v in raw_probs.items()}
         self._route = output_name
+        self._set_status_results(was_successful=True, result_details=f"JEV scored level {index + 1}.")
+
+    def _set_safe_defaults(self) -> None:
+        self._route = None
+        for key in ("score", "level", "level_description", "confidence", "probabilities"):
+            self.parameter_output_values.pop(key, None)
 
     def get_next_control_output(self) -> Parameter | None:
         if self._route is None:
