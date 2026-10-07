@@ -3,6 +3,7 @@ from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.llm.tools import ToolType
 from griptape_nodes_library.tools.base_tool import BaseTool
 from griptape_nodes_library.utils.mcp_utils import (
     get_available_mcp_servers,
@@ -90,7 +91,7 @@ class MCPToolNode(BaseTool):
             return
 
         self.parameter_output_values["tool"] = {
-            "tool_type": "MCPTool",
+            "tool_type": ToolType.MCP.value,
             "mcp_server_name": mcp_server_name,
             "server_config": server_config,
             "rules": server_config.get("rules", ""),

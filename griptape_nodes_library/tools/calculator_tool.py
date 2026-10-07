@@ -1,3 +1,4 @@
+from griptape_nodes_library.llm.tools import ToolType
 from griptape_nodes_library.tools.base_tool import BaseTool
 
 
@@ -13,4 +14,4 @@ class Calculator(BaseTool):
 
     def process(self) -> None:
         off_prompt = self.parameter_values.get("off_prompt", False)
-        self.parameter_output_values["tool"] = {"tool_type": "Calculator", "off_prompt": off_prompt}
+        self.parameter_output_values["tool"] = {"tool_type": ToolType.CALCULATOR.value, "off_prompt": off_prompt}
