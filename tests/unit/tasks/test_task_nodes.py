@@ -96,6 +96,23 @@ class TestSummarizeText:
         assert _instructions(seen[0]) == "You are an expert in text summarization."
         assert _last_user_prompt(seen[0]) == 'Summarize the following text: """\nLong text here.\n"""\n\nSummary:'
 
+    def test_long_text_is_summarized_in_chunks(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        node = _create_node("SummarizeText")
+        monkeypatch.setattr(sys.modules[type(node).__module__], "MAX_CHUNK_TOKENS", 5)
+        prompts: list[str] = []
+
+        def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:  # noqa: ARG001
+            prompts.append(_last_user_prompt(messages))
+            return ModelResponse(parts=[TextPart(f"s{len(prompts)}")])
+
+        node.set_parameter_value("prompt", "first part here\n\nsecond part here")
+
+        with override_model(fake_model(respond)):
+            _run(node)
+
+        assert [p.split('"""')[1].strip() for p in prompts] == ["first part here", "second part here", "s1\n\ns2"]
+        assert node.parameter_output_values["output"] == "s3"
+
     def test_blank_prompt_never_calls_the_model(self) -> None:
         node = _create_node("SummarizeText")
         node.set_parameter_value("prompt", "   ")

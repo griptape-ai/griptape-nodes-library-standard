@@ -1,3 +1,5 @@
+from griptape.chunkers import TextChunker
+from griptape.tokenizers import SimpleTokenizer
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
 
@@ -5,8 +7,12 @@ from griptape_nodes_library.tasks.base_task import BaseTask
 
 DEFAULT_MODEL = "gpt-4.1-nano"
 
-# The prompts griptape's PromptSummaryEngine used. The text is sent in one request
-# rather than chunked, so inputs beyond the model's context window are not supported.
+# Tokens per request, under every offered model's context. Longer text is summarized
+# in chunks, then the joined summaries are summarized.
+MAX_CHUNK_TOKENS = 100_000
+CHARS_PER_TOKEN = 4
+
+# The prompts griptape's PromptSummaryEngine used.
 SUMMARY_INSTRUCTIONS = "You are an expert in text summarization."
 SUMMARY_USER_TEMPLATE = '''Summarize the following text: """
 {text}
@@ -54,5 +60,20 @@ class SummarizeText(BaseTask):
 
         text = self.get_parameter_value("prompt")
         if text and not text.isspace():
+            yield lambda: self._summarize(text, model)
+
+    def _summarize(self, text: str, model: str) -> str:
+        tokenizer = SimpleTokenizer(characters_per_token=CHARS_PER_TOKEN)
+        if tokenizer.count_tokens(text) <= MAX_CHUNK_TOKENS:
             user_prompt = SUMMARY_USER_TEMPLATE.format(text=text)
-            yield lambda: self._process(user_prompt, model, instructions=SUMMARY_INSTRUCTIONS).text
+            return self._process(user_prompt, model, instructions=SUMMARY_INSTRUCTIONS).text
+        summaries = [
+            self._process(
+                SUMMARY_USER_TEMPLATE.format(text=chunk.value),
+                model,
+                instructions=SUMMARY_INSTRUCTIONS,
+                stream_output=False,
+            ).text
+            for chunk in TextChunker(tokenizer=tokenizer, max_tokens=MAX_CHUNK_TOKENS).chunk(text)
+        ]
+        return self._summarize("\n\n".join(summaries), model)
