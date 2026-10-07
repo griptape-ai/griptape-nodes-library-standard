@@ -52,5 +52,6 @@ def run_task_agent(  # noqa: PLR0913
     return TaskRunResult(
         output=result.output,
         text=output_to_text(result.output),
-        messages=result.all_messages(),
+        # Pruning trims what the model sees; memory keeps every run.
+        messages=[*(message_history or []), *result.new_messages()],
     )

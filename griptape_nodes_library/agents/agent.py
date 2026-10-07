@@ -543,7 +543,7 @@ class Agent(ControlNode):
             self.append_value_to_parameter("logs", "\n[Finished processing agent.]\n")
             if result is not None:
                 self.set_parameter_value("output", output_to_text(result.output))
-                state.messages = compact_messages(result.all_messages())
+                state.messages = compact_messages([*state.messages, *result.new_messages()])
         else:
             self.append_value_to_parameter("logs", "[No prompt provided, creating Agent.]\n")
             self.parameter_output_values["output"] = "Agent created."

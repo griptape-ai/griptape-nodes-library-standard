@@ -18,6 +18,8 @@ from griptape_nodes_library.llm.model_config import (
 )
 from griptape_nodes_library.llm.models import override_model
 from griptape_nodes_library.llm.runner import AgentRunCancelledError, RunCallbacks, build_agent, run_agent
+from griptape_nodes_library.llm.task_support import run_task_agent
+from griptape_nodes_library.llm.testing import fake_model
 from griptape_nodes_library.llm.tools import build_toolsets
 
 CLOUD = ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model="gpt-4.1")
@@ -85,12 +87,11 @@ class TestHistoryPruning:
 
     def test_drops_oldest_runs_first(self) -> None:
         messages = self._runs(4, 400)
-        pruned = prune_history(messages, budget=400)
+        pruned = prune_history(messages, budget=700)
         assert [run["input"] for run in runs_from_messages(pruned)] == ["q2", "q3"]
 
-    def test_keeps_the_current_run_over_budget(self) -> None:
-        messages = self._runs(3, 4000)
-        assert runs_from_messages(prune_history(messages, budget=1)) == runs_from_messages(messages[-2:])
+    def test_drops_every_run_over_budget(self) -> None:
+        assert prune_history(self._runs(3, 4000), budget=1) == []
 
     def test_agent_sends_pruned_history(self) -> None:
         seen: list[list[ModelMessage]] = []
@@ -100,11 +101,12 @@ class TestHistoryPruning:
             return ModelResponse(parts=[TextPart("ok")])
 
         local = ModelConfig(provider=ModelProvider.OLLAMA, model="llama")
-        history = self._runs(10, 4000)
-        with override_model(FunctionModel(respond)):
-            build_agent(local).run_sync("now", message_history=history)
+        history = self._runs(10, 6000)
+        with override_model(fake_model(respond)):
+            result = run_task_agent(local, "now", message_history=history)
 
         assert [run["input"] for run in runs_from_messages(seen[0])] == ["q9", "now"]
+        assert len(runs_from_messages(result.messages)) == 11
 
 
 class TestNativeTools:

@@ -6,8 +6,6 @@ at four characters per token, as griptape's `SimpleTokenizer` did.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ModelRequest, UserPromptPart
 
 from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
@@ -40,19 +38,10 @@ def _starts_run(message: ModelMessage) -> bool:
 
 
 def prune_history(messages: list[ModelMessage], budget: int) -> list[ModelMessage]:
-    """Drop whole runs, oldest first, until the earlier runs fit `budget`. The latest run is always kept."""
-    starts = [i for i, m in enumerate(messages) if _starts_run(m)]
-    if len(starts) < 2:  # noqa: PLR2004
+    """Drop whole runs, oldest first, until `messages` fit `budget`."""
+    if _estimate_tokens(messages) <= budget:
         return messages
-    current = starts[-1]
-    if _estimate_tokens(messages[:current]) <= budget:
-        return messages
-    for start in starts[1:-1]:
-        if _estimate_tokens(messages[start:current]) <= budget:
+    for start in (i for i, m in enumerate(messages) if i > 0 and _starts_run(m)):
+        if _estimate_tokens(messages[start:]) <= budget:
             return messages[start:]
-    return messages[current:]
-
-
-def history_pruner(config: ModelConfig) -> Callable[[list[ModelMessage]], list[ModelMessage]]:
-    budget = history_token_budget(config)
-    return lambda messages: prune_history(messages, budget)
+    return []

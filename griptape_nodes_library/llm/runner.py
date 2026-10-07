@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import Agent, CancellationToken, StructuredDict
-from pydantic_ai.capabilities import ProcessHistory
 from pydantic_ai.exceptions import RunCancelled
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
@@ -28,7 +27,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.run import AgentRunResultEvent
 
 from griptape_nodes_library.llm.budget import raise_budget_halt
-from griptape_nodes_library.llm.history import history_pruner
+from griptape_nodes_library.llm.history import history_token_budget, prune_history
 from griptape_nodes_library.llm.model_config import USE_NATIVE_TOOLS_OPTION
 from griptape_nodes_library.llm.models import build_model
 from griptape_nodes_library.llm.rulesets import render_rulesets
@@ -58,6 +57,12 @@ class RunCallbacks:
     is_cancelled: Callable[[], bool] | None = None
 
 
+class HistoryBudgetAgent(Agent[None, Any]):
+    """An agent that knows how much replayed history its model can take."""
+
+    history_token_budget: int | None = None
+
+
 def output_type_from_schema(schema: dict[str, Any], *, name: str | None = None) -> Any:
     return StructuredDict(schema, name=name or schema.get("title") or "output")
 
@@ -82,13 +87,15 @@ def build_agent(
         )
         raise ValueError(msg)
     parts = [p for p in (instructions, render_rulesets(list(rulesets))) if p]
-    return Agent(
+    agent = HistoryBudgetAgent(
         build_model(model_config),
         instructions="\n\n".join(parts) or None,
         toolsets=list(toolsets) or None,
         output_type=output_type,
-        capabilities=[ProcessHistory(history_pruner(model_config))],
+        deps_type=type(None),
     )
+    agent.history_token_budget = history_token_budget(model_config)
+    return agent
 
 
 def run_coroutine_sync[T](coro: Coroutine[Any, Any, T]) -> T:
@@ -120,6 +127,11 @@ async def run_agent_async(
 ) -> AgentRunResult[Any]:
     callbacks = callbacks or RunCallbacks()
     result: AgentRunResult[Any] | None = None
+    # Prune here, not with a history processor: pydantic-ai writes processed history back
+    # into the run, which would drop the pruned runs from saved memory too.
+    budget = getattr(agent, "history_token_budget", None)
+    if message_history and budget is not None:
+        message_history = prune_history(message_history, budget)
     token = CancellationToken()
     watcher = asyncio.create_task(_watch_cancel(callbacks.is_cancelled, token)) if callbacks.is_cancelled else None
     try:
