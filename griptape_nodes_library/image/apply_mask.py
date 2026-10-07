@@ -10,6 +10,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.options import Options
 from PIL import Image
 
@@ -19,6 +20,16 @@ from griptape_nodes_library.utils.image_utils import (
     extract_channel_from_image,
     image_to_bytes,
 )
+
+PREVIEW_PARAMETERS = {
+    "input_image",
+    "input_mask",
+    "channel",
+    "invert_mask",
+    "grow_shrink",
+    "blur_mask",
+    "apply_mask_blur_to_edges",
+}
 
 
 class ApplyMask(DataNode):
@@ -100,39 +111,34 @@ class ApplyMask(DataNode):
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
 
-        if parameter.name in ["input_image", "input_mask"] and value is not None:
-            self._handle_parameter_change()
-        elif parameter.name in ["channel", "invert_mask", "grow_shrink", "blur_mask", "apply_mask_blur_to_edges"]:
-            # When transform parameters change, re-apply the mask
-            input_image = self.get_parameter_value("input_image")
-            input_mask = self.get_parameter_value("input_mask")
-            channel = self.get_parameter_value("channel")
+        if parameter.name in PREVIEW_PARAMETERS:
+            self._render_preview()
 
-            if input_image is None or input_mask is None:
-                return
+    def _render_preview(self) -> None:
+        """Best-effort live preview: a failure is logged and clears the output, process() renders authoritatively.
 
-            if isinstance(input_image, dict):
-                input_image = dict_to_image_url_artifact(input_image)
-            if isinstance(input_mask, dict):
-                input_mask = dict_to_image_url_artifact(input_mask)
-
-            self._apply_mask_to_input(input_image, input_mask, channel)
-
-    def _handle_parameter_change(self) -> None:
-        # Get both current values
+        The other input may still hold a stale value (e.g. a file from an earlier run that no longer
+        exists) until its new value arrives, so a failure here must not fail the SetParameterValue request.
+        """
         input_image = self.get_parameter_value("input_image")
         input_mask = self.get_parameter_value("input_mask")
         channel = self.get_parameter_value("channel")
-        # If we have both inputs, process them
-        if input_image is not None and input_mask is not None:
-            # Normalize dict inputs to ImageUrlArtifact
+
+        if input_image is None or input_mask is None:
+            return
+
+        try:
             if isinstance(input_image, dict):
                 input_image = dict_to_image_url_artifact(input_image)
             if isinstance(input_mask, dict):
                 input_mask = dict_to_image_url_artifact(input_mask)
 
-            # Apply the mask to input image
             self._apply_mask_to_input(input_image, input_mask, channel)
+        except Exception:
+            logger.exception("%s: live-preview render failed; preview skipped", self.name)
+            # Don't leave a composite of earlier inputs looking current.
+            self.set_parameter_value("output", None)
+            self.publish_update_to_parameter("output", None)
 
     def load_pil_from_url(self, url: str) -> Image.Image:
         """Load image from URL using File."""
