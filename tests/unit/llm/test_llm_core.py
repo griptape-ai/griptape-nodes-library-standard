@@ -1,9 +1,12 @@
+from typing import Any
+
+import httpx
 import pytest
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import AgentInfo
 from pydantic_ai.models.test import TestModel
 
-from griptape_nodes_library.llm import models
+from griptape_nodes_library.llm import models, tools, web
 from griptape_nodes_library.llm.agent_state import AgentState, compact_messages, messages_from_runs
 from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider, model_config_from_legacy_driver
 from griptape_nodes_library.llm.models import override_model
@@ -17,7 +20,11 @@ from griptape_nodes_library.llm.runner import (
     run_agent,
 )
 from griptape_nodes_library.llm.testing import fake_model
-from griptape_nodes_library.llm.tools import build_agent_from_state, build_toolsets, tool_configs_from_inputs
+from griptape_nodes_library.llm.tools import (
+    build_agent_from_state,
+    build_toolsets,
+    tool_configs_from_inputs,
+)
 
 CLOUD = ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model="gpt-4.1")
 
@@ -314,3 +321,21 @@ class TestTools:
     def test_non_config_tool_input_raises(self) -> None:
         with pytest.raises(TypeError):
             tool_configs_from_inputs([object()])
+
+
+def test_google_search_error_keeps_the_api_key_out_of_tool_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: dict[str, Any] = {}
+
+    def fake_get(url: str, **kwargs: Any) -> httpx.Response:
+        sent.update(kwargs)
+        request = httpx.Request("GET", url, params=kwargs["params"], headers=kwargs["headers"])
+        return httpx.Response(403, request=request)
+
+    monkeypatch.setattr(web, "_secret", lambda name: f"secret-{name}")
+    monkeypatch.setattr(web.httpx, "get", fake_get)
+
+    text = tools._web_search_function("Google")("cats")
+
+    assert "HTTP 403" in text
+    assert "secret-GOOGLE_API_KEY" not in text
+    assert "key" not in sent["params"]

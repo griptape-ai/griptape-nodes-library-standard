@@ -424,7 +424,6 @@ class DescribeImage(ControlNode):
                 e,
             )
             raise
-        agent = build_agent_from_state(agent_state, output_type=output_type)
 
         # Declare the model that will actually run, read from the resolved config rather than
         # the node's `model` parameter, which keeps its last dropdown value (hidden, not cleared)
@@ -433,7 +432,12 @@ class DescribeImage(ControlNode):
         # so a denied invocation fails closed rather than reaching the provider.
         require_model_invocation_sync(self, model_config.model)
 
-        result = yield lambda: run_agent(agent, [prompt, *image_contents], message_history=agent_state.messages)
+        # Build in the worker thread: building a Cloud model makes a blocking engine round trip.
+        result = yield lambda: run_agent(
+            build_agent_from_state(agent_state, output_type=output_type),
+            [prompt, *image_contents],
+            message_history=agent_state.messages,
+        )
         output = result.output
         output_text = output_to_text(output)
         self.parameter_output_values["output"] = output if output_schema else output_text

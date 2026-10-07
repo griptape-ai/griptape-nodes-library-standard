@@ -41,10 +41,11 @@ def search_web(
             results = DDGS().text(query, region="en-us", max_results=results_count)
             return [{"title": r["title"], "url": r["href"], "description": r["body"]} for r in results]
         case SearchEngine.GOOGLE:
+            # Key in a header, not the query string, so it stays out of URLs in error text.
             response = httpx.get(
                 "https://www.googleapis.com/customsearch/v1",
+                headers={"X-Goog-Api-Key": _secret(GOOGLE_API_KEY_SECRET)},
                 params={
-                    "key": _secret(GOOGLE_API_KEY_SECRET),
                     "cx": _secret(GOOGLE_SEARCH_ID_SECRET),
                     "q": query,
                     "start": 0,
@@ -54,7 +55,10 @@ def search_web(
                 },
                 timeout=30,
             )
-            response.raise_for_status()
+            if response.is_error:
+                # `raise_for_status` text includes the URL, and this error reaches the model.
+                msg = f"Google search failed: HTTP {response.status_code}"
+                raise RuntimeError(msg)
             return [
                 {"title": r["title"], "url": r["link"], "description": r["snippet"]}
                 for r in response.json().get("items", [])

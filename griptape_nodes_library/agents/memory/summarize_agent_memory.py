@@ -1,7 +1,7 @@
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import ControlNode
+from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
 from griptape_nodes_library.llm.agent_node_support import default_cloud_model_config
@@ -43,7 +43,7 @@ class SummarizeAgentMemory(ControlNode):
 
         self.add_parameter(self.summary)
 
-    def process(self) -> None:
+    def process(self) -> AsyncResult[Any]:
         agent_value = self.get_parameter_value("agent")
         if agent_value is None:
             return
@@ -57,14 +57,13 @@ class SummarizeAgentMemory(ControlNode):
             return
 
         prompt = self.get_parameter_value("prompt")
-        summary_text = output_to_text(
-            prompt_model(
-                state.model or default_cloud_model_config(),
-                prompt,
-                rulesets=state.rulesets,
-                message_history=messages_from_runs(runs),
-            )
+        summary = yield lambda: prompt_model(
+            state.model or default_cloud_model_config(),
+            prompt,
+            rulesets=state.rulesets,
+            message_history=messages_from_runs(runs),
         )
+        summary_text = output_to_text(summary)
 
         self.parameter_output_values["summary"] = summary_text
         self.publish_update_to_parameter("summary", summary_text)

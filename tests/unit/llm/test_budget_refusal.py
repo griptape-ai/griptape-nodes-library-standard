@@ -186,7 +186,7 @@ class TestNodesRaiseTheHalt:
         state = AgentState(model=CLOUD, messages=messages_from_runs([{"input": "q", "output": "a"}]))
         node.set_parameter_value("agent", state.to_wire())
         with pytest.raises(BudgetExceededError):
-            node.process()
+            _drive(node)
 
     def test_split_video_keeps_the_halt_on_its_wrapped_error(self, refusing_cloud: _Cloud) -> None:
         node = SplitVideo(name="Split")

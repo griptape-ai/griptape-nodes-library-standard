@@ -131,7 +131,7 @@ def test_replace_memory(legacy: dict) -> None:
 def test_summarize_memory(legacy: dict, prompts: list[list[str]]) -> None:
     node = SummarizeAgentMemory(name="Summarize")
     node.set_parameter_value("agent", legacy)
-    node.process()
+    _drive(node)
     assert prompts[-1][:-1] == [r["input"] for r in _legacy_runs(legacy)]
     assert AgentState.from_wire(node.parameter_output_values["agent"]).runs() == [
         {"input": "conversation summary", "output": "reply 1"}

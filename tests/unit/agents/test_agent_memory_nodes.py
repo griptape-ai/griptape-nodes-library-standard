@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.models.function import AgentInfo
@@ -32,11 +34,24 @@ AGENT_WIRE = _build_agent_wire()
 """Built once: message timestamps differ between builds."""
 
 
+def _drive(node: Any) -> None:
+    """Run `process()`, calling each thunk a generator `process()` yields."""
+    gen = node.process()
+    if gen is None:
+        return
+    try:
+        func = next(gen)
+        while True:
+            func = gen.send(func())
+    except StopIteration:
+        return
+
+
 def test_display_agent_memory_lists_runs_and_passes_agent_through() -> None:
     node = DisplayAgentMemory(name="Display")
     node.set_parameter_value("agent", AGENT_WIRE)
 
-    node.process()
+    _drive(node)
 
     assert node.parameter_output_values["memory"] == {"runs": RUNS}
     assert node.parameter_output_values["agent"] == AGENT_WIRE
@@ -51,7 +66,7 @@ def test_display_agent_memory_reads_legacy_agent_wrappers() -> None:
     node = DisplayAgentMemory(name="Display")
     node.set_parameter_value("agent", legacy)
 
-    node.process()
+    _drive(node)
 
     assert node.parameter_output_values["memory"] == {"runs": [{"input": "q", "output": "a"}]}
 
@@ -59,7 +74,7 @@ def test_display_agent_memory_reads_legacy_agent_wrappers() -> None:
 def test_display_agent_memory_without_agent_is_empty() -> None:
     node = DisplayAgentMemory(name="Display")
 
-    node.process()
+    _drive(node)
 
     assert node.parameter_output_values["memory"] == {"runs": []}
 
@@ -68,7 +83,7 @@ def test_clear_agent_memory_drops_history_and_keeps_the_rest() -> None:
     node = ClearAgentMemory(name="Clear")
     node.set_parameter_value("agent", AGENT_WIRE)
 
-    node.process()
+    _drive(node)
 
     state = AgentState.from_wire(node.parameter_output_values["agent"])
     assert state.messages == []
@@ -83,7 +98,7 @@ def test_replace_item_in_agent_memory_replaces_selected_run() -> None:
     node.set_parameter_value("memory_to_replace", "1: second q")
     node.set_parameter_value("new_output", "edited answer")
 
-    node.process()
+    _drive(node)
 
     state = AgentState.from_wire(node.parameter_output_values["agent"])
     assert state.runs() == [RUNS[0], {"input": "second q", "output": "edited answer"}]
@@ -106,7 +121,7 @@ def test_summarize_agent_memory_replaces_runs_with_the_summary() -> None:
     node.set_parameter_value("agent", AGENT_WIRE)
 
     with override_model(text_model("they talked")):
-        node.process()
+        _drive(node)
 
     assert node.parameter_output_values["summary"] == "they talked"
     state = AgentState.from_wire(node.parameter_output_values["agent"])
@@ -126,7 +141,7 @@ def test_summarize_agent_memory_sends_the_history_and_prompt() -> None:
         return ModelResponse(parts=[TextPart("sum")])
 
     with override_model(fake_model(respond)):
-        node.process()
+        _drive(node)
 
     assert seen == [["first q", "first a", "second q", "second a", "Summarize please"]]
 
@@ -136,7 +151,7 @@ def test_summarize_agent_memory_with_no_runs_emits_agent_unchanged() -> None:
     node = SummarizeAgentMemory(name="Summarize")
     node.set_parameter_value("agent", empty)
 
-    node.process()
+    _drive(node)
 
     assert node.parameter_output_values["agent"] == empty
     assert "summary" not in node.parameter_output_values
@@ -148,7 +163,7 @@ def test_agent_to_tool_emits_a_buildable_agent_tool_config() -> None:
     node.set_parameter_value("name", "Helper")
     node.set_parameter_value("description", "Helps")
 
-    node.process()
+    _drive(node)
 
     tool = node.parameter_output_values["tool"]
     assert tool["tool_type"] == "AgentTool"
@@ -160,7 +175,7 @@ def test_agent_to_tool_emits_a_buildable_agent_tool_config() -> None:
 def test_agent_to_tool_without_agent_emits_nothing() -> None:
     node = AgentToTool(name="ToTool")
 
-    node.process()
+    _drive(node)
 
     assert node.parameter_output_values["tool"] is None
 
