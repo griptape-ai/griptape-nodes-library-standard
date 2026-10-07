@@ -19,6 +19,7 @@ import dateparser
 from asteval import Interpreter
 from griptape_nodes.agents.pydantic_ai.mcp_servers import mcp_server_from_config
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.utils.budget_refusal import BudgetExceededError
 from openai import OpenAI
 from pydantic_ai import FunctionToolset, Tool
 
@@ -77,6 +78,8 @@ def _report_errors[**P](fn: Callable[P, str]) -> Callable[P, str]:
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> str:
         try:
             return fn(*args, **kwargs)
+        except BudgetExceededError:
+            raise
         except Exception as e:
             return _error(e)
 
@@ -255,6 +258,9 @@ def _agent_tool(config: dict) -> FunctionToolset:
         try:
             agent = await asyncio.to_thread(build_agent_from_state, state)
             result = await run_agent_async(agent, input, message_history=state.messages)
+        except BudgetExceededError:
+            # A refused sub-agent stops the whole run rather than being answered around.
+            raise
         except Exception as e:
             return _error(e)
         return output_to_text(result.output)

@@ -25,6 +25,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.run import AgentRunResultEvent
 
+from griptape_nodes_library.llm.budget import raise_budget_halt
 from griptape_nodes_library.llm.models import build_model
 from griptape_nodes_library.llm.rulesets import render_rulesets
 
@@ -33,7 +34,8 @@ if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
     from pydantic_ai.toolsets import AbstractToolset
 
-    from griptape_nodes_library.llm.model_config import ModelConfig
+    from griptape_nodes_library.llm.budget import raise_budget_halt
+from griptape_nodes_library.llm.model_config import ModelConfig
 
 Prompt = str | Sequence[UserContent]
 
@@ -99,13 +101,17 @@ async def run_agent_async(
 ) -> AgentRunResult[Any]:
     callbacks = callbacks or RunCallbacks()
     result: AgentRunResult[Any] | None = None
-    async with agent.run_stream_events(prompt, message_history=message_history or None) as events:
-        async for event in events:
-            if callbacks.is_cancelled is not None and callbacks.is_cancelled():
-                raise AgentRunCancelledError
-            _dispatch(event, callbacks)
-            if isinstance(event, AgentRunResultEvent):
-                result = event.result
+    try:
+        async with agent.run_stream_events(prompt, message_history=message_history or None) as events:
+            async for event in events:
+                if callbacks.is_cancelled is not None and callbacks.is_cancelled():
+                    raise AgentRunCancelledError
+                _dispatch(event, callbacks)
+                if isinstance(event, AgentRunResultEvent):
+                    result = event.result
+    except Exception as exc:
+        raise_budget_halt(exc)
+        raise
     if result is None:
         msg = "Agent run ended without a result."
         raise RuntimeError(msg)

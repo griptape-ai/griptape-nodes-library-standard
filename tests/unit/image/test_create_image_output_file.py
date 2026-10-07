@@ -1,32 +1,26 @@
 """Tests that ``GenerateImage._create_image`` only saves output for a successful run.
 
-A failed generation (e.g. a 403 from Griptape Cloud) returns an ``ErrorArtifact``
-whose bytes are the error text. Saving it would write a corrupt image and use up
-a version number for the output file.
+A failed generation (e.g. a 403 from Griptape Cloud) must not write a corrupt image
+or use up a version number for the output file.
 """
 
 from __future__ import annotations
 
-from typing import Any, cast
+import sys
+from typing import cast
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
-import requests
-from griptape.artifacts import BlobArtifact, ErrorArtifact, ImageUrlArtifact
+from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.node_library.library_registry import LibraryRegistry
 
 from griptape_nodes_library.image.create_image import GenerateImage
+from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, ImageProvider
 
 LIBRARY_NAME = "Griptape Nodes Library"
-
-
-class _FakeAgent:
-    def __init__(self, output: Any) -> None:
-        self._output = output
-        self.output: Any = None
-
-    def run(self, _prompt: Any) -> None:
-        self.output = self._output
+CONFIG = ImageGenerationConfig(provider=ImageProvider.GRIPTAPE_CLOUD, model="gpt-image-1-mini")
+IMAGE_BYTES = b"\x89PNG fake image bytes"
 
 
 @pytest.fixture
@@ -40,36 +34,40 @@ def node_with_fake_output_file(monkeypatch: pytest.MonkeyPatch) -> tuple[Generat
     return node, output_file
 
 
-def _http_error(status: int, text: str) -> requests.HTTPError:
-    response = requests.Response()
-    response.status_code = status
-    response._content = text.encode()
-    return requests.HTTPError(f"{status} Client Error", response=response)
+def _generate_with(node: GenerateImage, monkeypatch: pytest.MonkeyPatch, generate: object) -> None:
+    # The engine imports node files under its own module names; patch the one this node came from.
+    monkeypatch.setattr(sys.modules[type(node).__module__], "generate_image", generate)
 
 
 def test_error_output_raises_without_saving_file(
-    node_with_fake_output_file: tuple[GenerateImage, MagicMock],
+    node_with_fake_output_file: tuple[GenerateImage, MagicMock], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     node, output_file = node_with_fake_output_file
-    error = ErrorArtifact("403 Client Error: Forbidden", exception=_http_error(403, "Forbidden"))
+    request = httpx.Request("POST", "https://cloud.griptape.ai/api/images/generations")
+    error = httpx.HTTPStatusError("403 Forbidden", request=request, response=httpx.Response(403, request=request))
 
-    with pytest.raises(RuntimeError, match="Forbidden"):
-        node._create_image(cast(Any, _FakeAgent(error)), "a cat")
+    def refuse(_config: ImageGenerationConfig, _prompt: str) -> bytes:
+        raise error
+
+    _generate_with(node, monkeypatch, refuse)
+
+    with pytest.raises(httpx.HTTPStatusError, match="Forbidden"):
+        node._create_image(CONFIG, "a cat")
 
     output_file.build_file.assert_not_called()
     cast(MagicMock, node.publish_update_to_parameter).assert_not_called()
 
 
 def test_successful_output_is_saved_and_published(
-    node_with_fake_output_file: tuple[GenerateImage, MagicMock],
+    node_with_fake_output_file: tuple[GenerateImage, MagicMock], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     node, output_file = node_with_fake_output_file
-    image = BlobArtifact(b"\x89PNG fake image bytes")
+    _generate_with(node, monkeypatch, lambda _config, _prompt: IMAGE_BYTES)
 
-    node._create_image(cast(Any, _FakeAgent(image)), "a cat")
+    node._create_image(CONFIG, "a cat")
 
     output_file.build_file.assert_called_once()
-    output_file.build_file.return_value.write_bytes.assert_called_once_with(image.to_bytes())
+    output_file.build_file.return_value.write_bytes.assert_called_once_with(IMAGE_BYTES)
     publish = cast(MagicMock, node.publish_update_to_parameter)
     publish.assert_called_once()
     name, artifact = publish.call_args.args

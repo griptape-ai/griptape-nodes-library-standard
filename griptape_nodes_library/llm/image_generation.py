@@ -8,7 +8,6 @@ values; :func:`generate_image` resolves them at the point of use.
 from __future__ import annotations
 
 import base64
-import os
 from enum import StrEnum
 from typing import Any
 
@@ -17,12 +16,12 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from openai import OpenAI
 from pydantic import BaseModel
 
+from griptape_nodes_library.llm.budget import cloud_root, raise_budget_halt
 from griptape_nodes_library.utils.cloud_credential_utils import missing_credential_message, resolve_cloud_api_key
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 IMAGE_GENERATION_DRIVER_TYPE = "Image Generation Driver"
 
-GRIPTAPE_CLOUD_BASE_URL = "https://cloud.griptape.ai"
 GRIPTAPE_CLOUD_IMAGE_SIZES = ("1024x1024", "1536x1024", "1024x1536")
 GRIPTAPE_CLOUD_REQUEST_TIMEOUT_SECONDS = 300.0
 
@@ -93,7 +92,7 @@ def _generate_griptape_cloud(config: ImageGenerationConfig, prompt: str) -> byte
     if not api_key:
         raise KeyError(missing_credential_message(f"generate an image with model '{config.model}' on Griptape Cloud"))
 
-    root = (config.base_url or os.environ.get("GT_CLOUD_BASE_URL") or GRIPTAPE_CLOUD_BASE_URL).rstrip("/")
+    root = cloud_root(config.base_url)
     driver_configuration = {
         "model": config.model,
         "image_size": config.image_size,
@@ -112,7 +111,11 @@ def _generate_griptape_cloud(config: ImageGenerationConfig, prompt: str) -> byte
         },
         timeout=GRIPTAPE_CLOUD_REQUEST_TIMEOUT_SECONDS,
     )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise_budget_halt(exc, base_url=root)
+        raise
     return _decode_b64(response.json()["artifact"]["value"])
 
 

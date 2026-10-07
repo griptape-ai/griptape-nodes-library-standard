@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import os
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, cast
 
@@ -21,6 +20,7 @@ from pydantic_ai.providers.bedrock import BedrockProvider
 from pydantic_ai.providers.cohere import CohereProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 
+from griptape_nodes_library.llm.budget import cloud_root
 from griptape_nodes_library.llm.model_config import (
     DEFAULT_API_KEY_SECRETS,
     DEFAULT_BASE_URLS,
@@ -35,7 +35,6 @@ if TYPE_CHECKING:
     from pydantic_ai.models import Model
     from pydantic_ai.settings import ModelSettings
 
-GRIPTAPE_CLOUD_BASE_URL = "https://cloud.griptape.ai"
 
 AWS_ACCESS_KEY_ID_SECRET = "AWS_ACCESS_KEY_ID"
 AWS_SECRET_ACCESS_KEY_SECRET = "AWS_SECRET_ACCESS_KEY"  # noqa: S105
@@ -114,7 +113,7 @@ def build_model(config: ModelConfig) -> Model:
             api_key = resolve_api_key(config)
             if not api_key:
                 raise KeyError(missing_credential_message(f"run model '{config.model}' on Griptape Cloud"))
-            root = (config.base_url or os.environ.get("GT_CLOUD_BASE_URL") or GRIPTAPE_CLOUD_BASE_URL).rstrip("/")
+            root = cloud_root(config.base_url)
             return _openai_compatible(
                 config,
                 base_url=f"{root}/api/v1",
