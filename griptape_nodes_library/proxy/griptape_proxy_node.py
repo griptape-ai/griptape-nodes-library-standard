@@ -330,6 +330,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Default implementation follows this hierarchy:
         1. status_detail.details (user-oriented message)
         2. top-level error field
+        3. top-level detail or message field
 
         Return only the provider's reason, or "" if the response has none. The caller words the
         message around it and attaches the full response, so don't add the node's name or paste
@@ -361,7 +362,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 return str(error.get("message") or error.get("error") or error)
             return str(error)
 
-        return ""
+        # A top-level "detail" or "message", as FastAPI-style APIs send
+        return provider_error_message(response_json) or ""
 
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
@@ -577,7 +579,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             return GenerationSubmitError(msg, fields=fields)
         if not isinstance(error_json, dict):
             return GenerationSubmitError(f"Griptape Cloud refused the request: {error_json}", fields=fields)
-        reason = self._extract_error_message(error_json)
+        reason = self._extract_error_message(error_json) or provider_error_message(error_json) or ""
         msg = self._provider_failure_message(reason, "Griptape Cloud refused the request.")
         fields = {**provider_error_fields(error_json), **self._provider_reason_fields(reason), **fields}
         return GenerationSubmitError(msg, fields=fields, response=error_response(error_json))
@@ -610,7 +612,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._set_safe_defaults()
             self.parameter_output_values["generation_id"] = generation_id
             self.parameter_output_values["generation_status"] = status
-            reason = self._extract_error_message(result_json)
+            reason = self._extract_error_message(result_json) or provider_error_message(result_json) or ""
             error_message = self._provider_failure_message(
                 reason, f"The generation ended as {status} and the provider gave no reason."
             )

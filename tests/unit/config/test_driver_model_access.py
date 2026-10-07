@@ -29,6 +29,7 @@ from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.config.base_driver import BaseDriver
+from griptape_nodes_library.utils.node_error_utils import MissingSecretError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -192,7 +193,7 @@ def test_validation_reports_denial_instead_of_missing_api_key(
 
     assert exceptions is not None
     assert any(isinstance(exception, RuntimeError) and "is not permitted" in str(exception) for exception in exceptions)
-    assert not any("API key is missing" in str(exception) for exception in exceptions)
+    assert not any(isinstance(exception, MissingSecretError) for exception in exceptions)
 
 
 def test_validation_does_not_report_an_unrelated_error_as_a_denial(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -8,9 +8,11 @@ outputs.
 
 from __future__ import annotations
 
+import importlib
 import json
 from typing import Any
 
+import httpx
 import pytest
 
 from griptape_nodes_library.image.flux_2_image_generation import Flux2ImageGeneration
@@ -213,3 +215,31 @@ async def test_a_result_the_node_used_does_not_fail_the_node(monkeypatch: pytest
     await _run_with_parse_result(node, monkeypatch, parse_result)
 
     assert node._execution_succeeded is True
+
+
+@pytest.mark.parametrize("key", ["detail", "message"])
+def test_an_http_error_reason_under_detail_or_message_is_the_message(key: str) -> None:
+    node = Flux2ImageGeneration(name="Flux2")
+    response = httpx.Response(404, json={key: "Model not found"}, request=httpx.Request("POST", "https://x"))
+
+    error = node._http_error(response)
+
+    assert str(error) == "The provider could not process the request: Model not found."
+
+
+@pytest.mark.parametrize(
+    "node_type",
+    [
+        "griptape_nodes_library.video.sora_video_generation:SoraVideoGeneration",
+        "griptape_nodes_library.video.wan_text_to_video_generation:WanTextToVideoGeneration",
+        "griptape_nodes_library.image.flux_image_generation:FluxImageGeneration",
+    ],
+)
+def test_an_override_falls_back_to_status_detail(node_type: str) -> None:
+    module_name, class_name = node_type.split(":")
+    node_class = getattr(importlib.import_module(module_name), class_name)
+    node = node_class(name="node")
+
+    reason = node._extract_error_message({"status": "FAILED", "status_detail": {"details": "Prompt was rejected."}})
+
+    assert reason == "Prompt was rejected."

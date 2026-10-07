@@ -49,12 +49,15 @@ def try_throw_error(agent_output: BaseArtifact) -> None:
     """Raise a NodeError if the agent output is an ErrorArtifact.
 
     The message is the provider's own explanation. Its error body, status code, and request ID
-    are attached to the NodeError.
+    are attached to the NodeError. A NodeError already on the artifact is raised as it is, since
+    the editor reads attachments only from the outer exception.
     """
     raise_if_budget_halt(agent_output)
     if not isinstance(agent_output, ErrorArtifact):
         return
     exc = agent_output.exception
+    if isinstance(exc, NodeError):
+        raise exc
     response = _provider_error_body(exc)
     response = _find_embedded_body(exc, response, agent_output) or response
     msg = _provider_error_reason(exc, response, agent_output)

@@ -109,3 +109,12 @@ def test_provider_body_griptape_cloud_passed_on_as_text_is_unwrapped(text: str) 
     assert str(raised.value) == "Unsupported value: 'temperature' does not support 0.1 with this model."
     assert raised.value.response == _OPENAI_BODY
     assert raised.value.fields == {"status_code": 400, "error_code": "unsupported_value", "parameter": "temperature"}
+
+
+def test_node_error_on_the_artifact_is_raised_as_it_is() -> None:
+    original = NodeError("The stream failed.", response={"event": "error"})
+
+    with pytest.raises(NodeError) as raised:
+        try_throw_error(ErrorArtifact("The stream failed.", exception=original))
+
+    assert raised.value is original

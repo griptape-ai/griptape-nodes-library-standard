@@ -534,7 +534,7 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
 
         if top_level_reason and provider_reason and top_level_reason != provider_reason:
             return f"{top_level_reason}: {provider_reason}"
-        return provider_reason or top_level_reason
+        return provider_reason or top_level_reason or super()._extract_error_message(response_json)
 
     def _parse_provider_response(self, provider_response: Any) -> dict[str, Any] | None:
         """Parse provider_response if it's a JSON string."""

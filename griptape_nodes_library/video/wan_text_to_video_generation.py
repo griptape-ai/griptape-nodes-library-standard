@@ -527,7 +527,7 @@ class WanTextToVideoGeneration(GriptapeProxyNode):
             result = response_json.get("result")
             if isinstance(result, dict) and result.get("error"):
                 return str(result["error"])
-        return ""
+        return super()._extract_error_message(response_json)
 
     @staticmethod
     def _moderation_reason(response_json: dict[str, Any]) -> str:

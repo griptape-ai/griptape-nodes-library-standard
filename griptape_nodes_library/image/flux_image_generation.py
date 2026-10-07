@@ -389,13 +389,13 @@ class FluxImageGeneration(GriptapeProxyNode):
 
         # Handle moderation specifically
         if status in [STATUS_REQUEST_MODERATED, STATUS_CONTENT_MODERATED]:
-            return self._format_moderation_error(response_json)
+            return self._format_moderation_error(response_json) or super()._extract_error_message(response_json)
 
         # Handle other failure statuses
         if status in [STATUS_FAILED, STATUS_ERROR]:
-            return self._format_failure_status_error(response_json)
+            return self._format_failure_status_error(response_json) or super()._extract_error_message(response_json)
 
-        return ""
+        return super()._extract_error_message(response_json)
 
     def _format_moderation_error(self, response_json: dict[str, Any]) -> str:
         """Format error message for moderated content."""
