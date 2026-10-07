@@ -184,7 +184,7 @@ class JevAskYesNo(GriptapeProxyNode):
         self.parameter_output_values.pop("probability", None)
 
     def get_next_control_output(self) -> Parameter | None:
-        if self._execution_succeeded is False:
+        if self._execution_succeeded is False and not self.lock:
             return self.failure_output
         if "answer" not in self.parameter_output_values:
             return None

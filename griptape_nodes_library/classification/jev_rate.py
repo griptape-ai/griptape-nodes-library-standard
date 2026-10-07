@@ -204,7 +204,7 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
             self.parameter_output_values.pop(key, None)
 
     def get_next_control_output(self) -> Parameter | None:
-        if self._execution_succeeded is False:
+        if self._execution_succeeded is False and not self.lock:
             return self.failure_output
         if self._route is None:
             return None
