@@ -366,13 +366,21 @@ class MCPTaskNode(SuccessFailureNode):
     def _build_toolsets(
         self, state: AgentState, mcp_tool_config: dict, mcp_server_name: str
     ) -> list[AbstractToolset[Any]]:
-        """The incoming agent's toolsets plus the MCP server's."""
+        """The incoming agent's toolsets plus the MCP server's.
+
+        Skips the agent's own tool for the same server, whose tool names would collide.
+        """
         try:
             mcp_toolset = build_toolset(mcp_tool_config)
         except ValueError as e:
             msg = f"Failed to create MCP tool for server '{mcp_server_name}': {e}"
             raise RuntimeError(msg) from e
-        return [*build_toolsets(state.tools), mcp_toolset]
+        agent_tools = [
+            tool
+            for tool in state.tools
+            if not (tool.get("tool_type") == ToolType.MCP and tool.get("mcp_server_name") == mcp_server_name)
+        ]
+        return [*build_toolsets(agent_tools), mcp_toolset]
 
     def _execute_with_streaming(  # noqa: PLR0913
         self,

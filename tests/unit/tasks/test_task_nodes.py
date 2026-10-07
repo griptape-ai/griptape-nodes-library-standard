@@ -412,6 +412,19 @@ class TestMCPToolsetConstruction:
 
         assert len(toolsets) == 2
 
+    def test_skips_the_agents_tool_for_the_same_server(self) -> None:
+        node = _create_node("MCPTaskNode")
+        config = {
+            "tool_type": "MCPTool",
+            "mcp_server_name": "demo",
+            "server_config": {"transport": "stdio", "command": "echo", "args": ["hi"]},
+        }
+        state = AgentState(tools=[config])
+
+        toolsets = node._build_toolsets(state, config, "demo")
+
+        assert len(toolsets) == 1
+
     def test_unbuildable_mcp_server_is_an_error(self) -> None:
         node = _create_node("MCPTaskNode")
         config = {"tool_type": "MCPTool", "mcp_server_name": "demo", "server_config": {"transport": "stdio"}}
