@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 from griptape_nodes.exe_types.core_types import ControlParameterInput, Parameter, ParameterGroup, ParameterList, ParameterMode
-from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
+from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.node_types import AsyncResult
@@ -124,12 +124,13 @@ class JevPickOne(RowOutputsMixin):
         )
 
         self.add_parameter(
-            ParameterDict(
+            ParameterJson(
                 name="probabilities",
                 display_name="Probabilities",
                 tooltip="JEV's probability for every option, keyed by label. They add up to about 1.",
                 allow_input=False,
                 allow_property=False,
+                placeholder_text="JEV's probability for every option, keyed by label.",
             )
         )
 
