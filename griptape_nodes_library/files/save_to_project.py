@@ -1,6 +1,5 @@
 """SaveToProject node - save a file to the project using situation-based path resolution."""
 
-import logging
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
@@ -20,8 +19,6 @@ from griptape_nodes_library.utils.situation_utils import (
     on_output_file_connected,
     on_output_file_disconnected,
 )
-
-logger = logging.getLogger("griptape_nodes")
 
 
 def _extract_source_path(value: Any) -> str | None:
