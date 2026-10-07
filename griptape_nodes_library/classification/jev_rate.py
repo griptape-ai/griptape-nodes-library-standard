@@ -146,7 +146,6 @@ class JevRate(RowOutputsMixin):
                 tooltip="JEV's probability for every level, keyed by level number (starting at 1).",
                 allow_input=False,
                 allow_property=False,
-                placeholder_text="JEV's probability for every level.",
             )
         )
 

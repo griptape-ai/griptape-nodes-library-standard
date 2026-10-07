@@ -130,7 +130,6 @@ class JevPickOne(RowOutputsMixin):
                 tooltip="JEV's probability for every option, keyed by label. They add up to about 1.",
                 allow_input=False,
                 allow_property=False,
-                placeholder_text="JEV's probability for every option.",
             )
         )
 
