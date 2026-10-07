@@ -1650,7 +1650,8 @@
       "classification": {
         "color": "border-emerald-500",
         "title": "Classification",
-        "icon": "Scale"
+        "icon": "Scale",
+        "description": "Text classification nodes"
       }
     }
   ],
