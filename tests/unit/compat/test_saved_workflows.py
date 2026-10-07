@@ -474,14 +474,13 @@ class TestTasksAndText:
         if prompt is not None:
             assert prompt in fake_llm.calls[0].user_prompts[-1]
 
-    async def test_search_without_summary_skips_model(
+    async def test_search_without_summary_ends_on_results(
         self, compat_engine: CompatEnv, tmp_path, fake_llm: FakeLLM
     ) -> None:
         await load(materialize("tasks_text__search_raw", tmp_path))
         await run_flow()
-        assert out("search_raw", "output").startswith(
-            "[{'title': 'DuckDuckGo:Search the web for pydantic ai'"
-        ) or "DuckDuckGo:Search the web for pydantic ai" in out("search_raw", "output")
+        assert "DuckDuckGo:Search the web for pydantic ai" in out("search_raw", "output")
+        assert len(fake_llm.calls) == 1
 
     async def test_schema_agent(self, compat_engine: CompatEnv, tmp_path, fake_llm: FakeLLM) -> None:
         await load(materialize("tasks_text__schema", tmp_path))

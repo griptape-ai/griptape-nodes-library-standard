@@ -140,6 +140,7 @@ class TestScrapeWeb:
             _run(node)
 
         assert node.parameter_output_values["output"] == "page for https://example.com"
+        assert len(model.requests) == 1
 
 
 class TestSearchWeb:
@@ -155,8 +156,11 @@ class TestSearchWeb:
         node.set_parameter_value("prompt", "cats")
         node.set_parameter_value("summarize", False)
 
-        with override_model(_tool_then_text("search", {"query": "cats"}, "model commentary")):
+        model = _tool_then_text("search", {"query": "cats"}, "model commentary")
+        with override_model(model):
             _run(node)
+
+        assert len(model.requests) == 1
 
         assert json.loads(node.parameter_output_values["output"]) == {
             "title": "T",

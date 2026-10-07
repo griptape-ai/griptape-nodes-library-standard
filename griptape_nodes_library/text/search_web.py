@@ -4,8 +4,9 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, Par
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
+from pydantic_ai import ToolOutput
 
-from griptape_nodes_library.llm.tools import ToolType, build_toolsets
+from griptape_nodes_library.llm.tools import ToolType, build_toolsets, web_search_function
 from griptape_nodes_library.tasks.base_task import BaseTask
 
 SEARCH_ENGINE_MAP = {
@@ -122,15 +123,17 @@ class SearchWeb(BaseTask):
             msg = f"Invalid search engine: {search_engine}"
             raise ValueError(msg)
 
-        toolsets = build_toolsets([{"tool_type": ToolType.WEB_SEARCH, "engine": search_engine}])
         user_input = f"Search the web for {prompt}"
         if prompt and not prompt.isspace():
 
             def _process() -> str:
-                # Without `summarize` the output is the raw search results, not the model's reflection on them.
-                result = self._process(user_input, model, toolsets=toolsets, stream_output=summarize)
-                if not summarize:
-                    self._set_output("\n".join(result.tool_results) or result.text)
+                if summarize:
+                    toolsets = build_toolsets([{"tool_type": ToolType.WEB_SEARCH, "engine": search_engine}])
+                    return self._process(user_input, model, toolsets=toolsets).text
+                # Search is the output tool, so the run ends on the raw results without the model reflecting on them.
+                search = [ToolOutput(web_search_function(search_engine), name="search"), str]
+                result = self._process(user_input, model, output_type=search, stream_output=False)
+                self._set_output(result.text)
                 return result.text
 
             yield _process

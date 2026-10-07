@@ -146,22 +146,23 @@ def _date_time() -> FunctionToolset:
     )
 
 
+def get_content(url: str) -> str:
+    """Browse a web page and load its content.
+
+    Args:
+        url: Valid HTTP URL.
+    """
+    try:
+        return scrape_url(url)
+    except Exception as e:
+        return _error(e)
+
+
 def _web_scraper() -> FunctionToolset:
-    def get_content(url: str) -> str:
-        """Browse a web page and load its content.
-
-        Args:
-            url: Valid HTTP URL.
-        """
-        try:
-            return scrape_url(url)
-        except Exception as e:
-            return _error(e)
-
     return FunctionToolset([get_content])
 
 
-def _web_search(engine: str) -> FunctionToolset:
+def web_search_function(engine: str) -> Callable[[str], str]:
     def search(query: str) -> str:
         """Search the web. Returns a list of pages with titles, descriptions, and URLs.
 
@@ -173,7 +174,11 @@ def _web_search(engine: str) -> FunctionToolset:
         except Exception as e:
             return _error(e)
 
-    return FunctionToolset([Tool(search, description=f"Search the web via {engine}.")])
+    return search
+
+
+def _web_search(engine: str) -> FunctionToolset:
+    return FunctionToolset([Tool(web_search_function(engine), description=f"Search the web via {engine}.")])
 
 
 def _resolve_in(workdir: Path, relative: str) -> Path:

@@ -124,8 +124,9 @@ class FakeLLM:
                 ("search", {"query": user_prompts[-1] if user_prompts else ""}),
                 ("get_content", {"url": "https://example.com"}),
             )
+            callable_names = tools + [t.name for t in info.output_tools]
             for wanted, args in wanted_calls:
-                for name in tools:
+                for name in callable_names:
                     if name == wanted or name.endswith(f"_{wanted}"):
                         call = ToolCallPart(tool_name=name, args=args, tool_call_id=f"call-{name}")
                         return ModelResponse(parts=[call])

@@ -1,7 +1,8 @@
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.node_types import AsyncResult
+from pydantic_ai import ToolOutput
 
-from griptape_nodes_library.llm.tools import ToolType, build_toolsets
+from griptape_nodes_library.llm.tools import get_content
 from griptape_nodes_library.tasks.base_task import BaseTask
 
 DEFAULT_MODEL = "gpt-4.1-mini"
@@ -36,18 +37,16 @@ class ScrapeWeb(BaseTask):
     def process(self) -> AsyncResult[str]:
         prompt = self.get_parameter_value("prompt")
         model = self._require_permitted_model()
-        toolsets = build_toolsets([{"tool_type": ToolType.WEB_SCRAPER}])
 
         def _process() -> str:
-            # The tool's own result is the output: the scraped page is not reflected on by the model.
+            # The scraper is the output tool, so the run ends on the scraped page without the model reflecting on it.
             result = self._process(
                 f"Scrape the web for information about: {prompt}",
                 model,
-                toolsets=toolsets,
+                output_type=[ToolOutput(get_content, name="get_content"), str],
                 stream_output=False,
             )
-            output = result.tool_results[0] if result.tool_results else ""
-            self._set_output(output)
-            return output
+            self._set_output(result.text)
+            return result.text
 
         yield _process
