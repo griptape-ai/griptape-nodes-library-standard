@@ -4,11 +4,10 @@ import json
 import logging
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import ParameterMode
+from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
-from griptape_nodes.exe_types.param_types.parameter_list import ParameterList
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
