@@ -4,7 +4,10 @@ import contextlib
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, cast
 
+import boto3
 from anthropic import AsyncAnthropic
+from botocore.config import Config as BotocoreConfig
+from cohere import AsyncClientV2
 from griptape_nodes.drivers.cloud_models import model_settings_for
 from griptape_nodes.retained_mode.events.agent_events import ListAgentProvidersRequest, ListAgentProvidersResultSuccess
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
@@ -74,6 +77,14 @@ def _settings(config: ModelConfig) -> ModelSettings | None:
     return cast("ModelSettings", settings) if settings else None
 
 
+def _anthropic_settings(config: ModelConfig) -> ModelSettings | None:
+    """Send `top_p` or `temperature`, not both, as griptape's Anthropic driver did. Anthropic rejects both together."""
+    settings = _settings(config)
+    if settings and settings.get("top_p") is not None and "temperature" in settings:
+        settings = cast("ModelSettings", {k: v for k, v in settings.items() if k != "temperature"})
+    return settings
+
+
 def _openai_compatible(config: ModelConfig, *, base_url: str, api_key: str, headers: dict[str, str] | None = None):
     client_kwargs: dict[str, Any] = {"base_url": base_url.rstrip("/"), "api_key": api_key}
     if headers:
@@ -139,22 +150,46 @@ def build_model(config: ModelConfig) -> Model:
             if config.max_retries is not None:
                 client_kwargs["max_retries"] = config.max_retries
             provider = AnthropicProvider(anthropic_client=AsyncAnthropic(**client_kwargs))
-            return AnthropicModel(config.model, provider=provider, settings=_settings(config))
+            return AnthropicModel(config.model, provider=provider, settings=_anthropic_settings(config))
         case ModelProvider.COHERE:
-            provider = CohereProvider(api_key=_require_key(config))
+            provider = CohereProvider(cohere_client=_cohere_client(config))
             return CohereModel(config.model, provider=provider, settings=_settings(config))
         case ModelProvider.BEDROCK:
-            options = config.options
-            provider = BedrockProvider(
-                aws_access_key_id=_secret(options.get("access_key_id_secret", AWS_ACCESS_KEY_ID_SECRET)),
-                aws_secret_access_key=_secret(options.get("secret_access_key_secret", AWS_SECRET_ACCESS_KEY_SECRET)),
-                aws_session_token=_secret(options.get("session_token_secret", AWS_SESSION_TOKEN_SECRET)),
-                region_name=options.get("region") or _secret(options.get("region_secret", AWS_DEFAULT_REGION_SECRET)),
-            )
+            provider = BedrockProvider(bedrock_client=_bedrock_client(config))
             return BedrockConverseModel(config.model, provider=provider, settings=_settings(config))
         case _:
             msg = f"Unknown model provider: {config.provider!r}"
             raise ValueError(msg)
+
+
+def _cohere_client(config: ModelConfig) -> AsyncClientV2:
+    client = AsyncClientV2(api_key=_require_key(config))
+    if config.max_retries is not None:
+        # The Cohere SDK takes retries per request, not per client.
+        chat = client.chat
+        retries = config.max_retries
+
+        async def chat_with_retries(*args: Any, **kwargs: Any) -> Any:
+            kwargs["request_options"] = {"max_retries": retries, **(kwargs.get("request_options") or {})}
+            return await chat(*args, **kwargs)
+
+        client.chat = chat_with_retries  # type: ignore[method-assign]
+    return client
+
+
+def _bedrock_client(config: ModelConfig) -> Any:
+    options = config.options
+    session = boto3.Session(
+        aws_access_key_id=_secret(options.get("access_key_id_secret", AWS_ACCESS_KEY_ID_SECRET)),
+        aws_secret_access_key=_secret(options.get("secret_access_key_secret", AWS_SECRET_ACCESS_KEY_SECRET)),
+        aws_session_token=_secret(options.get("session_token_secret", AWS_SESSION_TOKEN_SECRET)),
+        region_name=options.get("region") or _secret(options.get("region_secret", AWS_DEFAULT_REGION_SECRET)),
+    )
+    # botocore's `max_attempts` counts retries after the first call.
+    retries = {"mode": "standard", "max_attempts": config.max_retries} if config.max_retries is not None else None
+    # Timeouts match BedrockProvider's defaults.
+    botocore_config = BotocoreConfig(read_timeout=300, connect_timeout=60, retries=retries)
+    return session.client("bedrock-runtime", config=botocore_config)
 
 
 def _require_key(config: ModelConfig) -> str:

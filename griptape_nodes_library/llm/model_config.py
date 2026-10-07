@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 PROMPT_MODEL_CONFIG_TYPE = "Prompt Model Config"
 ENGINE_PROVIDER_OPTION = "engine_provider"
+USE_NATIVE_TOOLS_OPTION = "use_native_tools"
 
 
 class ModelProvider(StrEnum):
@@ -140,4 +141,5 @@ def model_config_from_legacy_driver(driver: dict[str, Any], provider: dict[str, 
         base_url = None
     if kind == ModelProvider.OLLAMA and driver.get("host"):
         base_url = f"{str(driver['host']).rstrip('/')}/v1"
-    return ModelConfig(provider=kind, model=model, base_url=base_url, settings=settings)
+    options = {USE_NATIVE_TOOLS_OPTION: False} if driver.get("use_native_tools") is False else {}
+    return ModelConfig(provider=kind, model=model, base_url=base_url, settings=settings, options=options)

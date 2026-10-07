@@ -128,7 +128,10 @@ class SearchWeb(BaseTask):
             def _process() -> str:
                 if summarize:
                     toolsets = build_toolsets([{"tool_type": ToolType.WEB_SEARCH, "engine": search_engine}])
-                    return self._process(user_input, model, toolsets=toolsets).text
+                    result = self._process(user_input, model, toolsets=toolsets)
+                    # Streaming appended any pre-tool preamble; keep only the final answer.
+                    self._set_output(result.text)
+                    return result.text
                 output_type = [web_search_output(search_engine), str]
                 result = self._process(user_input, model, output_type=output_type, stream_output=False)
                 self._set_output(result.text)

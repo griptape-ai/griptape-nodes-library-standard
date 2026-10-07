@@ -70,7 +70,8 @@ class AgentToTool(DataNode):
                 type="bool",
                 output_type="bool",
                 default_value=False,
-                tooltip="",
+                tooltip="Ignored. Kept so saved workflows load.",
+                ui_options={"hide": True},
             )
         )
         self.add_parameter(

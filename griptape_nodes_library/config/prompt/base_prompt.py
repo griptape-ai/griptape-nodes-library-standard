@@ -5,7 +5,12 @@ from typing import Any
 from griptape_nodes.exe_types.core_types import Parameter
 
 from griptape_nodes_library.config.base_driver import BaseDriver
-from griptape_nodes_library.llm.model_config import PROMPT_MODEL_CONFIG_TYPE, ModelConfig, ModelProvider
+from griptape_nodes_library.llm.model_config import (
+    PROMPT_MODEL_CONFIG_TYPE,
+    USE_NATIVE_TOOLS_OPTION,
+    ModelConfig,
+    ModelProvider,
+)
 
 
 class BasePrompt(BaseDriver):
@@ -100,7 +105,6 @@ class BasePrompt(BaseDriver):
             )
         )
 
-        # Kept so saved workflows load; pydantic-ai has no equivalent.
         self.add_parameter(
             Parameter(
                 name="use_native_tools",
@@ -108,8 +112,7 @@ class BasePrompt(BaseDriver):
                 type="bool",
                 output_type="bool",
                 default_value=True,
-                tooltip="Use native tools for the LLM.",
-                ui_options={"hide": True},
+                tooltip="Use native tool calling. Prompted tool use is unsupported, so agents with tools fail when False.",
             )
         )
 
@@ -163,6 +166,9 @@ class BasePrompt(BaseDriver):
         # griptape counted total attempts; SDK clients count retries after the first.
         max_attempts = self.get_parameter_value("max_attempts_on_fail")
         max_retries = None if max_attempts is None else max(max_attempts - 1, 0)
+        options = dict(options or {})
+        if self.get_parameter_value("use_native_tools") is False:
+            options[USE_NATIVE_TOOLS_OPTION] = False
         return ModelConfig(
             provider=provider,
             model=model,
@@ -170,7 +176,7 @@ class BasePrompt(BaseDriver):
             api_key_secret=api_key_secret,
             settings=self._common_settings() if settings is None else settings,
             max_retries=max_retries,
-            options=options or {},
+            options=options,
         )
 
     def process(self) -> None:

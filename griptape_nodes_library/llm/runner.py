@@ -13,7 +13,9 @@ from collections.abc import Callable, Coroutine, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from pydantic_ai import Agent, StructuredDict
+from pydantic_ai import Agent, CancellationToken, StructuredDict
+from pydantic_ai.capabilities import ProcessHistory
+from pydantic_ai.exceptions import RunCancelled
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -26,6 +28,8 @@ from pydantic_ai.messages import (
 from pydantic_ai.run import AgentRunResultEvent
 
 from griptape_nodes_library.llm.budget import raise_budget_halt
+from griptape_nodes_library.llm.history import history_pruner
+from griptape_nodes_library.llm.model_config import USE_NATIVE_TOOLS_OPTION
 from griptape_nodes_library.llm.models import build_model
 from griptape_nodes_library.llm.rulesets import render_rulesets
 
@@ -38,6 +42,8 @@ if TYPE_CHECKING:
     from griptape_nodes_library.llm.model_config import ModelConfig
 
 Prompt = str | Sequence[UserContent]
+
+CANCEL_POLL_SECONDS = 0.25
 
 
 class AgentRunCancelledError(Exception):
@@ -64,12 +70,24 @@ def build_agent(
     toolsets: Sequence[AbstractToolset[Any]] = (),
     output_type: Any = str,
 ) -> Agent[None, Any]:
+    """Build an agent for `model_config`.
+
+    Raises:
+        ValueError: Tools are attached but the config opted out of native tool calling.
+    """
+    if toolsets and model_config.options.get(USE_NATIVE_TOOLS_OPTION) is False:
+        msg = (
+            f"Model '{model_config.model}' has use_native_tools set to False, but prompted tool use is not "
+            "supported. Remove the tools, or use a model with native tool calling and set use_native_tools to True."
+        )
+        raise ValueError(msg)
     parts = [p for p in (instructions, render_rulesets(list(rulesets))) if p]
     return Agent(
         build_model(model_config),
         instructions="\n\n".join(parts) or None,
         toolsets=list(toolsets) or None,
         output_type=output_type,
+        capabilities=[ProcessHistory(history_pruner(model_config))],
     )
 
 
@@ -102,23 +120,35 @@ async def run_agent_async(
 ) -> AgentRunResult[Any]:
     callbacks = callbacks or RunCallbacks()
     result: AgentRunResult[Any] | None = None
+    token = CancellationToken()
+    watcher = asyncio.create_task(_watch_cancel(callbacks.is_cancelled, token)) if callbacks.is_cancelled else None
     try:
         async with agent.run_stream_events(
-            prompt, message_history=message_history or None, usage_limits=usage_limits
+            prompt, message_history=message_history or None, usage_limits=usage_limits, cancellation_token=token
         ) as events:
             async for event in events:
-                if callbacks.is_cancelled is not None and callbacks.is_cancelled():
-                    raise AgentRunCancelledError
                 _dispatch(event, callbacks)
                 if isinstance(event, AgentRunResultEvent):
                     result = event.result
+    except RunCancelled as exc:
+        raise AgentRunCancelledError from exc
     except Exception as exc:
         raise_budget_halt(exc)
         raise
+    finally:
+        if watcher is not None:
+            watcher.cancel()
     if result is None:
         msg = "Agent run ended without a result."
         raise RuntimeError(msg)
     return result
+
+
+async def _watch_cancel(is_cancelled: Callable[[], bool], token: CancellationToken) -> None:
+    """Cancel `token` once `is_cancelled` reports True, so Cancel stops in-flight model and tool calls."""
+    while not is_cancelled():
+        await asyncio.sleep(CANCEL_POLL_SECONDS)
+    token.cancel()
 
 
 def _dispatch(event: Any, callbacks: RunCallbacks) -> None:
