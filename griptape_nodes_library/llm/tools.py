@@ -292,7 +292,7 @@ def _mcp(config: dict) -> AbstractToolset[Any]:
     built = mcp_server_from_config(f"mcp{clean_name.title()}", server_config)
     if built is None:
         # Fail rather than run the agent without the server's tools.
-        msg = f"MCP server '{server_name}' could not be built (transport {server_config.get('transport')!r})."
+        msg = f"MCP server '{server_name}' could not be built (transport {server_config.get('transport', 'stdio')!r})."
         raise ValueError(msg)
     # Toolsets are rebuilt per run, so let the stdio subprocess exit when the run disconnects.
     if hasattr(built.transport, "keep_alive"):
