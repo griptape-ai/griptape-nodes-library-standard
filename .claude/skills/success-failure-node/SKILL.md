@@ -77,6 +77,31 @@ Call after `_set_status_results` on the failure path. Behavior depends on wiring
 
 Always call `_set_status_results` *before* `_handle_failure_exception` so the Status group is populated even when the exception is swallowed.
 
+### Every failure path must call `_handle_failure_exception`
+
+This includes failures you detect yourself, not just caught exceptions. Setting the status and returning is a silent failure: with no failure edge wired, the node ends quietly and the error panel stays empty.
+
+```python
+# BAD: silent when Failed is unwired
+if not source_path:
+    self._set_status_results(was_successful=False, result_details="No source file provided.")
+    return
+
+# GOOD
+if not source_path:
+    error = ValueError("Connect a file to 'Source'.")
+    self._set_status_results(was_successful=False, result_details=str(error))
+    self._handle_failure_exception(error)
+    return
+```
+
+- Don't `raise` again after `_handle_failure_exception(exc)`; that defeats a wired failure edge.
+- `return` after it, so nothing falls through to `_set_status_results(was_successful=True, ...)`.
+- Only on the run path. Never raise from `after_value_set`, button callbacks, or previews.
+- The Engine Node is the one exception: it reports failed requests only as data.
+
+For error message wording, `NodeError` attachments, and missing API keys, see the `node-errors` skill.
+
 ## Emitting empty outputs on failure
 
 When a failure edge is wired, downstream nodes can still read this node's output parameters. If those outputs hold values from a *previous* successful run, stale data flows downstream — usually not what you want.
@@ -174,9 +199,16 @@ async def test_success_sets_was_successful(node):
 @pytest.mark.asyncio
 async def test_failure_sets_was_successful(node):
     # No failure edge wired → _handle_failure_exception re-raises
+    node._has_outgoing_connections = lambda _param: False
     with pytest.raises(ValueError, match="..."):
         await node.aprocess()
     assert node.parameter_output_values["was_successful"] is False
+
+@pytest.mark.asyncio
+async def test_failure_follows_failed_when_wired(node):
+    node._has_outgoing_connections = lambda _param: True
+    await node.aprocess()  # doesn't raise
+    assert node.parameter_output_values["was_successful"] is False
 ```
 
-When no failure edge is connected (the normal test setup), `_handle_failure_exception` re-raises the original exception, so `pytest.raises` works unchanged. The `was_successful` assertion verifies the Status group was populated before the exception propagated.
+Stub `_has_outgoing_connections` so the test doesn't depend on a real flow. Test both: unwired re-raises the original exception, and wired routes without raising. The `was_successful` assertion verifies the Status group was populated before the exception propagated.
