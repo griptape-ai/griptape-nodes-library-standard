@@ -104,7 +104,7 @@ class Askulator(BaseTask):
 
             def _process() -> str:
                 # PromptedOutput makes the model answer in JSON text, which streams; a tool-call answer would not.
-                return self._process(
+                result = self._process(
                     user_input,
                     model,
                     rulesets=RULESETS,
@@ -112,6 +112,9 @@ class Askulator(BaseTask):
                     output_type=PromptedOutput(Output),
                     on_text=self._stream_answer(tokens),
                     on_tool_call=on_tool_call,
-                ).text
+                )
+                # Streaming parses raw text, which retries or preamble can garble; the validated answer is authoritative.
+                self.parameter_output_values["result"] = result.output.final_answer
+                return result.text
 
             yield _process

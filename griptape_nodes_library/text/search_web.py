@@ -4,9 +4,8 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, Par
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
-from pydantic_ai import ToolOutput
 
-from griptape_nodes_library.llm.tools import ToolType, build_toolsets, web_search_function
+from griptape_nodes_library.llm.tools import ToolType, build_toolsets, web_search_output
 from griptape_nodes_library.tasks.base_task import BaseTask
 
 SEARCH_ENGINE_MAP = {
@@ -130,9 +129,8 @@ class SearchWeb(BaseTask):
                 if summarize:
                     toolsets = build_toolsets([{"tool_type": ToolType.WEB_SEARCH, "engine": search_engine}])
                     return self._process(user_input, model, toolsets=toolsets).text
-                # Search is the output tool, so the run ends on the raw results without the model reflecting on them.
-                search = [ToolOutput(web_search_function(search_engine), name="search"), str]
-                result = self._process(user_input, model, output_type=search, stream_output=False)
+                output_type = [web_search_output(search_engine), str]
+                result = self._process(user_input, model, output_type=output_type, stream_output=False)
                 self._set_output(result.text)
                 return result.text
 

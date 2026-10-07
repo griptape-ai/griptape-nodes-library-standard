@@ -21,7 +21,7 @@ from griptape_nodes.agents.pydantic_ai.mcp_servers import mcp_server_from_config
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.utils.budget_refusal import BudgetExceededError
 from openai import OpenAI
-from pydantic_ai import FunctionToolset, Tool
+from pydantic_ai import FunctionToolset, Tool, ToolOutput
 
 from griptape_nodes_library.llm.agent_state import AgentState
 from griptape_nodes_library.llm.runner import build_agent, output_to_text, run_agent_async
@@ -146,7 +146,7 @@ def _date_time() -> FunctionToolset:
     )
 
 
-def get_content(url: str) -> str:
+def _get_content(url: str) -> str:
     """Browse a web page and load its content.
 
     Args:
@@ -159,10 +159,15 @@ def get_content(url: str) -> str:
 
 
 def _web_scraper() -> FunctionToolset:
-    return FunctionToolset([get_content])
+    return FunctionToolset([Tool(_get_content, name="get_content")])
 
 
-def web_search_function(engine: str) -> Callable[[str], str]:
+def web_scraper_output() -> ToolOutput[str]:
+    """The scraper as an output tool, so a run ends on the scraped page."""
+    return ToolOutput(_get_content, name="get_content")
+
+
+def _web_search_function(engine: str) -> Callable[[str], str]:
     def search(query: str) -> str:
         """Search the web. Returns a list of pages with titles, descriptions, and URLs.
 
@@ -178,7 +183,12 @@ def web_search_function(engine: str) -> Callable[[str], str]:
 
 
 def _web_search(engine: str) -> FunctionToolset:
-    return FunctionToolset([Tool(web_search_function(engine), description=f"Search the web via {engine}.")])
+    return FunctionToolset([Tool(_web_search_function(engine), description=f"Search the web via {engine}.")])
+
+
+def web_search_output(engine: str) -> ToolOutput[str]:
+    """Search as an output tool, so a run ends on the raw results."""
+    return ToolOutput(_web_search_function(engine), name="search", description=f"Search the web via {engine}.")
 
 
 def _resolve_in(workdir: Path, relative: str) -> Path:
