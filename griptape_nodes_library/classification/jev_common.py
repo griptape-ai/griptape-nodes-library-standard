@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
 from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
+
+if TYPE_CHECKING:
+    from griptape_nodes.exe_types.node_types import BaseNode
 
 __all__ = [
     "CONTEXT_INPUT_TYPES",
@@ -39,7 +43,7 @@ def to_state(text: str | None) -> str | dict | list | None:
     return text
 
 
-def add_context_parameter(node: object) -> None:
+def add_context_parameter(node: BaseNode) -> None:
     """Add the shared Context parameter to a node."""
     node.add_parameter(
         ParameterString(
@@ -55,7 +59,7 @@ def add_context_parameter(node: object) -> None:
     )
 
 
-def add_model_group(node: object) -> None:
+def add_model_group(node: BaseNode) -> None:
     """Add the collapsed Advanced group with the model dropdown to a node."""
     with ParameterGroup(name="Advanced", ui_options={"collapsed": True}) as advanced_group:
         ParameterString(
