@@ -62,6 +62,15 @@ class RowOutputsMixin(BaseNode):
         if param.name.startswith(self.OUTPUT_PREFIX) and not isinstance(param, ControlParameterOutput):
             param = ControlParameterOutput(name=param.name, display_name=param.display_name, tooltip=param.tooltip)
         super().add_parameter(param)
+        if param.name.startswith(self.OUTPUT_PREFIX):
+            self._keep_failure_last()
+
+    def _keep_failure_last(self) -> None:
+        # Row outputs are appended, including when a saved workflow loads, so move Failed back below them.
+        failure = self.get_parameter_by_name("failure")
+        if failure is not None and self.root_ui_element.children[-1] is not failure:
+            self.root_ui_element.remove_child(failure)
+            self.root_ui_element.add_child(failure)
 
     def _row_output_params(self) -> list[Parameter]:
         return [p for p in self.parameters if p.name.startswith(self.OUTPUT_PREFIX)]
@@ -125,11 +134,7 @@ class RowOutputsMixin(BaseNode):
                         self.root_ui_element.remove_child(param)
                         self.root_ui_element.add_child(param)
 
-            # New row outputs are appended, so move Failed back below them.
-            failure = self.get_parameter_by_name("failure")
-            if failure is not None and self.root_ui_element.children[-1] is not failure:
-                self.root_ui_element.remove_child(failure)
-                self.root_ui_element.add_child(failure)
+            self._keep_failure_last()
         finally:
             self._syncing = False
 
