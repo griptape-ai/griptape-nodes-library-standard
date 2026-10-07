@@ -124,6 +124,12 @@ class RowOutputsMixin(BaseNode):
                     if param is not None:
                         self.root_ui_element.remove_child(param)
                         self.root_ui_element.add_child(param)
+
+            # New row outputs are appended, so move Failed back below them.
+            failure = self.get_parameter_by_name("failure")
+            if failure is not None and self.root_ui_element.children[-1] is not failure:
+                self.root_ui_element.remove_child(failure)
+                self.root_ui_element.add_child(failure)
         finally:
             self._syncing = False
 

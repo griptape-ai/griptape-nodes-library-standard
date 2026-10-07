@@ -46,10 +46,8 @@ class JevAskYesNo(GriptapeProxyNode):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
-        # SuccessFailureNode adds exec_out (Succeeded) and failure (Failed).
-        # Remove them and add our own branching outputs instead.
+        # Yes and No replace Succeeded; Failed stays, below them.
         self.remove_parameter_element(self.control_parameter_out)
-        self.remove_parameter_element(self.failure_output)
 
         self.add_parameter(
             ControlParameterOutput(
@@ -65,6 +63,8 @@ class JevAskYesNo(GriptapeProxyNode):
                 tooltip="Taken when the probability of Yes is below the threshold.",
             )
         )
+        self.root_ui_element.remove_child(self.failure_output)
+        self.root_ui_element.add_child(self.failure_output)
 
         add_context_parameter(self)
 
@@ -184,6 +184,8 @@ class JevAskYesNo(GriptapeProxyNode):
         self.parameter_output_values.pop("probability", None)
 
     def get_next_control_output(self) -> Parameter | None:
+        if self._execution_succeeded is False:
+            return self.failure_output
         if "answer" not in self.parameter_output_values:
             return None
         return self.get_parameter_by_name("yes" if self.parameter_output_values["answer"] else "no")

@@ -51,10 +51,8 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
-        # SuccessFailureNode adds exec_out (Succeeded) and failure (Failed).
-        # Remove them — our dynamic option outputs handle control flow instead.
+        # The option outputs replace Succeeded; Failed stays, kept below them by RowOutputsMixin.
         self.remove_parameter_element(self.control_parameter_out)
-        self.remove_parameter_element(self.failure_output)
 
         add_context_parameter(self)
 
@@ -188,6 +186,8 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
             self.parameter_output_values.pop(key, None)
 
     def get_next_control_output(self) -> Parameter | None:
+        if self._execution_succeeded is False:
+            return self.failure_output
         picked = self.parameter_output_values.get("choice")
         if picked is None:
             return None
