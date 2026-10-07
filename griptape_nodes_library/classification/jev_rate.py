@@ -65,8 +65,7 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
             ParameterString(
                 name="question",
                 display_name="Question",
-                tooltip="Optional. What JEV should rate, "
-                "for example 'How urgent is this message?'",
+                tooltip="Optional. What JEV should rate, for example 'How urgent is this message?'",
                 default_value="",
                 placeholder_text="How ... is the text?",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
@@ -167,9 +166,7 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
         if len(descriptions) < 2:  # noqa: PLR2004
             raise ValueError(f"{self.name}: Levels needs at least two levels for JEV to rate against.")
         if len(descriptions) > MAX_LEVELS:
-            raise ValueError(
-                f"{self.name}: Levels has {len(descriptions)} levels. JEV accepts up to {MAX_LEVELS}."
-            )
+            raise ValueError(f"{self.name}: Levels has {len(descriptions)} levels. JEV accepts up to {MAX_LEVELS}.")
 
         question = (self.get_parameter_value("question") or "").strip()
         score_q: dict[str, Any] = {"type": "score", "criteria": descriptions}

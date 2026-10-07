@@ -61,8 +61,7 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
             ParameterString(
                 name="question",
                 display_name="Question",
-                tooltip="Optional. What JEV should decide, "
-                "for example 'Which department should handle this?'",
+                tooltip="Optional. What JEV should decide, for example 'Which department should handle this?'",
                 default_value="",
                 placeholder_text="Which option fits the text best?",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
@@ -95,8 +94,7 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
             ParameterString(
                 name="description",
                 display_name="Description",
-                tooltip="The description of the option JEV picked. "
-                "Empty if the option had no description.",
+                tooltip="The description of the option JEV picked. Empty if the option had no description.",
                 allow_input=False,
                 allow_property=False,
                 placeholder_text="The description of the picked option.",
