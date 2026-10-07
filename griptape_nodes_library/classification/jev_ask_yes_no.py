@@ -4,14 +4,14 @@ import json
 import logging
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import ControlParameterInput, ControlParameterOutput, Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.slider import Slider
-
-from griptape_nodes_library.proxy import GriptapeProxyNode
 
 logger = logging.getLogger(__name__)
 
@@ -19,36 +19,50 @@ __all__ = ["JevAskYesNo"]
 
 MODEL_CHOICES = ["jev-latest", "jev-preview"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
+API_KEY_NAME = "TYPESAFE_API_KEY"
 
-# JEV reads text only; image/audio/video outputs cannot connect to Context.
 CONTEXT_INPUT_TYPES = ["str", "json", "dict", "list", "TextArtifact", "JsonArtifact"]
-
 QUESTION_KEY = "answer"
 
 
-class JevAskYesNo(GriptapeProxyNode):
-    """Ask a yes/no question about text using TypeSafe JEV via the Griptape Cloud proxy.
+class JevAskYesNo(BaseNode):
+    """Ask a yes/no question about text using TypeSafe JEV.
 
     JEV reads the context and returns a probability that the answer is yes.
-    The threshold controls when the answer flips from No to Yes.
+    The flow routes to the Yes or No output based on the threshold.
 
     Inputs:
         - context (str): The text JEV reads to answer the question.
         - question (str): A yes/no question about the context.
-        - yes_means (str): Optional description of what should count as Yes.
-        - no_means (str): Optional description of what should count as No.
+        - yes_means (str): Optional description of what counts as Yes.
+        - no_means (str): Optional description of what counts as No.
         - threshold (float): Minimum probability to answer Yes (default 0.5).
         - model (str): JEV model alias.
 
     Outputs:
+        - yes / no: Flow outputs routed based on the answer.
         - answer (bool): True when the probability is at or above the threshold.
         - probability (float): JEV's probability that the answer is Yes (0–1).
     """
 
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.category = "classification"
-        self.description = "Ask a yes/no question about text using TypeSafe JEV"
+    def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
+        super().__init__(name, metadata)
+
+        self.add_parameter(ControlParameterInput(tooltip="Run this node", name="exec_in"))
+        self.add_parameter(
+            ControlParameterOutput(
+                name="yes",
+                display_name="Yes",
+                tooltip="Taken when the probability of yes is at or above the threshold.",
+            )
+        )
+        self.add_parameter(
+            ControlParameterOutput(
+                name="no",
+                display_name="No",
+                tooltip="Taken when the probability of yes is below the threshold.",
+            )
+        )
 
         self.add_parameter(
             ParameterString(
@@ -110,29 +124,13 @@ class JevAskYesNo(GriptapeProxyNode):
             )
         )
 
-        model_param = ParameterString(
-            name="model",
-            display_name="Model",
-            tooltip="jev-latest is the newest stable model. jev-preview is the newest release.",
-            default_value=DEFAULT_MODEL,
-            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-        )
-        self.add_parameter(model_param)
-        self._model_access = ModelAccessComponent(
-            node=self,
-            parameter=model_param,
-            model_choices=MODEL_CHOICES,
-            default_model=DEFAULT_MODEL,
-        )
-
         self.add_parameter(
             ParameterBool(
                 name="answer",
                 display_name="Answer",
                 tooltip="True when the probability of Yes is at or above the threshold.",
-                default_value=None,
-                allowed_modes={ParameterMode.OUTPUT},
-                ui_options={"pulse_on_run": True},
+                allow_input=False,
+                allow_property=False,
             )
         )
 
@@ -142,30 +140,46 @@ class JevAskYesNo(GriptapeProxyNode):
                 display_name="Probability",
                 tooltip="JEV's probability that the answer is Yes, from 0 to 1. "
                 "Values near 0.5 mean yes and no are about equally likely.",
-                default_value=None,
-                allowed_modes={ParameterMode.OUTPUT},
+                allow_input=False,
+                allow_property=False,
             )
         )
 
-        self._create_status_parameters(
-            result_details_tooltip="Details about the JEV result or any errors",
-            result_details_placeholder="JEV status will appear here...",
-            parameter_group_initially_collapsed=True,
-        )
+        with ParameterGroup(name="Advanced", ui_options={"collapsed": True}):
+            ParameterString(
+                name="model",
+                display_name="Model",
+                tooltip="jev-latest is the newest stable model. jev-preview is the newest release.",
+                default_value=DEFAULT_MODEL,
+                allow_input=False,
+                allow_output=False,
+            )
 
-    async def _build_payload(self) -> dict[str, Any]:
+    def validate_before_node_run(self) -> list[Exception] | None:
+        if not GriptapeNodes.SecretsManager().get_secret(API_KEY_NAME, should_error_on_not_found=False):
+            return [
+                ValueError(
+                    f"{self.name}: {API_KEY_NAME} is not set. "
+                    "Add it in Settings > API Keys & Secrets. Get a key at https://console.typesafe.ai/keys"
+                )
+            ]
+        return None
+
+    def process(self) -> AsyncResult[None]:
+        self.parameter_output_values.pop("answer", None)
+        yield lambda: self._ask()
+
+    def _ask(self) -> None:
+        import httpx
+
         context = (self.get_parameter_value("context") or "").strip()
         if not context:
-            msg = f"{self.name}: Context is empty. Connect or type the text to ask about."
-            raise ValueError(msg)
+            raise ValueError(f"{self.name}: Context is empty.")
 
         question = (self.get_parameter_value("question") or "").strip()
         if not question:
-            msg = f"{self.name}: Question is empty."
-            raise ValueError(msg)
+            raise ValueError(f"{self.name}: Question is empty.")
 
-        # Parse JSON objects/arrays back out — JEV reads structured state better
-        # than the same data serialised as a string.
         state: str | dict | list = context
         if context[0] in "{[":
             try:
@@ -182,17 +196,22 @@ class JevAskYesNo(GriptapeProxyNode):
         if criteria:
             noul["criteria"] = criteria
 
-        return {"state": state, "questions": {QUESTION_KEY: noul}}
+        api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_NAME, should_error_on_not_found=False)
+        model = self.get_parameter_value("model") or DEFAULT_MODEL
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:  # noqa: ARG002
-        answers = result_json.get("answers") or {}
-        answer_data = answers.get(QUESTION_KEY) or {}
+        response = httpx.post(
+            f"https://api.typesafe.ai/v1/systemone",
+            json={"model": model, "state": state, "questions": {QUESTION_KEY: noul}},
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            timeout=60,
+        )
+        response.raise_for_status()
+        body = response.json()
+
+        answer_data = (body.get("answers") or {}).get(QUESTION_KEY) or {}
         noul_value = answer_data.get("noul")
-
         if noul_value is None:
-            self._set_safe_defaults()
-            self._set_status_results(was_successful=False, result_details="No answer found in JEV response.")
-            return
+            raise RuntimeError(f"{self.name}: No answer found in JEV response.")
 
         probability = float(noul_value)
         threshold = self.get_parameter_value("threshold") or 0.5
@@ -200,8 +219,8 @@ class JevAskYesNo(GriptapeProxyNode):
 
         self.parameter_output_values["probability"] = probability
         self.parameter_output_values["answer"] = answer
-        self._set_status_results(was_successful=True, result_details=f"Answer: {'Yes' if answer else 'No'} (probability {probability:.2f})")
 
-    def _set_safe_defaults(self) -> None:
-        self.parameter_output_values["answer"] = None
-        self.parameter_output_values["probability"] = None
+    def get_next_control_output(self) -> Parameter | None:
+        if "answer" not in self.parameter_output_values:
+            return None
+        return self.get_parameter_by_name("yes" if self.parameter_output_values["answer"] else "no")

@@ -4,13 +4,15 @@ import json
 import logging
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode
-from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
+import httpx
+from griptape_nodes.exe_types.core_types import ControlParameterInput, Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.exe_types.node_types import AsyncResult
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
-from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.classification.row_outputs import RowOutputsMixin, parse_row
 
 logger = logging.getLogger(__name__)
 
@@ -18,25 +20,18 @@ __all__ = ["JevPickOne"]
 
 MODEL_CHOICES = ["jev-latest", "jev-preview"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
+API_KEY_NAME = "TYPESAFE_API_KEY"
+MAX_OPTIONS = 255
 
 CONTEXT_INPUT_TYPES = ["str", "json", "dict", "list", "TextArtifact", "JsonArtifact"]
-
 QUESTION_KEY = "answer"
 
 
-def _parse_option_row(text: str) -> tuple[str, str]:
-    """Split 'Label: description' into (label, description). Returns (text, '') when no colon."""
-    if ":" in text:
-        label, _, description = text.partition(":")
-        return label.strip(), description.strip()
-    return text.strip(), ""
+class JevPickOne(RowOutputsMixin):
+    """Pick the option that best fits some text using TypeSafe JEV.
 
-
-class JevPickOne(GriptapeProxyNode):
-    """Pick the option that best fits some text using TypeSafe JEV via the Griptape Cloud proxy.
-
-    Add options as 'Label' or 'Label: description' rows. JEV picks the one that fits
-    the context best and returns its label, description, confidence, and probabilities.
+    Add options as 'Label' or 'Label: description' rows. Each option gets its own
+    flow output. JEV routes the flow to the option it picks.
 
     Inputs:
         - context (str): The text JEV reads to pick an option.
@@ -45,16 +40,20 @@ class JevPickOne(GriptapeProxyNode):
         - model (str): JEV model alias.
 
     Outputs:
+        - One flow output per option (dynamic, added as you fill in the list).
         - choice (str): The label of the option JEV picked.
-        - description (str): The description of the picked option (empty if none given).
+        - description (str): The description of the picked option.
         - confidence (float): How sure JEV is, from 0 to 1.
         - probabilities (dict): JEV's probability for every option, keyed by label.
     """
 
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.category = "classification"
-        self.description = "Pick the option that best fits some text using TypeSafe JEV"
+    ROWS_PARAM = "options"
+    OUTPUT_PREFIX = "option_"
+
+    def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
+        super().__init__(name, metadata)
+
+        self.add_parameter(ControlParameterInput(tooltip="Run this node", name="exec_in"))
 
         self.add_parameter(
             ParameterString(
@@ -80,42 +79,25 @@ class JevPickOne(GriptapeProxyNode):
             )
         )
 
-        self.add_parameter(
-            ParameterList(
-                name="options",
-                display_name="Options",
-                tooltip="One option per row. Write a short label, or 'Label: description' to tell JEV what "
-                "the option means. Needs at least two options.",
-                type="str",
-                ui_options={"placeholder_text": "label: description"},
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            )
+        self.options = ParameterList(
+            name="options",
+            display_name="Options",
+            tooltip="One option per row. Write a short label, or 'Label: description' to tell JEV what "
+            "the option means. Each option gets its own flow output.",
+            type="str",
+            ui_options={"placeholder_text": "label: description"},
+            max_items=MAX_OPTIONS,
         )
-
-        model_param = ParameterString(
-            name="model",
-            display_name="Model",
-            tooltip="jev-latest is the newest stable model. jev-preview is the newest release.",
-            default_value=DEFAULT_MODEL,
-            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-        )
-        self.add_parameter(model_param)
-        self._model_access = ModelAccessComponent(
-            node=self,
-            parameter=model_param,
-            model_choices=MODEL_CHOICES,
-            default_model=DEFAULT_MODEL,
-        )
+        self.add_parameter(self.options)
 
         self.add_parameter(
             ParameterString(
                 name="choice",
                 display_name="Choice",
                 tooltip="The label of the option JEV picked.",
-                default_value=None,
-                allowed_modes={ParameterMode.OUTPUT},
+                allow_input=False,
+                allow_property=False,
                 placeholder_text="The label JEV picked.",
-                ui_options={"pulse_on_run": True},
             )
         )
 
@@ -124,8 +106,8 @@ class JevPickOne(GriptapeProxyNode):
                 name="description",
                 display_name="Description",
                 tooltip="The description of the option JEV picked. Empty if the option had no description.",
-                default_value=None,
-                allowed_modes={ParameterMode.OUTPUT},
+                allow_input=False,
+                allow_property=False,
                 placeholder_text="The description of the picked option.",
             )
         )
@@ -136,8 +118,8 @@ class JevPickOne(GriptapeProxyNode):
                 display_name="Confidence",
                 tooltip="How sure JEV is of its pick, from 0 to 1. Low values mean the text could fit "
                 "another option too.",
-                default_value=None,
-                allowed_modes={ParameterMode.OUTPUT},
+                allow_input=False,
+                allow_property=False,
             )
         )
 
@@ -146,38 +128,57 @@ class JevPickOne(GriptapeProxyNode):
                 name="probabilities",
                 display_name="Probabilities",
                 tooltip="JEV's probability for every option, keyed by label. They add up to about 1.",
-                default_value=None,
-                allowed_modes={ParameterMode.OUTPUT},
+                allow_input=False,
+                allow_property=False,
+                placeholder_text="JEV's probability for every option.",
             )
         )
 
-        self._create_status_parameters(
-            result_details_tooltip="Details about the JEV result or any errors",
-            result_details_placeholder="JEV status will appear here...",
-            parameter_group_initially_collapsed=True,
-        )
+        with ParameterGroup(name="Advanced", ui_options={"collapsed": True}):
+            ParameterString(
+                name="model",
+                display_name="Model",
+                tooltip="jev-latest is the newest stable model. jev-preview is the newest release.",
+                default_value=DEFAULT_MODEL,
+                allow_input=False,
+                allow_output=False,
+            )
 
-    def _build_criteria(self) -> dict[str, str | None]:
-        """Read Options into JEV criteria: labels mapped to descriptions (or None)."""
+    def _row_output_label(self, index: int, text: str) -> str:
+        return parse_row(text)[0]
+
+    def _criteria(self) -> dict[str, str | None]:
         criteria: dict[str, str | None] = {}
         for row in self.get_parameter_value("options") or []:
-            label, description = _parse_option_row(row)
+            label, description = parse_row(row)
             if not label:
                 continue
             if label in criteria:
-                msg = f"{self.name}: '{label}' appears more than once in Options. Each label must be unique."
-                raise ValueError(msg)
-            criteria[label] = description or None
+                raise ValueError(f"{self.name}: '{label}' appears more than once in Options. Each label must be unique.")
+            criteria[label] = description
         if len(criteria) < 2:  # noqa: PLR2004
-            msg = f"{self.name}: Options needs at least two options for JEV to pick from."
-            raise ValueError(msg)
+            raise ValueError(f"{self.name}: Options needs at least two options for JEV to pick from.")
         return criteria
 
-    async def _build_payload(self) -> dict[str, Any]:
+    def validate_before_node_run(self) -> list[Exception] | None:
+        if not GriptapeNodes.SecretsManager().get_secret(API_KEY_NAME, should_error_on_not_found=False):
+            return [
+                ValueError(
+                    f"{self.name}: {API_KEY_NAME} is not set. "
+                    "Add it in Settings > API Keys & Secrets. Get a key at https://console.typesafe.ai/keys"
+                )
+            ]
+        return None
+
+    def process(self) -> AsyncResult[None]:
+        self.parameter_output_values.pop("choice", None)
+        self.parameter_output_values.pop("description", None)
+        yield lambda: self._ask()
+
+    def _ask(self) -> None:
         context = (self.get_parameter_value("context") or "").strip()
         if not context:
-            msg = f"{self.name}: Context is empty. Connect or type the text to classify."
-            raise ValueError(msg)
+            raise ValueError(f"{self.name}: Context is empty.")
 
         state: str | dict | list = context
         if context[0] in "{[":
@@ -186,43 +187,43 @@ class JevPickOne(GriptapeProxyNode):
             except json.JSONDecodeError:
                 pass
 
-        criteria = self._build_criteria()
+        criteria = self._criteria()
         question = (self.get_parameter_value("question") or "").strip()
 
-        choice: dict[str, Any] = {
+        choice_q: dict[str, Any] = {
             "type": "choice",
-            "criteria": {k: v for k, v in criteria.items() if v is not None} if any(v for v in criteria.values()) else {k: k for k in criteria},
+            "criteria": {k: v for k, v in criteria.items() if v is not None} or {k: k for k in criteria},
         }
         if question:
-            choice["instructions"] = question
+            choice_q["instructions"] = question
 
-        return {"state": state, "questions": {QUESTION_KEY: choice}}
+        api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_NAME, should_error_on_not_found=False)
+        model = self.get_parameter_value("model") or DEFAULT_MODEL
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:  # noqa: ARG002
-        answers = result_json.get("answers") or {}
-        answer_data = answers.get(QUESTION_KEY) or {}
+        response = httpx.post(
+            "https://api.typesafe.ai/v1/systemone",
+            json={"model": model, "state": state, "questions": {QUESTION_KEY: choice_q}},
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            timeout=60,
+        )
+        response.raise_for_status()
+        body = response.json()
+
+        answer_data = (body.get("answers") or {}).get(QUESTION_KEY) or {}
         picked = answer_data.get("choice")
-
         if picked is None:
-            self._set_safe_defaults()
-            self._set_status_results(was_successful=False, result_details="No choice found in JEV response.")
-            return
+            raise RuntimeError(f"{self.name}: No choice found in JEV response.")
 
-        # Recover the description from the options the user entered.
-        options_criteria: dict[str, str | None] = {}
-        for row in self.get_parameter_value("options") or []:
-            label, description = _parse_option_row(row)
-            if label:
-                options_criteria[label] = description or None
-
-        self.parameter_output_values["choice"] = picked
-        self.parameter_output_values["description"] = options_criteria.get(picked) or ""
         self.parameter_output_values["confidence"] = float(answer_data.get("confidence", 0.0))
         self.parameter_output_values["probabilities"] = dict(answer_data.get("probabilities") or {})
-        self._set_status_results(was_successful=True, result_details=f"Picked: {picked}")
+        self.parameter_output_values["description"] = criteria.get(picked) or ""
+        self.parameter_output_values["choice"] = picked
 
-    def _set_safe_defaults(self) -> None:
-        self.parameter_output_values["choice"] = None
-        self.parameter_output_values["description"] = None
-        self.parameter_output_values["confidence"] = None
-        self.parameter_output_values["probabilities"] = None
+    def get_next_control_output(self) -> Parameter | None:
+        picked = self.parameter_output_values.get("choice")
+        if picked is None:
+            return None
+        for param in self._row_output_params():
+            if param.display_name == picked:
+                return param
+        return None
