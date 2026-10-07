@@ -285,19 +285,22 @@ def _agent_tool(config: dict) -> FunctionToolset:
     return FunctionToolset([tool])
 
 
-def _mcp(config: dict) -> AbstractToolset[Any] | None:
+def _mcp(config: dict) -> AbstractToolset[Any]:
     server_name = str(config.get("mcp_server_name", ""))
     clean_name = "".join(c for c in server_name if c.isalnum())
-    built = mcp_server_from_config(f"mcp{clean_name.title()}", config.get("server_config") or {})
+    server_config = config.get("server_config") or {}
+    built = mcp_server_from_config(f"mcp{clean_name.title()}", server_config)
     if built is None:
-        return None
+        # Fail rather than run the agent without the server's tools.
+        msg = f"MCP server '{server_name}' could not be built (transport {server_config.get('transport')!r})."
+        raise ValueError(msg)
     # Toolsets are rebuilt per run, so let the stdio subprocess exit when the run disconnects.
     if hasattr(built.transport, "keep_alive"):
         built.transport.keep_alive = False  # pyright: ignore[reportAttributeAccessIssue]
     return built.toolset
 
 
-def build_toolset(config: dict) -> AbstractToolset[Any] | None:
+def build_toolset(config: dict) -> AbstractToolset[Any]:
     match config.get("tool_type"):
         case ToolType.MCP:
             return _mcp(config)
@@ -329,9 +332,7 @@ def build_toolsets(configs: list[dict]) -> list[AbstractToolset[Any]]:
         if key in seen:
             continue
         seen.add(key)
-        toolset = build_toolset(config)
-        if toolset is not None:
-            toolsets.append(toolset)
+        toolsets.append(build_toolset(config))
     return toolsets
 
 

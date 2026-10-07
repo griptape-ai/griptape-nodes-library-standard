@@ -198,7 +198,7 @@ def compact_messages(messages: list[ModelMessage]) -> list[ModelMessage]:
 def messages_from_runs(runs: list[dict[str, Any]]) -> list[ModelMessage]:
     messages: list[ModelMessage] = []
     for run in runs:
-        if not isinstance(run, dict):
+        if not isinstance(run, dict) or "input" not in run or "output" not in run:
             continue
         messages.append(ModelRequest(parts=[UserPromptPart(content=_as_text(run.get("input")))]))
         messages.append(ModelResponse(parts=[TextPart(content=_as_text(run.get("output")))]))
@@ -236,11 +236,10 @@ def _from_legacy(value: dict) -> AgentState:
     if "agent" in value and "tools" in value:
         agent_dict = value.get("agent") or {}
         tools = list(value.get("tools") or [])
-        rulesets = list(value.get("rulesets") or [])
         provider = value.get("provider")
     else:
         agent_dict, tools, provider = value, [], None
-        rulesets = [c for c in (ruleset_to_config(r) for r in value.get("rulesets") or []) if c]
+    rulesets = [c for c in (ruleset_to_config(r) for r in value.get("rulesets") or []) if c]
     if not isinstance(agent_dict, dict):
         return AgentState(tools=tools, rulesets=rulesets)
 

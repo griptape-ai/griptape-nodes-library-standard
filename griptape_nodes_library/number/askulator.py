@@ -98,9 +98,12 @@ class Askulator(BaseTask):
 
         if instruction and not instruction.isspace():
             tokens: list[str] = []
+            tool_notes: list[str] = []
 
             def on_tool_call(tool_name: str, _args: str) -> None:
-                self.append_value_to_parameter("output", value=f"Using a {tool_name}\n")
+                note = f"Using a {tool_name}\n"
+                tool_notes.append(note)
+                self.append_value_to_parameter("output", value=note)
 
             def _process() -> str:
                 # PromptedOutput makes the model answer in JSON text, which streams; a tool-call answer would not.
@@ -114,7 +117,8 @@ class Askulator(BaseTask):
                     on_tool_call=on_tool_call,
                 )
                 # Streaming parses raw text, which retries or preamble can garble; the validated answer is authoritative.
-                self.parameter_output_values["result"] = result.output.final_answer
+                self.publish_update_to_parameter("result", result.output.final_answer)
+                self.publish_update_to_parameter("output", "".join(tool_notes) + result.output.reasoning)
                 return result.text
 
             yield _process

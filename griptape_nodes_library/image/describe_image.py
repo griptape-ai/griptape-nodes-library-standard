@@ -414,9 +414,18 @@ class DescribeImage(ControlNode):
         state = AgentState.from_wire(agent_value) if is_agent_value(agent_value) else None
         model_config = self._resolve_model_config(state)
         agent_state = replace(state, model=model_config) if state is not None else AgentState(model=model_config)
-        agent = build_agent_from_state(
-            agent_state, output_type=output_type_from_schema(output_schema) if output_schema else str
-        )
+        try:
+            agent = build_agent_from_state(
+                agent_state, output_type=output_type_from_schema(output_schema) if output_schema else str
+            )
+        except Exception as e:
+            logger.error(
+                "DescribeImage '%s': Unable to create output schema model: %s. "
+                "Try using the `Create Agent Schema` node to generate a schema.",
+                self.name,
+                e,
+            )
+            raise
 
         # Declare the model that will actually run, read from the resolved config rather than
         # the node's `model` parameter, which keeps its last dropdown value (hidden, not cleared)

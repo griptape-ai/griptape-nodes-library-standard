@@ -199,8 +199,24 @@ class TestAskulator:
         with override_model(_tool_then_text("calculate", {"expression": "3 * 2"}, answer)):
             _run(node)
 
-        assert node.parameter_output_values["output"].startswith("Using a calculate\n")
+        assert node.parameter_output_values["output"] == "Using a calculate\nr"
         assert node.parameter_output_values["result"] == "6"
+
+    def test_outputs_come_from_the_validated_answer_not_the_stream(self) -> None:
+        answer = json.dumps({"reasoning": "Two plus two.", "final_answer": "4"})
+        node = _create_node("Askulator")
+        node.set_parameter_value("instruction", "2 + 2")
+
+        replies = iter(['{"reasoning": "Two plus', answer])
+
+        def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:  # noqa: ARG001
+            return ModelResponse(parts=[TextPart(next(replies))])
+
+        with override_model(fake_model(respond)):
+            _run(node)
+
+        assert node.parameter_output_values["output"] == "Two plus two."
+        assert node.parameter_output_values["result"] == "4"
 
 
 class TestEvaluateTextResult:
@@ -368,4 +384,11 @@ class TestMCPToolsetConstruction:
         config = {"tool_type": "MCPTool", "mcp_server_name": "demo", "server_config": {"transport": "stdio"}}
 
         with pytest.raises(RuntimeError, match="Failed to create MCP tool for server 'demo'"):
+            node._build_toolsets(AgentState(), config, "demo")
+
+    def test_unsupported_transport_is_an_error(self) -> None:
+        node = _create_node("MCPTaskNode")
+        config = {"tool_type": "MCPTool", "mcp_server_name": "demo", "server_config": {"transport": "websocket"}}
+
+        with pytest.raises(RuntimeError, match="transport 'websocket'"):
             node._build_toolsets(AgentState(), config, "demo")

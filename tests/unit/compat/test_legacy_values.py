@@ -347,6 +347,7 @@ class TestAgentMemoryFormats:
             ({"conversation_memory": FULL}, [{"input": "q1", "output": "a1"}]),
             ({"runs": []}, []),
             ({"something": "else"}, []),
+            ({"runs": [{"foo": 1}, {"input": "q1", "output": "a1"}]}, [{"input": "q1", "output": "a1"}]),
         ],
     )
     def test_formats(self, memory: dict, expected: list[dict]) -> None:

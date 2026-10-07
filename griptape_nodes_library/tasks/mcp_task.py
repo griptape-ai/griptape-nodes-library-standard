@@ -357,10 +357,11 @@ class MCPTaskNode(SuccessFailureNode):
         self, state: AgentState, mcp_tool_config: dict, mcp_server_name: str
     ) -> list[AbstractToolset[Any]]:
         """The incoming agent's toolsets plus the MCP server's."""
-        mcp_toolset = build_toolset(mcp_tool_config)
-        if mcp_toolset is None:
-            msg = f"Failed to create MCP tool for server '{mcp_server_name}'"
-            raise RuntimeError(msg)
+        try:
+            mcp_toolset = build_toolset(mcp_tool_config)
+        except ValueError as e:
+            msg = f"Failed to create MCP tool for server '{mcp_server_name}': {e}"
+            raise RuntimeError(msg) from e
         return [*build_toolsets(state.tools), mcp_toolset]
 
     def _execute_with_streaming(  # noqa: PLR0913
