@@ -141,7 +141,7 @@ class JevAskYesNo(GriptapeProxyNode):
         )
 
     def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or "jev-latest"
+        return self.get_parameter_value("model") or DEFAULT_MODEL
 
     async def _build_payload(self) -> dict[str, Any]:
         state = to_state(self.get_parameter_value("context"))
