@@ -100,6 +100,7 @@ class BasePrompt(BaseDriver):
             )
         )
 
+        # Kept so saved workflows load; pydantic-ai has no equivalent.
         self.add_parameter(
             Parameter(
                 name="use_native_tools",
@@ -108,6 +109,7 @@ class BasePrompt(BaseDriver):
                 output_type="bool",
                 default_value=True,
                 tooltip="Use native tools for the LLM.",
+                ui_options={"hide": True},
             )
         )
 
@@ -122,6 +124,7 @@ class BasePrompt(BaseDriver):
             )
         )
 
+        # Kept so saved workflows load; pydantic-ai has no equivalent.
         self.add_parameter(
             Parameter(
                 name="stream",
@@ -130,6 +133,7 @@ class BasePrompt(BaseDriver):
                 output_type="bool",
                 default_value=True,
                 tooltip="",
+                ui_options={"hide": True},
             )
         )
 
@@ -156,7 +160,9 @@ class BasePrompt(BaseDriver):
         base_url: str | None = None,
         options: dict[str, Any] | None = None,
     ) -> ModelConfig:
-        max_retries = self.get_parameter_value("max_attempts_on_fail")
+        # griptape counted total attempts; SDK clients count retries after the first.
+        max_attempts = self.get_parameter_value("max_attempts_on_fail")
+        max_retries = None if max_attempts is None else max(max_attempts - 1, 0)
         return ModelConfig(
             provider=provider,
             model=model,

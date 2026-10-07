@@ -1,5 +1,3 @@
-"""Build a live pydantic-ai `Model` from a :class:`ModelConfig`."""
-
 from __future__ import annotations
 
 import contextlib

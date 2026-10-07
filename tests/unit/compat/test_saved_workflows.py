@@ -269,7 +269,7 @@ async def test_prompt_config_feeds_agent(node_type: str, compat_engine: CompatEn
     expected = PROMPT_CONFIGS[node_type]
     assert (got.provider, got.model, got.base_url) == (expected.provider, expected.model, expected.base_url)
     assert {k: got.settings.get(k) for k in expected.settings} == expected.settings
-    assert got.max_retries == 3
+    assert got.max_retries == 2
     assert model("a2") == got
     assert fake_llm.calls[-1].user_prompts == [
         "Say hello in exactly three words.",

@@ -128,7 +128,6 @@ class BaseTask(ControlNode):
         self.append_value_to_parameter("output", value=token)
 
     def _set_output(self, value: str) -> None:
-        """Publish `value` as the final `output` without streaming."""
         self.publish_update_to_parameter("output", value)
 
     def process(self) -> AsyncResult[str]:

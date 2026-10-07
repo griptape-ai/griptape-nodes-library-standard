@@ -11,6 +11,7 @@ from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 from pydantic_ai.toolsets import AbstractToolset
+from pydantic_ai.usage import UsageLimits
 
 from griptape_nodes_library.llm.agent_state import AgentState, compact_messages, is_agent_value
 from griptape_nodes_library.llm.model_config import ModelConfig, model_config_for_engine_provider
@@ -421,6 +422,8 @@ class MCPTaskNode(SuccessFailureNode):
             message_history=state.messages,
             on_text=on_text,
             on_tool_call=on_tool_call,
+            # One request per subtask, plus the final answer.
+            usage_limits=UsageLimits(request_limit=self.get_parameter_value("max_subtasks") + 1),
         )
 
     def _create_model_config(self) -> ModelConfig:

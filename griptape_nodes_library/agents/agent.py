@@ -1,5 +1,3 @@
-"""Agent node for chatting with an LLM agent."""
-
 from typing import Any
 
 from griptape_nodes.drivers.cloud_models import MODEL_CHOICES

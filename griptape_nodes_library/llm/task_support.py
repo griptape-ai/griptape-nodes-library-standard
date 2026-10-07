@@ -10,6 +10,7 @@ from griptape_nodes_library.llm.runner import RunCallbacks, build_agent, output_
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
     from pydantic_ai.toolsets import AbstractToolset
+    from pydantic_ai.usage import UsageLimits
 
     from griptape_nodes_library.llm.runner import Prompt
 
@@ -37,6 +38,7 @@ def run_task_agent(  # noqa: PLR0913
     message_history: list[ModelMessage] | None = None,
     on_text: Callable[[str], None] | None = None,
     on_tool_call: Callable[[str, str], None] | None = None,
+    usage_limits: UsageLimits | None = None,
 ) -> TaskRunResult:
     agent = build_agent(
         model_config, instructions=instructions, rulesets=rulesets, toolsets=toolsets, output_type=output_type
@@ -51,6 +53,7 @@ def run_task_agent(  # noqa: PLR0913
         prompt,
         message_history=message_history,
         callbacks=RunCallbacks(on_text=on_text, on_tool_call=on_tool_call, on_tool_result=collect_tool_result),
+        usage_limits=usage_limits,
     )
     return TaskRunResult(
         output=result.output,

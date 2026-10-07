@@ -33,9 +33,9 @@ if TYPE_CHECKING:
     from pydantic_ai.agent import AgentRunResult
     from pydantic_ai.messages import ModelMessage
     from pydantic_ai.toolsets import AbstractToolset
+    from pydantic_ai.usage import UsageLimits
 
-    from griptape_nodes_library.llm.budget import raise_budget_halt
-from griptape_nodes_library.llm.model_config import ModelConfig
+    from griptape_nodes_library.llm.model_config import ModelConfig
 
 Prompt = str | Sequence[UserContent]
 
@@ -98,11 +98,14 @@ async def run_agent_async(
     *,
     message_history: list[ModelMessage] | None = None,
     callbacks: RunCallbacks | None = None,
+    usage_limits: UsageLimits | None = None,
 ) -> AgentRunResult[Any]:
     callbacks = callbacks or RunCallbacks()
     result: AgentRunResult[Any] | None = None
     try:
-        async with agent.run_stream_events(prompt, message_history=message_history or None) as events:
+        async with agent.run_stream_events(
+            prompt, message_history=message_history or None, usage_limits=usage_limits
+        ) as events:
             async for event in events:
                 if callbacks.is_cancelled is not None and callbacks.is_cancelled():
                     raise AgentRunCancelledError
@@ -138,13 +141,16 @@ def run_agent(
     *,
     message_history: list[ModelMessage] | None = None,
     callbacks: RunCallbacks | None = None,
+    usage_limits: UsageLimits | None = None,
 ) -> AgentRunResult[Any]:
     """Run `agent` synchronously, streaming text and tool events to `callbacks`.
 
     Raises:
         AgentRunCancelledError: `callbacks.is_cancelled` returned True.
     """
-    return run_coroutine_sync(run_agent_async(agent, prompt, message_history=message_history, callbacks=callbacks))
+    return run_coroutine_sync(
+        run_agent_async(agent, prompt, message_history=message_history, callbacks=callbacks, usage_limits=usage_limits)
+    )
 
 
 def output_to_text(output: Any) -> str:

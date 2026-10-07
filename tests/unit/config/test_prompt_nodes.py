@@ -148,7 +148,7 @@ def test_process_emits_model_config(  # noqa: PLR0913
     assert config.api_key_secret == api_key_secret
     assert config.base_url == base_url
     assert config.settings == settings
-    assert config.max_retries == 2
+    assert config.max_retries == 1
     assert config.api_key is None
     assert isinstance(build_model(config), model_class)
 
@@ -183,7 +183,7 @@ def test_max_tokens_and_retries_are_forwarded() -> None:
 
     assert config.settings["max_tokens"] == 512
     assert config.settings["temperature"] == 0.7
-    assert config.max_retries == 5
+    assert config.max_retries == 4
 
 
 def test_non_positive_max_tokens_is_omitted() -> None:

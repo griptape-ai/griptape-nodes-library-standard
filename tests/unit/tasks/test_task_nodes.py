@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from griptape_nodes.node_library.library_registry import LibraryRegistry
 from pydantic_ai import FunctionToolset
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -328,6 +329,20 @@ class TestMCPTaskNode:
 
         assert node._execution_succeeded is False
         assert "provider exploded" in node.get_parameter_value("result_details")
+
+    def test_max_subtasks_caps_tool_rounds(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        node = self._node(monkeypatch)
+        node.set_parameter_value("max_subtasks", 2)
+        requests: list[list[ModelMessage]] = []
+
+        def always_ping(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:  # noqa: ARG001
+            requests.append(messages)
+            return ModelResponse(parts=[ToolCallPart("ping", {})])
+
+        with override_model(fake_model(always_ping)), pytest.raises(UsageLimitExceeded):
+            _run(node)
+
+        assert len(requests) == 3
 
 
 class TestMCPToolsetConstruction:

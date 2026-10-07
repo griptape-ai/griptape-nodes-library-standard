@@ -131,6 +131,7 @@ def _generate_openai_compatible(config: ImageGenerationConfig, prompt: str) -> b
     params: dict[str, Any] = {"size": config.image_size, "quality": config.quality}
     if config.model in OPENAI_STYLE_MODELS:
         params["style"] = config.style
+    # GPT Image models always return base64 and reject `response_format`.
     if is_gpt_image:
         params |= {
             "background": config.background,
@@ -139,7 +140,6 @@ def _generate_openai_compatible(config: ImageGenerationConfig, prompt: str) -> b
             "output_format": config.output_format,
         }
     else:
-        # gpt-image models always return base64 and reject `response_format`.
         params["response_format"] = "b64_json"
 
     response = OpenAI(api_key=api_key, base_url=base_url).images.generate(

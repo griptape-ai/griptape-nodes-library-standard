@@ -67,7 +67,6 @@ class GriptapeCloudPrompt(BasePrompt):
             model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=CLOUD_LEGACY_MODEL_VALUES
         )
 
-        # Remove the 'seed' parameter as it's not directly used by Griptape Cloud.
         self.remove_parameter_element_by_name("seed")
 
         # Remove `top_k` parameter as it's not used by Griptape Cloud.
@@ -84,10 +83,8 @@ class GriptapeCloudPrompt(BasePrompt):
             # itself, before `self._model_access` exists.
             provider_model_id = value if isinstance(value, str) else ""
             if "deepseek" in provider_model_id:
-                self.hide_parameter_by_name("stream")
                 self.hide_parameter_by_name("top_p")
             else:
-                self.show_parameter_by_name("stream")
                 self.show_parameter_by_name("top_p")
 
             # Check and see if max_tokens is defined in the model args

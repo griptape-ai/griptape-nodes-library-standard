@@ -1,5 +1,3 @@
-"""Web search and page scraping, used by agent tools and the SearchWeb / ScrapeWeb nodes."""
-
 from __future__ import annotations
 
 import json
