@@ -772,7 +772,7 @@ requires-dist = [
     { name = "lxml", specifier = ">=5.0.0" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "pillow", specifier = ">=11.2.1" },
-    { name = "pydantic-ai-slim", extras = ["anthropic", "bedrock", "cohere", "mcp", "openai"], specifier = ">=2.29.0" },
+    { name = "pydantic-ai-slim", extras = ["anthropic", "bedrock", "cohere", "mcp", "openai"], specifier = ">=2.48.0" },
     { name = "scikit-learn", specifier = ">=1.3.0" },
     { name = "static-ffmpeg", specifier = ">=2.8" },
     { name = "threadpoolctl", specifier = ">=3.0.0" },

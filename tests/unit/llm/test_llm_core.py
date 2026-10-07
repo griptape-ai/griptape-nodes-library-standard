@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import httpx
@@ -83,6 +84,47 @@ class TestModelConfig:
 
         assert restored.api_key is None
         assert models.resolve_api_key(restored) == "from-secret"
+
+
+class TestCloudSamplingSettings:
+    """Settings an OpenAI reasoning model rejects never reach Griptape Cloud (griptape-cloud#2286)."""
+
+    def _sent_body(self, monkeypatch: pytest.MonkeyPatch, model: str) -> dict[str, Any]:
+        bodies: list[dict[str, Any]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            bodies.append(json.loads(request.content))
+            choice = {"index": 0, "delta": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}
+            chunk = {"id": "x", "object": "chat.completion.chunk", "created": 0, "model": model, "choices": [choice]}
+            sse = f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n"
+            return httpx.Response(200, text=sse, headers={"content-type": "text/event-stream"})
+
+        real_client = models.AsyncOpenAI
+        monkeypatch.setattr(
+            models,
+            "AsyncOpenAI",
+            lambda **kwargs: real_client(
+                **kwargs, http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            ),
+        )
+        config = ModelConfig(
+            provider=ModelProvider.GRIPTAPE_CLOUD,
+            model=model,
+            api_key="gt-test",
+            settings={"temperature": 0.1, "top_p": 0.9, "max_tokens": 512},
+        )
+        run_agent(build_agent(config), "hi")
+        return bodies[0]
+
+    @pytest.mark.parametrize("model", ["gpt-6-sol", "gpt-6-luna", "gpt-6-astra", "gpt-5", "o3"])
+    def test_reasoning_models_drop_sampling_settings(self, monkeypatch: pytest.MonkeyPatch, model: str) -> None:
+        body = self._sent_body(monkeypatch, model)
+        assert "temperature" not in body
+        assert "top_p" not in body
+
+    def test_other_models_keep_sampling_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        body = self._sent_body(monkeypatch, "gpt-4.1")
+        assert (body["temperature"], body["top_p"]) == (0.1, 0.9)
 
 
 class TestAgentState:

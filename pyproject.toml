@@ -7,7 +7,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
   # Artifacts, loaders, and chunkers only. LLM work goes through pydantic-ai.
   "griptape[loaders-image,loaders-pdf]>=1.11.0",
-  "pydantic-ai-slim[anthropic,bedrock,cohere,mcp,openai]>=2.29.0",
+  "pydantic-ai-slim[anthropic,bedrock,cohere,mcp,openai]>=2.48.0",
   "ddgs>=9.0.0",
   "exa-py>=2.0.0",
   "trafilatura>=2.0",
