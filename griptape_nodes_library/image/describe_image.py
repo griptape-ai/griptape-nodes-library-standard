@@ -14,7 +14,6 @@ from griptape_nodes.exe_types.param_components.model_access_component import Mod
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.events.agent_events import ProviderConfig
 from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest, DeleteConnectionRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.options import Options
@@ -25,7 +24,6 @@ from griptape_nodes_library.llm.content import image_content
 from griptape_nodes_library.llm.model_config import (
     ModelConfig,
     ModelProvider,
-    model_config_for_engine_provider,
     model_config_from_input,
 )
 from griptape_nodes_library.llm.runner import output_to_text, output_type_from_schema, run_agent
@@ -355,14 +353,6 @@ class DescribeImage(ControlNode):
             raise TypeError(msg)
         return schema_value
 
-    def _third_party_model_config(self, provider_name: str, model: str) -> ModelConfig:
-        providers: list[ProviderConfig] = self._provider._fetch_providers()
-        provider_config = next((p for p in providers if p.name == provider_name), None)
-        if provider_config is None:
-            msg = f"DescribeImage '{self.name}': provider '{provider_name}' not found in configured providers."
-            raise ValueError(msg)
-        return model_config_for_engine_provider(provider_config, model)
-
     def _resolve_model_config(self, state: AgentState | None) -> ModelConfig:
         """The model that will run: a connected Agent's, a connected Prompt Model Config, or the dropdown selection."""
         if state is not None and state.model is not None:
@@ -374,7 +364,7 @@ class DescribeImage(ControlNode):
         model_name = model_input or DEFAULT_MODEL
         provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
         if provider_name != "griptape_cloud":
-            return self._third_party_model_config(provider_name, model_name)
+            return self._provider.model_config_for(provider_name, model_name)
         if model_name not in self._model_access.model_choices:
             model_name = DEFAULT_MODEL
         return ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=model_name)

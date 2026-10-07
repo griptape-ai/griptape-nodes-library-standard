@@ -13,7 +13,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.llm.model_config import ModelConfig
+from griptape_nodes_library.llm.model_config import ModelConfig, model_config_for_engine_provider
 
 _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
 
@@ -103,6 +103,13 @@ class ProviderSelectionComponent:
             return cast(ListAgentProvidersResultSuccess, result).providers or _FALLBACK
         except Exception:
             return _FALLBACK
+
+    def model_config_for(self, provider_name: str, model: str) -> ModelConfig:
+        provider_config = next((p for p in self._fetch_providers() if p.name == provider_name), None)
+        if provider_config is None:
+            msg = f"{self._node.name}: provider '{provider_name}' not found in configured providers."
+            raise ValueError(msg)
+        return model_config_for_engine_provider(provider_config, model)
 
     def _fetch_provider_names(self) -> list[str]:
         providers = self._fetch_providers()

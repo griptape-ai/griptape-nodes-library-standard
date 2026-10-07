@@ -225,6 +225,13 @@ def test_third_party_provider_type_maps_to_model_provider(
     assert config.api_key_secret is None
 
 
+def test_unknown_provider_fails_clearly(agent_node: Agent, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(agent_node._provider, "_fetch_providers", lambda: [])
+
+    with pytest.raises(ValueError, match="provider 'gone' not found"):
+        agent_node._resolve_model_config("m", "gone")
+
+
 def test_tool_calls_are_logged_when_details_are_on(agent_node: Agent, monkeypatch: pytest.MonkeyPatch) -> None:
     _prepare(agent_node, prompt="what is 2+2", include_details=True)
     _stub_list_values(agent_node, monkeypatch, tools=[{"tool_type": "Calculator"}])

@@ -6,7 +6,6 @@ from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, SuccessFa
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.events.agent_events import ProviderConfig
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
@@ -22,7 +21,6 @@ from griptape_nodes_library.llm.agent_state import (
 )
 from griptape_nodes_library.llm.model_config import (
     ModelConfig,
-    model_config_for_engine_provider,
     model_config_from_input,
 )
 from griptape_nodes_library.llm.task_support import (
@@ -39,8 +37,6 @@ from griptape_nodes_library.utils.mcp_utils import (
 )
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
-
-_GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
 
 # Curated subset of the Cloud chat catalog for the MCP task node. Not every Cloud
 # model works reliably with tool-calling, so this list is narrower than the full
@@ -467,9 +463,7 @@ class MCPTaskNode(SuccessFailureNode):
 
         provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
         if provider_name != "griptape_cloud":
-            providers = self._provider_selection._fetch_providers()
-            provider_config = next((p for p in providers if p.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
-            return model_config_for_engine_provider(provider_config, str(model_input))
+            return self._provider_selection.model_config_for(provider_name, str(model_input))
 
         # A model outside the Cloud catalog cannot be resolved to a catalog key, so the
         # license gate would fail closed on it. Fall back to the declared default instead.

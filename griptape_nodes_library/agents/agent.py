@@ -13,7 +13,6 @@ from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNo
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.events.agent_events import ProviderConfig
 from griptape_nodes.retained_mode.events.connection_events import DeleteConnectionRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
@@ -35,7 +34,6 @@ from griptape_nodes_library.llm.agent_state import (
 from griptape_nodes_library.llm.model_config import (
     ModelConfig,
     ModelProvider,
-    model_config_for_engine_provider,
     model_config_from_input,
 )
 from griptape_nodes_library.llm.rulesets import rulesets_from_inputs
@@ -54,8 +52,6 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
 from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
-
-_GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
 
 # --- Constants ---
 DEFAULT_MODEL = DEFAULT_CLOUD_MODEL
@@ -469,9 +465,7 @@ class Agent(ControlNode):
             if model_input not in self._model_access.model_choices:
                 model_input = DEFAULT_MODEL
             return ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=model_input)
-        providers = self._provider._fetch_providers()
-        provider_config = next((p for p in providers if p.name == provider_name), _GRIPTAPE_CLOUD_PROVIDER)
-        return model_config_for_engine_provider(provider_config, model_input)
+        return self._provider.model_config_for(provider_name, model_input)
 
     def _build_state(self, model_input: Any, provider_name: str, agent_input: Any) -> AgentState:
         """Combine the incoming agent (if any) with this node's model, tools, and rulesets."""
