@@ -285,7 +285,6 @@ class CreateVideoFromFrames(SuccessFailureNode):
             self._set_safe_defaults()
             error_msg = f"{self.name} failed to combine frames: {e}"
             self._set_status_results(was_successful=False, result_details=error_msg)
-            logger.error("%s combination failed: %s", self.name, e)
             self._handle_failure_exception(RuntimeError(error_msg))
 
     @staticmethod

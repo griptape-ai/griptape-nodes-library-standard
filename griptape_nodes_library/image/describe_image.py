@@ -384,7 +384,6 @@ class DescribeImage(ControlNode):
                     f"DescribeImage '{self.name}': output_schema must be a JSON schema object (dict) "
                     f"or a JSON string, got: {type(schema_value).__name__}"
                 )
-                logger.error(msg)
                 raise TypeError(msg)
 
             if schema_value is not None:

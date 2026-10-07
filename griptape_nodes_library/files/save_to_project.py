@@ -115,7 +115,6 @@ class SaveToProject(SuccessFailureNode):
             content = File(source_path).read_bytes()
         except Exception as e:
             msg = f"Failed to read source file '{source_path}': {e}"
-            logger.error(msg)
             self._set_status_results(was_successful=False, result_details=msg)
             self._handle_failure_exception(RuntimeError(msg))
             return
@@ -126,7 +125,6 @@ class SaveToProject(SuccessFailureNode):
             saved_path = Path(saved_file.resolve())
         except Exception as e:
             msg = f"Failed to write destination file: {e}"
-            logger.error(msg)
             self._set_status_results(was_successful=False, result_details=msg)
             self._handle_failure_exception(RuntimeError(msg))
             return
