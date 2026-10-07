@@ -55,9 +55,9 @@ def search_web(
                 },
                 timeout=30,
             )
-            if response.is_error:
+            if not response.is_success:
                 # `raise_for_status` text includes the URL, and this error reaches the model.
-                msg = f"Google search failed: HTTP {response.status_code}"
+                msg = f"Google search failed: HTTP {response.status_code}{_google_error_reason(response)}"
                 raise RuntimeError(msg)
             return [
                 {"title": r["title"], "url": r["link"], "description": r["snippet"]}
@@ -74,6 +74,14 @@ def search_web(
         case _:
             msg = f"Unknown search engine: {engine!r}"
             raise ValueError(msg)
+
+
+def _google_error_reason(response: httpx.Response) -> str:
+    try:
+        reason = response.json()["error"]["message"]
+    except (ValueError, KeyError, TypeError):
+        return ""
+    return f": {reason}"
 
 
 def format_search_results(results: list[dict[str, Any]]) -> str:

@@ -329,13 +329,13 @@ def test_google_search_error_keeps_the_api_key_out_of_tool_text(monkeypatch: pyt
     def fake_get(url: str, **kwargs: Any) -> httpx.Response:
         sent.update(kwargs)
         request = httpx.Request("GET", url, params=kwargs["params"], headers=kwargs["headers"])
-        return httpx.Response(403, request=request)
+        return httpx.Response(403, json={"error": {"message": "Quota exceeded."}}, request=request)
 
     monkeypatch.setattr(web, "_secret", lambda name: f"secret-{name}")
     monkeypatch.setattr(web.httpx, "get", fake_get)
 
     text = tools._web_search_function("Google")("cats")
 
-    assert "HTTP 403" in text
+    assert "HTTP 403: Quota exceeded." in text
     assert "secret-GOOGLE_API_KEY" not in text
     assert "key" not in sent["params"]
