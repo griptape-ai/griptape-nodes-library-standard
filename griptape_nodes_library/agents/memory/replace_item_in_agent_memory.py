@@ -1,15 +1,13 @@
-import json
 from typing import Any
 
-from griptape.artifacts import TextArtifact
-from griptape.memory.structure import Run
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
-from griptape_nodes_library.utils.agent_utils import unwrap_agent, wrap_agent
+from griptape_nodes_library.utils.agent_state import AgentState, ConversationTurn
+
+NO_MEMORIES = "No memories available"
 
 
 class ReplaceItemInAgentMemory(ControlNode):
@@ -31,7 +29,7 @@ class ReplaceItemInAgentMemory(ControlNode):
             name="memory_to_replace",
             tooltip="The memory to replace. Connect an agent to the node to see the available memories.",
             default_value=None,
-            traits={Options(choices=["No memories available"])},
+            traits={Options(choices=[NO_MEMORIES])},
             hide=True,
         )
         self.add_parameter(self.memory_to_replace)
@@ -63,50 +61,13 @@ class ReplaceItemInAgentMemory(ControlNode):
         )
         self.add_parameter(self.new_output)
 
-    def _get_agent(self) -> GtAgent | None:
-        """Get the agent object from the parameter value, returning None if unavailable."""
-        agent_value = self.get_parameter_value("agent")
-        if agent_value is None:
-            return None
+    def _get_state(self) -> AgentState | None:
+        """Read the connected agent, or ``None`` when nothing usable is connected."""
+        return AgentState.from_wire(self.get_parameter_value("agent"))
 
-        # Also reached at connect time from _update_memory_choices(), which only lists
-        # the memory runs — nothing here sends a request, so a missing Cloud credential
-        # must not raise.
-        agent_core_dict, _, _ = unwrap_agent(agent_value, require_credential=False)
-        agent = GtAgent().from_dict(agent_core_dict)
-        if agent is None or agent.conversation_memory is None:
-            return None
-
-        return agent
-
-    def _get_memory_dict(self) -> dict[str, Any] | None:
-        """Get and parse memory from agent, returning None if unavailable."""
-        agent = self._get_agent()
-        if agent is None or agent.conversation_memory is None:
-            return None
-
-        memory = agent.conversation_memory.to_json()
-
-        # Handle case where to_json() returns a string
-        if isinstance(memory, str):
-            try:
-                memory = json.loads(memory)
-            except json.JSONDecodeError:
-                return None
-
-        # Ensure memory is a dict
-        if not isinstance(memory, dict):
-            return None
-
-        return memory
-
-    def _extract_value_from_artifact(self, artifact: Any) -> str:
-        """Extract value from an artifact (dict with 'value' key or string)."""
-        if isinstance(artifact, dict):
-            return artifact.get("value", "")
-        if isinstance(artifact, str):
-            return artifact
-        return ""
+    def _turns(self) -> list[ConversationTurn]:
+        state = self._get_state()
+        return state.turns() if state is not None else []
 
     def _format_memory_choice(self, index: int, input_value: str, max_length: int = 60) -> str:
         """Format a memory choice with index and truncated input context."""
@@ -119,53 +80,17 @@ class ReplaceItemInAgentMemory(ControlNode):
 
     def _update_memory_choices(self) -> None:
         """Update the memory_to_replace dropdown with available memory runs."""
-        agent = self._get_agent()
-        if agent is None or agent.conversation_memory is None:
-            self._update_option_choices(
-                param="memory_to_replace", choices=["No memories available"], default="No memories available"
-            )
+        choices = [self._format_memory_choice(i, turn.prompt) for i, turn in enumerate(self._turns())]
+        if not choices:
+            self._update_option_choices(param="memory_to_replace", choices=[NO_MEMORIES], default=NO_MEMORIES)
             return
 
-        runs = agent.conversation_memory.runs
-        if not isinstance(runs, list) or len(runs) == 0:
-            self._update_option_choices(
-                param="memory_to_replace",
-                choices=["No memories available"],
-                default="No memories available",
-            )
-            return
-
-        # Get current selection to preserve it if still valid
-        current_choice = self.get_parameter_value("memory_to_replace")
-        current_index = None
-        if current_choice and current_choice != "No memories available":
-            current_index = self._extract_index_from_choice(current_choice)
-
-        choices = []
-        for i, run in enumerate(runs):
-            if not hasattr(run, "input") or run.input is None:
-                continue
-            input_value = run.input.value if hasattr(run.input, "value") else str(run.input)
-            choice = self._format_memory_choice(i, input_value)
-            choices.append(choice)
-
-        if choices:
-            # Preserve current selection if it's still valid, otherwise use first choice
-            default_choice = choices[0]
-            if current_index is not None and current_index < len(choices):
-                # Check if the choice at current_index matches (same index)
-                for choice in choices:
-                    choice_index = self._extract_index_from_choice(choice)
-                    if choice_index == current_index:
-                        default_choice = choice
-                        break
-            self._update_option_choices(param="memory_to_replace", choices=choices, default=default_choice)
-        else:
-            self._update_option_choices(
-                param="memory_to_replace",
-                choices=["No memories available"],
-                default="No memories available",
-            )
+        # Preserve the current selection if its index still exists, otherwise use the first choice.
+        current_index = self._extract_index_from_choice(self.get_parameter_value("memory_to_replace"))
+        default_choice = (
+            choices[current_index] if current_index is not None and current_index < len(choices) else choices[0]
+        )
+        self._update_option_choices(param="memory_to_replace", choices=choices, default=default_choice)
 
     def after_incoming_connection(
         self, source_node: BaseNode, source_parameter: Parameter, target_parameter: Parameter
@@ -183,9 +108,9 @@ class ReplaceItemInAgentMemory(ControlNode):
             self.hide_parameter_by_name(["memory_to_replace", "orig_output", "new_input", "new_output"])
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
-    def _extract_index_from_choice(self, choice: str) -> int | None:
+    def _extract_index_from_choice(self, choice: str | None) -> int | None:
         """Extract the run index from a formatted choice string like '0: Hey, how's it going?'."""
-        if not choice or choice == "No memories available":
+        if not choice or choice == NO_MEMORIES:
             return None
         try:
             index_str = choice.split(":", 1)[0].strip()
@@ -199,29 +124,11 @@ class ReplaceItemInAgentMemory(ControlNode):
             self._update_memory_choices()
 
         if parameter.name == "memory_to_replace":
-            choice = self.get_parameter_value("memory_to_replace")
-            if choice is None:
-                return super().after_value_set(parameter, value)
-
-            index = self._extract_index_from_choice(choice)
-            if index is None:
-                return super().after_value_set(parameter, value)
-
-            agent = self._get_agent()
-            if agent is None or agent.conversation_memory is None:
-                return super().after_value_set(parameter, value)
-
-            runs = agent.conversation_memory.runs
-            if not isinstance(runs, list) or index < 0 or index >= len(runs):
-                return super().after_value_set(parameter, value)
-
-            run = runs[index]
-            if not hasattr(run, "output") or run.output is None:
-                return super().after_value_set(parameter, value)
-
-            output_value = run.output.value if hasattr(run.output, "value") else str(run.output)
-            self.parameter_output_values["orig_output"] = output_value
-            self.publish_update_to_parameter("orig_output", output_value)
+            index = self._extract_index_from_choice(self.get_parameter_value("memory_to_replace"))
+            turns = self._turns()
+            if index is not None and 0 <= index < len(turns):
+                self.parameter_output_values["orig_output"] = turns[index].response
+                self.publish_update_to_parameter("orig_output", turns[index].response)
 
         return super().after_value_set(parameter, value)
 
@@ -231,55 +138,23 @@ class ReplaceItemInAgentMemory(ControlNode):
         self.publish_update_to_parameter("memory", transformed_memory)
 
     def process(self) -> None:
-        agent = self._get_agent()
-        if agent is None or agent.conversation_memory is None:
+        state = self._get_state()
+        if state is None:
             return
 
-        choice = self.get_parameter_value("memory_to_replace")
-        if choice is None or choice == "No memories available":
+        index = self._extract_index_from_choice(self.get_parameter_value("memory_to_replace"))
+        if index is None or not 0 <= index < len(state.turns()):
             return
 
-        index = self._extract_index_from_choice(choice)
-        if index is None:
-            return
-
-        runs = agent.conversation_memory.runs
-        if index < 0 or index >= len(runs):
-            return
-
-        original_run = runs[index]
-        if not hasattr(original_run, "input") or original_run.input is None:
-            return
-        if not hasattr(original_run, "output") or original_run.output is None:
-            return
-
-        new_input_value = self.get_parameter_value("new_input")
-        new_output_value = self.get_parameter_value("new_output")
-
-        # Use original values if new values are blank (None or empty string)
-        if new_input_value is None or (isinstance(new_input_value, str) and new_input_value.strip() == ""):
-            input_value = original_run.input.value if hasattr(original_run.input, "value") else str(original_run.input)
-        else:
-            input_value = new_input_value
-
-        if new_output_value is None or (isinstance(new_output_value, str) and new_output_value.strip() == ""):
-            output_value = (
-                original_run.output.value if hasattr(original_run.output, "value") else str(original_run.output)
-            )
-        else:
-            output_value = new_output_value
-
-        # Success path - replace the memory run
-        agent.conversation_memory.runs[index] = Run(
-            input=TextArtifact(value=input_value),
-            output=TextArtifact(value=output_value),
+        # Blank new values keep the original side of the turn.
+        new_input = self.get_parameter_value("new_input")
+        new_output = self.get_parameter_value("new_output")
+        state.replace_turn(
+            index,
+            prompt=new_input if isinstance(new_input, str) and new_input.strip() else None,
+            response=new_output if isinstance(new_output, str) and new_output.strip() else None,
         )
 
-        agent_value = self.get_parameter_value("agent")
-        _, tool_configs, ruleset_configs = (
-            unwrap_agent(agent_value, require_credential=False) if isinstance(agent_value, dict) else ({}, [], [])
-        )
-        provider = agent_value.get("provider") if isinstance(agent_value, dict) else None
-        updated = wrap_agent(agent.to_dict(), tool_configs, ruleset_configs, provider=provider)
+        updated = state.to_wire()
         self.parameter_output_values["agent"] = updated
         self.publish_update_to_parameter("agent", updated)

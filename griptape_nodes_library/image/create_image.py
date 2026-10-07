@@ -14,7 +14,12 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
-from griptape_nodes_library.utils.agent_utils import restore_provider_driver, unwrap_agent, wrap_agent
+from griptape_nodes_library.utils.agent_utils import (
+    legacy_wrapper_for,
+    restore_provider_driver,
+    unwrap_agent,
+    wrap_agent,
+)
 from griptape_nodes_library.utils.cloud_budget_drivers import (
     GriptapeCloudImageGenerationDriver,
     GriptapeCloudPromptDriver,
@@ -324,7 +329,7 @@ IMPORTANT: Output must be a single, raw prompt string for an image generation mo
         # Output the agent
         if agent.tasks:
             cast(PromptTask, agent.tasks[0]).tools = []
-        provider = agent_input.get("provider") if isinstance(agent_input, dict) else None
+        provider = legacy_wrapper_for(agent_input).get("provider") if isinstance(agent_input, dict) else None
         self.parameter_output_values["agent"] = wrap_agent(
             agent.to_dict(), tool_configs, ruleset_configs, provider=provider
         )

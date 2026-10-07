@@ -10,16 +10,20 @@ import logging
 from typing import Any, cast
 
 import attrs
+from griptape.artifacts import TextArtifact
 from griptape.drivers.memory.conversation.griptape_cloud import GriptapeCloudConversationMemoryDriver
 from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
 from griptape.drivers.prompt.ollama import OllamaPromptDriver
 from griptape.drivers.prompt.openai import OpenAiChatPromptDriver
 from griptape.drivers.ruleset.griptape_cloud import GriptapeCloudRulesetDriver
 from griptape.drivers.vector.griptape_cloud import GriptapeCloudVectorStoreDriver
+from griptape.memory.structure import Run
 from griptape.rules import Rule, Ruleset
 from griptape.tasks import PromptTask
 from griptape_nodes.drivers.cloud_models import ProviderID
 
+from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent
+from griptape_nodes_library.utils.agent_state import AGENT_STATE_FORMAT, AgentState, ProviderKind
 from griptape_nodes_library.utils.cloud_budget_drivers import (
     MODULE_NAME as CLOUD_BUDGET_DRIVERS_MODULE,
 )
@@ -28,6 +32,7 @@ from griptape_nodes_library.utils.cloud_budget_drivers import (
     GriptapeCloudPromptDriver,
 )
 from griptape_nodes_library.utils.cloud_credential_utils import missing_credential_message, resolve_cloud_api_key
+from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 
@@ -205,6 +210,7 @@ def unwrap_agent(value: dict, *, require_credential: bool = True) -> tuple[dict,
     """
     if not isinstance(value, dict):
         return {}, [], []
+    value = legacy_wrapper_for(value)
     if "agent" in value and "tools" in value:
         agent_core_dict = _restored_cloud_credentials(value["agent"], require_credential=require_credential)
         return agent_core_dict, value.get("tools", []), value.get("rulesets", [])
@@ -270,7 +276,7 @@ def restore_provider_driver(agent: object, wrapper: dict) -> None:
     through to the OpenAI-compat driver. This is a known gap — those workflows
     will need to be re-run once to pick up the correct driver.
     """
-    provider = wrapper.get("provider") if isinstance(wrapper, dict) else None
+    provider = legacy_wrapper_for(wrapper).get("provider") if isinstance(wrapper, dict) else None
     if not provider:
         return
 
@@ -335,6 +341,48 @@ def wrap_agent(agent_dict: dict, tool_configs: list, ruleset_configs: list, *, p
     if provider:
         result["provider"] = provider
     return result
+
+
+def legacy_wrapper_for(value: dict) -> dict:
+    """Return ``value`` as a griptape wrapper, converting an :class:`AgentState` wire dict.
+
+    Lets nodes still built on a griptape ``Agent`` accept an agent from a node that passes
+    :class:`AgentState`. Only text history converts: images in the history are replaced by
+    an ``[image]`` marker. Any other dict is returned unchanged.
+    """
+    if value.get("format") != AGENT_STATE_FORMAT:
+        return value
+    return agent_state_to_legacy_wrapper(AgentState.model_validate(value))
+
+
+def agent_state_to_legacy_wrapper(state: AgentState) -> dict:
+    """Build the griptape wrapper equivalent of ``state``. See :func:`legacy_wrapper_for`."""
+    provider: dict | None = None
+    match state.provider.kind:
+        case ProviderKind.GRIPTAPE_CLOUD:
+            driver: BasePromptDriver = GriptapeCloudPromptDriver(model=state.model, stream=True, **cloud_driver_auth())
+        case ProviderKind.OLLAMA | ProviderKind.OPENAI_COMPATIBLE:
+            provider_type = ProviderID.OLLAMA if state.provider.kind == ProviderKind.OLLAMA else state.provider.kind
+            api_key = state.provider.resolve_api_key()
+            driver = build_prompt_driver(
+                provider_type=provider_type, model=state.model, base_url=state.provider.base_url, api_key=api_key
+            )
+            provider = {
+                "name": state.provider.name,
+                "type": str(provider_type),
+                "base_url": state.provider.base_url,
+                "api_key": api_key,
+            }
+        case _:
+            msg = f"Unknown provider kind: {state.provider.kind!r}"
+            raise ValueError(msg)
+
+    agent = GriptapeNodesAgent(prompt_driver=driver)
+    if agent.conversation_memory is not None:
+        agent.conversation_memory.runs = [
+            Run(input=TextArtifact(turn.prompt), output=TextArtifact(turn.response)) for turn in state.turns()
+        ]
+    return wrap_agent(agent.to_dict(), list(state.tools), list(state.rulesets), provider=provider)
 
 
 # ---------------------------------------------------------------------------

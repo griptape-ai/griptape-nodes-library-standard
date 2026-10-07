@@ -23,6 +23,7 @@ from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgen
 from griptape_nodes_library.utils.agent_utils import (
     build_prompt_driver,
     build_tools,
+    legacy_wrapper_for,
     restore_provider_driver,
     unwrap_agent,
     wrap_agent,
@@ -444,7 +445,7 @@ class MCPTaskNode(SuccessFailureNode):
                 rulesets = task.rulesets
                 self._tool_configs = tool_configs
                 self._ruleset_configs = ruleset_configs
-                self._provider = agent_input.get("provider")
+                self._provider = legacy_wrapper_for(agent_input).get("provider")
             else:
                 driver = self._create_driver()
                 agent = Agent()

@@ -18,7 +18,7 @@ from griptape_nodes.traits.slider import Slider
 
 from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
 from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.utils.agent_utils import unwrap_agent, wrap_agent
+from griptape_nodes_library.utils.agent_utils import legacy_wrapper_for, unwrap_agent, wrap_agent
 
 logger = logging.getLogger(__name__)
 
@@ -352,7 +352,7 @@ class TranscribeAudio(GriptapeProxyNode):
                 agent.to_dict(),
                 tool_configs,
                 ruleset_configs,
-                provider=agent_input.get("provider") if isinstance(agent_input, dict) else None,
+                provider=legacy_wrapper_for(agent_input).get("provider") if isinstance(agent_input, dict) else None,
             )
         except Exception as e:
             logger.warning("TranscribeAudio: failed to thread agent: %s", e)
