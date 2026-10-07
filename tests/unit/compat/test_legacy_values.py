@@ -29,11 +29,18 @@ from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-from griptape_nodes_library.llm.agent_state import AgentState, find_runs, messages_from_runs, runs_from_messages
+from griptape_nodes_library.llm.agent_state import (
+    AgentState,
+    connected_agent_state,
+    find_runs,
+    messages_from_runs,
+    runs_from_messages,
+)
 from griptape_nodes_library.llm.model_config import (
     DEFAULT_BASE_URLS,
     ModelConfig,
     ModelProvider,
+    model_config_from_input,
     model_config_from_legacy_driver,
 )
 from griptape_nodes_library.llm.tools import build_toolset
@@ -237,6 +244,39 @@ LEGACY_DRIVERS = [
 @pytest.mark.parametrize(("driver", "expected"), LEGACY_DRIVERS)
 def test_legacy_driver_dicts(driver: Any, expected: ModelConfig) -> None:
     assert model_config_from_legacy_driver(driver.to_dict()) == expected
+
+
+def test_unknown_legacy_driver_raises() -> None:
+    with pytest.raises(ValueError, match="FooPromptDriver"):
+        model_config_from_legacy_driver({"type": "FooPromptDriver", "model": "m"})
+
+
+def test_live_prompt_driver_on_model_port_is_converted() -> None:
+    driver = OpenAiChatPromptDriver(model="gpt-4.1-mini", api_key="k")
+    config = model_config_from_input(driver)
+    assert config is not None
+    assert (config.provider, config.model) == (ModelProvider.OPENAI, "gpt-4.1-mini")
+
+
+@pytest.mark.parametrize("value", [None, "gpt-4.1"])
+def test_dropdown_model_values_are_not_configs(value: Any) -> None:
+    assert model_config_from_input(value) is None
+
+
+def test_foreign_model_value_raises() -> None:
+    with pytest.raises(TypeError, match="object"):
+        model_config_from_input(object())
+
+
+@pytest.mark.parametrize("value", [None, "", {}])
+def test_unconnected_agent_is_none(value: Any) -> None:
+    assert connected_agent_state(value) is None
+
+
+@pytest.mark.parametrize("value", ["not json", 42, {"agent": {}, "tools": []}])
+def test_connected_agent_without_model_raises(value: Any) -> None:
+    with pytest.raises(ValueError, match="has no model"):
+        connected_agent_state(value)
 
 
 def test_legacy_bedrock_driver() -> None:

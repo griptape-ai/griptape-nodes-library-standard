@@ -535,11 +535,11 @@ LOOP_ENTRY_POINTS = frozenset(
 # visibility -- a build site is a call to a helper's helper, and nothing at the entry point
 # names it. Asserted whole so an eighth arrives as a failing test.
 SYNC_ENTRY_POINTS_THAT_BLOCK = {
-    "agents/agent.py:509 (process)": "build_agent_from_state -> build_model",
+    "agents/agent.py:519 (process)": "build_agent_from_state -> build_model",
     "agents/memory/summarize_agent_memory.py:46 (process)": "prompt_model -> build_model",
     "image/create_image.py:191 (process)": "prompt_model -> build_model; generate_image -> _generate_griptape_cloud",
-    "image/describe_image.py:394 (process)": "build_agent_from_state -> build_model",
-    "tasks/mcp_task.py:292 (process)": "build_agent -> build_model",
+    "image/describe_image.py:399 (process)": "build_agent_from_state -> build_model",
+    "tasks/mcp_task.py:301 (process)": "build_agent -> build_model",
     "text/random_text.py:280 (after_value_set)": "_get_random_selection -> prompt_model -> build_model",
     "text/random_text.py:308 (process)": "_get_random_selection -> prompt_model -> build_model",
 }

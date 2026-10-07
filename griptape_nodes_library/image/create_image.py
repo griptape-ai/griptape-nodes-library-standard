@@ -11,7 +11,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.traits.options import Options
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 
-from griptape_nodes_library.llm.agent_state import AgentState
+from griptape_nodes_library.llm.agent_state import AgentState, connected_agent_state
 from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, ImageProvider, generate_image
 from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
 from griptape_nodes_library.llm.runner import prompt_model
@@ -203,7 +203,7 @@ class GenerateImage(ControlNode):
         self._model_access.raise_if_selection_denied()
 
         agent_input = self.get_parameter_value("agent")
-        state = AgentState.from_wire(agent_input)
+        state = connected_agent_state(agent_input) or AgentState()
         if state.model is None:
             state.model = ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=ENHANCEMENT_MODEL)
 
@@ -230,7 +230,10 @@ class GenerateImage(ControlNode):
         model_input = self.get_parameter_value("model")
         image_config = ImageGenerationConfig.from_wire(model_input)
         if image_config is None:
-            if not isinstance(model_input, str) or model_input not in self._model_access.model_choices:
+            if model_input is not None and not isinstance(model_input, str):
+                msg = f"Unsupported model value of type {type(model_input).__name__}; choose a model or connect an Image Generation Driver."
+                raise TypeError(msg)
+            if model_input not in self._model_access.model_choices:
                 model_input = DEFAULT_MODEL
             image_config = ImageGenerationConfig(
                 provider=ImageProvider.GRIPTAPE_CLOUD,

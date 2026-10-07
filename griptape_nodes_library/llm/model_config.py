@@ -130,7 +130,11 @@ def model_config_from_legacy_driver(driver: dict[str, Any], provider: dict[str, 
             options={ENGINE_PROVIDER_OPTION: provider["name"]} if provider.get("name") else {},
         )
 
-    kind = _LEGACY_DRIVER_PROVIDERS.get(str(driver.get("type")), ModelProvider.GRIPTAPE_CLOUD)
+    driver_type = str(driver.get("type"))
+    if driver_type not in _LEGACY_DRIVER_PROVIDERS:
+        msg = f"Unsupported prompt driver '{driver_type}'; connect a Prompt Model Config."
+        raise ValueError(msg)
+    kind = _LEGACY_DRIVER_PROVIDERS[driver_type]
     base_url = driver.get("base_url") or None
     if kind == ModelProvider.OPENAI and base_url:
         kind = next(
@@ -143,3 +147,26 @@ def model_config_from_legacy_driver(driver: dict[str, Any], provider: dict[str, 
         base_url = f"{str(driver['host']).rstrip('/')}/v1"
     options = {USE_NATIVE_TOOLS_OPTION: False} if driver.get("use_native_tools") is False else {}
     return ModelConfig(provider=kind, model=model, base_url=base_url, settings=settings, options=options)
+
+
+def model_config_from_input(value: Any) -> ModelConfig | None:
+    """A connected `model` port value as a config, or None for a dropdown selection.
+
+    Accepts a config, its wire dict, or a griptape prompt driver (live or `to_dict()`).
+
+    Raises:
+        TypeError: `value` is none of these.
+        ValueError: `value` is a driver this library cannot run.
+    """
+    if value is None or isinstance(value, str):
+        return None
+    config = ModelConfig.from_wire(value)
+    if config is not None:
+        return config
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        value = to_dict()
+    if isinstance(value, dict) and "type" in value:
+        return model_config_from_legacy_driver(value)
+    msg = f"Unsupported model value of type {type(value).__name__}; choose a model or connect a Prompt Model Config."
+    raise TypeError(msg)

@@ -20,9 +20,14 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.options import Options
 from pydantic_ai.agent import AgentRunResult
 
-from griptape_nodes_library.llm.agent_state import AgentState, is_agent_value, messages_from_runs
+from griptape_nodes_library.llm.agent_state import AgentState, connected_agent_state, messages_from_runs
 from griptape_nodes_library.llm.content import image_content
-from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider, model_config_for_engine_provider
+from griptape_nodes_library.llm.model_config import (
+    ModelConfig,
+    ModelProvider,
+    model_config_for_engine_provider,
+    model_config_from_input,
+)
 from griptape_nodes_library.llm.runner import output_to_text, output_type_from_schema, run_agent
 from griptape_nodes_library.llm.tools import build_agent_from_state
 from griptape_nodes_library.utils.cloud_credential_utils import (
@@ -363,10 +368,10 @@ class DescribeImage(ControlNode):
         if state is not None and state.model is not None:
             return state.model
         model_input = self.get_parameter_value("model")
-        connected = ModelConfig.from_wire(model_input)
+        connected = model_config_from_input(model_input)
         if connected is not None:
             return connected
-        model_name = model_input if isinstance(model_input, str) else DEFAULT_MODEL
+        model_name = model_input or DEFAULT_MODEL
         provider_name = self.get_parameter_value("model_provider") or "griptape_cloud"
         if provider_name != "griptape_cloud":
             return self._third_party_model_config(provider_name, model_name)
@@ -411,7 +416,7 @@ class DescribeImage(ControlNode):
             self.parameter_output_values["output"] = "No image provided"
             return
 
-        state = AgentState.from_wire(agent_value) if is_agent_value(agent_value) else None
+        state = connected_agent_state(agent_value)
         model_config = self._resolve_model_config(state)
         agent_state = replace(state, model=model_config) if state is not None else AgentState(model=model_config)
         try:

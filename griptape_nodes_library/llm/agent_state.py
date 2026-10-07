@@ -95,8 +95,19 @@ class AgentState:
         return replace(self, messages=messages_from_runs(runs))
 
 
-def is_agent_value(value: Any) -> bool:
-    return isinstance(value, (AgentState, dict)) and bool(value)
+def connected_agent_state(value: Any) -> AgentState | None:
+    """The state of a connected `Agent` value, or None if nothing is connected.
+
+    Raises:
+        ValueError: `value` is not an agent with a model.
+    """
+    if not value:
+        return None
+    state = AgentState.from_wire(value)
+    if state.model is None:
+        msg = f"Connected Agent value ({type(value).__name__}) has no model; connect an Agent node's output."
+        raise ValueError(msg)
+    return state
 
 
 def _user_text(part: UserPromptPart) -> str:

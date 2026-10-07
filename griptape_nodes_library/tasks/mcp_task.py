@@ -14,8 +14,17 @@ from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.toolsets import AbstractToolset
 from pydantic_ai.usage import UsageLimits
 
-from griptape_nodes_library.llm.agent_state import AgentState, compact_messages, is_agent_value, messages_from_runs
-from griptape_nodes_library.llm.model_config import ModelConfig, model_config_for_engine_provider
+from griptape_nodes_library.llm.agent_state import (
+    AgentState,
+    compact_messages,
+    connected_agent_state,
+    messages_from_runs,
+)
+from griptape_nodes_library.llm.model_config import (
+    ModelConfig,
+    model_config_for_engine_provider,
+    model_config_from_input,
+)
 from griptape_nodes_library.llm.task_support import (
     TaskRunResult,
     cloud_model_config,
@@ -347,7 +356,7 @@ class MCPTaskNode(SuccessFailureNode):
         """The incoming agent's state and the model this run uses, or None if either cannot be resolved."""
         try:
             agent_input = self.get_parameter_value("agent")
-            state = AgentState.from_wire(agent_input) if is_agent_value(agent_input) else AgentState()
+            state = connected_agent_state(agent_input) or AgentState()
             model_config = state.model or self._create_model_config()
         except Exception as e:
             self._handle_failure_exception(e)
@@ -444,7 +453,7 @@ class MCPTaskNode(SuccessFailureNode):
         provider gets a config for that provider's endpoint.
         """
         model_input = self.get_parameter_value("model")
-        connected = ModelConfig.from_wire(model_input)
+        connected = model_config_from_input(model_input)
         if connected is not None:
             return connected
 

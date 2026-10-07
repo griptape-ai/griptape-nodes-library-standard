@@ -25,8 +25,19 @@ from griptape_nodes_library.llm.agent_node_support import (
     DEFAULT_CLOUD_MODEL,
     parse_agent_memory,
 )
-from griptape_nodes_library.llm.agent_state import AgentState, compact_messages, find_runs, messages_from_runs
-from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider, model_config_for_engine_provider
+from griptape_nodes_library.llm.agent_state import (
+    AgentState,
+    compact_messages,
+    connected_agent_state,
+    find_runs,
+    messages_from_runs,
+)
+from griptape_nodes_library.llm.model_config import (
+    ModelConfig,
+    ModelProvider,
+    model_config_for_engine_provider,
+    model_config_from_input,
+)
 from griptape_nodes_library.llm.rulesets import rulesets_from_inputs
 from griptape_nodes_library.llm.runner import (
     AgentRunCancelledError,
@@ -448,7 +459,7 @@ class Agent(ControlNode):
     # --- Processing ---
     def _resolve_model_config(self, model_input: Any, provider_name: str) -> ModelConfig:
         """Pick the model for a node with no incoming agent: a connected config, or the dropdown selection."""
-        connected = ModelConfig.from_wire(model_input)
+        connected = model_config_from_input(model_input)
         if connected is not None:
             return connected
         if not isinstance(model_input, str):
@@ -476,13 +487,12 @@ class Agent(ControlNode):
             names = ", ".join(r["name"] for r in node_rulesets)
             self.append_value_to_parameter("logs", f"\n[Rulesets]: {names}\n")
 
-        if agent_input is None:
+        state = connected_agent_state(agent_input)
+        if state is None:
             state = AgentState(model=self._resolve_model_config(model_input, provider_name))
             state.tools = node_tools
             state.rulesets = node_rulesets
         else:
-            state = AgentState.from_wire(agent_input)
-            state.model = state.model or ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=DEFAULT_MODEL)
             state.tools = state.tools + [tool for tool in node_tools if tool not in state.tools]
             state.rulesets = state.rulesets + node_rulesets
 

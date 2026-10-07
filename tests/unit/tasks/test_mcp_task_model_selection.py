@@ -202,7 +202,9 @@ class TestSelectionGate:
         model is permitted for. The INVOKE_MODEL gate still covers the real model.
         """
         mcp_task_node.set_parameter_value("prompt", "hello")
-        mcp_task_node.set_parameter_value("agent", {"agent": {}, "tools": []})
+        mcp_task_node.set_parameter_value(
+            "agent", AgentState(model=ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model="gpt-4.1")).to_wire()
+        )
         monkeypatch.setattr(mcp_task_node._model_access, "selection_denial", lambda: _denial("denied for test"))
         monkeypatch.setattr(_node_module(mcp_task_node), "get_server_config", lambda _name: {"transport": "stdio"})
 
