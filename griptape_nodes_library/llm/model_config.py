@@ -98,7 +98,9 @@ _LEGACY_DRIVER_PROVIDERS: dict[str, ModelProvider] = {
     "OllamaPromptDriver": ModelProvider.OLLAMA,
 }
 
-_LEGACY_SETTING_KEYS = ("temperature", "max_tokens", "seed")
+_LEGACY_SETTING_KEYS = ("temperature", "max_tokens", "seed", "top_p", "top_k")
+# Sampling settings griptape drivers kept in `extra_params`; Cohere names them `p` and `k`.
+_LEGACY_EXTRA_SETTING_KEYS = {"top_p": "top_p", "top_k": "top_k", "p": "top_p", "k": "top_k"}
 
 
 def model_config_from_legacy_driver(driver: dict[str, Any], provider: dict[str, Any] | None = None) -> ModelConfig:
@@ -107,8 +109,10 @@ def model_config_from_legacy_driver(driver: dict[str, Any], provider: dict[str, 
     if settings.get("max_tokens") is not None and settings["max_tokens"] <= 0:
         settings.pop("max_tokens")
     extra = driver.get("extra_params") or {}
-    if isinstance(extra, dict) and extra.get("top_p") is not None:
-        settings["top_p"] = extra["top_p"]
+    if isinstance(extra, dict):
+        for key, setting in _LEGACY_EXTRA_SETTING_KEYS.items():
+            if extra.get(key) is not None:
+                settings[setting] = extra[key]
 
     if provider:
         provider_type = provider.get("type")

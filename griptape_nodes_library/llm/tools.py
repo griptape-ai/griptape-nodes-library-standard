@@ -7,7 +7,9 @@ serializable; toolsets are rebuilt fresh wherever an agent runs.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -68,6 +70,19 @@ def _error(e: Exception) -> str:
     return f"Error: {e}"
 
 
+def _report_errors[**P](fn: Callable[P, str]) -> Callable[P, str]:
+    """Return a tool's exception to the model as text, as griptape did, instead of failing the run."""
+
+    @functools.wraps(fn)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> str:
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            return _error(e)
+
+    return wrapper
+
+
 def _calculator() -> FunctionToolset:
     def calculate(expression: str) -> str:
         """Compute a simple numerical or algebraic calculation.
@@ -81,7 +96,7 @@ def _calculator() -> FunctionToolset:
             return f"Error calculating: {interpreter.error[0].get_error()[1]}"
         return str(result)
 
-    return FunctionToolset([calculate])
+    return FunctionToolset([_report_errors(calculate)])
 
 
 def _date_time() -> FunctionToolset:
@@ -118,7 +133,14 @@ def _date_time() -> FunctionToolset:
         """
         return str(datetime.fromisoformat(end_datetime) - datetime.fromisoformat(start_datetime))
 
-    return FunctionToolset([get_current_datetime, get_relative_datetime, add_timedelta, get_datetime_diff])
+    return FunctionToolset(
+        [
+            _report_errors(get_current_datetime),
+            _report_errors(get_relative_datetime),
+            _report_errors(add_timedelta),
+            _report_errors(get_datetime_diff),
+        ]
+    )
 
 
 def _web_scraper() -> FunctionToolset:
@@ -230,8 +252,11 @@ def _agent_tool(config: dict) -> FunctionToolset:
 
     async def run_agent_tool(input: str) -> str:  # noqa: A002
         # Building resolves credentials and attribution synchronously; keep it off the loop.
-        agent = await asyncio.to_thread(build_agent_from_state, state)
-        result = await run_agent_async(agent, input, message_history=state.messages)
+        try:
+            agent = await asyncio.to_thread(build_agent_from_state, state)
+            result = await run_agent_async(agent, input, message_history=state.messages)
+        except Exception as e:
+            return _error(e)
         return output_to_text(result.output)
 
     description = config.get("description") or "An agent tool"
