@@ -10,6 +10,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.traits.slider import Slider
 
 from griptape_nodes_library.classification.jev_common import (
+    DEFAULT_MODEL,
     QUESTION_KEY,
     add_context_parameter,
     add_model_group,
