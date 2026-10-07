@@ -72,16 +72,17 @@ class ModelConfig(BaseModel):
         return None
 
 
-def model_config_for_engine_provider(provider_config: ProviderConfig, model: str) -> ModelConfig:
-    match provider_config.type:
-        case ModelProvider.OLLAMA:
-            provider = ModelProvider.OLLAMA
-        case ModelProvider.LMSTUDIO:
-            provider = ModelProvider.LMSTUDIO
+def _engine_provider_kind(provider_type: str | None) -> ModelProvider:
+    match provider_type:
+        case ModelProvider.OLLAMA | ModelProvider.LMSTUDIO:
+            return ModelProvider(provider_type)
         case _:
-            provider = ModelProvider.OPENAI_COMPATIBLE
+            return ModelProvider.OPENAI_COMPATIBLE  # "custom" and anything else speaks the OpenAI API
+
+
+def model_config_for_engine_provider(provider_config: ProviderConfig, model: str) -> ModelConfig:
     return ModelConfig(
-        provider=provider,
+        provider=_engine_provider_kind(provider_config.type),
         model=model,
         base_url=provider_config.base_url or None,
         api_key_secret=provider_config.api_key_secret_name or None,
@@ -116,12 +117,8 @@ def model_config_from_legacy_driver(driver: dict[str, Any], provider: dict[str, 
                 settings[setting] = extra[key]
 
     if provider:
-        provider_type = provider.get("type")
-        kind = ModelProvider.OLLAMA if provider_type == ModelProvider.OLLAMA else ModelProvider.OPENAI_COMPATIBLE
-        if provider_type == ModelProvider.LMSTUDIO:
-            kind = ModelProvider.LMSTUDIO
         return ModelConfig(
-            provider=kind,
+            provider=_engine_provider_kind(provider.get("type")),
             model=model,
             base_url=provider.get("base_url") or None,
             api_key=provider.get("api_key") or None,
