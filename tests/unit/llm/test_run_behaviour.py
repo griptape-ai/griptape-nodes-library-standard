@@ -9,7 +9,7 @@ from pydantic_ai.models.function import AgentInfo, DeltaToolCalls, FunctionModel
 
 from griptape_nodes_library.llm import models
 from griptape_nodes_library.llm.agent_state import AgentState, messages_from_runs, runs_from_messages
-from griptape_nodes_library.llm.history import prune_history
+from griptape_nodes_library.llm.history import history_token_budget, prune_history
 from griptape_nodes_library.llm.model_config import (
     USE_NATIVE_TOOLS_OPTION,
     ModelConfig,
@@ -90,8 +90,14 @@ class TestHistoryPruning:
         pruned = prune_history(messages, budget=700)
         assert [run["input"] for run in runs_from_messages(pruned)] == ["q2", "q3"]
 
-    def test_drops_every_run_over_budget(self) -> None:
-        assert prune_history(self._runs(3, 4000), budget=1) == []
+    def test_keeps_latest_run_over_budget(self) -> None:
+        pruned = prune_history(self._runs(3, 4000), budget=1)
+        assert [run["input"] for run in runs_from_messages(pruned)] == ["q2"]
+
+    def test_openai_compatible_gets_hosted_budget(self) -> None:
+        compatible = ModelConfig(provider=ModelProvider.OPENAI_COMPATIBLE, model="m")
+        openai = ModelConfig(provider=ModelProvider.OPENAI, model="m")
+        assert history_token_budget(compatible) == history_token_budget(openai)
 
     def test_agent_sends_pruned_history(self) -> None:
         seen: list[list[ModelMessage]] = []
