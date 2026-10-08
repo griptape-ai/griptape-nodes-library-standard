@@ -128,19 +128,16 @@ class WriteImageMetadataNode(SuccessFailureNode):
         image = self.get_parameter_value("input_image")
         if not image:
             error_msg = f"{self.name}: No input image provided"
-            logger.warning(error_msg)
             raise ValueError(error_msg)
 
         # Validate metadata input
         metadata_dict = self.get_parameter_value("metadata")
         if not metadata_dict:
             error_msg = f"{self.name}: No metadata provided"
-            logger.warning(error_msg)
             raise ValueError(error_msg)
 
         if not isinstance(metadata_dict, dict):
             error_msg = f"{self.name}: Metadata must be dict, got {type(metadata_dict).__name__}"
-            logger.warning(error_msg)
             raise TypeError(error_msg)
 
         return (image, metadata_dict)
@@ -161,7 +158,6 @@ class WriteImageMetadataNode(SuccessFailureNode):
                 f"(reserved for auto-injected workflow metadata). "
                 f"Offending keys: {', '.join(reserved_keys)}"
             )
-            logger.warning(error_msg)
             raise ValueError(error_msg)
 
     def _write_metadata_to_image(self, pil_image: Image.Image, metadata_dict: dict) -> bytes:
@@ -181,14 +177,12 @@ class WriteImageMetadataNode(SuccessFailureNode):
         # Check format is available
         if not pil_image.format:
             error_msg = f"{self.name}: Could not detect image format"
-            logger.warning(error_msg)
             raise ValueError(error_msg)
 
         # Get driver for this format
         driver = ImageMetadataDriverRegistry.get_driver_for_format(pil_image.format)
         if driver is None:
             error_msg = f"{self.name}: Unsupported format '{pil_image.format}'. Supported formats: PNG, JPEG, TIFF, MPO"
-            logger.warning(error_msg)
             raise ValueError(error_msg)
 
         # Write metadata using driver

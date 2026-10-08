@@ -112,7 +112,7 @@ class TestWriteEntrypoint:
         with pytest.raises(TypeError, match="Failed to write run.py entrypoint"):
             publisher._write_entrypoint(tmp_path, WORKFLOW_FILE_NAME)  # noqa: SLF001
 
-        logger.error.assert_called_once()
+        logger.error.assert_not_called()
 
     def _write_entrypoint(self, destination: Path, handle_request: Mock) -> str:
         """Run ``_write_entrypoint`` and return the generated entrypoint source."""
