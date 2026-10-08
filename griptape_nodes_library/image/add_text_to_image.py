@@ -127,7 +127,6 @@ class AddTextToImage(SuccessFailureNode):
         except ValueError as validation_error:
             error_details = f"Parameter validation failed: {validation_error}"
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
-            logger.error(f"AddTextToImage '{self.name}': {error_details}")
             self._handle_failure_exception(validation_error)
             return
 
@@ -138,7 +137,6 @@ class AddTextToImage(SuccessFailureNode):
         except Exception as color_error:
             error_details = f"Color parsing failed: {color_error}"
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
-            logger.error(f"AddTextToImage '{self.name}': {error_details}")
             self._handle_failure_exception(color_error)
             return
 
@@ -148,7 +146,6 @@ class AddTextToImage(SuccessFailureNode):
         except Exception as image_error:
             error_details = f"Image creation failed: {image_error}"
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
-            logger.error(f"AddTextToImage '{self.name}': {error_details}")
             self._handle_failure_exception(image_error)
             return
 
@@ -158,7 +155,6 @@ class AddTextToImage(SuccessFailureNode):
         except Exception as upload_error:
             error_details = f"Failed to upload image: {upload_error}"
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
-            logger.error(f"AddTextToImage '{self.name}': {error_details}")
             self._handle_failure_exception(upload_error)
             return
 

@@ -166,8 +166,6 @@ class ListToDictKeys(SuccessFailureNode):
         except Exception as e:
             error_details = f"Failed to update key-value pairs: {e}"
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
-            msg = f"{self.name}: {error_details}"
-            logger.error(msg)
             self._handle_failure_exception(e)
             return
 

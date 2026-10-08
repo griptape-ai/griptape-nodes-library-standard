@@ -281,7 +281,6 @@ class AddBoundingBoxes(BaseImageProcessor):
         except Exception as e:
             error_details = f"Failed to process image: {e}"
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
-            logger.error(f"{self.__class__.__name__} '{self.name}': {error_details}")
             self._handle_failure_exception(e)
 
     def _process_image(self, pil_image: Image.Image, **kwargs) -> Image.Image:
