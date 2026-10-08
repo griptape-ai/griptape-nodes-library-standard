@@ -376,15 +376,13 @@ class DescribeImage(ControlNode):
                             f"DescribeImage '{self.name}': Unable to parse output_schema as JSON: {e}. "
                             "Try using the `Create Agent Schema` node to generate a schema."
                         )
-                        logger.error(msg)
-                        raise
+                        raise ValueError(msg) from e
 
             if schema_value is not None and not isinstance(schema_value, dict):
                 msg = (
                     f"DescribeImage '{self.name}': output_schema must be a JSON schema object (dict) "
                     f"or a JSON string, got: {type(schema_value).__name__}"
                 )
-                logger.error(msg)
                 raise TypeError(msg)
 
             if schema_value is not None:
@@ -395,8 +393,7 @@ class DescribeImage(ControlNode):
                         f"DescribeImage '{self.name}': Unable to create output schema model: {e}. "
                         "Try using the `Create Agent Schema` node to generate a schema."
                     )
-                    logger.error(msg)
-                    raise
+                    raise ValueError(msg) from e
 
         tool_configs: list = []
         ruleset_configs: list = []

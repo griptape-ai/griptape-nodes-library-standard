@@ -257,7 +257,6 @@ class AddTextToExistingImage(SuccessFailureNode):
         except ValueError as validation_error:
             error_details = f"Parameter validation failed: {validation_error}"
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
-            logger.error(f"AddTextToExistingImage '{self.name}': {error_details}")
             self._handle_failure_exception(validation_error)
             return
 
@@ -276,7 +275,6 @@ class AddTextToExistingImage(SuccessFailureNode):
         except Exception as signature_error:
             error_details = f"Failed to build render signature: {signature_error}"
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
-            logger.error(f"AddTextToExistingImage '{self.name}': {error_details}")
             self._handle_failure_exception(signature_error)
             return
 
@@ -285,7 +283,6 @@ class AddTextToExistingImage(SuccessFailureNode):
         except Exception as render_error:
             error_details = f"Failed to render image: {render_error}"
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
-            logger.error(f"AddTextToExistingImage '{self.name}': {error_details}")
             self._handle_failure_exception(render_error)
             return
 
@@ -294,7 +291,6 @@ class AddTextToExistingImage(SuccessFailureNode):
         except Exception as upload_error:
             error_details = f"Failed to upload image: {upload_error}"
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
-            logger.error(f"AddTextToExistingImage '{self.name}': {error_details}")
             self._handle_failure_exception(upload_error)
             return
 
