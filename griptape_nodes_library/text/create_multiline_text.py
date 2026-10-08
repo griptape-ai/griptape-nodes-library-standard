@@ -40,11 +40,6 @@ class TextInput(DataNode):
         )
         self.add_parameter(self.split_text)
 
-        # Options don't accept inputs, matching the rest of this source node
-        with ParameterGroup(name="split_text_options") as self.split_text_options:
-            self.split_options = SplitOptions.create(remove_empty_default=True, allow_toggle_input=False)
-        self.add_node_element(self.split_text_options)
-
         # Hidden rather than removed when splitting is off, so its connections survive toggling
         self.output_split = Parameter(
             name="output_split",
@@ -53,6 +48,12 @@ class TextInput(DataNode):
             allowed_modes={ParameterMode.OUTPUT},
         )
         self.add_parameter(self.output_split)
+
+        # Options don't accept inputs, matching the rest of this source node
+        with ParameterGroup(name="split_text_options") as self.split_text_options:
+            self.split_options = SplitOptions.create(remove_empty_default=True, allow_toggle_input=False)
+        self.split_text_options.collapsed = True
+        self.add_node_element(self.split_text_options)
 
         self._update_parameter_visibility()
 
