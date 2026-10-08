@@ -5,12 +5,10 @@ from griptape_nodes.exe_types.core_types import (
     ParameterMode,
 )
 from griptape_nodes.exe_types.node_types import ControlNode
-from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import logger
-from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.utils.split_text_utils import DELIMITER_MAP, SplitMode, split_text
+from griptape_nodes_library.utils.split_text_utils import SplitMode, SplitOptions
 
 
 class SplitText(ControlNode):
@@ -38,56 +36,10 @@ class SplitText(ControlNode):
         )
         self.add_parameter(self.text_input)
 
-        # Add split mode parameter (moved up to control visibility of other parameters)
-        self.split_mode = ParameterString(
-            name="split_mode",
-            tooltip="How to process the text: split by delimiter or parse as list",
-            allow_output=False,
-            allow_input=False,
-            default_value=SplitMode.SPLIT.value,
-        )
-        self.add_parameter(self.split_mode)
-        self.split_mode.add_trait(Options(choices=[mode.value for mode in SplitMode]))
-
-        # Add delimiter type parameter
-        self.delimiter_type = ParameterString(
-            name="delimiter_type",
-            tooltip="Type of delimiter to use for splitting",
-            allow_output=False,
-            allow_input=False,
-            default_value="newlines",
-        )
-        self.add_parameter(self.delimiter_type)
-        self.delimiter_type.add_trait(Options(choices=list(DELIMITER_MAP.keys())))
-
-        # Add include delimiter option
-        self.include_delimiter = ParameterBool(
-            name="include_delimiter",
-            tooltip="Whether to include the delimiter in the split results",
-            allow_output=False,
-            default_value=False,
-        )
-        self.add_parameter(self.include_delimiter)
-
-        # Add trim whitespace option
-        self.trim_whitespace = ParameterBool(
-            name="trim_whitespace",
-            tooltip="Whether to trim leading and trailing whitespace from each item",
-            on_label="trim",
-            off_label="keep",
-            allow_output=False,
-            default_value=False,
-        )
-        self.add_parameter(self.trim_whitespace)
-
-        # Off by default so existing workflows keep their empty items
-        self.remove_empty = ParameterBool(
-            name="remove_empty",
-            tooltip="Whether to drop blank or whitespace-only items from the split results",
-            allow_output=False,
-            default_value=False,
-        )
-        self.add_parameter(self.remove_empty)
+        # remove_empty is off by default so existing workflows keep their empty items
+        self.split_options = SplitOptions.create(remove_empty_default=False, allow_toggle_input=True)
+        for param in self.split_options.parameters:
+            self.add_parameter(param)
 
         # Add output parameter
         self.output = Parameter(
@@ -102,24 +54,11 @@ class SplitText(ControlNode):
         self._update_parameter_visibility()
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        if parameter.name in [
-            self.text_input.name,
-            self.delimiter_type.name,
-            self.include_delimiter.name,
-            self.trim_whitespace.name,
-            self.remove_empty.name,
-            self.split_mode.name,
-        ]:
+        if parameter.name in {self.text_input.name, *self.split_options.names}:
             self._process_text()
 
-        # Control parameter visibility based on split_mode
-        if parameter.name == self.split_mode.name:
-            if value == SplitMode.PARSE_LIST:
-                self.hide_parameter_by_name("delimiter_type")
-                self.hide_parameter_by_name("include_delimiter")
-            else:
-                self.show_parameter_by_name("delimiter_type")
-                self.show_parameter_by_name("include_delimiter")
+        if parameter.name == self.split_options.split_mode.name:
+            self._update_parameter_visibility()
 
         return super().after_value_set(parameter, value)
 
@@ -134,27 +73,14 @@ class SplitText(ControlNode):
 
     def _process_text(self) -> None:
         """Process the text input according to the selected mode (split or parse)."""
-        # Get all input parameters
         text = self.get_parameter_value(self.text_input.name)
-        split_mode = self.get_parameter_value(self.split_mode.name)
-        delimiter_type = self.get_parameter_value(self.delimiter_type.name)
-        include_delimiter = self.get_parameter_value(self.include_delimiter.name)
-        trim_whitespace = self.get_parameter_value(self.trim_whitespace.name)
-        remove_empty = self.get_parameter_value(self.remove_empty.name)
 
         # Ensure text is a string
         if not isinstance(text, str):
             text = ""
 
         try:
-            split_result = split_text(
-                text,
-                split_mode,
-                delimiter_type,
-                include_delimiter=include_delimiter,
-                trim_whitespace=trim_whitespace,
-                remove_empty=remove_empty,
-            )
+            split_result = self.split_options.split(self, text)
 
             self.parameter_output_values[self.output.name] = split_result
             self.publish_update_to_parameter(self.output.name, split_result)
@@ -167,17 +93,11 @@ class SplitText(ControlNode):
 
     def _update_parameter_visibility(self) -> None:
         """Update parameter visibility based on split_mode."""
-        split_mode = self.get_parameter_value(self.split_mode.name)
-
-        if split_mode == SplitMode.PARSE_LIST:
-            # Hide delimiter-specific parameters when in parse_list mode
-            self.hide_parameter_by_name("delimiter_type")
-            self.hide_parameter_by_name("include_delimiter")
-            # Keep trim_whitespace visible as it's still useful for parsing
+        if self.get_parameter_value(self.split_options.split_mode.name) == SplitMode.PARSE_LIST:
+            # Keep trim_whitespace and remove_empty visible as they still apply when parsing
+            self.hide_parameter_by_name(self.split_options.delimiter_names)
         else:
-            # Show all parameters when in split mode
-            self.show_parameter_by_name("delimiter_type")
-            self.show_parameter_by_name("include_delimiter")
+            self.show_parameter_by_name(self.split_options.delimiter_names)
 
     def process(self) -> None:
         self._process_text()

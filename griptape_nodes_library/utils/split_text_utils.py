@@ -1,8 +1,15 @@
-"""Splitting and list-parsing of text, shared by the Split Text and Text Input nodes."""
+"""Splitting and list-parsing of text, and the split option parameters, shared by the Split Text and Text Input nodes."""
 
 import ast
 import json
+from dataclasses import dataclass
 from enum import StrEnum
+
+from griptape_nodes.exe_types.core_types import Parameter
+from griptape_nodes.exe_types.node_types import BaseNode
+from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
+from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.traits.options import Options
 
 
 class SplitMode(StrEnum):
@@ -32,6 +39,95 @@ DELIMITER_MAP: dict[str, str] = {
 }
 
 DEFAULT_DELIMITER_TYPE = "newlines"
+
+
+@dataclass(frozen=True)
+class SplitOptions:
+    """The split option parameters, defined once so every node that splits text offers the same options."""
+
+    split_mode: ParameterString
+    delimiter_type: ParameterString
+    include_delimiter: ParameterBool
+    trim_whitespace: ParameterBool
+    remove_empty: ParameterBool
+
+    @classmethod
+    def create(cls, *, remove_empty_default: bool, allow_toggle_input: bool) -> "SplitOptions":
+        """Create the parameters. Created inside a ParameterGroup context, they join that group.
+
+        Args:
+            remove_empty_default: Default for remove_empty.
+            allow_toggle_input: Whether the boolean options accept input connections.
+        """
+        split_mode = ParameterString(
+            name="split_mode",
+            tooltip="How to process the text: split by delimiter or parse as list",
+            allow_output=False,
+            allow_input=False,
+            default_value=SplitMode.SPLIT.value,
+        )
+        split_mode.add_trait(Options(choices=[mode.value for mode in SplitMode]))
+
+        delimiter_type = ParameterString(
+            name="delimiter_type",
+            tooltip="Type of delimiter to use for splitting",
+            allow_output=False,
+            allow_input=False,
+            default_value=DEFAULT_DELIMITER_TYPE,
+        )
+        delimiter_type.add_trait(Options(choices=list(DELIMITER_MAP.keys())))
+
+        include_delimiter = ParameterBool(
+            name="include_delimiter",
+            tooltip="Whether to include the delimiter in the split results",
+            allow_input=allow_toggle_input,
+            allow_output=False,
+            default_value=False,
+        )
+
+        trim_whitespace = ParameterBool(
+            name="trim_whitespace",
+            tooltip="Whether to trim leading and trailing whitespace from each item",
+            on_label="trim",
+            off_label="keep",
+            allow_input=allow_toggle_input,
+            allow_output=False,
+            default_value=False,
+        )
+
+        remove_empty = ParameterBool(
+            name="remove_empty",
+            tooltip="Whether to drop blank or whitespace-only items from the split results",
+            allow_input=allow_toggle_input,
+            allow_output=False,
+            default_value=remove_empty_default,
+        )
+
+        return cls(split_mode, delimiter_type, include_delimiter, trim_whitespace, remove_empty)
+
+    @property
+    def parameters(self) -> list[Parameter]:
+        return [self.split_mode, self.delimiter_type, self.include_delimiter, self.trim_whitespace, self.remove_empty]
+
+    @property
+    def names(self) -> set[str]:
+        return {param.name for param in self.parameters}
+
+    @property
+    def delimiter_names(self) -> list[str]:
+        """Options that only apply in split mode, hidden when parsing as a list."""
+        return [self.delimiter_type.name, self.include_delimiter.name]
+
+    def split(self, node: BaseNode, text: str) -> list[str]:
+        """Split text using the option values currently set on node."""
+        return split_text(
+            text,
+            node.get_parameter_value(self.split_mode.name),
+            node.get_parameter_value(self.delimiter_type.name),
+            include_delimiter=node.get_parameter_value(self.include_delimiter.name),
+            trim_whitespace=node.get_parameter_value(self.trim_whitespace.name),
+            remove_empty=node.get_parameter_value(self.remove_empty.name),
+        )
 
 
 def split_text(
