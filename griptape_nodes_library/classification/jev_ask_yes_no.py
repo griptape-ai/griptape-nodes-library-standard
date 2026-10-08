@@ -10,7 +10,6 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.traits.slider import Slider
 
 from griptape_nodes_library.classification.jev_common import (
-    DEFAULT_MODEL,
     QUESTION_KEY,
     add_context_parameter,
     add_model_group,
@@ -134,15 +133,12 @@ class JevAskYesNo(GriptapeProxyNode):
             )
         )
 
-        add_model_group(self)
+        self._model_access = add_model_group(self)
 
         self._create_status_parameters(
             result_details_tooltip="Details about the JEV result or any errors.",
             result_details_placeholder="JEV result will appear here.",
         )
-
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or DEFAULT_MODEL
 
     async def _build_payload(self) -> dict[str, Any]:
         state = to_state(self.get_parameter_value("context"))
