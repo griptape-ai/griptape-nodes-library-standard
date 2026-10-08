@@ -2,6 +2,7 @@ import json
 from typing import Any
 
 import httpx
+import httpx2
 import pytest
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import AgentInfo
@@ -100,19 +101,19 @@ class TestCloudSamplingSettings:
     ) -> dict[str, Any]:
         bodies: list[dict[str, Any]] = []
 
-        def handler(request: httpx.Request) -> httpx.Response:
+        def handler(request: httpx2.Request) -> httpx2.Response:
             bodies.append(json.loads(request.content))
             choice = {"index": 0, "delta": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}
             chunk = {"id": "x", "object": "chat.completion.chunk", "created": 0, "model": model, "choices": [choice]}
             sse = f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n"
-            return httpx.Response(200, text=sse, headers={"content-type": "text/event-stream"})
+            return httpx2.Response(200, text=sse, headers={"content-type": "text/event-stream"})
 
         real_client = models.AsyncOpenAI
         monkeypatch.setattr(
             models,
             "AsyncOpenAI",
             lambda **kwargs: real_client(
-                **kwargs, http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+                **kwargs, http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
             ),
         )
         config = config or ModelConfig(
