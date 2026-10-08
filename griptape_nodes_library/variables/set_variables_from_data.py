@@ -361,7 +361,7 @@ def _parse_string_data(text: str) -> Any:
     try:
         parsed = _yaml.load(text)
         if isinstance(parsed, (dict, list)):
-            return parsed
+            return _to_plain(parsed)
         # YAML returned a scalar — fall through to text parsing.
     except Exception as exc:  # noqa: BLE001 — ruamel raises many exception subtypes
         yaml_exc = exc
@@ -376,6 +376,15 @@ def _parse_string_data(text: str) -> Any:
 
     msg = f"'data' string parsed as {type(parsed).__name__!r} — expected a mapping or list of pairs."
     raise ValueError(msg)
+
+
+def _to_plain(value: Any) -> Any:
+    """Recursively convert ruamel's CommentedMap/CommentedSeq into plain dict/list values."""
+    if isinstance(value, dict):
+        return {key: _to_plain(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_to_plain(item) for item in value]
+    return value
 
 
 def _text_to_pairs(text: str) -> list[tuple[str, str]]:
@@ -468,7 +477,9 @@ def _infer_type(value: Any) -> str:
             return ParameterTypeBuiltin.FLOAT.value
         case str():
             return ParameterTypeBuiltin.STR.value
-        case dict() | list():
+        case list():
+            return "list"
+        case dict():
             return "json"
         case _:
             return ParameterTypeBuiltin.ANY.value

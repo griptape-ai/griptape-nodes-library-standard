@@ -116,6 +116,17 @@ class TestDataToPairs:
     def test_yaml_list_of_pairs(self) -> None:
         assert _data_to_pairs("- [NAME, Jason]\n- [PHONE, '027']") == [("NAME", "Jason"), ("PHONE", "027")]
 
+    def test_yaml_list_value_is_plain_list(self) -> None:
+        pairs = _data_to_pairs("ITEMS:\n  - one\n  - two\n  - three")
+        assert pairs == [("ITEMS", ["one", "two", "three"])]
+        assert type(pairs[0][1]) is list
+
+    def test_yaml_nested_mapping_is_plain_dict(self) -> None:
+        pairs = _data_to_pairs("CONFIG:\n  width: 1920\n  tags:\n  - a")
+        assert pairs == [("CONFIG", {"width": 1920, "tags": ["a"]})]
+        assert type(pairs[0][1]) is dict
+        assert type(pairs[0][1]["tags"]) is list
+
     def test_unparseable_string_raises(self) -> None:
         # An unclosed brace is invalid JSON and invalid YAML.
         with pytest.raises(ValueError, match="could not be parsed"):
@@ -160,6 +171,9 @@ class TestInferType:
     def test_dict_is_json(self) -> None:
         assert _infer_type({"a": 1}) == "json"
 
+    def test_list_is_list(self) -> None:
+        assert _infer_type(["a", "b"]) == "list"
+
 
 class TestSetVariablesFromDataProcess:
     """Exercises ``aprocess()`` end-to-end against the engine."""
@@ -191,6 +205,20 @@ class TestSetVariablesFromDataProcess:
 
         assert _get_variable_value("NAME", flow) == "Jason"
         assert _get_variable_value("CITY", flow) == "Wellington"
+
+    @pytest.mark.asyncio
+    async def test_yaml_list_value_creates_list_variable(self, node: BaseNode, flow: str) -> None:
+        node.set_parameter_value("data", "ITEMS:\n- one\n- two\n- three")
+
+        await node.aprocess()
+
+        result = GriptapeNodes.handle_request(
+            GetVariableRequest(name="ITEMS", lookup_scope=VariableScope.CURRENT_FLOW_ONLY, starting_flow=flow)
+        )
+        assert isinstance(result, GetVariableResultSuccess)
+        assert result.variable.type == "list"
+        assert result.variable.value == ["one", "two", "three"]
+        assert type(result.variable.value) is list
 
     @pytest.mark.asyncio
     async def test_duplicate_keys_last_write_wins(self, node: BaseNode, flow: str) -> None:
