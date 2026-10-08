@@ -35,7 +35,7 @@ class GriptapeNodesLibraryAdvanced(AdvancedNodeLibrary):
     def before_library_nodes_loaded(self, library_data: LibrarySchema, library: Library) -> None:  # noqa: ARG002
         """Called before any nodes are loaded from the library."""
         msg = f"Starting to load nodes for '{library_data.name}' library..."
-        logger.info(msg)
+        logger.debug(msg)
 
     def after_library_nodes_loaded(self, library_data: LibrarySchema, library: Library) -> None:  # noqa: ARG002
         """Called after all nodes have been loaded from the library."""
