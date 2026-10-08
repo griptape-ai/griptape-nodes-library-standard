@@ -70,5 +70,15 @@ class GroupByKey(DataNode):
             groups.setdefault(str(item[field]), []).append(item)
         return groups
 
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        # Values from upstream can arrive after this node resolves, so regroup on every change.
+        # Bad input is reported by process() when the node runs, not while wiring.
+        if parameter.name in ("items", "group_by"):
+            try:
+                self.parameter_output_values["output"] = self._group()
+            except (TypeError, KeyError):
+                self.parameter_output_values["output"] = {}
+        return super().after_value_set(parameter, value)
+
     def process(self) -> None:
         self.parameter_output_values["output"] = self._group()

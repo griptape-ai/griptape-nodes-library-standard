@@ -53,6 +53,16 @@ class TestGroupByKey:
         node.process()
         assert node.parameter_output_values["output"] == {}
 
+    def test_regroups_when_items_arrive_after_resolving(self, node: GroupByKey) -> None:
+        node.process()
+        assert node.parameter_output_values["output"] == {}
+        node.set_parameter_value("items", [{"Lighting": "rim"}, {"Lighting": "moon"}])
+        assert node.parameter_output_values["output"] == {"Lighting": ["rim", "moon"]}
+
+    def test_bad_items_while_wiring_do_not_raise(self, node: GroupByKey) -> None:
+        node.set_parameter_value("items", ["not a dict"])
+        assert node.parameter_output_values["output"] == {}
+
     def test_non_dict_item_raises(self, node: GroupByKey) -> None:
         node.parameter_values["items"] = [{"a": 1}, "oops"]
         with pytest.raises(TypeError, match="item 1 is a str"):
