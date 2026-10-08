@@ -9,7 +9,6 @@ from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
 from griptape_nodes_library.classification.jev_common import (
-    DEFAULT_MODEL,
     QUESTION_KEY,
     add_context_parameter,
     add_model_group,
@@ -122,15 +121,12 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
             )
         )
 
-        add_model_group(self)
+        self._model_access = add_model_group(self)
 
         self._create_status_parameters(
             result_details_tooltip="Details about the JEV result or any errors.",
             result_details_placeholder="JEV result will appear here.",
         )
-
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or DEFAULT_MODEL
 
     def _row_output_label(self, index: int, text: str) -> str:  # noqa: ARG002
         return parse_row(text)[0]
