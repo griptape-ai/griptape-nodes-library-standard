@@ -14,6 +14,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
+from griptape_nodes_library.llm.agent_node_support import default_cloud_model_config
 from griptape_nodes_library.llm.agent_state import AgentState, messages_from_runs
 from griptape_nodes_library.proxy import GriptapeProxyNode
 
@@ -302,6 +303,8 @@ class TranscribeAudio(GriptapeProxyNode):
         # the agent's history as a completed run.
         try:
             state = AgentState.from_wire(self.get_parameter_value("agent"))
+            if state.model is None:
+                state.model = default_cloud_model_config()
             transcript_run = {
                 "input": "I'm passing you some audio to transcribe.",
                 "output": (

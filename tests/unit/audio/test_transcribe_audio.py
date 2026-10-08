@@ -12,6 +12,7 @@ from griptape_nodes.retained_mode.events.os_events import FileIOFailureReason
 
 import griptape_nodes_library.audio.transcribe_audio as transcribe_audio_module
 from griptape_nodes_library.audio.transcribe_audio import TranscribeAudio
+from griptape_nodes_library.llm.agent_node_support import default_cloud_model_config
 from griptape_nodes_library.llm.agent_state import AgentState
 from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
 
@@ -199,6 +200,7 @@ class TestParseResult:
 
         state = AgentState.from_wire(node.parameter_output_values["agent"])
         assert len(state.runs()) == 1
+        assert state.model == default_cloud_model_config()
 
     @pytest.mark.asyncio
     async def test_verbose_json_fields(self) -> None:
