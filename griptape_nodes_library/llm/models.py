@@ -16,9 +16,12 @@ from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.bedrock import BedrockConverseModel
 from pydantic_ai.models.cohere import CohereModel
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.profiles import merge_profile
+from pydantic_ai.profiles.openai import OpenAIModelProfile
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.bedrock import BedrockProvider
 from pydantic_ai.providers.cohere import CohereProvider
+from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from griptape_nodes_library.llm.budget import cloud_root
@@ -34,6 +37,7 @@ from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_c
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
+    from pydantic_ai.profiles import ModelProfile
     from pydantic_ai.settings import ModelSettings
 
 
@@ -92,7 +96,21 @@ def _openai_compatible(config: ModelConfig, *, base_url: str, api_key: str, head
     if config.max_retries is not None:
         client_kwargs["max_retries"] = config.max_retries
     provider = OpenAIProvider(openai_client=AsyncOpenAI(**client_kwargs))
-    return OpenAIChatModel(config.model, provider=provider, settings=_settings(config))
+    return OpenAIChatModel(config.model, provider=provider, settings=_settings(config), profile=_profile(config))
+
+
+# Non-OpenAI hosts get `max_tokens`, as griptape's drivers sent; some reject `max_completion_tokens`.
+_LEGACY_MAX_TOKENS = OpenAIModelProfile(openai_chat_supports_max_completion_tokens=False)
+
+
+def _profile(config: ModelConfig) -> ModelProfile | None:
+    match config.provider:
+        case ModelProvider.OPENAI | ModelProvider.GRIPTAPE_CLOUD:
+            return None
+        case ModelProvider.OLLAMA | ModelProvider.LMSTUDIO:
+            return merge_profile(OllamaProvider.model_profile(config.model), _LEGACY_MAX_TOKENS)
+        case _:
+            return merge_profile(OpenAIProvider.model_profile(config.model), _LEGACY_MAX_TOKENS)
 
 
 _model_override: Model | None = None

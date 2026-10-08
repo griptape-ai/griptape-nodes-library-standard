@@ -138,6 +138,19 @@ class TestCloudSamplingSettings:
         config = cloud_model_config("gpt-4.1").model_copy(update={"api_key": "gt-test"})
         assert self._sent_body(monkeypatch, "gpt-4.1", config)["temperature"] == DEFAULT_TEMPERATURE
 
+    @pytest.mark.parametrize("provider", [ModelProvider.OLLAMA, ModelProvider.OPENAI_COMPATIBLE, ModelProvider.GROQ])
+    def test_non_openai_hosts_get_max_tokens(self, monkeypatch: pytest.MonkeyPatch, provider: ModelProvider) -> None:
+        config = ModelConfig(
+            provider=provider, model="llama3", base_url="http://h/v1", api_key="k", settings={"max_tokens": 256}
+        )
+        body = self._sent_body(monkeypatch, "llama3", config)
+        assert body["max_tokens"] == 256
+        assert "max_completion_tokens" not in body
+
+    def test_openai_gets_max_completion_tokens(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        config = ModelConfig(provider=ModelProvider.OPENAI, model="gpt-4.1", api_key="k", settings={"max_tokens": 256})
+        assert self._sent_body(monkeypatch, "gpt-4.1", config)["max_completion_tokens"] == 256
+
 
 class TestAgentState:
     def test_wire_round_trip(self) -> None:
