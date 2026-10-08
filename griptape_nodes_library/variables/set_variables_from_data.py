@@ -30,6 +30,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.variable_types import VariableScope
 from griptape_nodes.traits.options import Options
 from ruamel.yaml import YAML
+from ruamel.yaml.scalarbool import ScalarBoolean
 
 from griptape_nodes_library.variables.variable_utils import (
     create_advanced_parameter_group,
@@ -391,12 +392,25 @@ def _parse_string_data(text: str) -> Any:
 
 
 def _to_plain(value: Any) -> Any:
-    """Recursively convert ruamel's CommentedMap/CommentedSeq into plain dict/list values."""
-    if isinstance(value, dict):
-        return {key: _to_plain(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_to_plain(item) for item in value]
-    return value
+    """Recursively convert ruamel's round-trip containers and scalars into plain Python values."""
+    match value:
+        case dict():
+            return {key: _to_plain(item) for key, item in value.items()}
+        case list():
+            return [_to_plain(item) for item in value]
+        case ScalarBoolean():
+            # Subclasses int, not bool, so it must be checked before int().
+            return bool(value)
+        case bool() | None:
+            return value
+        case int():
+            return int(value)
+        case float():
+            return float(value)
+        case str():
+            return str(value)
+        case _:
+            return value
 
 
 def _text_to_pairs(text: str) -> list[tuple[str, str]]:

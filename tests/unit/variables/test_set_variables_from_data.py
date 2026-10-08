@@ -121,6 +121,11 @@ class TestDataToPairs:
         assert pairs == [("ITEMS", ["one", "two", "three"])]
         assert type(pairs[0][1]) is list
 
+    def test_yaml_anchored_bool_is_plain_bool(self) -> None:
+        pairs = _data_to_pairs("FLAG: &f true\nRATES: [1.50, 2.0]")
+        assert type(pairs[0][1]) is bool
+        assert all(type(item) is float for item in pairs[1][1])
+
     def test_yaml_nested_mapping_is_plain_dict(self) -> None:
         pairs = _data_to_pairs("CONFIG:\n  width: 1920\n  tags:\n  - a")
         assert pairs == [("CONFIG", {"width": 1920, "tags": ["a"]})]
