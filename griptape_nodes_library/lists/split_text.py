@@ -8,7 +8,7 @@ from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import logger
 
-from griptape_nodes_library.utils.split_text_utils import SplitMode, SplitOptions
+from griptape_nodes_library.utils.split_text_utils import SplitOptions
 
 
 class SplitText(ControlNode):
@@ -50,15 +50,14 @@ class SplitText(ControlNode):
         )
         self.add_parameter(self.output)
 
-        # Set initial parameter visibility
-        self._update_parameter_visibility()
+        self.split_options.update_delimiter_visibility(self)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name in {self.text_input.name, *self.split_options.names}:
             self._process_text()
 
         if parameter.name == self.split_options.split_mode.name:
-            self._update_parameter_visibility()
+            self.split_options.update_delimiter_visibility(self)
 
         return super().after_value_set(parameter, value)
 
@@ -90,14 +89,6 @@ class SplitText(ControlNode):
             logger.error(msg)
             self.parameter_output_values[self.output.name] = []
             self.publish_update_to_parameter(self.output.name, [])
-
-    def _update_parameter_visibility(self) -> None:
-        """Update parameter visibility based on split_mode."""
-        if self.get_parameter_value(self.split_options.split_mode.name) == SplitMode.PARSE_LIST:
-            # Keep trim_whitespace and remove_empty visible as they still apply when parsing
-            self.hide_parameter_by_name(self.split_options.delimiter_names)
-        else:
-            self.show_parameter_by_name(self.split_options.delimiter_names)
 
     def process(self) -> None:
         self._process_text()

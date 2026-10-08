@@ -113,10 +113,13 @@ class SplitOptions:
     def names(self) -> set[str]:
         return {param.name for param in self.parameters}
 
-    @property
-    def delimiter_names(self) -> list[str]:
-        """Options that only apply in split mode, hidden when parsing as a list."""
-        return [self.delimiter_type.name, self.include_delimiter.name]
+    def update_delimiter_visibility(self, node: BaseNode) -> None:
+        """Hide the delimiter options when parsing as a list, where they don't apply."""
+        delimiter_names = [self.delimiter_type.name, self.include_delimiter.name]
+        if node.get_parameter_value(self.split_mode.name) == SplitMode.PARSE_LIST:
+            node.hide_parameter_by_name(delimiter_names)
+        else:
+            node.show_parameter_by_name(delimiter_names)
 
     def split(self, node: BaseNode, text: str) -> list[str]:
         """Split text using the option values currently set on node."""

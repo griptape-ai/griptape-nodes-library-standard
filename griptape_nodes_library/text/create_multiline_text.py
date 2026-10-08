@@ -5,7 +5,7 @@ from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.retained_mode.griptape_nodes import logger
 
-from griptape_nodes_library.utils.split_text_utils import SplitMode, SplitOptions
+from griptape_nodes_library.utils.split_text_utils import SplitOptions
 
 
 class TextInput(DataNode):
@@ -74,11 +74,7 @@ class TextInput(DataNode):
         self.split_text_options.update_ui_options({"hide": False})
         self.show_parameter_by_name(self.output_split.name)
 
-        # Delimiter options don't apply when parsing as a list
-        if self.get_parameter_value(self.split_options.split_mode.name) == SplitMode.PARSE_LIST:
-            self.hide_parameter_by_name(self.split_options.delimiter_names)
-        else:
-            self.show_parameter_by_name(self.split_options.delimiter_names)
+        self.split_options.update_delimiter_visibility(self)
 
     def _update_split_output(self) -> None:
         if not self.get_parameter_value(self.split_text.name):
