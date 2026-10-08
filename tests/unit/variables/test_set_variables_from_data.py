@@ -280,6 +280,24 @@ class TestSetVariablesFromDataProcess:
         assert node.parameter_output_values["variable_names"] == ["NAME"]
 
     @pytest.mark.asyncio
+    async def test_overwrite_updates_type_of_existing_json_variable(self, node: BaseNode, flow: str) -> None:
+        create_result = GriptapeNodes.handle_request(
+            CreateVariableRequest(name="ITEMS", type="json", is_global=False, value=["old"], owning_flow=flow)
+        )
+        assert isinstance(create_result, CreateVariableResultSuccess)
+
+        node.set_parameter_value("data", "ITEMS:\n- one\n- two")
+
+        await node.aprocess()
+
+        result = GriptapeNodes.handle_request(
+            GetVariableRequest(name="ITEMS", lookup_scope=VariableScope.CURRENT_FLOW_ONLY, starting_flow=flow)
+        )
+        assert isinstance(result, GetVariableResultSuccess)
+        assert result.variable.type == "list"
+        assert result.variable.value == ["one", "two"]
+
+    @pytest.mark.asyncio
     async def test_error_on_collision_raises(self, node: BaseNode, flow: str) -> None:
         create_result = GriptapeNodes.handle_request(
             CreateVariableRequest(name="NAME", type="str", is_global=False, value="original", owning_flow=flow)

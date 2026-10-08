@@ -21,6 +21,8 @@ from griptape_nodes.retained_mode.events.variable_events import (
     CreateVariableResultSuccess,
     HasVariableRequest,
     HasVariableResultSuccess,
+    SetVariableTypeRequest,
+    SetVariableTypeResultSuccess,
     SetVariableValueRequest,
     SetVariableValueResultSuccess,
 )
@@ -201,6 +203,16 @@ class SetVariablesFromData(SuccessFailureNode):
                     msg = f"Variable '{variable_name}' already exists (collision_behavior is 'Error on collision')."
                     raise ValueError(msg)
                 case CollisionBehavior.OVERWRITE:
+                    # Setting the value alone leaves the old type in place, so a variable that
+                    # was previously created as "json" would stay "json" for a list value.
+                    type_result = await GriptapeNodes.ahandle_request(
+                        SetVariableTypeRequest(
+                            type=_infer_type(value), name=variable_name, lookup_scope=scope, starting_flow=flow_name
+                        )
+                    )
+                    if not isinstance(type_result, SetVariableTypeResultSuccess):
+                        msg = f"Failed to set type of variable '{variable_name}': {type_result.result_details}"
+                        raise TypeError(msg)
                     set_result = await GriptapeNodes.ahandle_request(
                         SetVariableValueRequest(
                             value=value, name=variable_name, lookup_scope=scope, starting_flow=flow_name
