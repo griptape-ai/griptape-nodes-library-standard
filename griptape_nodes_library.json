@@ -4222,6 +4222,22 @@
       }
     },
     {
+      "class_name": "GroupByKey",
+      "file_path": "griptape_nodes_library/dict/group_by_key.py",
+      "metadata": {
+        "category": "dict",
+        "description": "Groups a list of dictionaries into a dictionary of lists, by key or by a field",
+        "display_name": "Group By Key",
+        "group": "merge",
+        "tags": [
+          "data",
+          "dictionary",
+          "group",
+          "list"
+        ]
+      }
+    },
+    {
       "class_name": "SaveDictionary",
       "file_path": "griptape_nodes_library/dict/save_dict.py",
       "metadata": {
