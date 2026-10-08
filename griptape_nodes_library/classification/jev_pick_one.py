@@ -38,7 +38,7 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
 
     Outputs:
         - One flow output per option (dynamic, added as you fill in the list).
-        - choice (str): The label of the option JEV picked.
+        - label (str): The label of the option JEV picked.
         - description (str): The description of the picked option.
         - confidence (float): How sure JEV is, from 0 to 1.
         - probabilities (json): JEV's probability for every option, keyed by label.
@@ -79,8 +79,8 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
 
         self.add_parameter(
             ParameterString(
-                name="choice",
-                display_name="Choice",
+                name="label",
+                display_name="Label",
                 tooltip="The label of the option JEV picked.",
                 allow_input=False,
                 allow_property=False,
@@ -174,17 +174,17 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
         self.parameter_output_values["confidence"] = float(answer_data.get("confidence", 0.0))
         self.parameter_output_values["probabilities"] = dict(answer_data.get("probabilities") or {})
         self.parameter_output_values["description"] = criteria.get(picked) or ""
-        self.parameter_output_values["choice"] = picked
+        self.parameter_output_values["label"] = picked
         self._set_status_results(was_successful=True, result_details=f"JEV picked '{picked}'.")
 
     def _set_safe_defaults(self) -> None:
-        for key in ("choice", "description", "confidence", "probabilities"):
+        for key in ("label", "description", "confidence", "probabilities"):
             self.parameter_output_values.pop(key, None)
 
     def get_next_control_output(self) -> Parameter | None:
         if self._execution_succeeded is False and not self.lock:
             return self.failure_output
-        picked = self.parameter_output_values.get("choice")
+        picked = self.parameter_output_values.get("label")
         if picked is None:
             return None
         for param in self._row_output_params():

@@ -42,7 +42,8 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
         - One flow output per level (dynamic, added as you fill in the list).
         - score (float): JEV's score, from 1 to the number of levels.
         - level (int): The score rounded to the nearest level, starting at 1.
-        - level_description (str): The description of the level JEV scored.
+        - label (str): The label of the level JEV scored, or 'Level N' if the row has none.
+        - description (str): The description of the level JEV scored.
         - confidence (float): How sure JEV is, from 0 to 1.
         - probabilities (json): JEV's probability for every level, keyed by level number.
     """
@@ -106,8 +107,19 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
 
         self.add_parameter(
             ParameterString(
-                name="level_description",
-                display_name="Level Description",
+                name="label",
+                display_name="Label",
+                tooltip="The label of the level JEV scored. Rows without a label are named 'Level N'.",
+                allow_input=False,
+                allow_property=False,
+                placeholder_text="The label of the level.",
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
+                name="description",
+                display_name="Description",
                 tooltip="The description of the level JEV scored.",
                 allow_input=False,
                 allow_property=False,
@@ -187,7 +199,8 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
 
         self.parameter_output_values["score"] = jev_score + 1
         self.parameter_output_values["level"] = index + 1
-        self.parameter_output_values["level_description"] = description
+        self.parameter_output_values["label"] = self._row_output_label(index, text)
+        self.parameter_output_values["description"] = description
         self.parameter_output_values["confidence"] = float(answer_data.get("confidence", 0.0))
         raw_probs = answer_data.get("probabilities") or {}
         self.parameter_output_values["probabilities"] = {str(int(k) + 1): v for k, v in raw_probs.items()}
@@ -196,7 +209,7 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
 
     def _set_safe_defaults(self) -> None:
         self._route = None
-        for key in ("score", "level", "level_description", "confidence", "probabilities"):
+        for key in ("score", "level", "label", "description", "confidence", "probabilities"):
             self.parameter_output_values.pop(key, None)
 
     def get_next_control_output(self) -> Parameter | None:
