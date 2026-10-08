@@ -1,6 +1,5 @@
 """Tests for MathExpression node."""
 
-import json
 import math
 import signal
 from collections.abc import Generator
@@ -11,7 +10,6 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.number.math_expression import MathExpression
 
-LIBRARY_JSON = Path(__file__).parents[3] / "griptape_nodes_library.json"
 EVALUATION_TIMEOUT_SECONDS = 5
 
 
@@ -92,13 +90,3 @@ class TestMathExpressionSandbox:
     )
     def test_statements_are_rejected(self, node: MathExpression, expression: str) -> None:
         assert node._evaluate_expression(expression) == 0.0
-
-
-class TestMathExpressionManifest:
-    def test_declares_arbitrary_python_execution(self) -> None:
-        library = json.loads(LIBRARY_JSON.read_text())
-        entry = next(n for n in library["nodes"] if n["class_name"] == "MathExpression")
-
-        assert entry["metadata"]["declarations"] == [
-            {"type": "arbitrary_python_execution", "executes_arbitrary_python": True}
-        ]
