@@ -14,7 +14,7 @@ from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
+from griptape_nodes_library.llm.model_config import cloud_model_config
 from griptape_nodes_library.llm.runner import output_to_text, prompt_model
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
@@ -220,7 +220,7 @@ Return in this EXACT format with no commentary or other text:
 If no title is provided, just use "Segment X:" format.
 """
         try:
-            output = prompt_model(ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=MODEL), msg)
+            output = prompt_model(cloud_model_config(MODEL), msg)
             if not output:
                 error_msg = "Agent returned an empty response"
                 raise ValueError(error_msg)  # noqa: TRY301

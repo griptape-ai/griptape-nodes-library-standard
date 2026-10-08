@@ -3,13 +3,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
+from griptape_nodes_library.llm.model_config import ModelConfig, cloud_model_config
 
 DEFAULT_CLOUD_MODEL = "claude-sonnet-5"
 
 
 def default_cloud_model_config() -> ModelConfig:
-    return ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=DEFAULT_CLOUD_MODEL)
+    return cloud_model_config(DEFAULT_CLOUD_MODEL)
 
 
 def parse_agent_memory(memory_data: Any) -> dict[str, Any] | None:

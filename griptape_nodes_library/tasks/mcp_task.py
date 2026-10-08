@@ -21,11 +21,11 @@ from griptape_nodes_library.llm.agent_state import (
 )
 from griptape_nodes_library.llm.model_config import (
     ModelConfig,
+    cloud_model_config,
     model_config_from_input,
 )
 from griptape_nodes_library.llm.task_support import (
     TaskRunResult,
-    cloud_model_config,
     run_task_agent,
 )
 from griptape_nodes_library.llm.tools import ToolType, build_toolset, build_toolsets

@@ -13,7 +13,7 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserProm
 
 from griptape_nodes_library.llm.agent_state import AgentState, connected_agent_state
 from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, ImageProvider, generate_image
-from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
+from griptape_nodes_library.llm.model_config import cloud_model_config
 from griptape_nodes_library.llm.runner import prompt_model
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
@@ -205,7 +205,7 @@ class GenerateImage(ControlNode):
         agent_input = self.get_parameter_value("agent")
         state = connected_agent_state(agent_input) or AgentState()
         if state.model is None:
-            state.model = ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=ENHANCEMENT_MODEL)
+            state.model = cloud_model_config(ENHANCEMENT_MODEL)
 
         prompt = self._build_context(state, orig_prompt)
 

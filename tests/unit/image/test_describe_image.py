@@ -182,4 +182,5 @@ def test_third_party_provider_becomes_model_config(node: DescribeImage, monkeypa
         model="llava",
         base_url="http://localhost:9/v1",
         api_key_secret="LOCAL_KEY",
+        settings={"temperature": 0.1},
     )

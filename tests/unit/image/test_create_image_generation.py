@@ -15,7 +15,7 @@ import griptape_nodes_library.utils.model_invocation as model_invocation_module
 from griptape_nodes_library.image.create_image import ENHANCEMENT_MODEL, GenerateImage
 from griptape_nodes_library.llm.agent_state import AgentState
 from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, ImageProvider
-from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
+from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider, cloud_model_config
 from griptape_nodes_library.llm.models import override_model
 from griptape_nodes_library.llm.testing import fake_model
 
@@ -105,7 +105,7 @@ def test_generates_image_with_default_cloud_model_and_returns_agent_with_false_m
     assert written == [b"image-bytes"]
 
     state = AgentState.from_wire(node.parameter_output_values["agent"])
-    assert state.model == ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=ENHANCEMENT_MODEL)
+    assert state.model == cloud_model_config(ENHANCEMENT_MODEL)
     runs = state.runs()
     assert runs[0]["input"] == "a cat"
     assert runs[0]["output"].startswith("I created an image based on your prompt.")

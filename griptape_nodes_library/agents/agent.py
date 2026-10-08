@@ -33,7 +33,7 @@ from griptape_nodes_library.llm.agent_state import (
 )
 from griptape_nodes_library.llm.model_config import (
     ModelConfig,
-    ModelProvider,
+    cloud_model_config,
     model_config_from_input,
 )
 from griptape_nodes_library.llm.rulesets import rulesets_from_inputs
@@ -464,7 +464,7 @@ class Agent(ControlNode):
         if provider_name == "griptape_cloud":
             if model_input not in self._model_access.model_choices:
                 model_input = DEFAULT_MODEL
-            return ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=model_input)
+            return cloud_model_config(model_input)
         return self._provider.model_config_for(provider_name, model_input)
 
     def _build_state(self, model_input: Any, provider_name: str, agent_input: Any) -> AgentState:

@@ -11,8 +11,8 @@ from griptape_nodes.retained_mode.events.execution_events import ResolveNodeRequ
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.llm.model_config import cloud_model_config
 from griptape_nodes_library.llm.runner import output_to_text, prompt_model
-from griptape_nodes_library.llm.task_support import cloud_model_config
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"

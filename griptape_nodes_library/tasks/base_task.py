@@ -6,8 +6,9 @@ from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from pydantic_ai.toolsets import AbstractToolset
 
+from griptape_nodes_library.llm.model_config import cloud_model_config
 from griptape_nodes_library.llm.runner import Prompt
-from griptape_nodes_library.llm.task_support import TaskRunResult, cloud_model_config, run_task_agent
+from griptape_nodes_library.llm.task_support import TaskRunResult, run_task_agent
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"

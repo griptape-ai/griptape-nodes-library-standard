@@ -9,7 +9,13 @@ from pydantic_ai.models.test import TestModel
 
 from griptape_nodes_library.llm import models, tools, web
 from griptape_nodes_library.llm.agent_state import AgentState, compact_messages, messages_from_runs
-from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider, model_config_from_legacy_driver
+from griptape_nodes_library.llm.model_config import (
+    DEFAULT_TEMPERATURE,
+    ModelConfig,
+    ModelProvider,
+    cloud_model_config,
+    model_config_from_legacy_driver,
+)
 from griptape_nodes_library.llm.models import override_model
 from griptape_nodes_library.llm.rulesets import render_rulesets, rulesets_from_inputs
 from griptape_nodes_library.llm.runner import (
@@ -89,7 +95,9 @@ class TestModelConfig:
 class TestCloudSamplingSettings:
     """Settings an OpenAI reasoning model rejects never reach Griptape Cloud (griptape-cloud#2286)."""
 
-    def _sent_body(self, monkeypatch: pytest.MonkeyPatch, model: str) -> dict[str, Any]:
+    def _sent_body(
+        self, monkeypatch: pytest.MonkeyPatch, model: str, config: ModelConfig | None = None
+    ) -> dict[str, Any]:
         bodies: list[dict[str, Any]] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -107,7 +115,7 @@ class TestCloudSamplingSettings:
                 **kwargs, http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
             ),
         )
-        config = ModelConfig(
+        config = config or ModelConfig(
             provider=ModelProvider.GRIPTAPE_CLOUD,
             model=model,
             api_key="gt-test",
@@ -125,6 +133,10 @@ class TestCloudSamplingSettings:
     def test_other_models_keep_sampling_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
         body = self._sent_body(monkeypatch, "gpt-4.1")
         assert (body["temperature"], body["top_p"]) == (0.1, 0.9)
+
+    def test_dropdown_config_sends_default_temperature(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        config = cloud_model_config("gpt-4.1").model_copy(update={"api_key": "gt-test"})
+        assert self._sent_body(monkeypatch, "gpt-4.1", config)["temperature"] == DEFAULT_TEMPERATURE
 
 
 class TestAgentState:

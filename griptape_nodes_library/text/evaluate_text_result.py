@@ -5,8 +5,8 @@ from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.traits.options import Options
 from pydantic import BaseModel
 
+from griptape_nodes_library.llm.model_config import cloud_model_config
 from griptape_nodes_library.llm.runner import prompt_model
-from griptape_nodes_library.llm.task_support import cloud_model_config
 from griptape_nodes_library.tasks.base_task import BaseTask
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 

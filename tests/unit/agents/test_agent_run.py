@@ -199,7 +199,7 @@ def test_third_party_provider_wire_holds_the_secret_name_not_the_key(
         "model": "llama-3",
         "base_url": "http://llm.local/v1",
         "api_key_secret": "MY_LLM_KEY",
-        "settings": {},
+        "settings": {"temperature": 0.1},
         "options": {},
     }
 

@@ -72,6 +72,18 @@ class ModelConfig(BaseModel):
         return None
 
 
+# griptape drivers' default temperature, applied where no prompt config sets one.
+DEFAULT_TEMPERATURE = 0.1
+
+
+def default_settings() -> dict[str, Any]:
+    return {"temperature": DEFAULT_TEMPERATURE}
+
+
+def cloud_model_config(model: str) -> ModelConfig:
+    return ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=model, settings=default_settings())
+
+
 def _engine_provider_kind(provider_type: str | None) -> ModelProvider:
     match provider_type:
         case ModelProvider.OLLAMA | ModelProvider.LMSTUDIO:
@@ -84,6 +96,7 @@ def model_config_for_engine_provider(provider_config: ProviderConfig, model: str
     return ModelConfig(
         provider=_engine_provider_kind(provider_config.type),
         model=model,
+        settings=default_settings(),
         base_url=provider_config.base_url or None,
         api_key_secret=provider_config.api_key_secret_name or None,
     )

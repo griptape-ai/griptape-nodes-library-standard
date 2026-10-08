@@ -23,7 +23,7 @@ from griptape_nodes_library.llm.agent_state import AgentState, connected_agent_s
 from griptape_nodes_library.llm.content import image_content
 from griptape_nodes_library.llm.model_config import (
     ModelConfig,
-    ModelProvider,
+    cloud_model_config,
     model_config_from_input,
 )
 from griptape_nodes_library.llm.runner import output_to_text, output_type_from_schema, run_agent
@@ -367,7 +367,7 @@ class DescribeImage(ControlNode):
             return self._provider.model_config_for(provider_name, model_name)
         if model_name not in self._model_access.model_choices:
             model_name = DEFAULT_MODEL
-        return ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=model_name)
+        return cloud_model_config(model_name)
 
     def _collect_image_contents(self) -> list:
         # Flatten nested lists: a ParameterList child may receive a list of artifacts

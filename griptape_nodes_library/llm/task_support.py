@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
+from griptape_nodes_library.llm.model_config import ModelConfig
 from griptape_nodes_library.llm.runner import RunCallbacks, build_agent, output_to_text, run_agent
 
 if TYPE_CHECKING:
@@ -13,10 +13,6 @@ if TYPE_CHECKING:
     from pydantic_ai.usage import UsageLimits
 
     from griptape_nodes_library.llm.runner import Prompt
-
-
-def cloud_model_config(model: str) -> ModelConfig:
-    return ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model=model)
 
 
 @dataclass

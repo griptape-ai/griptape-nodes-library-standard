@@ -182,6 +182,7 @@ class TestThirdPartyProvider:
             model="gpt-4.1-mini",
             base_url="http://127.0.0.1:18999/v1",
             api_key_secret="OPENAI_API_KEY",
+            settings={"temperature": 0.1},
         )
         assert model("a1") == expected
         assert model("a3") == expected
