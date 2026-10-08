@@ -71,6 +71,10 @@ class SaveToProject(SuccessFailureNode):
             result_details_tooltip="Details about the save operation result",
             result_details_placeholder="Details on the save attempt will be presented here.",
         )
+        # The status reports the macro path; substitution would expand it back to the absolute path.
+        result_details = self.get_parameter_by_name("result_details")
+        if result_details is not None:
+            result_details.allow_variable_substitution = False
 
     def after_value_set(self, parameter: Parameter, value: Any, **kwargs: object) -> None:
         if parameter.name == "source":
@@ -132,7 +136,7 @@ class SaveToProject(SuccessFailureNode):
 
         self._set_status_results(
             was_successful=True,
-            result_details=f"File saved successfully to {saved_path}",
+            result_details=f"File saved successfully to {url_artifact.value}",
         )
 
     def _update_default_filename(self, source_path: str) -> None:
