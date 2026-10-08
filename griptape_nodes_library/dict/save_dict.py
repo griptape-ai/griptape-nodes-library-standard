@@ -55,7 +55,6 @@ class SaveDictionary(ControlNode):
         full_output_file = self.parameter_values.get("output_path", None)
         if full_output_file is None or full_output_file == "":
             msg = "Output path is required"
-            logger.error(msg)
             raise ValueError(msg)
 
         try:

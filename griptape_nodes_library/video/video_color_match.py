@@ -736,7 +736,6 @@ class VideoColorMatch(SuccessFailureNode):
 
         except Exception as e:
             error_message = str(e)
-            logger.error(f"{self.name}: Processing failed: {error_message}")
 
             # Set failure status
             failure_details = f"Color matching failed\nError: {error_message}"

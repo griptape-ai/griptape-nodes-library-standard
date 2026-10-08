@@ -101,7 +101,6 @@ class GriptapeCloudPromptDriver(GtGriptapeCloudPromptDriver):
                 logger.debug("Event stream data message payload: %s", message_payload)
                 message_payload_dict = json.loads(message_payload)
                 if "error" in message_payload_dict:
-                    logger.error("Error in event stream data message: %s", message_payload_dict["error"])
                     raise RuntimeError(message_payload_dict["error"])
                 yield DeltaMessage.from_dict(message_payload_dict)
 
