@@ -6,6 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
+from griptape_nodes.exe_types.node_types import aprocess_scope
 from griptape_nodes.files.file import FileLoadError
 from griptape_nodes.retained_mode.events.os_events import FileIOFailureReason
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
@@ -159,3 +160,21 @@ class TestLoadVideoProcess:
 
         assert node.parameter_output_values["video"] == "something"
         assert node.parameter_output_values["path"] == "some_path"
+
+    def test_macro_path_output_survives_variable_substitution(
+        self,
+        node: LoadVideo,
+        mock_update_external_file_controls: Mock,  # noqa: ARG002
+        mock_resolve_to_macro_path: Mock,  # noqa: ARG002
+        mock_file_cls: Mock,  # noqa: ARG002
+        mock_extract_video_player_metadata: Mock,  # noqa: ARG002
+    ) -> None:
+        # Project directories such as {inputs} are workflow variables, so an output write
+        # inside aprocess would substitute them and save an absolute path in the workflow.
+        node.parameter_values["video"] = VideoUrlArtifact(_MACRO_PATH)
+        node.parameter_values["path"] = _MACRO_PATH
+
+        with aprocess_scope(precomputed_variables={"inputs": "/project/inputs"}):
+            node.process()
+
+        assert node.parameter_output_values["path"] == _MACRO_PATH
