@@ -9,7 +9,6 @@ from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
 from griptape_nodes_library.classification.jev_common import (
-    DEFAULT_MODEL,
     QUESTION_KEY,
     add_context_parameter,
     add_model_group,
@@ -39,7 +38,7 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
 
     Outputs:
         - One flow output per option (dynamic, added as you fill in the list).
-        - choice (str): The label of the option JEV picked.
+        - label (str): The label of the option JEV picked.
         - description (str): The description of the picked option.
         - confidence (float): How sure JEV is, from 0 to 1.
         - probabilities (json): JEV's probability for every option, keyed by label.
@@ -80,8 +79,8 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
 
         self.add_parameter(
             ParameterString(
-                name="choice",
-                display_name="Choice",
+                name="label",
+                display_name="Label",
                 tooltip="The label of the option JEV picked.",
                 allow_input=False,
                 allow_property=False,
@@ -122,15 +121,12 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
             )
         )
 
-        add_model_group(self)
+        self._model_access = add_model_group(self)
 
         self._create_status_parameters(
             result_details_tooltip="Details about the JEV result or any errors.",
             result_details_placeholder="JEV result will appear here.",
         )
-
-    def _get_api_model_id(self) -> str:
-        return self.get_parameter_value("model") or DEFAULT_MODEL
 
     def _row_output_label(self, index: int, text: str) -> str:  # noqa: ARG002
         return parse_row(text)[0]
@@ -178,17 +174,17 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
         self.parameter_output_values["confidence"] = float(answer_data.get("confidence", 0.0))
         self.parameter_output_values["probabilities"] = dict(answer_data.get("probabilities") or {})
         self.parameter_output_values["description"] = criteria.get(picked) or ""
-        self.parameter_output_values["choice"] = picked
+        self.parameter_output_values["label"] = picked
         self._set_status_results(was_successful=True, result_details=f"JEV picked '{picked}'.")
 
     def _set_safe_defaults(self) -> None:
-        for key in ("choice", "description", "confidence", "probabilities"):
+        for key in ("label", "description", "confidence", "probabilities"):
             self.parameter_output_values.pop(key, None)
 
     def get_next_control_output(self) -> Parameter | None:
         if self._execution_succeeded is False and not self.lock:
             return self.failure_output
-        picked = self.parameter_output_values.get("choice")
+        picked = self.parameter_output_values.get("label")
         if picked is None:
             return None
         for param in self._row_output_params():

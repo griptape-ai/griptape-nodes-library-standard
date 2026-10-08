@@ -563,7 +563,6 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self.parameter_output_values["generation_id"] = generation_id
             self.parameter_output_values["generation_status"] = status
             error_message = self._extract_error_message(result_json)
-            logger.error("%s: Extracted error message: %s", self.name, error_message)
             if not error_message:
                 error_message = (
                     f"{self.name} generation failed with status {status} but no error details were provided."
@@ -868,7 +867,6 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """Handle API key validation errors."""
         self._set_safe_defaults()
         self._set_status_results(was_successful=False, result_details=str(e))
-        logger.error("%s API key validation failed: %s", self.name, e)
         self._handle_failure_exception(e)
 
     def _handle_payload_build_error(self, e: Exception) -> None:
@@ -1329,7 +1327,6 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             dest = self._output_file.build_file()
             saved = await dest.awrite_bytes(media_bytes)
         except Exception as e:
-            logger.error("%s failed to retrieve %s: %s", self.name, media_kind, e)
             self.parameter_output_values[output_param] = None
             self._set_status_results(
                 was_successful=False,

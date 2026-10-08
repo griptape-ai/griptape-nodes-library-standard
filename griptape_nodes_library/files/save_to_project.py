@@ -1,6 +1,5 @@
 """SaveToProject node - save a file to the project using situation-based path resolution."""
 
-import logging
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
@@ -20,8 +19,6 @@ from griptape_nodes_library.utils.situation_utils import (
     on_output_file_connected,
     on_output_file_disconnected,
 )
-
-logger = logging.getLogger("griptape_nodes")
 
 
 def _extract_source_path(value: Any) -> str | None:
@@ -115,7 +112,6 @@ class SaveToProject(SuccessFailureNode):
             content = File(source_path).read_bytes()
         except Exception as e:
             msg = f"Failed to read source file '{source_path}': {e}"
-            logger.error(msg)
             self._set_status_results(was_successful=False, result_details=msg)
             self._handle_failure_exception(RuntimeError(msg))
             return
@@ -126,7 +122,6 @@ class SaveToProject(SuccessFailureNode):
             saved_path = Path(saved_file.resolve())
         except Exception as e:
             msg = f"Failed to write destination file: {e}"
-            logger.error(msg)
             self._set_status_results(was_successful=False, result_details=msg)
             self._handle_failure_exception(RuntimeError(msg))
             return
