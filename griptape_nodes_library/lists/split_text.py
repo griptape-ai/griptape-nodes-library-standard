@@ -72,13 +72,22 @@ class SplitText(ControlNode):
         # Add trim whitespace option
         self.trim_whitespace = ParameterBool(
             name="trim_whitespace",
-            tooltip="Whether to trim leading whitespace after the delimiter",
+            tooltip="Whether to trim leading and trailing whitespace from each item",
             on_label="trim",
             off_label="keep",
             allow_output=False,
             default_value=False,
         )
         self.add_parameter(self.trim_whitespace)
+
+        # Off by default so existing workflows keep their empty items
+        self.remove_empty = ParameterBool(
+            name="remove_empty",
+            tooltip="Whether to drop blank or whitespace-only items from the split results",
+            allow_output=False,
+            default_value=False,
+        )
+        self.add_parameter(self.remove_empty)
 
         # Add output parameter
         self.output = Parameter(
@@ -98,6 +107,7 @@ class SplitText(ControlNode):
             self.delimiter_type.name,
             self.include_delimiter.name,
             self.trim_whitespace.name,
+            self.remove_empty.name,
             self.split_mode.name,
         ]:
             self._process_text()
@@ -130,6 +140,7 @@ class SplitText(ControlNode):
         delimiter_type = self.get_parameter_value(self.delimiter_type.name)
         include_delimiter = self.get_parameter_value(self.include_delimiter.name)
         trim_whitespace = self.get_parameter_value(self.trim_whitespace.name)
+        remove_empty = self.get_parameter_value(self.remove_empty.name)
 
         # Ensure text is a string
         if not isinstance(text, str):
@@ -142,6 +153,7 @@ class SplitText(ControlNode):
                 delimiter_type,
                 include_delimiter=include_delimiter,
                 trim_whitespace=trim_whitespace,
+                remove_empty=remove_empty,
             )
 
             self.parameter_output_values[self.output.name] = split_result

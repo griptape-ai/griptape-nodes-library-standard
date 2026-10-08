@@ -1,6 +1,6 @@
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -47,45 +47,51 @@ class TextInput(DataNode):
         )
         self.add_parameter(self.split_text)
 
-        self.split_mode = ParameterString(
-            name="split_mode",
-            tooltip="How to process the text: split by delimiter or parse as list",
-            allow_output=False,
-            allow_input=False,
-            default_value=SplitMode.SPLIT.value,
-        )
-        self.add_parameter(self.split_mode)
-        self.split_mode.add_trait(Options(choices=[mode.value for mode in SplitMode]))
+        with ParameterGroup(name="split_text_options") as self.split_text_options:
+            self.split_mode = ParameterString(
+                name="split_mode",
+                tooltip="How to process the text: split by delimiter or parse as list",
+                allow_output=False,
+                allow_input=False,
+                default_value=SplitMode.SPLIT.value,
+            )
+            self.split_mode.add_trait(Options(choices=[mode.value for mode in SplitMode]))
 
-        self.delimiter_type = ParameterString(
-            name="delimiter_type",
-            tooltip="Type of delimiter to use for splitting",
-            allow_output=False,
-            allow_input=False,
-            default_value=DEFAULT_DELIMITER_TYPE,
-        )
-        self.add_parameter(self.delimiter_type)
-        self.delimiter_type.add_trait(Options(choices=list(DELIMITER_MAP.keys())))
+            self.delimiter_type = ParameterString(
+                name="delimiter_type",
+                tooltip="Type of delimiter to use for splitting",
+                allow_output=False,
+                allow_input=False,
+                default_value=DEFAULT_DELIMITER_TYPE,
+            )
+            self.delimiter_type.add_trait(Options(choices=list(DELIMITER_MAP.keys())))
 
-        self.include_delimiter = ParameterBool(
-            name="include_delimiter",
-            tooltip="Whether to include the delimiter in the split results",
-            allow_input=False,
-            allow_output=False,
-            default_value=False,
-        )
-        self.add_parameter(self.include_delimiter)
+            self.include_delimiter = ParameterBool(
+                name="include_delimiter",
+                tooltip="Whether to include the delimiter in the split results",
+                allow_input=False,
+                allow_output=False,
+                default_value=False,
+            )
 
-        self.trim_whitespace = ParameterBool(
-            name="trim_whitespace",
-            tooltip="Whether to trim leading whitespace after the delimiter",
-            on_label="trim",
-            off_label="keep",
-            allow_input=False,
-            allow_output=False,
-            default_value=False,
-        )
-        self.add_parameter(self.trim_whitespace)
+            self.trim_whitespace = ParameterBool(
+                name="trim_whitespace",
+                tooltip="Whether to trim leading and trailing whitespace from each item",
+                on_label="trim",
+                off_label="keep",
+                allow_input=False,
+                allow_output=False,
+                default_value=False,
+            )
+
+            self.remove_empty = ParameterBool(
+                name="remove_empty",
+                tooltip="Whether to drop blank or whitespace-only items from the split results",
+                allow_input=False,
+                allow_output=False,
+                default_value=True,
+            )
+        self.add_node_element(self.split_text_options)
 
         # Hidden rather than removed when splitting is off, so its connections survive toggling
         self.output_split = Parameter(
@@ -109,27 +115,27 @@ class TextInput(DataNode):
             self.delimiter_type.name,
             self.include_delimiter.name,
             self.trim_whitespace.name,
+            self.remove_empty.name,
         }:
             self._update_split_output()
 
         return super().after_value_set(parameter, value)
 
     def _update_parameter_visibility(self) -> None:
-        split_params = [
-            self.split_mode.name,
-            self.delimiter_type.name,
-            self.include_delimiter.name,
-            self.trim_whitespace.name,
-            self.output_split.name,
-        ]
         if not self.get_parameter_value(self.split_text.name):
-            self.hide_parameter_by_name(split_params)
+            self.split_text_options.update_ui_options({"hide": True})
+            self.hide_parameter_by_name(self.output_split.name)
             return
 
-        self.show_parameter_by_name(split_params)
+        self.split_text_options.update_ui_options({"hide": False})
+        self.show_parameter_by_name(self.output_split.name)
+
+        # Delimiter options don't apply when parsing as a list
+        delimiter_params = [self.delimiter_type.name, self.include_delimiter.name]
         if self.get_parameter_value(self.split_mode.name) == SplitMode.PARSE_LIST:
-            # Delimiter options don't apply when parsing as a list
-            self.hide_parameter_by_name([self.delimiter_type.name, self.include_delimiter.name])
+            self.hide_parameter_by_name(delimiter_params)
+        else:
+            self.show_parameter_by_name(delimiter_params)
 
     def _update_split_output(self) -> None:
         if not self.get_parameter_value(self.split_text.name):
@@ -148,6 +154,7 @@ class TextInput(DataNode):
                 self.get_parameter_value(self.delimiter_type.name),
                 include_delimiter=self.get_parameter_value(self.include_delimiter.name),
                 trim_whitespace=self.get_parameter_value(self.trim_whitespace.name),
+                remove_empty=self.get_parameter_value(self.remove_empty.name),
             )
         except (TypeError, ValueError) as e:
             logger.error("%s: Error splitting text: %s", self.name, e)

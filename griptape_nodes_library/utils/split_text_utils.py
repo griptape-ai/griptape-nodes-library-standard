@@ -41,18 +41,26 @@ def split_text(
     *,
     include_delimiter: bool,
     trim_whitespace: bool,
+    remove_empty: bool = False,
 ) -> list[str]:
-    """Split text by delimiter, or parse it as a list, according to split_mode."""
+    """Split text by delimiter, or parse it as a list, according to split_mode.
+
+    With remove_empty, items that are blank or whitespace-only are dropped from the result.
+    """
     match split_mode:
         case SplitMode.SPLIT:
-            return split_by_delimiter(
+            result = split_by_delimiter(
                 text, delimiter_type, include_delimiter=include_delimiter, trim_whitespace=trim_whitespace
             )
         case SplitMode.PARSE_LIST:
-            return parse_as_list(text, delimiter_type, trim_whitespace=trim_whitespace)
+            result = parse_as_list(text, delimiter_type, trim_whitespace=trim_whitespace)
         case _:
             msg = f"Unknown split mode: {split_mode!r}"
             raise ValueError(msg)
+
+    if remove_empty:
+        result = [item for item in result if item.strip()]
+    return result
 
 
 def split_by_delimiter(text: str, delimiter_type: str, *, include_delimiter: bool, trim_whitespace: bool) -> list[str]:
@@ -60,13 +68,14 @@ def split_by_delimiter(text: str, delimiter_type: str, *, include_delimiter: boo
     actual_delimiter = DELIMITER_MAP.get(delimiter_type, DELIMITER_MAP[DEFAULT_DELIMITER_TYPE])
 
     split_result = text.split(actual_delimiter)
+    # Trim before appending the delimiter so whitespace delimiters like newlines survive the strip
+    if trim_whitespace:
+        split_result = [item.strip() for item in split_result]
+
     if include_delimiter:
         # Append the delimiter to every element except the last one
         for i in range(len(split_result) - 1):
             split_result[i] += actual_delimiter
-
-    if trim_whitespace:
-        split_result = [item.lstrip() for item in split_result]
 
     return split_result
 
@@ -92,15 +101,13 @@ def parse_as_list(text: str, delimiter_type: str, *, trim_whitespace: bool) -> l
         pass
 
     # Try comma-separated parsing (for cases like "one, two, three")
+    # Comma items are always stripped, regardless of trim_whitespace
     if "," in text:
-        result = [item.strip() for item in text.split(",")]
-        if trim_whitespace:
-            result = [item.lstrip() for item in result]
-        return result
+        return [item.strip() for item in text.split(",")]
 
     # Fallback to delimiter splitting
     actual_delimiter = DELIMITER_MAP.get(delimiter_type, DELIMITER_MAP[DEFAULT_DELIMITER_TYPE])
     result = text.split(actual_delimiter)
     if trim_whitespace:
-        result = [item.lstrip() for item in result]
+        result = [item.strip() for item in result]
     return result
