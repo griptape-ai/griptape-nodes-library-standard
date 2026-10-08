@@ -145,33 +145,44 @@ def split_text(
     """
     match split_mode:
         case SplitMode.SPLIT:
-            result = split_by_delimiter(
-                text, delimiter_type, include_delimiter=include_delimiter, trim_whitespace=trim_whitespace
+            return split_by_delimiter(
+                text,
+                delimiter_type,
+                include_delimiter=include_delimiter,
+                trim_whitespace=trim_whitespace,
+                remove_empty=remove_empty,
             )
         case SplitMode.PARSE_LIST:
             result = parse_as_list(text, delimiter_type, trim_whitespace=trim_whitespace)
+            if remove_empty:
+                result = [item for item in result if item.strip()]
+            return result
         case _:
             msg = f"Unknown split mode: {split_mode!r}"
             raise ValueError(msg)
 
-    if remove_empty:
-        result = [item for item in result if item.strip()]
-    return result
 
-
-def split_by_delimiter(text: str, delimiter_type: str, *, include_delimiter: bool, trim_whitespace: bool) -> list[str]:
+def split_by_delimiter(
+    text: str, delimiter_type: str, *, include_delimiter: bool, trim_whitespace: bool, remove_empty: bool = False
+) -> list[str]:
     """Split text by the delimiter named by delimiter_type."""
     actual_delimiter = DELIMITER_MAP.get(delimiter_type, DELIMITER_MAP[DEFAULT_DELIMITER_TYPE])
 
-    split_result = text.split(actual_delimiter)
+    items = text.split(actual_delimiter)
     # Trim before appending the delimiter so whitespace delimiters like newlines survive the strip
     if trim_whitespace:
-        split_result = [item.strip() for item in split_result]
+        items = [item.strip() for item in items]
 
-    if include_delimiter:
-        # Append the delimiter to every element except the last one
-        for i in range(len(split_result) - 1):
-            split_result[i] += actual_delimiter
+    # Check emptiness before the delimiter is appended, or a non-whitespace delimiter makes an empty item look full.
+    # The delimiter goes on every item but the last of the original split, so removed items don't shift it.
+    last_index = len(items) - 1
+    split_result = []
+    for i, item in enumerate(items):
+        if remove_empty and not item.strip():
+            continue
+        if include_delimiter and i < last_index:
+            item += actual_delimiter
+        split_result.append(item)
 
     return split_result
 

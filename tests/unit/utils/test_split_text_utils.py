@@ -56,6 +56,16 @@ class TestSplitText:
             "a\n\nb", "split", "newlines", include_delimiter=True, trim_whitespace=False, remove_empty=True
         ) == ["a\n", "b"]
 
+    def test_remove_empty_drops_blank_items_with_non_whitespace_delimiter_included(self) -> None:
+        assert split_text(
+            "a,,b", "split", "comma", include_delimiter=True, trim_whitespace=False, remove_empty=True
+        ) == ["a,", "b"]
+
+    def test_remove_empty_keeps_delimiter_on_item_before_removed_trailing_empty(self) -> None:
+        assert split_text(
+            "a,b,", "split", "comma", include_delimiter=True, trim_whitespace=False, remove_empty=True
+        ) == ["a,", "b,"]
+
     def test_remove_empty_applies_to_parse_list(self) -> None:
         assert split_text(
             '["one", "", "two"]',
