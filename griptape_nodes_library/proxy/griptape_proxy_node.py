@@ -1327,7 +1327,6 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             dest = self._output_file.build_file()
             saved = await dest.awrite_bytes(media_bytes)
         except Exception as e:
-            logger.error("%s failed to retrieve %s: %s", self.name, media_kind, e)
             self.parameter_output_values[output_param] = None
             self._set_status_results(
                 was_successful=False,
