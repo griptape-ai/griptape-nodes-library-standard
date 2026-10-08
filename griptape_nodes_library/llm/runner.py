@@ -35,7 +35,7 @@ from griptape_nodes_library.llm.models import build_model
 from griptape_nodes_library.llm.rulesets import render_rulesets
 
 if TYPE_CHECKING:
-    from pydantic_ai.agent import AgentRunResult
+    from pydantic_ai.agent import AgentRetries, AgentRunResult
     from pydantic_ai.messages import ModelMessage
     from pydantic_ai.toolsets import AbstractToolset
     from pydantic_ai.usage import UsageLimits
@@ -45,6 +45,8 @@ if TYPE_CHECKING:
 Prompt = str | Sequence[UserContent]
 
 CANCEL_POLL_SECONDS = 0.25
+# pydantic-ai's default of 1 ends the run on a model's second bad tool call or schema miss in a row.
+AGENT_RETRIES: AgentRetries = {"tools": 3, "output": 3}
 
 
 class AgentRunCancelledError(Exception):
@@ -95,6 +97,7 @@ def build_agent(
         toolsets=list(toolsets) or None,
         output_type=output_type,
         deps_type=type(None),
+        retries=AGENT_RETRIES,
     )
     agent.history_token_budget = history_token_budget(model_config)
     return agent
