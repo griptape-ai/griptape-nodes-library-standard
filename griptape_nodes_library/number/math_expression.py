@@ -228,7 +228,10 @@ class MathExpression(BaseNode):
 
     def _create_interpreter(self) -> Interpreter:
         """Create an asteval interpreter with variables and math functions."""
-        interpreter = Interpreter()
+        # An explicit symtable keeps asteval's builtins (including open) out of reach, and
+        # minimal=True rejects loops, function definitions, and comprehensions so an
+        # expression cannot hang the engine.
+        interpreter = Interpreter(symtable={}, minimal=True, use_numpy=False)
 
         num_variables = self._get_num_variables()
         self._add_variables_to_interpreter(interpreter, num_variables)
