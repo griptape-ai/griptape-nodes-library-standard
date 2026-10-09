@@ -4,8 +4,8 @@ import json
 from typing import TYPE_CHECKING
 
 from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.traits.options import Options
 
 if TYPE_CHECKING:
     from griptape_nodes.exe_types.node_types import BaseNode
@@ -59,16 +59,21 @@ def add_context_parameter(node: BaseNode) -> None:
     )
 
 
-def add_model_group(node: BaseNode) -> None:
-    """Add the collapsed Advanced group with the model dropdown to a node."""
+def add_model_group(node: BaseNode) -> ModelAccessComponent:
+    """Add the collapsed Advanced group with the license-aware model dropdown to a node."""
     with ParameterGroup(name="Advanced", ui_options={"collapsed": True}) as advanced_group:
-        ParameterString(
+        model_param = ParameterString(
             name="model",
             display_name="Model",
             tooltip="jev-latest is the newest stable model. jev-preview is the newest release.",
             default_value=DEFAULT_MODEL,
             allow_input=False,
             allow_output=False,
-            traits={Options(choices=MODEL_CHOICES)},
         )
     node.add_node_element(advanced_group)
+    return ModelAccessComponent(
+        node=node,
+        parameter=model_param,
+        model_choices=MODEL_CHOICES,
+        default_model=DEFAULT_MODEL,
+    )

@@ -27,6 +27,7 @@ from griptape_nodes.node_library.library_declarations import find_model_catalog,
 from griptape_nodes.node_library.library_registry import LibrarySchema
 from griptape_nodes.node_library.library_validation import validate_library_declarations
 
+from griptape_nodes_library.classification.jev_common import MODEL_CHOICES as JEV_MODEL_CHOICES
 from griptape_nodes_library.config.image.griptape_cloud_image_driver import (
     MODEL_CHOICES as GRIPTAPE_CLOUD_IMAGE_MODEL_CHOICES,
 )
@@ -156,6 +157,9 @@ def test_mcp_task_default_model_is_one_of_the_models_it_declares() -> None:
         ("ScrapeWeb", TASK_MODEL_CHOICES),
         ("SearchWeb", TASK_MODEL_CHOICES),
         ("SummarizeText", TASK_MODEL_CHOICES),
+        ("JevAskYesNo", JEV_MODEL_CHOICES),
+        ("JevPickOne", JEV_MODEL_CHOICES),
+        ("JevRate", JEV_MODEL_CHOICES),
     ],
 )
 def test_model_selection_node_usage_matches_static_provider_choices(

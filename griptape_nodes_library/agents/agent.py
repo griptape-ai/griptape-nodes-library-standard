@@ -801,8 +801,7 @@ class Agent(ControlNode):
             except Exception as e:
                 msg = f"[ERROR]: Unable to create output schema model: {e}. Try using the `Create Agent Schema` node to generate a schema."
                 self.append_value_to_parameter("logs", msg + "\n")
-                logger.error(msg)
-                raise
+                raise ValueError(msg) from e
 
         if include_details and pydantic_schema:
             self.append_value_to_parameter("logs", "[Schema]: Structured output schema provided\n")

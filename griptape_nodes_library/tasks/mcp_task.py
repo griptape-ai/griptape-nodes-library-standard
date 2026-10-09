@@ -417,8 +417,6 @@ class MCPTaskNode(SuccessFailureNode):
         try:
             return self._get_or_create_mcp_tool(mcp_server_name, server_config)
         except Exception as e:
-            msg = f"{self.name}: Failed to get or create MCP tool: {e}"
-            logger.error(f"MCPTaskNode '{self.name}': {msg}")
             self._handle_failure_exception(e)
             return None
 
@@ -459,8 +457,6 @@ class MCPTaskNode(SuccessFailureNode):
                     # rebuild the driver from this.
                     self._provider = self._selected_provider_config()
         except Exception as e:
-            msg = f"{self.name}: Failed to get or create agent: {e}"
-            logger.error(f"MCPTaskNode '{self.name}': {msg}")
             self._handle_failure_exception(e)
             return None, None, [], []
         return agent, driver, tools, rulesets
@@ -475,8 +471,6 @@ class MCPTaskNode(SuccessFailureNode):
             )
             agent.add_task(prompt_task)
         except Exception as e:
-            msg = f"{self.name}: Failed to add task to agent: {e}"
-            logger.error(f"MCPTaskNode '{self.name}': {msg}")
             self._handle_failure_exception(e)
             return False
         return True
@@ -498,7 +492,6 @@ class MCPTaskNode(SuccessFailureNode):
         except Exception as execution_error:
             error_details = f"MCP task execution failed: {execution_error}"
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
-            logger.error(f"MCPTaskNode '{self.name}': {error_details}")
             self._handle_failure_exception(execution_error)
 
     def _process_with_streaming(self, agent: Agent, prompt: BaseArtifact | str) -> Agent:

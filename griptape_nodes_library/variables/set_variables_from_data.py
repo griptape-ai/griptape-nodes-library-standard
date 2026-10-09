@@ -21,6 +21,8 @@ from griptape_nodes.retained_mode.events.variable_events import (
     CreateVariableResultSuccess,
     HasVariableRequest,
     HasVariableResultSuccess,
+    SetVariableTypeRequest,
+    SetVariableTypeResultSuccess,
     SetVariableValueRequest,
     SetVariableValueResultSuccess,
 )
@@ -28,6 +30,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.variable_types import VariableScope
 from griptape_nodes.traits.options import Options
 from ruamel.yaml import YAML
+from ruamel.yaml.scalarbool import ScalarBoolean
 
 from griptape_nodes_library.variables.variable_utils import (
     create_advanced_parameter_group,
@@ -201,6 +204,16 @@ class SetVariablesFromData(SuccessFailureNode):
                     msg = f"Variable '{variable_name}' already exists (collision_behavior is 'Error on collision')."
                     raise ValueError(msg)
                 case CollisionBehavior.OVERWRITE:
+                    # Setting the value alone leaves the old type in place, so a variable that
+                    # was previously created as "json" would stay "json" for a list value.
+                    type_result = await GriptapeNodes.ahandle_request(
+                        SetVariableTypeRequest(
+                            type=_infer_type(value), name=variable_name, lookup_scope=scope, starting_flow=flow_name
+                        )
+                    )
+                    if not isinstance(type_result, SetVariableTypeResultSuccess):
+                        msg = f"Failed to set type of variable '{variable_name}': {type_result.result_details}"
+                        raise TypeError(msg)
                     set_result = await GriptapeNodes.ahandle_request(
                         SetVariableValueRequest(
                             value=value, name=variable_name, lookup_scope=scope, starting_flow=flow_name
@@ -361,7 +374,7 @@ def _parse_string_data(text: str) -> Any:
     try:
         parsed = _yaml.load(text)
         if isinstance(parsed, (dict, list)):
-            return parsed
+            return _to_plain(parsed)
         # YAML returned a scalar — fall through to text parsing.
     except Exception as exc:  # noqa: BLE001 — ruamel raises many exception subtypes
         yaml_exc = exc
@@ -376,6 +389,28 @@ def _parse_string_data(text: str) -> Any:
 
     msg = f"'data' string parsed as {type(parsed).__name__!r}. Expected a mapping or list of pairs."
     raise ValueError(msg)
+
+
+def _to_plain(value: Any) -> Any:
+    """Recursively convert ruamel's round-trip containers and scalars into plain Python values."""
+    match value:
+        case dict():
+            return {key: _to_plain(item) for key, item in value.items()}
+        case list():
+            return [_to_plain(item) for item in value]
+        case ScalarBoolean():
+            # Subclasses int, not bool, so it must be checked before int().
+            return bool(value)
+        case bool() | None:
+            return value
+        case int():
+            return int(value)
+        case float():
+            return float(value)
+        case str():
+            return str(value)
+        case _:
+            return value
 
 
 def _text_to_pairs(text: str) -> list[tuple[str, str]]:
@@ -468,7 +503,9 @@ def _infer_type(value: Any) -> str:
             return ParameterTypeBuiltin.FLOAT.value
         case str():
             return ParameterTypeBuiltin.STR.value
-        case dict() | list():
+        case list():
+            return "list"
+        case dict():
             return "json"
         case _:
             return ParameterTypeBuiltin.ANY.value

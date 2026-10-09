@@ -128,19 +128,16 @@ class WriteImageMetadataNode(SuccessFailureNode):
         image = self.get_parameter_value("input_image")
         if not image:
             error_msg = "Connect an image to 'Input Image'."
-            logger.warning("%s: %s", self.name, error_msg)
             raise ValueError(error_msg)
 
         # Validate metadata input
         metadata_dict = self.get_parameter_value("metadata")
         if not metadata_dict:
             error_msg = "'Metadata' is empty. Connect a dictionary of metadata to write."
-            logger.warning("%s: %s", self.name, error_msg)
             raise ValueError(error_msg)
 
         if not isinstance(metadata_dict, dict):
             error_msg = f"'Metadata' must be a dictionary, got {type(metadata_dict).__name__}."
-            logger.warning("%s: %s", self.name, error_msg)
             raise TypeError(error_msg)
 
         return (image, metadata_dict)
@@ -161,7 +158,6 @@ class WriteImageMetadataNode(SuccessFailureNode):
                 f"(reserved for auto-injected workflow metadata). "
                 f"Offending keys: {', '.join(reserved_keys)}"
             )
-            logger.warning("%s: %s", self.name, error_msg)
             raise ValueError(error_msg)
 
     def _write_metadata_to_image(self, pil_image: Image.Image, metadata_dict: dict) -> bytes:
@@ -181,14 +177,12 @@ class WriteImageMetadataNode(SuccessFailureNode):
         # Check format is available
         if not pil_image.format:
             error_msg = "The image format could not be detected."
-            logger.warning("%s: %s", self.name, error_msg)
             raise ValueError(error_msg)
 
         # Get driver for this format
         driver = ImageMetadataDriverRegistry.get_driver_for_format(pil_image.format)
         if driver is None:
             error_msg = f"Unsupported format '{pil_image.format}'. Supported formats: PNG, JPEG, TIFF, MPO."
-            logger.warning("%s: %s", self.name, error_msg)
             raise ValueError(error_msg)
 
         # Write metadata using driver

@@ -452,7 +452,6 @@ class ImageBlendCompositor(BaseImageProcessor):
 
         except Exception as e:
             error_message = str(e)
-            logger.error(f"{self.name}: Processing failed: {error_message}")
 
             # Set failure status with detailed error information
             failure_details = f"Image composition failed: {self._get_processing_description()}\nError: {error_message}"

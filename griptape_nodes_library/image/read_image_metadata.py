@@ -328,7 +328,6 @@ class ReadImageMetadataNode(SuccessFailureNode):
         try:
             pil_image = load_pil_image_from_artifact(image, self.name)
         except (TypeError, ValueError) as e:
-            logger.warning(f"{self.name}: Failed to load image: {e}")
             self._fail(e, raise_on_failure=raise_on_failure)
             return
 
@@ -336,7 +335,6 @@ class ReadImageMetadataNode(SuccessFailureNode):
         image_format = pil_image.format
         if not image_format:
             error_msg = "The image format could not be detected."
-            logger.warning(f"{self.name}: {error_msg}")
             self._fail(ValueError(error_msg), raise_on_failure=raise_on_failure)
             return
 
@@ -350,7 +348,6 @@ class ReadImageMetadataNode(SuccessFailureNode):
                 metadata = driver.extract_metadata(pil_image)
             except Exception as e:
                 error_msg = f"Failed to read metadata: {e}"
-                logger.warning(f"{self.name}: {error_msg}")
                 self._fail(ValueError(error_msg), raise_on_failure=raise_on_failure)
                 return
 

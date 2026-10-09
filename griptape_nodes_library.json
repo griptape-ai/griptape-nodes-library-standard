@@ -1314,6 +1314,23 @@
             "notes": "Ollama is a local-runtime provider: models are whatever the user has pulled into their own local Ollama server, discovered dynamically by OllamaPrompt at runtime rather than declared statically here. The provider declares no models and sets key_support at the provider level instead, per KeySupport's documented default for a local-runtime provider with no enumerated models of its own.",
             "key_support": "NO_KEY_REQUIRED",
             "models": {}
+          },
+          "typesafe": {
+            "display_name": "TypeSafe",
+            "models": {
+              "gtc_jev_latest": {
+                "display_name": "JEV Latest",
+                "family": "JEV",
+                "provider_model_id": "jev-latest",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_jev_preview": {
+                "display_name": "JEV Preview",
+                "family": "JEV",
+                "provider_model_id": "jev-preview",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              }
+            }
           }
         }
       }
@@ -4218,6 +4235,22 @@
           "data",
           "dictionary",
           "merge"
+        ]
+      }
+    },
+    {
+      "class_name": "GroupByKey",
+      "file_path": "griptape_nodes_library/dict/group_by_key.py",
+      "metadata": {
+        "category": "dict",
+        "description": "Groups a list of dictionaries into a dictionary of lists, by key or by a field",
+        "display_name": "Group By Key",
+        "group": "merge",
+        "tags": [
+          "data",
+          "dictionary",
+          "group",
+          "list"
         ]
       }
     },
@@ -7331,7 +7364,16 @@
         "description": "Ask a yes/no question about text using TypeSafe JEV.",
         "display_name": "Ask Yes/No (JEV)",
         "icon": "check-circle",
-        "group": "classification"
+        "group": "classification",
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_jev_latest",
+              "gtc_jev_preview"
+            ]
+          }
+        ]
       }
     },
     {
@@ -7342,7 +7384,16 @@
         "description": "Pick the option that best fits some text using TypeSafe JEV.",
         "display_name": "Pick One (JEV)",
         "icon": "list-checks",
-        "group": "classification"
+        "group": "classification",
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_jev_latest",
+              "gtc_jev_preview"
+            ]
+          }
+        ]
       }
     },
     {
@@ -7353,7 +7404,16 @@
         "description": "Rate text against levels you describe using TypeSafe JEV.",
         "display_name": "Rate (JEV)",
         "icon": "bar-chart-2",
-        "group": "classification"
+        "group": "classification",
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_jev_latest",
+              "gtc_jev_preview"
+            ]
+          }
+        ]
       }
     }
   ],

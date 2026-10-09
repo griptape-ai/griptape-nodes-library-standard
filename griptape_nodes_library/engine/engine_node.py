@@ -177,24 +177,18 @@ class EngineNode(SuccessFailureNode):
         # Step 2: Get the selected request type from the dropdown
         selected_type = self.get_parameter_value(self.request_selector.name)
         if not selected_type:
-            logger.error("No request type selected")
             msg = "No request type selected. Please choose a RequestPayload type from the dropdown."
             raise ValueError(msg)
 
         # Step 3: Clean up the request type name (remove asterisk if present)
         clean_type = selected_type.rstrip(" *")
         if clean_type not in self._request_types:
-            logger.error("Unknown request type: %s", clean_type)
             msg = f"Unknown request type '{clean_type}'. Please select a valid type from the dropdown."  # noqa: S608
             raise ValueError(msg)
 
         # Step 4: Get request information and validate it has result classes
         request_info = self._request_types[clean_type]
         if not request_info.has_results:
-            logger.error(
-                "Could not find corresponding ResultPayload classes for request type '%s' - execution skipped",
-                clean_type,
-            )
             msg = f"Cannot execute '{clean_type}': {self._RESULT_CLASSES_NOT_FOUND_ERROR} in the system."
             raise ValueError(msg)
 

@@ -117,7 +117,6 @@ class SaveAudio(SuccessFailureNode):
                 failure_details += f"\nCause: {exception.__cause__}"
 
         self._set_status_results(was_successful=False, result_details=f"FAILURE: {failure_details}")
-        logger.error(f"Error saving audio: {error_details}")
 
         # Use the helper to handle exception based on connection status
         self._handle_failure_exception(exception or RuntimeError(error_details))

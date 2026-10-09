@@ -225,7 +225,6 @@ class OllamaPrompt(BasePrompt):
         except Exception as e:
             if raise_on_error:
                 msg = f"Unable to get available models from Ollama: {e}"
-                logger.warning("%s: %s", self.name, msg)
                 raise OllamaConnectionError(msg) from e
             # Silent fallback for internal use
             return []

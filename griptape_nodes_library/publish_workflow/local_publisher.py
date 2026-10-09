@@ -143,7 +143,6 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         )
         if not isinstance(result, WriteFileResultSuccess):
             msg = f"Failed to write run.py entrypoint to '{destination}'."
-            logger.error(msg)
             raise TypeError(msg)
 
     def _write_readme(self, destination: Path) -> None:
@@ -186,5 +185,4 @@ uv export --no-hashes --no-dev -o requirements.txt
         )
         if not isinstance(result, WriteFileResultSuccess):
             msg = f"Failed to write README.md to '{destination}'."
-            logger.error(msg)
             raise TypeError(msg)

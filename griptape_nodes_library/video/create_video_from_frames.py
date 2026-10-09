@@ -273,7 +273,6 @@ class CreateVideoFromFrames(SuccessFailureNode):
         except Exception as e:
             self._set_safe_defaults()
             self._set_status_results(was_successful=False, result_details=f"Failed to combine frames: {e}")
-            logger.error("%s combination failed: %s", self.name, e)
             self._handle_failure_exception(e)
 
     def _fail(self, error: Exception) -> None:

@@ -267,7 +267,6 @@ class LoadImage(SuccessFailureNode):
         except Exception as e:
             error_details = f"Failed to load image from {input_source}: {e}"
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
-            logger.error(f"LoadImage '{self.name}': {error_details}")
             self._handle_failure_exception(e)
 
     def _on_copy_to_project_clicked(
