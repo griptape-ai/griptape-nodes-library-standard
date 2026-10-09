@@ -43,3 +43,15 @@ def test_invalid_json_string_does_not_raise_while_editing() -> None:
     node = JsonReplace("json_replace")
 
     node.set_parameter_value("json", "{not json")
+
+
+def test_unparseable_edit_clears_previous_output() -> None:
+    node = JsonReplace("json_replace")
+    node.set_parameter_value("path", "a")
+    node.set_parameter_value("replacement_value", 2)
+    node.set_parameter_value("json", '{"a": 1}')
+    assert node.get_parameter_value("output") == {"a": 2}
+
+    node.set_parameter_value("json", '{"a": 1')
+
+    assert node.get_parameter_value("output") is None

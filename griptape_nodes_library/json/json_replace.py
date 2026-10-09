@@ -204,11 +204,16 @@ class JsonReplace(ControlNode):
         self._update_output_parameter(result)
 
     def _preview_replacement(self) -> None:
-        """Update the output while the user edits. Input that cannot be parsed yet leaves the output as it was."""
+        """Update the output while the user edits. Input that cannot be parsed yet clears the output.
+
+        Raising here would leave the new input stored on a node that still looks resolved, so parse
+        errors are caught. process() raises the same error on a real run.
+        """
         try:
             self._perform_replacement()
         except ValueError as e:
-            # Half-typed JSON is expected while editing. process() raises the same error on a real run.
+            # Clear the output so it never shows a result for input it no longer matches.
+            self._update_output_parameter(None)
             logger.debug("%s: skipped preview: %s", self.name, e)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
