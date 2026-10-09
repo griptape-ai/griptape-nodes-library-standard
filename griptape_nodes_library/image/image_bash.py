@@ -747,7 +747,6 @@ class ImageBash(DataNode):
 
         if img_data is None or len(img_data) == 0:
             msg = f"{self.name}: Failed to convert image to bytes"
-            logger.error(msg)
             raise ValueError(msg)
 
         return img_data

@@ -56,6 +56,9 @@ type AuthorizationHook = Callable[[AuthorizationCheckpoint], CheckpointDenial | 
 # it has no case here.
 NODE_MODEL_CASES: list[tuple[str, str, str, str]] = [
     ("TranscribeAudio", "gtc_whisper_1", "whisper-1", "model"),  # only declared model
+    ("JevAskYesNo", "gtc_jev_preview", "jev-preview", "model"),
+    ("JevPickOne", "gtc_jev_preview", "jev-preview", "model"),
+    ("JevRate", "gtc_jev_preview", "jev-preview", "model"),
     ("ElevenLabsTextToSpeechGeneration", "gtc_eleven_multilingual_v2", "eleven_multilingual_v2", "model"),
     (
         "OmnihumanSubjectRecognition",
