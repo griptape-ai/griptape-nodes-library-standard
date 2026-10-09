@@ -91,6 +91,12 @@ class TestGroupByKey:
         with pytest.raises(TypeError, match="item 0 is a list"):
             node.process()
 
+    @pytest.mark.parametrize("items", ["null", "0", "false", "5", "true", '"text"', "not json"])
+    def test_scalar_or_non_json_items_string_raises(self, node: GroupByKey, items: str) -> None:
+        node.parameter_values["items"] = items
+        with pytest.raises(TypeError, match="items is a"):
+            node.process()
+
     def test_non_json_string_item_raises(self, node: GroupByKey) -> None:
         node.parameter_values["items"] = ["{not json"]
         with pytest.raises(TypeError, match="item 0 is a str"):

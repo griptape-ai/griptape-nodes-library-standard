@@ -60,9 +60,13 @@ class GroupByKey(DataNode):
             return value
 
     def _group(self) -> dict[str, list[Any]]:
-        items = self._decode_json(self.get_parameter_value("items")) or []
+        raw_items = self.get_parameter_value("items") or []
+        items = self._decode_json(raw_items)
         if isinstance(items, dict):
             items = [items]
+        if not isinstance(items, list):
+            msg = f"{self.name}: items is a {type(items).__name__}, not a list of dictionaries."
+            raise TypeError(msg)
         field = (self.get_parameter_value("group_by") or "").strip()
 
         groups: dict[str, list[Any]] = {}
