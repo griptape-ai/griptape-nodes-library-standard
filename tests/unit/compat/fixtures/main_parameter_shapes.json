@@ -1,0 +1,6005 @@
+{
+ "Agent": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Agent"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "agent",
+    "output_type": "Agent",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Agent"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "model_provider",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str",
+     "Prompt Model Config"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": {},
+    "element": "ParameterJson",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "agent_memory",
+    "output_type": "json",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "json"
+   },
+   {
+    "default_value": "",
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "prompt",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "",
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "additional_context",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": [],
+    "element": "ParameterList",
+    "input_types": [
+     "list[Tool]",
+     "list[list[Tool]]",
+     "list"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "tools",
+    "output_type": "list[Tool]",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "list[Tool]"
+   },
+   {
+    "default_value": [],
+    "element": "ParameterList",
+    "input_types": [
+     "list[str]",
+     "list[Ruleset]",
+     "list[list[Ruleset]]",
+     "list"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "rulesets",
+    "output_type": "list[str]",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "list[str]"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "json"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "output_schema",
+    "output_type": "json",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "json"
+   },
+   {
+    "default_value": "",
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "output",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "ParameterGroup",
+    "name": "Logs",
+    "path": ""
+   },
+   {
+    "default_value": false,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "include_details",
+    "output_type": "bool",
+    "parent_group_name": "Logs",
+    "path": "/Logs",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "logs",
+    "output_type": "str",
+    "parent_group_name": "Logs",
+    "path": "/Logs",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   }
+  ],
+  "file": "griptape_nodes_library/agents/agent.py"
+ },
+ "AgentToTool": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Agent"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "agent",
+    "output_type": "Agent",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Agent"
+   },
+   {
+    "default_value": "Agent Tool",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "name",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "description",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": false,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "off_prompt",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Tool"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "tool",
+    "output_type": "Tool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Tool"
+   }
+  ],
+  "file": "griptape_nodes_library/convert/agent_to_tool.py"
+ },
+ "AmazonBedrockPrompt": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Prompt Model Config"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "prompt_model_config",
+    "output_type": "Prompt Model Config",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": false,
+    "settable": true,
+    "type": "Prompt Model Config"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "message",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": 0.1,
+    "element": "Parameter",
+    "input_types": [
+     "float"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "temperature",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": 2,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_attempts_on_fail",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "use_native_tools",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "default_value": -1,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_tokens",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "stream",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "element": "ParameterMessage",
+    "name": "model_deprecation_notice",
+    "path": ""
+   }
+  ],
+  "file": "griptape_nodes_library/config/prompt/amazon_bedrock_prompt.py"
+ },
+ "AnthropicPrompt": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Prompt Model Config"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "prompt_model_config",
+    "output_type": "Prompt Model Config",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": false,
+    "settable": true,
+    "type": "Prompt Model Config"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "message",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": 0.1,
+    "element": "Parameter",
+    "input_types": [
+     "float"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "temperature",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": 2,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_attempts_on_fail",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": 0.9,
+    "element": "Parameter",
+    "input_types": [
+     "float"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "top_p",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": 50,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "top_k",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "use_native_tools",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "default_value": -1,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_tokens",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "stream",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   }
+  ],
+  "file": "griptape_nodes_library/config/prompt/anthropic_prompt.py"
+ },
+ "Askulator": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "instruction",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "result",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "output",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   }
+  ],
+  "file": "griptape_nodes_library/number/askulator.py"
+ },
+ "Calculator": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Tool"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "tool",
+    "output_type": "Tool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Tool"
+   },
+   {
+    "default_value": false,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "off_prompt",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   }
+  ],
+  "file": "griptape_nodes_library/tools/calculator_tool.py"
+ },
+ "ClearAgentMemory": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Agent"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "agent",
+    "output_type": "Agent",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Agent"
+   }
+  ],
+  "file": "griptape_nodes_library/agents/memory/clear_agent_memory.py"
+ },
+ "CoherePrompt": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Prompt Model Config"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "prompt_model_config",
+    "output_type": "Prompt Model Config",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": false,
+    "settable": true,
+    "type": "Prompt Model Config"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "message",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": 0.1,
+    "element": "Parameter",
+    "input_types": [
+     "float"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "temperature",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": 2,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_attempts_on_fail",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": 0.9,
+    "element": "Parameter",
+    "input_types": [
+     "float"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "p",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": 50,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "k",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "use_native_tools",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "default_value": -1,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_tokens",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "stream",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   }
+  ],
+  "file": "griptape_nodes_library/config/prompt/cohere_prompt.py"
+ },
+ "CreateAgentSchema": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "failure",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": "Custom",
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "example_template",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "{}",
+    "element": "ParameterJson",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "example",
+    "output_type": "json",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "json"
+   },
+   {
+    "default_value": "",
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "ruleset_example",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Ruleset"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "agent_ruleset",
+    "output_type": "Ruleset",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Ruleset"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterJson",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "schema",
+    "output_type": "json",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "json"
+   },
+   {
+    "element": "ParameterGroup",
+    "name": "Status",
+    "path": ""
+   },
+   {
+    "default_value": false,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "was_successful",
+    "output_type": "bool",
+    "parent_group_name": "Status",
+    "path": "/Status",
+    "serializable": true,
+    "settable": false,
+    "type": "bool"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "result_details",
+    "output_type": "str",
+    "parent_group_name": "Status",
+    "path": "/Status",
+    "serializable": true,
+    "settable": false,
+    "type": "str"
+   }
+  ],
+  "file": "griptape_nodes_library/json/json_schema_from_example.py"
+ },
+ "DateAndTime": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "prompt",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "Jun 15, 2024",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "format",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "custom_format",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "output",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   }
+  ],
+  "file": "griptape_nodes_library/text/date_and_time.py"
+ },
+ "DateTime": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Tool"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "tool",
+    "output_type": "Tool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Tool"
+   },
+   {
+    "default_value": false,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "off_prompt",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   }
+  ],
+  "file": "griptape_nodes_library/tools/date_time_tool.py"
+ },
+ "DescribeImage": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Agent"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "agent",
+    "output_type": "Agent",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Agent"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "model_provider",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str",
+     "Prompt Model Config"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterList",
+    "input_types": [
+     "list[ImageUrlArtifact]",
+     "list[ImageArtifact]",
+     "list[str]",
+     "list"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "images",
+    "output_type": "list[ImageUrlArtifact]",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "list[ImageUrlArtifact]"
+   },
+   {
+    "default_value": "",
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "prompt",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": true,
+    "element": "ParameterBool",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "description_only",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterJson",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "output_schema",
+    "output_type": "json",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "json"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "output",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "ImageUrlArtifact",
+     "ImageArtifact"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "image",
+    "output_type": "ImageUrlArtifact",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "ImageUrlArtifact"
+   }
+  ],
+  "file": "griptape_nodes_library/image/describe_image.py"
+ },
+ "DisplayAgentMemory": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Agent"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "agent",
+    "output_type": "Agent",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Agent"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterJson",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "memory",
+    "output_type": "json",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "json"
+   }
+  ],
+  "file": "griptape_nodes_library/agents/memory/display_agent_memory.py"
+ },
+ "EvaluateTextResult": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "element": "ParameterMessage",
+    "name": "Testing Inputs",
+    "path": ""
+   },
+   {
+    "default_value": "Choose a preset..",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "Examples",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "input",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "expected_output",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "actual_output",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "criteria",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "ParameterMessage",
+    "name": "Review Results",
+    "path": ""
+   },
+   {
+    "default_value": 0.0,
+    "element": "Parameter",
+    "input_types": [
+     "float"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "score",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": "",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "reason",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   }
+  ],
+  "file": "griptape_nodes_library/text/evaluate_text_result.py"
+ },
+ "FileManager": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Tool"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "tool",
+    "output_type": "Tool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Tool"
+   },
+   {
+    "default_value": false,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "off_prompt",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "default_value": "Workspace Directory",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "file_location",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   }
+  ],
+  "file": "griptape_nodes_library/tools/file_manager_tool.py"
+ },
+ "GenerateImage": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Agent"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "agent",
+    "output_type": "Agent",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Agent"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str",
+     "Image Generation Driver"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "",
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "prompt",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "1024x1024",
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "image_size",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": false,
+    "element": "ParameterBool",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "enhance_prompt",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterImage",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "output",
+    "output_type": "ImageUrlArtifact",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": false,
+    "type": "ImageUrlArtifact"
+   },
+   {
+    "default_value": "generated.png",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "output_file",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "ParameterGroup",
+    "name": "Logs",
+    "path": ""
+   },
+   {
+    "default_value": false,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "include_details",
+    "output_type": "bool",
+    "parent_group_name": "Logs",
+    "path": "/Logs",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "logs",
+    "output_type": "str",
+    "parent_group_name": "Logs",
+    "path": "/Logs",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   }
+  ],
+  "file": "griptape_nodes_library/image/create_image.py"
+ },
+ "GriptapeCloudImage": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Image Generation Driver"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "image_model_config",
+    "output_type": "Image Generation Driver",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": false,
+    "settable": true,
+    "type": "Image Generation Driver"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "message",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "1024x1024",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "image_size",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "medium",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "quality",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   }
+  ],
+  "file": "griptape_nodes_library/config/image/griptape_cloud_image_driver.py"
+ },
+ "GriptapeCloudPrompt": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Prompt Model Config"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "prompt_model_config",
+    "output_type": "Prompt Model Config",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": false,
+    "settable": true,
+    "type": "Prompt Model Config"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "message",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": 0.1,
+    "element": "Parameter",
+    "input_types": [
+     "float"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "temperature",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": 2,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_attempts_on_fail",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": 0.9,
+    "element": "Parameter",
+    "input_types": [
+     "float"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "top_p",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "use_native_tools",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "default_value": -1,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_tokens",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "stream",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   }
+  ],
+  "file": "griptape_nodes_library/config/prompt/griptape_cloud_prompt.py"
+ },
+ "GrokImage": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Image Generation Driver"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "image_model_config",
+    "output_type": "Image Generation Driver",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": false,
+    "settable": true,
+    "type": "Image Generation Driver"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "message",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   }
+  ],
+  "file": "griptape_nodes_library/config/image/grok_image_driver.py"
+ },
+ "GrokPrompt": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Prompt Model Config"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "prompt_model_config",
+    "output_type": "Prompt Model Config",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": false,
+    "settable": true,
+    "type": "Prompt Model Config"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "message",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": 0.1,
+    "element": "Parameter",
+    "input_types": [
+     "float"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "temperature",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": 2,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_attempts_on_fail",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": 0.9,
+    "element": "Parameter",
+    "input_types": [
+     "float"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "top_p",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "use_native_tools",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "default_value": -1,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_tokens",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "stream",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   }
+  ],
+  "file": "griptape_nodes_library/config/prompt/grok_prompt.py"
+ },
+ "GroqPrompt": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Prompt Model Config"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "prompt_model_config",
+    "output_type": "Prompt Model Config",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": false,
+    "settable": true,
+    "type": "Prompt Model Config"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "message",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": 0.1,
+    "element": "Parameter",
+    "input_types": [
+     "float"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "temperature",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": 2,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_attempts_on_fail",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": 0.9,
+    "element": "Parameter",
+    "input_types": [
+     "float"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "top_p",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "use_native_tools",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "default_value": -1,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_tokens",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "stream",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   }
+  ],
+  "file": "griptape_nodes_library/config/prompt/groq_prompt.py"
+ },
+ "MCPTaskNode": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "failure",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "mcp_server_name",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Agent"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "agent",
+    "output_type": "Agent",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Agent"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "model_provider",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str",
+     "Prompt Model Config"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": 20,
+    "element": "ParameterInt",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_subtasks",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "prompt",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterList",
+    "input_types": [
+     "list[any]",
+     "list"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "context",
+    "output_type": "list[any]",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "list[any]"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "output",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "ParameterGroup",
+    "name": "Status",
+    "path": ""
+   },
+   {
+    "default_value": false,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "was_successful",
+    "output_type": "bool",
+    "parent_group_name": "Status",
+    "path": "/Status",
+    "serializable": true,
+    "settable": false,
+    "type": "bool"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "result_details",
+    "output_type": "str",
+    "parent_group_name": "Status",
+    "path": "/Status",
+    "serializable": true,
+    "settable": false,
+    "type": "str"
+   }
+  ],
+  "file": "griptape_nodes_library/tasks/mcp_task.py"
+ },
+ "MCPToolNode": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": false,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "off_prompt",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "mcp_server_name",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Tool"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "tool",
+    "output_type": "Tool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Tool"
+   }
+  ],
+  "file": "griptape_nodes_library/tools/mcp_tool.py"
+ },
+ "NimPrompt": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Prompt Model Config"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "prompt_model_config",
+    "output_type": "Prompt Model Config",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": false,
+    "settable": true,
+    "type": "Prompt Model Config"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "message",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": 0.1,
+    "element": "Parameter",
+    "input_types": [
+     "float"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "temperature",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": 2,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_attempts_on_fail",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": 0.9,
+    "element": "Parameter",
+    "input_types": [
+     "float"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "top_p",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "use_native_tools",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "default_value": -1,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_tokens",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "stream",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   }
+  ],
+  "file": "griptape_nodes_library/config/prompt/nim_prompt.py"
+ },
+ "OllamaPrompt": {
+  "elements": [
+   {
+    "element": "ParameterMessage",
+    "name": "install_models_message",
+    "path": ""
+   },
+   {
+    "element": "ParameterMessage",
+    "name": "install_ollama_message",
+    "path": ""
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Prompt Model Config"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "prompt_model_config",
+    "output_type": "Prompt Model Config",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": false,
+    "settable": true,
+    "type": "Prompt Model Config"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "ParameterGroup",
+    "name": "connection_settings",
+    "path": ""
+   },
+   {
+    "default_value": "http://127.0.0.1",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "base_url",
+    "output_type": "str",
+    "parent_group_name": "connection_settings",
+    "path": "/connection_settings",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "11434",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "port",
+    "output_type": "str",
+    "parent_group_name": "connection_settings",
+    "path": "/connection_settings",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "message",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": 0.1,
+    "element": "Parameter",
+    "input_types": [
+     "float"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "temperature",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": 2,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_attempts_on_fail",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "use_native_tools",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "default_value": -1,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_tokens",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "stream",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   }
+  ],
+  "file": "griptape_nodes_library/config/prompt/ollama_prompt_driver.py"
+ },
+ "OpenAiImage": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Image Generation Driver"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "image_model_config",
+    "output_type": "Image Generation Driver",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": false,
+    "settable": true,
+    "type": "Image Generation Driver"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "message",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "1024x1024",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "image_size",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "vivid",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "style",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "low",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "quality",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "opaque",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "background",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "low",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "moderation",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "png",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "output_format",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": 80,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "output_compression",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   }
+  ],
+  "file": "griptape_nodes_library/config/image/openai_image_driver.py"
+ },
+ "OpenAiPrompt": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Prompt Model Config"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "prompt_model_config",
+    "output_type": "Prompt Model Config",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": false,
+    "settable": true,
+    "type": "Prompt Model Config"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "message",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": 0.1,
+    "element": "Parameter",
+    "input_types": [
+     "float"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "temperature",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": 2,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_attempts_on_fail",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": 0.9,
+    "element": "Parameter",
+    "input_types": [
+     "float"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "top_p",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "use_native_tools",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "default_value": -1,
+    "element": "Parameter",
+    "input_types": [
+     "int"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "max_tokens",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": true,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "stream",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   }
+  ],
+  "file": "griptape_nodes_library/config/prompt/openai_prompt.py"
+ },
+ "RandomText": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": "",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "input_text",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": false,
+    "element": "ParameterBool",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "randomize_seed",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "default_value": 42,
+    "element": "ParameterInt",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "seed",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": "word",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "selection_type",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "output",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   }
+  ],
+  "file": "griptape_nodes_library/text/random_text.py"
+ },
+ "ReplaceItemInAgentMemory": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Agent"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "agent",
+    "output_type": "Agent",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Agent"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "memory_to_replace",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "orig_output",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "new_input",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "new_output",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   }
+  ],
+  "file": "griptape_nodes_library/agents/memory/replace_item_in_agent_memory.py"
+ },
+ "Ruleset": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": "Behavior",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "name",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "rules",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Ruleset"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "ruleset",
+    "output_type": "Ruleset",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Ruleset"
+   }
+  ],
+  "file": "griptape_nodes_library/rules/create_ruleset.py"
+ },
+ "RulesetList": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Ruleset"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "ruleset_1",
+    "output_type": "Ruleset",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Ruleset"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Ruleset"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "ruleset_2",
+    "output_type": "Ruleset",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Ruleset"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Ruleset"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "ruleset_3",
+    "output_type": "Ruleset",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Ruleset"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Ruleset"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "ruleset_4",
+    "output_type": "Ruleset",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Ruleset"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "list[Ruleset]"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "rulesets",
+    "output_type": "list[Ruleset]",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "list[Ruleset]"
+   }
+  ],
+  "file": "griptape_nodes_library/rules/ruleset_list.py"
+ },
+ "ScrapeWeb": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "prompt",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "output",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   }
+  ],
+  "file": "griptape_nodes_library/text/scrape_web.py"
+ },
+ "SearchWeb": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "prompt",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": false,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "summarize",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "DuckDuckGo",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "search_engine",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "ParameterMessage",
+    "name": "api_keys_message",
+    "path": ""
+   },
+   {
+    "default_value": "",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "output",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   }
+  ],
+  "file": "griptape_nodes_library/text/search_web.py"
+ },
+ "SplitVideo": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "failure",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterVideo",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "video",
+    "output_type": "VideoUrlArtifact",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "VideoUrlArtifact"
+   },
+   {
+    "default_value": "timecode",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "split_by",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "00:00:00:00-00:01:00:00",
+    "element": "Parameter",
+    "input_types": [
+     "str",
+     "json"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "timecodes",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": "0-100",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "frame_ranges",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterList",
+    "input_types": [
+     "list[VideoUrlArtifact]",
+     "list"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "split_videos",
+    "output_type": "list[VideoUrlArtifact]",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "list[VideoUrlArtifact]"
+   },
+   {
+    "default_value": "segment.mp4",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "output_file",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "ParameterGroup",
+    "name": "Logs",
+    "path": ""
+   },
+   {
+    "default_value": null,
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "logs",
+    "output_type": "str",
+    "parent_group_name": "Logs",
+    "path": "/Logs",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "ParameterGroup",
+    "name": "Status",
+    "path": ""
+   },
+   {
+    "default_value": false,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "was_successful",
+    "output_type": "bool",
+    "parent_group_name": "Status",
+    "path": "/Status",
+    "serializable": true,
+    "settable": false,
+    "type": "bool"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "result_details",
+    "output_type": "str",
+    "parent_group_name": "Status",
+    "path": "/Status",
+    "serializable": true,
+    "settable": false,
+    "type": "str"
+   }
+  ],
+  "file": "griptape_nodes_library/video/split_video.py"
+ },
+ "SummarizeAgentMemory": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Agent"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "agent",
+    "output_type": "Agent",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Agent"
+   },
+   {
+    "default_value": "Summarize our conversation. Include specific and useful details about the conversation, but only output only the summary, no other text. Do not include this exchange as part of that summary.",
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "prompt",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "summary",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   }
+  ],
+  "file": "griptape_nodes_library/agents/memory/summarize_agent_memory.py"
+ },
+ "SummarizeText": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": "",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "prompt",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "output",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   }
+  ],
+  "file": "griptape_nodes_library/text/summarize_text_task.py"
+ },
+ "ToolList": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Tool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "tool_1",
+    "output_type": "Tool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Tool"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Tool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "tool_2",
+    "output_type": "Tool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Tool"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Tool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "tool_3",
+    "output_type": "Tool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Tool"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Tool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "tool_4",
+    "output_type": "Tool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Tool"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "list[Tool]"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "tool_list",
+    "output_type": "list[Tool]",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "list[Tool]"
+   }
+  ],
+  "file": "griptape_nodes_library/tools/tool_list.py"
+ },
+ "TranscribeAudio": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "failure",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": false,
+    "element": "ParameterBool",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "api_key_provider",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "element": "ParameterMessage",
+    "name": "api_key_provider_message",
+    "path": ""
+   },
+   {
+    "default_value": 600,
+    "element": "ParameterInt",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "timeout",
+    "output_type": "int",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "int"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Agent"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "agent",
+    "output_type": "Agent",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Agent"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterAudio",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "audio",
+    "output_type": "AudioUrlArtifact",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "AudioUrlArtifact"
+   },
+   {
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "model",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "language",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "prompt",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "element": "ParameterGroup",
+    "name": "Advanced",
+    "path": ""
+   },
+   {
+    "default_value": "json",
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "response_format",
+    "output_type": "str",
+    "parent_group_name": "Advanced",
+    "path": "/Advanced",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": 0.0,
+    "element": "ParameterFloat",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "temperature",
+    "output_type": "float",
+    "parent_group_name": "Advanced",
+    "path": "/Advanced",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterDict",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "provider_response",
+    "output_type": "dict",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "dict"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "output",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": false,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterDict",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "words",
+    "output_type": "dict",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "dict"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterDict",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "segments",
+    "output_type": "dict",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "dict"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "detected_language",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterFloat",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "duration",
+    "output_type": "float",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "float"
+   },
+   {
+    "element": "ParameterGroup",
+    "name": "Status",
+    "path": ""
+   },
+   {
+    "default_value": false,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "was_successful",
+    "output_type": "bool",
+    "parent_group_name": "Status",
+    "path": "/Status",
+    "serializable": true,
+    "settable": false,
+    "type": "bool"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "result_details",
+    "output_type": "str",
+    "parent_group_name": "Status",
+    "path": "/Status",
+    "serializable": true,
+    "settable": false,
+    "type": "str"
+   },
+   {
+    "default_value": "",
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "generation_id",
+    "output_type": "str",
+    "parent_group_name": "Status",
+    "path": "/Status",
+    "serializable": true,
+    "settable": false,
+    "type": "str"
+   },
+   {
+    "default_value": "",
+    "element": "ParameterString",
+    "input_types": [
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "generation_status",
+    "output_type": "str",
+    "parent_group_name": "Status",
+    "path": "/Status",
+    "serializable": true,
+    "settable": false,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "ParameterButton",
+    "input_types": [
+     "str",
+     "any"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "generation_refresh",
+    "output_type": "str",
+    "parent_group_name": "Status",
+    "path": "/Status",
+    "serializable": true,
+    "settable": true,
+    "type": "button"
+   }
+  ],
+  "file": "griptape_nodes_library/audio/transcribe_audio.py"
+ },
+ "WebScraper": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Tool"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "tool",
+    "output_type": "Tool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Tool"
+   },
+   {
+    "default_value": false,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "off_prompt",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   }
+  ],
+  "file": "griptape_nodes_library/tools/web_scraper_tool.py"
+ },
+ "WebSearch": {
+  "elements": [
+   {
+    "default_value": null,
+    "element": "ControlParameterInput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": false,
+    "mode_allowed_property": false,
+    "name": "exec_in",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": null,
+    "element": "ControlParameterOutput",
+    "input_types": [
+     "parametercontroltype"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "exec_out",
+    "output_type": "parametercontroltype",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "parametercontroltype"
+   },
+   {
+    "default_value": false,
+    "element": "Parameter",
+    "input_types": [
+     "bool"
+    ],
+    "mode_allowed_input": true,
+    "mode_allowed_output": true,
+    "mode_allowed_property": true,
+    "name": "off_prompt",
+    "output_type": "bool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "bool"
+   },
+   {
+    "default_value": "Exa",
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "search_engine",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "Tool"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": true,
+    "mode_allowed_property": false,
+    "name": "tool",
+    "output_type": "Tool",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "Tool"
+   }
+  ],
+  "file": "griptape_nodes_library/tools/web_search_tool.py"
+ }
+}

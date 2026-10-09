@@ -1,21 +1,21 @@
-"""Defines the AmazonBedrockPrompt node for configuring the Amazon Bedrock Prompt Driver.
+"""Defines the AmazonBedrockPrompt node for configuring a Amazon Bedrock prompt model.
 
 This module provides the `AmazonBedrockPrompt` class, which allows users
 to configure and utilize the Amazon Bedrock prompt service within the Griptape
 Nodes framework. It inherits common prompt parameters from `BasePrompt`, sets
 Amazon Bedrock specific model options, requires a Amazon API Keys via
-node configuration, and instantiates the `AmazonBedrockPromptDriver`.
+node configuration, and emits a `ModelConfig`.
 """
 
 from typing import Any
 
 import boto3  # pyright: ignore[reportMissingImports]
-from griptape.drivers.prompt.amazon_bedrock import AmazonBedrockPromptDriver as GtAmazonBedrockPromptDriver
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import Button
 
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
+from griptape_nodes_library.llm.model_config import ModelProvider
 
 # --- Constants ---
 
@@ -64,7 +64,7 @@ DEPRECATED_MODELS = {
 
 
 class AmazonBedrockPrompt(BasePrompt):
-    """Node for configuring and providing a Amazon Bedrock Chat Prompt Driver.
+    """Node for configuring a Amazon Bedrock prompt model.
 
     Inherits from `BasePrompt` to leverage common LLM parameters. This node
     customizes the available models to those supported by Amazon Bedrock,
@@ -72,11 +72,8 @@ class AmazonBedrockPrompt(BasePrompt):
     requires a Amazon Bedrock API key to be set in the node's configuration
     under the 'Amazon Bedrock' service.
 
-    The `process` method gathers the configured parameters and the API key,
-    utilizes the `_get_common_driver_args` helper from `BasePrompt`, adds
-    Amazon Bedrock specific configurations, then instantiates a
-    `AmazonBedrockPromptDriver` and assigns it to the 'prompt_model_config'
-    output parameter.
+    The `process` method turns the configured parameters into a `ModelConfig` that
+    names the secrets to use, and assigns it to the 'prompt_model_config' output parameter.
     """
 
     def __init__(self, **kwargs) -> None:
@@ -85,7 +82,7 @@ class AmazonBedrockPrompt(BasePrompt):
         Calls the superclass initializer, then modifies the inherited 'model'
         parameter to use Amazon Bedrock specific models and sets a default.
         It also removes the 'seed' parameter inherited from `BasePrompt` as it's
-        not directly supported by the Amazon Bedrock driver implementation.
+        not directly supported by the Amazon Bedrock implementation.
         """
         super().__init__(**kwargs)
 
@@ -162,43 +159,26 @@ class AmazonBedrockPrompt(BasePrompt):
         return session
 
     def process(self) -> None:
-        """Processes the node configuration to create a AmazonBedrockPromptDriver.
+        """Emits the `ModelConfig` for the selected Amazon Bedrock model.
 
-        Retrieves parameter values set on the node and the required API key from
-        the node's configuration system. It constructs the arguments dictionary
-        for the `AmazonBedrockPromptDriver`, instantiates the
-        driver, and assigns it to the 'prompt_model_config' output parameter.
+        Opens a boto3 session first so unusable AWS credentials or region fail here
+        with a clear message. The config carries the AWS secret names, not their values.
 
         Raises:
-            KeyError: If the Amazon Bedrock API key is not found in the node configuration
-                      (though `validate_before_workflow_run` should prevent this during execution).
+            RuntimeError: If the AWS session cannot be created.
         """
-        # Retrieve all parameter values set on the node UI or via input connections.
-        params = self.parameter_values
+        self.start_session()
 
-        # --- Get Common Driver Arguments ---
-        # Use the helper method from BasePrompt to get args like temperature, stream, max_attempts, etc.
-        common_args = self._get_common_driver_args(params)
-
-        # Start a session with the AWS Credentials.
-        session = self.start_session()
-
-        # --- Prepare Amazon Bedrock Specific Arguments ---
-        specific_args = {}
-
-        # Get the selected model.
-        specific_args["model"] = self.get_parameter_value("model")
-
-        # --- Combine Arguments and Instantiate Driver ---
-        # Combine common arguments with Amazon Bedrock specific arguments.
-        # Specific args take precedence if there's an overlap (though unlikely here).
-        all_kwargs = {**common_args, **specific_args}
-
-        # Create the Amazon Bedrock prompt driver instance.
-        driver = GtAmazonBedrockPromptDriver(session=session, **all_kwargs)
-
-        # Set the output parameter 'prompt_model_config'.
-        self.parameter_output_values["prompt_model_config"] = driver
+        config = self._build_model_config(
+            ModelProvider.BEDROCK,
+            self.get_parameter_value("model"),
+            options={
+                "access_key_id_secret": AWS_ACCESS_KEY_ID_ENV_VAR,
+                "secret_access_key_secret": AWS_SECRET_ACCESS_KEY_ENV_VAR,
+                "region_secret": AWS_DEFAULT_REGION_ENV_VAR,
+            },
+        )
+        self.parameter_output_values["prompt_model_config"] = config
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
         """Validates that the Amazon Bedrock API keys are configured correctly.

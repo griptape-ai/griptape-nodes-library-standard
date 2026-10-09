@@ -1,11 +1,10 @@
 from typing import Any
 
-from griptape.structures import Agent, Structure
-from griptape.tools import DateTimeTool as GtDateTimeTool
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.llm.tools import ToolType, build_toolsets
 from griptape_nodes_library.tasks.base_task import BaseTask
 
 FORMAT_CHOICES = [
@@ -77,20 +76,15 @@ class DateAndTime(BaseTask):
                 self.hide_parameter_by_name("custom_format")
         return super().after_value_set(parameter, value)
 
-    def process(self) -> AsyncResult[Structure]:
+    def process(self) -> AsyncResult[str]:
         prompt = self.get_parameter_value("prompt")
         model = self._require_permitted_model()
         date_format = self.get_parameter_value("format")
         if date_format == "Custom format":
             date_format = self.get_parameter_value("custom_format")
 
-        # Create the tool
-        tool = GtDateTimeTool()
-
-        # Run the task
-        agent = Agent(tools=[tool], prompt_driver=self.create_driver(model=model))
+        toolsets = build_toolsets([{"tool_type": ToolType.DATE_TIME}])
         user_input = f"Get date and time information for: {prompt}\n in the following format: {date_format}\nOnly return the answer, no other text."
 
         if prompt and not prompt.isspace():
-            # Run the agent asynchronously
-            yield lambda: self._process(agent, user_input, model)
+            yield lambda: self._process(user_input, model, toolsets=toolsets).text

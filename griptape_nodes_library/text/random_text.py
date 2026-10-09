@@ -4,7 +4,6 @@ import secrets
 import string
 from typing import Any
 
-from griptape.artifacts import BaseArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
@@ -12,14 +11,8 @@ from griptape_nodes.retained_mode.events.execution_events import ResolveNodeRequ
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
-from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
-from griptape_nodes_library.utils.cloud_credential_utils import (
-    missing_credential_message,
-    resolve_cloud_api_key,
-)
-from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
-from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run
+from griptape_nodes_library.llm.model_config import cloud_model_config
+from griptape_nodes_library.llm.runner import output_to_text, prompt_model
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
@@ -218,25 +211,8 @@ class RandomText(DataNode):
             )
         )
 
-        # Initialize the agent
-        self.agent = None
-        self._initialize_agent()
-
-    def _initialize_agent(self) -> None:
-        """Initialize the Griptape Agent for text generation."""
-        api_key = resolve_cloud_api_key()
-        if not api_key:
-            msg = missing_credential_message("generate random text")
-            raise KeyError(msg)
-
-        prompt_driver = GriptapeCloudPromptDriver(model=MODEL, stream=True, **cloud_driver_auth(api_key))
-        self.agent = GtAgent(prompt_driver=prompt_driver)
-
     def _generate_with_agent(self, selection_type: str, seed: int | None) -> str:
-        """Generate random content using the Griptape Agent."""
-        if not self.agent:
-            self._initialize_agent()
-
+        """Generate random content with the model."""
         # Create appropriate prompt based on selection type
         if selection_type == "sentence":
             prompt = f"Generate a random, grammatically correct sentence. Use seed {seed} for reproducibility. Return only the sentence and nothing else."
@@ -248,19 +224,12 @@ class RandomText(DataNode):
             # For character and word, fall back to simple random generation
             return self._generate_simple_content(selection_type)
 
-        # Run the agent
-        if self.agent:
-            # License-policy gate immediately before the framework driver call. RandomText has
-            # no user-facing model selection (MODEL is a fixed constant), so there is no
-            # dropdown to gate with ModelAccessComponent -- this declaration is the sole gate.
-            require_model_invocation_sync(self, MODEL)
+        # License-policy gate immediately before the model call. RandomText has
+        # no user-facing model selection (MODEL is a fixed constant), so there is no
+        # dropdown to gate with ModelAccessComponent -- this declaration is the sole gate.
+        require_model_invocation_sync(self, MODEL)
 
-            result = self.agent.run(prompt)
-            raise_if_budget_halt_in_run(result)
-            if isinstance(result, BaseArtifact):
-                return result.output.value
-            return str(result.output.value)
-        return ""
+        return output_to_text(prompt_model(cloud_model_config(MODEL), prompt))
 
     def _generate_simple_content(self, selection_type: str) -> str:
         """Generate simple random content for characters and words."""

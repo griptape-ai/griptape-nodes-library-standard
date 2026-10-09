@@ -1,10 +1,10 @@
 """Tests that ``GenerateImage.process`` declares the model invocation before
 running the model (issue #431).
 
-``GenerateImage`` runs models through a griptape framework image generation
-driver without ever declaring the call to the engine's permission layer.
+``GenerateImage`` runs models without ever declaring the call to the engine's
+permission layer.
 ``process`` now declares the invocation right before the network call, once
-the driver's model is settled, and fails closed (raises) when the declaration
+the image model is settled, and fails closed (raises) when the declaration
 is denied.
 """
 
@@ -62,7 +62,7 @@ def generate_image_node(monkeypatch: pytest.MonkeyPatch) -> GenerateImage:
     node.set_parameter_value("model", "gpt-image-1-mini")
     node.set_parameter_value("prompt", "a cat wearing a hat")
     # Leave enhance_prompt off (default) so process() reaches the image generation
-    # driver declaration on the first yield without an extra prompt-model call.
+    # declaration on the first yield without an extra prompt-model call.
     return node
 
 
@@ -91,7 +91,7 @@ def test_raises_before_running_when_declaration_is_denied(
 ) -> None:
     ran = {"called": False}
 
-    def _fake_create_image(self: GenerateImage, agent: Any, prompt: Any) -> None:  # pragma: no cover - must not run
+    def _fake_create_image(self: GenerateImage, config: Any, prompt: Any) -> None:  # pragma: no cover - must not run
         ran["called"] = True
 
     def _fake_declare(_node: GenerateImage, _api_model_id: str) -> _FakeDeclaration:
@@ -112,9 +112,9 @@ def test_declares_enhancement_invocation_before_running_when_enabled(
 ) -> None:
     """With enhance_prompt on, the prompt-enhancement call is declared first.
 
-    The enhancement runs the agent's own prompt driver (default gpt-4o), a
-    distinct invocation from the image-generation driver, so it gets its own
-    declaration before `agent.run`.
+    The enhancement runs the agent's own model (default gpt-4o), a
+    distinct invocation from the image-generation model, so it gets its own
+    declaration before the model call.
     """
     generate_image_node.set_parameter_value("enhance_prompt", True)
     declared: list[str] = []

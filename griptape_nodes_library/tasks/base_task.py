@@ -1,15 +1,14 @@
+from collections.abc import Callable, Sequence
 from typing import Any
 
-from griptape.artifacts import BaseArtifact
-from griptape.events import ActionChunkEvent, FinishStructureRunEvent, StartStructureRunEvent, TextChunkEvent
-from griptape.structures import Agent, Structure
 from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
+from pydantic_ai.toolsets import AbstractToolset
 
-from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
-from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
-from griptape_nodes_library.utils.error_utils import raise_if_budget_halt_in_run
+from griptape_nodes_library.llm.model_config import cloud_model_config
+from griptape_nodes_library.llm.runner import Prompt
+from griptape_nodes_library.llm.task_support import TaskRunResult, run_task_agent
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
@@ -40,8 +39,6 @@ LEGACY_MODEL_VALUES = {
 
 
 class BaseTask(ControlNode):
-    """Base task node for creating Griptape Tasks that can run on their own."""
-
     def __init__(self, name: str, metadata: dict | None = None) -> None:
         super().__init__(name, metadata)
         # Installed by `_add_model_parameter`. Every task node calls it, but where the
@@ -91,38 +88,48 @@ class BaseTask(ControlNode):
         return self._model_access.selected_value or ""
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        """Keep the model dropdown's denial badge in step with the selection."""
         if self._model_access is not None:
             self._model_access.on_value_set(parameter, value)
         return super().after_value_set(parameter, value)
 
-    def create_driver(self, model: str = "gpt-4.1") -> GriptapeCloudPromptDriver:
-        return GriptapeCloudPromptDriver(
-            model=model,
-            stream=True,
-            **cloud_driver_auth(),
-        )
-
-    def _process(self, agent: Agent, prompt: BaseArtifact | str, model: str) -> Structure:
-        # License-policy gate immediately before the framework driver call. Shared by every
-        # subclass that runs its agent through this method (a subclass that invokes its own
-        # driver call directly -- e.g. bypassing this method -- must declare at its own site
-        # instead; see that subclass for its own declaration).
+    def _process(  # noqa: PLR0913
+        self,
+        prompt: Prompt | None,
+        model: str,
+        *,
+        instructions: str | None = None,
+        rulesets: Sequence[dict] = (),
+        toolsets: Sequence[AbstractToolset[Any]] = (),
+        output_type: Any = str,
+        on_text: Callable[[str], None] | None = None,
+        on_tool_call: Callable[[str, str], None] | None = None,
+        stream_output: bool = True,
+    ) -> TaskRunResult:
+        """Run `model` on `prompt`, streaming its text into `output` unless `on_text` or `stream_output=False` says otherwise."""
+        # License-policy gate immediately before the model call. Shared by every subclass
+        # that runs its agent through this method (a subclass that calls the model
+        # directly must declare at its own site instead; see that subclass).
         require_model_invocation_sync(self, model)
 
-        args = [prompt] if prompt else []
-        for event in agent.run_stream(
-            *args, event_types=[StartStructureRunEvent, TextChunkEvent, ActionChunkEvent, FinishStructureRunEvent]
-        ):
-            if isinstance(event, TextChunkEvent):
-                self.append_value_to_parameter("output", value=event.token)
-        raise_if_budget_halt_in_run(agent)
+        if on_text is None and stream_output:
+            on_text = self._append_to_output
 
-        return agent
+        return run_task_agent(
+            cloud_model_config(model),
+            prompt or None,
+            instructions=instructions,
+            rulesets=rulesets,
+            toolsets=toolsets,
+            output_type=output_type,
+            on_text=on_text,
+            on_tool_call=on_tool_call,
+        )
 
-    def process(self) -> AsyncResult[Structure]:
-        # Base implementation returns an empty Agent
-        def _process() -> Structure:
-            return Agent()
+    def _append_to_output(self, token: str) -> None:
+        self.append_value_to_parameter("output", value=token)
 
-        yield _process
+    def _set_output(self, value: str) -> None:
+        self.publish_update_to_parameter("output", value)
+
+    def process(self) -> AsyncResult[str]:
+        yield lambda: ""

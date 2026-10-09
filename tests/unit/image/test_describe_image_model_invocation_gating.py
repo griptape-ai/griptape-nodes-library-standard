@@ -1,10 +1,8 @@
 """Tests that ``DescribeImage.process`` declares the model invocation before
 running the model (issue #431).
 
-``DescribeImage`` runs models through a griptape framework prompt driver
-without ever declaring the call to the engine's permission layer. ``process``
-now declares the invocation right before the network call, once the driver's
-model is settled, and fails closed (raises) when the declaration is denied.
+``process`` declares the invocation right before the network call, once the
+model to run is settled, and fails closed (raises) when the declaration is denied.
 """
 
 from __future__ import annotations
@@ -12,12 +10,17 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
+from griptape.artifacts import ImageArtifact
 from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.node_library.library_registry import LibraryRegistry
 
 import griptape_nodes_library.image.describe_image as describe_image_module
 import griptape_nodes_library.utils.model_invocation as model_invocation_module
 from griptape_nodes_library.image.describe_image import DescribeImage
+from griptape_nodes_library.llm.agent_state import AgentState
+from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
+from griptape_nodes_library.llm.models import override_model
+from griptape_nodes_library.llm.testing import text_model
 
 LIBRARY_NAME = "Griptape Nodes Library"
 
@@ -71,7 +74,7 @@ def describe_image_node(monkeypatch: pytest.MonkeyPatch) -> DescribeImage:
     _stub_secret(monkeypatch, "gt-cloud-key")
     node = cast(DescribeImage, _create_node("DescribeImage"))
     node.set_parameter_value("model", "gpt-5.2")
-    _stub_images(node, monkeypatch, [object()])
+    _stub_images(node, monkeypatch, [ImageArtifact(b"\x89PNG", format="png", width=1, height=1)])
     return node
 
 
@@ -87,8 +90,9 @@ def test_declares_invocation_with_selected_model_before_running(
 
     monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", _fake_declare)
 
-    gen = describe_image_node.process()
-    runner = next(gen)
+    with override_model(text_model("a cat")):
+        gen = describe_image_node.process()
+        runner = next(gen)
 
     assert captured["api_model_id"] == "gpt-5.2"
     assert captured["node"] is describe_image_node
@@ -103,9 +107,10 @@ def test_raises_before_running_when_declaration_is_denied(
 
     monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", _fake_declare)
 
-    gen = describe_image_node.process()
-    with pytest.raises(RuntimeError, match="denied by policy"):
-        next(gen)
+    with override_model(text_model("a cat")):
+        gen = describe_image_node.process()
+        with pytest.raises(RuntimeError, match="denied by policy"):
+            next(gen)
 
 
 def test_declares_connected_agents_model_over_stale_dropdown_value(
@@ -115,19 +120,11 @@ def test_declares_connected_agents_model_over_stale_dropdown_value(
 
     The node's own `model` dropdown keeps its last value when an upstream Agent
     is connected -- the parameter is hidden, not cleared -- so the declaration
-    must read the model from the restored agent's task driver, not from the
+    must read the model from the agent's model config, not from the
     stale parameter value.
     """
-    from griptape.drivers.prompt.griptape_cloud import GriptapeCloudPromptDriver
-    from griptape.structures import Agent as GtStructureAgent
-
-    from griptape_nodes_library.utils.agent_utils import wrap_agent
-
-    # Restoring the wrapper rebuilds a GriptapeCloudPromptDriver, whose api_key
-    # default reads this env var.
-    monkeypatch.setenv("GT_CLOUD_API_KEY", "fake-key")
-    upstream = GtStructureAgent(prompt_driver=GriptapeCloudPromptDriver(model="gpt-4.1", api_key="fake-key"))
-    describe_image_node.set_parameter_value("agent", wrap_agent(upstream.to_dict(), [], []))
+    upstream = AgentState(model=ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model="gpt-4.1"))
+    describe_image_node.set_parameter_value("agent", upstream.to_wire())
     # The dropdown still holds its previous selection (set in the fixture).
     assert describe_image_node.get_parameter_value("model") == "gpt-5.2"
 
@@ -139,7 +136,8 @@ def test_declares_connected_agents_model_over_stale_dropdown_value(
 
     monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", _fake_declare)
 
-    gen = describe_image_node.process()
-    next(gen)
+    with override_model(text_model("a cat")):
+        gen = describe_image_node.process()
+        next(gen)
 
     assert captured["api_model_id"] == "gpt-4.1"

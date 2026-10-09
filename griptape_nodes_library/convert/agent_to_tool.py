@@ -3,6 +3,9 @@ from typing import Any
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 
+from griptape_nodes_library.llm.agent_state import AgentState
+from griptape_nodes_library.llm.tools import ToolType
+
 placeholder_description = "Tool created from an Agent"
 
 
@@ -67,7 +70,8 @@ class AgentToTool(DataNode):
                 type="bool",
                 output_type="bool",
                 default_value=False,
-                tooltip="",
+                tooltip="Ignored. Kept so saved workflows load.",
+                ui_options={"hide": True},
             )
         )
         self.add_parameter(
@@ -94,11 +98,11 @@ class AgentToTool(DataNode):
             self.parameter_output_values["tool"] = None
             return
 
-        # Store the agent wrapper dict directly — it's already serializable.
-        # build_tool_from_config in agent_utils rebuilds the live StructureRunTool at run time.
+        # Store the agent wire (normalized, so older agent formats and their secrets don't leak
+        # through). `build_toolsets` rebuilds a runnable agent tool from it at run time.
         self.parameter_output_values["tool"] = {
-            "tool_type": "AgentTool",
-            "agent_dict": agent,
+            "tool_type": ToolType.AGENT_TOOL.value,
+            "agent_dict": AgentState.from_wire(agent).to_wire(),
             "name": name,
             "description": description,
             "off_prompt": off_prompt,

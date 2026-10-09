@@ -1,14 +1,11 @@
 from typing import Any
 
-from griptape.drivers import DuckDuckGoWebSearchDriver, ExaWebSearchDriver, GoogleWebSearchDriver
-from griptape.structures import Agent, Structure
-from griptape.tasks import PromptTask
-from griptape.tools import WebSearchTool
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.llm.tools import ToolType, build_toolsets, web_search_output
 from griptape_nodes_library.tasks.base_task import BaseTask
 
 SEARCH_ENGINE_MAP = {
@@ -80,20 +77,6 @@ class SearchWeb(BaseTask):
             )
         )
 
-    def _duck_duck_go_driver(self) -> DuckDuckGoWebSearchDriver:
-        return DuckDuckGoWebSearchDriver()
-
-    def _google_driver(self) -> GoogleWebSearchDriver:
-        return GoogleWebSearchDriver(
-            api_key=GriptapeNodes.SecretsManager().get_secret("GOOGLE_API_KEY"),
-            search_id=GriptapeNodes.SecretsManager().get_secret("GOOGLE_API_SEARCH_ID"),
-        )
-
-    def _exa_driver(self) -> ExaWebSearchDriver:
-        return ExaWebSearchDriver(
-            api_key=GriptapeNodes.SecretsManager().get_secret("EXA_API_KEY"),
-        )
-
     def check_api_keys(self) -> bool:
         search_engine = self.get_parameter_value("search_engine")
         api_keys = SEARCH_ENGINE_MAP[search_engine]["api_keys"]
@@ -129,37 +112,29 @@ class SearchWeb(BaseTask):
             return [ValueError("Please ensure you have set appropriate API keys for the selected search engine.")]
         return None
 
-    def process(self) -> AsyncResult[Structure]:
+    def process(self) -> AsyncResult[str]:
         prompt = self.get_parameter_value("prompt")
         search_engine = self.get_parameter_value("search_engine")
+        summarize = self.get_parameter_value("summarize")
         model = self._require_permitted_model()
 
-        if search_engine == "DuckDuckGo":
-            driver = self._duck_duck_go_driver()
-        elif search_engine == "Google":
-            driver = self._google_driver()
-        elif search_engine == "Exa":
-            driver = self._exa_driver()
-        else:
+        if search_engine not in SEARCH_ENGINES:
             msg = f"Invalid search engine: {search_engine}"
             raise ValueError(msg)
 
-        # Create the tool
-        tool = WebSearchTool(web_search_driver=driver)
-        task = PromptTask(
-            tools=[tool],
-            reflect_on_tool_use=self.get_parameter_value("summarize"),
-            # Not a bare GriptapeCloudPromptDriver: create_driver resolves the credential
-            # License-first and attaches attribution. The bare constructor reads os.environ,
-            # which the engine plants as "", so a license-only user gets a 401.
-            prompt_driver=self.create_driver(model),
-        )
-
-        agent = Agent(tasks=[task])
-        # Run the task
         user_input = f"Search the web for {prompt}"
         if prompt and not prompt.isspace():
-            # Run the agent asynchronously
-            yield lambda: self._process(agent, user_input, model)
 
-        self.parameter_output_values["output"] = str(agent.output)
+            def _process() -> str:
+                if summarize:
+                    toolsets = build_toolsets([{"tool_type": ToolType.WEB_SEARCH, "engine": search_engine}])
+                    result = self._process(user_input, model, toolsets=toolsets)
+                    # Streaming appended any pre-tool preamble; keep only the final answer.
+                    self._set_output(result.text)
+                    return result.text
+                output_type = [web_search_output(search_engine), str]
+                result = self._process(user_input, model, output_type=output_type, stream_output=False)
+                self._set_output(result.text)
+                return result.text
+
+            yield _process

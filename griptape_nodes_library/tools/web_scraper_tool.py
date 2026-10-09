@@ -1,3 +1,4 @@
+from griptape_nodes_library.llm.tools import ToolType
 from griptape_nodes_library.tools.base_tool import BaseTool
 
 
@@ -13,4 +14,4 @@ class WebScraper(BaseTool):
 
     def process(self) -> None:
         off_prompt = self.get_parameter_value("off_prompt")
-        self.parameter_output_values["tool"] = {"tool_type": "WebScraper", "off_prompt": off_prompt}
+        self.parameter_output_values["tool"] = {"tool_type": ToolType.WEB_SCRAPER.value, "off_prompt": off_prompt}

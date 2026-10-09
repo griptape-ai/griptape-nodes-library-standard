@@ -1,29 +1,23 @@
-"""Defines the OllamaPrompt node for configuring the Ollama Prompt Driver.
+"""Defines the OllamaPrompt node for configuring an Ollama prompt model.
 
 This module provides the `OllamaPrompt` class, which allows users
 to configure and utilize the Ollama prompt service within the Griptape
 Nodes framework. It inherits common prompt parameters from `BasePrompt` and
-instantiates the `OllamaPromptDriver`.
+emits a `ModelConfig`.
 """
 
 import logging
 from typing import Any
 
-from griptape.drivers.prompt.ollama import OllamaPromptDriver as GtOllamaPromptDriver
+import httpx
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterGroup, ParameterMessage
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
+from griptape_nodes_library.llm.model_config import ModelProvider
 
 logger = logging.getLogger("griptape_nodes")
-
-try:
-    import ollama  # pyright: ignore[reportMissingImports]
-except ImportError as e:
-    msg = f"Ollama Python package not available: {e}"
-    logger.warning(msg)
-    ollama = None  # type: ignore[assignment]
 
 
 class OllamaConnectionError(Exception):
@@ -35,6 +29,7 @@ class OllamaConnectionError(Exception):
 DEFAULT_PORT = "11434"
 DEFAULT_BASE_URL = "http://127.0.0.1"
 DEFAULT_MODEL = "llama3.2"
+MODEL_LIST_TIMEOUT_SECONDS = 5.0
 REFRESH_MODELS_MESSAGE = "🔄 Refresh Models..."
 WARNING_EMOJI = "⚠️"
 # Common Ollama models - users can type their own model name as well
@@ -54,17 +49,15 @@ MODEL_CHOICES = [
 
 
 class OllamaPrompt(BasePrompt):
-    """Node for configuring and providing an Ollama Prompt Driver.
+    """Node for configuring an Ollama prompt model.
 
     Inherits from `BasePrompt` to leverage common LLM parameters. This node
     customizes the available models to common Ollama models, adds Ollama-specific
     parameters like base_url and port, and does not require an API key since
     Ollama runs locally.
 
-    The `process` method gathers the configured parameters, constructs the host URL
-    from base_url and port, utilizes the `_get_common_driver_args` helper from
-    `BasePrompt`, adds Ollama-specific configurations, then instantiates an
-    `OllamaPromptDriver` and assigns it to the 'prompt_model_config' output parameter.
+    The `process` method turns the configured parameters into a `ModelConfig` that
+    names the secrets to use, and assigns it to the 'prompt_model_config' output parameter.
     """
 
     def __init__(self, **kwargs) -> None:
@@ -198,22 +191,12 @@ class OllamaPrompt(BasePrompt):
             # Get current connection settings (may be different from defaults)
             base_url = self.get_parameter_value("base_url") or DEFAULT_BASE_URL
             port = self.get_parameter_value("port") or DEFAULT_PORT
-            host = f"{base_url}:{port}"
+            host = f"{base_url.rstrip('/')}:{port}"
 
-            # Create client with custom host if different from default
-            if ollama:
-                if host != f"{DEFAULT_BASE_URL}:{DEFAULT_PORT}":
-                    client = ollama.Client(host=host)
-                    response = client.list()
-                else:
-                    # Use default client
-                    response = ollama.list()
-            else:
-                # This should never happen since we check OLLAMA_PACKAGE_AVAILABLE first
-                msg = "Ollama module not available"
-                raise OllamaConnectionError(msg)  # noqa: TRY301
+            response = httpx.get(f"{host}/api/tags", timeout=MODEL_LIST_TIMEOUT_SECONDS)
+            response.raise_for_status()
 
-            models = [model["model"] for model in response.get("models", [])]
+            models = [model.get("model") or model["name"] for model in response.json().get("models", [])]
 
             if models:
                 # Sort models alphabetically for better UX
@@ -403,41 +386,17 @@ class OllamaPrompt(BasePrompt):
         return exceptions if exceptions else None
 
     def process(self) -> None:
-        """Processes the node configuration to create an OllamaPromptDriver.
+        """Emits the `ModelConfig` for the selected Ollama model.
 
-        Retrieves parameter values set on the node, constructs the host URL
-        from base_url and port, gets common driver arguments, adds Ollama-specific
-        configurations, instantiates the driver, and assigns it to the
-        'prompt_model_config' output parameter.
+        Builds the OpenAI-compatible endpoint (`/v1`) from the base_url and port
+        parameters. Ollama needs no API key.
         """
-        # Retrieve all parameter values set on the node UI or via input connections.
-        params = self.parameter_values
+        base_url = self.get_parameter_value("base_url") or DEFAULT_BASE_URL
+        port = self.get_parameter_value("port") or DEFAULT_PORT
 
-        # --- Get Common Driver Arguments ---
-        # Use the helper method from BasePrompt to get args like temperature, stream, max_attempts, etc.
-        common_args = self._get_common_driver_args(params)
-
-        # --- Prepare Ollama Specific Arguments ---
-        specific_args = {}
-
-        # Construct the host URL from base_url and port
-        base_url = self.get_parameter_value("base_url")
-        port = self.get_parameter_value("port")
-        specific_args["host"] = f"{base_url}:{port}"
-
-        # Get the selected model
-        specific_args["model"] = self.get_parameter_value("model")
-
-        # Note: Ollama extra_params/options can be added here in the future
-        # Currently we don't pass any additional options to Ollama
-
-        # --- Combine Arguments and Instantiate Driver ---
-        # Combine common arguments with Ollama specific arguments.
-        # Specific args take precedence if there's an overlap (though unlikely here).
-        all_kwargs = {**common_args, **specific_args}
-
-        # Create the Ollama prompt driver instance.
-        driver = GtOllamaPromptDriver(**all_kwargs)
-
-        # Set the output parameter 'prompt_model_config'.
-        self.parameter_output_values["prompt_model_config"] = driver
+        config = self._build_model_config(
+            ModelProvider.OLLAMA,
+            self.get_parameter_value("model"),
+            base_url=f"{base_url.rstrip('/')}:{port}/v1",
+        )
+        self.parameter_output_values["prompt_model_config"] = config

@@ -8,7 +8,6 @@ output without manually writing JSON schema syntax.
 import json
 from typing import Any
 
-from griptape.rules import Rule, Ruleset
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
@@ -258,25 +257,6 @@ class CreateAgentSchema(SuccessFailureNode):
         """
         super().__init__(name, metadata)
 
-        # -- Converters --
-        # Converters modify parameter values before they are used by the node's logic.
-        def convert_to_ruleset(value: str) -> Ruleset:
-            """Converts a string value to a Ruleset object.
-
-            Args:
-                value: The input string.
-
-            Returns:
-                The Ruleset object.
-            """
-            name = "schema_ruleset"
-
-            if not value:
-                return Ruleset(name=name, rules=[])
-
-            sep_rules = [Rule(rule) for rule in value.split("\n\n")]
-            return Ruleset(name=name, rules=sep_rules)
-
         self.add_parameter(
             ParameterString(
                 name="example_template",
@@ -520,7 +500,7 @@ class CreateAgentSchema(SuccessFailureNode):
     def _update_ruleset_from_example(self) -> None:
         """Update the agent_ruleset parameter from the ruleset_example value.
 
-        Creates a Ruleset object from the ruleset_example string value and sets it
+        Creates a ruleset dict from the ruleset_example string value and sets it
         to the agent_ruleset parameter. If ruleset_example is empty, clears the ruleset.
         """
         ruleset_value = self.get_parameter_value("ruleset_example")
@@ -538,7 +518,7 @@ class CreateAgentSchema(SuccessFailureNode):
             self.set_parameter_value("agent_ruleset", None)
             return
 
-        ruleset = Ruleset(name="schema_ruleset", rules=[Rule(rule) for rule in rule_strings])
+        ruleset = {"name": "schema_ruleset", "rules": rule_strings}
         self.set_parameter_value("agent_ruleset", ruleset)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
