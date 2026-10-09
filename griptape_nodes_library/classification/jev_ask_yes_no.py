@@ -3,7 +3,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import ControlParameterOutput, Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import (
+    ControlParameterOutput,
+    NodeError,
+    Parameter,
+    ParameterGroup,
+    ParameterMode,
+)
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -16,6 +22,7 @@ from griptape_nodes_library.classification.jev_common import (
     to_state,
 )
 from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.utils.node_error_utils import error_fields, error_response
 
 logger = logging.getLogger(__name__)
 
@@ -143,11 +150,11 @@ class JevAskYesNo(GriptapeProxyNode):
     async def _build_payload(self) -> dict[str, Any]:
         state = to_state(self.get_parameter_value("context"))
         if state is None:
-            raise ValueError(f"{self.name}: Context is empty.")
+            raise ValueError("'Context' is empty. Connect the text for JEV to read.")
 
         question = (self.get_parameter_value("question") or "").strip()
         if not question:
-            raise ValueError(f"{self.name}: Question is empty.")
+            raise ValueError("'Question' is empty. Write a yes/no question about the context.")
 
         noul: dict[str, Any] = {"type": "noul", "instructions": question}
         criteria: dict[str, str] = {}
@@ -160,12 +167,16 @@ class JevAskYesNo(GriptapeProxyNode):
 
         return {"state": state, "questions": {QUESTION_KEY: noul}}
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:  # noqa: ARG002
+    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         answer_data = (result_json.get("answers") or {}).get(QUESTION_KEY) or {}
         noul_value = answer_data.get("noul")
         if noul_value is None:
             self._set_safe_defaults()
-            raise RuntimeError(f"{self.name}: No answer found in JEV response.")
+            raise NodeError(
+                "JEV's response didn't include an answer. Run the node again.",
+                fields=error_fields(generation_id=generation_id),
+                response=error_response(result_json),
+            )
 
         probability = float(noul_value)
         threshold = self.get_parameter_value("threshold")

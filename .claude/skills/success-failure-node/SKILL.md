@@ -98,7 +98,7 @@ if not source_path:
 - Don't `raise` again after `_handle_failure_exception(exc)`; that defeats a wired failure edge.
 - `return` after it, so nothing falls through to `_set_status_results(was_successful=True, ...)`.
 - Only on the run path. Never raise from `after_value_set`, button callbacks, or previews.
-- The Engine Node is the one exception: it reports failed requests only as data.
+- The Engine Node is an exception: it reports failed requests only as data.
 
 For error message wording, `NodeError` attachments, and missing API keys, see the `node-errors` skill.
 

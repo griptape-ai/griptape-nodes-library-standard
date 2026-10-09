@@ -108,6 +108,8 @@ return
 - Never raise from `after_value_set`, button callbacks, or previews. Only from `process`.
 - **Exception: the Engine Node** never raises. A failed request is often the answer a workflow asked
   for, read from `was_successful`.
+- **Exception: Math Expression** returns 0.0 for an expression it can't evaluate, so a typo doesn't
+  stop the run.
 
 ## Proxy nodes
 

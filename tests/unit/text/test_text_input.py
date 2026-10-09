@@ -5,6 +5,7 @@ from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.text.create_multiline_text import TextInput
+from griptape_nodes_library.utils.split_text_utils import SplitOptions
 
 SPLIT_PARAMS = ["split_mode", "delimiter_type", "include_delimiter", "trim_whitespace", "remove_empty", "output_split"]
 
@@ -75,3 +76,28 @@ class TestTextInputSplit:
         node.set_parameter_value("remove_empty", False)
 
         assert node.parameter_output_values["output_split"] == ["a", "", "b"]
+
+    def test_failed_split_raises_when_the_node_runs(self, node: TextInput, monkeypatch: pytest.MonkeyPatch) -> None:
+        def fail(*_: object) -> list[str]:
+            msg = "bad text"
+            raise ValueError(msg)
+
+        node.set_parameter_value("split_text", True)
+        monkeypatch.setattr(SplitOptions, "split", fail)
+
+        with pytest.raises(ValueError, match="Could not split the text: bad text"):
+            node.process()
+
+    def test_failed_split_does_not_raise_when_a_value_is_set(
+        self, node: TextInput, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def fail(*_: object) -> list[str]:
+            msg = "bad text"
+            raise ValueError(msg)
+
+        node.set_parameter_value("split_text", True)
+        monkeypatch.setattr(SplitOptions, "split", fail)
+
+        node.set_parameter_value("text", "a,b")
+
+        assert node.parameter_output_values["output_split"] == []

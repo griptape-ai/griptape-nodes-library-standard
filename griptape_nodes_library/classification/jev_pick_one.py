@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -16,6 +16,7 @@ from griptape_nodes_library.classification.jev_common import (
 )
 from griptape_nodes_library.classification.row_outputs import RowOutputsMixin, parse_row
 from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.utils.node_error_utils import error_fields, error_response
 
 logger = logging.getLogger(__name__)
 
@@ -138,18 +139,16 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
             if not label:
                 continue
             if label in criteria:
-                raise ValueError(
-                    f"{self.name}: '{label}' appears more than once in Options. Each label must be unique."
-                )
+                raise ValueError(f"'{label}' appears more than once in 'Options'. Give each option a unique label.")
             criteria[label] = description
         if len(criteria) < 2:  # noqa: PLR2004
-            raise ValueError(f"{self.name}: Options needs at least two options for JEV to pick from.")
+            raise ValueError("'Options' needs at least two rows for JEV to pick from. Add another option.")
         return criteria
 
     async def _build_payload(self) -> dict[str, Any]:
         state = to_state(self.get_parameter_value("context"))
         if state is None:
-            raise ValueError(f"{self.name}: Context is empty.")
+            raise ValueError("'Context' is empty. Connect the text for JEV to read.")
 
         criteria = self._criteria()
         question = (self.get_parameter_value("question") or "").strip()
@@ -163,12 +162,16 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
 
         return {"state": state, "questions": {QUESTION_KEY: choice_q}}
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:  # noqa: ARG002
+    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         answer_data = (result_json.get("answers") or {}).get(QUESTION_KEY) or {}
         picked = answer_data.get("choice")
         if picked is None:
             self._set_safe_defaults()
-            raise RuntimeError(f"{self.name}: No choice found in JEV response.")
+            raise NodeError(
+                "JEV's response didn't include a choice. Run the node again.",
+                fields=error_fields(generation_id=generation_id),
+                response=error_response(result_json),
+            )
 
         criteria = self._criteria()
         self.parameter_output_values["confidence"] = float(answer_data.get("confidence", 0.0))

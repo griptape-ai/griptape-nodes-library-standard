@@ -65,11 +65,11 @@ class TestGroupByKey:
 
     def test_non_dict_item_raises(self, node: GroupByKey) -> None:
         node.parameter_values["items"] = [{"a": 1}, "oops"]
-        with pytest.raises(TypeError, match="item 1 is a str"):
+        with pytest.raises(TypeError, match="Item 1 in 'Items' is a str"):
             node.process()
 
     def test_missing_group_field_raises(self, node: GroupByKey) -> None:
         node.parameter_values["items"] = [{"shot": "sh010"}, {"note": "rim"}]
         node.parameter_values["group_by"] = "shot"
-        with pytest.raises(KeyError, match="item 1 has no 'shot' field"):
+        with pytest.raises(KeyError, match="Item 1 in 'Items' has no 'shot' field"):
             node.process()

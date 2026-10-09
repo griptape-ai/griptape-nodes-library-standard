@@ -62,7 +62,7 @@ class TextInput(DataNode):
             self._update_parameter_visibility()
 
         if parameter.name in {"text", self.split_text.name, *self.split_options.names}:
-            self._update_split_output()
+            self._update_split_output(raise_on_failure=False)
 
         return super().after_value_set(parameter, value)
 
@@ -77,7 +77,8 @@ class TextInput(DataNode):
 
         self.split_options.update_delimiter_visibility(self)
 
-    def _update_split_output(self) -> None:
+    def _update_split_output(self, *, raise_on_failure: bool) -> None:
+        """Update the split output. Only the process() path raises on a failed split."""
         if not self.get_parameter_value(self.split_text.name):
             # Set rather than removed so the cleared value reaches anything still connected
             self.parameter_output_values[self.output_split.name] = None
@@ -90,7 +91,10 @@ class TextInput(DataNode):
         try:
             split_result = self.split_options.split(self, text)
         except (TypeError, ValueError) as e:
-            logger.error("%s: Error splitting text: %s", self.name, e)
+            if raise_on_failure:
+                msg = f"Could not split the text: {e}"
+                raise ValueError(msg) from e
+            logger.warning("%s: Could not split the text: %s", self.name, e)
             split_result = []
 
         self.parameter_output_values[self.output_split.name] = split_result
@@ -99,4 +103,4 @@ class TextInput(DataNode):
     def process(self) -> None:
         # Simply output the default value or any updated property value
         self.parameter_output_values["text"] = self.get_parameter_value("text")
-        self._update_split_output()
+        self._update_split_output(raise_on_failure=True)
