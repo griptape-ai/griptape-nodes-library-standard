@@ -1,4 +1,6 @@
+import contextlib
 import copy
+import json
 import re
 from typing import Any
 
@@ -45,7 +47,7 @@ class JsonReplace(ControlNode):
             Parameter(
                 name="replacement_value",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                input_types=["json", "str", "dict"],
+                input_types=["json", "str", "dict", "float", "int", "bool"],
                 type="json",
                 default_value="",
                 tooltip="The new value to put at the specified path",
@@ -177,6 +179,15 @@ class JsonReplace(ControlNode):
         json_data = self.get_parameter_value("json")
         path = self.get_parameter_value("path")
         replacement_value = self.get_parameter_value("replacement_value")
+
+        # Parse JSON string if needed - failure cases first
+        if isinstance(json_data, str):
+            try:
+                json_data = json.loads(json_data)
+            except json.JSONDecodeError as e:
+                msg = f"{self.name}: Invalid JSON string provided. Failed to parse JSON: {e}. Input was: {json_data[:200]!r}"
+                raise ValueError(msg) from e
+
         return json_data, path, replacement_value
 
     def _update_output_parameter(self, result: Any) -> None:
@@ -197,7 +208,9 @@ class JsonReplace(ControlNode):
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name in ["json", "path", "replacement_value"]:
-            self._perform_replacement()
+            # Half-typed JSON is expected while editing; process() raises on a real run.
+            with contextlib.suppress(ValueError):
+                self._perform_replacement()
 
         return super().after_value_set(parameter, value)
 
