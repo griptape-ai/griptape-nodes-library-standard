@@ -63,6 +63,45 @@ class TestGroupByKey:
         node.set_parameter_value("items", ["not a dict"])
         assert node.parameter_output_values["output"] == {}
 
+    def test_decodes_json_string_items(self, node: GroupByKey) -> None:
+        node.parameter_values["items"] = ['{"Lighting": "rim"}', '{"FX": "dust"}', '{"Lighting": "moon"}']
+        node.process()
+        assert node.parameter_output_values["output"] == {"Lighting": ["rim", "moon"], "FX": ["dust"]}
+
+    def test_decodes_json_string_items_with_group_by(self, node: GroupByKey) -> None:
+        node.parameter_values["items"] = ['{"shot": "sh010", "note": "rim"}', {"shot": "sh010", "note": "grain"}]
+        node.parameter_values["group_by"] = "shot"
+        node.process()
+        assert node.parameter_output_values["output"] == {
+            "sh010": [{"shot": "sh010", "note": "rim"}, {"shot": "sh010", "note": "grain"}]
+        }
+
+    def test_decodes_whole_items_value_given_as_json_string(self, node: GroupByKey) -> None:
+        node.parameter_values["items"] = '[{"a": 1}, {"a": 2}]'
+        node.process()
+        assert node.parameter_output_values["output"] == {"a": [1, 2]}
+
+    def test_decodes_whole_items_value_given_as_json_object_string(self, node: GroupByKey) -> None:
+        node.parameter_values["items"] = '{"a": 1}'
+        node.process()
+        assert node.parameter_output_values["output"] == {"a": [1]}
+
+    def test_json_string_that_is_not_an_object_raises(self, node: GroupByKey) -> None:
+        node.parameter_values["items"] = ["[1, 2]"]
+        with pytest.raises(TypeError, match="item 0 is a list"):
+            node.process()
+
+    @pytest.mark.parametrize("items", ["null", "0", "false", "5", "true", '"text"', "not json"])
+    def test_scalar_or_non_json_items_string_raises(self, node: GroupByKey, items: str) -> None:
+        node.parameter_values["items"] = items
+        with pytest.raises(TypeError, match="items is a"):
+            node.process()
+
+    def test_non_json_string_item_raises(self, node: GroupByKey) -> None:
+        node.parameter_values["items"] = ["{not json"]
+        with pytest.raises(TypeError, match="item 0 is a str"):
+            node.process()
+
     def test_non_dict_item_raises(self, node: GroupByKey) -> None:
         node.parameter_values["items"] = [{"a": 1}, "oops"]
         with pytest.raises(TypeError, match="item 1 is a str"):
