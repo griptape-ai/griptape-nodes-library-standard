@@ -1,5 +1,5 @@
-import contextlib
 import copy
+import logging
 import re
 from typing import Any
 
@@ -10,6 +10,8 @@ from griptape_nodes.exe_types.core_types import (
 from griptape_nodes.exe_types.node_types import ControlNode
 
 from griptape_nodes_library.json.json_utils import parse_json_input
+
+logger = logging.getLogger("griptape_nodes")
 
 
 class JsonReplace(ControlNode):
@@ -201,11 +203,17 @@ class JsonReplace(ControlNode):
         # Update the output parameter
         self._update_output_parameter(result)
 
+    def _preview_replacement(self) -> None:
+        """Update the output while the user edits. Input that cannot be parsed yet leaves the output as it was."""
+        try:
+            self._perform_replacement()
+        except ValueError as e:
+            # Half-typed JSON is expected while editing. process() raises the same error on a real run.
+            logger.debug("%s: skipped preview: %s", self.name, e)
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name in ["json", "path", "replacement_value"]:
-            # Half-typed JSON is expected while editing; process() raises on a real run.
-            with contextlib.suppress(ValueError):
-                self._perform_replacement()
+            self._preview_replacement()
 
         return super().after_value_set(parameter, value)
 
