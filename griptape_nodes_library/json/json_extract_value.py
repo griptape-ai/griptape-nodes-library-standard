@@ -1,4 +1,3 @@
-import json
 from typing import Any
 
 import jmespath  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
@@ -7,6 +6,8 @@ from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.events.parameter_events import SetParameterValueRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
+from griptape_nodes_library.json.json_utils import parse_json_input
 
 
 class JsonExtractValue(DataNode):
@@ -56,16 +57,7 @@ class JsonExtractValue(DataNode):
         json_data = self.get_parameter_value("json")
         path = self.get_parameter_value("path")
 
-        # Parse JSON string if needed - failure cases first
-        if isinstance(json_data, str):
-            try:
-                json_data = json.loads(json_data)
-            except json.JSONDecodeError as e:
-                msg = f"{self.name}: Invalid JSON string provided. Failed to parse JSON: {e}. Input was: {json_data[:200]!r}"
-                raise ValueError(msg) from e
-            except TypeError as e:
-                msg = f"{self.name}: Unable to parse JSON data due to type error: {e}. Input type: {type(json_data)}, value: {json_data[:200]!r}"
-                raise ValueError(msg) from e
+        json_data = parse_json_input(self.name, json_data)
 
         # Extract value using JMESPath - failure cases first
         if not path:

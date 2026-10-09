@@ -1,4 +1,3 @@
-import json
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -14,6 +13,8 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.retained_mode.events.parameter_events import SetParameterValueRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
+
+from griptape_nodes_library.json.json_utils import parse_json_input
 
 
 @dataclass
@@ -277,15 +278,7 @@ class JsonFind(DataNode):
         return_mode = self.get_parameter_value("return_mode")
         case_sensitive = self.get_parameter_value("case_sensitive")
 
-        # Parse JSON string if needed
-        if isinstance(json_data, str):
-            try:
-                json_data = json.loads(json_data)
-            except json.JSONDecodeError as e:
-                msg = (
-                    f"JsonFind: Invalid JSON string provided. Failed to parse JSON: {e}. Input was: {json_data[:200]!r}"
-                )
-                raise ValueError(msg) from e
+        json_data = parse_json_input(self.name, json_data)
 
         # Create search criteria
         criteria = SearchCriteria(

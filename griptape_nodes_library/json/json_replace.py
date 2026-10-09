@@ -1,6 +1,5 @@
 import contextlib
 import copy
-import json
 import re
 from typing import Any
 
@@ -9,6 +8,8 @@ from griptape_nodes.exe_types.core_types import (
     ParameterMode,
 )
 from griptape_nodes.exe_types.node_types import ControlNode
+
+from griptape_nodes_library.json.json_utils import parse_json_input
 
 
 class JsonReplace(ControlNode):
@@ -180,13 +181,7 @@ class JsonReplace(ControlNode):
         path = self.get_parameter_value("path")
         replacement_value = self.get_parameter_value("replacement_value")
 
-        # Parse JSON string if needed - failure cases first
-        if isinstance(json_data, str):
-            try:
-                json_data = json.loads(json_data)
-            except json.JSONDecodeError as e:
-                msg = f"{self.name}: Invalid JSON string provided. Failed to parse JSON: {e}. Input was: {json_data[:200]!r}"
-                raise ValueError(msg) from e
+        json_data = parse_json_input(self.name, json_data)
 
         return json_data, path, replacement_value
 
