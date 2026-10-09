@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
@@ -17,6 +17,7 @@ from griptape_nodes_library.classification.jev_common import (
 )
 from griptape_nodes_library.classification.row_outputs import RowOutputsMixin, parse_row
 from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.utils.node_error_utils import error_fields, error_response
 
 logger = logging.getLogger(__name__)
 
@@ -166,14 +167,14 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
     async def _build_payload(self) -> dict[str, Any]:
         state = to_state(self.get_parameter_value("context"))
         if state is None:
-            raise ValueError(f"{self.name}: Context is empty.")
+            raise ValueError("'Context' is empty. Connect the text for JEV to read.")
 
         rows = self._rows()
         descriptions = [parse_row(text)[1] or text for _, text in rows]
         if len(descriptions) < 2:  # noqa: PLR2004
-            raise ValueError(f"{self.name}: Levels needs at least two levels for JEV to rate against.")
+            raise ValueError("'Levels' needs at least two rows for JEV to rate against. Add another level.")
         if len(descriptions) > MAX_LEVELS:
-            raise ValueError(f"{self.name}: Levels has {len(descriptions)} levels. JEV accepts up to {MAX_LEVELS}.")
+            raise ValueError(f"'Levels' has {len(descriptions)} rows. JEV accepts up to {MAX_LEVELS}; remove some.")
 
         question = (self.get_parameter_value("question") or "").strip()
         score_q: dict[str, Any] = {"type": "score", "criteria": descriptions}
@@ -182,13 +183,17 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
 
         return {"state": state, "questions": {QUESTION_KEY: score_q}}
 
-    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:  # noqa: ARG002
+    async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         self._route = None
         answer_data = (result_json.get("answers") or {}).get(QUESTION_KEY) or {}
         raw_score = answer_data.get("score")
         if raw_score is None:
             self._set_safe_defaults()
-            raise RuntimeError(f"{self.name}: No score found in JEV response.")
+            raise NodeError(
+                "JEV's response didn't include a score. Run the node again.",
+                fields=error_fields(generation_id=generation_id),
+                response=error_response(result_json),
+            )
 
         rows = self._rows()
         jev_score = float(raw_score)

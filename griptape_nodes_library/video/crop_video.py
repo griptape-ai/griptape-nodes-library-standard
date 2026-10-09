@@ -475,7 +475,6 @@ class CropVideo(BaseVideoProcessor):
             self._set_status_results(was_successful=True, result_details="Successfully cropped video")
         except Exception as e:
             error_message = str(e)
-            msg = f"{self.name}: Error cropping video: {error_message}"
-            self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
+            self.append_value_to_parameter("logs", f"ERROR: Error cropping video: {error_message}\n")
             self._set_status_results(was_successful=False, result_details=f"Video cropping failed: {error_message}")
-            self._handle_failure_exception(ValueError(msg))
+            self._handle_failure_exception(e)

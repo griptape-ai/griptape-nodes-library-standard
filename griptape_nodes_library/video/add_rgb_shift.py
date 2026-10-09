@@ -202,24 +202,24 @@ class AddRGBShift(BaseVideoProcessor):
         ]:
             value = self.get_parameter_value(param_name)
             if value is not None and (value < self.MIN_SHIFT or value > self.MAX_SHIFT):
-                msg = f"{self.name} - {param_name} must be between {self.MIN_SHIFT} and {self.MAX_SHIFT}, got {value}"
+                msg = f"'{param_name}' must be between {self.MIN_SHIFT} and {self.MAX_SHIFT}, got {value}"
                 exceptions.append(ValueError(msg))
 
         # Validate intensity
         intensity = self.get_parameter_value("intensity")
         if intensity is not None and (intensity < self.MIN_INTENSITY or intensity > self.MAX_INTENSITY):
-            msg = f"{self.name} - Intensity must be between {self.MIN_INTENSITY} and {self.MAX_INTENSITY}, got {intensity}"
+            msg = f"Intensity must be between {self.MIN_INTENSITY} and {self.MAX_INTENSITY}, got {intensity}"
             exceptions.append(ValueError(msg))
 
         # Validate tear effect parameters
         tear_position = self.get_parameter_value("tear_position")
         if tear_position is not None and (tear_position < 0.0 or tear_position > 1.0):
-            msg = f"{self.name} - Tear position must be between 0.0 and 1.0, got {tear_position}"
+            msg = f"Tear position must be between 0.0 and 1.0, got {tear_position}"
             exceptions.append(ValueError(msg))
 
         tear_offset = self.get_parameter_value("tear_offset")
         if tear_offset is not None and (tear_offset < self.MIN_TEAR_OFFSET or tear_offset > self.MAX_TEAR_OFFSET):
-            msg = f"{self.name} - Tear offset must be between {self.MIN_TEAR_OFFSET} and {self.MAX_TEAR_OFFSET}, got {tear_offset}"
+            msg = f"Tear offset must be between {self.MIN_TEAR_OFFSET} and {self.MAX_TEAR_OFFSET}, got {tear_offset}"
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None

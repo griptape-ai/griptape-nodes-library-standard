@@ -223,14 +223,12 @@ class GrokVideoGeneration(GriptapeProxyNode):
 
         prompt = (self.get_parameter_value("prompt") or "").strip()
         if not prompt:
-            exceptions.append(ValueError(f"{self.name}: Prompt is required for video generation."))
+            exceptions.append(ValueError("A prompt is required for video generation. Enter one in 'prompt'."))
 
         duration = self.get_parameter_value("duration")
         if duration is None or not self.MIN_DURATION <= int(duration) <= self.MAX_DURATION:
             exceptions.append(
-                ValueError(
-                    f"{self.name}: duration must be between {self.MIN_DURATION} and {self.MAX_DURATION} seconds."
-                )
+                ValueError(f"'duration' must be between {self.MIN_DURATION} and {self.MAX_DURATION} seconds.")
             )
 
         return exceptions if exceptions else None

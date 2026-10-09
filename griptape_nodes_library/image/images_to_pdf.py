@@ -74,7 +74,7 @@ class ImagesToPdf(ControlNode):
 
         images = self.get_parameter_list_value("images") or []
         if not images:
-            msg = f"{self.name}: Images parameter is required and cannot be empty"
+            msg = "Connect at least one image to 'Images'."
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None
@@ -93,7 +93,7 @@ class ImagesToPdf(ControlNode):
         pil_images = []
         for idx, image_artifact in enumerate(images):
             if not isinstance(image_artifact, ImageUrlArtifact):
-                msg = f"{self.name}: Item {idx} is not an ImageUrlArtifact"
+                msg = f"Item {idx + 1} in 'Images' is a {type(image_artifact).__name__}, not an image."
                 raise TypeError(msg)
 
             pil_image = load_pil_from_url(image_artifact.value)
@@ -110,7 +110,7 @@ class ImagesToPdf(ControlNode):
                 pil_images.append(pil_image)
 
         if not pil_images:
-            msg = f"{self.name}: No valid images to convert"
+            msg = "'Images' has no images to convert. Connect at least one image."
             raise ValueError(msg)
 
         # Create PDF in memory

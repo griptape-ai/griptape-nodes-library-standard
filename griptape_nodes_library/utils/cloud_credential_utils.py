@@ -32,14 +32,22 @@ from griptape_nodes.drivers.cloud_credentials import (
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
+from griptape_nodes_library.utils.node_error_utils import MissingSecretError, secret_link
+
 __all__ = [
     "MISSING_CREDENTIAL_MESSAGE",
+    "MissingCredentialError",
+    "missing_credential_error",
     "missing_credential_message",
     "resolve_cloud_api_key",
 ]
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 """Secret holding the Griptape Cloud API key. The License is checked first."""
+
+
+class MissingCredentialError(MissingSecretError):
+    """No Griptape Cloud credential was found."""
 
 
 def resolve_cloud_api_key() -> str:
@@ -65,3 +73,17 @@ def missing_credential_message(attempted: str) -> str:
             with a verb -- e.g. ``"run the Agent"`` or ``"describe an image"``.
     """
     return f"Attempted to {attempted}. Failed because {MISSING_CREDENTIAL_MESSAGE}"
+
+
+def missing_credential_error(attempted: str, *, message: str | None = None) -> MissingCredentialError:
+    """Build the NodeError for a failed action with no Cloud credential.
+
+    Carries a link to the ``GT_CLOUD_API_KEY`` secret in Settings, which the message names.
+
+    Args:
+        attempted: What the node was trying to do, as for :func:`missing_credential_message`.
+        message: Replaces the default message, for callers that add to it.
+    """
+    return MissingCredentialError(
+        message or missing_credential_message(attempted), links=[secret_link(API_KEY_ENV_VAR)]
+    )

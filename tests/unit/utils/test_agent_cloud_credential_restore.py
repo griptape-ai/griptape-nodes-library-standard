@@ -22,6 +22,7 @@ from griptape_nodes.utils.budget_refusal import BudgetExceededError
 import griptape_nodes_library.utils.agent_utils as agent_utils
 import griptape_nodes_library.utils.cloud_budget_drivers as cloud_budget_drivers
 from griptape_nodes_library.utils.agent_utils import unwrap_agent, wrap_agent
+from griptape_nodes_library.utils.cloud_credential_utils import MissingCredentialError
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 _LICENSE = "header.payload.signature"
@@ -96,13 +97,14 @@ def test_missing_credential_is_reported_from_the_unwrap(monkeypatch: pytest.Monk
     """
     _stub_resolved_credential(monkeypatch, "")
 
-    with pytest.raises(KeyError) as excinfo:
+    with pytest.raises(MissingCredentialError) as excinfo:
         unwrap_agent(wrap_agent(_cloud_agent_dict(), [], []))
 
     # Names both credentials, so a license-only user is not sent after an API key.
     message = str(excinfo.value)
     assert "license" in message.lower()
     assert "GT_CLOUD_API_KEY" in message
+    assert [link.url for link in excinfo.value.links] == ["#settings-secrets?filter=GT_CLOUD_API_KEY"]
 
 
 def test_missing_credential_does_not_raise_for_readers(monkeypatch: pytest.MonkeyPatch) -> None:

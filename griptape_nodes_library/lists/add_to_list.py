@@ -94,9 +94,7 @@ class AddToList(ControlNode):
         list_values = self.get_parameter_value("items")
         if list_values is not None and not isinstance(list_values, list):
             exceptions.append(
-                TypeError(
-                    f"AddToList node '{self.name}' expected 'items' parameter to be a list, but got {type(list_values).__name__}"
-                )
+                TypeError(f"'Items' must be a list, got {type(list_values).__name__}. Connect a list to 'Items'.")
             )
 
         # Validate index parameter when position is "index"
@@ -104,17 +102,9 @@ class AddToList(ControlNode):
         if position == "index":
             index = self.get_parameter_value("index")
             if index is None:
-                exceptions.append(
-                    ValueError(
-                        f"AddToList node '{self.name}' requires an 'index' value when position is set to 'index'"
-                    )
-                )
+                exceptions.append(ValueError("'Position' is set to 'index'. Set 'Index' to where the item should go."))
             elif not isinstance(index, int):
-                exceptions.append(
-                    TypeError(
-                        f"AddToList node '{self.name}' expected 'index' parameter to be an integer, but got {type(index).__name__}"
-                    )
-                )
+                exceptions.append(TypeError(f"'Index' must be a whole number, got {type(index).__name__}."))
 
         return exceptions if exceptions else None
 

@@ -200,7 +200,7 @@ class ElevenLabsMusicGeneration(GriptapeProxyNode):
         # Try top-level details field (ElevenLabs-specific)
         details = response_json.get("details")
         if details:
-            return f"{self.name} {details}"
+            return str(details)
 
         # Fall back to standard error extraction
         return super()._extract_error_message(response_json)

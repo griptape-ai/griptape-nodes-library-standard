@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
@@ -18,8 +17,6 @@ from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
-
-logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["LTXImageToVideoGeneration"]
 
@@ -405,14 +402,14 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
 
         capabilities = self.MODEL_CAPABILITIES.get(model_id)
         if not capabilities:
-            return f"{self.name}: Unknown model '{model_display_name}'"
+            return f"Unknown model '{model_display_name}'. Pick a model from the 'Model' list."
 
         resolution_config = capabilities.get("resolutions", {}).get(resolution)
         if not resolution_config:
             valid_resolutions = list(capabilities.get("resolutions", {}).keys())
             return (
-                f"{self.name}: Model {model_display_name} does not support resolution '{resolution}'. "
-                f"Valid resolutions: {', '.join(valid_resolutions)}"
+                f"Model {model_display_name} does not support resolution '{resolution}'. "
+                f"Valid resolutions: {', '.join(valid_resolutions)}."
             )
 
         fps_config = resolution_config.get("fps", {})
@@ -420,15 +417,15 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
         if supported_durations is None:
             valid_fps = list(fps_config.keys())
             return (
-                f"{self.name}: Model {model_display_name} does not support {fps} FPS at resolution {resolution}. "
-                f"Valid FPS values: {', '.join(map(str, valid_fps))}"
+                f"Model {model_display_name} does not support {fps} FPS at resolution {resolution}. "
+                f"Valid FPS values: {', '.join(map(str, valid_fps))}."
             )
 
         if duration not in supported_durations:
             return (
-                f"{self.name}: Model {model_display_name} does not support duration {duration}s "
+                f"Model {model_display_name} does not support duration {duration}s "
                 f"at resolution {resolution} and {fps} FPS. "
-                f"Valid durations: {', '.join(map(str, supported_durations))}"
+                f"Valid durations: {', '.join(map(str, supported_durations))}."
             )
 
         return None
@@ -442,11 +439,11 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
         params = await self._get_parameters_async()
 
         if not params["image_uri"]:
-            msg = f"{self.name} requires an input image for video generation."
+            msg = "Connect an image to 'Input Image'."
             raise ValueError(msg)
 
         if not params["prompt"].strip():
-            msg = f"{self.name} requires a prompt to generate video."
+            msg = "'Prompt' is empty. Describe the video you want."
             raise ValueError(msg)
 
         validation_error = self._validate_model_params(params)
@@ -480,11 +477,10 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
             kind=ArtifactKind.VIDEO,
         )
 
-    def _extract_error_message(self, response_json: dict[str, Any]) -> str:  # noqa: C901, PLR0912
+    def _extract_error_message(self, response_json: dict[str, Any]) -> str:
         if not response_json:
-            return f"{self.name} generation failed with no error details provided by API."
+            return ""
 
-        status = str(response_json.get("status") or "").lower()
         status_detail = response_json.get("status_detail")
         if isinstance(status_detail, dict):
             error = status_detail.get("error", "")
@@ -503,38 +499,25 @@ class LTXImageToVideoGeneration(GriptapeProxyNode):
                     pass
 
             if error and details:
-                message = f"{error}: {details}"
-            elif error:
-                message = error
-            elif details:
-                message = details
-            else:
-                message = f"Generation {status or 'failed'} with no details provided"
-
-            return f"{self.name} generation {status or 'failed'}: {message}"
+                return f"{error}: {details}"
+            return str(error or details or "")
 
         error = response_json.get("error")
-        if error:
-            if isinstance(error, dict):
-                message = error.get("message") or error.get("type") or str(error)
-                return f"{self.name} request failed: {message}"
-            if isinstance(error, str):
-                return f"{self.name} request failed: {error}"
+        if isinstance(error, dict):
+            return str(error.get("message") or error.get("type") or "")
+        if isinstance(error, str):
+            return error
 
-        return f"{self.name} generation failed.\n\nFull API response:\n{response_json}"
+        return ""
 
     def _handle_payload_build_error(self, e: Exception) -> None:
         if isinstance(e, ValueError):
             self._set_safe_defaults()
             self._set_status_results(was_successful=False, result_details=str(e))
+            self._handle_failure_exception(e)
             return
 
         super()._handle_payload_build_error(e)
-
-    def _handle_api_key_validation_error(self, e: ValueError) -> None:
-        self._set_safe_defaults()
-        self._set_status_results(was_successful=False, result_details=str(e))
-        logger.error("%s API key validation failed: %s", self.name, e)
 
     def _set_safe_defaults(self) -> None:
         self.parameter_output_values["generation_id"] = ""

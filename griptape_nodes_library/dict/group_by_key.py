@@ -58,14 +58,14 @@ class GroupByKey(DataNode):
         groups: dict[str, list[Any]] = {}
         for index, item in enumerate(items):
             if not isinstance(item, dict):
-                msg = f"{self.name}: item {index} is a {type(item).__name__}, not a dictionary."
+                msg = f"Item {index} in 'Items' is a {type(item).__name__}, not a dictionary."
                 raise TypeError(msg)
             if not field:
                 for key, value in item.items():
                     groups.setdefault(str(key), []).append(value)
                 continue
             if field not in item:
-                msg = f"{self.name}: item {index} has no '{field}' field to group by."
+                msg = f"Item {index} in 'Items' has no '{field}' field. Check 'Group By'."
                 raise KeyError(msg)
             groups.setdefault(str(item[field]), []).append(item)
         return groups

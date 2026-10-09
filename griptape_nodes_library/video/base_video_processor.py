@@ -302,17 +302,15 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
         # Validate that we have a video
         video = self.parameter_values.get("video")
         if not video:
-            msg = f"{self.name}: Video parameter is required"
+            msg = "A video is required. Connect one to 'Video or Path to Video'."
             exceptions.append(ValueError(msg))
-
         # Make sure it's a video artifact (converter should have handled dict conversion)
-        if not isinstance(video, VideoUrlArtifact):
-            msg = f"{self.name}: Video parameter must be a VideoUrlArtifact"
+        elif not isinstance(video, VideoUrlArtifact):
+            msg = f"'Video or Path to Video' must be a video, got {type(video).__name__}."
             exceptions.append(ValueError(msg))
-
         # Make sure it has a value
-        if hasattr(video, "value") and not video.value:  # type: ignore  # noqa: PGH003
-            msg = f"{self.name}: Video parameter must have a value"
+        elif not video.value:
+            msg = "'Video or Path to Video' has no video. Connect a video or choose a file."
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None
@@ -320,7 +318,7 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
     def _validate_url_safety(self, url: str) -> None:
         """Validate that the URL is safe for ffmpeg processing."""
         if not validate_url(url):
-            msg = f"{self.name}: Invalid or unsafe URL provided: {url}"
+            msg = f"The video URL is invalid or unsafe: {url}"
             raise ValueError(msg)
 
     def _get_video_input_data(self) -> tuple[str, str]:
@@ -426,9 +424,8 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
             self._run_ffmpeg_command(cmd, timeout=300)
 
         except Exception as e:
-            error_msg = f"Error during video processing: {e!s}"
-            self.append_value_to_parameter("logs", f"ERROR: {error_msg}\n")
-            raise ValueError(error_msg) from e
+            self.append_value_to_parameter("logs", f"ERROR: Error during video processing: {e!s}\n")
+            raise
 
     def _check_read_codec_permission(self, input_url: str) -> None:
         """Ask the engine whether reading this input is permitted.
@@ -477,10 +474,8 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
             # Save to parameter
             self.parameter_output_values["output"] = output_artifact
         except Exception as e:
-            error_message = str(e)
-            msg = f"{self.name}: Error processing video: {error_message}"
-            self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
-            raise ValueError(msg) from e
+            self.append_value_to_parameter("logs", f"ERROR: Error processing video: {e!s}\n")
+            raise
         finally:
             # Clean up temporary file using base class method
             self._cleanup_temp_file(output_path_obj)
@@ -516,15 +511,14 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
 
         except Exception as e:
             error_message = str(e)
-            msg = f"{self.name}: Error processing video: {error_message}"
-            self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
+            self.append_value_to_parameter("logs", f"ERROR: Error processing video: {error_message}\n")
 
             # Report failure
             failure_details = f"Video processing failed: {error_message}"
             self._set_status_results(was_successful=False, result_details=failure_details)
 
             # Handle failure exception (raises if no failure output connected)
-            self._handle_failure_exception(ValueError(msg))
+            self._handle_failure_exception(e)
 
     def _get_custom_parameters(self) -> dict[str, Any]:
         """Get custom parameters for processing. Override in subclasses if needed."""

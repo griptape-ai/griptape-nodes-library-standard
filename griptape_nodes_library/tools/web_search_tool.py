@@ -5,6 +5,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.tools.base_tool import BaseTool
+from griptape_nodes_library.utils.node_error_utils import missing_secret_error
 
 SEARCH_ENGINE_MAP = {
     "Exa": {
@@ -40,15 +41,13 @@ class WebSearch(BaseTool):
         self.move_element_to_position("tool", position="last")
         self.hide_parameter_by_name("off_prompt")
 
-    def check_api_keys(self) -> bool:
+    def missing_api_keys(self) -> list[str]:
         search_engine = self.get_parameter_value("search_engine")
-        api_keys = SEARCH_ENGINE_MAP[search_engine]["api_keys"]
-        if api_keys is None:
-            return True
-        for api_key in api_keys:
-            if not GriptapeNodes.SecretsManager().get_secret(api_key):
-                return False
-        return True
+        api_keys = SEARCH_ENGINE_MAP[search_engine]["api_keys"] or []
+        return [api_key for api_key in api_keys if not GriptapeNodes.SecretsManager().get_secret(api_key)]
+
+    def check_api_keys(self) -> bool:
+        return not self.missing_api_keys()
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "search_engine":
@@ -66,9 +65,16 @@ class WebSearch(BaseTool):
         super().after_value_set(parameter, value)
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
-        if not self.check_api_keys():
-            return [ValueError("Please ensure you have set appropriate API keys for the selected search engine.")]
-        return None
+        search_engine = self.get_parameter_value("search_engine")
+        exceptions: list[Exception] = [
+            missing_secret_error(
+                api_key,
+                message=f"{api_key} is not set. {search_engine} search needs it. "
+                "Add it in Settings → API Keys & Secrets, or pick another 'Search Engine'.",
+            )
+            for api_key in self.missing_api_keys()
+        ]
+        return exceptions or None
 
     def process(self) -> None:
         off_prompt = self.get_parameter_value("off_prompt")

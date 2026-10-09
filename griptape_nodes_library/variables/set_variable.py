@@ -225,7 +225,7 @@ class SetVariable(BaseVariableNode):
     async def aprocess(self) -> None:
         variable_name = self._resolve_variable_name()
         if not variable_name:
-            msg = f"SetVariable node '{self.name}' requires a non-empty variable_name."
+            msg = "A variable name is required. Pick one in 'variable_name' or enter one in 'new_variable_name'."
             raise ValueError(msg)
 
         value = self.get_parameter_value(self.value_param.name)
@@ -234,7 +234,7 @@ class SetVariable(BaseVariableNode):
         flow_request = GetFlowForNodeRequest(node_name=self.name)
         flow_result = await GriptapeNodes.ahandle_request(flow_request)
         if not isinstance(flow_result, GetFlowForNodeResultSuccess):
-            msg = f"Failed to get flow for node '{self.name}': {flow_result.result_details}"
+            msg = f"Failed to get the flow that contains this node: {flow_result.result_details}"
             raise TypeError(msg)
         current_flow_name = flow_result.flow_name
 

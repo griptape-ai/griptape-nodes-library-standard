@@ -96,5 +96,5 @@ class RetryGroupNode(BaseWhileNodeGroup):
         if not raise_on_failure:
             return
 
-        msg = f"Retry Group '{self.name}' failed after {iterations} attempt(s)"
+        msg = f"Failed after {iterations} attempt(s)."
         raise RuntimeError(msg)

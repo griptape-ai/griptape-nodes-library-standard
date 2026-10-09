@@ -66,7 +66,7 @@ class YamlExtractValue(DataNode):
             try:
                 data = _yaml.load(StringIO(yaml_str) if not isinstance(yaml_str, str) else yaml_str)
             except Exception as e:
-                msg = f"{self.name}: Invalid YAML provided. Failed to parse: {e}. Input was: {str(yaml_str)[:200]!r}"
+                msg = f"'YAML' is not valid YAML: {e}."
                 raise ValueError(msg) from e
 
             if not path:
@@ -75,7 +75,7 @@ class YamlExtractValue(DataNode):
                 try:
                     result = jmespath.search(path, data)
                 except (ValueError, TypeError) as e:
-                    msg = f"{self.name}: Invalid JMESPath expression '{path}': {e}"
+                    msg = f"'{path}' in 'Path' is not a valid JMESPath expression: {e}."
                     raise ValueError(msg) from e
 
                 if result is None:

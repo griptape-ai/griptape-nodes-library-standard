@@ -443,16 +443,12 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         try:
             shot_count_int = int(shot_count)
         except (TypeError, ValueError):
-            exceptions.append(
-                ValueError(f"{self.name} shot_count must be an integer between 1 and {MAX_MULTI_PROMPT_COUNT}.")
-            )
+            exceptions.append(ValueError(f"'shot count' must be an integer between 1 and {MAX_MULTI_PROMPT_COUNT}."))
             shot_count_int = 1
 
         if not (1 <= shot_count_int <= MAX_MULTI_PROMPT_COUNT):
             exceptions.append(
-                ValueError(
-                    f"{self.name} shot_count must be between 1 and {MAX_MULTI_PROMPT_COUNT} (got {shot_count_int})."
-                )
+                ValueError(f"'shot count' must be between 1 and {MAX_MULTI_PROMPT_COUNT} (got {shot_count_int}).")
             )
         shot_count_int = max(1, min(MAX_MULTI_PROMPT_COUNT, shot_count_int))
 
@@ -460,7 +456,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         try:
             requested_duration = Decimal(str(duration))
         except InvalidOperation:
-            exceptions.append(ValueError(f"{self.name} duration must be numeric (got {duration})."))
+            exceptions.append(ValueError(f"Duration must be numeric (got {duration})."))
             requested_duration = Decimal(0)
 
         for shot_index in range(1, shot_count_int + 1):
@@ -468,17 +464,17 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             component_duration = self.get_parameter_value(f"shot_{shot_index}_duration")
 
             if not component_prompt:
-                exceptions.append(ValueError(f"{self.name} shot {shot_index} prompt must be a non-empty string."))
+                exceptions.append(ValueError(f"Shot {shot_index} prompt must be a non-empty string."))
             elif len(component_prompt) > MAX_PROMPT_LENGTH:
                 exceptions.append(
                     ValueError(
-                        f"{self.name} shot {shot_index} prompt exceeds {MAX_PROMPT_LENGTH} characters "
+                        f"Shot {shot_index} prompt exceeds {MAX_PROMPT_LENGTH} characters "
                         f"(got: {len(component_prompt)} characters)."
                     )
                 )
 
             if not isinstance(component_duration, str):
-                exceptions.append(ValueError(f"{self.name} shot {shot_index} duration must be a string number."))
+                exceptions.append(ValueError(f"Shot {shot_index} duration must be a string number."))
                 continue
 
             try:
@@ -486,29 +482,26 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             except InvalidOperation:
                 exceptions.append(
                     ValueError(
-                        f"{self.name} shot {shot_index} has invalid duration '{component_duration}'. "
-                        "Expected a number-as-string."
+                        f"Shot {shot_index} has invalid duration '{component_duration}'. Expected a number-as-string."
                     )
                 )
                 continue
 
             if component_duration_decimal < 1:
                 exceptions.append(
-                    ValueError(f"{self.name} shot {shot_index} duration must be at least 1 (got {component_duration}).")
+                    ValueError(f"Shot {shot_index} duration must be at least 1 (got {component_duration}).")
                 )
             if component_duration_decimal > requested_duration:
                 exceptions.append(
                     ValueError(
-                        f"{self.name} shot {shot_index} duration cannot exceed requested duration "
+                        f"Shot {shot_index} duration cannot exceed requested duration "
                         f"{duration} (got {component_duration})."
                     )
                 )
             total_duration += component_duration_decimal
 
         if total_duration != requested_duration:
-            exceptions.append(
-                ValueError(f"{self.name} multi-shot durations must sum to {duration} (got {total_duration}).")
-            )
+            exceptions.append(ValueError(f"Multi-shot durations must sum to {duration} (got {total_duration})."))
 
     async def _build_payload(self) -> dict[str, Any]:  # noqa: C901, PLR0912, PLR0915
         """Build the request payload for Kling Omni API.
@@ -650,14 +643,12 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         else:
             # Validate prompt is provided
             if not prompt:
-                exceptions.append(ValueError(f"{self.name} requires a prompt to generate video."))
+                exceptions.append(ValueError("A prompt is required to generate video. Enter one in 'prompt'."))
 
             # Validate prompt length
             if len(prompt) > MAX_PROMPT_LENGTH:
                 exceptions.append(
-                    ValueError(
-                        f"{self.name} prompt exceeds {MAX_PROMPT_LENGTH} characters (got: {len(prompt)} characters)."
-                    )
+                    ValueError(f"'prompt' exceeds {MAX_PROMPT_LENGTH} characters (got: {len(prompt)} characters).")
                 )
 
         # Parse element IDs from comma-separated string
@@ -667,9 +658,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 element_ids_parts = [part.strip() for part in element_ids.split(",") if part.strip()]
                 element_list = [{"element_id": int(eid)} for eid in element_ids_parts]
             except ValueError:
-                exceptions.append(
-                    ValueError(f"{self.name} validation failed: element_ids must be comma-separated integers")
-                )
+                exceptions.append(ValueError("'element_ids' must be comma-separated integers."))
 
         # Build video list
         has_video = bool(reference_video_param)
@@ -678,14 +667,14 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             if mode == MODE_4K and has_video:
                 exceptions.append(
                     ValueError(
-                        f"{self.name}: Model Kling v3.0 Omni does not support mode '{MODE_4K}' when reference_video is set. "
+                        f"Model Kling v3.0 Omni does not support mode '{MODE_4K}' when reference_video is set. "
                         f"Valid modes: {', '.join(supported_modes)}"
                     )
                 )
             else:
                 exceptions.append(
                     ValueError(
-                        f"{self.name}: Selected configuration does not support mode '{mode}'. "
+                        f"Selected configuration does not support mode '{mode}'. "
                         f"Valid modes: {', '.join(supported_modes)}"
                     )
                 )
@@ -697,7 +686,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
 
         # Validate end frame requires first frame
         if end_frame_image and not first_frame_image:
-            exceptions.append(ValueError(f"{self.name} end_frame_image requires first_frame_image to be set."))
+            exceptions.append(ValueError("'end frame' requires 'first frame' to be set."))
 
         # Count total images and elements
         total_image_count = len(ref_images_input)
@@ -712,14 +701,14 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             if total_image_count + total_element_count > MAX_IMAGES_WITH_VIDEO:
                 exceptions.append(
                     ValueError(
-                        f"{self.name} when using reference videos, the sum of images ({total_image_count}) "
+                        f"When using reference videos, the sum of images ({total_image_count}) "
                         f"and elements ({total_element_count}) cannot exceed {MAX_IMAGES_WITH_VIDEO}."
                     )
                 )
         elif total_image_count + total_element_count > MAX_IMAGES_WITHOUT_VIDEO:
             exceptions.append(
                 ValueError(
-                    f"{self.name} the sum of images ({total_image_count}) "
+                    f"The sum of images ({total_image_count}) "
                     f"and elements ({total_element_count}) cannot exceed {MAX_IMAGES_WITHOUT_VIDEO}."
                 )
             )
@@ -727,9 +716,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         # Validate end frame not allowed with >2 images
         if end_frame_image and total_image_count > MAX_IMAGES_FOR_END_FRAME:
             exceptions.append(
-                ValueError(
-                    f"{self.name} end frame is not supported when there are more than {MAX_IMAGES_FOR_END_FRAME} images."
-                )
+                ValueError(f"End frame is not supported when there are more than {MAX_IMAGES_FOR_END_FRAME} images.")
             )
 
         # Validate video editing cannot be used with first/end frames
@@ -737,9 +724,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         has_base_video = has_video and video_refer_type == "base"
         if has_base_video and (first_frame_image or end_frame_image):
             exceptions.append(
-                ValueError(
-                    f"{self.name} video editing (refer_type='base') cannot be used with first or end frame images."
-                )
+                ValueError("Video editing (refer_type='base') cannot be used with first or end frame images.")
             )
 
         # kling-video-o1: text-to-video and start-frame-only generation restrict to 5s or 10s
@@ -753,7 +738,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             if is_text_or_first_frame and duration not in restricted:
                 exceptions.append(
                     ValueError(
-                        f"{self.name} kling-video-o1 text-to-video and start-frame-only generation "
+                        f"kling-video-o1 text-to-video and start-frame-only generation "
                         f"only support {restricted} second durations (got {duration}s)."
                     )
                 )
@@ -766,7 +751,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             if mode != MODE_4K and duration > ref_video_max:
                 exceptions.append(
                     ValueError(
-                        f"{self.name} kling-v3-omni with reference video (std/pro mode) "
+                        f"kling-v3-omni with reference video (std/pro mode) "
                         f"supports a maximum duration of {ref_video_max}s (got {duration}s)."
                     )
                 )

@@ -197,18 +197,18 @@ class MoveFiles(CopyFiles):
 
         # FAILURE CASE: Empty destination
         if not destination_dir:
-            msg = f"{self.name} attempted to move but destination path is empty. Failed due to no destination provided"
+            msg = "'destination_path' is empty. Set the folder or file to move to."
             self.set_parameter_value(self.moved_paths_output.name, [])
-            self._set_status_results(was_successful=False, result_details=msg)
+            self._fail(ValueError(msg))
             return
 
         # Resolve a project macro destination like "{outputs}/archive" to the folder on disk
         try:
             destination_dir = resolve_macro_path(destination_dir)
         except FileLoadError as e:
-            msg = f"{self.name} attempted to move but could not resolve destination path '{destination_dir}': {e}"
+            msg = f"Could not resolve destination path '{destination_dir}': {e}"
             self.set_parameter_value(self.moved_paths_output.name, [])
-            self._set_status_results(was_successful=False, result_details=msg)
+            self._fail(ValueError(msg))
             return
 
         # Determine if destination is a directory or file path
@@ -228,10 +228,10 @@ class MoveFiles(CopyFiles):
 
         # FAILURE CASE: No valid targets at all
         if not pending_targets:
-            msg = f"{self.name} attempted to move but all source paths were invalid. No files moved"
+            msg = "All source paths were invalid. No files were moved."
             details = self._format_result_details(all_targets)
             self.set_parameter_value(self.moved_paths_output.name, [])
-            self._set_status_results(was_successful=False, result_details=f"{msg}\n\n{details}")
+            self._fail(ValueError(f"{msg}\n\n{details}"))
             return
 
         # Check if destination looks like a file path (has extension)
@@ -240,9 +240,9 @@ class MoveFiles(CopyFiles):
 
         # FAILURE CASE: Multiple source files but destination is a file path
         if destination_is_file_path and len(pending_targets) > 1:
-            msg = f"{self.name} attempted to move {len(pending_targets)} files to a single file path '{destination_dir}'. Cannot move multiple files to a single file destination. Use a directory path instead."
+            msg = f"Cannot move {len(pending_targets)} files to the single file path '{destination_dir}'. Set 'destination_path' to a folder instead."
             self.set_parameter_value(self.moved_paths_output.name, [])
-            self._set_status_results(was_successful=False, result_details=msg)
+            self._fail(ValueError(msg))
             return
 
         # Execute moves for all explicitly requested items
@@ -271,10 +271,10 @@ class MoveFiles(CopyFiles):
 
         # FAILURE CASE: Zero files were successfully moved
         if succeeded_count == 0:
-            msg = f"{self.name} failed to move any files"
+            msg = "No files were moved."
             details = self._format_result_details(requested_targets)
             self.set_parameter_value(self.moved_paths_output.name, [])
-            self._set_status_results(was_successful=False, result_details=f"{msg}\n\n{details}")
+            self._fail(OSError(f"{msg}\n\n{details}"))
             return
 
         # SUCCESS PATH AT END (even if some failed, as long as at least one succeeded)

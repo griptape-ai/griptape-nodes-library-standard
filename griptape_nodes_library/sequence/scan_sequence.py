@@ -209,12 +209,12 @@ class ScanSequenceNode(SuccessFailureNode):
 
         path = self.get_parameter_value(self._path_param.name).strip()
         if not path:
-            self._emit_failure("No path or pattern provided.", policy=policy)
+            self._emit_failure(ValueError("No path or pattern provided."), policy=policy)
             return
 
         bounds_or_error = await self._advanced.resolve_bounds(self, path)
         if isinstance(bounds_or_error, str):
-            self._emit_failure(bounds_or_error, policy=policy)
+            self._emit_failure(ValueError(bounds_or_error), policy=policy)
             return
 
         scan_result = await GriptapeNodes.ahandle_request(
@@ -227,11 +227,11 @@ class ScanSequenceNode(SuccessFailureNode):
             )
         )
         if isinstance(scan_result, ScanSequencesResultFailure):
-            self._emit_failure(str(scan_result.result_details), policy=policy)
+            self._emit_failure(RuntimeError(str(scan_result.result_details)), policy=policy)
             return
         if not isinstance(scan_result, ScanSequencesResultSuccess):
             self._emit_failure(
-                f"Unexpected scan result type: {type(scan_result).__name__}",
+                RuntimeError(f"Unexpected scan result type: {type(scan_result).__name__}"),
                 policy=policy,
             )
             return
@@ -246,12 +246,11 @@ class ScanSequenceNode(SuccessFailureNode):
                 active_last=bounds_or_error.end_number,
                 path=path,
             )
-            empty_sequence = self._make_empty_sequence(policy=policy)
             if fail_on_empty:
-                self._emit_outputs(empty_sequence, was_successful=False, details=details)
+                self._emit_failure(FileNotFoundError(details), policy=policy)
             else:
                 self._emit_outputs(
-                    empty_sequence,
+                    self._make_empty_sequence(policy=policy),
                     was_successful=True,
                     details=f"{details} (*Fail when no items are found* is off.)",
                 )
@@ -272,8 +271,8 @@ class ScanSequenceNode(SuccessFailureNode):
             details += f" Dropped {sequence.dropped_negative_number_count} negative number(s)."
         self._emit_outputs(sequence, was_successful=True, details=details)
 
-    def _emit_failure(self, details: str, *, policy: MissingItemPolicy) -> None:
-        """Emit an empty Sequence and mark the node failed.
+    def _emit_failure(self, error: Exception, *, policy: MissingItemPolicy) -> None:
+        """Emit an empty Sequence, mark the node failed, and route the error down Failed (or raise it).
 
         Downstream consumers (Inspect Sequence, etc.) treat `None` as "no sequence
         connected" and short-circuit; emitting an empty Sequence lets them render
@@ -281,7 +280,8 @@ class ScanSequenceNode(SuccessFailureNode):
         diagnostic flow downstream.
         """
         empty_sequence = self._make_empty_sequence(policy=policy)
-        self._emit_outputs(empty_sequence, was_successful=False, details=details)
+        self._emit_outputs(empty_sequence, was_successful=False, details=str(error))
+        self._handle_failure_exception(error)
 
     def _emit_outputs(self, sequence: Sequence, *, was_successful: bool, details: str) -> None:
         """Single output-write path for both success and failure branches."""

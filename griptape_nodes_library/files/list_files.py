@@ -331,6 +331,11 @@ class ListFiles(SuccessFailureNode):
 
         return collected, None
 
+    def _fail(self, error: Exception) -> None:
+        """Mark the node failed and route the error down Failed, or raise it when Failed is not wired."""
+        self._set_status_results(was_successful=False, result_details=f"Failure: {error}")
+        self._handle_failure_exception(error)
+
     def process(self) -> None:
         self._clear_execution_status()
         directory_path = self.get_parameter_value("directory_path")
@@ -344,14 +349,14 @@ class ListFiles(SuccessFailureNode):
         recursive = self.get_parameter_value("recursive")
         if self._is_path_pattern(match_pattern.strip()):
             if not (directory_path or "").strip():
-                msg = f"{self.name}: directory_path is required when match_pattern contains / or **"
-                self._set_status_results(was_successful=False, result_details=f"Failure: {msg}")
+                msg = "'directory_path' is required when 'match_pattern' contains / or **. Set a folder to search."
+                self._fail(ValueError(msg))
                 return
             try:
                 self._compile_path_pattern(match_pattern.strip(), case_sensitive=match_pattern_case_sensitive)
             except re.error as e:
-                msg = f"{self.name}: match_pattern {match_pattern.strip()!r} is not valid — {e}"
-                self._set_status_results(was_successful=False, result_details=f"Failure: {msg}")
+                msg = f"'match_pattern' {match_pattern.strip()!r} is not valid: {e}"
+                self._fail(ValueError(msg))
                 return
             # Path patterns need recursion; _collect_entries_recursive does path-relative
             # matching while _filter_entries (flat branch) only matches basenames.
@@ -387,8 +392,8 @@ class ListFiles(SuccessFailureNode):
                 match_pattern_case_sensitive=match_pattern_case_sensitive,
             )
             if list_error:
-                msg = f"{self.name} failed to list directory: {list_error}"
-                self._set_status_results(was_successful=False, result_details=f"Failure: {msg}")
+                msg = f"Could not list the folder: {list_error}"
+                self._fail(OSError(msg))
                 return
         else:
             request = ListDirectoryRequest(
@@ -400,13 +405,13 @@ class ListFiles(SuccessFailureNode):
 
             if isinstance(result, ListDirectoryResultFailure):
                 error_msg = getattr(result, "error_message", "Unknown error occurred")
-                msg = f"{self.name} failed to list directory: {error_msg}"
-                self._set_status_results(was_successful=False, result_details=f"Failure: {msg}")
+                msg = f"Could not list the folder: {error_msg}"
+                self._fail(OSError(msg))
                 return
 
             if not isinstance(result, ListDirectoryResultSuccess):
-                msg = f"{self.name} received unexpected result type from directory listing"
-                self._set_status_results(was_successful=False, result_details=f"Failure: {msg}")
+                msg = "The folder listing returned an unexpected result."
+                self._fail(RuntimeError(msg))
                 return
 
             filtered_entries = self._filter_entries(

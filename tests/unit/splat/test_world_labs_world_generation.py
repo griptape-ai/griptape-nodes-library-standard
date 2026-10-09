@@ -133,3 +133,16 @@ async def test_unknown_input_type_returns_none(node: WorldLabsWorldGeneration) -
         pass
 
     assert await node._get_media_bytes(_Bare()) is None
+
+
+@pytest.mark.asyncio
+async def test_parse_result_lets_exceptions_reach_the_base_handler(
+    node: WorldLabsWorldGeneration, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def boom(_world: dict, _generation_id: str) -> None:
+        msg = "unexpected result shape"
+        raise KeyError(msg)
+
+    monkeypatch.setattr(node, "_handle_success", boom, raising=False)
+    with pytest.raises(KeyError, match="unexpected result shape"):
+        await node._parse_result({}, "gen-1")

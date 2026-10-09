@@ -68,7 +68,7 @@ class ReadImageMetadataNode(SuccessFailureNode):
             value: The new value for the parameter
         """
         if parameter.name == "image":
-            self._read_and_populate_metadata(value)
+            self._read_and_populate_metadata(value, raise_on_failure=False)
 
         return super().after_value_set(parameter, value)
 
@@ -81,7 +81,7 @@ class ReadImageMetadataNode(SuccessFailureNode):
 
         image = self.get_parameter_value("image")
 
-        self._read_and_populate_metadata(image)
+        self._read_and_populate_metadata(image, raise_on_failure=True)
 
     def _extract_prefix(self, key: str) -> str | None:
         """Extract prefix from metadata key (first segment before underscore).
@@ -298,7 +298,14 @@ class ReadImageMetadataNode(SuccessFailureNode):
             for key in sorted(metadata_subset.keys()):
                 self._get_or_create_parameter(key, group_name, metadata_subset[key])
 
-    def _read_and_populate_metadata(self, image: Any) -> None:
+    def _fail(self, error: Exception, *, raise_on_failure: bool) -> None:
+        """Clear dynamic outputs, record the failure, and route it when running."""
+        self._remove_dynamic_parameters()
+        self._set_status_results(was_successful=False, result_details=str(error))
+        if raise_on_failure:
+            self._handle_failure_exception(error)
+
+    def _read_and_populate_metadata(self, image: Any, *, raise_on_failure: bool) -> None:
         """Read metadata from image and populate output parameter.
 
         This method is called both from process() and after_value_set() to enable
@@ -306,33 +313,29 @@ class ReadImageMetadataNode(SuccessFailureNode):
 
         Args:
             image: Image value (ImageUrlArtifact, ImageArtifact, str, or None)
+            raise_on_failure: True on the process() path, where failures must fail the node.
+                False from after_value_set(), which must never raise.
         """
         # Clear metadata output first
         self.parameter_output_values["metadata"] = {}
 
         # Handle None/empty case - clear output and return
         if not image:
-            error_msg = "No image provided"
-            self._remove_dynamic_parameters()
-            self._set_status_results(was_successful=False, result_details=error_msg)
+            self._fail(ValueError("Connect an image to 'Image'."), raise_on_failure=raise_on_failure)
             return
 
         # Load PIL image
         try:
             pil_image = load_pil_image_from_artifact(image, self.name)
         except (TypeError, ValueError) as e:
-            self._remove_dynamic_parameters()
-            self._set_status_results(was_successful=False, result_details=str(e))
-            self._handle_failure_exception(e)
+            self._fail(e, raise_on_failure=raise_on_failure)
             return
 
         # Detect format
         image_format = pil_image.format
         if not image_format:
-            error_msg = "Could not detect image format"
-            self._remove_dynamic_parameters()
-            self._set_status_results(was_successful=False, result_details=error_msg)
-            self._handle_failure_exception(ValueError(f"{self.name}: {error_msg}"))
+            error_msg = "The image format could not be detected."
+            self._fail(ValueError(error_msg), raise_on_failure=raise_on_failure)
             return
 
         # Read metadata using driver
@@ -345,9 +348,7 @@ class ReadImageMetadataNode(SuccessFailureNode):
                 metadata = driver.extract_metadata(pil_image)
             except Exception as e:
                 error_msg = f"Failed to read metadata: {e}"
-                self._remove_dynamic_parameters()
-                self._set_status_results(was_successful=False, result_details=error_msg)
-                self._handle_failure_exception(ValueError(f"{self.name}: {error_msg}"))
+                self._fail(ValueError(error_msg), raise_on_failure=raise_on_failure)
                 return
 
         # Success - set outputs

@@ -293,10 +293,12 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         if not auto_image_resize:
             issues = []
             if exceeds_size:
-                issues.append(f"size {size_mb:.2f}MB exceeds {max_mb:.0f}MB limit")
+                issues.append(f"its size {size_mb:.2f}MB is over the {max_mb:.0f}MB limit")
             if exceeds_resolution:
-                issues.append(f"resolution {width}x{height} exceeds {MAX_IMAGE_DIMENSION}x{MAX_IMAGE_DIMENSION} limit")
-            msg = f"{self.name} input image: {', '.join(issues)}"
+                issues.append(
+                    f"its resolution {width}x{height} is over the {MAX_IMAGE_DIMENSION}x{MAX_IMAGE_DIMENSION} limit"
+                )
+            msg = f"The input image is too large: {' and '.join(issues)}. Turn on 'auto_image_resize' or use a smaller image."
             raise ValueError(msg)
 
         # Log what needs to be fixed
@@ -362,11 +364,11 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         fast_mode = self.get_parameter_value("fast_mode")
 
         if not image_input:
-            msg = "image_url parameter is required."
+            msg = "Connect an image to 'image_url'."
             raise ValueError(msg)
 
         if not audio_input:
-            msg = "audio_url parameter is required."
+            msg = "Connect audio to 'audio_url'."
             raise ValueError(msg)
 
         # OmniHuman downloads the image and audio server-side, so they need
@@ -469,7 +471,8 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         status = provider_response.get("data", {}).get("status", "").lower()
         if status in {"not_found", "expired"}:
             self.parameter_output_values["video_url"] = None
-            error_details = f"Video generation failed.\nStatus: {status}\nFull response: {result_json}"
+            logger.error("%s: Video generation did not finish. Response: %s", self.name, result_json)
+            error_details = f"Video generation did not finish. The provider reported status '{status}'."
             self._set_status_results(was_successful=False, result_details=error_details)
             return
 

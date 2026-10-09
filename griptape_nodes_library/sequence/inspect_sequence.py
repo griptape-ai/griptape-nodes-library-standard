@@ -184,9 +184,11 @@ class InspectSequenceNode(SuccessFailureNode):
 
     def process(self) -> None:
         self._clear_execution_status()
-        self._recompute()
+        if not self._recompute():
+            # Raise only from the run path; the reactive hooks just show the status.
+            self._handle_failure_exception(ValueError("No sequence connected. Connect one to 'Sequence'."))
 
-    def _recompute(self) -> None:
+    def _recompute(self) -> bool:
         """Compute every output from the current `sequence` input value.
 
         Called from `process()` (node-run path) and from the connection /
@@ -194,6 +196,8 @@ class InspectSequenceNode(SuccessFailureNode):
         outputs, so they share this single helper. The status flag is set the
         same way in both paths — the node looks "live" in the editor without
         needing a manual run.
+
+        Returns False when no sequence is connected.
         """
         raw = self.get_parameter_value(self._sequence_param.name)
         if raw is None:
@@ -207,7 +211,7 @@ class InspectSequenceNode(SuccessFailureNode):
                 entry_count=0,
             )
             self._set_status_results(was_successful=False, result_details="No sequence connected.")
-            return
+            return False
 
         # Accept either a Sequence instance (typical) or a dict (e.g. after a
         # save/load round-trip if the engine handed it back as JSON).
@@ -234,6 +238,7 @@ class InspectSequenceNode(SuccessFailureNode):
             f"({entry_count} items, {gap_count} gap(s), {policy_label.lower()})."
         )
         self._set_status_results(was_successful=True, result_details=details)
+        return True
 
     def _publish_outputs(
         self,

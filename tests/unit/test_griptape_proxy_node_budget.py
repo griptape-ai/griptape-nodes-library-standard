@@ -22,6 +22,7 @@ import pytest
 from griptape_nodes.utils.budget_refusal import BUDGET_HALT_PREFIX, BudgetExceededError
 
 from griptape_nodes_library.image.flux_2_image_generation import Flux2ImageGeneration
+from griptape_nodes_library.proxy.griptape_proxy_node import GenerationSubmitError
 
 HEADERS = {"Authorization": "Bearer key"}
 GENERATION_ID = "gen-refused"
@@ -220,7 +221,7 @@ class TestOnlyGriptapesOwnRefusalsAreReadThatWay:
         monkeypatch.setattr(RefusingClient, "error", _http_error(host=OTHER_HOST))
         _statuses(node)
 
-        with pytest.raises(RuntimeError) as raised:
+        with pytest.raises(GenerationSubmitError) as raised:
             await node._submit_generation({}, HEADERS, "flux")
 
         assert not isinstance(raised.value, BudgetExceededError)
@@ -234,7 +235,7 @@ class TestOnlyGriptapesOwnRefusalsAreReadThatWay:
         )
         _statuses(node)
 
-        with pytest.raises(RuntimeError) as raised:
+        with pytest.raises(GenerationSubmitError) as raised:
             await node._submit_generation({}, HEADERS, "flux")
 
         assert not isinstance(raised.value, BudgetExceededError)

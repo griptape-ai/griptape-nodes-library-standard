@@ -30,7 +30,7 @@ git checkout -b feat/<service-name>-proxy-node
 
 ## 3. Read the Base Class
 
-Read `griptape_nodes_library/griptape_proxy_node.py` to understand the interface. The three abstract methods you must implement:
+Read `griptape_nodes_library/proxy/griptape_proxy_node.py` to understand the interface. The three abstract methods you must implement:
 
 - `async _build_payload(self) -> dict[str, Any]` - Build the request JSON
 - `async _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None` - Parse result and set outputs
@@ -38,7 +38,7 @@ Read `griptape_nodes_library/griptape_proxy_node.py` to understand the interface
 
 Optional overrides:
 - `_get_api_model_id(self) -> str` - Map friendly name to API model ID
-- `_extract_error_message(self, response_json) -> str` - Custom error extraction
+- `_extract_error_message(self, response_json) -> str` - Custom error extraction: return the provider's bare reason, or `""`
 
 ## 4. Read a Reference Node
 
@@ -100,7 +100,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage 
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
-from griptape_nodes_library.griptape_proxy_node import GriptapeProxyNode
+from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 ```
 
 Only import what you actually need.
@@ -226,46 +226,26 @@ Do NOT include the `model` field in the payload - the base class handles routing
 
 ### _parse_result()
 
-Handle the result based on the spec's "Result Format":
+The proxy hosts the generated media, so save it with the base helper. It downloads the media,
+writes it to `output_file`, sets the output parameter, and reports success or failure:
 
-**For JSON with URL** (e.g. `{"result": {"sample": "https://..."}}`):**
 ```python
-async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-    url = result_json.get("result", {}).get("sample")  # adjust path per spec
-    if not url:
-        self._set_safe_defaults()
-        self._set_status_results(was_successful=False, result_details="No URL in response.")
-        return
-
-    from griptape_nodes.files.file import File
-    image_bytes = await File(url).aread_bytes()
-    if image_bytes:
-        dest = self._output_file.build_file()
-        saved = await dest.awrite_bytes(image_bytes)
-        self.parameter_output_values["<media_output>"] = ImageUrlArtifact(saved.location)
-        self._set_status_results(was_successful=True, result_details="Generated successfully.")
+async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
+    await self._save_generated_media(
+        generation_id,
+        "<media_output>",
+        lambda v, _n: ImageUrlArtifact(v),  # or AudioUrlArtifact / VideoUrlArtifact
+        kind=ArtifactKind.IMAGE,             # IMAGE, AUDIO, VIDEO, ...
+        media_kind="image",
+    )
 ```
 
-**For raw binary bytes** (e.g. audio/video returned directly):
-```python
-async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
-    audio_bytes = result_json.get("raw_bytes")
-    if not audio_bytes:
-        # Fall back to base64 if present
-        b64 = result_json.get("audio_base64")
-        if b64:
-            audio_bytes = await asyncio.to_thread(base64.b64decode, b64)
+For nodes that produce more than one file, pass `position=` for each. See `PROXY_MIGRATION.md`
+("Hosted Artifacts") for details.
 
-    if not audio_bytes:
-        self._set_safe_defaults()
-        self._set_status_results(was_successful=False, result_details="No data in response.")
-        return
-
-    dest = self._output_file.build_file()
-    saved = await dest.awrite_bytes(audio_bytes)
-    self.parameter_output_values["<media_output>"] = AudioUrlArtifact(value=saved.location, name=saved.name)
-    self._set_status_results(was_successful=True, result_details="Generated successfully.")
-```
+If the node needs to read something from `result_json` and it's missing, call `_set_safe_defaults()`,
+`_set_status_results(was_successful=False, ...)`, and `return`. The base class then fails the node,
+or follows **Failed** if it's wired. Raising also works; the base routes the exception.
 
 ### _set_safe_defaults()
 
@@ -278,14 +258,19 @@ def _set_safe_defaults(self) -> None:
 
 ### _extract_error_message() (optional)
 
-Override only if the spec's "Error Format" or "Quirks" section indicates the provider uses a non-standard error structure:
+Override only if the spec's "Error Format" or "Quirks" section indicates the provider uses a non-standard error structure. The base already reads `status_detail.details` and a top-level `error`, and unwraps a JSON error body inside `details`.
+
+Return only the provider's reason, or `""` when there is none. Don't add the node name, a "generation failed:" prefix, or the response. The base words the message as "The provider could not process the request: {reason}." and attaches `generation_id`, `status`, `error_code`, `request_id`, and the response.
 
 ```python
 def _extract_error_message(self, response_json: dict[str, Any]) -> str:
-    # Try provider-specific error path first
-    # Fall back to super()._extract_error_message(response_json)
+    error = response_json.get("provider_error") or {}  # provider-specific path from the spec
+    if isinstance(error, dict) and error.get("message"):
+        return str(error["message"])
     return super()._extract_error_message(response_json)
 ```
+
+Don't override `_handle_api_key_validation_error` or `_handle_payload_build_error` unless the override also calls `self._handle_failure_exception(e)`. For message wording and validation errors, see the `node-errors` skill.
 
 ## 6. Register in the Manifest
 
@@ -396,6 +381,11 @@ Re-read the spec file and use `/agent-browser` to open the API documentation pag
 **Response parsing:**
 - [ ] `_parse_result()` extracts data from the correct JSON path in the proxy response
 - [ ] Account for the proxy's response wrapping: the proxy client's `fetch_completed_generation()` may extract a sub-object before returning, so the node receives a different structure than the raw API response
+
+**Errors:**
+- [ ] Validation messages name the parameter as the UI shows it, one exception per problem, with no node name
+- [ ] `_extract_error_message` (if overridden) returns the bare reason or `""`
+- [ ] Every `_parse_result` failure sets the status to failed and returns, or raises
 
 **Model mapping:**
 - [ ] `_get_api_model_id()` returns IDs that match `get_model_ids()` in the proxy client

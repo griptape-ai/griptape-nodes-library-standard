@@ -62,20 +62,20 @@ class CombineMasks(DataNode):
 
         masks = self.get_parameter_list_value("masks")
         if not masks:
-            msg = f"{self.name}: At least one mask is required"
+            msg = "Connect at least one mask to 'Masks'."
             exceptions.append(ValueError(msg))
             return exceptions
 
         expected_size: tuple[int, int] | None = None
         for idx, mask_value in enumerate(masks):
             if not isinstance(mask_value, (ImageArtifact, ImageUrlArtifact)):
-                msg = f"{self.name}: masks[{idx}] must be an ImageArtifact or ImageUrlArtifact, got {type(mask_value)}."
+                msg = f"Mask at index {idx} in 'Masks' must be an image, got {type(mask_value).__name__}."
                 exceptions.append(ValueError(msg))
                 continue
             try:
                 mask_pil = self._load_mask_pil(mask_value)
             except Exception as e:
-                msg = f"{self.name}: Failed to load mask at index {idx}: {e}"
+                msg = f"Could not load the mask at index {idx} in 'Masks': {e}"
                 exceptions.append(ValueError(msg))
                 continue
 
@@ -84,10 +84,7 @@ class CombineMasks(DataNode):
                 continue
 
             if mask_pil.size != expected_size:
-                msg = (
-                    f"{self.name}: All masks must be the same size. "
-                    f"Expected {expected_size}, got {mask_pil.size} at index {idx}."
-                )
+                msg = f"All masks must be the same size. Expected {expected_size}, got {mask_pil.size} at index {idx}."
                 exceptions.append(ValueError(msg))
 
         return exceptions or None
@@ -111,10 +108,7 @@ class CombineMasks(DataNode):
 
             # validate sizes again defensively (validate_before_node_run should catch this)
             if mask_l.size != combined.size:
-                msg = (
-                    f"{self.name}: All masks must be the same size. "
-                    f"Expected {combined.size}, got {mask_l.size} at index {idx}."
-                )
+                msg = f"All masks must be the same size. Expected {combined.size}, got {mask_l.size} at index {idx}."
                 raise ValueError(msg)
 
             combined = ImageChops.lighter(combined, mask_l)

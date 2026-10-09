@@ -12,7 +12,6 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.traits.clamp import Clamp
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
-from PIL import UnidentifiedImageError
 
 from griptape_nodes_library.utils.image_utils import (
     DEFAULT_PLACEHOLDER_HEIGHT,
@@ -238,15 +237,13 @@ class DisplayImageGrid(ControlNode):
         # Note: empty `images` is intentionally allowed; _process_sync produces a
         # placeholder image in that case.
         exceptions: list[Exception] = []
-        if not self.get_parameter_value("output_image_width"):
-            msg = f"{self.name}: Output image width parameter is required"
-            exceptions.append(ValueError(msg))
-        if self.get_parameter_value("output_image_width") <= 0:
-            msg = f"{self.name}: Output image width must be greater than 0"
-            exceptions.append(ValueError(msg))
+        output_image_width = self.get_parameter_value("output_image_width")
+        if output_image_width is None:
+            exceptions.append(ValueError("Set 'Output Image Width'."))
+        elif output_image_width <= 0:
+            exceptions.append(ValueError("'Output Image Width' must be greater than 0."))
         if self.get_parameter_value("columns") <= 0:
-            msg = f"{self.name}: Columns parameter must be greater than 0"
-            exceptions.append(ValueError(msg))
+            exceptions.append(ValueError("'Columns' must be greater than 0."))
         return exceptions
 
     def _get_output_dimensions(
@@ -427,9 +424,6 @@ class DisplayImageGrid(ControlNode):
             url_artifact = ImageUrlArtifact(value=saved.location)
             self.publish_update_to_parameter("output", url_artifact)
 
-        except (RuntimeError, OSError, UnidentifiedImageError) as e:
-            msg = f"{self.name}: Error creating image grid: {e}"
-            raise RuntimeError(msg) from e
         finally:
             # Always clean up temporary files
             cleanup_temp_files()

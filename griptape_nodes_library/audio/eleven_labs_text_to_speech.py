@@ -332,7 +332,7 @@ class ElevenLabsTextToSpeechGeneration(GriptapeProxyNode):
                 case "Robust":
                     voice_settings["stability"] = 1.0
                 case _:
-                    msg = f"{self.name} received invalid stability value: {stability_str}. Must be one of: Creative, Natural, or Robust"
+                    msg = f"'{stability_str}' is not a valid stability value. Choose Creative, Natural, or Robust."
                     raise ValueError(msg)
 
         if speed is not None:
@@ -379,7 +379,7 @@ class ElevenLabsTextToSpeechGeneration(GriptapeProxyNode):
         # Try top-level details field (ElevenLabs-specific)
         details = response_json.get("details")
         if details:
-            return f"{self.name} {details}"
+            return str(details)
 
         # Fall back to standard error extraction
         return super()._extract_error_message(response_json)

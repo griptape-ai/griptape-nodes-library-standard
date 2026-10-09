@@ -219,32 +219,24 @@ class CreateVideoFromFrames(SuccessFailureNode):
         format_type = self.get_parameter_value("format") or VIDEO_FORMATS[0]
 
         if not frames_input:
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name} requires frames input (Sequence, pattern, list, or directory).",
+            self._fail(
+                ValueError(
+                    "Frames are required. Connect a Sequence, pattern, list, or directory to 'Frames or Sequence'."
+                )
             )
             return
 
         if frame_rate <= 0:
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False,
-                result_details=f"{self.name}: frame rate must be > 0 (got {frame_rate})",
-            )
+            self._fail(ValueError(f"Frame rate must be greater than 0, got {frame_rate}."))
             return
 
         try:
             frame_paths = self._get_frame_paths(frames_input)
         except FileLoadError as e:
-            self._set_safe_defaults()
-            self._set_status_results(was_successful=False, result_details=f"{self.name}: {e}")
+            self._fail(e)
             return
         if not frame_paths:
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False, result_details=f"{self.name}: no valid frame files found in input"
-            )
+            self._fail(ValueError("No valid frame files were found in the input."))
             return
 
         # Fill gaps for all input types — a Sequence with SKIP policy still has gaps
@@ -252,10 +244,7 @@ class CreateVideoFromFrames(SuccessFailureNode):
             frame_paths = self._process_respect_frame_numbers(frame_paths)
 
         if not frame_paths:
-            self._set_safe_defaults()
-            self._set_status_results(
-                was_successful=False, result_details=f"{self.name}: no frames remaining after ordering"
-            )
+            self._fail(ValueError("No frames remain after ordering."))
             return
 
         audio_input = self.get_parameter_value("audio")
@@ -283,9 +272,14 @@ class CreateVideoFromFrames(SuccessFailureNode):
 
         except Exception as e:
             self._set_safe_defaults()
-            error_msg = f"{self.name} failed to combine frames: {e}"
-            self._set_status_results(was_successful=False, result_details=error_msg)
-            self._handle_failure_exception(RuntimeError(error_msg))
+            self._set_status_results(was_successful=False, result_details=f"Failed to combine frames: {e}")
+            self._handle_failure_exception(e)
+
+    def _fail(self, error: Exception) -> None:
+        """Clear outputs, record the failure, and raise unless Failed is wired."""
+        self._set_safe_defaults()
+        self._set_status_results(was_successful=False, result_details=str(error))
+        self._handle_failure_exception(error)
 
     @staticmethod
     def _is_sequence(value: Any) -> bool:

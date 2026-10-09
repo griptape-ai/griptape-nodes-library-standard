@@ -206,7 +206,7 @@ class AddOverlay(BaseVideoProcessor):
             case "Scale to fit":
                 return f"scale={width}:{height}"
             case _:
-                msg = f"{self.name}: Unknown sizing option: {sizing!r}"
+                msg = f"Unknown sizing option: {sizing!r}"
                 raise ValueError(msg)
 
     def _resolve_overlay_location(self, overlay_video: Any) -> str:
@@ -224,7 +224,7 @@ class AddOverlay(BaseVideoProcessor):
         else:
             location = getattr(overlay_video, "value", None)
         if not isinstance(location, str) or not location:
-            msg = f"{self.name}: overlay_video must reference a file or URL, got {type(overlay_video).__name__}"
+            msg = f"'overlay_video' must reference a file or URL, got {type(overlay_video).__name__}."
             raise ValueError(msg)  # noqa: TRY004
         return resolve_media_location(location)
 
@@ -234,17 +234,17 @@ class AddOverlay(BaseVideoProcessor):
 
         blend_mode = self.get_parameter_value("blend_mode")
         if blend_mode is not None and blend_mode not in self.BLEND_MODES:
-            msg = f"{self.name} - Blend mode must be one of {self.BLEND_MODES}, got {blend_mode}"
+            msg = f"Blend mode must be one of {self.BLEND_MODES}, got {blend_mode}."
             exceptions.append(ValueError(msg))
 
         amount = self.get_parameter_value("amount")
         if amount is not None and (amount < self.MIN_AMOUNT or amount > self.MAX_AMOUNT):
-            msg = f"{self.name} - Amount must be between {self.MIN_AMOUNT} and {self.MAX_AMOUNT}, got {amount}"
+            msg = f"Amount must be between {self.MIN_AMOUNT} and {self.MAX_AMOUNT}, got {amount}."
             exceptions.append(ValueError(msg))
 
         sizing = self.get_parameter_value("sizing")
         if sizing is not None and sizing not in self.SIZING_OPTIONS:
-            msg = f"{self.name} - Sizing must be one of {self.SIZING_OPTIONS}, got {sizing}"
+            msg = f"Sizing must be one of {self.SIZING_OPTIONS}, got {sizing}."
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None

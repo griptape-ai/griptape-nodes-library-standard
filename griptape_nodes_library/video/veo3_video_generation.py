@@ -441,7 +441,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             ModelId.VEO_3_1_GENERATE_001,
             ModelId.VEO_3_1_FAST_GENERATE_001,
         }:
-            msg = f"{self.name}: lastFrame parameter is only supported by Veo 3.1 and Veo 3.1 Fast models."
+            msg = "'last frame' only works with the Veo 3.1 and Veo 3.1 Fast models. Pick one of them or disconnect 'last frame'."
             raise ValueError(msg)
 
         # referenceImages are only supported by veo-3.1-generate-001
@@ -449,13 +449,13 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         has_reference_images = reference_images and len(reference_images) > 0
         if has_reference_images:
             if api_model_id != ModelId.VEO_3_1_GENERATE_001:
-                msg = f"{self.name}: referenceImages parameter is only supported by Veo 3.1 model."
+                msg = "'reference images' only works with the Veo 3.1 model. Pick it or disconnect 'reference images'."
                 raise ValueError(msg)
 
             # When referenceImages are provided, duration must be 8 seconds
             duration = params.get("duration_seconds", "6")
             if duration != "8":
-                msg = f"{self.name}: When referenceImages are provided, duration must be 8 seconds. Current duration: {duration}"
+                msg = f"The duration must be 8 seconds when 'reference images' are connected (currently {duration} seconds)."
                 raise ValueError(msg)
 
     def _convert_image_to_base64_dict(self, image_input: Any) -> dict[str, str] | None:
@@ -773,33 +773,36 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         )
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
-        """Extract detailed error message from API response.
+        """Extract the provider's reason from a failed generation response.
 
         The v2 API provides errors in status_detail field.
         """
         if not response_json:
-            return f"{self.name}: Generation failed with no error details"
+            return ""
 
         # Check v2 API status_detail first (for FAILED/ERROR statuses)
         status_detail = response_json.get("status_detail")
-        if status_detail:
-            return f"{self.name}: Generation failed\n\n{json.dumps(status_detail, indent=2)}"
+        if isinstance(status_detail, dict):
+            reason = status_detail.get("details") or status_detail.get("error")
+            if reason:
+                return str(reason)
+        elif status_detail:
+            return str(status_detail)
 
         # Check top-level error field
         top_level_error = response_json.get("error")
+        if isinstance(top_level_error, dict):
+            return str(top_level_error.get("message") or top_level_error.get("error") or "")
         if top_level_error:
-            if isinstance(top_level_error, dict):
-                return f"{self.name}: {json.dumps(top_level_error, indent=2)}"
-            return f"{self.name}: {top_level_error}"
+            return str(top_level_error)
 
-        # Final fallback
-        status = self._extract_status(response_json) or "unknown"
-        return f"{self.name}: Generation failed with status '{status}'"
+        return ""
 
     def _handle_payload_build_error(self, e: Exception) -> None:
         if isinstance(e, ValueError):
             self._set_safe_defaults()
             self._set_status_results(was_successful=False, result_details=str(e))
+            self._handle_failure_exception(e)
             return
 
         super()._handle_payload_build_error(e)

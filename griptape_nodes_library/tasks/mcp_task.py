@@ -309,15 +309,14 @@ class MCPTaskNode(SuccessFailureNode):
 
         # Validate prompt
         if not prompt:
-            msg = f"{self.name}: No prompt provided. Please enter a prompt to process."
+            msg = "No prompt provided. Enter a prompt in 'prompt'."
             exceptions.append(ValueError(msg))
 
         # Validate MCP server exists and is enabled
         if mcp_server_name:
             is_valid, error_msg = validate_mcp_server(mcp_server_name)
             if not is_valid:
-                msg = f"{self.name}: {error_msg}"
-                exceptions.append(ValueError(msg))
+                exceptions.append(ValueError(error_msg))
 
         return exceptions if exceptions else None
 
@@ -351,13 +350,14 @@ class MCPTaskNode(SuccessFailureNode):
         # before the MCP server connection below, which is the expensive part. Skipped when an
         # agent is connected (it brings its own driver, so the hidden dropdown value is stale)
         # and when the provider is not Griptape Cloud (its models are outside the catalog the
-        # policy gates). Routed through the status parameters rather than raised, matching how
-        # this node reports every other failure; INVOKE_MODEL still gates the actual call.
+        # policy gates). Routed through _handle_failure_exception like every other failure in
+        # this node, so a wired Failed output catches it; INVOKE_MODEL still gates the actual call.
         if self._provider_selection.uses_griptape_cloud_driver():
             denial = self._model_access.selection_denial()
             if denial is not None:
                 self._set_status_results(was_successful=False, result_details=f"FAILURE: {denial.reason()}")
                 logger.error(f"{self.name}: {denial.reason()}")
+                self._handle_failure_exception(RuntimeError(denial.reason()))
                 return
 
         # Get parameter values
@@ -373,9 +373,10 @@ class MCPTaskNode(SuccessFailureNode):
         # Get MCP server configuration
         server_config = get_server_config(mcp_server_name)
         if server_config is None:
-            error_details = f"MCP server '{mcp_server_name}' not found or not enabled"
+            error_details = f"MCP server '{mcp_server_name}' was not found or is not enabled. Choose an enabled server in 'mcp_server_name'."
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
             logger.error(f"{self.name}: {error_details}")
+            self._handle_failure_exception(ValueError(error_details))
             return
 
         # Get MCP tool

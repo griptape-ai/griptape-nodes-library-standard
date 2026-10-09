@@ -190,7 +190,7 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []
         if not self.get_parameter_value("prompt"):
-            exceptions.append(ValueError(f"{self.name} prompt must be provided"))
+            exceptions.append(ValueError("A prompt is required. Enter one in 'prompt'."))
         return exceptions or None
 
     def _update_legacy_image_visibility(self) -> None:

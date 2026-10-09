@@ -106,7 +106,7 @@ class DisplayJson(DataNode):
             try:
                 return repair_json(json_str)
             except Exception as e:
-                msg = f"DisplayJson: Failed to repair JSON string: {e}. Input: {json_str[:200]!r}"
+                msg = f"Failed to repair JSON string: {e}. Input: {json_str[:200]!r}"
                 raise ValueError(msg) from e
 
     def _validate_and_parse_yaml(self, yaml_str: str) -> Any:
@@ -114,7 +114,7 @@ class DisplayJson(DataNode):
         try:
             return yaml.safe_load(yaml_str)
         except yaml.YAMLError as e:
-            msg = f"DisplayJson: Failed to parse YAML string: {e}. Input: {yaml_str[:200]!r}"
+            msg = f"Failed to parse YAML string: {e}. Input: {yaml_str[:200]!r}"
             raise ValueError(msg) from e
 
     def _process_json_data(self) -> None:
@@ -148,14 +148,14 @@ class DisplayJson(DataNode):
                     try:
                         result = self._validate_and_parse_yaml(extracted_content)
                     except ValueError as e:
-                        msg = f"DisplayJson: Failed to parse input as JSON or YAML: {e}. Input: {extracted_content[:200]!r}"
+                        msg = f"Failed to parse input as JSON or YAML: {e}. Input: {extracted_content[:200]!r}"
                         raise ValueError(msg) from e
         else:
             # For other types, convert to string and try to repair
             try:
                 result = repair_json(str(json_data))
             except Exception as e:
-                msg = f"DisplayJson: Failed to convert input to JSON: {e}. Input type: {type(json_data)}, value: {json_data!r}"
+                msg = f"Failed to convert input of type {type(json_data).__name__} to JSON: {e}"
                 raise ValueError(msg) from e
 
         self.parameter_output_values["json"] = result

@@ -54,7 +54,7 @@ class SplitText(ControlNode):
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name in {self.text_input.name, *self.split_options.names}:
-            self._process_text()
+            self._process_text(raise_on_failure=False)
 
         if parameter.name == self.split_options.split_mode.name:
             self.split_options.update_delimiter_visibility(self)
@@ -65,13 +65,17 @@ class SplitText(ControlNode):
         exceptions = []
         text = self.get_parameter_value(self.text_input.name)
         if text is None:
-            exceptions.append(Exception(f"{self.name}: Text is required to split"))
+            exceptions.append(Exception("Connect text to 'Text' to split."))
         elif not isinstance(text, str):
-            exceptions.append(Exception(f"{self.name}: Text must be a string"))
+            exceptions.append(Exception(f"'Text' must be a string, got {type(text).__name__}."))
         return exceptions
 
-    def _process_text(self) -> None:
-        """Process the text input according to the selected mode (split or parse)."""
+    def _process_text(self, *, raise_on_failure: bool) -> None:
+        """Process the text input according to the selected mode (split or parse).
+
+        raise_on_failure is True on the process() path so failures fail the node. It is False from
+        after_value_set(), which only logs and clears the output.
+        """
         text = self.get_parameter_value(self.text_input.name)
 
         # Ensure text is a string
@@ -84,11 +88,12 @@ class SplitText(ControlNode):
             self.parameter_output_values[self.output.name] = split_result
             self.publish_update_to_parameter(self.output.name, split_result)
         except (TypeError, ValueError) as e:
-            # Handle type or value errors
-            msg = f"{self.name}: Error processing text: {e}"
-            logger.error(msg)
             self.parameter_output_values[self.output.name] = []
             self.publish_update_to_parameter(self.output.name, [])
+            if raise_on_failure:
+                msg = f"Could not split the text: {e}"
+                raise ValueError(msg) from e
+            logger.warning("%s: Could not split the text: %s", self.name, e)
 
     def process(self) -> None:
-        self._process_text()
+        self._process_text(raise_on_failure=True)

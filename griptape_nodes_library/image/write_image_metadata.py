@@ -127,17 +127,17 @@ class WriteImageMetadataNode(SuccessFailureNode):
         # Validate image input
         image = self.get_parameter_value("input_image")
         if not image:
-            error_msg = f"{self.name}: No input image provided"
+            error_msg = "Connect an image to 'Input Image'."
             raise ValueError(error_msg)
 
         # Validate metadata input
         metadata_dict = self.get_parameter_value("metadata")
         if not metadata_dict:
-            error_msg = f"{self.name}: No metadata provided"
+            error_msg = "'Metadata' is empty. Connect a dictionary of metadata to write."
             raise ValueError(error_msg)
 
         if not isinstance(metadata_dict, dict):
-            error_msg = f"{self.name}: Metadata must be dict, got {type(metadata_dict).__name__}"
+            error_msg = f"'Metadata' must be a dictionary, got {type(metadata_dict).__name__}."
             raise TypeError(error_msg)
 
         return (image, metadata_dict)
@@ -154,7 +154,7 @@ class WriteImageMetadataNode(SuccessFailureNode):
         reserved_keys = [key for key in metadata_dict if str(key).startswith("gtn_")]
         if reserved_keys:
             error_msg = (
-                f"{self.name}: Cannot write metadata keys starting with 'gtn_' "
+                f"Cannot write metadata keys starting with 'gtn_' "
                 f"(reserved for auto-injected workflow metadata). "
                 f"Offending keys: {', '.join(reserved_keys)}"
             )
@@ -176,13 +176,13 @@ class WriteImageMetadataNode(SuccessFailureNode):
         """
         # Check format is available
         if not pil_image.format:
-            error_msg = f"{self.name}: Could not detect image format"
+            error_msg = "The image format could not be detected."
             raise ValueError(error_msg)
 
         # Get driver for this format
         driver = ImageMetadataDriverRegistry.get_driver_for_format(pil_image.format)
         if driver is None:
-            error_msg = f"{self.name}: Unsupported format '{pil_image.format}'. Supported formats: PNG, JPEG, TIFF, MPO"
+            error_msg = f"Unsupported format '{pil_image.format}'. Supported formats: PNG, JPEG, TIFF, MPO."
             raise ValueError(error_msg)
 
         # Write metadata using driver

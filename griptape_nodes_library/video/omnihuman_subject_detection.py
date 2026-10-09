@@ -135,7 +135,7 @@ class OmnihumanSubjectDetection(GriptapeProxyNode):
         return exceptions if exceptions else None
 
     def _missing_image_message(self) -> str:
-        return f"{self.name} requires an input image. Set the Image URL parameter or connect an image to it."
+        return "An input image is required. Connect an image to 'Image URL' or enter its URL."
 
     async def _build_payload(self) -> dict[str, Any]:
         provider_model_id = self._get_selected_model_id()

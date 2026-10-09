@@ -253,7 +253,7 @@ class WanImageGeneration(GriptapeProxyNode):
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details="Generation completed but no images were hosted for this generation.",
+                result_details="The generation finished, but no images were hosted.",
             )
             return
 
@@ -268,7 +268,7 @@ class WanImageGeneration(GriptapeProxyNode):
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=f"{self.name} generation completed upstream but the image(s) could not be retrieved.",
+                result_details="The generation finished, but the image(s) could not be retrieved.",
             )
             return
 
@@ -325,19 +325,19 @@ class WanImageGeneration(GriptapeProxyNode):
             self.parameter_output_values[param_name] = None
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:
-        """Extract error message from DashScope error responses.
+        """Return the provider's reason from a DashScope error response, or "" if it gave none.
 
         DashScope errors may include a 'code' and 'message' field at the top level,
-        or nested within the response structure.
+        or nested within the response structure. The code stays in the attached response.
         """
         if not response_json:
-            return f"{self.name} generation failed with no error details provided by API."
+            return ""
 
         # Try DashScope-specific error format: {"code": "...", "message": "..."}
         code = response_json.get("code")
         message = response_json.get("message")
         if code and message:
-            return f"{self.name}: {code}: {message}"
+            return str(message)
 
         # Fall back to the base class error extraction
         return super()._extract_error_message(response_json)

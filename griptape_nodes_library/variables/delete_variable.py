@@ -64,13 +64,13 @@ class DeleteVariable(BaseVariableNode):
         if isinstance(value, str):
             value = [value]
         if not isinstance(value, list):
-            msg = f"{self.name}: variable_names must be a string or a list of strings, got {type(value).__name__}."
+            msg = f"'variable_names' must be a string or a list of strings, got {type(value).__name__}."
             raise TypeError(msg)
 
         names: list[str] = []
         for item in value:
             if not isinstance(item, str):
-                msg = f"{self.name}: every entry in variable_names must be a string, got {type(item).__name__}."
+                msg = f"Every entry in 'variable_names' must be a string, got {type(item).__name__}."
                 raise TypeError(msg)
             stripped = item.strip()
             if stripped and stripped not in names:
@@ -100,7 +100,7 @@ class DeleteVariable(BaseVariableNode):
         self.parameter_output_values[self.deleted_names_param.name] = deleted
 
         if errors:
-            msg = f"{self.name}: deleted {len(deleted)} of {len(names)} variable(s). " + " ".join(errors)
+            msg = f"Deleted {len(deleted)} of {len(names)} variable(s). " + " ".join(errors)
             raise RuntimeError(msg)
 
     def _is_stale(self) -> bool:

@@ -1029,14 +1029,14 @@ class CreateColorBars(BaseNode):
         if width is None:
             width = 1920
         if width <= 0:
-            msg = f"{self.name}: Width must be greater than 0, got {width}"
+            msg = f"'Width' must be greater than 0, got {width}"
             raise ValueError(msg)
 
         height = self.get_parameter_value("height")
         if height is None:
             height = 1080
         if height <= 0:
-            msg = f"{self.name}: Height must be greater than 0, got {height}"
+            msg = f"'Height' must be greater than 0, got {height}"
             raise ValueError(msg)
 
         # Success path: Generate the color bars image

@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 from griptape.artifacts import BlobArtifact, ErrorArtifact, ImageUrlArtifact
+from griptape_nodes.exe_types.core_types import NodeError
 from griptape_nodes.node_library.library_registry import LibraryRegistry
 
 from griptape_nodes_library.image.create_image import GenerateImage
@@ -53,8 +54,10 @@ def test_error_output_raises_without_saving_file(
     node, output_file = node_with_fake_output_file
     error = ErrorArtifact("403 Client Error: Forbidden", exception=_http_error(403, "Forbidden"))
 
-    with pytest.raises(RuntimeError, match="Forbidden"):
+    with pytest.raises(NodeError, match="Forbidden") as raised:
         node._create_image(cast(Any, _FakeAgent(error)), "a cat")
+
+    assert raised.value.fields == {"status_code": 403}
 
     output_file.build_file.assert_not_called()
     cast(MagicMock, node.publish_update_to_parameter).assert_not_called()

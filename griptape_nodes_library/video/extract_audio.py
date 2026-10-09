@@ -141,12 +141,12 @@ class ExtractAudio(BaseVideoProcessor):
 
         audio_format = self.get_parameter_value("audio_format")
         if audio_format and audio_format not in self.AUDIO_FORMATS:
-            msg = f"{self.name} - Audio format must be one of {self.AUDIO_FORMATS}, got {audio_format}"
+            msg = f"Audio format must be one of {self.AUDIO_FORMATS}, got {audio_format}"
             exceptions.append(ValueError(msg))
 
         audio_quality = self.get_parameter_value("audio_quality")
         if audio_quality and audio_quality not in self.AUDIO_QUALITY_OPTIONS:
-            msg = f"{self.name} - Audio quality must be one of {list(self.AUDIO_QUALITY_OPTIONS.keys())}, got {audio_quality}"
+            msg = f"Audio quality must be one of {list(self.AUDIO_QUALITY_OPTIONS.keys())}, got {audio_quality}"
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None
@@ -189,10 +189,8 @@ class ExtractAudio(BaseVideoProcessor):
             self.append_value_to_parameter("logs", "[Finished extracting audio.]\n")
 
         except Exception as e:
-            error_message = str(e)
-            msg = f"{self.name}: Error extracting audio: {error_message}"
-            self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
-            raise ValueError(msg) from e
+            self.append_value_to_parameter("logs", f"ERROR: Error extracting audio: {e!s}\n")
+            raise
 
     def _process_extract_audio(self, input_url: str, **kwargs) -> None:
         """Extract audio and save as AudioUrlArtifact."""
@@ -264,10 +262,8 @@ class ExtractAudio(BaseVideoProcessor):
             self.append_value_to_parameter("logs", f"Successfully extracted audio as {audio_format}\n")
 
         except Exception as e:
-            error_message = str(e)
-            msg = f"{self.name}: Error extracting audio: {error_message}"
-            self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
-            raise ValueError(msg) from e
+            self.append_value_to_parameter("logs", f"ERROR: Error extracting audio: {e!s}\n")
+            raise
         finally:
             # Clean up temporary file using base class method
             self._cleanup_temp_file(temp_audio_path)

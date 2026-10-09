@@ -23,7 +23,11 @@ from urllib.parse import urljoin
 import httpx
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
-from griptape_nodes_library.utils.cloud_credential_utils import missing_credential_message
+from griptape_nodes_library.utils.cloud_credential_utils import (
+    MissingCredentialError,
+    missing_credential_error,
+    missing_credential_message,
+)
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 if TYPE_CHECKING:
@@ -38,6 +42,7 @@ __all__ = [
     "ProviderAssetAccessOutcome",
     "ProxyCredential",
     "check_provider_asset_access",
+    "missing_proxy_credential_error",
     "missing_proxy_credential_message",
     "resolve_proxy_base",
     "resolve_proxy_credential",
@@ -187,6 +192,16 @@ def missing_proxy_credential_message(credential: ProxyCredential, *, attempted: 
         else:
             message += f" {names} are set to blank values."
     return message
+
+
+def missing_proxy_credential_error(credential: ProxyCredential, *, attempted: str) -> MissingCredentialError:
+    """Build the NodeError for a proxy call with no usable credential.
+
+    Same message as :func:`missing_proxy_credential_message`, with a link to the API key secret.
+    """
+    return missing_credential_error(
+        attempted, message=missing_proxy_credential_message(credential, attempted=attempted)
+    )
 
 
 def _credential_subject(credential: ProxyCredential) -> str:

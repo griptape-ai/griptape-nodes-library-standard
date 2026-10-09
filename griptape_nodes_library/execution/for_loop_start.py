@@ -253,7 +253,7 @@ class ForLoopStartNode(BaseIterativeStartNode):
 
         # Step must always be positive (>= 1)
         if step < 1:
-            msg = f"{self.name}: Step value must be positive (>= 1), got {step}"
+            msg = f"'Step' must be 1 or more, got {step}."
             exceptions.append(Exception(msg))
 
         # Informational logging for edge cases

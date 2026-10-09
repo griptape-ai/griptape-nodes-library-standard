@@ -201,28 +201,21 @@ class ConcatenateVideos(BaseVideoProcessor):
     def _validate_custom_parameters(self) -> list[Exception] | None:
         """Validate concatenation parameters."""
 
-        def _create_video_validation_error(message: str) -> ValueError:
-            """Create video validation error."""
-            return ValueError(f"{self.name}: {message}")
-
-        exceptions = []
+        exceptions: list[Exception] = []
         min_video_count = 2
 
         # Validate video inputs
         video_inputs = self.get_parameter_list_value("video_inputs")
-        if not video_inputs:
-            exceptions.append(_create_video_validation_error("At least one video input is required"))
-        elif len(video_inputs) < min_video_count:
-            exceptions.append(
-                _create_video_validation_error(f"At least {min_video_count} videos are required for concatenation")
-            )
+        if not video_inputs or len(video_inputs) < min_video_count:
+            msg = f"At least {min_video_count} videos are required. Connect them to 'Videos to Concatenate'."
+            exceptions.append(ValueError(msg))
 
         # Validate format
         output_format = self.get_parameter_value("output_format")
         valid_formats = ["mp4", "avi", "mov", "mkv", "webm"]
         if output_format and output_format not in valid_formats:
             msg = f"Invalid output format '{output_format}'. Must be one of: {valid_formats}"
-            exceptions.append(_create_video_validation_error(msg))
+            exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None
 
@@ -273,15 +266,15 @@ class ConcatenateVideos(BaseVideoProcessor):
 
         except (ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, FileLoadError) as e:
             error_message = str(e)
-            msg = f"{self.name}: Error concatenating videos: {error_message}"
-            self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
+            self.append_value_to_parameter("logs", f"ERROR: Error concatenating videos: {error_message}\n")
 
             # Report failure
             failure_details = f"Video concatenation failed: {error_message}"
             self._set_status_results(was_successful=False, result_details=failure_details)
 
             # Handle failure exception (raises if no failure output connected)
-            self._handle_failure_exception(ValueError(msg))
+            self._handle_failure_exception(e)
+            return
 
         # Report success (only reached if no exception)
         result_details = f"Successfully concatenated {len(video_inputs)} videos"
@@ -307,10 +300,8 @@ class ConcatenateVideos(BaseVideoProcessor):
             try:
                 temp_files, concat_list_file = self._prepare_video_inputs(video_inputs)
             except (ValueError, OSError, FileLoadError) as e:
-                error_message = str(e)
-                msg = f"{self.name}: Error preparing video inputs: {error_message}"
-                self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
-                raise ValueError(msg) from e
+                self.append_value_to_parameter("logs", f"ERROR: Error preparing video inputs: {e!s}\n")
+                raise
 
             # Execute FFmpeg concatenation
             try:
@@ -318,10 +309,8 @@ class ConcatenateVideos(BaseVideoProcessor):
                     temp_files, concat_list_file, output_path, output_path_obj, output_format, **kwargs
                 )
             except (ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-                error_message = str(e)
-                msg = f"{self.name}: Error executing FFmpeg concatenation: {error_message}"
-                self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
-                raise ValueError(msg) from e
+                self.append_value_to_parameter("logs", f"ERROR: Error executing FFmpeg concatenation: {e!s}\n")
+                raise
 
             self.append_value_to_parameter("logs", f"Successfully concatenated {len(video_inputs)} videos\n")
 

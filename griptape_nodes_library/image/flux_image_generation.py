@@ -247,7 +247,7 @@ class FluxImageGeneration(GriptapeProxyNode):
             ValueError: If value is None or not one of the expected options
         """
         if not value:
-            msg = "safety_tolerance cannot be None or empty"
+            msg = "Pick a 'Safety Tolerance' value."
             raise ValueError(msg)
 
         if value == "most restrictive":
@@ -257,7 +257,7 @@ class FluxImageGeneration(GriptapeProxyNode):
         if value == "least restrictive":
             return 6
 
-        msg = f"Invalid safety_tolerance value: '{value}'. Must be one of: {SAFETY_TOLERANCE_OPTIONS}"
+        msg = f"Invalid 'Safety Tolerance' value: '{value}'. Must be one of: {SAFETY_TOLERANCE_OPTIONS}"
         raise ValueError(msg)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
@@ -359,42 +359,43 @@ class FluxImageGeneration(GriptapeProxyNode):
         )
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
-        """Extract error details from API response.
+        """Return the provider's reason for a failed generation, or "" if it gave none.
 
         Args:
             response_json: The JSON response from the API that may contain error information
 
         Returns:
-            A formatted error message string
+            The provider's reason, without the node name or the response pasted in
         """
         if not response_json:
-            return "Generation failed with no error details provided by API."
+            return ""
 
         top_level_error = response_json.get("error")
         parsed_provider_response = self._parse_provider_response(response_json.get("provider_response"))
 
         # Try to extract from provider response first (more detailed)
-        provider_error_msg = self._format_provider_error(parsed_provider_response, top_level_error)
+        provider_error_msg = self._format_provider_error(parsed_provider_response)
         if provider_error_msg:
             return provider_error_msg
 
         # Fall back to top-level error
         if top_level_error:
-            return self._format_top_level_error(top_level_error)
+            top_level_msg = self._format_top_level_error(top_level_error)
+            if top_level_msg:
+                return top_level_msg
 
         # Check for status-based errors
         status = response_json.get("status")
 
         # Handle moderation specifically
         if status in [STATUS_REQUEST_MODERATED, STATUS_CONTENT_MODERATED]:
-            return self._format_moderation_error(response_json)
+            return self._format_moderation_error(response_json) or super()._extract_error_message(response_json)
 
         # Handle other failure statuses
         if status in [STATUS_FAILED, STATUS_ERROR]:
-            return self._format_failure_status_error(response_json, status)
+            return self._format_failure_status_error(response_json) or super()._extract_error_message(response_json)
 
-        # Final fallback
-        return f"Generation failed.\n\nFull API response:\n{response_json}"
+        return super()._extract_error_message(response_json)
 
     def _format_moderation_error(self, response_json: dict[str, Any]) -> str:
         """Format error message for moderated content."""
@@ -402,15 +403,15 @@ class FluxImageGeneration(GriptapeProxyNode):
         moderation_reasons = details.get("Moderation Reasons", [])
         if moderation_reasons:
             reasons_str = ", ".join(moderation_reasons)
-            return f"Content was moderated and blocked.\nModeration Reasons: {reasons_str}"
+            return f"Content was moderated and blocked. Moderation reasons: {reasons_str}"
         return "Content was moderated and blocked by safety filters."
 
-    def _format_failure_status_error(self, response_json: dict[str, Any], status: str) -> str:
-        """Format error message for failed/error status."""
+    def _format_failure_status_error(self, response_json: dict[str, Any]) -> str:
+        """Return the reason from a failed/error status response, or "" if there is none."""
         result = response_json.get("result", {})
         if isinstance(result, dict) and result.get("error"):
-            return f"Generation failed: {result['error']}"
-        return f"Generation failed with status '{status}'."
+            return str(result["error"])
+        return ""
 
     def _parse_provider_response(self, provider_response: Any) -> dict[str, Any] | None:
         """Parse provider_response if it's a JSON string."""
@@ -423,10 +424,8 @@ class FluxImageGeneration(GriptapeProxyNode):
             return provider_response
         return None
 
-    def _format_provider_error(
-        self, parsed_provider_response: dict[str, Any] | None, top_level_error: Any
-    ) -> str | None:
-        """Format error message from parsed provider response."""
+    def _format_provider_error(self, parsed_provider_response: dict[str, Any] | None) -> str | None:
+        """Return the error message from a parsed provider response."""
         if not parsed_provider_response:
             return None
 
@@ -435,28 +434,15 @@ class FluxImageGeneration(GriptapeProxyNode):
             return None
 
         if isinstance(provider_error, dict):
-            error_message = provider_error.get("message", "")
-            details = f"{error_message}"
+            return str(provider_error.get("message") or "") or None
 
-            if error_code := provider_error.get("code"):
-                details += f"\nError Code: {error_code}"
-            if error_type := provider_error.get("type"):
-                details += f"\nError Type: {error_type}"
-            if top_level_error:
-                details = f"{top_level_error}\n\n{details}"
-            return details
-
-        error_msg = str(provider_error)
-        if top_level_error:
-            return f"{top_level_error}\n\nProvider error: {error_msg}"
-        return f"Generation failed. Provider error: {error_msg}"
+        return str(provider_error)
 
     def _format_top_level_error(self, top_level_error: Any) -> str:
-        """Format error message from top-level error field."""
+        """Return the message from the top-level error field."""
         if isinstance(top_level_error, dict):
-            error_msg = top_level_error.get("message") or top_level_error.get("error") or str(top_level_error)
-            return f"Generation failed with error: {error_msg}\n\nFull error details:\n{top_level_error}"
-        return f"Generation failed with error: {top_level_error!s}"
+            return str(top_level_error.get("message") or top_level_error.get("error") or "")
+        return str(top_level_error)
 
     def _set_safe_defaults(self) -> None:
         """Set safe default values for outputs."""

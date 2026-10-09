@@ -194,26 +194,26 @@ class KlingVideoExtension(GriptapeProxyNode):
 
         # Validate video_id is provided
         if not video_id:
-            exceptions.append(ValueError(f"{self.name} requires a video_id from a previous Kling AI generation."))
+            exceptions.append(
+                ValueError("'video_id' is required. Connect the video_id from a previous Kling AI generation.")
+            )
 
         # Validate prompt length
         if prompt and len(prompt) > MAX_PROMPT_LENGTH:
             exceptions.append(
-                ValueError(
-                    f"{self.name} prompt exceeds {MAX_PROMPT_LENGTH} characters (got: {len(prompt)} characters)."
-                )
+                ValueError(f"'prompt' exceeds {MAX_PROMPT_LENGTH} characters (got: {len(prompt)} characters).")
             )
 
         # Validate negative prompt length
         if negative_prompt and len(negative_prompt) > MAX_PROMPT_LENGTH:
             exceptions.append(
                 ValueError(
-                    f"{self.name} negative_prompt exceeds {MAX_PROMPT_LENGTH} characters (got: {len(negative_prompt)} characters)."
+                    f"'negative_prompt' exceeds {MAX_PROMPT_LENGTH} characters (got: {len(negative_prompt)} characters)."
                 )
             )
 
         # Validate cfg_scale
         if not (0 <= cfg_scale <= 1):
-            exceptions.append(ValueError(f"{self.name} cfg_scale must be between 0.0 and 1.0."))
+            exceptions.append(ValueError("'cfg_scale' must be between 0.0 and 1.0."))
 
         return exceptions if exceptions else None

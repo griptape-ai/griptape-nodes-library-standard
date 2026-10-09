@@ -385,7 +385,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
             response_json: The JSON response from the generation status endpoint
 
         Returns:
-            str: A formatted error message to display to the user
+            str: The provider's reason, or "" if there is none
         """
         if not response_json:
             return super()._extract_error_message(response_json)
@@ -395,15 +395,10 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         if parsed_provider_response:
             provider_error = parsed_provider_response.get("error")
             if provider_error:
+                # The base attaches the full response, so the code and type stay visible there.
                 if isinstance(provider_error, dict):
-                    error_message = provider_error.get("message", "")
-                    details = f"{self.name} {error_message}"
-                    if error_code := provider_error.get("code"):
-                        details += f"\nError Code: {error_code}"
-                    if error_type := provider_error.get("type"):
-                        details += f"\nError Type: {error_type}"
-                    return details
-                return f"{self.name} Provider error: {provider_error}"
+                    return str(provider_error.get("message") or provider_error.get("code") or "")
+                return str(provider_error)
 
         # Fall back to base implementation
         return super()._extract_error_message(response_json)

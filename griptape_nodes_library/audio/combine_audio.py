@@ -124,7 +124,7 @@ class CombineAudio(SuccessFailureNode):
                 active_tracks += 1
 
         if active_tracks == 0:
-            exceptions.append(ValueError(f"{self.name}: At least one track must have audio input"))
+            exceptions.append(ValueError("Connect audio to at least one track, such as 'track1_audio'."))
 
         return exceptions if exceptions else None
 
@@ -220,7 +220,7 @@ class CombineAudio(SuccessFailureNode):
         try:
             audio_bytes = File(audio_artifact.value).read_bytes()
         except FileLoadError as e:
-            error_msg = f"{self.name}: Failed to download audio file {index + 1}: {e}"
+            error_msg = f"Could not read the audio for track {index + 1}: {e}"
             raise RuntimeError(error_msg) from e
 
         try:
@@ -229,7 +229,7 @@ class CombineAudio(SuccessFailureNode):
                 temp_file.write(audio_bytes)
                 temp_file_path = Path(temp_file.name)
         except OSError as e:
-            error_msg = f"{self.name}: Failed to create temporary file for audio {index + 1}: {e}"
+            error_msg = f"Could not create a temporary file for track {index + 1}: {e}"
             raise RuntimeError(error_msg) from e
 
         # SUCCESS PATH AT END
@@ -243,7 +243,7 @@ class CombineAudio(SuccessFailureNode):
             with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as output_file:
                 output_path = Path(output_file.name)
         except OSError as e:
-            error_msg = f"{self.name}: Failed to create temporary output file: {e}"
+            error_msg = f"Could not create a temporary output file: {e}"
             raise RuntimeError(error_msg) from e
 
         try:
@@ -252,17 +252,16 @@ class CombineAudio(SuccessFailureNode):
             # Clean up output file on error
             with contextlib.suppress(Exception):
                 output_path.unlink()
-            error_msg = f"{self.name}: Failed to build ffmpeg command: {e}"
+            error_msg = f"Could not build the ffmpeg command: {e}"
             raise RuntimeError(error_msg) from e
 
         try:
             self._run_ffmpeg_command(cmd)
-        except Exception as e:
+        except Exception:
             # Clean up output file on error
             with contextlib.suppress(Exception):
                 output_path.unlink()
-            error_msg = f"{self.name}: Failed to run ffmpeg command: {e}"
-            raise RuntimeError(error_msg) from e
+            raise
 
         # SUCCESS PATH AT END
         return output_path
@@ -358,7 +357,7 @@ class CombineAudio(SuccessFailureNode):
         """Run the ffmpeg command and handle errors."""
         result = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=300)  # noqa: S603
         if result.returncode != 0:
-            error_msg = f"{self.name}: ffmpeg failed: {result.stderr}"
+            error_msg = f"ffmpeg failed: {result.stderr}"
             raise RuntimeError(error_msg)
 
     def _upload_mixed_audio(self, mixed_file: Path) -> AudioUrlArtifact:
@@ -369,14 +368,14 @@ class CombineAudio(SuccessFailureNode):
             with mixed_file.open("rb") as f:
                 audio_data = f.read()
         except OSError as e:
-            error_msg = f"{self.name}: Failed to read mixed audio file: {e}"
+            error_msg = f"Could not read the mixed audio file: {e}"
             raise RuntimeError(error_msg) from e
 
         try:
             dest = self._output_file.build_file()
             saved = dest.write_bytes(audio_data)
         except Exception as e:
-            error_msg = f"{self.name}: Failed to save mixed audio: {e}"
+            error_msg = f"Could not save the mixed audio: {e}"
             raise RuntimeError(error_msg) from e
 
         # SUCCESS PATH AT END
@@ -403,8 +402,4 @@ class CombineAudio(SuccessFailureNode):
 
     def _get_ffmpeg_path(self) -> str:
         """Get the path to ffmpeg executable using the common utility."""
-        try:
-            return get_ffmpeg_path()
-        except Exception as e:
-            error_msg = f"{self.name}: {e}"
-            raise RuntimeError(error_msg) from e
+        return get_ffmpeg_path()

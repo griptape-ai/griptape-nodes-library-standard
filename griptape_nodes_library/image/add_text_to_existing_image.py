@@ -323,25 +323,23 @@ class AddTextToExistingImage(SuccessFailureNode):
         font_size: int,
     ) -> None:
         if input_image is None:
-            msg = "input_image is required"
+            msg = "Connect an image to 'Input Image'."
             raise ValueError(msg)
 
         if text_vertical_alignment not in VERTICAL_ALIGN_OPTIONS:
-            msg = f"text_vertical_alignment must be one of {VERTICAL_ALIGN_OPTIONS}, got: {text_vertical_alignment}"
+            msg = f"'Text Vertical Alignment' must be one of {VERTICAL_ALIGN_OPTIONS}, got: {text_vertical_alignment}"
             raise ValueError(msg)
 
         if text_horizontal_alignment not in HORIZONTAL_ALIGN_OPTIONS:
-            msg = (
-                f"text_horizontal_alignment must be one of {HORIZONTAL_ALIGN_OPTIONS}, got: {text_horizontal_alignment}"
-            )
+            msg = f"'Text Horizontal Alignment' must be one of {HORIZONTAL_ALIGN_OPTIONS}, got: {text_horizontal_alignment}"
             raise ValueError(msg)
 
         if margin < 0:
-            msg = f"margin must be >= 0, got: {margin}"
+            msg = f"'Margin' must be 0 or more, got: {margin}"
             raise ValueError(msg)
 
         if font_size <= 0:
-            msg = f"font_size must be a positive integer, got: {font_size}"
+            msg = f"'Font Size' must be greater than 0, got: {font_size}"
             raise ValueError(msg)
 
     def _refresh_cached_render_if_possible(self) -> None:
@@ -437,7 +435,7 @@ class AddTextToExistingImage(SuccessFailureNode):
             image_bytes = self._get_artifact_bytes(image_value)
             return f"bytes:{hashlib.sha256(image_bytes).hexdigest()}"
 
-        msg = f"Unsupported input_image type: {type(image_value).__name__}"
+        msg = f"'Input Image' must be an image, got {type(image_value).__name__}."
         raise ValueError(msg)
 
     def _get_artifact_bytes(self, image_artifact: Any) -> bytes:
@@ -493,7 +491,7 @@ class AddTextToExistingImage(SuccessFailureNode):
             text_rgba = parse_color_to_rgba(text_color)
             bg_rgba = parse_color_to_rgba(text_background)
         except Exception as color_error:
-            msg = f"Color parsing failed: {color_error}"
+            msg = f"Could not read 'Text Color' or 'Text Background': {color_error}"
             raise RuntimeError(msg) from color_error
 
         pil_image = self._load_pil_image(image_value)
@@ -583,7 +581,7 @@ class AddTextToExistingImage(SuccessFailureNode):
             image_bytes = self._get_artifact_bytes(image_value)
             return Image.open(BytesIO(image_bytes))
 
-        msg = f"Unsupported input_image type: {type(image_value).__name__}"
+        msg = f"'Input Image' must be an image, got {type(image_value).__name__}."
         raise ValueError(msg)
 
     def _upload_png_bytes(self, png_bytes: bytes) -> ImageUrlArtifact:

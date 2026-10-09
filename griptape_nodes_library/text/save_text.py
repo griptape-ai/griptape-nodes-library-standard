@@ -42,19 +42,13 @@ class SaveText(ControlNode):
         self._output_file._situation_name = self.get_parameter_value("situation")
         text = self.parameter_values.get("text", "")
 
-        try:
-            dest = self._output_file.build_file()
-            saved = dest.write_bytes(text.encode("utf-8"))
-            saved_path = saved.location
-            logger.info("Saved file: %s", saved_path)
-            # Do NOT write saved_path back to parameter_output_values["output_file"] —
-            # that clobbers the user's filename with the resolved macro path. No other
-            # node using ProjectFileParameter does this; the path is log-only here.
-
-        except Exception as e:
-            error_message = str(e)
-            msg = f"Error saving file: {error_message}"
-            raise ValueError(msg) from e
+        dest = self._output_file.build_file()
+        saved = dest.write_bytes(text.encode("utf-8"))
+        saved_path = saved.location
+        logger.info("Saved file: %s", saved_path)
+        # Do NOT write saved_path back to parameter_output_values["output_file"] —
+        # that clobbers the user's filename with the resolved macro path. No other
+        # node using ProjectFileParameter does this; the path is log-only here.
 
     def after_incoming_connection(self, source_node, source_parameter, target_parameter) -> None:
         on_output_file_connected(self, source_node, target_parameter)

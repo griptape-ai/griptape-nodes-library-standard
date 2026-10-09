@@ -253,17 +253,15 @@ class ResizeVideo(ControlNode):
         # Validate that we have a video
         video = self.parameter_values.get("video")
         if not video:
-            msg = f"{self.name}: Video parameter is required"
+            msg = "Connect a video to 'video'."
             exceptions.append(ValueError(msg))
-
         # Make sure it's a video artifact
-        if not isinstance(video, VideoUrlArtifact):
-            msg = f"{self.name}: Video parameter must be a VideoUrlArtifact"
+        elif not isinstance(video, VideoUrlArtifact):
+            msg = f"'video' must be a video, got {type(video).__name__}."
             exceptions.append(ValueError(msg))
-
         # Make sure it has a value
-        if hasattr(video, "value") and not video.value:  # type: ignore  # noqa: PGH003
-            msg = f"{self.name}: Video parameter must have a value"
+        elif not video.value:
+            msg = "The video connected to 'video' is empty."
             exceptions.append(ValueError(msg))
 
         resize_mode = self.parameter_values.get("resize_mode", self.RESIZE_MODE_PERCENTAGE)
@@ -275,21 +273,21 @@ class ResizeVideo(ControlNode):
         if resize_mode in [self.RESIZE_MODE_WIDTH, self.RESIZE_MODE_HEIGHT] and (
             target_size < self.MIN_TARGET_SIZE or target_size > self.MAX_TARGET_SIZE
         ):
-            msg = f"{self.name}: Target size must be between {self.MIN_TARGET_SIZE} and {self.MAX_TARGET_SIZE}, got {target_size}"
+            msg = f"'target_size' must be between {self.MIN_TARGET_SIZE} and {self.MAX_TARGET_SIZE}, got {target_size}."
             exceptions.append(ValueError(msg))
 
         if resize_mode == self.RESIZE_MODE_PERCENTAGE and (
             percentage < self.MIN_PERCENTAGE_SCALE or percentage > self.MAX_PERCENTAGE_SCALE
         ):
-            msg = f"{self.name}: Percentage must be between {self.MIN_PERCENTAGE_SCALE} and {self.MAX_PERCENTAGE_SCALE}, got {percentage}"
+            msg = f"'percentage' must be between {self.MIN_PERCENTAGE_SCALE} and {self.MAX_PERCENTAGE_SCALE}, got {percentage}."
             exceptions.append(ValueError(msg))
 
         if resize_mode == self.RESIZE_MODE_WIDTH_HEIGHT:
             if target_width < self.MIN_TARGET_SIZE or target_width > self.MAX_TARGET_SIZE:
-                msg = f"{self.name}: Target width must be between {self.MIN_TARGET_SIZE} and {self.MAX_TARGET_SIZE}, got {target_width}"
+                msg = f"'target_width' must be between {self.MIN_TARGET_SIZE} and {self.MAX_TARGET_SIZE}, got {target_width}."
                 exceptions.append(ValueError(msg))
             if target_height < self.MIN_TARGET_SIZE or target_height > self.MAX_TARGET_SIZE:
-                msg = f"{self.name}: Target height must be between {self.MIN_TARGET_SIZE} and {self.MAX_TARGET_SIZE}, got {target_height}"
+                msg = f"'target_height' must be between {self.MIN_TARGET_SIZE} and {self.MAX_TARGET_SIZE}, got {target_height}."
                 exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None
@@ -330,7 +328,7 @@ class ResizeVideo(ControlNode):
                 f"flags={flags},pad={even_width}:{even_height}:x=(ow-iw)/2:y=(oh-ih)/2:color={pad_color}"
             )
 
-        error_msg = f"{self.name}: Invalid resize mode: {settings.resize_mode}"
+        error_msg = f"Unknown resize mode: {settings.resize_mode!r}"
         raise ValueError(error_msg)
 
     def _make_even(self, value: int) -> int:
@@ -360,54 +358,44 @@ class ResizeVideo(ControlNode):
 
         def _validate_and_raise_if_invalid(url: str) -> None:
             if not validate_url(url):
-                msg = f"{self.name}: Invalid or unsafe URL provided: {url}"
+                msg = f"The video URL is not valid or not safe to open: {url}"
                 raise ValueError(msg)
 
+        # Validate URL before using in subprocess
+        _validate_and_raise_if_invalid(input_url)
+
+        scale_expr = self._build_scale_expression(settings)
+
+        # Get ffmpeg executable path from static-ffmpeg dependency
+        ffmpeg_path, _ = run.get_or_fetch_platform_executables_else_raise()
+
+        # Build ffmpeg command - ffmpeg can work directly with URLs
+        cmd = [
+            ffmpeg_path,
+            "-y",
+            "-i",
+            input_url,
+            "-vf",
+            scale_expr,
+            "-c:a",
+            "copy",
+            output_path,
+        ]
+
+        self.append_value_to_parameter("logs", f"Running ffmpeg command: {' '.join(cmd)}\n")
+
+        # Run ffmpeg with timeout
         try:
-            # Validate URL before using in subprocess
-            _validate_and_raise_if_invalid(input_url)
-
-            scale_expr = self._build_scale_expression(settings)
-
-            # Get ffmpeg executable path from static-ffmpeg dependency
-            ffmpeg_path, _ = run.get_or_fetch_platform_executables_else_raise()
-
-            # Build ffmpeg command - ffmpeg can work directly with URLs
-            cmd = [
-                ffmpeg_path,
-                "-y",
-                "-i",
-                input_url,
-                "-vf",
-                scale_expr,
-                "-c:a",
-                "copy",
-                output_path,
-            ]
-
-            self.append_value_to_parameter("logs", f"Running ffmpeg command: {' '.join(cmd)}\n")
-
-            # Run ffmpeg with timeout
-            try:
-                result = subprocess.run(  # noqa: S603
-                    cmd, capture_output=True, text=True, check=True, timeout=300
-                )
-                self.append_value_to_parameter("logs", f"FFmpeg stdout: {result.stdout}\n")
-            except subprocess.TimeoutExpired as e:
-                error_msg = "FFmpeg process timed out after 5 minutes"
-                self.append_value_to_parameter("logs", f"ERROR: {error_msg}\n")
-                raise ValueError(error_msg) from e
-            except subprocess.CalledProcessError as e:
-                error_msg = f"FFmpeg error: {e.stderr}"
-                self.append_value_to_parameter("logs", f"ERROR: {error_msg}\n")
-                raise ValueError(error_msg) from e
-
-        except subprocess.CalledProcessError as e:
-            error_msg = f"FFmpeg error: {e.stderr}"
+            result = subprocess.run(  # noqa: S603
+                cmd, capture_output=True, text=True, check=True, timeout=300
+            )
+            self.append_value_to_parameter("logs", f"FFmpeg stdout: {result.stdout}\n")
+        except subprocess.TimeoutExpired as e:
+            error_msg = "FFmpeg timed out after 5 minutes while resizing the video."
             self.append_value_to_parameter("logs", f"ERROR: {error_msg}\n")
             raise ValueError(error_msg) from e
-        except Exception as e:
-            error_msg = f"Error during video resize: {e!s}"
+        except subprocess.CalledProcessError as e:
+            error_msg = f"FFmpeg could not resize the video: {e.stderr}"
             self.append_value_to_parameter("logs", f"ERROR: {error_msg}\n")
             raise ValueError(error_msg) from e
 
@@ -445,10 +433,8 @@ class ResizeVideo(ControlNode):
             resized_video_artifact = VideoUrlArtifact(saved.location)
             self.parameter_output_values["resized_video"] = resized_video_artifact
         except Exception as e:
-            error_message = str(e)
-            msg = f"{self.name}: Error resizing video: {error_message}"
-            self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
-            raise ValueError(msg) from e
+            self.append_value_to_parameter("logs", f"ERROR: Could not resize the video: {e}\n")
+            raise
         finally:
             # Clean up temporary file
             try:
@@ -500,7 +486,5 @@ class ResizeVideo(ControlNode):
             self.append_value_to_parameter("logs", "[Finished video processing.]\n")
 
         except Exception as e:
-            error_message = str(e)
-            msg = f"{self.name}: Error resizing video: {error_message}"
-            self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
-            raise ValueError(msg) from e
+            self.append_value_to_parameter("logs", f"ERROR: Could not resize the video: {e}\n")
+            raise

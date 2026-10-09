@@ -56,7 +56,7 @@ from griptape_nodes_library.utils.agent_utils import (
 )
 from griptape_nodes_library.utils.cloud_budget_drivers import GriptapeCloudPromptDriver
 from griptape_nodes_library.utils.cloud_credential_utils import (
-    missing_credential_message,
+    missing_credential_error,
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_driver_auth import cloud_driver_auth
@@ -684,8 +684,7 @@ class Agent(ControlNode):
         api_key = resolve_cloud_api_key()
 
         if not api_key:
-            msg = missing_credential_message("run the Agent")
-            exceptions.append(KeyError(msg))
+            exceptions.append(missing_credential_error("run the Agent"))
             return exceptions
 
         # Return any exceptions

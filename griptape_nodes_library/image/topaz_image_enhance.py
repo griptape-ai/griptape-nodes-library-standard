@@ -1158,7 +1158,7 @@ class TopazImageEnhance(GriptapeProxyNode):
         source_width, source_height = get_image_dimensions_from_artifact(params.get("image_input"))
         if source_width <= 0 or source_height <= 0:
             msg = (
-                f"{self.name}: could not read the source image's dimensions, which are required "
+                f"Could not read the source image's dimensions, which are required "
                 f"by the '{params.get('resize_mode')}' resize mode. Use "
                 f"'{ResizeMode.WIDTH_HEIGHT}' to request an explicit size instead."
             )
@@ -1169,7 +1169,7 @@ class TopazImageEnhance(GriptapeProxyNode):
         """Scale the source's dimensions by the requested percentage."""
         percentage = params.get("percentage")
         if not percentage or percentage <= 0:
-            msg = f"{self.name}: percentage must be greater than 0 to resize by percentage."
+            msg = "'percentage' must be greater than 0 to resize by percentage."
             raise ValueError(msg)
 
         source_width, source_height = self._source_dimensions(params)
@@ -1183,16 +1183,13 @@ class TopazImageEnhance(GriptapeProxyNode):
     def _validated_dimension(self, value: Any, param_name: str) -> int:
         """Check a single output dimension against Topaz's documented bounds."""
         if value is None:
-            msg = f"{self.name}: {param_name} is required for the selected resize mode."
+            msg = f"{param_name} is required for the selected resize mode."
             raise ValueError(msg)
         if isinstance(value, bool) or not isinstance(value, int):
-            msg = f"{self.name}: {param_name} must be an integer, got {value!r}."
+            msg = f"{param_name} must be an integer, got {value!r}."
             raise ValueError(msg)
         if not MIN_OUTPUT_DIMENSION <= value <= MAX_OUTPUT_DIMENSION:
-            msg = (
-                f"{self.name}: {param_name} must be between {MIN_OUTPUT_DIMENSION} and "
-                f"{MAX_OUTPUT_DIMENSION:,}, got {value}."
-            )
+            msg = f"{param_name} must be between {MIN_OUTPUT_DIMENSION} and {MAX_OUTPUT_DIMENSION:,}, got {value}."
             raise ValueError(msg)
         return value
 
@@ -1215,7 +1212,7 @@ class TopazImageEnhance(GriptapeProxyNode):
             supported = ", ".join(sorted(UPSCALE_OPERATIONS))
             errors.append(
                 ValueError(
-                    f"{self.name}: resize_mode is '{mode}' but the '{operation}' operation cannot "
+                    f"resize_mode is '{mode}' but the '{operation}' operation cannot "
                     f"resize. Topaz accepts an output size only for: {supported}."
                 )
             )
@@ -1298,26 +1295,23 @@ class TopazImageEnhance(GriptapeProxyNode):
         )
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
-        """Extract error details from API response."""
+        """Return the provider's reason for a failed request, or "" if it gave none."""
         if not response_json:
-            return "Processing failed with no error details provided by API."
+            return ""
 
         top_level_error = response_json.get("error")
-
         if top_level_error:
             if isinstance(top_level_error, dict):
-                error_msg = top_level_error.get("message") or top_level_error.get("error") or str(top_level_error)
-                return f"Processing failed with error: {error_msg}"
-            return f"Processing failed with error: {top_level_error!s}"
+                return str(top_level_error.get("message") or top_level_error.get("error") or "")
+            return str(top_level_error)
 
         status = response_json.get("status")
         if status in [STATUS_FAILED, STATUS_ERROR]:
             result = response_json.get("result", {})
             if isinstance(result, dict) and result.get("error"):
-                return f"Processing failed: {result['error']}"
-            return f"Processing failed with status '{status}'."
+                return str(result["error"])
 
-        return f"Processing failed.\n\nFull API response:\n{response_json}"
+        return super()._extract_error_message(response_json)
 
     def _set_safe_defaults(self) -> None:
         """Set safe default values for outputs."""

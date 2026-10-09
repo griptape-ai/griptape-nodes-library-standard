@@ -297,11 +297,11 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
         """
         # Extract base64 data from data URL
         if not audio_url.startswith("data:"):
-            error_msg = f"{self.name} invalid data URL format for transcoding"
+            error_msg = "The audio is not a data URL, so it cannot be transcoded."
             raise RuntimeError(error_msg)
 
         if "base64," not in audio_url:
-            error_msg = f"{self.name} data URL must contain base64-encoded data"
+            error_msg = "The audio data URL does not contain base64-encoded data."
             raise RuntimeError(error_msg)
 
         base64_data = audio_url.split("base64,", 1)[1]
@@ -309,7 +309,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
         try:
             audio_bytes = base64.b64decode(base64_data)
         except Exception as e:
-            error_msg = f"{self.name} failed to decode base64 audio data: {e}"
+            error_msg = f"Could not decode the base64 audio data: {e}"
             raise RuntimeError(error_msg) from e
 
         # Create temporary files for input and output
@@ -330,7 +330,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
             try:
                 ffmpeg_path = get_ffmpeg_path()
             except RuntimeError as e:
-                error_msg = f"{self.name} ffmpeg not available: {e}"
+                error_msg = f"ffmpeg is not available: {e}"
                 raise RuntimeError(error_msg) from e
 
             cmd = [
@@ -347,7 +347,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
 
             result = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=60)  # noqa: S603
             if result.returncode != 0:
-                error_msg = f"{self.name} ffmpeg transcoding failed: {result.stderr}"
+                error_msg = f"ffmpeg could not transcode the audio to MP3: {result.stderr}"
                 raise RuntimeError(error_msg)
 
             # Read transcoded audio
@@ -355,7 +355,7 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
                 with output_file.open("rb") as f:
                     mp3_bytes = f.read()
             except OSError as e:
-                error_msg = f"{self.name} failed to read transcoded audio: {e}"
+                error_msg = f"Could not read the transcoded audio: {e}"
                 raise RuntimeError(error_msg) from e
 
             # Encode to base64 and create data URL
@@ -404,11 +404,11 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
         params = await self._get_parameters_async()
 
         if not params["audio_uri"]:
-            msg = f"{self.name} requires an input audio for video generation."
+            msg = "Connect audio to 'Input Audio'."
             raise ValueError(msg)
 
         if not params["prompt"].strip():
-            msg = f"{self.name} requires a prompt to generate video."
+            msg = "'Prompt' is empty. Describe the video you want."
             raise ValueError(msg)
 
         model_id = params["model"]
@@ -434,11 +434,10 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
             kind=ArtifactKind.VIDEO,
         )
 
-    def _extract_error_message(self, response_json: dict[str, Any]) -> str:  # noqa: C901, PLR0912
+    def _extract_error_message(self, response_json: dict[str, Any]) -> str:
         if not response_json:
-            return f"{self.name} generation failed with no error details provided by API."
+            return ""
 
-        status = str(response_json.get("status") or "").lower()
         status_detail = response_json.get("status_detail")
         if isinstance(status_detail, dict):
             error = status_detail.get("error", "")
@@ -457,38 +456,25 @@ class LTXAudioToVideoGeneration(GriptapeProxyNode):
                     pass
 
             if error and details:
-                message = f"{error}: {details}"
-            elif error:
-                message = error
-            elif details:
-                message = details
-            else:
-                message = f"Generation {status or 'failed'} with no details provided"
-
-            return f"{self.name} generation {status or 'failed'}: {message}"
+                return f"{error}: {details}"
+            return str(error or details or "")
 
         error = response_json.get("error")
-        if error:
-            if isinstance(error, dict):
-                message = error.get("message") or error.get("type") or str(error)
-                return f"{self.name} request failed: {message}"
-            if isinstance(error, str):
-                return f"{self.name} request failed: {error}"
+        if isinstance(error, dict):
+            return str(error.get("message") or error.get("type") or "")
+        if isinstance(error, str):
+            return error
 
-        return f"{self.name} generation failed.\n\nFull API response:\n{response_json}"
+        return ""
 
     def _handle_payload_build_error(self, e: Exception) -> None:
         if isinstance(e, ValueError):
             self._set_safe_defaults()
             self._set_status_results(was_successful=False, result_details=str(e))
+            self._handle_failure_exception(e)
             return
 
         super()._handle_payload_build_error(e)
-
-    def _handle_api_key_validation_error(self, e: ValueError) -> None:
-        self._set_safe_defaults()
-        self._set_status_results(was_successful=False, result_details=str(e))
-        logger.error("%s API key validation failed: %s", self.name, e)
 
     def _set_safe_defaults(self) -> None:
         self.parameter_output_values["generation_id"] = ""

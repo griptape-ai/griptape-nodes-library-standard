@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin, urlparse, urlsplit
 
 import httpx
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
@@ -33,7 +33,7 @@ from griptape_nodes_library.proxy.hosted_artifacts import (
     fetch_hosted_artifacts,
 )
 from griptape_nodes_library.proxy.provider_asset_access import (
-    missing_proxy_credential_message,
+    missing_proxy_credential_error,
     resolve_proxy_base,
     resolve_proxy_credential,
 )
@@ -41,6 +41,15 @@ from griptape_nodes_library.proxy.proxy_api_key_providers import get_proxy_api_k
 from griptape_nodes_library.proxy.proxy_auth_provider_parameter import ProxyAuthProviderParameter
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers_async
 from griptape_nodes_library.utils.model_invocation import declare_model_invocation
+from griptape_nodes_library.utils.node_error_utils import (
+    FieldValue,
+    error_fields,
+    error_response,
+    parse_error_body,
+    provider_error_fields,
+    provider_error_message,
+    request_id_from_headers,
+)
 
 if TYPE_CHECKING:
     from griptape_nodes.retained_mode.managers.authorization_checkpoint import CheckpointDenial
@@ -80,8 +89,17 @@ class CancelOutcome(StrEnum):
     UNKNOWN = "unknown"
 
 
-class GenerationFailedError(RuntimeError):
+class GenerationFailedError(NodeError):
     """The provider accepted a generation and then ended it as FAILED or ERRORED."""
+
+
+class GenerationSubmitError(NodeError):
+    """The proxy refused a generation request or could not be reached."""
+
+
+class GenerationIncompleteError(NodeError):
+    """The generation was submitted but its result never arrived: polling gave up or timed out,
+    or the result could not be fetched."""
 
 
 class GriptapeProxyNode(SuccessFailureNode, ABC):
@@ -240,7 +258,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         denial = self._model_access.selection_denial()
         if denial is None:
             return exceptions or None
-        exceptions.append(RuntimeError(f"{self.name}: {denial.reason()}"))
+        exceptions.append(RuntimeError(denial.reason()))
         return exceptions
 
     def _get_selected_model_id(self) -> str:
@@ -312,9 +330,12 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         Default implementation follows this hierarchy:
         1. status_detail.details (user-oriented message)
-        2. entire status_detail object
-        3. top-level error field
-        4. full response
+        2. top-level error field
+        3. top-level detail or message field
+
+        Return only the provider's reason, or "" if the response has none. The caller words the
+        message around it and attaches the full response, so don't add the node's name or paste
+        the response in.
 
         Subclasses can override this to add model-specific error extraction logic.
 
@@ -323,32 +344,27 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                           when status is FAILED or ERRORED
 
         Returns:
-            str: A formatted error message to display to the user
+            str: The provider's reason, or "" if there is none
         """
         if not response_json:
-            return f"{self.name} generation failed with no error details provided by API."
+            return ""
 
         # First, try to extract from status_detail.details (user-oriented message)
         status_detail = response_json.get("status_detail")
         if status_detail and isinstance(status_detail, dict):
             details = status_detail.get("details")
             if details:
-                return f"{self.name} {details}"
+                return str(details)
 
         # Try top-level error field
         error = response_json.get("error")
         if error:
             if isinstance(error, dict):
-                error_msg = error.get("message") or error.get("error") or str(error)
-                return f"{self.name} {error_msg}"
-            return f"{self.name} {error}"
+                return str(error.get("message") or error.get("error") or error)
+            return str(error)
 
-        # Try entire status_detail object
-        if status_detail:
-            return f"{self.name} generation failed.\n\nError details:\n{status_detail}"
-
-        # Final fallback: show the full response
-        return f"{self.name} generation failed.\n\nFull API response:\n{response_json}"
+        # A top-level "detail" or "message", as FastAPI-style APIs send
+        return provider_error_message(response_json) or ""
 
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
@@ -395,13 +411,12 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             str: The credential to send as the bearer token
 
         Raises:
-            ValueError: If no source holds a usable credential
+            MissingCredentialError: If no source holds a usable credential. It is a ValueError.
         """
         credential = resolve_proxy_credential(self.API_KEY_NAME)
         if not credential.value:
             self._set_safe_defaults()
-            msg = missing_proxy_credential_message(credential, attempted=f"run {self.name}")
-            raise ValueError(msg)
+            raise missing_proxy_credential_error(credential, attempted=f"run {self.name}")
         return credential.value
 
     def _log(self, message: str) -> None:
@@ -474,7 +489,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             str | None: The generation ID if successful, None otherwise
 
         Raises:
-            RuntimeError: If the API request fails
+            GenerationSubmitError: If the API request fails
         """
         proxy_url = urljoin(self._proxy_base, f"models/{api_model_id}")
         self._log(f"Submitting generation request to {proxy_url}")
@@ -497,12 +512,11 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 self._set_safe_defaults()
                 self._set_status_results(was_successful=False, result_details=str(halt))
                 raise halt from e
-            error_msg = self._extract_http_error_message(e.response)
-            raise RuntimeError(error_msg) from e
+            raise self._http_error(e.response) from e
         except Exception as e:
             self._log(f"Request failed: {e}")
-            msg = f"{self.name} request failed: {e}"
-            raise RuntimeError(msg) from e
+            msg = f"Could not reach Griptape Cloud to start the generation: {e}"
+            raise GenerationSubmitError(msg) from e
 
         generation_id = response_json.get("generation_id")
         if generation_id:
@@ -525,22 +539,59 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         logger.error("%s: %s", self.name, budget_log_line(refusal))
         return BudgetExceededError(describe_budget_refusal(refusal, node_name=self.name), refusal, node_name=self.name)
 
-    def _extract_http_error_message(self, response: httpx.Response) -> str:
-        """Extract error message from HTTP error response.
+    @staticmethod
+    def _provider_failure_message(reason: str, fallback: str) -> str:
+        """The message for a failure the provider explained, or `fallback` if it gave no reason.
+
+        A reason that is really the provider's error body, such as a JSON string in
+        `status_detail.details`, is reduced to the message inside it.
+        """
+        reason = reason.strip()
+        body = parse_error_body(reason) if reason else None
+        if body is not None:
+            reason = provider_error_message(body) or ""
+        if not reason:
+            return fallback
+        if reason[-1] not in ".!?":
+            reason += "."
+        return f"The provider could not process the request: {reason}"
+
+    @staticmethod
+    def _provider_reason_fields(reason: str) -> dict[str, FieldValue]:
+        """The provider's error code, rejected parameter, and request ID from a reason that is an error body."""
+        body = parse_error_body(reason) if reason else None
+        return provider_error_fields(body)
+
+    def _http_error(self, response: httpx.Response) -> GenerationSubmitError:
+        """Build the error for a request the proxy answered with an HTTP error.
 
         Args:
             response: The HTTP response object
 
         Returns:
-            str: Formatted error message
+            GenerationSubmitError: The reason as the message, with the status code and body attached
         """
+        fields = error_fields(status_code=response.status_code, request_id=request_id_from_headers(response.headers))
         try:
             error_json = response.json()
         except Exception:
-            return f"{self.name}: API error: {response.status_code} - {response.text}"
-        else:
-            error_message = self._extract_error_message(error_json)
-            return f"{self.name}: {error_message}"
+            text = response.text.strip()
+            msg = f"Griptape Cloud refused the request: {text}" if text else "Griptape Cloud refused the request."
+            return GenerationSubmitError(msg, fields=fields)
+        if not isinstance(error_json, dict):
+            return GenerationSubmitError(f"Griptape Cloud refused the request: {error_json}", fields=fields)
+        reason = self._extract_error_message(error_json) or provider_error_message(error_json) or ""
+        msg = self._provider_failure_message(reason, "Griptape Cloud refused the request.")
+        fields = {**provider_error_fields(error_json), **self._provider_reason_fields(reason), **fields}
+        return GenerationSubmitError(msg, fields=fields, response=error_response(error_json))
+
+    @staticmethod
+    def _json_or_none(response: httpx.Response) -> Any:
+        """The response body as JSON, or None if it is not JSON."""
+        try:
+            return response.json()
+        except Exception:
+            return None
 
     def _handle_terminal_status(self, status: str, result_json: dict[str, Any]) -> tuple[bool, dict[str, Any] | None]:
         """Handle terminal generation statuses.
@@ -562,13 +613,19 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self._set_safe_defaults()
             self.parameter_output_values["generation_id"] = generation_id
             self.parameter_output_values["generation_status"] = status
-            error_message = self._extract_error_message(result_json)
-            if not error_message:
-                error_message = (
-                    f"{self.name} generation failed with status {status} but no error details were provided."
-                )
+            reason = self._extract_error_message(result_json) or provider_error_message(result_json) or ""
+            error_message = self._provider_failure_message(
+                reason, f"The generation ended as {status} and the provider gave no reason."
+            )
             self._set_status_results(was_successful=False, result_details=error_message)
-            raise GenerationFailedError(error_message)
+            raise GenerationFailedError(
+                error_message,
+                fields={
+                    **error_fields(generation_id=generation_id, status=status),
+                    **self._provider_reason_fields(reason),
+                },
+                response=error_response(result_json),
+            )
 
         if status == STATUS_CANCELLED:
             logger.info("%s: Generation cancelled.", self.name)
@@ -580,9 +637,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             if isinstance(status_detail, dict):
                 details = status_detail.get("details") or ""
             cancel_message = (
-                f"{self.name} generation was cancelled."
-                if not details
-                else f"{self.name} generation was cancelled: {details}"
+                "The generation was cancelled." if not details else f"The generation was cancelled: {details}"
             )
             self._set_status_results(was_successful=False, result_details=cancel_message)
             return True, None
@@ -711,10 +766,11 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             headers: HTTP headers including Authorization, built with `attribution=False`
 
         Returns:
-            dict | None: The final status response, or None if polling failed
+            dict | None: The final status response, or None if the generation was cancelled
 
         Raises:
             GenerationFailedError: If the provider ended the generation as FAILED or ERRORED.
+            GenerationIncompleteError: If polling gave up or timed out.
         """
         get_url = urljoin(self._proxy_base, f"generations/{generation_id}")
         poll_interval = self.DEFAULT_POLL_INTERVAL
@@ -757,7 +813,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                         # Still processing (QUEUED or RUNNING), wait before next poll
                         await asyncio.sleep(poll_interval)
 
-                    except GenerationFailedError:
+                    except (GenerationFailedError, GenerationIncompleteError):
                         # The provider's answer is final; retrying the poll will not change it.
                         raise
                     except httpx.HTTPStatusError as e:
@@ -772,18 +828,26 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                         attempt += 1
                         if max_attempts is not None and attempt >= max_attempts:
                             self._set_safe_defaults()
-                            error_msg = f"Failed to poll generation status: HTTP {e.response.status_code}"
+                            self.parameter_output_values["generation_id"] = generation_id
+                            error_msg = "Lost contact with Griptape Cloud while waiting for the generation."
                             self._set_status_results(was_successful=False, result_details=error_msg)
-                            return None
+                            raise GenerationIncompleteError(
+                                error_msg,
+                                fields=error_fields(generation_id=generation_id, status_code=e.response.status_code),
+                                response=error_response(self._json_or_none(e.response)),
+                            ) from e
                         await asyncio.sleep(poll_interval)
                     except Exception as e:
                         self._log(f"Error while polling: {e}")
                         attempt += 1
                         if max_attempts is not None and attempt >= max_attempts:
                             self._set_safe_defaults()
-                            error_msg = f"Failed to poll generation status: {e}"
+                            self.parameter_output_values["generation_id"] = generation_id
+                            error_msg = f"Lost contact with Griptape Cloud while waiting for the generation: {e}"
                             self._set_status_results(was_successful=False, result_details=error_msg)
-                            return None
+                            raise GenerationIncompleteError(
+                                error_msg, fields=error_fields(generation_id=generation_id)
+                            ) from e
                         await asyncio.sleep(poll_interval)
         except asyncio.CancelledError:
             # The engine cancels this node's task, which with a 5s poll interval almost
@@ -799,15 +863,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._set_safe_defaults()
         self.parameter_output_values["generation_id"] = generation_id
         self.parameter_output_values["generation_status"] = STATUS_TIMED_OUT
-        self._set_status_results(
-            was_successful=False,
-            result_details=(
-                f"Generation `{generation_id}` did not finish within {timeout_s} seconds. "
-                f"It may still be running on Griptape Cloud — click the refresh icon on the "
-                f"`generation_status` parameter to re-check and pull the result onto this node."
-            ),
+        error_msg = (
+            f"The generation did not finish within {timeout_s} second{'' if timeout_s == 1 else 's'}. "
+            "It may still be running on Griptape Cloud. Click the refresh icon on 'generation_status' "
+            "to check again and pull the result onto this node."
         )
-        return None
+        self._set_status_results(was_successful=False, result_details=error_msg)
+        raise GenerationIncompleteError(error_msg, fields=error_fields(generation_id=generation_id))
 
     async def _fetch_generation_result(self, generation_id: str) -> dict[str, Any] | None:
         """Fetch the final result from the /result endpoint.
@@ -816,7 +878,10 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             generation_id: The generation ID
 
         Returns:
-            dict | None: The result JSON or dict containing raw bytes, or None if fetch failed
+            dict | None: The result JSON or dict containing raw bytes, or None if there is no credential
+
+        Raises:
+            GenerationIncompleteError: If the result could not be fetched.
         """
         result_url = urljoin(self._proxy_base, f"generations/{generation_id}/result")
         self._log(f"Fetching result from {result_url}")
@@ -841,15 +906,19 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             if halt is not None:
                 self._set_status_results(was_successful=False, result_details=str(halt))
                 raise halt from e
-            error_msg = f"Failed to fetch generation result: HTTP {e.response.status_code}"
+            error_msg = "The generation finished, but Griptape Cloud refused to return its result."
             self._set_status_results(was_successful=False, result_details=error_msg)
-            return None
+            raise GenerationIncompleteError(
+                error_msg,
+                fields=error_fields(generation_id=generation_id, status_code=e.response.status_code),
+                response=error_response(self._json_or_none(e.response)),
+            ) from e
         except Exception as e:
             self._log(f"Error fetching result: {e}")
             self._set_safe_defaults()
-            error_msg = f"Failed to fetch generation result: {e}"
+            error_msg = f"The generation finished, but its result could not be downloaded: {e}"
             self._set_status_results(was_successful=False, result_details=error_msg)
-            return None
+            raise GenerationIncompleteError(error_msg, fields=error_fields(generation_id=generation_id)) from e
         else:
             # Check Content-Type to determine if response is JSON or binary
             content_type = response.headers.get("content-type", "").lower()
@@ -872,23 +941,25 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     def _handle_payload_build_error(self, e: Exception) -> None:
         """Handle payload building errors."""
         self._set_safe_defaults()
-        error_msg = f"{self.name}: Failed to build request payload: {e}"
+        error_msg = f"Failed to build the request: {e}"
         self._set_status_results(was_successful=False, result_details=error_msg)
         self._handle_failure_exception(e)
 
     def _handle_missing_model_id(self) -> None:
         """Handle missing model ID error."""
         self._set_safe_defaults()
-        error_msg = f"{self.name}: No model ID provided"
+        error_msg = "No model is selected. Choose a model and run the node again."
         self._set_status_results(was_successful=False, result_details=error_msg)
+        self._handle_failure_exception(NodeError(error_msg))
 
     def _handle_denied_model(self, denial: CheckpointDenial) -> None:
         """Handle a dropdown selection the license policy does not permit."""
         self._set_safe_defaults()
-        error_msg = f"{self.name}: {denial.reason()}"
+        error_msg = denial.reason()
         self._set_status_results(was_successful=False, result_details=error_msg)
+        self._handle_failure_exception(NodeError(error_msg))
 
-    def _handle_submission_error(self, e: RuntimeError) -> None:
+    def _handle_submission_error(self, e: GenerationSubmitError) -> None:
         """Handle generation submission errors."""
         self._set_safe_defaults()
         self._set_status_results(was_successful=False, result_details=str(e))
@@ -908,6 +979,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         The poll that saw the terminal status has already set the outputs and status.
         """
         self._handle_failure_exception(e)
+
+    def _failure_details(self) -> str:
+        """The failure a subclass reported with _set_status_results, for the error the base raises."""
+        details = self.get_parameter_value("result_details")
+        if isinstance(details, str) and details.strip():
+            return details.strip()
+        return "The generation finished, but its result could not be used."
 
     def _handle_result_parsing_error(self, e: Exception) -> None:
         """Handle result parsing errors."""
@@ -947,8 +1025,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         declaration = await declare_model_invocation(self, self._get_catalog_model_id())
         if declaration.failed():
             self._set_safe_defaults()
-            details = str(declaration.result_details or f"{self.name}: model invocation was not permitted.")
+            details = str(declaration.result_details or "This model is not permitted for your account.")
             self._set_status_results(was_successful=False, result_details=details)
+            self._handle_failure_exception(NodeError(details))
             return None
 
         # Build payload
@@ -969,12 +1048,11 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             generation_id = await self._submit_generation(payload, headers, api_model_id)
             if not generation_id:
                 self._set_safe_defaults()
-                self._set_status_results(
-                    was_successful=False,
-                    result_details="No generation_id returned from API. Cannot proceed with generation.",
-                )
+                error_msg = "Griptape Cloud accepted the request but did not return a generation ID."
+                self._set_status_results(was_successful=False, result_details=error_msg)
+                self._handle_failure_exception(GenerationSubmitError(error_msg))
                 return None
-        except RuntimeError as e:
+        except GenerationSubmitError as e:
             self._handle_submission_error(e)
             return None
 
@@ -1035,6 +1113,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         except GenerationFailedError as e:
             self._handle_generation_failed(e)
             return
+        except GenerationIncompleteError as e:
+            self._handle_failure_exception(e)
+            return
         if not result_json:
             return
 
@@ -1042,11 +1123,18 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         if "provider_response" in self.parameter_output_values:
             self.parameter_output_values["provider_response"] = result_json
 
-        # Parse model-specific result
+        # Parse model-specific result. A subclass that can't use the result reports it with
+        # _set_status_results instead of raising, so check for that too.
+        self._execution_succeeded = None
         try:
             await self._parse_result(result_json, generation_id)
         except Exception as e:
             self._handle_result_parsing_error(e)
+            return
+        if self._execution_succeeded is False:
+            self._handle_failure_exception(
+                GenerationIncompleteError(self._failure_details(), fields=error_fields(generation_id=generation_id))
+            )
 
     def _on_refresh_clicked(self, _button: Any, _details: Any) -> None:
         """Sync entry point for the Refresh button — bridges into the async refresh flow.
@@ -1106,6 +1194,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         except BudgetExceededError as e:
             self._set_status_results(was_successful=False, result_details=str(e))
             return
+        except GenerationIncompleteError:
+            # The fetch has already put its reason in the node's status.
+            return
 
         if not result_json:
             self._set_status_results(
@@ -1138,7 +1229,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     def _refresh_render_status(self, generation_id: str, status: str, status_json: dict[str, Any]) -> None:
         """Update result_details for non-completed states."""
         if status in (STATUS_FAILED, STATUS_ERRORED):
-            error_message = self._extract_error_message(status_json)
+            error_message = self._provider_failure_message(
+                self._extract_error_message(status_json), "The provider gave no reason."
+            )
             self._set_status_results(
                 was_successful=False,
                 result_details=f"Generation `{generation_id}` ended with status {status}.\n\n{error_message}",
@@ -1330,9 +1423,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             self.parameter_output_values[output_param] = None
             self._set_status_results(
                 was_successful=False,
-                result_details=(
-                    f"{self.name} generation completed upstream but the {media_kind} could not be retrieved: {e}"
-                ),
+                result_details=(f"The generation finished, but the {media_kind} could not be retrieved: {e}"),
             )
             return False
 

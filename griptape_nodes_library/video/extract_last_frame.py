@@ -93,10 +93,8 @@ class ExtractLastFrame(BaseVideoProcessor):
             self.append_value_to_parameter("logs", "[Finished extracting last frame.]\n")
 
         except Exception as e:
-            error_message = str(e)
-            msg = f"{self.name}: Error extracting last frame: {error_message}"
-            self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
-            raise ValueError(msg) from e
+            self.append_value_to_parameter("logs", f"ERROR: Error extracting last frame: {e!s}\n")
+            raise
 
     def _process_extract_frame(self, input_url: str) -> None:
         """Extract the last frame and save as ImageUrlArtifact."""
@@ -147,10 +145,8 @@ class ExtractLastFrame(BaseVideoProcessor):
             self.append_value_to_parameter("logs", "Successfully extracted last frame as image\n")
 
         except Exception as e:
-            error_message = str(e)
-            msg = f"{self.name}: Error extracting last frame: {error_message}"
-            self.append_value_to_parameter("logs", f"ERROR: {msg}\n")
-            raise ValueError(msg) from e
+            self.append_value_to_parameter("logs", f"ERROR: Error extracting last frame: {e!s}\n")
+            raise
         finally:
             # Clean up temporary file using base class method
             self._cleanup_temp_file(temp_image_path)

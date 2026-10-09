@@ -415,7 +415,7 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
     def _validate_video_input(self, video: Any) -> str | None:
         """Validate video is provided and doesn't exceed duration limits."""
         if not video:
-            return f"{self.name} requires an input video for retake generation."
+            return "Connect a video to 'input video' to retake."
 
         video_url = self._extract_input_video_url(video)
         if not video_url:
@@ -424,8 +424,7 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
         duration = self._get_video_duration(video_url)
         if duration and duration > MAX_VIDEO_DURATION:
             return (
-                f"{self.name}: Input video duration ({duration:.1f}s) exceeds maximum allowed "
-                f"duration of {MAX_VIDEO_DURATION}s"
+                f"The input video is {duration:.1f}s long, over the {MAX_VIDEO_DURATION}s limit. Trim it and try again."
             )
 
         return None
@@ -440,26 +439,26 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
             or not isinstance(segment[0], (int, float))
             or not isinstance(segment[1], (int, float))
         ):
-            return f"{self.name}: Retake segment must be a list with two numeric values [start, end]"
+            return "'retake_segment' must be a list of two numbers: [start, end]."
 
         start_time, end_time = segment
 
         # Validate time bounds - check start negative or end exceeds max
         if start_time < 0 or end_time > MAX_VIDEO_DURATION:
             if start_time < 0:
-                return f"{self.name}: Start time cannot be negative (got {start_time}s)"
-            return f"{self.name}: End time cannot exceed {MAX_VIDEO_DURATION}s (got {end_time}s)"
+                return f"The retake start time cannot be negative (got {start_time}s)."
+            return f"The retake end time cannot be later than {MAX_VIDEO_DURATION}s (got {end_time}s)."
 
         # Validate time ordering
         if start_time >= end_time:
-            return f"{self.name}: Start time must be before end time (got {segment})"
+            return f"The retake start time must be before the end time (got {segment})."
 
         # Validate duration
         duration = end_time - start_time
         if duration < MIN_RETAKE_DURATION:
             return (
-                f"{self.name}: Retake segment must be at least {MIN_RETAKE_DURATION}s "
-                f"(got {duration}s from segment {segment})"
+                f"The retake segment must be at least {MIN_RETAKE_DURATION}s long "
+                f"(got {duration}s from segment {segment})."
             )
 
         return None
@@ -486,8 +485,8 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
 
         if len(params["prompt"]) > MAX_PROMPT_LENGTH:
             msg = (
-                f"{self.name}: Prompt exceeds {MAX_PROMPT_LENGTH} characters limit "
-                f"(current: {len(params['prompt'])} characters)"
+                f"'Prompt' is longer than the {MAX_PROMPT_LENGTH} character limit "
+                f"({len(params['prompt'])} characters). Shorten it and try again."
             )
             raise ValueError(msg)
 
@@ -499,10 +498,7 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
 
         resolution = params["resolution"]
         if resolution not in SUPPORTED_RESOLUTIONS:
-            msg = (
-                f"{self.name}: Unsupported resolution '{resolution}'. "
-                f"Valid resolutions: {', '.join(SUPPORTED_RESOLUTIONS)}"
-            )
+            msg = f"Unsupported resolution '{resolution}'. Valid resolutions: {', '.join(SUPPORTED_RESOLUTIONS)}."
             raise ValueError(msg)
 
         payload: dict[str, Any] = {
@@ -527,11 +523,10 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
             action="retaken",
         )
 
-    def _extract_error_message(self, response_json: dict[str, Any]) -> str:  # noqa: C901, PLR0912
+    def _extract_error_message(self, response_json: dict[str, Any]) -> str:
         if not response_json:
-            return f"{self.name} generation failed with no error details provided by API."
+            return ""
 
-        status = str(response_json.get("status") or "").lower()
         status_detail = response_json.get("status_detail")
         if isinstance(status_detail, dict):
             error = status_detail.get("error", "")
@@ -550,30 +545,22 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
                     pass
 
             if error and details:
-                message = f"{error}: {details}"
-            elif error:
-                message = error
-            elif details:
-                message = details
-            else:
-                message = f"Generation {status or 'failed'} with no details provided"
-
-            return f"{self.name} generation {status or 'failed'}: {message}"
+                return f"{error}: {details}"
+            return str(error or details or "")
 
         error = response_json.get("error")
-        if error:
-            if isinstance(error, dict):
-                message = error.get("message") or error.get("type") or str(error)
-                return f"{self.name} request failed: {message}"
-            if isinstance(error, str):
-                return f"{self.name} request failed: {error}"
+        if isinstance(error, dict):
+            return str(error.get("message") or error.get("type") or "")
+        if isinstance(error, str):
+            return error
 
-        return f"{self.name} generation failed.\n\nFull API response:\n{response_json}"
+        return ""
 
     def _handle_payload_build_error(self, e: Exception) -> None:
         if isinstance(e, ValueError):
             self._set_safe_defaults()
             self._set_status_results(was_successful=False, result_details=str(e))
+            self._handle_failure_exception(e)
             return
 
         super()._handle_payload_build_error(e)

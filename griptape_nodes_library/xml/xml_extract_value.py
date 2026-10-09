@@ -62,7 +62,7 @@ class XmlExtractValue(DataNode):
             try:
                 root = etree.fromstring(xml_str.encode() if isinstance(xml_str, str) else xml_str)
             except etree.XMLSyntaxError as e:
-                msg = f"{self.name}: Invalid XML provided. Failed to parse: {e}. Input was: {str(xml_str)[:200]!r}"
+                msg = f"'XML' is not valid XML: {e}."
                 raise ValueError(msg) from e
 
             if not path:
@@ -71,7 +71,7 @@ class XmlExtractValue(DataNode):
                 try:
                     results = root.xpath(path)
                 except etree.XPathEvalError as e:
-                    msg = f"{self.name}: Invalid XPath expression '{path}': {e}"
+                    msg = f"'{path}' in 'Path' is not a valid XPath expression: {e}."
                     raise ValueError(msg) from e
 
                 if not isinstance(results, list):

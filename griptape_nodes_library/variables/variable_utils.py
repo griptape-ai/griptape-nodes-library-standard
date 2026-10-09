@@ -194,7 +194,7 @@ def _get_flow_for_node(node_name: str) -> str:
     flow_result = GriptapeNodes.handle_request(flow_request)
 
     if not isinstance(flow_result, GetFlowForNodeResultSuccess):
-        error_msg = f"Failed to get flow for node '{node_name}': {flow_result.result_details}"
+        error_msg = f"Failed to get the flow that contains this node: {flow_result.result_details}"
         raise RuntimeError(error_msg)  # noqa: TRY004
 
     return flow_result.flow_name

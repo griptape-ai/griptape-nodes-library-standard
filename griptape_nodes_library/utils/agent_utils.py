@@ -27,7 +27,7 @@ from griptape_nodes_library.utils.cloud_budget_drivers import (
     GriptapeCloudImageGenerationDriver,
     GriptapeCloudPromptDriver,
 )
-from griptape_nodes_library.utils.cloud_credential_utils import missing_credential_message, resolve_cloud_api_key
+from griptape_nodes_library.utils.cloud_credential_utils import missing_credential_error, resolve_cloud_api_key
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 
 
@@ -135,14 +135,13 @@ def _restored_cloud_credentials(agent_core_dict: dict, *, require_credential: bo
             401 from Cloud -- see :func:`unwrap_agent`.
 
     Raises:
-        KeyError: ``require_credential`` and no License or API key is set.
+        MissingCredentialError: ``require_credential`` and no License or API key is set.
     """
     if not _iter_cloud_driver_dicts(agent_core_dict):
         return agent_core_dict
     api_key = resolve_cloud_api_key()
     if not api_key and require_credential:
-        msg = missing_credential_message("use the incoming agent's Griptape Cloud driver")
-        raise KeyError(msg)
+        raise missing_credential_error("use the incoming agent's Griptape Cloud driver")
     result = copy.deepcopy(agent_core_dict)
     for driver_dict in _iter_cloud_driver_dicts(result):
         driver_dict["api_key"] = api_key
@@ -190,7 +189,7 @@ def unwrap_agent(value: dict, *, require_credential: bool = True) -> tuple[dict,
 
     Args:
         value: The upstream node's ``agent`` parameter value.
-        require_credential: Raise a user-facing ``KeyError`` when the agent carries a
+        require_credential: Raise a user-facing ``MissingCredentialError`` when the agent carries a
             Griptape Cloud driver and no credential resolves. The default suits any
             caller that goes on to send a request: a connected agent bypasses the
             node's own ``validate_before_workflow_run`` credential check
@@ -201,7 +200,7 @@ def unwrap_agent(value: dict, *, require_credential: bool = True) -> tuple[dict,
             they should not fail for want of a credential they never use.
 
     Raises:
-        KeyError: ``require_credential`` and no License or API key is set.
+        MissingCredentialError: ``require_credential`` and no License or API key is set.
     """
     if not isinstance(value, dict):
         return {}, [], []

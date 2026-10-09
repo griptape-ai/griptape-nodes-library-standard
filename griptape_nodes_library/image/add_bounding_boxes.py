@@ -112,7 +112,7 @@ class AddBoundingBoxes(BaseImageProcessor):
         bounding_boxes = self.get_parameter_value("bounding_boxes")
 
         if bounding_boxes is None:
-            msg = f"{self.name}: Bounding boxes parameter is required"
+            msg = "Connect bounding boxes to 'Bounding Boxes'."
             exceptions.append(ValueError(msg))
             return exceptions
 
@@ -137,21 +137,23 @@ class AddBoundingBoxes(BaseImageProcessor):
         if isinstance(bounding_boxes, list):
             return bounding_boxes
 
-        msg = f"{self.name}: Bounding boxes must be a dict or list of dicts. Example: {{'x': 10, 'y': 20, 'width': 100, 'height': 150}}"
+        msg = (
+            "'Bounding Boxes' must be a dict or list of dicts. Example: {'x': 10, 'y': 20, 'width': 100, 'height': 150}"
+        )
         exceptions.append(ValueError(msg))
         return None
 
     def _validate_single_box(self, box: Any, idx: int, required_keys: set[str], exceptions: list[Exception]) -> None:
         """Validate a single bounding box."""
         if not isinstance(box, dict):
-            msg = f"{self.name}: Bounding box at index {idx} must be a dict, got {type(box).__name__}"
+            msg = f"Bounding box at index {idx} must be a dict, got {type(box).__name__}"
             exceptions.append(ValueError(msg))
             return
 
         # Check for required keys
         missing_keys = required_keys - box.keys()
         if missing_keys:
-            msg = f"{self.name}: Bounding box at index {idx} missing required keys: {missing_keys}. Required keys: x, y, width, height (all must be integers or convertible strings)"
+            msg = f"Bounding box at index {idx} missing required keys: {missing_keys}. Required keys: x, y, width, height (all must be integers or convertible strings)"
             exceptions.append(ValueError(msg))
             return
 
@@ -178,10 +180,10 @@ class AddBoundingBoxes(BaseImageProcessor):
                     converted_value = int(value)
                     box[key] = converted_value
                 except (ValueError, TypeError):
-                    msg = f"{self.name}: Bounding box at index {idx} has invalid '{key}' value: '{value}'. Cannot convert string to integer. All coordinate values must be integers or convertible strings."
+                    msg = f"Bounding box at index {idx} has invalid '{key}' value: '{value}'. Cannot convert string to integer. All coordinate values must be integers or convertible strings."
                     exceptions.append(ValueError(msg))
             else:
-                msg = f"{self.name}: Bounding box at index {idx} has invalid '{key}' value. Expected int or string, got {type(value).__name__}. All coordinate values must be integers or convertible strings."
+                msg = f"Bounding box at index {idx} has invalid '{key}' value. Expected int or string, got {type(value).__name__}. All coordinate values must be integers or convertible strings."
                 exceptions.append(ValueError(msg))
 
     def _validate_box_coordinate_ranges(self, box: dict, idx: int, exceptions: list[Exception]) -> None:
@@ -192,21 +194,19 @@ class AddBoundingBoxes(BaseImageProcessor):
         height = box.get("height")
 
         if isinstance(x, int) and x < 0:
-            msg = f"{self.name}: Bounding box at index {idx} has negative x value: {x}. x must be >= 0"
+            msg = f"Bounding box at index {idx} has negative x value: {x}. x must be >= 0"
             exceptions.append(ValueError(msg))
 
         if isinstance(y, int) and y < 0:
-            msg = f"{self.name}: Bounding box at index {idx} has negative y value: {y}. y must be >= 0"
+            msg = f"Bounding box at index {idx} has negative y value: {y}. y must be >= 0"
             exceptions.append(ValueError(msg))
 
         if isinstance(width, int) and width <= 0:
-            msg = f"{self.name}: Bounding box at index {idx} has non-positive width value: {width}. width must be > 0"
+            msg = f"Bounding box at index {idx} has non-positive width value: {width}. width must be > 0"
             exceptions.append(ValueError(msg))
 
         if isinstance(height, int) and height <= 0:
-            msg = (
-                f"{self.name}: Bounding box at index {idx} has non-positive height value: {height}. height must be > 0"
-            )
+            msg = f"Bounding box at index {idx} has non-positive height value: {height}. height must be > 0"
             exceptions.append(ValueError(msg))
 
     def _get_image_input_data_safe(self) -> tuple[Image.Image, str] | None:
@@ -250,11 +250,14 @@ class AddBoundingBoxes(BaseImageProcessor):
         # Try to get image input data safely
         image_data = self._get_image_input_data_safe()
 
-        # If no image provided, this is acceptable for this node
         if image_data is None:
-            error_details = "No input image provided - image input is required"
+            if self.parameter_values.get("input_image"):
+                error_details = "Could not load the image connected to 'Input Image'. Check that it is a valid image."
+            else:
+                error_details = "An image is required. Connect an image to 'Input Image'."
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
             logger.warning(f"{self.__class__.__name__} '{self.name}': {error_details}")
+            self._handle_failure_exception(ValueError(error_details))
             return
 
         try:
@@ -293,7 +296,7 @@ class AddBoundingBoxes(BaseImageProcessor):
 
         # Validate bounding_boxes is not None
         if bounding_boxes is None:
-            msg = f"{self.name}: Bounding boxes parameter is required"
+            msg = "Connect bounding boxes to 'Bounding Boxes'."
             raise ValueError(msg)
 
         # Parse color and prepare drawing context
@@ -326,7 +329,7 @@ class AddBoundingBoxes(BaseImageProcessor):
             color_rgba = parse_color_to_rgba(box_color)
             return color_rgba[:3]  # Use RGB only for drawing
         except Exception as e:
-            msg = f"{self.name}: Failed to parse box color '{box_color}': {e}"
+            msg = f"Could not read 'Box Color' value '{box_color}': {e}"
             raise ValueError(msg) from e
 
     def _load_font_for_labels(self, image_height: int) -> Any:

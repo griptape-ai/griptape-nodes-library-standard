@@ -493,7 +493,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=f"{self.name} generation completed but its images could not be listed: {e}",
+                result_details=f"The generation finished, but its images could not be listed: {e}",
             )
             return
 
@@ -502,7 +502,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=f"{self.name} generation completed but no images were hosted.",
+                result_details="The generation finished, but no images were hosted.",
             )
             return
 
@@ -517,7 +517,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             self._set_safe_defaults()
             self._set_status_results(
                 was_successful=False,
-                result_details=f"{self.name} generation completed upstream but the image(s) could not be retrieved.",
+                result_details="The generation finished, but the image(s) could not be retrieved.",
             )
             return
 
@@ -559,7 +559,10 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             images = self.get_parameter_list_value("images") or []
             if len(images) > max_images:
                 exceptions.append(
-                    ValueError(f"{self.name}: {model} supports maximum {max_images} images, got {len(images)}")
+                    ValueError(
+                        f"{model} supports at most {max_images} images and {len(images)} are connected. "
+                        "Remove some from 'Images'."
+                    )
                 )
 
         return exceptions if exceptions else None
@@ -784,57 +787,63 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             return None
 
     def _extract_error_message(self, response_json: dict[str, Any]) -> str:
-        """Extract error message from failed/errored generation response.
+        """Return the provider's reason for a failed generation, or "" if it gave none.
 
-        Tries Seedream-specific error patterns first, then falls back to base implementation.
+        Tries Seedream-specific error patterns first, then falls back to the base implementation.
 
         Args:
             response_json: The JSON response from the generation status endpoint
 
         Returns:
-            str: A formatted error message to display to the user
+            str: The provider's reason, without the node name or the response pasted in
         """
         if not response_json:
             return super()._extract_error_message(response_json)
 
         # Check for v2 API status_detail first (for FAILED/ERROR statuses)
         status_detail = response_json.get("status_detail")
-        if status_detail:
+        if isinstance(status_detail, dict):
             error_msg = self._format_status_detail_error(status_detail)
             if error_msg:
-                return f"{self.name} {error_msg}"
+                return error_msg
+            # A details field holding JSON with no readable message would otherwise be pasted
+            # in whole by the base implementation.
+            if self._details_is_json(status_detail.get("details")):
+                return ""
 
         # Try to extract from provider response (legacy pattern)
         parsed_provider_response = self._parse_provider_response(response_json.get("provider_response"))
         if parsed_provider_response:
             provider_error = parsed_provider_response.get("error")
-            if provider_error:
-                if isinstance(provider_error, dict):
-                    error_message = provider_error.get("message", "")
-                    details = f"{self.name} {error_message}"
-                    if error_code := provider_error.get("code"):
-                        details += f"\nError Code: {error_code}"
-                    if error_type := provider_error.get("type"):
-                        details += f"\nError Type: {error_type}"
-                    return details
-                return f"{self.name} Provider error: {provider_error}"
+            if isinstance(provider_error, dict):
+                if error_message := provider_error.get("message"):
+                    return str(error_message)
+            elif provider_error:
+                return str(provider_error)
 
         # Fall back to base implementation
         return super()._extract_error_message(response_json)
 
+    @staticmethod
+    def _details_is_json(details: Any) -> bool:
+        if not isinstance(details, str):
+            return False
+        try:
+            _json.loads(details)
+        except ValueError:
+            return False
+        return True
+
     def _format_status_detail_error(self, status_detail: dict[str, Any]) -> str | None:
-        r"""Format error message from v2 API status_detail field.
+        r"""Return the provider's reason from the v2 API status_detail field.
 
         Args:
             status_detail: The status_detail object from a FAILED/ERROR generation response
             Example: {"error": "invalid input", "details": "{\"error\":{\"code\":\"...\",\"message\":\"...\"}}"}
 
         Returns:
-            A formatted error message string, or None if status_detail doesn't contain useful error info
+            The provider's reason, or None if status_detail doesn't contain useful error info
         """
-        if not isinstance(status_detail, dict):
-            return None
-
         self._log(f"Parsing status_detail: {status_detail}")
 
         # Extract top-level error message
@@ -851,17 +860,13 @@ class SeedreamImageGeneration(GriptapeProxyNode):
                 if isinstance(details_obj, dict):
                     error_info = details_obj.get("error", {})
                     if isinstance(error_info, dict):
-                        error_code = error_info.get("code", "")
                         error_message = error_info.get("message", "")
-
-                        self._log(f"Extracted error_code={error_code}, error_message length={len(error_message)}")
-
+                        self._log(
+                            f"Extracted error_code={error_info.get('code', '')}, "
+                            f"error_message length={len(error_message)}"
+                        )
                         if error_message:
-                            # Use the detailed error message as the primary message
-                            formatted_msg = error_message
-                            if error_code:
-                                formatted_msg += f"\nError Code: {error_code}"
-                            return formatted_msg
+                            return error_message
             except Exception as e:
                 # If we can't parse details, fall through to simpler format
                 self._log(f"Failed to parse status_detail.details JSON: {e}")
@@ -870,7 +875,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
 
         # If we have a top-level error but couldn't parse details
         if top_error:
-            return f"Generation failed: {top_error}"
+            return str(top_error)
 
         return None
 

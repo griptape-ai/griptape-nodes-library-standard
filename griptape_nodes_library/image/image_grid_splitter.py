@@ -1003,7 +1003,7 @@ class ImageGridSplitter(DataNode):
                 if existing is not None and not getattr(existing, "user_defined", False):
                     msg = (
                         f"Cannot create output parameter '{name}' because a non-removable parameter "
-                        f"with that name already exists on node '{self.name}'."
+                        "with that name already exists on this node."
                     )
                     raise ValueError(msg)
 

@@ -134,7 +134,7 @@ class ChangeSpeed(BaseVideoProcessor):
 
         speed = self.get_parameter_value("speed")
         if speed is not None and (speed < self.MIN_SPEED or speed > self.MAX_SPEED):
-            msg = f"{self.name} - Speed must be between {self.MIN_SPEED} and {self.MAX_SPEED}, got {speed}"
+            msg = f"Speed must be between {self.MIN_SPEED} and {self.MAX_SPEED}, got {speed}"
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None

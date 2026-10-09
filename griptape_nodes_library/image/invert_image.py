@@ -47,24 +47,29 @@ class InvertImage(DataNode):
                 value = dict_to_image_url_artifact(value)
 
             # Invert the image
-            self._invert_image(value)
+            self._invert_image(value, raise_on_failure=False)
 
     def process(self) -> None:
         # Get input image
         input_image = self.get_parameter_value("input_image")
 
         if input_image is None:
-            return
+            msg = "Connect an image to 'Input Image'."
+            raise ValueError(msg)
 
         # Normalize input to ImageUrlArtifact
         if isinstance(input_image, dict):
             input_image = dict_to_image_url_artifact(input_image)
 
         # Invert the image
-        self._invert_image(input_image)
+        self._invert_image(input_image, raise_on_failure=True)
 
-    def _invert_image(self, image_artifact: ImageUrlArtifact) -> None:
-        """Invert the input image and set as output."""
+    def _invert_image(self, image_artifact: ImageUrlArtifact, *, raise_on_failure: bool) -> None:
+        """Invert the input image and set it as output.
+
+        raise_on_failure is True on the process() path so failures fail the node. It is False from
+        after_value_set(), which only logs.
+        """
         try:
             # Load image
             image_pil = load_pil_from_url(image_artifact.value)
@@ -100,3 +105,6 @@ class InvertImage(DataNode):
             # Log the error and set a meaningful error message
             error_msg = f"Failed to invert image: {e!s}"
             logger.error(f"{self.name}: {error_msg}")
+            if raise_on_failure:
+                msg = f"Could not invert the image: {e}"
+                raise RuntimeError(msg) from e

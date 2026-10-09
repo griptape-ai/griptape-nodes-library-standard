@@ -56,14 +56,14 @@ class ToJson(DataNode):
             try:
                 result = repair_json(input_value)
             except Exception as e:
-                msg = f"ToJson: Failed to repair and parse JSON string: {e}. Input: {input_value[:200]!r}"
+                msg = f"Failed to repair and parse JSON string: {e}. Input: {input_value[:200]!r}"
                 raise ValueError(msg) from e
         else:
             # For other types, convert to string and try to repair
             try:
                 result = repair_json(str(input_value))
             except Exception as e:
-                msg = f"ToJson: Failed to convert input to JSON object: {e}. Input type: {type(input_value)}, value: {input_value!r}"
+                msg = f"Failed to convert input of type {type(input_value).__name__} to a JSON object: {e}"
                 raise ValueError(msg) from e
 
         self.parameter_output_values["output"] = result

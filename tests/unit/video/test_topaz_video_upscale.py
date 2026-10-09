@@ -194,7 +194,7 @@ def test_width_and_height_without_dimensions_raises(monkeypatch: pytest.MonkeyPa
     node = _node()
     _force_values(node, monkeypatch, resize_mode=ResizeMode.WIDTH_HEIGHT, target_width=0)
 
-    with pytest.raises(ValueError, match="positive target width and height"):
+    with pytest.raises(ValueError, match="must both be positive"):
         node._output_resolution(960, 540)
 
 
@@ -328,7 +328,7 @@ async def test_build_payload_omits_absent_optional_source_fields(monkeypatch: py
 async def test_build_payload_requires_a_video() -> None:
     node = _node()
 
-    with pytest.raises(ValueError, match="requires an input video"):
+    with pytest.raises(ValueError, match="Connect a video to 'input video'"):
         await node._build_payload()
 
 

@@ -13,7 +13,9 @@ class TestCreateFolderProcess:
 
     @pytest.fixture
     def node(self, griptape_nodes: GriptapeNodes) -> CreateFolder:  # noqa: ARG002
-        return CreateFolder(name="test_create_folder")
+        node = CreateFolder(name="test_create_folder")
+        node._has_outgoing_connections = lambda _param: False  # type: ignore[method-assign]
+        return node
 
     def test_creates_new_directory(self, node: CreateFolder, tmp_path: Path) -> None:
         target_dir = tmp_path / "new_folder"
@@ -45,7 +47,8 @@ class TestCreateFolderProcess:
         node.parameter_values["folder_path"] = str(target_dir)
         node.parameter_values["fail_if_already_exists"] = True
 
-        node.process()
+        with pytest.raises(FileExistsError, match="already exists"):
+            node.process()
 
         assert node.get_parameter_value("created_path") == ""
         assert node.get_parameter_value("already_existed") is False
@@ -55,7 +58,8 @@ class TestCreateFolderProcess:
         target_file.write_text("content")
         node.parameter_values["folder_path"] = str(target_file)
 
-        node.process()
+        with pytest.raises(FileExistsError, match="A file already exists"):
+            node.process()
 
         assert target_file.exists()
         assert target_file.is_file()
@@ -65,7 +69,8 @@ class TestCreateFolderProcess:
     def test_fails_when_path_is_empty(self, node: CreateFolder) -> None:
         node.parameter_values["folder_path"] = ""
 
-        node.process()
+        with pytest.raises(ValueError, match="is empty"):
+            node.process()
 
         assert node.get_parameter_value("created_path") == ""
         assert node.get_parameter_value("already_existed") is False
@@ -76,8 +81,21 @@ class TestCreateFolderProcess:
         node.parameter_values["create_parents"] = False
         node.parameter_values["fail_if_already_exists"] = False
 
-        node.process()
+        with pytest.raises(FileNotFoundError, match="parent folder does not exist"):
+            node.process()
 
         assert not target_dir.exists()
         assert node.get_parameter_value("created_path") == ""
         assert node.get_parameter_value("already_existed") is False
+
+    def test_failure_routes_to_failed_output_when_wired(self, node: CreateFolder, tmp_path: Path) -> None:
+        """With Failed wired, the failure is reported in the status instead of raised."""
+        target_dir = tmp_path / "missing_parent" / "child_folder"
+        node.parameter_values["folder_path"] = str(target_dir)
+        node.parameter_values["create_parents"] = False
+        node._has_outgoing_connections = lambda _param: True  # type: ignore[method-assign]
+
+        node.process()
+
+        assert node.get_parameter_value("was_successful") is False
+        assert "parent folder does not exist" in node.get_parameter_value("result_details")

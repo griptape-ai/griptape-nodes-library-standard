@@ -87,7 +87,7 @@ class PublicVideoUrlMixin:
         prepare: Awaitable[str | None] = self._prepare_video_data_uri_async(video_input)  # type: ignore[attr-defined]
         data_uri = await prepare
         if not data_uri:
-            msg = f"{self.name} failed to process input video."  # type: ignore[attr-defined]
+            msg = "Could not read the input video. Check that the connected video exists and is a supported format."
             raise ValueError(msg)
 
         decoded_size = decoded_data_uri_size(data_uri)
@@ -95,7 +95,7 @@ class PublicVideoUrlMixin:
             size_mb = decoded_size / 1_048_576
             limit_mb = MAX_VIDEO_DATA_URI_SIZE_BYTES // 1_048_576
             msg = (
-                f"{self.name}: Source video is too large ({size_mb:.1f} MB decoded, "  # type: ignore[attr-defined]
+                f"The source video is too large ({size_mb:.1f} MB decoded, "
                 f"~{size_mb * 4 / 3:.1f} MB encoded). "
                 f"The maximum supported encoded size is 15 MB (~{limit_mb} MB decoded). "
                 "Trim the video to a shorter segment and try again."

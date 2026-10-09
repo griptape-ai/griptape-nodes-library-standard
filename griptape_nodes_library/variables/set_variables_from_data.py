@@ -252,7 +252,7 @@ class SetVariablesFromData(SuccessFailureNode):
 
             flow_result = await GriptapeNodes.ahandle_request(GetFlowForNodeRequest(node_name=self.name))
             if not isinstance(flow_result, GetFlowForNodeResultSuccess):
-                msg = f"Failed to get flow for node '{self.name}': {flow_result.result_details}"
+                msg = f"Failed to get the flow that contains this node: {flow_result.result_details}"
                 raise TypeError(msg)
             flow_name = flow_result.flow_name
 
@@ -330,13 +330,13 @@ def _data_to_pairs(data: Any) -> list[tuple[str, Any]]:
         ValueError: if ``data`` (or a list item) isn't a recognizable key/value shape.
     """
     if data is None:
-        msg = "SetVariablesFromData requires a non-empty 'data' (dict, JSON string, YAML string, or list of key/value pairs)."
+        msg = "'data' must be non-empty. Connect a dict, JSON string, YAML string, or list of key/value pairs."
         raise ValueError(msg)
 
     if isinstance(data, str):
         text = data.strip()
         if not text:
-            msg = "SetVariablesFromData received an empty string for 'data'."
+            msg = "'data' is an empty string. It must be non-empty."
             raise ValueError(msg)
         data = _parse_string_data(text)
 
@@ -387,7 +387,7 @@ def _parse_string_data(text: str) -> Any:
         msg = f"'data' could not be parsed as JSON, YAML, or key/value text: {yaml_exc}"
         raise ValueError(msg) from yaml_exc
 
-    msg = f"'data' string parsed as {type(parsed).__name__!r} — expected a mapping or list of pairs."
+    msg = f"'data' string parsed as {type(parsed).__name__!r}. Expected a mapping or list of pairs."
     raise ValueError(msg)
 
 

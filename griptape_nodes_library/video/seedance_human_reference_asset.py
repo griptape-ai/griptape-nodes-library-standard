@@ -217,7 +217,7 @@ class SeedanceHumanReferenceAsset(DataNode):
 
         access = self._refresh_access()
         if access.is_denied:
-            exceptions.append(ValueError(f"{self.name}: {access.detail}"))
+            exceptions.append(ValueError(access.detail))
 
         return exceptions if exceptions else None
 

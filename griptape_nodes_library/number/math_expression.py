@@ -302,7 +302,12 @@ class MathExpression(BaseNode):
         return expression
 
     def _evaluate_expression(self, expression: str) -> float | int:  # noqa: PLR0911
-        """Safely evaluate the mathematical expression using asteval."""
+        """Safely evaluate the mathematical expression using asteval.
+
+        An expression that can't be evaluated returns 0.0 instead of raising, on purpose: a typo or a
+        division by zero gives 0 rather than stopping the run. Don't change these returns into raises
+        to fail the node.
+        """
         if not expression or not expression.strip():
             return 0.0
 

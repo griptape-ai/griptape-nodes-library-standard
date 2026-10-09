@@ -129,12 +129,12 @@ class ScanSplitSequenceNode(SuccessFailureNode):
 
         path = self.get_parameter_value(self._path_param.name).strip()
         if not path:
-            self._emit_failure("No path or pattern provided.")
+            self._emit_failure(ValueError("No path or pattern provided."))
             return
 
         bounds_or_error = await self._advanced.resolve_bounds(self, path)
         if isinstance(bounds_or_error, str):
-            self._emit_failure(bounds_or_error)
+            self._emit_failure(ValueError(bounds_or_error))
             return
 
         scan_result = await GriptapeNodes.ahandle_request(
@@ -147,10 +147,10 @@ class ScanSplitSequenceNode(SuccessFailureNode):
             )
         )
         if isinstance(scan_result, ScanSequencesResultFailure):
-            self._emit_failure(str(scan_result.result_details))
+            self._emit_failure(RuntimeError(str(scan_result.result_details)))
             return
         if not isinstance(scan_result, ScanSequencesResultSuccess):
-            self._emit_failure(f"Unexpected scan result type: {type(scan_result).__name__}")
+            self._emit_failure(RuntimeError(f"Unexpected scan result type: {type(scan_result).__name__}"))
             return
 
         if not scan_result.has_entries:
@@ -164,7 +164,7 @@ class ScanSplitSequenceNode(SuccessFailureNode):
                 path=path,
             )
             if fail_on_empty:
-                self._emit_failure(details)
+                self._emit_failure(FileNotFoundError(details))
             else:
                 self._emit_empty_success(f"{details} (*Fail when no items are found* is off.)")
             return
@@ -176,10 +176,11 @@ class ScanSplitSequenceNode(SuccessFailureNode):
         self.parameter_output_values[self._sequences_param.name] = []
         self._set_status_results(was_successful=True, result_details=details)
 
-    def _emit_failure(self, details: str) -> None:
-        """Emit empty outputs and mark the node failed."""
+    def _emit_failure(self, error: Exception) -> None:
+        """Emit empty outputs, mark the node failed, and route the error down Failed (or raise it)."""
         self.parameter_output_values[self._sequences_param.name] = []
-        self._set_status_results(was_successful=False, result_details=details)
+        self._set_status_results(was_successful=False, result_details=str(error))
+        self._handle_failure_exception(error)
 
     def _emit_success(self, sequences: list[Any]) -> None:
         """Populate outputs and mark the node successful."""

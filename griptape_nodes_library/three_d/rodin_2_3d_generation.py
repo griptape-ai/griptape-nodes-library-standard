@@ -733,30 +733,23 @@ class Rodin23DGeneration(GriptapeProxyNode):
                 result_details="Generation completed but failed to save model files.",
             )
 
-    def _extract_error_details(self, response_json: dict[str, Any] | None) -> str:
-        """Extract error details from API response."""
-        if not response_json:
-            return "Generation failed with no error details provided by API."
-
-        # Try various error sources in order of priority
-        error_msg = self._get_error_from_result(response_json)
-        if not error_msg:
-            error_msg = self._get_error_from_provider(response_json)
-        if not error_msg:
-            error_msg = self._get_error_from_top_level(response_json)
-        if not error_msg:
-            error_msg = self._get_error_from_status(response_json)
-
-        return error_msg or f"Generation failed.\n\nFull API response:\n{response_json}"
-
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
-        return self._extract_error_details(response_json)
+        """Return Rodin's reason for a failed generation, or "" if it gave none."""
+        if not response_json:
+            return ""
+
+        return (
+            self._get_error_from_result(response_json)
+            or self._get_error_from_provider(response_json)
+            or self._get_error_from_top_level(response_json)
+            or super()._extract_error_message(response_json)
+        )
 
     def _get_error_from_result(self, response_json: dict[str, Any]) -> str | None:
         """Extract error from result field."""
         result = response_json.get("result", {})
         if isinstance(result, dict) and result.get("error"):
-            return f"Generation failed: {result['error']}"
+            return str(result["error"])
         return None
 
     def _get_error_from_provider(self, response_json: dict[str, Any]) -> str | None:
@@ -765,7 +758,7 @@ class Rodin23DGeneration(GriptapeProxyNode):
         if provider_response:
             parsed = self._parse_provider_response(provider_response)
             if parsed and parsed.get("error"):
-                return f"Generation failed: {parsed['error']}"
+                return str(parsed["error"])
         return None
 
     def _get_error_from_top_level(self, response_json: dict[str, Any]) -> str | None:
@@ -773,15 +766,8 @@ class Rodin23DGeneration(GriptapeProxyNode):
         top_level_error = response_json.get("error")
         if top_level_error:
             if isinstance(top_level_error, dict):
-                return f"Generation failed: {top_level_error.get('message', str(top_level_error))}"
-            return f"Generation failed: {top_level_error}"
-        return None
-
-    def _get_error_from_status(self, response_json: dict[str, Any]) -> str | None:
-        """Extract error from status field."""
-        status = response_json.get("status")
-        if status == STATUS_FAILED:
-            return f"Generation failed with status '{status}'."
+                return str(top_level_error.get("message") or top_level_error.get("error") or "") or None
+            return str(top_level_error)
         return None
 
     def _parse_provider_response(self, provider_response: Any) -> dict[str, Any] | None:

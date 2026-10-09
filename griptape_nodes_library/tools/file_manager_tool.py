@@ -1,7 +1,7 @@
 from typing import Any, cast
 
 import httpx
-from griptape_nodes.exe_types.core_types import Parameter
+from griptape_nodes.exe_types.core_types import NodeError, Parameter
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
@@ -10,6 +10,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
+from griptape_nodes_library.utils.node_error_utils import error_fields, error_response, request_id_from_headers
 
 LOCATIONS = ["Workspace Directory", "GriptapeCloud"]
 
@@ -88,11 +89,28 @@ class FileManager(BaseTool):
             data = response.json()
             return [(bucket["name"], bucket["bucket_id"]) for bucket in data["buckets"]]
         except httpx.HTTPStatusError as e:
-            msg = f"Failed to fetch buckets from Griptape Cloud: {e}"
-            raise RuntimeError(msg) from e
+            raise self._bucket_list_error(e) from e
         except Exception as e:
             msg = f"Error fetching buckets: {e}"
             raise RuntimeError(msg) from e
+
+    @staticmethod
+    def _bucket_list_error(e: httpx.HTTPStatusError) -> NodeError:
+        try:
+            body = e.response.json()
+        except ValueError:
+            body = None
+        detail = body.get("detail") or body.get("error") if isinstance(body, dict) else None
+        reason = detail if isinstance(detail, str) and detail else e.response.reason_phrase
+        msg = f"Griptape Cloud could not list your buckets: {reason.rstrip('.')}."
+        return NodeError(
+            msg,
+            fields=error_fields(
+                status_code=e.response.status_code,
+                request_id=request_id_from_headers(e.response.headers),
+            ),
+            response=error_response(body),
+        )
 
     def process(self) -> None:
         off_prompt = self.parameter_values.get("off_prompt", True)

@@ -301,7 +301,7 @@ class RescaleImage(BaseImageProcessor):
             }
             resized_image = self._resize_with_fit_mode(pil_image, resize_config)
         else:
-            msg = f"{self.name} - Invalid resize mode: {resize_mode}"
+            msg = f"Unknown resize mode: {resize_mode!r}"
             raise ValueError(msg)
 
         return resized_image
@@ -388,7 +388,7 @@ class RescaleImage(BaseImageProcessor):
                 return resized_image.crop((left, top, right, bottom))
 
             return resized_image
-        msg = f"{self.name} - Invalid fit mode: {fit_mode}"
+        msg = f"Unknown fit mode: {fit_mode!r}"
         raise ValueError(msg)
 
     def _create_canvas(self, width: int, height: int, background_color: str) -> Image.Image:
@@ -437,7 +437,7 @@ class RescaleImage(BaseImageProcessor):
             and target_size is not None
             and (target_size < self.MIN_TARGET_SIZE or target_size > self.MAX_TARGET_SIZE)
         ):
-            msg = f"{self.name} - Target size must be between {self.MIN_TARGET_SIZE} and {self.MAX_TARGET_SIZE}, got {target_size}"
+            msg = f"'Target Size' must be between {self.MIN_TARGET_SIZE} and {self.MAX_TARGET_SIZE}, got {target_size}."
             exceptions.append(ValueError(msg))
 
         # Validate percentage_scale for percentage mode
@@ -446,7 +446,7 @@ class RescaleImage(BaseImageProcessor):
             and percentage_scale is not None
             and (percentage_scale < self.MIN_PERCENTAGE_SCALE or percentage_scale > self.MAX_PERCENTAGE_SCALE)
         ):
-            msg = f"{self.name} - Percentage scale must be between {self.MIN_PERCENTAGE_SCALE} and {self.MAX_PERCENTAGE_SCALE}, got {percentage_scale}"
+            msg = f"'Percentage Scale' must be between {self.MIN_PERCENTAGE_SCALE} and {self.MAX_PERCENTAGE_SCALE}, got {percentage_scale}."
             exceptions.append(ValueError(msg))
 
         # Validate target_width and target_height for width and height mode
@@ -454,13 +454,13 @@ class RescaleImage(BaseImageProcessor):
             if target_width is not None and (
                 target_width < self.MIN_TARGET_SIZE or target_width > self.MAX_TARGET_SIZE
             ):
-                msg = f"{self.name} - Target width must be between {self.MIN_TARGET_SIZE} and {self.MAX_TARGET_SIZE}, got {target_width}"
+                msg = f"'Target Width' must be between {self.MIN_TARGET_SIZE} and {self.MAX_TARGET_SIZE}, got {target_width}."
                 exceptions.append(ValueError(msg))
 
             if target_height is not None and (
                 target_height < self.MIN_TARGET_SIZE or target_height > self.MAX_TARGET_SIZE
             ):
-                msg = f"{self.name} - Target height must be between {self.MIN_TARGET_SIZE} and {self.MAX_TARGET_SIZE}, got {target_height}"
+                msg = f"'Target Height' must be between {self.MIN_TARGET_SIZE} and {self.MAX_TARGET_SIZE}, got {target_height}."
                 exceptions.append(ValueError(msg))
 
         # Validate aspect ratio string for aspect ratio mode

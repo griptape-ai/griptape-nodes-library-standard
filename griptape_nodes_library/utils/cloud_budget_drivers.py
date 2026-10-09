@@ -30,9 +30,12 @@ from griptape.drivers.prompt.griptape_cloud import (
     GriptapeCloudPromptDriver as GtGriptapeCloudPromptDriver,
 )
 from griptape.utils.griptape_cloud import griptape_cloud_url
+from griptape_nodes.exe_types.core_types import NodeError
 from griptape_nodes.utils.budget_refusal import BudgetExceededError, refusal_from_exception
 from griptape_nodes.utils.budget_refusal import describe as describe_budget_refusal
 from griptape_nodes.utils.budget_refusal import log_line as budget_log_line
+
+from griptape_nodes_library.utils.node_error_utils import error_response
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -59,6 +62,21 @@ def _budget_halt_for(exc: requests.exceptions.HTTPError, *, base_url: str) -> Bu
 
     logger.error(budget_log_line(refusal))
     return BudgetExceededError(describe_budget_refusal(refusal), refusal)
+
+
+class CloudStreamError(NodeError, RuntimeError):
+    """Griptape Cloud reported an error partway through a streamed response.
+
+    A RuntimeError too, as upstream's driver raises one here.
+    """
+
+
+def _stream_error(message_payload: dict) -> CloudStreamError:
+    """Build the error for an `error` event in the response stream, with the event attached."""
+    error = message_payload["error"]
+    reason = error.get("message") if isinstance(error, dict) else error
+    msg = str(reason or "Griptape Cloud reported an error in the response stream.")
+    return CloudStreamError(msg, response=error_response(message_payload))
 
 
 @define
@@ -101,7 +119,7 @@ class GriptapeCloudPromptDriver(GtGriptapeCloudPromptDriver):
                 logger.debug("Event stream data message payload: %s", message_payload)
                 message_payload_dict = json.loads(message_payload)
                 if "error" in message_payload_dict:
-                    raise RuntimeError(message_payload_dict["error"])
+                    raise _stream_error(message_payload_dict)
                 yield DeltaMessage.from_dict(message_payload_dict)
 
 

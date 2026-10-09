@@ -130,10 +130,10 @@ class TempFilename(DataNode):
 
         dir_path = Path(cleaned_dir)
         if not dir_path.exists():
-            return f"Error: {self.name} - Directory does not exist: {cleaned_dir}"
+            return f"Error: Directory does not exist: {cleaned_dir}"
 
         if not dir_path.is_dir():
-            return f"Error: {self.name} - Path is not a directory: {cleaned_dir}"
+            return f"Error: Path is not a directory: {cleaned_dir}"
 
         return cleaned_dir
 
@@ -236,11 +236,11 @@ class TempFilename(DataNode):
             # Delete the file since we only want the filename
             temp_path_obj.unlink()
         except OSError as e:
-            return f"Error: {self.name} - Failed to generate temporary filename: {e}"
+            return f"Error: Failed to generate temporary filename: {e}"
 
         # Return absolute path or just filename based on setting (success path at end)
         if temp_path_obj is None:
-            return f"Error: {self.name} - Failed to generate temporary filename"
+            return "Error: Failed to generate temporary filename"
 
         if return_absolute_path:
             result = str(temp_path_obj.resolve())

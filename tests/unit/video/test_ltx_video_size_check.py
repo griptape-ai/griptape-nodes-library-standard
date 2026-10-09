@@ -397,3 +397,26 @@ def test_extend_api_key_error_triggers_failure_exception() -> None:
     with patch.object(node, "_handle_failure_exception") as mock_failure:
         node._handle_api_key_validation_error(err)
     mock_failure.assert_called_once_with(err)
+
+
+# ---------------------------------------------------------------------------
+# Payload build error (bad input) — must fail the node, not return quietly
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("node_cls", [LTXVideoRetake, LTXVideoExtend])
+def test_payload_value_error_raises_when_failed_is_not_wired(node_cls: type) -> None:
+    node = node_cls(name="Node")
+    node._has_outgoing_connections = lambda _parameter: False
+    err = ValueError("Connect a video to 'input video'.")
+    with pytest.raises(ValueError, match="Connect a video"):
+        node._handle_payload_build_error(err)
+    assert node.get_parameter_value("result_details") == str(err)
+
+
+@pytest.mark.parametrize("node_cls", [LTXVideoRetake, LTXVideoExtend])
+def test_payload_value_error_routes_to_failed_when_wired(node_cls: type) -> None:
+    node = node_cls(name="Node")
+    node._has_outgoing_connections = lambda _parameter: True
+    node._handle_payload_build_error(ValueError("Connect a video to 'input video'."))
+    assert node.get_parameter_value("was_successful") is False

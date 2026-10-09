@@ -144,7 +144,7 @@ class CreateVariable(ControlNode):
         connections_result = GriptapeNodes.handle_request(connections_request)
 
         if not isinstance(connections_result, ListConnectionsForNodeResultSuccess):
-            error_msg = f"Failed to list connections for node '{self.name}': {connections_result.result_details}"
+            error_msg = f"Failed to list this node's connections: {connections_result.result_details}"
             raise TypeError(error_msg)
 
         for connection in connections_result.incoming_connections:
@@ -157,7 +157,7 @@ class CreateVariable(ControlNode):
                 )
                 delete_result = GriptapeNodes.handle_request(delete_request)
                 if not isinstance(delete_result, DeleteConnectionResultSuccess):
-                    error_msg = f"Failed to delete connection from {connection.source_node_name}.{connection.source_parameter_name} to {self.name}.{parameter_name}: {delete_result.result_details}"
+                    error_msg = f"Failed to delete the connection from {connection.source_node_name}.{connection.source_parameter_name} to '{parameter_name}': {delete_result.result_details}"
                     raise TypeError(error_msg)
 
     def _cleanup_incompatible_value_connections(self) -> None:
@@ -400,7 +400,7 @@ class CreateVariable(ControlNode):
         flow_result = GriptapeNodes.handle_request(flow_request)
 
         if not isinstance(flow_result, GetFlowForNodeResultSuccess):
-            error_msg = f"Failed to get flow for node '{self.name}': {flow_result.result_details}"
+            error_msg = f"Failed to get the flow that contains this node: {flow_result.result_details}"
             raise TypeError(error_msg)
 
         current_flow_name = flow_result.flow_name

@@ -125,7 +125,7 @@ class OmnihumanSubjectRecognition(GriptapeProxyNode):
         return exceptions if exceptions else None
 
     def _missing_image_message(self) -> str:
-        return f"{self.name} requires an input image. Set the Image URL parameter or connect an image to it."
+        return "An input image is required. Connect an image to 'Image URL' or enter its URL."
 
     async def _build_payload(self) -> dict[str, Any]:
         provider_model_id = self._get_selected_model_id()
@@ -166,7 +166,8 @@ class OmnihumanSubjectRecognition(GriptapeProxyNode):
             )
             return
 
-        error_details = f"Subject recognition failed.\nStatus: {status}\nFull response: {result_json}"
+        logger.error("%s: Subject recognition did not finish. Response: %s", self.name, result_json)
+        error_details = f"Subject recognition did not finish. The provider reported status '{status or 'unknown'}'."
         self._set_status_results(was_successful=False, result_details=error_details)
 
     def _get_req_key(self, model_id: str) -> str:

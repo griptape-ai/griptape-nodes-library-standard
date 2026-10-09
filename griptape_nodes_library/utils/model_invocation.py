@@ -91,8 +91,7 @@ def require_model_invocation_sync(node: BaseNode, api_model_id: str | None, *, p
     nobody has named, which is the one outcome a fail-closed gate must not allow.
 
     `purpose` names which invocation is being gated, for nodes that gate more than
-    one. It is appended to the node's identity in the raised message so a denial
-    points at the specific call rather than just the node.
+    one. It is named in the raised message so a denial points at the specific call.
 
     Raises:
         RuntimeError: if the model is unidentified, or if the declaration was
@@ -100,9 +99,7 @@ def require_model_invocation_sync(node: BaseNode, api_model_id: str | None, *, p
             since that explains *why* the policy denied the call; otherwise a
             generic message naming the model.
     """
-    subject = f"{type(node).__name__} '{node.name}'"
-    if purpose:
-        subject = f"{subject} ({purpose})"
+    subject = f"the model ({purpose})" if purpose else "the model"
     if not api_model_id or not api_model_id.strip():
         msg = (
             f"Cannot run {subject}: no model was identified, so the invocation cannot be "

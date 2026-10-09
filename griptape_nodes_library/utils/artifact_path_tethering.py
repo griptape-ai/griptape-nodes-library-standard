@@ -265,7 +265,7 @@ class ArtifactPathTethering:
             else:
                 value_info = f" Input: <{type(value).__name__}> (not human readable)"
 
-            error_msg = f"Failed to process {param_type_for_error_str} parameter '{parameter.name}' in node '{self.node.__class__.__name__}': {e}{value_info}"
+            error_msg = f"Failed to process {param_type_for_error_str} parameter '{parameter.name}': {e}{value_info}"
             raise ValueError(error_msg) from e
         finally:
             # Always clear the update lock
