@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
@@ -49,14 +50,24 @@ class GroupByKey(DataNode):
             )
         )
 
+    @staticmethod
+    def _decode_json(value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+
     def _group(self) -> dict[str, list[Any]]:
-        items = self.get_parameter_value("items") or []
+        items = self._decode_json(self.get_parameter_value("items")) or []
         if isinstance(items, dict):
             items = [items]
         field = (self.get_parameter_value("group_by") or "").strip()
 
         groups: dict[str, list[Any]] = {}
-        for index, item in enumerate(items):
+        for index, raw_item in enumerate(items):
+            item = self._decode_json(raw_item)
             if not isinstance(item, dict):
                 msg = f"{self.name}: item {index} is a {type(item).__name__}, not a dictionary."
                 raise TypeError(msg)
