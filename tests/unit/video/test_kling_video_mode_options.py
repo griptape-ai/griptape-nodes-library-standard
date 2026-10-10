@@ -29,16 +29,6 @@ def test_kling_text_v3_adds_4k_mode_choice() -> None:
     assert node.get_parameter_value("mode") == "std"
 
 
-def test_kling_text_v2_master_hides_mode_selector_and_forces_pro() -> None:
-    node = KlingTextToVideoGeneration(name="KlingText")
-    node.set_parameter_value("mode", "4k")
-
-    node.set_parameter_value("model_name", "Kling v2 Master")
-
-    assert _parameter_by_name(node, "mode").hide is True
-    assert node.get_parameter_value("mode") == "pro"
-
-
 def test_kling_image_v3_adds_4k_mode_choice() -> None:
     node = KlingImageToVideoGeneration(name="KlingImage")
 

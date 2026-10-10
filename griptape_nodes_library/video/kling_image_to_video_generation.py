@@ -73,27 +73,32 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         - result_details (str): Details about the generation result or error
     """
 
-    # Migrates values saved before the dropdown stored the provider's own model id: old
-    # display labels and catalog keys.
+    # Migrates values saved before the dropdown stored the provider's own model id (old
+    # display labels and catalog keys), plus models Kling has discontinued. Kling returns
+    # 404 for kling-v1-6, kling-v2-master, and kling-v2-1-master, so a saved workflow
+    # referencing one migrates to kling-v2-6 rather than calling through.
     LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
         "Kling v1": "kling-v1",
         "Kling v1.5": "kling-v1-5",
-        "Kling v1.6": "kling-v1-6",
-        "Kling v2 Master": "kling-v2-master",
+        "Kling v1.6": "kling-v2-6",
+        "Kling v2 Master": "kling-v2-6",
         "Kling v2.1": "kling-v2-1",
-        "Kling v2.1 Master": "kling-v2-1-master",
+        "Kling v2.1 Master": "kling-v2-6",
         "Kling v2.5 Turbo": "kling-v2-5-turbo",
         "Kling v2.6": "kling-v2-6",
         "Kling v3.0": "kling-v3",
         "gtc_kling_v1": "kling-v1",
         "gtc_kling_v1_5": "kling-v1-5",
-        "gtc_kling_v1_6": "kling-v1-6",
+        "gtc_kling_v1_6": "kling-v2-6",
         "gtc_kling_v2_1": "kling-v2-1",
-        "gtc_kling_v2_1_master": "kling-v2-1-master",
+        "gtc_kling_v2_1_master": "kling-v2-6",
         "gtc_kling_v2_5_turbo": "kling-v2-5-turbo",
         "gtc_kling_v2_6": "kling-v2-6",
-        "gtc_kling_v2_master": "kling-v2-master",
+        "gtc_kling_v2_master": "kling-v2-6",
         "gtc_kling_v3": "kling-v3",
+        "kling-v1-6": "kling-v2-6",
+        "kling-v2-1-master": "kling-v2-6",
+        "kling-v2-master": "kling-v2-6",
     }
 
     # Model capability definitions
@@ -120,29 +125,11 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             "supports_sound": False,
             "supports_tail_frame": True,  # pro mode only — enforced by existing pro-mode validation
         },
-        "kling-v1-6": {
-            "modes": BASE_MODE_CHOICES,
-            "durations": [5, 10],
-            "supports_sound": False,
-            "supports_tail_frame": True,  # pro mode only
-        },
-        "kling-v2-master": {
-            "modes": [],
-            "durations": [5, 10],
-            "supports_sound": False,
-            "supports_tail_frame": False,
-        },
         "kling-v2-1": {
             "modes": BASE_MODE_CHOICES,
             "durations": [5, 10],
             "supports_sound": False,
             "supports_tail_frame": True,  # pro mode only
-        },
-        "kling-v2-1-master": {
-            "modes": [],
-            "durations": [5, 10],
-            "supports_sound": False,
-            "supports_tail_frame": False,
         },
         "kling-v2-5-turbo": {
             "modes": BASE_MODE_CHOICES,
@@ -179,10 +166,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 "kling-v3",
                 "kling-v2-6",
                 "kling-v2-5-turbo",
-                "kling-v2-1-master",
                 "kling-v2-1",
-                "kling-v2-master",
-                "kling-v1-6",
                 "kling-v1-5",
                 "kling-v1",
             ],
