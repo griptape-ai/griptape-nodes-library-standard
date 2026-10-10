@@ -7425,6 +7425,7 @@
     "workflows/templates/flux_2_-_replace_a_face.py",
     "workflows/templates/jev_pick_the_look.py",
     "workflows/templates/jev_prompt_clearance.py",
+    "workflows/templates/jev_review_note_workflow.py",
     "workflows/templates/jev_shot_check.py",
     "workflows/templates/nano_banana_-_image_collage.py",
     "workflows/templates/nano_banana_pro_-_image_collage.py",
