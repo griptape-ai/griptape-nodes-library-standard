@@ -24,7 +24,9 @@ class HasVariable(BaseVariableNode):
                 type="str",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT, ParameterMode.PROPERTY},
                 tooltip="Name of the variable to check for existence",
-            )
+            ),
+            # allow_custom keeps typed, wired, or since-deleted names instead of coercing them to the first choice.
+            allow_custom=True,
         )
 
         self.exists_param = Parameter(
