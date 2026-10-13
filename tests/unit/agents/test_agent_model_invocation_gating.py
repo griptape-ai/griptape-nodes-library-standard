@@ -14,12 +14,20 @@ import pytest
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode, DataNode
 from griptape_nodes.node_library.library_registry import LibraryRegistry
+from griptape_nodes.retained_mode.events.budget_events import (
+    BudgetAccessRequest,
+    BudgetAccessResultSuccess,
+    ReportUsageRequest,
+    ReportUsageResultSuccess,
+)
 
 import griptape_nodes_library.agents.agent as agent_module
 import griptape_nodes_library.utils.model_invocation as model_invocation_module
 from griptape_nodes_library.agents.agent import Agent
 from griptape_nodes_library.llm.agent_state import AgentState
 from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
+from griptape_nodes_library.llm.models import override_model
+from griptape_nodes_library.llm.testing import text_model
 
 LIBRARY_NAME = "Griptape Nodes Library"
 
@@ -148,7 +156,7 @@ def test_declares_connected_agents_model_over_stale_dropdown_value(
     assert captured["api_model_id"] == "gpt-4.1"
 
 
-def test_declares_connected_model_config_model(agent_node: Agent, monkeypatch: pytest.MonkeyPatch) -> None:
+def _connect_model_config(agent_node: Agent, config: ModelConfig) -> None:
     model_param = agent_node.get_parameter_by_name("model")
     assert model_param is not None
     source_node = DataNode(name="Prompt Model Config")
@@ -160,7 +168,11 @@ def test_declares_connected_model_config_model(agent_node: Agent, monkeypatch: p
     )
     source_node.add_parameter(source_param)
     agent_node.after_incoming_connection(source_node, source_param, model_param)
-    agent_node.set_parameter_value("model", ModelConfig(provider=ModelProvider.OPENAI, model="gpt-5"))
+    agent_node.set_parameter_value("model", config)
+
+
+def test_declares_connected_model_config_model(agent_node: Agent, monkeypatch: pytest.MonkeyPatch) -> None:
+    _connect_model_config(agent_node, ModelConfig(provider=ModelProvider.OPENAI, model="gpt-5"))
     captured: dict[str, Any] = {}
 
     def _fake_declare(node: Agent, api_model_id: str) -> _FakeDeclaration:
@@ -172,3 +184,48 @@ def test_declares_connected_model_config_model(agent_node: Agent, monkeypatch: p
     next(agent_node.process())
 
     assert captured["api_model_id"] == "gpt-5"
+
+
+def _record_budget_requests(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    """Clear permission, answer the budget check, and record every budget request."""
+    seen: list[Any] = []
+
+    def _handle(request: Any) -> Any:
+        seen.append(request)
+        if isinstance(request, BudgetAccessRequest):
+            return BudgetAccessResultSuccess(correlation_id="corr-1", checked=True, result_details="ok")
+        return ReportUsageResultSuccess(idempotency_key="k", result_details="queued")
+
+    monkeypatch.setattr(model_invocation_module, "declare_model_invocation_sync", lambda *_: _FakeDeclaration(ok=True))
+    monkeypatch.setattr(model_invocation_module.GriptapeNodes, "handle_request", _handle)
+    return seen
+
+
+def test_griptape_cloud_model_is_not_budget_checked(agent_node: Agent, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The proxy enforces budgets server-side; a client check would count the call twice."""
+    seen = _record_budget_requests(monkeypatch)
+
+    gen = agent_node.process()
+    runner = next(gen)
+    with override_model(text_model("hi")):
+        runner()
+
+    assert seen == []
+
+
+def test_direct_model_is_budget_checked_and_reported(agent_node: Agent, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _record_budget_requests(monkeypatch)
+    _connect_model_config(agent_node, ModelConfig(provider=ModelProvider.OPENAI, model="gpt-4o"))
+
+    gen = agent_node.process()
+    runner = next(gen)
+    with override_model(text_model("hi")):
+        runner()
+
+    check, report = seen
+    assert isinstance(check, BudgetAccessRequest)
+    # Check and report name the model the same way; the node label is never sent.
+    assert (check.model, check.node_type, check.node_id) == ("gpt-4o", "Agent", None)
+    assert isinstance(report, ReportUsageRequest)
+    assert (report.provider, report.model, report.correlation_id) == ("openai", "gpt-4o", "corr-1")
+    assert report.declared_cost_micro_usd > 0

@@ -33,6 +33,7 @@ from griptape_nodes_library.llm.history import history_token_budget, prune_histo
 from griptape_nodes_library.llm.model_config import USE_NATIVE_TOOLS_OPTION
 from griptape_nodes_library.llm.models import build_model
 from griptape_nodes_library.llm.rulesets import render_rulesets
+from griptape_nodes_library.llm.usage_meter import record_run_usage
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AgentRetries, AgentRunResult
@@ -225,9 +226,11 @@ def run_agent(
     Raises:
         AgentRunCancelledError: `callbacks.is_cancelled` returned True.
     """
-    return run_coroutine_sync(
+    result = run_coroutine_sync(
         run_agent_async(agent, prompt, message_history=message_history, callbacks=callbacks, usage_limits=usage_limits)
     )
+    record_run_usage(result.usage)
+    return result
 
 
 def output_to_text(output: Any) -> str:
