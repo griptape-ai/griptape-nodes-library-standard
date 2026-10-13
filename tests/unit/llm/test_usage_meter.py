@@ -12,15 +12,22 @@ from typing import Any
 import pytest
 from griptape_nodes.exe_types.node_types import BaseNode
 from pydantic_ai import Agent
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
-from pydantic_ai.usage import RunUsage
+from pydantic_ai.usage import RunUsage, UsageLimits
 
 import griptape_nodes_library.llm.usage_meter as meter_module
+from griptape_nodes_library.config.prompt import amazon_bedrock_prompt, anthropic_prompt, openai_prompt
 from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, ImageProvider
 from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
 from griptape_nodes_library.llm.runner import run_agent, run_agent_async
-from griptape_nodes_library.llm.usage_meter import cost_micro_usd, is_direct_provider, require_model_access
+from griptape_nodes_library.llm.usage_meter import (
+    DIRECT_PROVIDER_PRICES,
+    cost_micro_usd,
+    is_direct_provider,
+    require_model_access,
+)
 
 OPENAI_GPT_4O = ModelConfig(provider=ModelProvider.OPENAI, model="gpt-4o")
 
@@ -182,3 +189,42 @@ def test_runs_outside_a_meter_are_not_counted(node: _StubNode, calls: list[tuple
     run_agent(_agent(), "after")
 
     assert calls[-1][1]["declared_cost_micro_usd"] == _cost(result.usage)
+
+
+def test_a_run_that_hits_its_request_limit_still_reports(
+    node: _StubNode, calls: list[tuple[str, dict[str, Any]]]
+) -> None:
+    """MCP Task ends on the request limit by design; the requests it already made are still spent."""
+
+    async def keep_calling_the_tool(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[Any]:  # noqa: ARG001
+        yield {0: DeltaToolCall(name="again", json_args="{}")}
+
+    def again() -> str:
+        return "again"
+
+    agent = Agent(FunctionModel(stream_function=keep_calling_the_tool), tools=[again])
+    meter = require_model_access(node, OPENAI_GPT_4O)
+
+    with pytest.raises(UsageLimitExceeded):
+        meter.run(lambda: run_agent(agent, "hi", usage_limits=UsageLimits(request_limit=3)))
+
+    name, report = calls[-1]
+    assert name == "report"
+    assert report["declared_cost_micro_usd"] > 0
+
+
+# Bedrock's Amazon Titan models have no sourced price yet, so they are checked but not reported.
+_KNOWN_UNPRICED = {"amazon.titan-text-premier-v1:0", "amazon.titan-text-express-v1", "amazon.titan-text-lite-v1"}
+
+
+@pytest.mark.parametrize(
+    ("choices", "provider"),
+    [
+        (openai_prompt.MODEL_CHOICES, ModelProvider.OPENAI),
+        (anthropic_prompt.MODEL_CHOICES, ModelProvider.ANTHROPIC),
+        (amazon_bedrock_prompt.MODEL_CHOICES, ModelProvider.BEDROCK),
+    ],
+)
+def test_every_direct_dropdown_model_is_priced(choices: list[str], provider: ModelProvider) -> None:
+    """A model added to a config dropdown without a price would be checked but silently never reported."""
+    assert set(choices) - set(DIRECT_PROVIDER_PRICES[provider]) - _KNOWN_UNPRICED == set()

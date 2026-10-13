@@ -6,8 +6,10 @@ same Agent with a connected Anthropic config calls Anthropic directly. `require_
 picks the right gate for the config, and the returned meter reports the call's cost afterwards.
 
 The meter counts only the node's own top-level run. `run_agent` adds each run's usage to the
-active meter; an agent called as a tool runs through `run_agent_async` inside that run and is
-not counted, so a tool on Griptape Cloud is never billed again as direct spend.
+active meter, including the requests a run made before it raised. An agent called as a tool runs
+through `run_agent_async` inside that run and is not counted, so a tool on Griptape Cloud is never
+billed again as direct spend. The flip side: an agent tool on a direct provider is neither
+budget-checked nor reported.
 
 Not vendored: the price table and provider names are this library's business. The vendorable
 contract lives in `utils/model_invocation.py`.
@@ -147,7 +149,7 @@ class ModelCallMeter:
         node_type = type(self._node).__name__
         model = self._config.model
         if not self._runs:
-            # Image generation, and a run that failed before the model answered, carry no usage.
+            # Image generation carries no token usage.
             logger.warning("%s: no token usage for direct call to '%s'; usage not reported.", node_type, model)
             return
         provider = str(self._config.provider)
