@@ -7,9 +7,10 @@ picks the right gate for the config, and the returned meter reports the call's c
 
 The meter counts only the node's own top-level run. `run_agent` adds each run's usage to the
 active meter, including the requests a run made before it raised. An agent called as a tool runs
-through `run_agent_async` inside that run and is not counted, so a tool on Griptape Cloud is never
-billed again as direct spend. The flip side: an agent tool on a direct provider is neither
-budget-checked nor reported.
+through `run_agent_async` inside that run and is not added to it. It is gated and metered on its
+own model instead, by `run_tool_model_async`, and charged to the node whose run called it: a tool on
+Griptape Cloud gets the permission check only, and a tool on a direct provider is budget-checked
+and reported under its own provider and model.
 
 Not vendored: the price table and provider names are this library's business. The vendorable
 contract lives in `utils/model_invocation.py`.
@@ -17,10 +18,13 @@ contract lives in `utils/model_invocation.py`.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextvars import ContextVar
 from decimal import ROUND_HALF_UP, Decimal
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
+
+from pydantic_ai.usage import RunUsage
 
 from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, ImageProvider
 from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
@@ -31,14 +35,11 @@ from griptape_nodes_library.utils.model_invocation import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
     from griptape_nodes.exe_types.node_types import BaseNode
-    from pydantic_ai.usage import RunUsage
 
 logger = logging.getLogger("griptape_nodes")
-
-T = TypeVar("T")
 
 # Griptape Cloud is budgeted server-side; local servers cost nothing.
 _NOT_DIRECT = {
@@ -115,16 +116,36 @@ def record_run_usage(usage: RunUsage) -> None:
         meter.add(usage)
 
 
+async def run_tool_model_async[T](config: ModelConfig, run: Callable[[RunUsage], Awaitable[T]]) -> T:
+    """Gate and meter a model an agent tool runs, charged to the node whose run called the tool.
+
+    `run` receives the usage counter to pass to `run_agent_async`, so the tool's spend is counted
+    even when its run raises. Outside a node's metered run (no meter active), `run` runs ungated.
+    """
+    parent = _active_meter.get()
+    if parent is None:
+        return await run(RunUsage())
+    # The gate makes a blocking engine round trip; keep it off the loop.
+    meter = await asyncio.to_thread(require_model_access, parent.node, config)
+    usage = RunUsage()
+    try:
+        return await run(usage)
+    finally:
+        if meter.direct:
+            meter.add(usage)
+            await asyncio.to_thread(meter.report)
+
+
 class ModelCallMeter:
     """Counts the tokens a direct call spends and reports their cost. A no-op for non-direct calls."""
 
     def __init__(
         self, node: BaseNode, config: ModelConfig | ImageGenerationConfig, correlation_id: str | None, *, direct: bool
     ) -> None:
-        self._node = node
+        self.node = node
         self._config = config
         self._correlation_id = correlation_id
-        self._direct = direct
+        self.direct = direct
         self._input_tokens = 0
         self._output_tokens = 0
         self._runs = 0
@@ -134,19 +155,18 @@ class ModelCallMeter:
         self._input_tokens += usage.input_tokens
         self._output_tokens += usage.output_tokens
 
-    def run(self, fn: Callable[[], T]) -> T:
+    def run[T](self, fn: Callable[[], T]) -> T:
         """Run the model call, then report its cost."""
-        if not self._direct:
-            return fn()
         token = _active_meter.set(self)
         try:
             return fn()
         finally:
             _active_meter.reset(token)
-            self._report()
+            if self.direct:
+                self.report()
 
-    def _report(self) -> None:
-        node_type = type(self._node).__name__
+    def report(self) -> None:
+        node_type = type(self.node).__name__
         model = self._config.model
         if not self._runs:
             # Image generation carries no token usage.
@@ -158,7 +178,7 @@ class ModelCallMeter:
             logger.warning("%s: no price for '%s' (%s); usage not reported.", node_type, model, provider)
             return
         report_model_usage_sync(
-            self._node,
+            self.node,
             declared_cost_micro_usd=cost,
             provider=provider,
             model=model,

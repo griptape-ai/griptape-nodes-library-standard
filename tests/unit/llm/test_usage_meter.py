@@ -19,14 +19,20 @@ from pydantic_ai.usage import RunUsage, UsageLimits
 
 import griptape_nodes_library.llm.usage_meter as meter_module
 from griptape_nodes_library.config.prompt import amazon_bedrock_prompt, anthropic_prompt, openai_prompt
+from griptape_nodes_library.llm import models
+from griptape_nodes_library.llm.agent_state import AgentState
 from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, ImageProvider
 from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
+from griptape_nodes_library.llm.models import override_model
 from griptape_nodes_library.llm.runner import run_agent, run_agent_async
+from griptape_nodes_library.llm.testing import text_model
+from griptape_nodes_library.llm.tools import ToolType, build_toolset
 from griptape_nodes_library.llm.usage_meter import (
     DIRECT_PROVIDER_PRICES,
     cost_micro_usd,
     is_direct_provider,
     require_model_access,
+    run_tool_model_async,
 )
 
 OPENAI_GPT_4O = ModelConfig(provider=ModelProvider.OPENAI, model="gpt-4o")
@@ -228,3 +234,89 @@ _KNOWN_UNPRICED = {"amazon.titan-text-premier-v1:0", "amazon.titan-text-express-
 def test_every_direct_dropdown_model_is_priced(choices: list[str], provider: ModelProvider) -> None:
     """A model added to a config dropdown without a price would be checked but silently never reported."""
     assert set(choices) - set(DIRECT_PROVIDER_PRICES[provider]) - _KNOWN_UNPRICED == set()
+
+
+def _agent_calling_tool(tool_config: ModelConfig, sub_runs: list[RunUsage]) -> Agent[None, str]:
+    """An agent whose one tool runs a sub-agent on `tool_config`, gated and metered like an agent tool."""
+
+    async def ask_sub_agent() -> str:
+        async def run(usage: RunUsage) -> Any:
+            sub_result = await run_agent_async(_agent(), "sub", usage=usage)
+            sub_runs.append(usage)
+            return sub_result
+
+        return (await run_tool_model_async(tool_config, run)).output
+
+    async def call_tool_then_answer(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[Any]:  # noqa: ARG001
+        if len(messages) == 1:
+            yield {0: DeltaToolCall(name="ask_sub_agent", json_args="{}")}
+        else:
+            yield "done"
+
+    return Agent(FunctionModel(stream_function=call_tool_then_answer), tools=[ask_sub_agent])
+
+
+def test_a_direct_tool_under_a_cloud_agent_is_checked_and_reported(
+    node: _StubNode, calls: list[tuple[str, dict[str, Any]]]
+) -> None:
+    """The tool's own direct model is gated and reported under its own provider, charged to the calling node."""
+    tool_config = ModelConfig(provider=ModelProvider.ANTHROPIC, model="claude-sonnet-4-6")
+    sub_runs: list[RunUsage] = []
+    meter = require_model_access(node, ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model="gpt-4o"))
+
+    meter.run(lambda: run_agent(_agent_calling_tool(tool_config, sub_runs), "hi"))
+
+    (sub_usage,) = sub_runs
+    assert [name for name, _ in calls] == ["permission", "access", "report"]
+    assert calls[1][1]["model"] == "claude-sonnet-4-6"
+    report = calls[2][1]
+    assert (report["provider"], report["model"]) == ("anthropic", "claude-sonnet-4-6")
+    assert report["declared_cost_micro_usd"] == cost_micro_usd(
+        "anthropic", "claude-sonnet-4-6", sub_usage.input_tokens, sub_usage.output_tokens
+    )
+
+
+def test_a_cloud_tool_under_a_direct_agent_is_not_billed_again(
+    node: _StubNode, calls: list[tuple[str, dict[str, Any]]]
+) -> None:
+    """A tool on Griptape Cloud gets the permission check only; the agent reports just its own run."""
+    tool_config = ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model="gpt-4o")
+    sub_runs: list[RunUsage] = []
+    meter = require_model_access(node, OPENAI_GPT_4O)
+
+    result = meter.run(lambda: run_agent(_agent_calling_tool(tool_config, sub_runs), "hi"))
+
+    assert [name for name, _ in calls] == ["access", "permission", "report"]
+    assert calls[-1][1]["declared_cost_micro_usd"] == _cost(result.usage)
+
+
+def test_a_tool_outside_a_metered_run_is_not_gated(calls: list[tuple[str, dict[str, Any]]]) -> None:
+    tool_config = ModelConfig(provider=ModelProvider.ANTHROPIC, model="claude-sonnet-4-6")
+
+    run_agent(_agent_calling_tool(tool_config, []), "hi")
+
+    assert calls == []
+
+
+def test_an_agent_tool_gates_its_own_model(
+    node: _StubNode, calls: list[tuple[str, dict[str, Any]]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The real agent tool, not a stand-in: its model is checked and reported, charged to the calling node."""
+    monkeypatch.setattr(models, "_require_key", lambda config: "key")
+    tool_state = AgentState(model=ModelConfig(provider=ModelProvider.ANTHROPIC, model="claude-sonnet-4-6"))
+    toolset = build_toolset({"tool_type": ToolType.AGENT_TOOL, "name": "helper", "agent_dict": tool_state.to_wire()})
+
+    async def call_tool_then_answer(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[Any]:  # noqa: ARG001
+        if len(messages) == 1:
+            yield {0: DeltaToolCall(name="Helper", json_args='{"input": "hi"}')}
+        else:
+            yield "done"
+
+    agent = Agent(FunctionModel(stream_function=call_tool_then_answer), toolsets=[toolset])
+    meter = require_model_access(node, ModelConfig(provider=ModelProvider.GRIPTAPE_CLOUD, model="gpt-4o"))
+
+    with override_model(text_model("from the tool")):
+        meter.run(lambda: run_agent(agent, "hi"))
+
+    assert [name for name, _ in calls] == ["permission", "access", "report"]
+    assert (calls[2][1]["provider"], calls[2][1]["model"]) == ("anthropic", "claude-sonnet-4-6")

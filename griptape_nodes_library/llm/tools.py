@@ -13,7 +13,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import dateparser
 from asteval import Interpreter
@@ -25,12 +25,15 @@ from pydantic_ai import FunctionToolset, Tool, ToolOutput
 
 from griptape_nodes_library.llm.agent_state import AgentState
 from griptape_nodes_library.llm.runner import build_agent, output_to_text, run_agent_async
+from griptape_nodes_library.llm.usage_meter import run_tool_model_async
 from griptape_nodes_library.llm.web import format_search_results, scrape_url, search_web
 from griptape_nodes_library.utils.utilities import to_pascal_case
 
 if TYPE_CHECKING:
     from pydantic_ai import Agent
     from pydantic_ai.toolsets import AbstractToolset
+
+    from griptape_nodes_library.llm.model_config import ModelConfig
 
 
 class ToolType(StrEnum):
@@ -272,7 +275,12 @@ def _agent_tool(config: dict) -> FunctionToolset:
         # Building resolves credentials and attribution synchronously; keep it off the loop.
         try:
             agent = await asyncio.to_thread(build_agent_from_state, state)
-            result = await run_agent_async(agent, input, message_history=state.messages)
+            # The build above guarantees a model. Gate and meter the tool's own model, charged to
+            # the node whose run called it.
+            result = await run_tool_model_async(
+                cast("ModelConfig", state.model),
+                lambda usage: run_agent_async(agent, input, message_history=state.messages, usage=usage),
+            )
         except BudgetExceededError:
             # A refused sub-agent stops the whole run rather than being answered around.
             raise
