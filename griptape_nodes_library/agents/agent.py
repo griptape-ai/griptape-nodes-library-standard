@@ -45,12 +45,12 @@ from griptape_nodes_library.llm.runner import (
     run_agent,
 )
 from griptape_nodes_library.llm.tools import build_agent_from_state, tool_configs_from_inputs, tool_display_name
+from griptape_nodes_library.llm.usage_meter import require_model_access
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
-from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
 # --- Constants ---
@@ -537,13 +537,14 @@ class Agent(ControlNode):
             if state.model is None:
                 msg = "Agent has no model configured."
                 raise RuntimeError(msg)
-            # Declare the model that will actually run, before any network call, so a denied
+            # Gate the model that will actually run, before any network call, so a denied
             # invocation fails closed. A connected Agent supplies the real model; the node's own
-            # `model` parameter keeps its last dropdown value while hidden.
-            require_model_invocation_sync(self, state.model.model)
+            # `model` parameter keeps its last dropdown value while hidden. A direct provider
+            # call is also budget-checked here and metered by `run`.
+            meter = require_model_access(self, state.model)
 
             self.append_value_to_parameter("logs", "[Started processing agent..]\n")
-            result = yield lambda: self._process(state, prompt, output_type)
+            result = yield lambda: meter.run(lambda: self._process(state, prompt, output_type))
             self.append_value_to_parameter("logs", "\n[Finished processing agent.]\n")
             if result is not None:
                 self.set_parameter_value("output", output_to_text(result.output))

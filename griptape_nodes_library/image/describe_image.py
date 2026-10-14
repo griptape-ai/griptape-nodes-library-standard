@@ -28,12 +28,12 @@ from griptape_nodes_library.llm.model_config import (
 )
 from griptape_nodes_library.llm.runner import output_to_text, output_type_from_schema, run_agent
 from griptape_nodes_library.llm.tools import build_agent_from_state
+from griptape_nodes_library.llm.usage_meter import require_model_access
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_legacy_models import cloud_legacy_values_for
-from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
 SERVICE = "Griptape"
@@ -423,15 +423,18 @@ class DescribeImage(ControlNode):
         # Declare the model that will actually run, read from the resolved config rather than
         # the node's `model` parameter, which keeps its last dropdown value (hidden, not cleared)
         # while a connected Agent supplies the real model. The util resolves the provider model
-        # id to its stable catalog key before declaring. Declare before the network call below
-        # so a denied invocation fails closed rather than reaching the provider.
-        require_model_invocation_sync(self, model_config.model)
+        # id to its stable catalog key before declaring. Gate before the network call below
+        # so a denied invocation fails closed rather than reaching the provider; a direct
+        # provider call is also budget-checked here and metered by `run`.
+        meter = require_model_access(self, model_config)
 
         # Build in the worker thread: building a Cloud model makes a blocking engine round trip.
-        result = yield lambda: run_agent(
-            build_agent_from_state(agent_state, output_type=output_type),
-            [prompt, *image_contents],
-            message_history=agent_state.messages,
+        result = yield lambda: meter.run(
+            lambda: run_agent(
+                build_agent_from_state(agent_state, output_type=output_type),
+                [prompt, *image_contents],
+                message_history=agent_state.messages,
+            )
         )
         output = result.output
         output_text = output_to_text(output)

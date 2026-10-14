@@ -15,11 +15,11 @@ from griptape_nodes_library.llm.agent_state import AgentState, connected_agent_s
 from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, ImageProvider, generate_image
 from griptape_nodes_library.llm.model_config import cloud_model_config
 from griptape_nodes_library.llm.runner import prompt_model
+from griptape_nodes_library.llm.usage_meter import require_model_access
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
-from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
 SERVICE = "Griptape"
@@ -217,11 +217,11 @@ class GenerateImage(ControlNode):
             # model invocation distinct from the image-generation model below, and one no
             # dropdown selects. Declare it so a denied invocation fails closed before the call.
             enhance_model = state.model
-            require_model_invocation_sync(self, enhance_model.model, purpose="prompt enhancement")
+            enhance_meter = require_model_access(self, enhance_model, purpose="prompt enhancement")
             # The model call blocks, so hand it to the engine to run in the background
             # via `yield lambda` and resume when it's done.
-            prompt = yield lambda: prompt_model(
-                enhance_model, [ENHANCEMENT_INSTRUCTIONS, prompt], rulesets=state.rulesets
+            prompt = yield lambda: enhance_meter.run(
+                lambda: prompt_model(enhance_model, [ENHANCEMENT_INSTRUCTIONS, prompt], rulesets=state.rulesets)
             )
             self.append_value_to_parameter("logs", "Finished enhancing prompt...\n")
         else:
@@ -243,11 +243,12 @@ class GenerateImage(ControlNode):
 
         # The image model is settled above. The util resolves its provider model id to the
         # stable catalog key (via the node's model_usage) before declaring. Declare before the
-        # network call below so a denied invocation fails closed here.
-        require_model_invocation_sync(self, image_config.model)
+        # network call below so a denied invocation fails closed here. A direct image call is
+        # also budget-checked here; it carries no token usage, so it is not reported.
+        image_meter = require_model_access(self, image_config)
 
         self.append_value_to_parameter("logs", "Starting processing image..\n")
-        yield lambda: self._create_image(image_config, prompt)
+        yield lambda: image_meter.run(lambda: self._create_image(image_config, prompt))
         self.append_value_to_parameter("logs", "Finished processing image.\n")
 
         # Record the exchange as a short text memory: the image itself is huge, so the agent

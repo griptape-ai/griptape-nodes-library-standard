@@ -536,7 +536,7 @@ LOOP_ENTRY_POINTS = frozenset(
 # names it. Asserted whole so an eighth arrives as a failing test.
 SYNC_ENTRY_POINTS_THAT_BLOCK = {
     "agents/agent.py:512 (process)": "build_agent_from_state -> build_model",
-    "agents/memory/summarize_agent_memory.py:46 (process)": "prompt_model -> build_model",
+    "agents/memory/summarize_agent_memory.py:47 (process)": "prompt_model -> build_model",
     "image/create_image.py:191 (process)": "prompt_model -> build_model; generate_image -> _generate_griptape_cloud",
     "image/describe_image.py:387 (process)": "build_agent_from_state -> build_model",
     "tasks/mcp_task.py:297 (process)": "build_agent -> build_model",
