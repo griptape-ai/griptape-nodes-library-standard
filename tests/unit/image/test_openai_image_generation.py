@@ -110,16 +110,11 @@ def test_validate_rejects_transparent_jpeg(node: OpenAiImageGeneration) -> None:
 
 
 @pytest.mark.parametrize("model_name", ["GPT Image 1", "GPT Image 1.5", *GPT_IMAGE_2_FAMILY_MODELS])
-def test_validate_rejects_too_many_reference_images(node: OpenAiImageGeneration, model_name: str) -> None:
+def test_set_rejects_too_many_reference_images(node: OpenAiImageGeneration, model_name: str) -> None:
     node.set_parameter_value("model", model_name)
-    node.set_parameter_value("prompt", "Use the reference images")
-    node.set_parameter_value("size", "1024x1024")
-    node.set_parameter_value("input_images", [f"image_{index}.png" for index in range(17)])
 
-    exceptions = node.validate_before_node_run()
-
-    assert exceptions is not None
-    assert any("supports up to 16 reference images" in str(exception) for exception in exceptions)
+    with pytest.raises(ValueError, match="at most 16 items"):
+        node.set_parameter_value("input_images", [f"image_{index}.png" for index in range(17)])
 
 
 @pytest.mark.parametrize("model_name", GPT_IMAGE_2_FAMILY_MODELS)
