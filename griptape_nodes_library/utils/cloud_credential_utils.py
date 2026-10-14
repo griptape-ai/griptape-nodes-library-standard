@@ -8,9 +8,8 @@ Griptape Cloud accepts two kinds of credential: a Griptape Cloud API key
 "GT_CLOUD_API_KEY is not defined" and points them at a knob they are not meant to set.
 
 The endpoints these nodes call all authenticate a License via the control plane's
-``LicenseAuthMixin``: ``api/chat/messages`` and ``api/chat/messages/stream`` (prompt
-drivers), ``api/images/generations`` and ``api/images/variations`` (image drivers), and
-``api/buckets`` (the FileManager tool).
+``LicenseAuthMixin``: ``api/v1/chat/completions`` (chat models), ``api/images/generations``
+and ``api/images/variations`` (image drivers), and ``api/buckets`` (the FileManager tool).
 
 This wraps the engine's ``resolve_cloud_credential`` rather than reimplementing the
 precedence, and adds the ``""`` coercion the driver call sites need. Two things it is

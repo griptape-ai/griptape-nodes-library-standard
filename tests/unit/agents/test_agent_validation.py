@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from griptape.drivers.prompt.base_prompt_driver import BasePromptDriver
 
 from griptape_nodes_library.agents.agent import Agent
+from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
 
 _LICENSE = "header.payload.signature"
 """A Griptape Nodes License is a JWT: three dot-separated segments."""
@@ -39,20 +39,12 @@ def _stub_params(agent_node: Agent, monkeypatch: pytest.MonkeyPatch, *, model: o
     monkeypatch.setattr(agent_node, "get_parameter_value", _get)
 
 
-def _fake_prompt_driver() -> BasePromptDriver:
-    """A BasePromptDriver instance standing in for a connected Prompt Model Config."""
-
-    class _FakeDriver(BasePromptDriver):
-        def try_run(self, *_args: object, **_kwargs: object) -> object:  # pragma: no cover - never invoked
-            raise NotImplementedError
-
-        def try_stream(self, *_args: object, **_kwargs: object) -> object:  # pragma: no cover - never invoked
-            raise NotImplementedError
-
-    return _FakeDriver(model="fake-model", tokenizer=None)  # type: ignore[arg-type]
+def _connected_model_config() -> ModelConfig:
+    """A ModelConfig standing in for a connected Prompt Model Config node."""
+    return ModelConfig(provider=ModelProvider.ANTHROPIC, model="claude-fake")
 
 
-def test_validation_fails_when_no_credential_and_default_driver_used(
+def test_validation_fails_when_no_credential_and_default_model_used(
     agent_node: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _stub_secrets(monkeypatch, {})
@@ -68,7 +60,7 @@ def test_validation_fails_when_no_credential_and_default_driver_used(
     assert "GT_CLOUD_API_KEY" in message
 
 
-def test_validation_passes_when_cloud_key_present_and_default_driver_used(
+def test_validation_passes_when_cloud_key_present_and_default_model_used(
     agent_node: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _stub_secrets(monkeypatch, {"GT_CLOUD_API_KEY": "gt-cloud-key"})
@@ -87,19 +79,19 @@ def test_validation_passes_with_license_and_no_api_key(agent_node: Agent, monkey
     assert agent_node.validate_before_workflow_run() is None
 
 
-def test_validation_skips_cloud_key_when_prompt_driver_connected(
+def test_validation_skips_cloud_key_when_model_config_connected(
     agent_node: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # A connected Prompt Model Config (e.g. Anthropic) carries its own credentials,
     # so the Griptape Cloud key must not be required. Regression test for issue #71.
     _stub_secrets(monkeypatch, {})
-    _stub_params(agent_node, monkeypatch, model=_fake_prompt_driver(), agent=None)
+    _stub_params(agent_node, monkeypatch, model=_connected_model_config(), agent=None)
 
     assert agent_node.validate_before_workflow_run() is None
 
 
 def test_validation_skips_cloud_key_when_agent_connected(agent_node: Agent, monkeypatch: pytest.MonkeyPatch) -> None:
-    # A connected agent carries its own driver, so the cloud key is not required.
+    # A connected agent carries its own model, so the cloud key is not required.
     _stub_secrets(monkeypatch, {})
     _stub_params(agent_node, monkeypatch, model="claude-sonnet-4-6", agent={"type": "Agent"})
 

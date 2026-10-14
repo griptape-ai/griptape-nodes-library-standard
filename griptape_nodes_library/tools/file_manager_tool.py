@@ -5,6 +5,7 @@ from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.llm.tools import ToolType
 from griptape_nodes_library.tools.base_tool import BaseTool
 from griptape_nodes_library.utils.cloud_credential_utils import (
     resolve_cloud_api_key,
@@ -98,7 +99,11 @@ class FileManager(BaseTool):
         off_prompt = self.parameter_values.get("off_prompt", True)
         file_location = cast("str", self.parameter_values.get("file_location"))
 
-        config: dict = {"tool_type": "FileManager", "off_prompt": off_prompt, "file_location": file_location}
+        config: dict = {
+            "tool_type": ToolType.FILE_MANAGER.value,
+            "off_prompt": off_prompt,
+            "file_location": file_location,
+        }
         if file_location == LOCATIONS[1]:
             bucket_name = cast("str", self.parameter_values.get("bucket_id"))
             bucket_id = self.bucket_map.get(bucket_name)

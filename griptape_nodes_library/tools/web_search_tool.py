@@ -4,6 +4,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.llm.tools import ToolType
 from griptape_nodes_library.tools.base_tool import BaseTool
 
 SEARCH_ENGINE_MAP = {
@@ -75,7 +76,7 @@ class WebSearch(BaseTool):
         search_engine = self.get_parameter_value("search_engine")
 
         self.parameter_output_values["tool"] = {
-            "tool_type": "WebSearch",
+            "tool_type": ToolType.WEB_SEARCH.value,
             "engine": search_engine,
             "off_prompt": off_prompt,
         }

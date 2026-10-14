@@ -1,11 +1,12 @@
 from typing import Any
 
-from griptape.engines import EvalEngine
-from griptape.structures import Agent, Structure
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.traits.options import Options
+from pydantic import BaseModel
 
+from griptape_nodes_library.llm.model_config import cloud_model_config
+from griptape_nodes_library.llm.runner import prompt_model
 from griptape_nodes_library.tasks.base_task import BaseTask
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
@@ -38,6 +39,31 @@ EXAMPLES = [
 
 EXAMPLE_OPTIONS = [example["label"] for example in EXAMPLES]
 DEFAULT_MODEL = "gpt-4.1"
+
+# The prompts griptape's EvalEngine used: criteria -> evaluation steps -> score and reason.
+STEPS_INSTRUCTIONS = """Given an evaluation criteria which outlines how you should judge the {evaluation_params}, generate 3-4 concise evaluation steps based on the criteria below.
+You MUST make it clear how to evaluate {evaluation_params} in relation to one another.
+
+Evaluation Criteria:
+{criteria}"""
+RESULTS_INSTRUCTIONS = """Given the evaluation steps, return a JSON with two keys:
+1) a `score` key ranging from 0 - 10, with 10 being that it follows the criteria outlined in the steps and 0 being that it does not.
+2) a `reason` key, a reason for the given score. Please mention specific information from {evaluation_params} in your reason, but be very concise with it!
+
+Evaluation Steps:
+{evaluation_steps}
+
+{evaluation_text}"""
+JSON_PROMPT = "JSON:"
+
+
+class EvaluationSteps(BaseModel):
+    steps: list[str]
+
+
+class EvaluationResults(BaseModel):
+    score: float
+    reason: str
 
 
 class EvaluateTextResult(BaseTask):
@@ -160,29 +186,49 @@ class EvaluateTextResult(BaseTask):
 
         return super().after_value_set(parameter, value)
 
-    def process(self) -> AsyncResult[Structure]:
+    def _evaluate(self, model: str, criteria: str, evaluation_params: dict[str, str]) -> tuple[float, str]:
+        """Generate evaluation steps from `criteria`, then score `evaluation_params` against them."""
+        # License-policy gate immediately before the model call. The evaluation prompts the
+        # model directly rather than through BaseTask._process, so it declares here.
+        require_model_invocation_sync(self, model)
+
+        config = cloud_model_config(model)
+        param_names = ", ".join(evaluation_params)
+        steps = prompt_model(
+            config,
+            JSON_PROMPT,
+            instructions=STEPS_INSTRUCTIONS.format(evaluation_params=param_names, criteria=criteria),
+            output_type=EvaluationSteps,
+        ).steps
+        results = prompt_model(
+            config,
+            JSON_PROMPT,
+            instructions=RESULTS_INSTRUCTIONS.format(
+                evaluation_params=param_names,
+                evaluation_steps=steps,
+                evaluation_text="\n\n".join(f"{key}: {value}" for key, value in evaluation_params.items()),
+            ),
+            output_type=EvaluationResults,
+        )
+        # The model scores 0-10 to avoid floating point ambiguity; the node reports 0-1.
+        return results.score / 10, results.reason
+
+    def process(self) -> AsyncResult[None]:
         criteria = self.get_parameter_value("criteria")
         model = self._require_permitted_model()
+        if not criteria:
+            msg = "criteria must not be empty"
+            raise ValueError(msg)
 
-        engine = EvalEngine(criteria=criteria, prompt_driver=self.create_driver(model=model))
+        evaluation_params = {
+            "Input": self.get_parameter_value("input"),
+            "Actual Output": self.get_parameter_value("actual_output"),
+            "Expected Output": self.get_parameter_value("expected_output"),
+        }
 
-        user_input = self.get_parameter_value("input")
-        expected_output = self.get_parameter_value("expected_output")
-        actual_output = self.get_parameter_value("actual_output")
-
-        def _process() -> Structure:
-            # License-policy gate immediately before the framework driver call. EvalEngine.evaluate
-            # invokes the prompt driver directly rather than through BaseTask._process, so it
-            # declares here rather than relying on the base implementation's declaration.
-            require_model_invocation_sync(self, model)
-
-            score, reason = engine.evaluate(
-                input=user_input,
-                expected_output=expected_output,
-                actual_output=actual_output,
-            )
+        def _process() -> None:
+            score, reason = self._evaluate(model, criteria, evaluation_params)
             self.parameter_output_values["score"] = score
             self.parameter_output_values["reason"] = reason
-            return Agent()
 
         yield _process

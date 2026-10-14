@@ -10,13 +10,8 @@ that is louder than under-reporting the spend.
 Callers resolve the credential and this builds: folding resolution in would make
 ``utils`` import ``proxy``, which already imports ``utils``.
 
-Nodes that hand an ``api_key`` to a framework driver (``GriptapeCloudPromptDriver``,
-``GriptapeCloudImageGenerationDriver``, ``GriptapeCloudFileManagerDriver``) get their
-``Authorization`` built inside ``griptape``. :mod:`griptape_nodes_library.utils.cloud_driver_auth`
-is the bridge: it passes this dict in as the driver's ``headers``, replacing the framework's own.
-``Agent.from_dict`` would rebuild a driver from ``os.environ`` with no headers at all;
-:func:`~griptape_nodes_library.utils.agent_utils._restored_cloud_credentials` injects both
-into the serialized dict before ``from_dict`` reads it.
+Griptape Cloud chat models get this dict as the OpenAI client's ``default_headers`` in
+:func:`griptape_nodes_library.llm.models.build_model`.
 
 Two spellings of the same factory, one sync and one async, because the attribution
 lookup is a round trip to the engine and five call sites make it from a coroutine.

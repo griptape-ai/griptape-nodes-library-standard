@@ -3,8 +3,7 @@ from typing import Any
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
 
-from griptape_nodes_library.agents.griptape_nodes_agent import GriptapeNodesAgent as GtAgent
-from griptape_nodes_library.utils.agent_utils import unwrap_agent, wrap_agent
+from griptape_nodes_library.llm.agent_state import AgentState
 
 
 class ClearAgentMemory(ControlNode):
@@ -27,20 +26,9 @@ class ClearAgentMemory(ControlNode):
         if agent_value is None:
             return
 
-        # Rewrites memory on the wire dict without running the agent, so a missing
-        # Cloud credential must not stop the clear.
-        agent_core_dict, tool_configs, ruleset_configs = unwrap_agent(agent_value, require_credential=False)
-        agent = GtAgent().from_dict(agent_core_dict)
-        if agent is None or agent.conversation_memory is None:
-            return
+        state = AgentState.from_wire(agent_value)
+        state.messages = []
 
-        agent.conversation_memory.runs = []
-
-        updated = wrap_agent(
-            agent.to_dict(),
-            tool_configs,
-            ruleset_configs,
-            provider=agent_value.get("provider") if isinstance(agent_value, dict) else None,
-        )
+        updated = state.to_wire()
         self.parameter_output_values["agent"] = updated
         self.publish_update_to_parameter("agent", updated)
