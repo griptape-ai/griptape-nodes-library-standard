@@ -4,6 +4,7 @@ import json
 import logging
 from contextlib import suppress
 from copy import deepcopy
+from functools import partial
 from http import HTTPStatus
 from typing import Any
 
@@ -17,7 +18,7 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
+from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
@@ -132,6 +133,9 @@ class QwenImageEdit(GriptapeProxyNode):
         self.add_parameter(
             ParameterList(
                 name="images",
+                item_converters=[
+                    partial(normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                ],
                 input_types=["ImageArtifact", "ImageUrlArtifact", "str"],
                 default_value=[],
                 tooltip="List of 1-6 images to edit (JPG, PNG, BMP, TIFF, WEBP; 384-3072px; max 10MB each)",
@@ -207,12 +211,6 @@ class QwenImageEdit(GriptapeProxyNode):
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
         self._seed_parameter.after_value_set(parameter, value)
-
-        # Convert string paths to ImageUrlArtifact by uploading to static storage
-        if parameter.name == "images" and isinstance(value, list):
-            updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
-            if updated_list != value:
-                self.set_parameter_value("images", updated_list)
 
     async def _process_generation(self) -> None:
         self._seed_parameter.preprocess()

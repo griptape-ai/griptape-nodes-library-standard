@@ -2,17 +2,18 @@ import json
 import subprocess
 import tempfile
 import uuid
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
-from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
+from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
 from griptape_nodes_library.utils.video_utils import to_video_artifact
 from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
@@ -29,6 +30,7 @@ class ConcatenateVideos(BaseVideoProcessor):
         self.add_parameter(
             ParameterList(
                 name="video_inputs",
+                item_converters=[partial(normalize_artifact_input, artifact_type=VideoUrlArtifact)],
                 input_types=[
                     "VideoArtifact",
                     "VideoUrlArtifact",
@@ -218,16 +220,6 @@ class ConcatenateVideos(BaseVideoProcessor):
             exceptions.append(ValueError(msg))
 
         return exceptions if exceptions else None
-
-    def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        """Handle parameter value changes to normalize video inputs."""
-        super().after_value_set(parameter, value)
-
-        # Convert string paths to VideoUrlArtifact by uploading to static storage
-        if parameter.name == "video_inputs" and isinstance(value, list):
-            updated_list = normalize_artifact_list(value, VideoUrlArtifact)
-            if updated_list != value:
-                self.set_parameter_value("video_inputs", updated_list)
 
     def _get_custom_parameters(self) -> dict[str, Any]:
         """Get custom parameters for processing."""

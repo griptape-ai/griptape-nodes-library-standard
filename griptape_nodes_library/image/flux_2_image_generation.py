@@ -4,6 +4,7 @@ import json as _json
 import logging
 from contextlib import suppress
 from copy import deepcopy
+from functools import partial
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
@@ -19,7 +20,7 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
-from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
+from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
@@ -144,6 +145,9 @@ class Flux2ImageGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterList(
                 name="input_images",
+                item_converters=[
+                    partial(normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                ],
                 input_types=[
                     "ImageArtifact",
                     "ImageUrlArtifact",
@@ -280,12 +284,6 @@ class Flux2ImageGeneration(GriptapeProxyNode):
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
         self._seed_parameter.after_value_set(parameter, value)
-
-        # Convert string paths to ImageUrlArtifact by uploading to static storage
-        if parameter.name == "input_images" and isinstance(value, list):
-            updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
-            if updated_list != value:
-                self.set_parameter_value("input_images", updated_list)
 
         if parameter.name == "model":
             # The provider's own model id decides whether flex-only fields (steps,

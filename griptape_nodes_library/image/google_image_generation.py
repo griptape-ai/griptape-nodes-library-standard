@@ -5,6 +5,7 @@ import base64
 import json
 import logging
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact
@@ -19,7 +20,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
-from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
+from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.image_utils import shrink_image_to_size
@@ -132,6 +133,9 @@ class GoogleImageGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterList(
                 name="input_images",
+                item_converters=[
+                    partial(normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                ],
                 input_types=[
                     "ImageUrlArtifact",
                     "ImageArtifact",
@@ -324,12 +328,6 @@ class GoogleImageGeneration(GriptapeProxyNode):
                 self.show_parameter_by_name("use_google_image_search")
             else:
                 self.hide_parameter_by_name("use_google_image_search")
-
-        # Convert string paths to ImageUrlArtifact by uploading to static storage
-        if parameter.name == "input_images" and isinstance(value, list):
-            updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
-            if updated_list != value:
-                self.set_parameter_value("input_images", updated_list)
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []

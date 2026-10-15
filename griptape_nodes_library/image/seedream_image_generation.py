@@ -5,6 +5,7 @@ import json as _json
 import logging
 from contextlib import suppress
 from copy import deepcopy
+from functools import partial
 from io import BytesIO
 from typing import Any
 
@@ -23,7 +24,7 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
-from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
+from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 from PIL import Image
 
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode, HostedArtifact
@@ -262,6 +263,9 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterList(
                 name="images",
+                item_converters=[
+                    partial(normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                ],
                 input_types=[
                     "ImageArtifact",
                     "ImageUrlArtifact",
@@ -416,12 +420,6 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         """Update size options and parameter visibility based on parameter changes."""
         if parameter.name == "model" and value in SIZE_OPTIONS:
             self._update_model_parameters(value)
-
-        # Convert string paths to ImageUrlArtifact by uploading to static storage
-        if parameter.name == "images" and isinstance(value, list):
-            updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
-            if updated_list != value:
-                self.set_parameter_value("images", updated_list)
 
         return super().after_value_set(parameter, value)
 
