@@ -2047,6 +2047,22 @@
       }
     },
     {
+      "class_name": "JoinList",
+      "file_path": "griptape_nodes_library/lists/join_list.py",
+      "metadata": {
+        "category": "lists",
+        "description": "Joins the items of a list into one text, with a separator between items and an optional prefix and suffix on each.",
+        "display_name": "Join List",
+        "icon": "merge",
+        "group": "merge",
+        "tags": [
+          "text",
+          "list",
+          "data"
+        ]
+      }
+    },
+    {
       "class_name": "SplitText",
       "file_path": "griptape_nodes_library/lists/split_text.py",
       "metadata": {
