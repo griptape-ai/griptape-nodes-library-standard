@@ -66,12 +66,14 @@ class RetryGroupNode(BaseWhileNodeGroup):
         self.add_parameter_to_group_settings(self.max_iterations)
         self.add_parameter_to_group_settings(self.raise_on_failure)
 
-    def _before_loop_iteration(self, iteration: int) -> None:
+    def _before_loop_iteration(self, iteration: int, flow_name: str) -> None:
         """Called before each retry attempt.
 
         Args:
             iteration: The upcoming attempt number (0-based, so 1 means first retry)
+            flow_name: Name of the flow holding the group's nodes for this run
         """
+        super()._before_loop_iteration(iteration, flow_name)
         logger.info(
             "Retry Group '%s': retrying (attempt %d of %d)",
             self.name,

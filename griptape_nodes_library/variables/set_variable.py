@@ -175,11 +175,18 @@ class SetVariable(BaseVariableNode):
         return value
 
     def _eager_create_variable(self, variable_name: str) -> None:
-        """Create the variable in the engine if it does not already exist in this flow."""
+        """Create the variable in the engine if it isn't already visible from this node's flow.
+
+        Checks at this node's own scope (hierarchical by default), not ``CURRENT_FLOW_ONLY``:
+        a loop body's packaged flow and a node group's structural subflow are both children
+        of the user's flow, so a variable the user already created there is visible
+        here too. Checking only the immediate flow would create a shadow copy that the real
+        variable's reads and writes could never reach.
+        """
         current_flow_name = _get_flow_for_node(self.name)
 
-        if has_variable(node_name=self.name, variable_name=variable_name, scope=VariableScope.CURRENT_FLOW_ONLY):
-            # Already exists in this flow; adopt it silently.
+        if has_variable(node_name=self.name, variable_name=variable_name, scope=self._get_scope()):
+            # Already visible from here (in this flow or an ancestor); adopt it silently.
             return
 
         initial_value = self.get_parameter_value(self.value_param.name)
