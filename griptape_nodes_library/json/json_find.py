@@ -1,3 +1,4 @@
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -15,6 +16,10 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.json.json_utils import parse_json_input
+
+logger = logging.getLogger("griptape_nodes")
+
+OUTPUT_PARAMETERS = ["found_item", "found_count", "found_index"]
 
 
 @dataclass
@@ -292,32 +297,38 @@ class JsonFind(DataNode):
         # Perform the search
         search_results = self._find_items(json_data, criteria)
 
-        # Trigger the SetParameterValueRequest for each parameter
-        GriptapeNodes.handle_request(
-            SetParameterValueRequest(
-                parameter_name="found_item", value=search_results["found_item"], node_name=self.name
+        self._update_output_parameters(search_results)
+
+    def _update_output_parameters(self, search_results: dict[str, Any]) -> None:
+        """Set and publish the found_item, found_count and found_index outputs."""
+        for parameter_name in OUTPUT_PARAMETERS:
+            GriptapeNodes.handle_request(
+                SetParameterValueRequest(
+                    parameter_name=parameter_name, value=search_results[parameter_name], node_name=self.name
+                )
             )
-        )
-        GriptapeNodes.handle_request(
-            SetParameterValueRequest(
-                parameter_name="found_count", value=search_results["found_count"], node_name=self.name
-            )
-        )
-        GriptapeNodes.handle_request(
-            SetParameterValueRequest(
-                parameter_name="found_index", value=search_results["found_index"], node_name=self.name
-            )
-        )
 
         # publish updates to make sure the ui_updates. Without this, the SetParameterValueRequest worked for
         # downstream nodes, but the ui_updates were not triggered.
-        self.publish_update_to_parameter("found_item", search_results["found_item"])
-        self.publish_update_to_parameter("found_count", search_results["found_count"])
-        self.publish_update_to_parameter("found_index", search_results["found_index"])
+        for parameter_name in OUTPUT_PARAMETERS:
+            self.publish_update_to_parameter(parameter_name, search_results[parameter_name])
+
+    def _preview_search(self) -> None:
+        """Update the outputs while the user edits. Input that cannot be parsed yet clears the outputs.
+
+        Raising here would leave the new input stored on a node that still looks resolved, so parse
+        errors are caught. process() raises the same error on a real run.
+        """
+        try:
+            self._perform_search()
+        except ValueError as e:
+            # Clear the outputs so they never show a result for input they no longer match.
+            self._update_output_parameters({"found_item": None, "found_count": 0, "found_index": -1})
+            logger.debug("%s: skipped preview: %s", self.name, e)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name in ["json", "search_field", "search_value", "search_mode", "return_mode", "case_sensitive"]:
-            self._perform_search()
+            self._preview_search()
 
         return super().after_value_set(parameter, value)
 
