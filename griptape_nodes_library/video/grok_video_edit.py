@@ -18,6 +18,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri, is_publicly_reachable_url
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.proxy.preflight import check_duration, check_mime_type, input_subject, local_video_duration
 
@@ -197,7 +198,7 @@ class GrokVideoEdit(GriptapeProxyNode):
             # Only once polling has finished: xAI fetches the video from this URL when the job
             # starts, so deleting it any earlier would pull the video out from under a queued job.
             if self._video_upload is not None:
-                await self._video_upload.adelete_uploaded_artifact()
+                await adelete_uploaded_artifacts([self._video_upload], node_name=self.name)
 
     async def _upload_video(self) -> str | None:
         """Return a public URL for the video input, or None to fall back to a data URI.
