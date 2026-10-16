@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import asyncio
+import base64
 import json
-from typing import TYPE_CHECKING
+import math
+from io import BytesIO
+from typing import TYPE_CHECKING, Any
 
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
+from griptape.artifacts import ImageArtifact
+from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.file import File, FileLoadError
+from PIL import Image, ImageOps
 
 if TYPE_CHECKING:
     from griptape_nodes.exe_types.node_types import BaseNode
@@ -16,7 +23,11 @@ __all__ = [
     "MODEL_CHOICES",
     "QUESTION_KEY",
     "add_context_parameter",
+    "add_images_parameter",
     "add_model_group",
+    "build_payload",
+    "build_state_and_assets",
+    "image_reference",
     "to_state",
 ]
 
@@ -24,6 +35,15 @@ MODEL_CHOICES = ["jev-latest", "jev-preview"]
 DEFAULT_MODEL = MODEL_CHOICES[0]
 QUESTION_KEY = "answer"
 CONTEXT_INPUT_TYPES = ["str", "json", "dict", "list", "TextArtifact", "JsonArtifact"]
+
+# JEV's image limits: each side 256-1568 px, at least 280x280 px in total, and a 32 MiB request body.
+IMAGE_MIN_SIDE = 256
+IMAGE_MAX_SIDE = 1568
+IMAGE_MIN_PIXELS = 280 * 280
+IMAGE_JPEG_QUALITY = 95
+IMAGE_BACKGROUND = (255, 255, 255)
+SIXTEEN_BIT_TO_EIGHT_BIT = 1 / 256
+MAX_IMAGE_PAYLOAD_BYTES = 30 * 1024 * 1024
 
 
 def to_state(text: str | None) -> str | dict | list | None:
@@ -43,18 +63,150 @@ def to_state(text: str | None) -> str | dict | list | None:
     return text
 
 
+def image_reference(index: int) -> str:
+    """The text that stands in for the image at `index` (0-based) in the context and question."""
+    return f"[image {index + 1}]"
+
+
+def _fit_to_image_limits(image: Image.Image, reference: str) -> Image.Image:
+    """Scale an image into JEV's size limits, keeping its aspect ratio."""
+    width, height = image.size
+    scale = min(1.0, IMAGE_MAX_SIDE / max(width, height))
+    scale = max(scale, IMAGE_MIN_SIDE / min(width, height), math.sqrt(IMAGE_MIN_PIXELS / (width * height)))
+    if scale == 1.0:
+        return image
+
+    rounding = math.ceil if scale > 1.0 else math.floor
+    size = (rounding(width * scale), rounding(height * scale))
+    if min(size) < IMAGE_MIN_SIDE or max(size) > IMAGE_MAX_SIDE:
+        raise ValueError(
+            f"{reference} is {width}x{height} px. JEV needs each side between {IMAGE_MIN_SIDE} and "
+            f"{IMAGE_MAX_SIDE} px, which this aspect ratio can't fit. Crop it closer to square."
+        )
+    return image.resize(size, Image.Resampling.LANCZOS)
+
+
+async def _read_image_bytes(image: Any, reference: str) -> bytes:
+    if isinstance(image, ImageArtifact):
+        return image.value
+    match image:
+        case str():
+            location = image
+        case dict():
+            location = image.get("value")
+        case _:
+            location = getattr(image, "value", None)
+    if not isinstance(location, str) or not location:
+        raise ValueError(f"{reference} isn't an image JEV can read. Connect an image.")
+    try:
+        return await File(location).aread_bytes()
+    except FileLoadError as e:
+        raise ValueError(f"{reference} couldn't be loaded: {e}") from e
+
+
+def _to_rgb(image: Image.Image) -> Image.Image:
+    """Convert an image to upright 8-bit RGB, flattening transparency onto white."""
+    image = ImageOps.exif_transpose(image)
+    if image.mode == "I" or image.mode.startswith("I;16"):
+        image = image.convert("I").point(lambda value: value * SIXTEEN_BIT_TO_EIGHT_BIT).convert("L")
+    elif image.mode == "F":
+        image = image.point(lambda value: value * 255).convert("L")
+    if image.mode in ("RGBA", "LA", "PA") or "transparency" in image.info:
+        rgba = image.convert("RGBA")
+        flattened = Image.new("RGB", rgba.size, IMAGE_BACKGROUND)
+        flattened.paste(rgba, mask=rgba.getchannel("A"))
+        return flattened
+    return image.convert("RGB")
+
+
+def _encode_image(data: bytes, reference: str) -> str:
+    """Decode image bytes, fit them to JEV's limits, and return base64 JPEG."""
+    try:
+        image = Image.open(BytesIO(data))
+        image.load()
+    except Exception as e:
+        raise ValueError(f"{reference} couldn't be read as an image: {e}") from e
+
+    image = _fit_to_image_limits(_to_rgb(image), reference)
+    buffer = BytesIO()
+    image.save(buffer, format="JPEG", quality=IMAGE_JPEG_QUALITY)
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+async def _to_image_asset(image: Any, reference: str) -> dict[str, str]:
+    """Load an image input and encode it as a JEV image asset."""
+    data = await _read_image_bytes(image, reference)
+    data_base64 = await asyncio.to_thread(_encode_image, data, reference)
+    return {"type": "image", "format": "jpg", "data_base64": data_base64}
+
+
+async def build_state_and_assets(node: BaseNode) -> tuple[str | dict | list, dict[str, dict[str, str]]]:
+    """Build JEV state and image assets from a node's Context and Images.
+
+    Each image is sent as an asset and listed in the state under "images" by its
+    reference, so the question can point at it the same way ("Is [image 1] darker
+    than [image 2]?").
+    """
+    state = to_state(node.get_parameter_value("context"))
+    images = [image for image in node.get_parameter_list_value("images") or [] if image]
+    if not images:
+        if state is None:
+            raise ValueError("'Context' is empty. Connect the text for JEV to read.")
+        return state, {}
+
+    assets: dict[str, dict[str, str]] = {}
+    for index, image in enumerate(images):
+        reference = image_reference(index)
+        assets[reference] = await _to_image_asset(image, reference)
+    payload_bytes = sum(len(asset["data_base64"]) for asset in assets.values())
+    if payload_bytes > MAX_IMAGE_PAYLOAD_BYTES:
+        raise ValueError(
+            f"The {len(images)} images add up to more than JEV accepts in one request. Connect fewer images."
+        )
+
+    image_state: dict[str, Any] = {"images": list(assets)}
+    if state is not None:
+        image_state = {"context": state, **image_state}
+    return image_state, assets
+
+
+def build_payload(
+    state: str | dict | list, question: dict[str, Any], assets: dict[str, dict[str, str]]
+) -> dict[str, Any]:
+    """Build the JEV request body for one question, with image assets when there are any."""
+    payload: dict[str, Any] = {"state": state, "questions": {QUESTION_KEY: question}}
+    if assets:
+        payload["assets"] = assets
+    return payload
+
+
 def add_context_parameter(node: BaseNode) -> None:
     """Add the shared Context parameter to a node."""
     node.add_parameter(
         ParameterString(
             name="context",
             display_name="Context",
-            tooltip="The text JEV reads. JSON works too.",
+            tooltip="The text JEV reads. JSON works too. Optional when images are connected.",
             default_value="",
             multiline=True,
             placeholder_text="Text to ask about",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             input_types=CONTEXT_INPUT_TYPES,
+        )
+    )
+
+
+def add_images_parameter(node: BaseNode) -> None:
+    """Add the shared Images parameter to a node."""
+    node.add_parameter(
+        ParameterList(
+            name="images",
+            input_types=["ImageArtifact", "ImageUrlArtifact", "str"],
+            default_value=[],
+            tooltip="Optional. Images JEV looks at alongside the context. "
+            "Refer to them in the question as [image 1], [image 2], and so on.",
+            allowed_modes={ParameterMode.INPUT},
+            ui_options={"display_name": "Images", "hide_property": True},
         )
     )
 
