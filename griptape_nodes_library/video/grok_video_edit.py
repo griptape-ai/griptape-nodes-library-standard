@@ -8,6 +8,9 @@ from urllib.parse import urlsplit
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterMode
+from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
+    PublicArtifactUrlParameter,
+)
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -15,7 +18,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
 
-from griptape_nodes_library.media import coerce_media_url_or_data_uri
+from griptape_nodes_library.media import coerce_media_url_or_data_uri, is_publicly_reachable_url
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.ffmpeg_utils import extract_video_metadata_structured
 
@@ -98,10 +101,13 @@ class GrokVideoEdit(GriptapeProxyNode):
             title="Video requirements",
             message=(
                 f"- .mp4 file\n- {MAX_INPUT_DURATION_SECONDS:g} seconds or less\n\n"
-                "Use a Trim Video node to convert or shorten a video."
+                "Use a Trim Video node to convert or shorten a video.\n\n"
+                "Running this node uploads a local video to a short-lived public URL, which xAI fetches."
             ),
         )
         self.add_parameter(video_param)
+        self._video_param = video_param
+        self._video_upload: PublicArtifactUrlParameter | None = None
 
         # OUTPUTS
         self.add_parameter(
@@ -199,8 +205,43 @@ class GrokVideoEdit(GriptapeProxyNode):
             msg = f"Grok can't edit this video. {' '.join(problems)} Use a Trim Video node to fix this."
             raise ValueError(msg)
 
-    async def _prepare_video_data_uri(self, video_input: Any) -> str:
-        """Return the video as a data URI, raising a user-facing error if it can't be sent.
+    async def aprocess(self) -> None:
+        try:
+            await super().aprocess()
+        finally:
+            # Only once polling has finished: xAI fetches the video from this URL when the job
+            # starts, so deleting it any earlier would pull the video out from under a queued job.
+            if self._video_upload is not None:
+                await self._video_upload.adelete_uploaded_artifact()
+
+    async def _upload_video(self) -> str | None:
+        """Return a public URL for the video input, or None to fall back to a data URI.
+
+        A local video is uploaded to Griptape Cloud so xAI can fetch it, keeping it out of the
+        request body. A public http(s) URL is passed through. The helper is built here rather than
+        in __init__ because it raises without a Griptape Cloud credential, which should cost the
+        upload, not the node.
+        """
+        try:
+            if self._video_upload is None:
+                self._video_upload = PublicArtifactUrlParameter(
+                    node=self,
+                    artifact_url_parameter=self._video_param,
+                    disclaimer_message="xAI fetches the video from this URL to edit it.",
+                )
+            public_url = await self._video_upload.aget_public_url_for_parameter()
+        except Exception as e:  # noqa: BLE001 - any upload failure should degrade to a data URI
+            logger.warning("%s: public-URL upload failed, sending the video inline instead: %s", self.name, e)
+            return None
+
+        # The helper passes through any http(s) URL not spelled `localhost`, so a static-server URL
+        # on a loopback or LAN IP comes back unuploaded. xAI can't fetch that; the local read can.
+        if not is_publicly_reachable_url(public_url):
+            return None
+        return public_url
+
+    async def _prepare_video_url(self, video_input: Any) -> str:
+        """Return a URL xAI can read the video from, raising a user-facing error if it can't be sent.
 
         These errors are raised during execution, where the engine already prefixes the message
         with the node name several times, so they leave the name out.
@@ -211,6 +252,10 @@ class GrokVideoEdit(GriptapeProxyNode):
             raise ValueError(msg)
 
         await self._check_input_limits(video_value)
+
+        public_url = await self._upload_video()
+        if public_url:
+            return public_url
 
         if video_value.startswith("data:"):
             return video_value
@@ -243,12 +288,12 @@ class GrokVideoEdit(GriptapeProxyNode):
     async def _build_payload(self) -> dict[str, Any]:
         prompt = (self.get_parameter_value("prompt") or "").strip()
         api_model_id = self._get_payload_model_id()
-        video_data_uri = await self._prepare_video_data_uri(self.get_parameter_value("video"))
+        video_url = await self._prepare_video_url(self.get_parameter_value("video"))
 
         return {
             "model": api_model_id,
             "prompt": prompt,
-            "video": {"url": video_data_uri},
+            "video": {"url": video_url},
         }
 
     async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:

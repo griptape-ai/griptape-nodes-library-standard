@@ -4,19 +4,33 @@ from typing import Any
 
 import pytest
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
+from griptape_nodes.exe_types.param_components.artifact_url import (
+    public_artifact_url_parameter as public_artifact_url_parameter_module,
+)
+from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
+    PublicArtifactUrlParameter,
+)
 from griptape_nodes.files import file as file_module
 from griptape_nodes.files.file import FileLoadError
 from griptape_nodes.retained_mode.events.os_events import FileIOFailureReason
 
+from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.video.grok_video_edit import GrokVideoEdit
 
 RESOLVED = "data:video/mp4;base64,RESOLVED"
+UPLOADED = "https://cloud.griptape.ai/api/buckets/b/signed/clip.mp4"
 
 
 def _node(duration: float | None = 5.0) -> GrokVideoEdit:
+    """A bare node whose upload is unavailable, so the video goes inline as a data URI."""
     node = GrokVideoEdit.__new__(GrokVideoEdit)
     node.name = "GrokVideoEdit"
     node._probe_duration = lambda _value: duration  # type: ignore[method-assign]
+
+    async def no_upload() -> None:
+        return None
+
+    node._upload_video = no_upload  # type: ignore[method-assign]
     return node
 
 
@@ -38,7 +52,7 @@ def captured_paths(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 @pytest.mark.asyncio
-class TestPrepareVideoDataUri:
+class TestPrepareVideoUrlFallback:
     @pytest.mark.parametrize(
         "video_input",
         [
@@ -49,11 +63,11 @@ class TestPrepareVideoDataUri:
         ids=["string", "artifact", "serialized-dict"],
     )
     async def test_macro_path_is_handed_to_file(self, video_input: Any, captured_paths: list[str]) -> None:
-        assert await _node()._prepare_video_data_uri(video_input) == RESOLVED
+        assert await _node()._prepare_video_url(video_input) == RESOLVED
         assert captured_paths == ["{outputs}/clip.mp4"]
 
     async def test_data_uri_passes_through(self, captured_paths: list[str]) -> None:
-        assert await _node()._prepare_video_data_uri("data:video/mp4;base64,ABC") == "data:video/mp4;base64,ABC"
+        assert await _node()._prepare_video_url("data:video/mp4;base64,ABC") == "data:video/mp4;base64,ABC"
         assert captured_paths == []
 
     async def test_load_failure_raises_with_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -63,11 +77,11 @@ class TestPrepareVideoDataUri:
         monkeypatch.setattr(file_module.File, "aread_data_uri", failing_aread)
 
         with pytest.raises(ValueError, match=r"^Could not load video from '\{outputs\}/missing\.mp4'"):
-            await _node()._prepare_video_data_uri("{outputs}/missing.mp4")
+            await _node()._prepare_video_url("{outputs}/missing.mp4")
 
     async def test_empty_input_raises(self) -> None:
         with pytest.raises(ValueError, match="no usable value"):
-            await _node()._prepare_video_data_uri(VideoUrlArtifact(value=""))
+            await _node()._prepare_video_url(VideoUrlArtifact(value=""))
 
 
 @pytest.mark.asyncio
@@ -82,29 +96,29 @@ class TestInputLimits:
             ValueError,
             match=r"^Grok can't edit this video\. It's a \.\w+ file\. Grok needs \.mp4\. Use a Trim Video node",
         ):
-            await _node()._prepare_video_data_uri(video_input)
+            await _node()._prepare_video_url(video_input)
         assert captured_paths == []
 
     async def test_url_without_extension_is_allowed(self, captured_paths: list[str]) -> None:
-        assert await _node()._prepare_video_data_uri("https://example.com/signed/abc123") == RESOLVED
+        assert await _node()._prepare_video_url("https://example.com/signed/abc123") == RESOLVED
         assert captured_paths == ["https://example.com/signed/abc123"]
 
     async def test_over_long_video_raises_with_duration(self, captured_paths: list[str]) -> None:
         with pytest.raises(ValueError, match=r"It's 8\.80 seconds long\. Grok's limit is 8\.7 seconds\."):
-            await _node(duration=8.798)._prepare_video_data_uri("{inputs}/clip.mp4")
+            await _node(duration=8.798)._prepare_video_url("{inputs}/clip.mp4")
         assert captured_paths == []
 
     async def test_wrong_container_and_too_long_are_reported_together(self, captured_paths: list[str]) -> None:
         with pytest.raises(ValueError, match=r"It's a \.mov file\. Grok needs \.mp4\. It's 8\.80 seconds long\."):
-            await _node(duration=8.798)._prepare_video_data_uri("{inputs}/IMG_2689.mov")
+            await _node(duration=8.798)._prepare_video_url("{inputs}/IMG_2689.mov")
         assert captured_paths == []
 
     async def test_video_at_limit_is_allowed(self, captured_paths: list[str]) -> None:
-        assert await _node(duration=8.7)._prepare_video_data_uri("{inputs}/clip.mp4") == RESOLVED
+        assert await _node(duration=8.7)._prepare_video_url("{inputs}/clip.mp4") == RESOLVED
         assert captured_paths == ["{inputs}/clip.mp4"]
 
     async def test_unknown_duration_is_allowed(self, captured_paths: list[str]) -> None:
-        assert await _node(duration=None)._prepare_video_data_uri("{inputs}/clip.mp4") == RESOLVED
+        assert await _node(duration=None)._prepare_video_url("{inputs}/clip.mp4") == RESOLVED
         assert captured_paths == ["{inputs}/clip.mp4"]
 
 
@@ -133,3 +147,118 @@ def test_missing_ffprobe_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
     node = GrokVideoEdit.__new__(GrokVideoEdit)
     node.name = "GrokVideoEdit"
     assert node._probe_duration("{inputs}/clip.mp4") is None
+
+
+def _uploading_node(monkeypatch: pytest.MonkeyPatch, video: str = "{inputs}/clip.mp4") -> GrokVideoEdit:
+    """A real node with a video set, whose duration probe reports a clip inside the limit."""
+    node = GrokVideoEdit(name="GrokVideoEdit")
+    node.set_parameter_value("video", video)
+    monkeypatch.setattr(node, "_probe_duration", lambda _value: 5.0)
+    return node
+
+
+@pytest.mark.asyncio
+class TestUpload:
+    async def test_local_video_is_sent_as_uploaded_url(
+        self, monkeypatch: pytest.MonkeyPatch, captured_paths: list[str]
+    ) -> None:
+        monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", lambda _self: UPLOADED)
+        node = _uploading_node(monkeypatch)
+
+        assert await node._prepare_video_url(node.get_parameter_value("video")) == UPLOADED
+        assert captured_paths == []
+
+    async def test_payload_carries_the_uploaded_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", lambda _self: UPLOADED)
+        node = _uploading_node(monkeypatch)
+        node.set_parameter_value("prompt", "make it snow")
+
+        assert await node._build_payload() == {
+            "model": "grok-imagine-video",
+            "prompt": "make it snow",
+            "video": {"url": UPLOADED},
+        }
+
+    async def test_failed_upload_falls_back_to_data_uri(
+        self, monkeypatch: pytest.MonkeyPatch, captured_paths: list[str]
+    ) -> None:
+        def failing_upload(_self: PublicArtifactUrlParameter) -> str:
+            msg = "No Griptape Cloud storage buckets found!"
+            raise RuntimeError(msg)
+
+        monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", failing_upload)
+        node = _uploading_node(monkeypatch)
+
+        assert await node._prepare_video_url(node.get_parameter_value("video")) == RESOLVED
+        assert captured_paths == ["{inputs}/clip.mp4"]
+
+    async def test_missing_cloud_credential_falls_back_to_data_uri(
+        self, monkeypatch: pytest.MonkeyPatch, captured_paths: list[str]
+    ) -> None:
+        monkeypatch.setattr(
+            public_artifact_url_parameter_module, "resolve_cloud_credential", lambda *_args, **_kwargs: None
+        )
+        node = _uploading_node(monkeypatch)
+
+        assert await node._prepare_video_url(node.get_parameter_value("video")) == RESOLVED
+        assert captured_paths == ["{inputs}/clip.mp4"]
+
+    async def test_unreachable_passthrough_falls_back_to_data_uri(
+        self, monkeypatch: pytest.MonkeyPatch, captured_paths: list[str]
+    ) -> None:
+        static_url = "http://127.0.0.1:8124/workspace/clip.mp4"
+        node = _uploading_node(monkeypatch, video=static_url)
+
+        assert await node._prepare_video_url(node.get_parameter_value("video")) == RESOLVED
+        assert captured_paths == [static_url]
+
+    async def test_public_url_is_passed_through(
+        self, monkeypatch: pytest.MonkeyPatch, captured_paths: list[str]
+    ) -> None:
+        public_url = "https://example.com/clip.mp4"
+        node = _uploading_node(monkeypatch, video=public_url)
+
+        assert await node._prepare_video_url(node.get_parameter_value("video")) == public_url
+        assert captured_paths == []
+
+    async def test_too_long_video_is_not_uploaded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        uploads: list[str] = []
+        monkeypatch.setattr(
+            PublicArtifactUrlParameter, "get_public_url_for_parameter", lambda _self: uploads.append("x") or UPLOADED
+        )
+        node = _uploading_node(monkeypatch)
+        monkeypatch.setattr(node, "_probe_duration", lambda _value: 12.0)
+
+        with pytest.raises(ValueError, match="Grok's limit is 8.7 seconds"):
+            await node._prepare_video_url(node.get_parameter_value("video"))
+        assert uploads == []
+
+    @pytest.mark.parametrize("run_fails", [False, True], ids=["success", "failure"])
+    async def test_upload_is_deleted_after_the_run(self, monkeypatch: pytest.MonkeyPatch, *, run_fails: bool) -> None:
+        deleted: list[bool] = []
+        monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", lambda _self: UPLOADED)
+        monkeypatch.setattr(PublicArtifactUrlParameter, "delete_uploaded_artifact", lambda _self: deleted.append(True))
+        node = _uploading_node(monkeypatch)
+
+        async def run(_self: GriptapeProxyNode) -> None:
+            await node._prepare_video_url(node.get_parameter_value("video"))
+            assert deleted == []
+            if run_fails:
+                msg = "generation failed"
+                raise RuntimeError(msg)
+
+        monkeypatch.setattr(GriptapeProxyNode, "aprocess", run)
+
+        if run_fails:
+            with pytest.raises(RuntimeError, match="generation failed"):
+                await node.aprocess()
+        else:
+            await node.aprocess()
+        assert deleted == [True]
+
+
+def test_node_builds_without_cloud_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        public_artifact_url_parameter_module, "resolve_cloud_credential", lambda *_args, **_kwargs: None
+    )
+    assert GrokVideoEdit(name="GrokVideoEdit").get_parameter_by_name("video") is not None
