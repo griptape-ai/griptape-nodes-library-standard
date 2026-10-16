@@ -198,7 +198,7 @@ def check_size(
     if size_bytes is None or size_bytes <= maximum_bytes:
         return None
     return _error(
-        f"{subject} is {size_bytes / BYTES_PER_MB:.1f} MB and the limit is {_format_mb(maximum_bytes)}. {fix}",
+        f"{subject} is {_format_past(size_bytes / BYTES_PER_MB, maximum_bytes / BYTES_PER_MB, 1)} MB and the limit is {_format_mb(maximum_bytes)}. {fix}",
         docs_url,
     )
 
@@ -240,7 +240,7 @@ def check_dimensions(  # noqa: PLR0913
     megapixels = info.width * info.height / 1_000_000
     if max_megapixels is not None and megapixels > max_megapixels:
         return _error(
-            f"{subject} is {size} ({megapixels:.1f} megapixels) and the limit is {max_megapixels:g} megapixels. "
+            f"{subject} is {size} ({_format_past(megapixels, max_megapixels, 1)} megapixels) and the limit is {max_megapixels:g} megapixels. "
             "Resize it smaller.",
             docs_url,
         )
@@ -326,10 +326,16 @@ def check_duration(  # noqa: PLR0913
         return None
     if maximum is not None and seconds > maximum:
         next_step = fix or "Use a Trim Video node to shorten it."
-        return _error(f"{subject} is {seconds:.2f} seconds long and the limit is {maximum:g}. {next_step}", docs_url)
+        return _error(
+            f"{subject} is {_format_past(seconds, maximum, 2)} seconds long and the limit is {maximum:g}. {next_step}",
+            docs_url,
+        )
     if minimum is not None and seconds < minimum:
         next_step = fix or "Use a longer clip."
-        return _error(f"{subject} is {seconds:.2f} seconds long and the minimum is {minimum:g}. {next_step}", docs_url)
+        return _error(
+            f"{subject} is {_format_past(seconds, minimum, 2)} seconds long and the minimum is {minimum:g}. {next_step}",
+            docs_url,
+        )
     return None
 
 
@@ -342,12 +348,24 @@ def _local_path(location: str) -> Path | None:
     """The file on this machine a location names, or None for a remote URL or an unresolvable path."""
     try:
         resolved = File(location).resolve()
+        if is_url(resolved):
+            return None
+        path = Path(resolved)
+        return path if path.is_file() else None
     except (FileLoadError, OSError, ValueError):
         return None
-    if is_url(resolved):
-        return None
-    path = Path(resolved)
-    return path if path.is_file() else None
+
+
+def _format_past(value: float, limit: float, decimals: int) -> str:
+    """`value` to `decimals` places, with more when that would make it read as equal to `limit`.
+
+    A file of 7.0001 MB against a 7 MB limit must not be reported as "7.0 MB".
+    """
+    for places in range(decimals, decimals + 6):
+        text = f"{value:.{places}f}"
+        if float(text) != limit:
+            return text
+    return f"{value:g}"
 
 
 def _format_mb(size_bytes: int) -> str:

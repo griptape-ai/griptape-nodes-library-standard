@@ -67,6 +67,9 @@ class TestLocalSizeBytes:
     def test_skips_a_remote_url(self) -> None:
         assert local_size_bytes("https://example.com/image.png", kind="image") is None
 
+    def test_skips_a_path_the_os_refuses(self) -> None:
+        assert local_size_bytes("A" * 3000, kind="image") is None
+
     def test_skips_a_missing_file(self, tmp_path: Path) -> None:
         assert local_size_bytes(str(tmp_path / "missing.png"), kind="image") is None
 
@@ -165,6 +168,10 @@ class TestCheckSize:
         assert str(error) == f"{SUBJECT} is 8.5 MB and the limit is 7 MB. Use a smaller file."
         assert not error.links
 
+    def test_reports_a_size_just_over_the_limit_as_over_it(self) -> None:
+        error = check_size(7 * 1024 * 1024 + 1024, maximum_bytes=7 * 1024 * 1024, subject=SUBJECT)
+        assert str(error).startswith(f"{SUBJECT} is 7.001 MB and the limit is 7 MB.")
+
     def test_uses_the_given_fix(self) -> None:
         error = check_size(2, maximum_bytes=1, subject=SUBJECT, fix="Turn on 'Auto Image Resize'.")
         assert error is not None
@@ -195,6 +202,10 @@ class TestCheckDimensions:
         assert str(error) == (
             f"{SUBJECT} is 4000x4000 (16.0 megapixels) and the limit is 8 megapixels. Resize it smaller."
         )
+
+    def test_reports_megapixels_just_over_the_limit_as_over_them(self) -> None:
+        error = check_dimensions(ImageInfo(2829, 2829, None), subject=SUBJECT, max_megapixels=8)
+        assert "(8.003 megapixels)" in str(error)
 
 
 class TestCheckAspectRatio:
@@ -249,6 +260,10 @@ class TestCheckDuration:
     def test_rejects_a_short_video(self) -> None:
         error = check_duration(0.5, subject="The video in 'Video'", minimum=2)
         assert str(error) == "The video in 'Video' is 0.50 seconds long and the minimum is 2. Use a longer clip."
+
+    def test_reports_a_duration_just_over_the_limit_as_over_it(self) -> None:
+        error = check_duration(8.701, subject="The video in 'Video'", maximum=8.7)
+        assert str(error).startswith("The video in 'Video' is 8.701 seconds long and the limit is 8.7.")
 
     def test_uses_the_given_fix(self) -> None:
         error = check_duration(20, subject="The video in 'Video'", maximum=10, fix="Pick a shorter clip.")
