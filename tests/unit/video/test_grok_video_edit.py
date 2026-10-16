@@ -252,6 +252,32 @@ class TestUpload:
             await node.aprocess()
         assert deleted == [True]
 
+    @pytest.mark.parametrize("run_fails", [False, True], ids=["success", "failure"])
+    async def test_failed_delete_does_not_change_the_run_outcome(
+        self, monkeypatch: pytest.MonkeyPatch, *, run_fails: bool
+    ) -> None:
+        def failing_delete(_self: PublicArtifactUrlParameter) -> None:
+            msg = "403 Forbidden"
+            raise RuntimeError(msg)
+
+        monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", lambda _self: UPLOADED)
+        monkeypatch.setattr(PublicArtifactUrlParameter, "delete_uploaded_artifact", failing_delete)
+        node = _uploading_node(monkeypatch)
+
+        async def run(_self: GriptapeProxyNode) -> None:
+            await node._prepare_video_url(node.get_parameter_value("video"))
+            if run_fails:
+                msg = "generation failed"
+                raise RuntimeError(msg)
+
+        monkeypatch.setattr(GriptapeProxyNode, "aprocess", run)
+
+        if run_fails:
+            with pytest.raises(RuntimeError, match="generation failed"):
+                await node.aprocess()
+        else:
+            await node.aprocess()
+
 
 def test_node_builds_without_cloud_credential(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
