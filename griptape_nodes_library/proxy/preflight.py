@@ -100,7 +100,7 @@ def local_size_bytes(value: Any, *, kind: MediaKind) -> int | None:
     if not location:
         return None
     if location.startswith("data:"):
-        payload = location.split(",", 1)[-1].strip()
+        payload = "".join(location.split(",", 1)[-1].split())
         return len(payload) * 3 // 4 - payload[-2:].count("=")
     path = _local_path(location)
     if path is None:
@@ -129,9 +129,10 @@ def local_image_info(value: Any) -> ImageInfo | None:
             if source is None:
                 return None
         with Image.open(source) as image:
-            mime_type = Image.MIME.get(image.format or "")
+            # Phone and camera JPEGs with Multi-Picture extensions open as MPO; they are JPEG streams.
+            mime_type = "image/jpeg" if image.format == "MPO" else Image.MIME.get(image.format or "")
             return ImageInfo(width=image.width, height=image.height, mime_type=mime_type)
-    except (OSError, UnidentifiedImageError, binascii.Error, ValueError) as e:
+    except (OSError, UnidentifiedImageError, Image.DecompressionBombError, binascii.Error, ValueError) as e:
         logger.debug("Could not read image header for a pre-flight check, skipping it: %s", e)
         return None
 
@@ -147,7 +148,7 @@ def local_video_duration(value: Any) -> float | None:
     if not location or location.startswith("data:"):
         return None
     path = _local_path(location)
-    if path is None or not path.is_file():
+    if path is None:
         return None
     try:
         metadata = extract_video_metadata_structured(str(path))

@@ -55,6 +55,10 @@ class TestLocalSizeBytes:
     def test_measures_a_data_uri_exactly(self, length: int) -> None:
         assert local_size_bytes(_data_uri(b"x" * length), kind="image") == length
 
+    def test_ignores_line_breaks_in_a_data_uri(self) -> None:
+        wrapped = f"data:image/png;base64,{base64.encodebytes(b'x' * 1000).decode()}"
+        assert local_size_bytes(wrapped, kind="image") == 1000
+
     def test_measures_a_local_file(self, tmp_path: Path) -> None:
         path = tmp_path / "image.png"
         path.write_bytes(b"x" * 1234)
@@ -82,6 +86,15 @@ class TestLocalImageInfo:
     def test_reads_an_image_artifact(self) -> None:
         artifact = ImageArtifact(value=_png_bytes(8, 4), format="png", width=8, height=4)
         assert local_image_info(artifact) == ImageInfo(8, 4, "image/png")
+
+    def test_reports_a_multi_picture_jpeg_as_jpeg(self) -> None:
+        buffer = BytesIO()
+        Image.new("RGB", (8, 8)).save(buffer, format="MPO", save_all=True, append_images=[Image.new("RGB", (8, 8))])
+        assert local_image_info(_data_uri(buffer.getvalue(), "image/jpeg")) == ImageInfo(8, 8, "image/jpeg")
+
+    def test_skips_an_image_too_large_to_open(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 10)
+        assert local_image_info(_data_uri(_png_bytes(40, 30))) is None
 
     def test_skips_a_remote_url(self) -> None:
         assert local_image_info("https://example.com/image.png") is None
