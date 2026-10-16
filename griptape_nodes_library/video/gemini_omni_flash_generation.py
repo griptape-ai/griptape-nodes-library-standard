@@ -17,6 +17,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.proxy.preflight import check_mime_type, input_subject, local_image_info
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -24,6 +25,11 @@ __all__ = ["GeminiOmniFlashGeneration"]
 
 # Provider model id served by the Gemini API interactions endpoint via proxy.
 API_MODEL_ID = "gemini-omni-flash-preview"
+
+# The image formats the Gemini API accepts.
+# https://ai.google.dev/gemini-api/docs/image-understanding#supported-formats
+INPUT_LIMITS_URL = "https://ai.google.dev/gemini-api/docs/image-understanding#supported-formats"
+SUPPORTED_IMAGE_MIME_TYPES = ("image/png", "image/jpeg", "image/webp", "image/heic", "image/heif")
 
 
 class Task(StrEnum):
@@ -191,6 +197,25 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
         exceptions = super().validate_before_node_run() or []
         if not self.get_parameter_value("prompt"):
             exceptions.append(ValueError("A prompt is required. Enter one in 'prompt'."))
+
+        images = [
+            (input_subject("reference images", noun="image", position=position), image)
+            for position, image in enumerate(self.get_parameter_list_value("reference_images") or [], start=1)
+        ]
+        legacy_image = self.get_parameter_value("image")
+        if legacy_image:
+            images.append((input_subject("image (deprecated)", noun="image"), legacy_image))
+        for subject, image in images:
+            info = local_image_info(image)
+            error = check_mime_type(
+                info.mime_type if info else None,
+                subject=subject,
+                allowed=SUPPORTED_IMAGE_MIME_TYPES,
+                docs_url=INPUT_LIMITS_URL,
+            )
+            if error:
+                exceptions.append(error)
+
         return exceptions or None
 
     def _update_legacy_image_visibility(self) -> None:

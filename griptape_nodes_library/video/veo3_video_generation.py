@@ -24,10 +24,36 @@ from griptape_nodes.traits.slider import Slider
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.proxy.preflight import (
+    check_count,
+    check_mime_type,
+    check_size,
+    input_subject,
+    local_image_info,
+    local_size_bytes,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["Veo3VideoGeneration"]
+
+
+# Google's documented input limits for Veo 3.1 on Vertex AI.
+# "Image-to-video maximum input image size: 20 MB"
+# https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/veo/3-1-generate
+INPUT_LIMITS_URL = "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/veo/3-1-generate"
+MAX_FRAME_IMAGE_BYTES = 20 * 1024 * 1024
+# Start, last frame, and reference images accept only JPEG and PNG.
+# https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/generate-videos-from-an-image
+# https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/generate-videos-from-first-and-last-frames
+# https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/use-reference-images-to-guide-video-generation
+SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png")
+# "You provide up to three images of a single person, character, or product." (asset references,
+# same reference-images page as above)
+REFERENCE_IMAGES_URL = (
+    "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/use-reference-images-to-guide-video-generation"
+)
+MAX_ASSET_REFERENCE_IMAGES = 3
 
 
 class ModelId(StrEnum):
@@ -421,6 +447,56 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             "generate_audio": generate_audio,
             "sample_count": sample_count,
         }
+
+    def validate_before_node_run(self) -> list[Exception] | None:
+        exceptions = super().validate_before_node_run() or []
+
+        reference_images = self.get_parameter_list_value("reference_images") or []
+        if self.get_parameter_value("reference_type") != "style":
+            count_error = check_count(
+                len(reference_images),
+                maximum=MAX_ASSET_REFERENCE_IMAGES,
+                parameter="reference images",
+                noun="images",
+                docs_url=REFERENCE_IMAGES_URL,
+            )
+            if count_error:
+                exceptions.append(count_error)
+
+        for parameter in ("start_frame", "last_frame"):
+            image = self.get_parameter_value(parameter)
+            if not image:
+                continue
+            subject = input_subject(parameter.replace("_", " "), noun="image")
+            exceptions.extend(self._frame_image_errors(image, subject, check_file_size=True))
+
+        for position, image in enumerate(reference_images, start=1):
+            subject = input_subject("reference images", noun="image", position=position)
+            exceptions.extend(self._frame_image_errors(image, subject, check_file_size=False))
+
+        return exceptions or None
+
+    def _frame_image_errors(self, image: Any, subject: str, *, check_file_size: bool) -> list[Exception]:
+        """The errors for one input image Google is certain to reject, read without any network call.
+
+        Google documents the 20 MB limit for image-to-video input, so it is checked on the start and
+        last frame only.
+        """
+        info = local_image_info(image)
+        error = check_mime_type(
+            info.mime_type if info else None,
+            subject=subject,
+            allowed=SUPPORTED_IMAGE_MIME_TYPES,
+            docs_url=INPUT_LIMITS_URL,
+        )
+        if error is None and check_file_size:
+            error = check_size(
+                local_size_bytes(image, kind="image"),
+                maximum_bytes=MAX_FRAME_IMAGE_BYTES,
+                subject=subject,
+                docs_url=INPUT_LIMITS_URL,
+            )
+        return [error] if error else []
 
     def _get_api_model_id(self) -> str:
         model_id = self.get_parameter_value("model_id") or ModelId.VEO_3_1_GENERATE_001.value
