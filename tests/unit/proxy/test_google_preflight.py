@@ -124,11 +124,9 @@ class TestVeo3VideoGeneration:
         assert str(errors[0]).startswith("The image in 'last frame' is ")
         assert "and the limit is" in str(errors[0])
 
-    def test_rejects_more_than_three_asset_references(self, node: Any) -> None:
-        node.set_parameter_value("reference_images", [_image_uri()] * 4)
-        assert [str(e) for e in _node_errors(node)] == [
-            "4 images are connected to 'reference images' and the limit is 3. Remove 1."
-        ]
+    def test_checks_only_the_asset_references_the_request_sends(self, node: Any) -> None:
+        node.set_parameter_value("reference_images", [_image_uri()] * 3 + [_image_uri("GIF")])
+        assert node.validate_before_node_run() is None
 
     def test_rejects_an_unsupported_reference_format(self, node: Any) -> None:
         node.set_parameter_value("reference_images", [_image_uri(), _image_uri("GIF")])

@@ -25,7 +25,6 @@ from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.proxy.preflight import (
-    check_count,
     check_mime_type,
     check_size,
     input_subject,
@@ -49,12 +48,20 @@ MAX_FRAME_IMAGE_BYTES = 20 * 1024 * 1024
 # https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/use-reference-images-to-guide-video-generation
 FRAME_FORMATS_URL = "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/generate-videos-from-an-image"
 SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png")
-# "You provide up to three images of a single person, character, or product." (asset references,
-# same reference-images page as above)
 REFERENCE_IMAGES_URL = (
     "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/use-reference-images-to-guide-video-generation"
 )
-MAX_ASSET_REFERENCE_IMAGES = 3
+
+
+class ReferenceType(StrEnum):
+    ASSET = "asset"
+    STYLE = "style"
+
+
+# The request sends at most this many reference images of each type and drops the rest. Asset:
+# "You provide up to three images of a single person, character, or product." (reference-images
+# page above).
+MAX_REFERENCE_IMAGES: dict[ReferenceType, int] = {ReferenceType.ASSET: 3, ReferenceType.STYLE: 1}
 
 
 class ModelId(StrEnum):
@@ -212,10 +219,10 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             # Reference type for reference images
             ParameterString(
                 name="reference_type",
-                default_value="asset",
+                default_value=ReferenceType.ASSET.value,
                 tooltip="Type of reference: 'asset' preserves objects/characters (max 3), 'style' preserves artistic style (max 1)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["asset", "style"])},
+                traits={Options(choices=[reference_type.value for reference_type in ReferenceType])},
             )
 
             # Aspect ratio selection
@@ -439,7 +446,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             "image": self.get_parameter_value("start_frame"),
             "last_frame": self.get_parameter_value("last_frame"),
             "reference_images": normalized_reference_images,
-            "reference_type": self.get_parameter_value("reference_type") or "asset",
+            "reference_type": self.get_parameter_value("reference_type") or ReferenceType.ASSET.value,
             "aspect_ratio": self.get_parameter_value("aspect_ratio") or "16:9",
             "resolution": self.get_parameter_value("resolution") or "720p",
             "duration_seconds": self.get_parameter_value("duration_seconds") or "6",
@@ -452,20 +459,9 @@ class Veo3VideoGeneration(GriptapeProxyNode):
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []
 
+        # Only the reference images the request sends are checked; it drops the rest.
         reference_images = self.get_parameter_list_value("reference_images") or []
-        if self.get_parameter_value("reference_type") == "style":
-            # The request sends only the first image as a style reference.
-            reference_images = reference_images[:1]
-        else:
-            count_error = check_count(
-                len(reference_images),
-                maximum=MAX_ASSET_REFERENCE_IMAGES,
-                parameter="reference images",
-                noun="images",
-                docs_url=REFERENCE_IMAGES_URL,
-            )
-            if count_error:
-                exceptions.append(count_error)
+        reference_images = reference_images[: _max_reference_images(self.get_parameter_value("reference_type"))]
 
         for parameter in ("start_frame", "last_frame"):
             image = self.get_parameter_value(parameter)
@@ -473,21 +469,22 @@ class Veo3VideoGeneration(GriptapeProxyNode):
                 continue
             subject = input_subject(parameter.replace("_", " "), noun="image")
             exceptions.extend(
-                self._frame_image_errors(image, subject, formats_url=FRAME_FORMATS_URL, check_file_size=True)
+                self._input_image_errors(image, subject, formats_url=FRAME_FORMATS_URL, check_file_size=True)
             )
 
         for position, image in enumerate(reference_images, start=1):
             subject = input_subject("reference images", noun="image", position=position)
             exceptions.extend(
-                self._frame_image_errors(image, subject, formats_url=REFERENCE_IMAGES_URL, check_file_size=False)
+                self._input_image_errors(image, subject, formats_url=REFERENCE_IMAGES_URL, check_file_size=False)
             )
 
         return exceptions or None
 
-    def _frame_image_errors(
+    def _input_image_errors(
         self, image: Any, subject: str, *, formats_url: str, check_file_size: bool
     ) -> list[Exception]:
-        """The errors for one input image Google is certain to reject, read without any network call.
+        """The errors for one input image (frame or reference) Google is certain to reject, read without
+        any network call.
 
         Google documents the 20 MB limit for image-to-video input, so it is checked on the start and
         last frame only. `formats_url` is the page stating the JPEG/PNG rule for this kind of input.
@@ -656,16 +653,14 @@ class Veo3VideoGeneration(GriptapeProxyNode):
 
         # Add reference images to instance object (max 3 for asset, max 1 for style)
         ref_images_input = params.get("reference_images", [])
-        reference_type = params.get("reference_type", "asset")
+        reference_type = params.get("reference_type", ReferenceType.ASSET.value)
         if ref_images_input:
             # Ensure it's a list
             if not isinstance(ref_images_input, list):
                 ref_images_input = [ref_images_input]
 
-            # Limit based on reference type
-            max_refs = 1 if reference_type == "style" else 3
             reference_images = []
-            for ref_image in ref_images_input[:max_refs]:
+            for ref_image in ref_images_input[: _max_reference_images(reference_type)]:
                 if ref_image:
                     ref_image_dict = self._convert_image_to_base64_dict(ref_image)
                     if ref_image_dict:
@@ -908,3 +903,11 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         if not obj or not isinstance(obj, dict):
             return None
         return obj.get("status") if isinstance(obj.get("status"), str) else None
+
+
+def _max_reference_images(reference_type: Any) -> int:
+    """How many reference images the request sends for `reference_type`; an unknown type counts as asset."""
+    try:
+        return MAX_REFERENCE_IMAGES[ReferenceType(reference_type)]
+    except ValueError:
+        return MAX_REFERENCE_IMAGES[ReferenceType.ASSET]
