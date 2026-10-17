@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,6 @@ import pytest
 from griptape_nodes.exe_types.core_types import NodeError
 from PIL import Image
 
-from griptape_nodes_library.proxy import preflight
 from griptape_nodes_library.proxy.preflight import ImageInfo
 from griptape_nodes_library.video.wan_animate_generation import WanAnimateGeneration
 
@@ -136,7 +136,7 @@ def test_rejects_a_video_that_is_too_tall(node: WanAnimateGeneration, tmp_path: 
 
 
 def test_skips_remote_inputs(node: WanAnimateGeneration, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(preflight, "_installed_ffprobe", lambda: pytest.fail("a remote video must not be probed"))
+    monkeypatch.setattr(subprocess, "run", lambda *_a, **_k: pytest.fail("a remote video must not be probed"))
     node.set_parameter_value("image_url", "https://example.com/source.gif")
     node.set_parameter_value("video_url", "https://example.com/reference.mp4")
     assert node.validate_before_node_run() is None
