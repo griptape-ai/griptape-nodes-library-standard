@@ -26,9 +26,11 @@ __all__ = ["GeminiOmniFlashGeneration"]
 # Provider model id served by the Gemini API interactions endpoint via proxy.
 API_MODEL_ID = "gemini-omni-flash-preview"
 
-# The image formats the Gemini API accepts.
-# https://ai.google.dev/gemini-api/docs/image-understanding#supported-formats
-INPUT_LIMITS_URL = "https://ai.google.dev/gemini-api/docs/image-understanding#supported-formats"
+# The image formats Gemini Omni Flash accepts for reference images ("IMAGE_MIME").
+# https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/video/generate-videos-from-references
+INPUT_LIMITS_URL = (
+    "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/video/generate-videos-from-references"
+)
 SUPPORTED_IMAGE_MIME_TYPES = ("image/png", "image/jpeg", "image/webp", "image/heic", "image/heif")
 
 
