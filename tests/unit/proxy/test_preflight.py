@@ -277,6 +277,10 @@ class TestCheckSize:
         error = check_size(10_000_001, maximum_bytes=10_000_000, subject=SUBJECT)
         assert str(error).startswith(f"{SUBJECT} is 9.54 MB and the limit is 9.53674 MB.")
 
+    def test_never_shows_the_size_and_limit_as_the_same_number(self) -> None:
+        error = check_size(200_000_001, maximum_bytes=200_000_000, subject=SUBJECT)
+        assert str(error).startswith(f"{SUBJECT} is 190.735 MB and the limit is 190.734 MB.")
+
     def test_uses_the_given_fix(self) -> None:
         error = check_size(2, maximum_bytes=1, subject=SUBJECT, fix="Turn on 'Auto Image Resize'.")
         assert error is not None
@@ -341,6 +345,10 @@ class TestCheckAspectRatioRange:
         assert str(error) == (
             f"{SUBJECT} is 250x1000, which is too tall. The aspect ratio must be between 1:3 and 3:1. Crop it."
         )
+
+    def test_names_the_bound_that_failed_for_a_portrait_only_range(self) -> None:
+        error = check_aspect_ratio_range(ImageInfo(1000, 1000, None), subject=SUBJECT, widest="3:4", tallest="9:16")
+        assert "which is too wide" in str(error)
 
     def test_skips_an_unknown_image(self) -> None:
         assert check_aspect_ratio_range(None, subject=SUBJECT, widest="3:1", tallest="1:3") is None

@@ -34,6 +34,7 @@ import base64
 import binascii
 import json
 import logging
+import math
 import shutil
 import subprocess
 import sys
@@ -259,7 +260,8 @@ def check_size(
     if size_bytes is None or size_bytes <= maximum_bytes:
         return None
     return _error(
-        f"{subject} is {_format_past(size_bytes / BYTES_PER_MB, maximum_bytes / BYTES_PER_MB, 1)} MB and the limit is {_format_mb(maximum_bytes)}. {fix}",
+        f"{subject} is {_format_past(size_bytes / BYTES_PER_MB, maximum_bytes / BYTES_PER_MB, 1)} MB and the limit "
+        f"is {_format_limit(maximum_bytes / BYTES_PER_MB)} MB. {fix}",
         docs_url,
     )
 
@@ -298,7 +300,7 @@ def check_dimensions(
     if max_megapixels is not None and megapixels > max_megapixels:
         return _error(
             f"{subject} is {size} ({_format_past(megapixels, max_megapixels, 1)} megapixels) and the limit is "
-            f"{max_megapixels:g} megapixels. Resize it smaller.",
+            f"{_format_limit(max_megapixels)} megapixels. Resize it smaller.",
             docs_url,
         )
     return None
@@ -344,7 +346,7 @@ def check_aspect_ratio_range(
     ratio = info.width / info.height
     if _parse_ratio(tallest) <= ratio <= _parse_ratio(widest):
         return None
-    shape = "wide" if ratio > 1 else "tall"
+    shape = "wide" if ratio > _parse_ratio(widest) else "tall"
     return _error(
         f"{subject} is {info.width}x{info.height}, which is too {shape}. The aspect ratio must be between "
         f"{tallest} and {widest}. Crop it.",
@@ -394,13 +396,13 @@ def check_duration(  # noqa: PLR0913
     if maximum is not None and seconds > maximum:
         next_step = fix or "Use a Trim Video node to shorten it."
         return _error(
-            f"{subject} is {_format_past(seconds, maximum, 2)} seconds long and the limit is {maximum:g}. {next_step}",
+            f"{subject} is {_format_past(seconds, maximum, 2)} seconds long and the limit is {_format_limit(maximum)}. {next_step}",
             docs_url,
         )
     if minimum is not None and seconds < minimum:
         next_step = fix or "Use a longer clip."
         return _error(
-            f"{subject} is {_format_past(seconds, minimum, 2)} seconds long and the minimum is {minimum:g}. {next_step}",
+            f"{subject} is {_format_past(seconds, minimum, 2)} seconds long and the minimum is {_format_limit(minimum)}. {next_step}",
             docs_url,
         )
     return None
@@ -441,22 +443,35 @@ def _local_path(location: str) -> Path | None:
         return None
 
 
-def _format_past(value: float, limit: float, decimals: int) -> str:
-    """`value` to `decimals` places, with more when fewer would read as equal to `limit` or on its other side.
+def _format_limit(limit: float) -> str:
+    """A limit as messages show it: up to 6 significant figures, rounded toward zero.
 
-    A file of 10,000,001 bytes against a 10,000,000-byte limit must not be reported as "9.5 MB".
+    Rounding toward zero keeps the shown limit at or below the real one, so a value over the limit
+    can always be printed over the shown limit too.
     """
+    text = f"{limit:g}"
+    if float(text) <= limit or limit <= 0:
+        return text
+    digits = 6 - len(str(int(limit)))
+    scale = 10 ** max(digits, 0)
+    return f"{math.floor(limit * scale) / scale:g}"
+
+
+def _format_past(value: float, limit: float, decimals: int) -> str:
+    """`value` to `decimals` places, with more when fewer would read as equal to `limit` as
+    `_format_limit` shows it, or on its other side.
+
+    A file of 200,000,001 bytes against a 200,000,000-byte limit (shown as "190.735 MB") must not
+    be reported as "190.735 MB" too.
+    """
+    shown_limit = float(_format_limit(limit))
     over = value > limit
-    for places in range(decimals, decimals + 6):
+    for places in range(decimals, decimals + 9):
         text = f"{value:.{places}f}"
         rounded = float(text)
-        if rounded != limit and (rounded > limit) == over:
+        if rounded != shown_limit and (rounded > shown_limit) == over:
             return text
-    return f"{value:g}"
-
-
-def _format_mb(size_bytes: int) -> str:
-    return f"{size_bytes / BYTES_PER_MB:g} MB"
+    return repr(value)
 
 
 def _parse_ratio(name: str) -> float:
