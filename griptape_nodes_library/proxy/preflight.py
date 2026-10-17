@@ -6,8 +6,10 @@ sometimes credits. These helpers let a node refuse it first, from what it can re
 There are two halves:
 
 - **Readers** (`local_size_bytes`, `local_image_info`, `local_video_duration`) read one property of
-  a media input without a network call. They return None when the value is a remote URL, can't be
-  found, or can't be parsed, and the matching check then skips. A provider limit is only enforced
+  a media input from data already on this machine. None of them makes a network call or downloads a
+  tool: the video reader uses ffprobe only if it is already installed. They return None when the
+  value is a remote URL, can't be found, or can't be parsed, or when the tool to read it is missing
+  or too slow, and the matching check then skips. A provider limit is only enforced
   where it can be read cheaply; anything else is left for the provider to enforce.
 - **Checks** (`check_count`, `check_size`, `check_dimensions`, `check_aspect_ratio`,
   `check_mime_type`, `check_duration`) compare a value with a limit and return a `NodeError` ready to
@@ -30,7 +32,11 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 import logging
+import shutil
+import subprocess
+import sys
 from collections.abc import Sequence
 from io import BytesIO
 from pathlib import Path
@@ -40,9 +46,9 @@ from griptape_nodes.exe_types.core_types import NodeError, NodeErrorLink
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.files.path_utils import is_url
 from PIL import Image, UnidentifiedImageError
+from static_ffmpeg import run as static_ffmpeg_run
 
 from griptape_nodes_library.media import MediaKind, coerce_media_url_or_data_uri
-from griptape_nodes_library.utils.ffmpeg_utils import extract_video_metadata_structured
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -67,6 +73,10 @@ BYTES_PER_MB = 1024 * 1024
 ASPECT_RATIO_TOLERANCE = 0.01
 
 LIMITS_LINK_LABEL = "Provider limits"
+
+# Validation runs on the engine's event loop, so a probe that takes longer than this is abandoned
+# and the duration check skipped.
+FFPROBE_TIMEOUT_SECONDS = 5
 
 
 class ImageInfo(NamedTuple):
@@ -140,9 +150,9 @@ def local_image_info(value: Any) -> ImageInfo | None:
 def local_video_duration(value: Any) -> float | None:
     """The duration in seconds of a video input, or None if it can't be read locally.
 
-    Probes the file with ffprobe through `extract_video_metadata_structured`. Only a file on this
-    machine is probed: a remote URL would make ffprobe download it, and a data URI is too large to
-    pass on its command line. Starts a subprocess, so call it once per input.
+    Only a file on this machine is probed: a remote URL would make ffprobe download it, and a data
+    URI is too large to pass on its command line. ffprobe is used only if it is already installed
+    (see `_installed_ffprobe`), never fetched, and is given `FFPROBE_TIMEOUT_SECONDS` to answer.
     """
     location = coerce_media_url_or_data_uri(value, kind="video")
     if not location or location.startswith("data:"):
@@ -150,12 +160,20 @@ def local_video_duration(value: Any) -> float | None:
     path = _local_path(location)
     if path is None:
         return None
+    ffprobe = _installed_ffprobe()
+    if ffprobe is None:
+        logger.debug("ffprobe is not installed, skipping the pre-flight duration check")
+        return None
+    cmd = [ffprobe, "-v", "error", "-print_format", "json", "-show_format", str(path)]
     try:
-        metadata = extract_video_metadata_structured(str(path))
-    except (ValueError, RuntimeError) as e:
+        result = subprocess.run(  # noqa: S603
+            cmd, capture_output=True, text=True, check=True, timeout=FFPROBE_TIMEOUT_SECONDS
+        )
+        duration = json.loads(result.stdout).get("format", {}).get("duration")
+        return float(duration) if duration is not None else None
+    except (subprocess.SubprocessError, OSError, ValueError) as e:
         logger.debug("Could not probe video duration for a pre-flight check, skipping it: %s", e)
         return None
-    return metadata.file_details.optional_duration
 
 
 def check_count(
@@ -342,6 +360,24 @@ def check_duration(  # noqa: PLR0913
 def _error(message: str, docs_url: str | None) -> NodeError:
     links = [NodeErrorLink(label=LIMITS_LINK_LABEL, url=docs_url)] if docs_url else None
     return NodeError(message, links=links)
+
+
+def _installed_ffprobe() -> str | None:
+    """The path to an ffprobe that is already installed, or None.
+
+    Prefers the static-ffmpeg copy the library uses elsewhere, but only once its download has
+    finished (it writes `installed.crumb` last); asking static-ffmpeg for the path would download it
+    otherwise. Falls back to an ffprobe on PATH.
+    """
+    try:
+        platform_dir = Path(static_ffmpeg_run.get_platform_dir())
+    except OSError:
+        platform_dir = None
+    if platform_dir is not None and (platform_dir / "installed.crumb").is_file():
+        exe = platform_dir / ("ffprobe.exe" if sys.platform == "win32" else "ffprobe")
+        if exe.is_file():
+            return str(exe)
+    return shutil.which("ffprobe")
 
 
 def _local_path(location: str) -> Path | None:

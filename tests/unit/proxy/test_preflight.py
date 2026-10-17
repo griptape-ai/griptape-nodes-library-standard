@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import base64
+import json
+import subprocess
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
@@ -107,40 +110,95 @@ class TestLocalImageInfo:
 
 
 class TestLocalVideoDuration:
-    def test_probes_a_local_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.fixture(autouse=True)
+    def no_ffmpeg_download(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def fetch(*_args: Any, **_kwargs: Any) -> None:
+            pytest.fail("pre-flight must never fetch ffmpeg")
+
+        monkeypatch.setattr(preflight.static_ffmpeg_run, "get_or_fetch_platform_executables_else_raise", fetch)
+
+    @pytest.fixture
+    def clip(self, tmp_path: Path) -> Path:
         path = tmp_path / "clip.mp4"
         path.write_bytes(b"video")
-        probed: list[str] = []
+        return path
 
-        def fake_extract(location: str) -> SimpleNamespace:
-            probed.append(location)
-            return SimpleNamespace(file_details=SimpleNamespace(optional_duration=9.5))
+    @pytest.fixture
+    def ffprobe_runs(self, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+        """Pretend ffprobe is installed and answer every run with a 9.5 second duration."""
+        runs: list[dict[str, Any]] = []
 
-        monkeypatch.setattr(preflight, "extract_video_metadata_structured", fake_extract)
+        def fake_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
+            runs.append({"cmd": cmd, **kwargs})
+            return SimpleNamespace(stdout=json.dumps({"format": {"duration": "9.5"}}))
 
-        assert local_video_duration(VideoUrlArtifact(value=str(path))) == 9.5
-        assert probed == [str(path)]
+        monkeypatch.setattr(preflight, "_installed_ffprobe", lambda: "/usr/bin/ffprobe")
+        monkeypatch.setattr(preflight.subprocess, "run", fake_run)
+        return runs
 
-    def test_skips_when_the_probe_fails(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        path = tmp_path / "clip.mp4"
-        path.write_bytes(b"video")
+    def test_probes_a_local_file_with_a_short_timeout(self, clip: Path, ffprobe_runs: list[dict[str, Any]]) -> None:
+        assert local_video_duration(VideoUrlArtifact(value=str(clip))) == 9.5
+        assert ffprobe_runs[0]["cmd"][0] == "/usr/bin/ffprobe"
+        assert ffprobe_runs[0]["cmd"][-1] == str(clip)
+        assert ffprobe_runs[0]["timeout"] == preflight.FFPROBE_TIMEOUT_SECONDS
 
-        def failing_extract(_location: str) -> SimpleNamespace:
-            msg = "ffprobe failed"
-            raise ValueError(msg)
+    def test_skips_when_ffprobe_times_out(self, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        def slow_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
+            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
 
-        monkeypatch.setattr(preflight, "extract_video_metadata_structured", failing_extract)
+        monkeypatch.setattr(preflight, "_installed_ffprobe", lambda: "/usr/bin/ffprobe")
+        monkeypatch.setattr(preflight.subprocess, "run", slow_run)
 
-        assert local_video_duration(str(path)) is None
+        assert local_video_duration(str(clip)) is None
+
+    def test_skips_when_the_probe_fails(self, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        def failing_run(cmd: list[str], **_kwargs: Any) -> SimpleNamespace:
+            raise subprocess.CalledProcessError(1, cmd, stderr="Invalid data found")
+
+        monkeypatch.setattr(preflight, "_installed_ffprobe", lambda: "/usr/bin/ffprobe")
+        monkeypatch.setattr(preflight.subprocess, "run", failing_run)
+
+        assert local_video_duration(str(clip)) is None
+
+    def test_skips_when_ffprobe_is_not_installed(self, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(preflight, "_installed_ffprobe", lambda: None)
+        monkeypatch.setattr(preflight.subprocess, "run", lambda *_a, **_k: pytest.fail("ffprobe must not run"))
+
+        assert local_video_duration(str(clip)) is None
 
     @pytest.mark.parametrize("value", ["https://example.com/clip.mp4", "data:video/mp4;base64,AAAA"])
-    def test_does_not_probe_a_remote_or_inline_video(self, value: str, monkeypatch: pytest.MonkeyPatch) -> None:
-        def unexpected_extract(_location: str) -> SimpleNamespace:
-            pytest.fail("a remote or inline video must not be probed")
-
-        monkeypatch.setattr(preflight, "extract_video_metadata_structured", unexpected_extract)
-
+    def test_does_not_probe_a_remote_or_inline_video(self, value: str, ffprobe_runs: list[dict[str, Any]]) -> None:
         assert local_video_duration(value) is None
+        assert ffprobe_runs == []
+
+
+class TestInstalledFfprobe:
+    @pytest.fixture(autouse=True)
+    def no_ffmpeg_download(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def fetch(*_args: Any, **_kwargs: Any) -> None:
+            pytest.fail("pre-flight must never fetch ffmpeg")
+
+        monkeypatch.setattr(preflight.static_ffmpeg_run, "get_or_fetch_platform_executables_else_raise", fetch)
+
+    def _platform_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        monkeypatch.setattr(preflight.static_ffmpeg_run, "get_platform_dir", lambda: str(tmp_path))
+        (tmp_path / "ffprobe").write_bytes(b"")
+        return tmp_path
+
+    def test_uses_a_finished_static_ffmpeg_install(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        platform_dir = self._platform_dir(tmp_path, monkeypatch)
+        (platform_dir / "installed.crumb").write_text("installed")
+        assert preflight._installed_ffprobe() == str(platform_dir / "ffprobe")
+
+    def test_ignores_an_unfinished_static_ffmpeg_install(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._platform_dir(tmp_path, monkeypatch)
+        monkeypatch.setattr(preflight.shutil, "which", lambda _name: None)
+        assert preflight._installed_ffprobe() is None
+
+    def test_falls_back_to_ffprobe_on_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._platform_dir(tmp_path, monkeypatch)
+        monkeypatch.setattr(preflight.shutil, "which", lambda _name: "/opt/bin/ffprobe")
+        assert preflight._installed_ffprobe() == "/opt/bin/ffprobe"
 
 
 class TestCheckCount:
