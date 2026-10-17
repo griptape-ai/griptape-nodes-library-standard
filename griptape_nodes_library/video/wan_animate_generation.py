@@ -21,6 +21,18 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, gather_limited
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.proxy.preflight import (
+    check_aspect_ratio_range,
+    check_dimensions,
+    check_duration,
+    check_mime_type,
+    check_size,
+    input_subject,
+    local_image_info,
+    local_size_bytes,
+    local_video_duration,
+    local_video_info,
+)
 from griptape_nodes_library.utils.video_utils import get_video_duration
 
 logger = logging.getLogger("griptape_nodes")
@@ -46,6 +58,30 @@ MODE_OPTIONS = [
     "wan-std",
     "wan-pro",
 ]
+
+# DashScope's documented input limits, the same for wan2.2-animate-mix and wan2.2-animate-move
+# (Request body > input > image_url / video_url on each page).
+# https://www.alibabacloud.com/help/en/model-studio/wan-animate-mix-api
+# https://www.alibabacloud.com/help/en/model-studio/wan-animate-move-api
+INPUT_LIMITS_URL = "https://www.alibabacloud.com/help/en/model-studio/wan-animate-mix-api"
+# "Format: JPG, JPEG, PNG, BMP, or WEBP"
+SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png", "image/bmp", "image/webp")
+# "Width and height must each be in the range [200, 4096] pixels."
+MIN_IMAGE_SIDE = 200
+MAX_IMAGE_SIDE = 4096
+# "File size: Up to 5 MB."
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+# "Duration: 2 to 30 seconds."
+MIN_VIDEO_SECONDS = 2
+MAX_VIDEO_SECONDS = 30
+# "Width and height must each be in the range [200, 2048] pixels."
+MIN_VIDEO_SIDE = 200
+MAX_VIDEO_SIDE = 2048
+# "File size: Up to 200 MB."
+MAX_VIDEO_BYTES = 200 * 1024 * 1024
+# "Aspect ratio must be between 1:3 and 3:1." (image and video)
+WIDEST_ASPECT_RATIO = "3:1"
+TALLEST_ASPECT_RATIO = "1:3"
 
 # HTTP status code threshold for error responses
 HTTP_ERROR_STATUS = 400
@@ -203,7 +239,72 @@ class WanAnimateGeneration(GriptapeProxyNode):
         video_url = self.get_parameter_value("video_url")
         if not video_url:
             exceptions.append(ValueError("Video URL must be provided"))
+        if image_url:
+            exceptions.extend(self._image_errors(image_url))
+        if video_url:
+            exceptions.extend(self._video_errors(video_url))
         return exceptions if exceptions else None
+
+    def _image_errors(self, image: Any) -> list[Exception]:
+        """One error per DashScope image limit the input breaks, read without any network call."""
+        subject = input_subject("Image URL", noun="image")
+        info = local_image_info(image)
+        checks = (
+            check_mime_type(
+                info.mime_type if info else None,
+                subject=subject,
+                allowed=SUPPORTED_IMAGE_MIME_TYPES,
+                docs_url=INPUT_LIMITS_URL,
+            ),
+            check_size(
+                local_size_bytes(image, kind="image"),
+                maximum_bytes=MAX_IMAGE_BYTES,
+                subject=subject,
+                docs_url=INPUT_LIMITS_URL,
+            ),
+            check_dimensions(
+                info, subject=subject, min_side=MIN_IMAGE_SIDE, max_side=MAX_IMAGE_SIDE, docs_url=INPUT_LIMITS_URL
+            ),
+            check_aspect_ratio_range(
+                info,
+                subject=subject,
+                widest=WIDEST_ASPECT_RATIO,
+                tallest=TALLEST_ASPECT_RATIO,
+                docs_url=INPUT_LIMITS_URL,
+            ),
+        )
+        return [error for error in checks if error]
+
+    def _video_errors(self, video: Any) -> list[Exception]:
+        """One error per DashScope video limit the input breaks, read without any network call."""
+        subject = input_subject("Video URL", noun="video")
+        info = local_video_info(video)
+        checks = (
+            check_size(
+                local_size_bytes(video, kind="video"),
+                maximum_bytes=MAX_VIDEO_BYTES,
+                subject=subject,
+                docs_url=INPUT_LIMITS_URL,
+            ),
+            check_duration(
+                local_video_duration(video),
+                subject=subject,
+                minimum=MIN_VIDEO_SECONDS,
+                maximum=MAX_VIDEO_SECONDS,
+                docs_url=INPUT_LIMITS_URL,
+            ),
+            check_dimensions(
+                info, subject=subject, min_side=MIN_VIDEO_SIDE, max_side=MAX_VIDEO_SIDE, docs_url=INPUT_LIMITS_URL
+            ),
+            check_aspect_ratio_range(
+                info,
+                subject=subject,
+                widest=WIDEST_ASPECT_RATIO,
+                tallest=TALLEST_ASPECT_RATIO,
+                docs_url=INPUT_LIMITS_URL,
+            ),
+        )
+        return [error for error in checks if error]
 
     async def aprocess(self) -> None:
         await self._process_generation()
