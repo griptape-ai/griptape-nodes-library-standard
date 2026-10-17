@@ -453,7 +453,10 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         exceptions = super().validate_before_node_run() or []
 
         reference_images = self.get_parameter_list_value("reference_images") or []
-        if self.get_parameter_value("reference_type") != "style":
+        if self.get_parameter_value("reference_type") == "style":
+            # The request sends only the first image as a style reference.
+            reference_images = reference_images[:1]
+        else:
             count_error = check_count(
                 len(reference_images),
                 maximum=MAX_ASSET_REFERENCE_IMAGES,
