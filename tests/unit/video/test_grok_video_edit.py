@@ -119,6 +119,17 @@ class TestInputLimits:
             f"The video in 'Video' is a {format_name} file. Convert it to MP4."
         ]
 
+    @pytest.mark.parametrize("video_input", ["{inputs}/Take #2.mp4", "/Users/me/Shots/edit.v3?final.mp4"])
+    def test_local_mp4_with_url_characters_in_its_name_passes_validation(
+        self, monkeypatch: pytest.MonkeyPatch, video_input: str
+    ) -> None:
+        assert _messages(_validated_node(monkeypatch, video_input)) == []
+
+    def test_local_mov_with_a_hash_in_its_name_fails_validation(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert _messages(_validated_node(monkeypatch, "{inputs}/Take #2.mov")) == [
+            "The video in 'Video' is a MOV file. Convert it to MP4."
+        ]
+
     def test_url_without_extension_passes_validation(self, monkeypatch: pytest.MonkeyPatch) -> None:
         assert _messages(_validated_node(monkeypatch, "https://example.com/signed/abc123")) == []
 

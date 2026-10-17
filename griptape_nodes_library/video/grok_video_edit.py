@@ -16,6 +16,7 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.files.path_utils import is_url
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri, is_publicly_reachable_url
 from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
@@ -155,14 +156,15 @@ class GrokVideoEdit(GriptapeProxyNode):
 
     @staticmethod
     def _video_mime_type(video_value: str) -> str | None:
-        """Return the MIME type named by a data URI's header or a URL's extension, or None if neither.
+        """Return the MIME type named by a data URI's header or a path's or URL's extension, or None.
 
         No extension carries no signal (a signed URL that strips the filename, say), so it is
-        let through.
+        let through. Only a URL is split, so a local path keeps a "#" or "?" in its filename.
         """
         if video_value.startswith("data:"):
             return video_value.removeprefix("data:").split(",", 1)[0].split(";", 1)[0].lower() or None
-        extension = Path(urlsplit(video_value).path).suffix.lstrip(".").lower()
+        location = urlsplit(video_value).path if is_url(video_value) else video_value
+        extension = Path(location).suffix.lstrip(".").lower()
         return f"video/{extension}" if extension else None
 
     def _find_input_limit_errors(self, video_input: Any) -> list[Exception]:
