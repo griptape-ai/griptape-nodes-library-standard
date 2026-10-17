@@ -20,6 +20,7 @@ from griptape_nodes_library.proxy import preflight
 from griptape_nodes_library.proxy.preflight import (
     ImageInfo,
     check_aspect_ratio,
+    check_aspect_ratio_range,
     check_count,
     check_dimensions,
     check_duration,
@@ -29,6 +30,7 @@ from griptape_nodes_library.proxy.preflight import (
     local_image_info,
     local_size_bytes,
     local_video_duration,
+    local_video_info,
 )
 
 SUBJECT = "Image 2 in 'reference images'"
@@ -172,6 +174,47 @@ class TestLocalVideoDuration:
         assert ffprobe_runs == []
 
 
+class TestLocalVideoInfo:
+    @pytest.fixture
+    def clip(self, tmp_path: Path) -> Path:
+        path = tmp_path / "clip.mp4"
+        path.write_bytes(b"video")
+        return path
+
+    def _answer(self, monkeypatch: pytest.MonkeyPatch, stream: dict[str, Any]) -> None:
+        monkeypatch.setattr(preflight, "_installed_ffprobe", lambda: "/usr/bin/ffprobe")
+        monkeypatch.setattr(
+            preflight.subprocess,
+            "run",
+            lambda *_a, **_k: SimpleNamespace(stdout=json.dumps({"streams": [stream]})),
+        )
+
+    def test_reads_the_frame_size(self, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._answer(monkeypatch, {"width": 1920, "height": 1080})
+        assert local_video_info(str(clip)) == ImageInfo(1920, 1080, None)
+
+    @pytest.mark.parametrize(
+        "stream",
+        [
+            {"width": 1920, "height": 1080, "tags": {"rotate": "90"}},
+            {"width": 1920, "height": 1080, "side_data_list": [{"rotation": -90}]},
+        ],
+        ids=["rotate-tag", "display-matrix"],
+    )
+    def test_reports_a_rotated_clip_as_displayed(
+        self, clip: Path, monkeypatch: pytest.MonkeyPatch, stream: dict[str, Any]
+    ) -> None:
+        self._answer(monkeypatch, stream)
+        assert local_video_info(str(clip)) == ImageInfo(1080, 1920, None)
+
+    def test_skips_when_ffprobe_is_not_installed(self, clip: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(preflight, "_installed_ffprobe", lambda: None)
+        assert local_video_info(str(clip)) is None
+
+    def test_skips_a_remote_video(self) -> None:
+        assert local_video_info("https://example.com/clip.mp4") is None
+
+
 class TestInstalledFfprobe:
     @pytest.fixture(autouse=True)
     def no_ffmpeg_download(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -243,21 +286,18 @@ class TestCheckSize:
 class TestCheckDimensions:
     def test_allows_an_image_within_every_limit(self) -> None:
         info = ImageInfo(1280, 720, "image/png")
-        assert (
-            check_dimensions(info, subject=SUBJECT, min_width=720, min_height=720, max_width=4096, max_megapixels=16)
-            is None
-        )
+        assert check_dimensions(info, subject=SUBJECT, min_side=200, max_side=4096, max_megapixels=16) is None
 
     def test_skips_an_unknown_image(self) -> None:
-        assert check_dimensions(None, subject=SUBJECT, min_width=10_000) is None
+        assert check_dimensions(None, subject=SUBJECT, min_side=10_000) is None
 
-    def test_rejects_a_small_image(self) -> None:
-        error = check_dimensions(ImageInfo(300, 200, None), subject=SUBJECT, min_width=512, min_height=512)
-        assert str(error) == f"{SUBJECT} is 300x200 and the minimum is 512x512. Use a larger image."
+    def test_rejects_a_short_side(self) -> None:
+        error = check_dimensions(ImageInfo(1000, 150, None), subject=SUBJECT, min_side=200)
+        assert str(error) == f"{SUBJECT} is 1000x150 and each side must be at least 200 pixels. Use a larger one."
 
-    def test_rejects_a_large_image(self) -> None:
-        error = check_dimensions(ImageInfo(5000, 200, None), subject=SUBJECT, max_width=4096)
-        assert str(error) == f"{SUBJECT} is 5000x200 and the maximum is 4096x∞. Resize it smaller."
+    def test_rejects_a_long_side(self) -> None:
+        error = check_dimensions(ImageInfo(300, 5000, None), subject=SUBJECT, max_side=4096)
+        assert str(error) == f"{SUBJECT} is 300x5000 and each side must be at most 4096 pixels. Resize it smaller."
 
     def test_rejects_too_many_pixels(self) -> None:
         error = check_dimensions(ImageInfo(4000, 4000, None), subject=SUBJECT, max_megapixels=8)
@@ -280,18 +320,30 @@ class TestCheckAspectRatio:
         error = check_aspect_ratio(ImageInfo(1000, 1000, None), subject=SUBJECT, allowed=("16:9", "9:16"))
         assert str(error) == f"{SUBJECT} is 1000x1000, which isn't a supported aspect ratio. Crop it to 16:9 or 9:16."
 
-    def test_allows_a_ratio_in_range(self) -> None:
-        assert check_aspect_ratio(ImageInfo(400, 300, None), subject=SUBJECT, min_ratio=0.4, max_ratio=2.5) is None
+    def test_skips_an_unknown_image(self) -> None:
+        assert check_aspect_ratio(None, subject=SUBJECT, allowed=("1:1",)) is None
 
-    def test_rejects_a_ratio_out_of_range(self) -> None:
-        error = check_aspect_ratio(ImageInfo(3000, 1000, None), subject=SUBJECT, min_ratio=0.4, max_ratio=2.5)
+
+class TestCheckAspectRatioRange:
+    @pytest.mark.parametrize(("width", "height"), [(300, 900), (900, 300), (1000, 1000), (1920, 1080)])
+    def test_allows_a_shape_in_range_including_the_ends(self, width: int, height: int) -> None:
+        info = ImageInfo(width, height, None)
+        assert check_aspect_ratio_range(info, subject=SUBJECT, widest="3:1", tallest="1:3") is None
+
+    def test_rejects_a_shape_that_is_too_wide(self) -> None:
+        error = check_aspect_ratio_range(ImageInfo(1000, 300, None), subject=SUBJECT, widest="3:1", tallest="1:3")
         assert str(error) == (
-            f"{SUBJECT} is 3000x1000, a width/height ratio of 3.00. The accepted range is 0.4 to 2.5. "
-            "Crop it to a less extreme shape."
+            f"{SUBJECT} is 1000x300, which is too wide. The aspect ratio must be between 1:3 and 3:1. Crop it."
+        )
+
+    def test_rejects_a_shape_that_is_too_tall(self) -> None:
+        error = check_aspect_ratio_range(ImageInfo(250, 1000, None), subject=SUBJECT, widest="3:1", tallest="1:3")
+        assert str(error) == (
+            f"{SUBJECT} is 250x1000, which is too tall. The aspect ratio must be between 1:3 and 3:1. Crop it."
         )
 
     def test_skips_an_unknown_image(self) -> None:
-        assert check_aspect_ratio(None, subject=SUBJECT, allowed=("1:1",)) is None
+        assert check_aspect_ratio_range(None, subject=SUBJECT, widest="3:1", tallest="1:3") is None
 
 
 class TestCheckMimeType:

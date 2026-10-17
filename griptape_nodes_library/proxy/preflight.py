@@ -5,14 +5,14 @@ sometimes credits. These helpers let a node refuse it first, from what it can re
 
 There are two halves:
 
-- **Readers** (`local_size_bytes`, `local_image_info`, `local_video_duration`) read one property of
+- **Readers** (`local_size_bytes`, `local_image_info`, `local_video_info`, `local_video_duration`) read one property of
   a media input from data already on this machine. None of them makes a network call or downloads a
   tool: the video reader uses ffprobe only if it is already installed. They return None when the
   value is a remote URL, can't be found, or can't be parsed, or when the tool to read it is missing
   or too slow, and the matching check then skips. A provider limit is only enforced
   where it can be read cheaply; anything else is left for the provider to enforce.
 - **Checks** (`check_count`, `check_size`, `check_dimensions`, `check_aspect_ratio`,
-  `check_mime_type`, `check_duration`) compare a value with a limit and return a `NodeError` ready to
+  `check_aspect_ratio_range`, `check_mime_type`, `check_duration`) compare a value with a limit and return a `NodeError` ready to
   append to `validate_before_node_run`'s list, or None when the value is within the limit or
   unknown.
 
@@ -55,6 +55,7 @@ logger = logging.getLogger("griptape_nodes")
 __all__ = [
     "ImageInfo",
     "check_aspect_ratio",
+    "check_aspect_ratio_range",
     "check_count",
     "check_dimensions",
     "check_duration",
@@ -64,6 +65,7 @@ __all__ = [
     "local_image_info",
     "local_size_bytes",
     "local_video_duration",
+    "local_video_info",
 ]
 
 BYTES_PER_MB = 1024 * 1024
@@ -80,7 +82,7 @@ FFPROBE_TIMEOUT_SECONDS = 5
 
 
 class ImageInfo(NamedTuple):
-    """An image's pixel size and MIME type, read from its header."""
+    """An image's or video frame's pixel size, and an image's MIME type read from its header."""
 
     width: int
     height: int
@@ -147,8 +149,49 @@ def local_image_info(value: Any) -> ImageInfo | None:
         return None
 
 
+def local_video_info(value: Any) -> ImageInfo | None:
+    """The frame size of a video input, as an `ImageInfo` with no MIME type, or None if it can't be
+    read locally.
+
+    Probes the same way as `local_video_duration`. Reports the size as displayed, so a phone clip
+    stored landscape with a 90-degree rotation reads as portrait.
+    """
+    data = _probe_local_video(value, ["-select_streams", "v:0", "-show_streams"])
+    streams = data.get("streams") if data else None
+    if not streams:
+        return None
+    stream = streams[0]
+    try:
+        width, height = int(stream["width"]), int(stream["height"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    rotation = stream.get("tags", {}).get("rotate")
+    for side_data in stream.get("side_data_list", []):
+        rotation = side_data.get("rotation", rotation)
+    try:
+        if rotation is not None and abs(int(float(rotation))) % 180 == 90:  # noqa: PLR2004
+            width, height = height, width
+    except (TypeError, ValueError):
+        pass
+    return ImageInfo(width=width, height=height, mime_type=None)
+
+
 def local_video_duration(value: Any) -> float | None:
     """The duration in seconds of a video input, or None if it can't be read locally.
+
+    Probes with ffprobe only a file on this machine, and only with an ffprobe that is already
+    installed; see `_probe_local_video`.
+    """
+    data = _probe_local_video(value, ["-show_format"])
+    duration = data.get("format", {}).get("duration") if data else None
+    try:
+        return float(duration) if duration is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _probe_local_video(value: Any, args: list[str]) -> dict[str, Any] | None:
+    """ffprobe's JSON for a video input on this machine, or None.
 
     Only a file on this machine is probed: a remote URL would make ffprobe download it, and a data
     URI is too large to pass on its command line. ffprobe is used only if it is already installed
@@ -162,18 +205,18 @@ def local_video_duration(value: Any) -> float | None:
         return None
     ffprobe = _installed_ffprobe()
     if ffprobe is None:
-        logger.debug("ffprobe is not installed, skipping the pre-flight duration check")
+        logger.debug("ffprobe is not installed, skipping a pre-flight video check")
         return None
-    cmd = [ffprobe, "-v", "error", "-print_format", "json", "-show_format", str(path)]
+    cmd = [ffprobe, "-v", "error", "-print_format", "json", *args, str(path)]
     try:
         result = subprocess.run(  # noqa: S603
             cmd, capture_output=True, text=True, check=True, timeout=FFPROBE_TIMEOUT_SECONDS
         )
-        duration = json.loads(result.stdout).get("format", {}).get("duration")
-        return float(duration) if duration is not None else None
+        data = json.loads(result.stdout)
     except (subprocess.SubprocessError, OSError, ValueError) as e:
-        logger.debug("Could not probe video duration for a pre-flight check, skipping it: %s", e)
+        logger.debug("Could not probe a video for a pre-flight check, skipping it: %s", e)
         return None
+    return data if isinstance(data, dict) else None
 
 
 def check_count(
@@ -221,86 +264,92 @@ def check_size(
     )
 
 
-def check_dimensions(  # noqa: PLR0913
+def check_dimensions(
     info: ImageInfo | None,
     *,
     subject: str,
-    min_width: int | None = None,
-    min_height: int | None = None,
-    max_width: int | None = None,
-    max_height: int | None = None,
+    min_side: int | None = None,
+    max_side: int | None = None,
     max_megapixels: float | None = None,
     docs_url: str | None = None,
 ) -> NodeError | None:
-    """An error when an image's pixel size is outside what the provider accepts.
+    """An error when an image or video frame's pixel size is outside what the provider accepts.
 
     Args:
-        info: The image's header, from `local_image_info`. None skips the check.
+        info: The pixel size, from `local_image_info` or `local_video_info`. None skips the check.
         subject: The input, from `input_subject`.
-        min_width: The narrowest image accepted, in pixels.
-        min_height: The shortest image accepted, in pixels.
-        max_width: The widest image accepted, in pixels.
-        max_height: The tallest image accepted, in pixels.
-        max_megapixels: The most pixels accepted, in millions.
+        min_side: The fewest pixels accepted for the width and for the height.
+        max_side: The most pixels accepted for the width and for the height.
+        max_megapixels: The most pixels accepted in total, in millions.
         docs_url: The provider's page documenting the limit.
     """
     if info is None:
         return None
     size = f"{info.width}x{info.height}"
-    if (min_width is not None and info.width < min_width) or (min_height is not None and info.height < min_height):
+    if min_side is not None and min(info.width, info.height) < min_side:
         return _error(
-            f"{subject} is {size} and the minimum is {min_width or 1}x{min_height or 1}. Use a larger image.",
-            docs_url,
+            f"{subject} is {size} and each side must be at least {min_side} pixels. Use a larger one.", docs_url
         )
-    if (max_width is not None and info.width > max_width) or (max_height is not None and info.height > max_height):
-        maximum = f"{max_width or '∞'}x{max_height or '∞'}"
-        return _error(f"{subject} is {size} and the maximum is {maximum}. Resize it smaller.", docs_url)
+    if max_side is not None and max(info.width, info.height) > max_side:
+        return _error(
+            f"{subject} is {size} and each side must be at most {max_side} pixels. Resize it smaller.", docs_url
+        )
     megapixels = info.width * info.height / 1_000_000
     if max_megapixels is not None and megapixels > max_megapixels:
         return _error(
-            f"{subject} is {size} ({_format_past(megapixels, max_megapixels, 1)} megapixels) and the limit is {max_megapixels:g} megapixels. "
-            "Resize it smaller.",
+            f"{subject} is {size} ({_format_past(megapixels, max_megapixels, 1)} megapixels) and the limit is "
+            f"{max_megapixels:g} megapixels. Resize it smaller.",
             docs_url,
         )
     return None
 
 
-def check_aspect_ratio(  # noqa: PLR0913
-    info: ImageInfo | None,
-    *,
-    subject: str,
-    allowed: Sequence[str] = (),
-    min_ratio: float | None = None,
-    max_ratio: float | None = None,
-    docs_url: str | None = None,
+def check_aspect_ratio(
+    info: ImageInfo | None, *, subject: str, allowed: Sequence[str], docs_url: str | None = None
 ) -> NodeError | None:
-    """An error when an image's shape is outside what the provider accepts.
+    """An error when an image or video frame doesn't match one of the provider's named aspect ratios.
 
     Args:
-        info: The image's header, from `local_image_info`. None skips the check.
+        info: The pixel size, from `local_image_info` or `local_video_info`. None skips the check.
         subject: The input, from `input_subject`.
-        allowed: Named ratios the image must match, such as ("16:9", "9:16"). Empty allows any.
-        min_ratio: The smallest width/height accepted.
-        max_ratio: The largest width/height accepted.
+        allowed: The ratios accepted, such as ("16:9", "9:16").
         docs_url: The provider's page documenting the limit.
     """
     if info is None or info.height == 0:
         return None
     ratio = info.width / info.height
-    shape = f"{info.width}x{info.height}"
-    if allowed and not any(abs(ratio - _parse_ratio(name)) <= ASPECT_RATIO_TOLERANCE for name in allowed):
-        return _error(
-            f"{subject} is {shape}, which isn't a supported aspect ratio. Crop it to {_join_or(allowed)}.", docs_url
-        )
-    if (min_ratio is not None and ratio < min_ratio) or (max_ratio is not None and ratio > max_ratio):
-        low = f"{min_ratio:g}" if min_ratio is not None else "any"
-        high = f"{max_ratio:g}" if max_ratio is not None else "any"
-        return _error(
-            f"{subject} is {shape}, a width/height ratio of {ratio:.2f}. The accepted range is {low} to {high}. "
-            "Crop it to a less extreme shape.",
-            docs_url,
-        )
-    return None
+    if any(abs(ratio - _parse_ratio(name)) <= ASPECT_RATIO_TOLERANCE for name in allowed):
+        return None
+    return _error(
+        f"{subject} is {info.width}x{info.height}, which isn't a supported aspect ratio. "
+        f"Crop it to {_join_or(allowed)}.",
+        docs_url,
+    )
+
+
+def check_aspect_ratio_range(
+    info: ImageInfo | None, *, subject: str, widest: str, tallest: str, docs_url: str | None = None
+) -> NodeError | None:
+    """An error when an image or video frame is wider or taller than the provider accepts.
+
+    Args:
+        info: The pixel size, from `local_image_info` or `local_video_info`. None skips the check.
+        subject: The input, from `input_subject`.
+        widest: The widest ratio accepted, as the provider writes it, such as "3:1".
+        tallest: The tallest ratio accepted, such as "1:3".
+        docs_url: The provider's page documenting the limit.
+    """
+    if info is None or info.height == 0:
+        return None
+    ratio = info.width / info.height
+    if _parse_ratio(tallest) <= ratio <= _parse_ratio(widest):
+        return None
+    shape = "wide" if ratio > 1 else "tall"
+    return _error(
+        f"{subject} is {info.width}x{info.height}, which is too {shape}. The aspect ratio must be between "
+        f"{tallest} and {widest}. Crop it.",
+        docs_url,
+    )
 
 
 def check_mime_type(
