@@ -85,6 +85,13 @@ class TestGoogleImageGeneration:
         assert str(errors[0]).startswith("Image 1 in 'Input Images' is ")
         assert str(errors[0]).endswith("Turn on 'Auto Image Resize' or use a smaller image.")
 
+    def test_lets_auto_resize_convert_an_oversized_unsupported_image(
+        self, node: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(_node_module(node), "MAX_IMAGE_SIZE_BYTES", 10)
+        node.set_parameter_value("input_images", [_image_uri("GIF")])
+        assert node.validate_before_node_run() is None
+
     def test_skips_a_remote_image(self, node: Any) -> None:
         node.set_parameter_value("input_images", ["https://example.com/image.gif"])
         assert node.validate_before_node_run() is None
@@ -154,3 +161,8 @@ class TestGeminiOmniFlashGeneration:
         assert [str(e) for e in _node_errors(node)] == [
             "The image in 'image (deprecated)' is a GIF file. Convert it to PNG, JPEG, WEBP, HEIC or HEIF."
         ]
+
+    def test_ignores_the_deprecated_image_when_references_are_connected(self, node: Any) -> None:
+        node.set_parameter_value("reference_images", [_image_uri("PNG")])
+        node.set_parameter_value("image", _image_uri("GIF"))
+        assert node.validate_before_node_run() is None

@@ -198,12 +198,14 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
         if not self.get_parameter_value("prompt"):
             exceptions.append(ValueError("A prompt is required. Enter one in 'prompt'."))
 
+        reference_images = self.get_parameter_list_value("reference_images") or []
         images = [
             (input_subject("reference images", noun="image", position=position), image)
-            for position, image in enumerate(self.get_parameter_list_value("reference_images") or [], start=1)
+            for position, image in enumerate(reference_images, start=1)
         ]
+        # The request drops the deprecated image when reference images are connected.
         legacy_image = self.get_parameter_value("image")
-        if legacy_image:
+        if legacy_image and not reference_images:
             images.append((input_subject("image (deprecated)", noun="image"), legacy_image))
         for subject, image in images:
             info = local_image_info(image)

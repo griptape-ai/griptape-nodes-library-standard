@@ -371,14 +371,17 @@ class GoogleImageGeneration(GriptapeProxyNode):
     def _input_image_errors(self, image_lists: dict[str, list[Any]]) -> list[Exception]:
         """One error per input image Google is certain to reject, read without any network call.
 
-        Oversized images are only an error with 'Auto Image Resize' off; with it on they are
-        shrunk before sending.
+        With 'Auto Image Resize' on, an oversized image is re-encoded to WEBP before sending, so
+        neither its size nor its source format is checked. With it off, both are.
         """
         auto_image_resize = self.get_parameter_value("auto_image_resize")
         errors: list[Exception] = []
         for parameter, images in image_lists.items():
             for position, image in enumerate(images, start=1):
                 subject = input_subject(parameter, noun="image", position=position)
+                size_bytes = local_size_bytes(image, kind="image")
+                if auto_image_resize and size_bytes is not None and size_bytes > MAX_IMAGE_SIZE_BYTES:
+                    continue
                 info = local_image_info(image)
                 error = check_mime_type(
                     info.mime_type if info else None,
@@ -388,7 +391,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
                 )
                 if error is None and not auto_image_resize:
                     error = check_size(
-                        local_size_bytes(image, kind="image"),
+                        size_bytes,
                         maximum_bytes=MAX_IMAGE_SIZE_BYTES,
                         subject=subject,
                         fix="Turn on 'Auto Image Resize' or use a smaller image.",
