@@ -37,9 +37,9 @@ logger = logging.getLogger("griptape_nodes")
 __all__ = ["GoogleImageGeneration"]
 
 # Google's documented input limits for Gemini 3 Pro Image and Gemini 3.1 Flash Image.
-# https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-pro-image
-# https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-1-flash-image
-INPUT_LIMITS_URL = "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-pro-image"
+# https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-pro-image
+# https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-1-flash-image
+INPUT_LIMITS_URL = "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-pro-image"
 MAX_INPUT_IMAGES = 14
 SUPPORTED_INPUT_MIME_TYPES = ("image/png", "image/jpeg", "image/webp", "image/heic", "image/heif")
 # Deprecated constants - kept for backwards compatibility

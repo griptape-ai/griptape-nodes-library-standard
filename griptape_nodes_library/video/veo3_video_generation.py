@@ -39,17 +39,19 @@ __all__ = ["Veo3VideoGeneration"]
 
 # Google's documented input limits for Veo 3.1 on Vertex AI.
 # "Image-to-video maximum input image size: 20 MB"
-# https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/veo/3-1-generate
-INPUT_LIMITS_URL = "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/veo/3-1-generate"
+# https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/veo/3-1-generate
+INPUT_LIMITS_URL = "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/veo/3-1-generate"
 MAX_FRAME_IMAGE_BYTES = 20 * 1024 * 1024
 # Start, last frame, and reference images accept only JPEG and PNG.
-# https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/generate-videos-from-an-image
-# https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/generate-videos-from-first-and-last-frames
-# https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/use-reference-images-to-guide-video-generation
-FRAME_FORMATS_URL = "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/generate-videos-from-an-image"
+# https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/video/generate-videos-from-an-image
+# https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/video/generate-videos-from-first-and-last-frames
+# https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/video/generate-videos-from-references
+FRAME_FORMATS_URL = (
+    "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/video/generate-videos-from-an-image"
+)
 SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png")
 REFERENCE_IMAGES_URL = (
-    "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/use-reference-images-to-guide-video-generation"
+    "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/video/generate-videos-from-references"
 )
 
 
