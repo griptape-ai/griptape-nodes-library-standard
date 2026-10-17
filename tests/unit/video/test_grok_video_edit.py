@@ -158,7 +158,7 @@ class TestInputLimits:
         ]
 
 
-def _uploading_node(monkeypatch: pytest.MonkeyPatch, video: str = "{inputs}/clip.mp4") -> GrokVideoEdit:
+def _uploading_node(video: str = "{inputs}/clip.mp4") -> GrokVideoEdit:
     """A real node with a video set."""
     node = GrokVideoEdit(name="GrokVideoEdit")
     node.set_parameter_value("video", video)
@@ -171,14 +171,14 @@ class TestUpload:
         self, monkeypatch: pytest.MonkeyPatch, captured_paths: list[str]
     ) -> None:
         monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", lambda _self: UPLOADED)
-        node = _uploading_node(monkeypatch)
+        node = _uploading_node()
 
         assert await node._prepare_video_url(node.get_parameter_value("video")) == UPLOADED
         assert captured_paths == []
 
     async def test_payload_carries_the_uploaded_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", lambda _self: UPLOADED)
-        node = _uploading_node(monkeypatch)
+        node = _uploading_node()
         node.set_parameter_value("prompt", "make it snow")
 
         assert await node._build_payload() == {
@@ -195,7 +195,7 @@ class TestUpload:
             raise RuntimeError(msg)
 
         monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", failing_upload)
-        node = _uploading_node(monkeypatch)
+        node = _uploading_node()
 
         assert await node._prepare_video_url(node.get_parameter_value("video")) == RESOLVED
         assert captured_paths == ["{inputs}/clip.mp4"]
@@ -206,7 +206,7 @@ class TestUpload:
         monkeypatch.setattr(
             public_artifact_url_parameter_module, "resolve_cloud_credential", lambda *_args, **_kwargs: None
         )
-        node = _uploading_node(monkeypatch)
+        node = _uploading_node()
 
         assert await node._prepare_video_url(node.get_parameter_value("video")) == RESOLVED
         assert captured_paths == ["{inputs}/clip.mp4"]
@@ -215,7 +215,7 @@ class TestUpload:
         self, monkeypatch: pytest.MonkeyPatch, captured_paths: list[str]
     ) -> None:
         static_url = "http://127.0.0.1:8124/workspace/clip.mp4"
-        node = _uploading_node(monkeypatch, video=static_url)
+        node = _uploading_node(video=static_url)
 
         assert await node._prepare_video_url(node.get_parameter_value("video")) == RESOLVED
         assert captured_paths == [static_url]
@@ -224,7 +224,7 @@ class TestUpload:
         self, monkeypatch: pytest.MonkeyPatch, captured_paths: list[str]
     ) -> None:
         public_url = "https://example.com/clip.mp4"
-        node = _uploading_node(monkeypatch, video=public_url)
+        node = _uploading_node(video=public_url)
 
         assert await node._prepare_video_url(node.get_parameter_value("video")) == public_url
         assert captured_paths == []
@@ -234,7 +234,7 @@ class TestUpload:
         deleted: list[bool] = []
         monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", lambda _self: UPLOADED)
         monkeypatch.setattr(PublicArtifactUrlParameter, "delete_uploaded_artifact", lambda _self: deleted.append(True))
-        node = _uploading_node(monkeypatch)
+        node = _uploading_node()
 
         async def run(_self: GriptapeProxyNode) -> None:
             await node._prepare_video_url(node.get_parameter_value("video"))
@@ -262,7 +262,7 @@ class TestUpload:
 
         monkeypatch.setattr(PublicArtifactUrlParameter, "get_public_url_for_parameter", lambda _self: UPLOADED)
         monkeypatch.setattr(PublicArtifactUrlParameter, "delete_uploaded_artifact", failing_delete)
-        node = _uploading_node(monkeypatch)
+        node = _uploading_node()
 
         async def run(_self: GriptapeProxyNode) -> None:
             await node._prepare_video_url(node.get_parameter_value("video"))
