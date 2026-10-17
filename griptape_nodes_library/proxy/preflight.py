@@ -357,13 +357,15 @@ def _local_path(location: str) -> Path | None:
 
 
 def _format_past(value: float, limit: float, decimals: int) -> str:
-    """`value` to `decimals` places, with more when that would make it read as equal to `limit`.
+    """`value` to `decimals` places, with more when fewer would read as equal to `limit` or on its other side.
 
-    A file of 7.0001 MB against a 7 MB limit must not be reported as "7.0 MB".
+    A file of 10,000,001 bytes against a 10,000,000-byte limit must not be reported as "9.5 MB".
     """
+    over = value > limit
     for places in range(decimals, decimals + 6):
         text = f"{value:.{places}f}"
-        if float(text) != limit:
+        rounded = float(text)
+        if rounded != limit and (rounded > limit) == over:
             return text
     return f"{value:g}"
 

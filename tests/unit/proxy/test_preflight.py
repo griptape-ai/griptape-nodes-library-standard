@@ -172,6 +172,10 @@ class TestCheckSize:
         error = check_size(7 * 1024 * 1024 + 1024, maximum_bytes=7 * 1024 * 1024, subject=SUBJECT)
         assert str(error).startswith(f"{SUBJECT} is 7.001 MB and the limit is 7 MB.")
 
+    def test_reports_a_size_over_a_non_round_limit_as_over_it(self) -> None:
+        error = check_size(10_000_001, maximum_bytes=10_000_000, subject=SUBJECT)
+        assert str(error).startswith(f"{SUBJECT} is 9.54 MB and the limit is 9.53674 MB.")
+
     def test_uses_the_given_fix(self) -> None:
         error = check_size(2, maximum_bytes=1, subject=SUBJECT, fix="Turn on 'Auto Image Resize'.")
         assert error is not None
@@ -264,6 +268,10 @@ class TestCheckDuration:
     def test_reports_a_duration_just_over_the_limit_as_over_it(self) -> None:
         error = check_duration(8.701, subject="The video in 'Video'", maximum=8.7)
         assert str(error).startswith("The video in 'Video' is 8.701 seconds long and the limit is 8.7.")
+
+    def test_reports_a_duration_under_a_non_round_minimum_as_under_it(self) -> None:
+        error = check_duration(1.9455, subject="The video in 'Video'", minimum=1.946)
+        assert str(error).startswith("The video in 'Video' is 1.9455 seconds long and the minimum is 1.946.")
 
     def test_uses_the_given_fix(self) -> None:
         error = check_duration(20, subject="The video in 'Video'", maximum=10, fix="Pick a shorter clip.")
