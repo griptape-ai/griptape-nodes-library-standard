@@ -152,3 +152,19 @@ def test_skips_remote_inputs(node: WanAnimateGeneration, monkeypatch: pytest.Mon
     node.set_parameter_value("image_url", "https://example.com/source.gif")
     node.set_parameter_value("video_url", "https://example.com/reference.mp4")
     assert node.validate_before_node_run() is None
+
+
+@pytest.mark.parametrize(
+    ("model", "page"),
+    [("wan2.2-animate-mix", "wan-animate-mix-api"), ("wan2.2-animate-move", "wan-animate-move-api")],
+)
+def test_errors_link_the_selected_models_page(
+    node: WanAnimateGeneration, tmp_path: Path, video: dict[str, Any], model: str, page: str
+) -> None:
+    node.set_parameter_value("model", model)
+    node.set_parameter_value("image_url", _image(tmp_path, image_format="GIF"))
+    node.set_parameter_value("video_url", video["path"])
+    errors = [e for e in node.validate_before_node_run() or [] if isinstance(e, NodeError)]
+    assert len(errors) == 1
+    assert errors[0].links
+    assert errors[0].links[0].url.endswith(page)
