@@ -213,7 +213,6 @@ class GrokVideoEdit(GriptapeProxyNode):
                 self._video_upload = PublicArtifactUrlParameter(
                     node=self,
                     artifact_url_parameter=self._video_param,
-                    disclaimer_message="xAI fetches the video from this URL to edit it.",
                 )
             public_url = await self._video_upload.aget_public_url_for_parameter()
         except Exception as e:  # noqa: BLE001 - any upload failure should degrade to a data URI
