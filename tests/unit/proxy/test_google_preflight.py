@@ -17,6 +17,8 @@ from griptape_nodes.node_library.library_registry import LibraryRegistry
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from PIL import Image
 
+from griptape_nodes_library.video import veo3_video_generation
+
 LIBRARY_NAME = "Griptape Nodes Library"
 
 
@@ -102,9 +104,10 @@ class TestVeo3VideoGeneration:
 
     def test_rejects_an_unsupported_frame_format(self, node: Any) -> None:
         node.set_parameter_value("start_frame", _image_uri("WEBP"))
-        assert [str(e) for e in _node_errors(node)] == [
-            "The image in 'start frame' is a WEBP file. Convert it to JPEG or PNG."
-        ]
+        errors = _node_errors(node)
+        assert [str(e) for e in errors] == ["The image in 'start frame' is a WEBP file. Convert it to JPEG or PNG."]
+        assert errors[0].links
+        assert errors[0].links[0].url == veo3_video_generation.FRAME_FORMATS_URL
 
     def test_rejects_an_oversized_frame(self, node: Any, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(_node_module(node), "MAX_FRAME_IMAGE_BYTES", 10)
@@ -122,9 +125,10 @@ class TestVeo3VideoGeneration:
 
     def test_rejects_an_unsupported_reference_format(self, node: Any) -> None:
         node.set_parameter_value("reference_images", [_image_uri(), _image_uri("GIF")])
-        assert [str(e) for e in _node_errors(node)] == [
-            "Image 2 in 'reference images' is a GIF file. Convert it to JPEG or PNG."
-        ]
+        errors = _node_errors(node)
+        assert [str(e) for e in errors] == ["Image 2 in 'reference images' is a GIF file. Convert it to JPEG or PNG."]
+        assert errors[0].links
+        assert errors[0].links[0].url == veo3_video_generation.REFERENCE_IMAGES_URL
 
 
 class TestGeminiOmniFlashGeneration:
