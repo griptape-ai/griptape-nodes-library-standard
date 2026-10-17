@@ -47,6 +47,7 @@ MAX_FRAME_IMAGE_BYTES = 20 * 1024 * 1024
 # https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/generate-videos-from-an-image
 # https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/generate-videos-from-first-and-last-frames
 # https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/use-reference-images-to-guide-video-generation
+FRAME_FORMATS_URL = "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/generate-videos-from-an-image"
 SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png")
 # "You provide up to three images of a single person, character, or product." (asset references,
 # same reference-images page as above)
@@ -468,26 +469,32 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             if not image:
                 continue
             subject = input_subject(parameter.replace("_", " "), noun="image")
-            exceptions.extend(self._frame_image_errors(image, subject, check_file_size=True))
+            exceptions.extend(
+                self._frame_image_errors(image, subject, formats_url=FRAME_FORMATS_URL, check_file_size=True)
+            )
 
         for position, image in enumerate(reference_images, start=1):
             subject = input_subject("reference images", noun="image", position=position)
-            exceptions.extend(self._frame_image_errors(image, subject, check_file_size=False))
+            exceptions.extend(
+                self._frame_image_errors(image, subject, formats_url=REFERENCE_IMAGES_URL, check_file_size=False)
+            )
 
         return exceptions or None
 
-    def _frame_image_errors(self, image: Any, subject: str, *, check_file_size: bool) -> list[Exception]:
+    def _frame_image_errors(
+        self, image: Any, subject: str, *, formats_url: str, check_file_size: bool
+    ) -> list[Exception]:
         """The errors for one input image Google is certain to reject, read without any network call.
 
         Google documents the 20 MB limit for image-to-video input, so it is checked on the start and
-        last frame only.
+        last frame only. `formats_url` is the page stating the JPEG/PNG rule for this kind of input.
         """
         info = local_image_info(image)
         error = check_mime_type(
             info.mime_type if info else None,
             subject=subject,
             allowed=SUPPORTED_IMAGE_MIME_TYPES,
-            docs_url=INPUT_LIMITS_URL,
+            docs_url=formats_url,
         )
         if error is None and check_file_size:
             error = check_size(
