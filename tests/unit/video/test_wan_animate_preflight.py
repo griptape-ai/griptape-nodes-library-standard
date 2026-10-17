@@ -94,6 +94,18 @@ def test_rejects_an_oversized_image(
     assert "and the limit is" in messages[0]
 
 
+def test_rejects_an_oversized_video(
+    node: WanAnimateGeneration, tmp_path: Path, video: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys.modules[WanAnimateGeneration.__module__], "MAX_VIDEO_BYTES", 1)
+    node.set_parameter_value("image_url", _image(tmp_path))
+    node.set_parameter_value("video_url", video["path"])
+    messages = _messages(node)
+    assert len(messages) == 1
+    assert messages[0].startswith("The video in 'Video URL' is ")
+    assert "and the limit is" in messages[0]
+
+
 @pytest.mark.parametrize(
     ("seconds", "expected"),
     [
