@@ -137,6 +137,11 @@ class TestVeo3VideoGeneration:
         assert errors[0].links
         assert errors[0].links[0].url == veo3_video_generation.REFERENCE_IMAGES_URL
 
+    def test_checks_only_the_style_reference_the_request_sends(self, node: Any) -> None:
+        node.set_parameter_value("reference_type", "style")
+        node.set_parameter_value("reference_images", [_image_uri("PNG"), _image_uri("GIF")])
+        assert node.validate_before_node_run() is None
+
 
 class TestGeminiOmniFlashGeneration:
     @pytest.fixture
