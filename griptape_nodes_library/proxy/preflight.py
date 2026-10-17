@@ -402,7 +402,7 @@ def check_duration(  # noqa: PLR0913
     if minimum is not None and seconds < minimum:
         next_step = fix or "Use a longer clip."
         return _error(
-            f"{subject} is {_format_past(seconds, minimum, 2)} seconds long and the minimum is {_format_limit(minimum)}. {next_step}",
+            f"{subject} is {_format_past(seconds, minimum, 2)} seconds long and the minimum is {_format_limit(minimum, round_up=True)}. {next_step}",
             docs_url,
         )
     return None
@@ -443,29 +443,30 @@ def _local_path(location: str) -> Path | None:
         return None
 
 
-def _format_limit(limit: float) -> str:
-    """A limit as messages show it: up to 6 significant figures, rounded toward zero.
+def _format_limit(limit: float, *, round_up: bool = False) -> str:
+    """A limit as messages show it: up to 6 significant figures, rounded toward the allowed side.
 
-    Rounding toward zero keeps the shown limit at or below the real one, so a value over the limit
-    can always be printed over the shown limit too.
+    A maximum rounds down and a minimum rounds up (`round_up`), so a value past the limit can always
+    be printed past the shown limit too.
     """
     text = f"{limit:g}"
-    if float(text) <= limit or limit <= 0:
+    shown = float(text)
+    if shown == limit or limit <= 0 or (shown > limit) == round_up:
         return text
-    digits = 6 - len(str(int(limit)))
-    scale = 10 ** max(digits, 0)
-    return f"{math.floor(limit * scale) / scale:g}"
+    scale = 10 ** max(6 - len(str(int(limit))), 0)
+    rounder = math.ceil if round_up else math.floor
+    return f"{rounder(limit * scale) / scale:g}"
 
 
 def _format_past(value: float, limit: float, decimals: int) -> str:
     """`value` to `decimals` places, with more when fewer would read as equal to `limit` as
     `_format_limit` shows it, or on its other side.
 
-    A file of 200,000,001 bytes against a 200,000,000-byte limit (shown as "190.735 MB") must not
-    be reported as "190.735 MB" too.
+    A file of 200,000,001 bytes against a 200,000,000-byte limit (shown as "190.734 MB") must not
+    be reported as "190.735 MB" either way round.
     """
-    shown_limit = float(_format_limit(limit))
     over = value > limit
+    shown_limit = float(_format_limit(limit, round_up=not over))
     for places in range(decimals, decimals + 9):
         text = f"{value:.{places}f}"
         rounded = float(text)

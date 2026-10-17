@@ -391,6 +391,10 @@ class TestCheckDuration:
         error = check_duration(1.9455, subject="The video in 'Video'", minimum=1.946)
         assert str(error).startswith("The video in 'Video' is 1.9455 seconds long and the minimum is 1.946.")
 
+    def test_reports_a_duration_under_a_long_minimum_as_under_it(self) -> None:
+        error = check_duration(2.046665, subject="The video in 'Video'", minimum=2.0466666666)
+        assert str(error).startswith("The video in 'Video' is 2.04666 seconds long and the minimum is 2.04667.")
+
     def test_uses_the_given_fix(self) -> None:
         error = check_duration(20, subject="The video in 'Video'", maximum=10, fix="Pick a shorter clip.")
         assert str(error).endswith("Pick a shorter clip.")
