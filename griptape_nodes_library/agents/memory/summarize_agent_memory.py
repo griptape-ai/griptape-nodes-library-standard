@@ -6,7 +6,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 
 from griptape_nodes_library.llm.agent_node_support import default_cloud_model_config
 from griptape_nodes_library.llm.agent_state import AgentState, messages_from_runs
-from griptape_nodes_library.llm.budget_gate import require_model_access, run_gated
+from griptape_nodes_library.llm.budget_gate import check_model_permission, run_gated
 from griptape_nodes_library.llm.runner import output_to_text, prompt_model
 
 
@@ -59,11 +59,12 @@ class SummarizeAgentMemory(ControlNode):
 
         prompt = self.get_parameter_value("prompt")
         model = state.model or default_cloud_model_config()
-        # Gate before the network call so a denied invocation fails closed; a direct provider call
-        # is also budget-checked.
-        access = require_model_access(self, model)
+        # Gate before the network call so a denied invocation fails closed. A direct provider call
+        # is also budget-checked, on the worker thread, and its tokens reported.
+        check_model_permission(self, model)
         summary = yield lambda: run_gated(
-            access,
+            self,
+            model,
             lambda: prompt_model(
                 model,
                 prompt,

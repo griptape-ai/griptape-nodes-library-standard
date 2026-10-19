@@ -23,7 +23,7 @@ import griptape_nodes_library.llm.budget_gate as gate_module
 import griptape_nodes_library.llm.tools as tools_module
 from griptape_nodes_library.llm import models
 from griptape_nodes_library.llm.agent_state import AgentState
-from griptape_nodes_library.llm.budget_gate import is_direct_provider, require_model_access, run_gated
+from griptape_nodes_library.llm.budget_gate import check_model_permission, is_direct_provider, run_gated
 from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, ImageProvider
 from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
 from griptape_nodes_library.llm.models import override_model
@@ -61,6 +61,7 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, Any, Any]]:
         seen.append(("budget", gated_node, model))
         return f"corr-{model}"
 
+    monkeypatch.setattr(gate_module, "require_budget_access_sync", _check)
     monkeypatch.setattr(gate_module, "require_model_access_sync", _check)
     monkeypatch.setattr(
         gate_module, "report_model_usage_sync", lambda gated_node, **kw: seen.append(("report", gated_node, kw))
@@ -102,16 +103,27 @@ def test_is_direct_provider(config: Any, *, direct: bool) -> None:
     assert is_direct_provider(config) is direct
 
 
-def test_a_cloud_call_gets_the_permission_check_only(node: _StubNode, calls: list[tuple[str, Any, Any]]) -> None:
-    with override_model(text_model("hi")):
-        run_gated(require_model_access(node, CLOUD), lambda: run_agent(_agent(), "hi"))
+def test_a_cloud_call_is_neither_budget_checked_nor_reported(
+    node: _StubNode, calls: list[tuple[str, Any, Any]]
+) -> None:
+    """Cloud enforces its own budgets. The permission check is the node's, in `process()`."""
+    run_gated(node, CLOUD, lambda: run_agent(_agent(), "hi"))
+
+    assert calls == []
+
+
+def test_the_permission_check_is_separate_from_the_budget_check(
+    node: _StubNode, calls: list[tuple[str, Any, Any]]
+) -> None:
+    """Permission is local and fast, so a node runs it in `process()`; the budget check runs in `run_gated`."""
+    check_model_permission(node, OPENAI)
 
     assert calls == [("permission", node, "gpt-4o")]
 
 
 def test_a_direct_call_is_checked_then_reports_its_tokens(node: _StubNode, calls: list[tuple[str, Any, Any]]) -> None:
     with override_model(text_model("hi")):
-        result = run_gated(require_model_access(node, OPENAI), lambda: run_agent(_agent(), "hi"))
+        result = run_gated(node, OPENAI, lambda: run_agent(_agent(), "hi"))
 
     assert _names(calls) == ["budget", "report"]
     _, reported_node, report = calls[1]
@@ -142,7 +154,8 @@ def test_a_run_that_raises_still_reports_the_tokens_it_used(node: _StubNode, cal
 
     with pytest.raises(UsageLimitExceeded):
         run_gated(
-            require_model_access(node, OPENAI),
+            node,
+            OPENAI,
             lambda: run_agent(agent, "hi", usage_limits=UsageLimits(request_limit=3)),
         )
 
@@ -152,7 +165,7 @@ def test_a_run_that_raises_still_reports_the_tokens_it_used(node: _StubNode, cal
 
 def test_a_call_with_no_token_usage_is_not_reported(node: _StubNode, calls: list[tuple[str, Any, Any]]) -> None:
     """Direct image generation is budget-checked, but carries no tokens to report."""
-    run_gated(require_model_access(node, OPENAI_IMAGE), lambda: b"png")
+    run_gated(node, OPENAI_IMAGE, lambda: b"png")
 
     assert _names(calls) == ["budget"]
 
@@ -160,7 +173,7 @@ def test_a_call_with_no_token_usage_is_not_reported(node: _StubNode, calls: list
 def test_runs_outside_a_gated_call_are_not_reported(node: _StubNode, calls: list[tuple[str, Any, Any]]) -> None:
     with override_model(text_model("hi")):
         run_agent(_agent(), "before")
-        inside = run_gated(require_model_access(node, OPENAI), lambda: run_agent(_agent(), "inside"))
+        inside = run_gated(node, OPENAI, lambda: run_agent(_agent(), "inside"))
         run_agent(_agent(), "after")
 
     (report,) = _reports(calls)
@@ -190,7 +203,7 @@ def test_a_direct_agent_tool_is_checked_and_reported_on_its_own_model(
     agent = _agent_with_tool_on(ANTHROPIC, monkeypatch)
 
     with override_model(text_model("from the tool")):
-        run_gated(require_model_access(node, CLOUD), lambda: run_agent(agent, "hi"))
+        run_gated(node, CLOUD, lambda: run_agent(agent, "hi"))
 
     assert _names(calls) == ["permission", "budget", "report"]
     _, reported_node, report = calls[2]
@@ -210,7 +223,7 @@ def test_a_cloud_agent_tool_under_a_direct_agent_is_not_billed_twice(
     agent = _agent_with_tool_on(CLOUD, monkeypatch)
 
     with override_model(text_model("from the tool")):
-        result = run_gated(require_model_access(node, OPENAI), lambda: run_agent(agent, "hi"))
+        result = run_gated(node, OPENAI, lambda: run_agent(agent, "hi"))
 
     assert _names(calls) == ["budget", "permission", "report"]
     (report,) = _reports(calls)
@@ -261,9 +274,9 @@ def test_the_transcription_tool_is_budget_checked_before_calling_openai(
     openai_calls: list[str] = []
     agent = _agent_with_transcription_tool(tmp_path, monkeypatch, openai_calls)
 
-    run_gated(require_model_access(node, CLOUD), lambda: run_agent(agent, "transcribe it"))
+    run_gated(node, CLOUD, lambda: run_agent(agent, "transcribe it"))
 
-    assert calls == [("permission", node, "gpt-4o"), ("budget", node, "whisper-1")]
+    assert calls == [("budget", node, "whisper-1")]
     assert openai_calls == ["whisper-1"]
 
 
@@ -271,7 +284,6 @@ def test_a_refused_transcription_stops_the_run_without_calling_openai(
     node: _StubNode, calls: list[tuple[str, Any, Any]], monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:
     """A refusal must stop the run, not go back to the model as the tool's text."""
-    access = require_model_access(node, CLOUD)
     refusal = BudgetExceededError("Budget stopped this run. Studio budget is spent.", MagicMock())
 
     def _refuse(_node: Any, _model: str, **_kw: Any) -> None:
@@ -282,7 +294,7 @@ def test_a_refused_transcription_stops_the_run_without_calling_openai(
     agent = _agent_with_transcription_tool(tmp_path, monkeypatch, openai_calls)
 
     with pytest.raises(BudgetExceededError):
-        run_gated(access, lambda: run_agent(agent, "transcribe it"))
+        run_gated(node, CLOUD, lambda: run_agent(agent, "transcribe it"))
 
     assert openai_calls == []
 

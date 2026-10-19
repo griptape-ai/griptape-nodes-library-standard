@@ -17,7 +17,7 @@ from griptape_nodes.traits.options import Options
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 
 from griptape_nodes_library.llm.agent_state import AgentState, connected_agent_state
-from griptape_nodes_library.llm.budget_gate import require_model_access, run_gated
+from griptape_nodes_library.llm.budget_gate import check_model_permission, run_gated
 from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, ImageProvider, generate_image
 from griptape_nodes_library.llm.model_config import cloud_model_config
 from griptape_nodes_library.llm.runner import prompt_model
@@ -226,11 +226,12 @@ class GenerateImage(ControlNode):
             # model invocation distinct from the image-generation model below, and one no
             # dropdown selects. Declare it so a denied invocation fails closed before the call.
             enhance_model = state.model
-            enhance_access = require_model_access(self, enhance_model, purpose="prompt enhancement")
-            # The model call blocks, so hand it to the engine to run in the background
-            # via `yield lambda` and resume when it's done.
+            check_model_permission(self, enhance_model, purpose="prompt enhancement")
+            # The budget check and the model call both block, so hand them to the engine to run in
+            # the background via `yield lambda` and resume when it's done.
             prompt = yield lambda: run_gated(
-                enhance_access,
+                self,
+                enhance_model,
                 lambda: prompt_model(enhance_model, [ENHANCEMENT_INSTRUCTIONS, prompt], rulesets=state.rulesets),
             )
             self.append_value_to_parameter("logs", "Finished enhancing prompt...\n")
@@ -253,11 +254,12 @@ class GenerateImage(ControlNode):
 
         # The image model is settled above. The util resolves its provider model id to the
         # stable catalog key (via the node's model_usage) before declaring. Declare before the
-        # network call below so a denied invocation fails closed here.
-        require_model_access(self, image_config)
+        # network call below so a denied invocation fails closed. A direct image model's budget
+        # check is a round trip to Cloud, so it runs in the background with the call.
+        check_model_permission(self, image_config)
 
         self.append_value_to_parameter("logs", "Starting processing image..\n")
-        yield lambda: self._create_image(image_config, prompt)
+        yield lambda: run_gated(self, image_config, lambda: self._create_image(image_config, prompt))
         self.append_value_to_parameter("logs", "Finished processing image.\n")
 
         # Record the exchange as a short text memory: the image itself is huge, so the agent

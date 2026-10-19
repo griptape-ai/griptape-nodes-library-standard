@@ -27,6 +27,7 @@ from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, I
 from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
 from griptape_nodes_library.utils.model_invocation import (
     report_model_usage_sync,
+    require_budget_access_sync,
     require_model_access_sync,
     require_model_invocation_sync,
 )
@@ -84,25 +85,41 @@ class ModelAccess:
         )
 
 
+def check_model_permission(
+    node: BaseNode, config: ModelConfig | ImageGenerationConfig, *, purpose: str | None = None
+) -> None:
+    """The permission half of the gate: local and fast, so a node runs it in `process()`."""
+    require_model_invocation_sync(node, config.model, purpose=purpose)
+
+
 def require_model_access(
     node: BaseNode, config: ModelConfig | ImageGenerationConfig, *, purpose: str | None = None
 ) -> ModelAccess:
     """Gate a call on `config`: permission always, plus the budget check when it is a direct call.
 
-    Run the call through `run_gated` with the returned access so a direct call's tokens get reported.
+    The budget check is a round trip to Griptape Cloud; call this from a worker thread.
     """
+    check_model_permission(node, config, purpose=purpose)
+    return _budget_access(node, config)
+
+
+def _budget_access(node: BaseNode, config: ModelConfig | ImageGenerationConfig) -> ModelAccess:
     if not is_direct_provider(config):
-        require_model_invocation_sync(node, config.model, purpose=purpose)
         return ModelAccess(node, config, None, direct=False)
-    correlation_id = require_model_access_sync(node, config.model, purpose=purpose)
+    correlation_id = require_budget_access_sync(node, config.model)
     return ModelAccess(node, config, correlation_id, direct=True)
 
 
-def run_gated[T](access: ModelAccess, fn: Callable[[], T]) -> T:
-    """Run a gated call: count its tokens, report them, and gate the agent tools it calls as its node.
+def run_gated[T](node: BaseNode, config: ModelConfig | ImageGenerationConfig, fn: Callable[[], T]) -> T:
+    """Budget-check a call on `config`, run it, and report its tokens. Call from the worker thread.
 
-    Reports even when the call raises partway, since the tokens it already used were spent.
+    The budget check is a round trip to Griptape Cloud, so a node runs this inside the function it
+    yields, never in `process()` before the yield, which is on the engine's event loop. The node runs
+    `check_model_permission` in `process()` first, as before. The budget check still runs before
+    `fn`, so a refused call never reaches the provider. Reports even when the call raises partway,
+    since the tokens it already used were spent; the agent tools it calls are gated as `node`.
     """
+    access = _budget_access(node, config)
     token = _active.set(access)
     try:
         return fn()

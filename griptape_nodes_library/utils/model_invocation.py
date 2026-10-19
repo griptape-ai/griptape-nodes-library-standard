@@ -48,6 +48,7 @@ __all__ = [
     "declare_model_invocation",
     "declare_model_invocation_sync",
     "report_model_usage_sync",
+    "require_budget_access_sync",
     "require_model_access_sync",
     "require_model_invocation_sync",
     "resolve_catalog_model_id",
@@ -150,24 +151,43 @@ def require_model_access_sync(
     """Gate a direct provider call on the permission layer, then on Griptape Cloud budgets.
 
     Permission runs first so a model the license forbids never reaches the budget
-    check. The permission layer gates on the catalog key; the budget check names the
-    model by `api_model_id`, the provider's own name, which is also what the usage
-    report sends. `estimated_cost_micro_usd` is optional; without it only a budget
-    with no headroom left refuses the call.
+    check. A node can run the two halves apart instead: `require_model_invocation_sync`
+    is local and fast, while `require_budget_access_sync` is a round trip to Cloud that
+    belongs off the engine's event loop.
 
     Returns the check's correlation id, to pass to `report_model_usage_sync`, or None
     when the check never ran.
 
     Raises:
-        RuntimeError: as `require_model_invocation_sync` does.
-        BudgetExceededError: the engine's own exception, raised unwrapped so the run
-            halts with its "Budget stopped this run." message. Any exception a failed
-            check carries is raised the same way.
-        RuntimeError: also when a failed check carries no exception.
+        RuntimeError: as `require_model_invocation_sync` and `require_budget_access_sync` do.
+        BudgetExceededError: as `require_budget_access_sync` does.
     """
     require_model_invocation_sync(node, api_model_id, purpose=purpose)
     # The declaration above refused a missing model.
-    api_model_id = cast("str", api_model_id)
+    return require_budget_access_sync(
+        node, cast("str", api_model_id), estimated_cost_micro_usd=estimated_cost_micro_usd
+    )
+
+
+def require_budget_access_sync(
+    node: BaseNode, api_model_id: str, *, estimated_cost_micro_usd: int | None = None
+) -> str | None:
+    """Ask Griptape Cloud whether a direct provider call fits its budgets; raise if it doesn't.
+
+    A round trip to Cloud: call it from a worker thread, not the engine's event loop. It
+    names the model by `api_model_id`, the provider's own name, which is also what the
+    usage report sends. `estimated_cost_micro_usd` is optional; without it only a budget
+    with no headroom left refuses the call. Fails open when Cloud can't be asked.
+
+    Returns the check's correlation id, to pass to `report_model_usage_sync`, or None
+    when the check never ran.
+
+    Raises:
+        BudgetExceededError: the engine's own exception, raised unwrapped so the run
+            halts with its "Budget stopped this run." message. Any exception a failed
+            check carries is raised the same way.
+        RuntimeError: when a failed check carries no exception.
+    """
     result = GriptapeNodes.handle_request(
         BudgetAccessRequest(
             model=api_model_id,

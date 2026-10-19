@@ -234,3 +234,24 @@ def test_direct_model_is_budget_checked_and_reports_its_tokens(
     assert (report.provider, report.model, report.correlation_id) == ("openai", "gpt-4o", "corr-1")
     assert report.input_tokens > 0
     assert report.output_tokens > 0
+
+
+def test_the_budget_check_runs_on_the_worker_thread_not_the_event_loop(
+    agent_node: Agent, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The engine runs `process()` up to its first yield on its event loop, and only the yielded
+    function on a worker thread. The budget check is a round trip to Cloud, so it must not run
+    before the yield, or every direct call would stall the whole engine.
+    """
+    seen = _record_budget_requests(monkeypatch)
+    _connect_model_config(agent_node, ModelConfig(provider=ModelProvider.OPENAI, model="gpt-4o"))
+
+    gen = agent_node.process()
+    runner = next(gen)  # the part the engine runs on its event loop
+
+    assert seen == []
+
+    with override_model(text_model("hi")):
+        runner()  # the part the engine runs on a worker thread
+
+    assert isinstance(seen[0], BudgetAccessRequest)

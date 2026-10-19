@@ -19,7 +19,7 @@ from griptape_nodes_library.llm.agent_state import (
     connected_agent_state,
     messages_from_runs,
 )
-from griptape_nodes_library.llm.budget_gate import require_model_access, run_gated
+from griptape_nodes_library.llm.budget_gate import check_model_permission, run_gated
 from griptape_nodes_library.llm.model_config import (
     ModelConfig,
     cloud_model_config,
@@ -422,8 +422,8 @@ class MCPTaskNode(SuccessFailureNode):
         # id to its stable catalog key (via this node's `model_usage`) before declaring. This is
         # the fail-closed backstop behind the dropdown's OFFER_MODEL gate, and the only gate for
         # a model that never came from the dropdown at all. A direct provider call is also
-        # budget-checked.
-        access = require_model_access(self, model_config)
+        # budget-checked and reported; this runs on the worker thread already.
+        check_model_permission(self, model_config)
 
         def on_text(token: str) -> None:
             self.append_value_to_parameter("output", value=token)
@@ -434,7 +434,8 @@ class MCPTaskNode(SuccessFailureNode):
         max_subtasks = self.get_parameter_value("max_subtasks")
         try:
             return run_gated(
-                access,
+                self,
+                model_config,
                 lambda: run_task_agent(
                     model_config,
                     prompt or None,

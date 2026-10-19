@@ -150,7 +150,7 @@ def test_summarize_agent_memory_sends_the_history_and_prompt() -> None:
 def test_summarize_agent_memory_budget_checks_and_reports_a_direct_model(monkeypatch: pytest.MonkeyPatch) -> None:
     """A direct model is budget-checked before the summary runs, and its tokens are reported after."""
     seen: list[str] = []
-    monkeypatch.setattr(budget_gate, "require_model_access_sync", lambda _node, model, **_kw: seen.append(model))
+    monkeypatch.setattr(budget_gate, "require_budget_access_sync", lambda _node, model, **_kw: seen.append(model))
     monkeypatch.setattr(budget_gate, "report_model_usage_sync", lambda _node, **kw: seen.append(kw["provider"]))
     node = SummarizeAgentMemory(name="Summarize")
     direct = ModelConfig(provider=ModelProvider.OPENAI, model="gpt-4o")

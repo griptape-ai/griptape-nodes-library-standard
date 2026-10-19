@@ -31,7 +31,7 @@ from griptape_nodes_library.llm.agent_state import (
     find_runs,
     messages_from_runs,
 )
-from griptape_nodes_library.llm.budget_gate import require_model_access, run_gated
+from griptape_nodes_library.llm.budget_gate import check_model_permission, run_gated
 from griptape_nodes_library.llm.model_config import (
     ModelConfig,
     cloud_model_config,
@@ -539,11 +539,12 @@ class Agent(ControlNode):
             # Declare the model that will actually run, before any network call, so a denied
             # invocation fails closed. A connected Agent supplies the real model; the node's own
             # `model` parameter keeps its last dropdown value while hidden. A direct provider call is
-            # also budget-checked.
-            access = require_model_access(self, state.model)
+            # also budget-checked, on the worker thread: the check is a round trip to Cloud.
+            model = state.model
+            check_model_permission(self, model)
 
             self.append_value_to_parameter("logs", "[Started processing agent..]\n")
-            result = yield lambda: run_gated(access, lambda: self._process(state, prompt, output_type))
+            result = yield lambda: run_gated(self, model, lambda: self._process(state, prompt, output_type))
             self.append_value_to_parameter("logs", "\n[Finished processing agent.]\n")
             if result is not None:
                 self.set_parameter_value("output", output_to_text(result.output))
