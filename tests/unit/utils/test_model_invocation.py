@@ -1,4 +1,7 @@
-"""Fail-closed contract of `require_model_invocation_sync`.
+"""Contracts of the vendored model-invocation gate.
+
+`require_model_invocation_sync` fails closed. `require_model_access_sync` adds the
+budget check for direct provider calls, which fails open unless Cloud denies.
 
 The helper is the raising half of the declaration path: every node that must
 abort when the permission layer denies a model goes through it, so the two ways
@@ -9,17 +12,32 @@ down independently of any one node.
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from griptape_nodes.exe_types.node_types import BaseNode
+from griptape_nodes.retained_mode.events import converters
+from griptape_nodes.retained_mode.events.budget_events import (
+    BudgetAccessRequest,
+    BudgetAccessResultFailure,
+    BudgetAccessResultSuccess,
+)
+from griptape_nodes.retained_mode.events.generic_events import GenericResultFailure
 from griptape_nodes.retained_mode.events.model_events import (
     DeclareModelInvocationRequest,
     DeclareModelInvocationResultFailure,
+    DeclareModelInvocationResultSuccess,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.retained_mode.managers import budget_manager as budget_manager_module
+from griptape_nodes.utils.budget_refusal import BudgetExceededError
 
 import griptape_nodes_library.utils.model_invocation as model_invocation_module
-from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
+from griptape_nodes_library.utils.model_invocation import (
+    report_model_usage_sync,
+    require_model_access_sync,
+    require_model_invocation_sync,
+)
 
 
 class _StubNode(BaseNode):
@@ -141,3 +159,202 @@ def test_resolve_catalog_model_id_returns_none_for_undeclared_node(node: _StubNo
     is no provider-id -> catalog-key mapping to resolve against.
     """
     assert model_invocation_module.resolve_catalog_model_id(node, "gpt-4o") is None
+
+
+# --- require_model_access_sync ------------------------------------------------------------
+
+
+def _routing(monkeypatch: pytest.MonkeyPatch, budget_result: Any) -> list[Any]:
+    """Clear every declaration, answer budget checks with `budget_result`, and record all requests."""
+    seen: list[Any] = []
+
+    def _handle(request: Any) -> Any:
+        seen.append(request)
+        if isinstance(request, DeclareModelInvocationRequest):
+            return DeclareModelInvocationResultSuccess(model_id=request.model_id, result_details="ok")
+        return budget_result
+
+    monkeypatch.setattr(GriptapeNodes, "handle_request", _handle)
+    return seen
+
+
+def _cleared(*, checked: bool = True) -> BudgetAccessResultSuccess:
+    return BudgetAccessResultSuccess(correlation_id="corr-1", checked=checked, result_details="ok")
+
+
+def test_access_declares_then_checks_budget(node: _StubNode, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _routing(monkeypatch, _cleared())
+
+    correlation_id = require_model_access_sync(node, "gpt-4o", estimated_cost_micro_usd=40_000)
+
+    assert correlation_id == "corr-1"
+    assert [type(r) for r in seen] == [DeclareModelInvocationRequest, BudgetAccessRequest]
+    check = seen[1]
+    assert (check.model, check.estimated_cost_micro_usd, check.node_type) == ("gpt-4o", 40_000, "_StubNode")
+    # The node label is user-authored and must never be sent.
+    assert check.node_id is None
+
+
+def test_access_declares_the_catalog_key_but_checks_the_provider_name(
+    node: _StubNode, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Permission gates on the catalog key; the budget check uses the provider's name, as the report does."""
+    monkeypatch.setattr(model_invocation_module, "resolve_catalog_model_id", lambda _node, _api_model_id: "gtc_gpt_4o")
+    seen = _routing(monkeypatch, _cleared())
+
+    require_model_access_sync(node, "gpt-4o")
+
+    declaration, check = seen
+    assert declaration.model_id == "gtc_gpt_4o"
+    assert check.model == "gpt-4o"
+
+
+def test_access_denied_by_permission_never_reaches_budget(node: _StubNode, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[Any] = []
+
+    def _handle(request: Any) -> Any:
+        seen.append(request)
+        return DeclareModelInvocationResultFailure(result_details="seat limit reached")
+
+    monkeypatch.setattr(GriptapeNodes, "handle_request", _handle)
+
+    with pytest.raises(RuntimeError, match="seat limit reached"):
+        require_model_access_sync(node, "gpt-4o")
+
+    assert not any(isinstance(r, BudgetAccessRequest) for r in seen)
+
+
+def test_access_raises_the_engines_budget_exception_unwrapped(node: _StubNode, monkeypatch: pytest.MonkeyPatch) -> None:
+    exc = BudgetExceededError("Budget stopped this run. Studio budget is spent.", MagicMock())
+    _routing(
+        monkeypatch,
+        BudgetAccessResultFailure(blocked_by=[], correlation_id="c", result_details=str(exc), exception=exc),
+    )
+
+    with pytest.raises(BudgetExceededError) as raised:
+        require_model_access_sync(node, "gpt-4o")
+
+    assert raised.value is exc
+
+
+def test_access_stops_on_a_flattened_refusal_carrying_the_exception(
+    node: _StubNode, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """From a worker process a refusal crosses back as a generic failure; it must still stop the call."""
+    exc = BudgetExceededError("Budget stopped this run. Studio budget is spent.", MagicMock())
+    _routing(monkeypatch, GenericResultFailure(result_details=str(exc), exception=exc))
+
+    with pytest.raises(BudgetExceededError) as raised:
+        require_model_access_sync(node, "gpt-4o")
+
+    assert raised.value is exc
+
+
+def test_access_rebuilds_a_refusal_forwarded_from_a_worker(node: _StubNode, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Across the worker boundary the engine's exception becomes a ForwardedException naming its type.
+
+    It must still raise a BudgetExceededError, which agent tools and the engine's halt path catch.
+    """
+    exc = BudgetExceededError("Budget stopped this run. Studio budget is spent.", MagicMock())
+    refusal = BudgetAccessResultFailure(blocked_by=[], correlation_id="c", result_details=str(exc), exception=exc)
+    forwarded = converters.engine.structure(converters.engine.unstructure(refusal), BudgetAccessResultFailure)
+    assert type(forwarded.exception).__name__ == "ForwardedException"
+    _routing(monkeypatch, forwarded)
+
+    with pytest.raises(BudgetExceededError, match=r"Budget stopped this run\. Studio budget is spent\."):
+        require_model_access_sync(node, "gpt-4o")
+
+
+def test_access_stops_on_a_failure_without_an_exception(node: _StubNode, monkeypatch: pytest.MonkeyPatch) -> None:
+    _routing(monkeypatch, GenericResultFailure(result_details="Budget stopped this run. Studio budget is spent."))
+
+    with pytest.raises(RuntimeError, match=r"Cannot run _StubNode: Budget stopped this run\. Studio budget"):
+        require_model_access_sync(node, "gpt-4o")
+
+
+def test_access_proceeds_when_budget_was_not_checked(node: _StubNode, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail open: Cloud could not be asked, so the call goes ahead."""
+    _routing(monkeypatch, _cleared(checked=False))
+
+    assert require_model_access_sync(node, "gpt-4o") == "corr-1"
+
+
+class _RecordedReport:
+    """Stands in for `ReportUsageRequest`, so the test pins what the helper sends."""
+
+    def __init__(self, **fields: Any) -> None:
+        self.fields = fields
+
+
+def test_report_sends_token_counts_for_cloud_to_price(node: _StubNode, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[_RecordedReport] = []
+    monkeypatch.setattr(model_invocation_module, "ReportUsageRequest", _RecordedReport)
+    monkeypatch.setattr(GriptapeNodes, "handle_request", sent.append)
+
+    report_model_usage_sync(
+        node,
+        provider="openai",
+        model="gpt-4o",
+        input_tokens=1000,
+        output_tokens=500,
+        cache_read_tokens=900,
+        correlation_id="corr-1",
+    )
+
+    (report,) = sent
+    # No dollar figure: Cloud prices the tokens. The node label is never sent.
+    assert report.fields == {
+        "provider": "openai",
+        "model": "gpt-4o",
+        "activity_type": "chat_completion",
+        "input_tokens": 1000,
+        "output_tokens": 500,
+        "cache_read_tokens": 900,
+        "cache_write_tokens": 0,
+        "node_type": "_StubNode",
+        "correlation_id": "corr-1",
+    }
+
+
+def test_report_never_raises(node: _StubNode, monkeypatch: pytest.MonkeyPatch) -> None:
+    def _boom(_request: Any) -> Any:
+        raise RuntimeError("engine down")
+
+    monkeypatch.setattr(model_invocation_module, "ReportUsageRequest", _RecordedReport)
+    monkeypatch.setattr(GriptapeNodes, "handle_request", _boom)
+
+    report_model_usage_sync(node, provider="openai", model="gpt-4o", input_tokens=1, output_tokens=1)
+
+
+def test_report_reaches_cloud_as_a_usage_body(node: _StubNode, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Through the engine's real handler: the body bound for POST /api/spend carries usage, not dollars."""
+    posted: list[dict[str, Any]] = []
+    monkeypatch.setattr(budget_manager_module, "resolve_cloud_credential", lambda _secrets: "gt-key")
+    monkeypatch.setattr(budget_manager_module.BudgetManager, "_send_report", lambda _self, body: posted.append(body))
+
+    class _NowExecutor:
+        def submit(self, fn: Any, *args: Any) -> None:
+            fn(*args)
+
+    monkeypatch.setattr(GriptapeNodes.BudgetManager(), "_report_executor", _NowExecutor())
+
+    report_model_usage_sync(
+        node,
+        provider="openai",
+        model="gpt-4o",
+        input_tokens=1000,
+        output_tokens=500,
+        cache_read_tokens=900,
+        correlation_id="corr-1",
+    )
+
+    (body,) = posted
+    assert body["usage"] == {
+        "input_tokens": 1000,
+        "output_tokens": 500,
+        "cache_read_tokens": 900,
+        "cache_write_tokens": 0,
+    }
+    assert "declared_cost_micro_usd" not in body
+    assert (body["provider"], body["model"], body["correlation_id"]) == ("openai", "gpt-4o", "corr-1")
+    assert body["tags"]["node_type"] == "_StubNode"

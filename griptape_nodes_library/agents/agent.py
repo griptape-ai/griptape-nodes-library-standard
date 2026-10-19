@@ -31,6 +31,7 @@ from griptape_nodes_library.llm.agent_state import (
     find_runs,
     messages_from_runs,
 )
+from griptape_nodes_library.llm.budget_gate import require_model_access, run_gated
 from griptape_nodes_library.llm.model_config import (
     ModelConfig,
     cloud_model_config,
@@ -50,7 +51,6 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
-from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
 # --- Constants ---
@@ -538,11 +538,12 @@ class Agent(ControlNode):
                 raise RuntimeError(msg)
             # Declare the model that will actually run, before any network call, so a denied
             # invocation fails closed. A connected Agent supplies the real model; the node's own
-            # `model` parameter keeps its last dropdown value while hidden.
-            require_model_invocation_sync(self, state.model.model)
+            # `model` parameter keeps its last dropdown value while hidden. A direct provider call is
+            # also budget-checked.
+            access = require_model_access(self, state.model)
 
             self.append_value_to_parameter("logs", "[Started processing agent..]\n")
-            result = yield lambda: self._process(state, prompt, output_type)
+            result = yield lambda: run_gated(access, lambda: self._process(state, prompt, output_type))
             self.append_value_to_parameter("logs", "\n[Finished processing agent.]\n")
             if result is not None:
                 self.set_parameter_value("output", output_to_text(result.output))

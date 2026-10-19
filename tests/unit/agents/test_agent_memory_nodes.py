@@ -11,6 +11,7 @@ from griptape_nodes_library.agents.memory.display_agent_memory import DisplayAge
 from griptape_nodes_library.agents.memory.replace_item_in_agent_memory import ReplaceItemInAgentMemory
 from griptape_nodes_library.agents.memory.summarize_agent_memory import SummarizeAgentMemory
 from griptape_nodes_library.convert.agent_to_tool import AgentToTool
+from griptape_nodes_library.llm import budget_gate
 from griptape_nodes_library.llm.agent_state import AgentState, messages_from_runs
 from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
 from griptape_nodes_library.llm.models import override_model
@@ -144,6 +145,21 @@ def test_summarize_agent_memory_sends_the_history_and_prompt() -> None:
         _drive(node)
 
     assert seen == [["first q", "first a", "second q", "second a", "Summarize please"]]
+
+
+def test_summarize_agent_memory_budget_checks_and_reports_a_direct_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A direct model is budget-checked before the summary runs, and its tokens are reported after."""
+    seen: list[str] = []
+    monkeypatch.setattr(budget_gate, "require_model_access_sync", lambda _node, model, **_kw: seen.append(model))
+    monkeypatch.setattr(budget_gate, "report_model_usage_sync", lambda _node, **kw: seen.append(kw["provider"]))
+    node = SummarizeAgentMemory(name="Summarize")
+    direct = ModelConfig(provider=ModelProvider.OPENAI, model="gpt-4o")
+    node.set_parameter_value("agent", AgentState(model=direct, messages=messages_from_runs(RUNS)).to_wire())
+
+    with override_model(text_model("they talked")):
+        _drive(node)
+
+    assert seen == ["gpt-4o", "openai"]
 
 
 def test_summarize_agent_memory_with_no_runs_emits_agent_unchanged() -> None:

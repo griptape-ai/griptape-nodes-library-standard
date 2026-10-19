@@ -19,6 +19,7 @@ from griptape_nodes_library.llm.agent_state import (
     connected_agent_state,
     messages_from_runs,
 )
+from griptape_nodes_library.llm.budget_gate import require_model_access, run_gated
 from griptape_nodes_library.llm.model_config import (
     ModelConfig,
     cloud_model_config,
@@ -35,7 +36,6 @@ from griptape_nodes_library.utils.mcp_utils import (
     get_server_config,
     validate_mcp_server,
 )
-from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
 # Curated subset of the Cloud chat catalog for the MCP task node. Not every Cloud
@@ -421,8 +421,9 @@ class MCPTaskNode(SuccessFailureNode):
         # connected agent supplies the real model. The util resolves the provider model
         # id to its stable catalog key (via this node's `model_usage`) before declaring. This is
         # the fail-closed backstop behind the dropdown's OFFER_MODEL gate, and the only gate for
-        # a model that never came from the dropdown at all.
-        require_model_invocation_sync(self, model_config.model)
+        # a model that never came from the dropdown at all. A direct provider call is also
+        # budget-checked.
+        access = require_model_access(self, model_config)
 
         def on_text(token: str) -> None:
             self.append_value_to_parameter("output", value=token)
@@ -432,16 +433,19 @@ class MCPTaskNode(SuccessFailureNode):
 
         max_subtasks = self.get_parameter_value("max_subtasks")
         try:
-            return run_task_agent(
-                model_config,
-                prompt or None,
-                rulesets=rulesets,
-                toolsets=toolsets,
-                message_history=state.messages,
-                on_text=on_text,
-                on_tool_call=on_tool_call,
-                # One request per subtask, plus the final answer.
-                usage_limits=UsageLimits(request_limit=max_subtasks + 1),
+            return run_gated(
+                access,
+                lambda: run_task_agent(
+                    model_config,
+                    prompt or None,
+                    rulesets=rulesets,
+                    toolsets=toolsets,
+                    message_history=state.messages,
+                    on_text=on_text,
+                    on_tool_call=on_tool_call,
+                    # One request per subtask, plus the final answer.
+                    usage_limits=UsageLimits(request_limit=max_subtasks + 1),
+                ),
             )
         except UsageLimitExceeded:
             # griptape's PromptTask finished with this output rather than failing.
