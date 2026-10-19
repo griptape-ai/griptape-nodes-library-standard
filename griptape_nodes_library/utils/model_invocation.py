@@ -38,7 +38,7 @@ from griptape_nodes.retained_mode.events.budget_events import (
 )
 from griptape_nodes.retained_mode.events.model_events import DeclareModelInvocationRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-from griptape_nodes.utils.budget_refusal import BudgetExceededError, BudgetRefusal
+from griptape_nodes.utils.budget_refusal import BudgetExceededError, BudgetRefusal, refusal_from_check
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -201,9 +201,15 @@ def require_budget_access_sync(
         exception = getattr(result, "exception", None)
         # From a worker process the refusal arrives as a ForwardedException carrying only the
         # original type's name. Rebuild it so callers that catch BudgetExceededError, and the
-        # engine's halt path, still see a budget refusal. Its message is already worded.
+        # engine's halt path, still see a budget refusal. The budgets come back from the plain
+        # `blocked_by` data, which survives the boundary, so the halt message still names them.
         if isinstance(exception, ForwardedException) and exception.original_type == _BUDGET_EXCEEDED_TYPE:
-            raise BudgetExceededError(str(exception), BudgetRefusal()) from exception
+            blocked_by = getattr(result, "blocked_by", None)
+            if isinstance(blocked_by, list):
+                refusal = refusal_from_check({"blocked_by": blocked_by})
+                raise BudgetExceededError(str(exception), refusal) from exception
+            # Nothing to rebuild the budgets from: keep the message already worded, naming the node.
+            raise BudgetExceededError(str(exception), BudgetRefusal(), node_name=node.name) from exception
         if isinstance(exception, Exception):
             raise exception
         details = str(result.result_details or "").strip() or "Budget stopped this run."

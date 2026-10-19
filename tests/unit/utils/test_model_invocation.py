@@ -30,7 +30,8 @@ from griptape_nodes.retained_mode.events.model_events import (
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.managers import budget_manager as budget_manager_module
-from griptape_nodes.utils.budget_refusal import BudgetExceededError
+from griptape_nodes.utils.budget_refusal import BudgetExceededError, refusal_from_check
+from griptape_nodes.utils.budget_refusal import describe as describe_budget_refusal
 
 import griptape_nodes_library.utils.model_invocation as model_invocation_module
 from griptape_nodes_library.utils.model_invocation import (
@@ -250,15 +251,58 @@ def test_access_stops_on_a_flattened_refusal_carrying_the_exception(
     assert raised.value is exc
 
 
-def test_access_rebuilds_a_refusal_forwarded_from_a_worker(node: _StubNode, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Across the worker boundary the engine's exception becomes a ForwardedException naming its type.
+def _forwarded(failure: BudgetAccessResultFailure) -> Any:
+    """The failure as a node in a worker process receives it: through the engine's converter."""
+    return converters.engine.structure(converters.engine.unstructure(failure), BudgetAccessResultFailure)
 
-    It must still raise a BudgetExceededError, which agent tools and the engine's halt path catch.
+
+# One `blocked_by` entry as Griptape Cloud's POST /api/budget-checks returns it.
+STUDIO_MONTHLY = {
+    "budget_id": "b1",
+    "budget_name": "Studio monthly",
+    "scope_type": "TAG",
+    "reset_period": "MONTHLY",
+    "enforcement": "HARD",
+    "limit_credits": 1000,
+    "spent_credits": 1200,
+    "remaining_credits": -200,
+}
+
+
+def test_a_refusal_forwarded_from_a_worker_still_names_its_budget(
+    node: _StubNode, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Across the worker boundary the engine's exception becomes a ForwardedException naming only its
+    type. It must come back as a BudgetExceededError that the engine's halt path words with the budget's
+    name, as it would for a refusal in the same process.
     """
-    exc = BudgetExceededError("Budget stopped this run. Studio budget is spent.", MagicMock())
-    refusal = BudgetAccessResultFailure(blocked_by=[], correlation_id="c", result_details=str(exc), exception=exc)
-    forwarded = converters.engine.structure(converters.engine.unstructure(refusal), BudgetAccessResultFailure)
+    refusal = refusal_from_check({"allowed": False, "blocked_by": [STUDIO_MONTHLY]})
+    exc = BudgetExceededError(describe_budget_refusal(refusal), refusal)
+    forwarded = _forwarded(
+        BudgetAccessResultFailure(
+            blocked_by=[STUDIO_MONTHLY], correlation_id="c", result_details=str(exc), exception=exc
+        )
+    )
     assert type(forwarded.exception).__name__ == "ForwardedException"
+    _routing(monkeypatch, forwarded)
+
+    with pytest.raises(BudgetExceededError) as raised:
+        require_model_access_sync(node, "gpt-4o")
+
+    halt = GriptapeNodes.NodeManager()._budget_halt_for(raised.value, "Agent_1")
+    assert halt is not None
+    assert 'blocked by the budget "Studio monthly"' in str(halt)
+
+
+def test_a_forwarded_refusal_without_budgets_keeps_its_message(
+    node: _StubNode, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no budgets to rebuild from, the already-worded message is kept rather than reworded from nothing."""
+    exc = BudgetExceededError("Budget stopped this run. Studio budget is spent.", MagicMock())
+    forwarded = _forwarded(
+        BudgetAccessResultFailure(blocked_by=[], correlation_id="c", result_details=str(exc), exception=exc)
+    )
+    forwarded.blocked_by = None
     _routing(monkeypatch, forwarded)
 
     with pytest.raises(BudgetExceededError, match=r"Budget stopped this run\. Studio budget is spent\."):
