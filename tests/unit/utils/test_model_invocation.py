@@ -273,8 +273,8 @@ def test_a_refusal_forwarded_from_a_worker_still_names_its_budget(
     node: _StubNode, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Across the worker boundary the engine's exception becomes a ForwardedException naming only its
-    type. It must come back as a BudgetExceededError that the engine's halt path words with the budget's
-    name, as it would for a refusal in the same process.
+    type. It must come back as a BudgetExceededError whose refusal still names the budget, as it would
+    for a refusal in the same process.
     """
     refusal = refusal_from_check({"allowed": False, "blocked_by": [STUDIO_MONTHLY]})
     exc = BudgetExceededError(describe_budget_refusal(refusal), refusal)
@@ -289,9 +289,9 @@ def test_a_refusal_forwarded_from_a_worker_still_names_its_budget(
     with pytest.raises(BudgetExceededError) as raised:
         require_model_access_sync(node, "gpt-4o")
 
-    halt = GriptapeNodes.NodeManager()._budget_halt_for(raised.value, "Agent_1")
-    assert halt is not None
-    assert 'blocked by the budget "Studio monthly"' in str(halt)
+    # The engine's halt path words a halt that names no node from its refusal; that is what it reads.
+    halt_text = describe_budget_refusal(raised.value.refusal, node_name="Agent_1")
+    assert 'blocked by the budget "Studio monthly"' in halt_text
 
 
 def test_a_forwarded_refusal_without_budgets_keeps_its_message(

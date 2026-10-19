@@ -2,8 +2,9 @@
 
 Whether a call is direct depends on the model config actually in use, not on the node: an Agent
 on the Griptape Cloud provider goes through the proxy, which enforces budgets itself, while the
-same Agent with a connected Anthropic config calls Anthropic directly. `require_model_access`
-runs the permission check for every call, and adds the budget check for a direct one.
+same Agent with a connected Anthropic config calls Anthropic directly. A node runs
+`check_model_permission` in `process()`, then `run_gated` on the worker thread, which adds the
+budget check for a direct call.
 
 After a direct call, its token counts are reported and Griptape Cloud prices them; the library
 holds no prices. `run_gated` counts a call's tokens: `run_agent` adds each run's usage to the
@@ -45,15 +46,15 @@ _NOT_DIRECT = {
     ImageProvider.GRIPTAPE_CLOUD,
 }
 
-_active: ContextVar[ModelAccess | None] = ContextVar("budget_gate_active_access", default=None)
+_active: ContextVar[GatedCall | None] = ContextVar("budget_gate_active_call", default=None)
 
 
 def is_direct_provider(config: ModelConfig | ImageGenerationConfig) -> bool:
     return config.provider not in _NOT_DIRECT
 
 
-class ModelAccess:
-    """A gated call: the node it is charged to, and for a direct call, the tokens to report."""
+class GatedCall:
+    """One gated model call: the node it is charged to, and for a direct call, the tokens it used."""
 
     def __init__(
         self, node: BaseNode, config: ModelConfig | ImageGenerationConfig, correlation_id: str | None, *, direct: bool
@@ -92,22 +93,21 @@ def check_model_permission(
     require_model_invocation_sync(node, config.model, purpose=purpose)
 
 
-def require_model_access(
-    node: BaseNode, config: ModelConfig | ImageGenerationConfig, *, purpose: str | None = None
-) -> ModelAccess:
+def gate_call(node: BaseNode, config: ModelConfig | ImageGenerationConfig, *, purpose: str | None = None) -> GatedCall:
     """Gate a call on `config`: permission always, plus the budget check when it is a direct call.
 
     The budget check is a round trip to Griptape Cloud; call this from a worker thread.
     """
     check_model_permission(node, config, purpose=purpose)
-    return _budget_access(node, config)
+    return _open_call(node, config)
 
 
-def _budget_access(node: BaseNode, config: ModelConfig | ImageGenerationConfig) -> ModelAccess:
+def _open_call(node: BaseNode, config: ModelConfig | ImageGenerationConfig) -> GatedCall:
+    """Budget-check a direct call, and start counting its tokens."""
     if not is_direct_provider(config):
-        return ModelAccess(node, config, None, direct=False)
+        return GatedCall(node, config, None, direct=False)
     correlation_id = require_budget_access_sync(node, config.model)
-    return ModelAccess(node, config, correlation_id, direct=True)
+    return GatedCall(node, config, correlation_id, direct=True)
 
 
 def run_gated[T](node: BaseNode, config: ModelConfig | ImageGenerationConfig, fn: Callable[[], T]) -> T:
@@ -115,24 +115,24 @@ def run_gated[T](node: BaseNode, config: ModelConfig | ImageGenerationConfig, fn
 
     The budget check is a round trip to Griptape Cloud, so a node runs this inside the function it
     yields, never in `process()` before the yield, which is on the engine's event loop. The node runs
-    `check_model_permission` in `process()` first, as before. The budget check still runs before
-    `fn`, so a refused call never reaches the provider. Reports even when the call raises partway,
+    `check_model_permission` in `process()` first. The budget check runs before `fn`, so a refused
+    call never reaches the provider. Reports even when the call raises partway,
     since the tokens it already used were spent; the agent tools it calls are gated as `node`.
     """
-    access = _budget_access(node, config)
-    token = _active.set(access)
+    call = _open_call(node, config)
+    token = _active.set(call)
     try:
         return fn()
     finally:
         _active.reset(token)
-        access.report()
+        call.report()
 
 
 def record_run_usage(usage: RunUsage) -> None:
     """Add a finished run's usage to the gated call it ran in, if any. Called by `run_agent`."""
-    access = _active.get()
-    if access is not None:
-        access.add(usage)
+    call = _active.get()
+    if call is not None:
+        call.add(usage)
 
 
 def gate_tool_direct_call(api_model_id: str) -> None:
@@ -142,9 +142,9 @@ def gate_tool_direct_call(api_model_id: str) -> None:
     reported. For a sync tool, which runs off the loop. Outside a gated call there is no node
     to charge, and the tool runs ungated.
     """
-    access = _active.get()
-    if access is not None:
-        require_model_access_sync(access.node, api_model_id)
+    call = _active.get()
+    if call is not None:
+        require_model_access_sync(call.node, api_model_id)
 
 
 async def run_tool_model[T](config: ModelConfig, run: Callable[[RunUsage], Awaitable[T]]) -> T:
@@ -157,10 +157,10 @@ async def run_tool_model[T](config: ModelConfig, run: Callable[[RunUsage], Await
     if parent is None:
         return await run(RunUsage())
     # The gate and the report make blocking engine round trips; keep them off the loop.
-    access = await asyncio.to_thread(require_model_access, parent.node, config)
+    call = await asyncio.to_thread(gate_call, parent.node, config)
     usage = RunUsage()
     try:
         return await run(usage)
     finally:
-        access.add(usage)
-        await asyncio.to_thread(access.report)
+        call.add(usage)
+        await asyncio.to_thread(call.report)
