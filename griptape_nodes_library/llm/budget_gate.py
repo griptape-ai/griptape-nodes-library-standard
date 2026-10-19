@@ -64,15 +64,17 @@ class GatedCall:
         self._correlation_id = correlation_id
         self._direct = direct
         self._usage = RunUsage()
-        self._runs = 0
 
     def add(self, usage: RunUsage) -> None:
-        self._runs += 1
         self._usage = self._usage + usage
 
     def report(self) -> None:
-        """Report a direct call's token counts. A call with none (image generation) reports nothing."""
-        if not self._direct or not self._runs:
+        """Report a direct call's token counts.
+
+        A call that used none reports nothing: image generation, which returns no counts, and a run
+        that failed before its first request (a bad key, an early cancel), which spent nothing.
+        """
+        if not self._direct or not (self._usage.input_tokens or self._usage.output_tokens):
             return
         report_model_usage_sync(
             self.node,

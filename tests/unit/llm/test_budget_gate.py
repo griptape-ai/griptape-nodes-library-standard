@@ -163,6 +163,22 @@ def test_a_run_that_raises_still_reports_the_tokens_it_used(node: _StubNode, cal
     assert report["input_tokens"] > 0
 
 
+def test_a_run_that_fails_before_its_first_request_is_not_reported(
+    node: _StubNode, calls: list[tuple[str, Any, Any]]
+) -> None:
+    """A bad key or an early cancel spends nothing, so it must not leave an empty spend record."""
+
+    async def refuse(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:  # noqa: ARG001
+        msg = "401 invalid api key"
+        raise RuntimeError(msg)
+        yield ""  # pragma: no cover - makes this an async generator
+
+    with pytest.raises(RuntimeError, match="401"):
+        run_gated(node, OPENAI, lambda: run_agent(Agent(FunctionModel(stream_function=refuse)), "hi"))
+
+    assert _names(calls) == ["budget"]
+
+
 def test_a_call_with_no_token_usage_is_not_reported(node: _StubNode, calls: list[tuple[str, Any, Any]]) -> None:
     """Direct image generation is budget-checked, but carries no tokens to report."""
     run_gated(node, OPENAI_IMAGE, lambda: b"png")
