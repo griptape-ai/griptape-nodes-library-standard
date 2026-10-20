@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from griptape_nodes.exe_types import input_checks
 from griptape_nodes.exe_types.core_types import NodeError
+from griptape_nodes.exe_types.input_checks import ImageInfo, VideoProbe
 from PIL import Image
 
-from griptape_nodes_library.proxy import preflight
-from griptape_nodes_library.proxy.preflight import ImageInfo, VideoProbe
 from griptape_nodes_library.video.wan_animate_generation import WanAnimateGeneration
 
 
@@ -27,9 +27,9 @@ def video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     path = tmp_path / "reference.mp4"
     path.write_bytes(b"video")
     probe: dict[str, Any] = {"path": str(path), "info": ImageInfo(1280, 720, None), "seconds": 5.0}
-    # video_errors probes through preflight's own reader, so patch it there.
+    # video_errors probes through the engine's own reader, so patch it there.
     monkeypatch.setattr(
-        preflight, "local_video_probe", lambda _value: VideoProbe(info=probe["info"], seconds=probe["seconds"])
+        input_checks, "local_video_probe", lambda _value: VideoProbe(info=probe["info"], seconds=probe["seconds"])
     )
     return probe
 
