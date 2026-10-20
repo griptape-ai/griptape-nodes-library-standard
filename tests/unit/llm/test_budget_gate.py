@@ -137,6 +137,8 @@ def test_a_direct_call_is_checked_then_reports_its_tokens(node: _StubNode, calls
         "output_tokens": usage.output_tokens,
         "cache_read_tokens": usage.cache_read_tokens,
         "cache_write_tokens": usage.cache_write_tokens,
+        "input_audio_tokens": usage.input_audio_tokens,
+        "cache_audio_read_tokens": usage.cache_audio_read_tokens,
         "correlation_id": "corr-gpt-4o",
     }
 

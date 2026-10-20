@@ -231,13 +231,17 @@ def report_model_usage_sync(  # noqa: PLR0913
     output_tokens: int,
     cache_read_tokens: int = 0,
     cache_write_tokens: int = 0,
+    input_audio_tokens: int = 0,
+    cache_audio_read_tokens: int = 0,
     correlation_id: str | None = None,
     activity_type: str = "chat_completion",
 ) -> None:
     """Report a direct provider call's token counts; Griptape Cloud prices them.
 
-    `input_tokens` is the provider's total prompt count, cached tokens included.
-    Best-effort: never raises, and the result is ignored.
+    `input_tokens` is the provider's total prompt count, cached and audio tokens included.
+    `input_audio_tokens` is the audio share of it, and `cache_audio_read_tokens` the cached share
+    of that audio, also counted in `cache_read_tokens`. Best-effort: never raises, and the result
+    is ignored.
     """
     try:
         GriptapeNodes.handle_request(
@@ -249,6 +253,8 @@ def report_model_usage_sync(  # noqa: PLR0913
                 output_tokens=output_tokens,
                 cache_read_tokens=cache_read_tokens,
                 cache_write_tokens=cache_write_tokens,
+                input_audio_tokens=input_audio_tokens,
+                cache_audio_read_tokens=cache_audio_read_tokens,
                 node_type=type(node).__name__,
                 correlation_id=correlation_id,
             )

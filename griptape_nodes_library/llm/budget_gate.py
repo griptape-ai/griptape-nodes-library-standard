@@ -84,6 +84,8 @@ class GatedCall:
             output_tokens=self._usage.output_tokens,
             cache_read_tokens=self._usage.cache_read_tokens,
             cache_write_tokens=self._usage.cache_write_tokens,
+            input_audio_tokens=self._usage.input_audio_tokens,
+            cache_audio_read_tokens=self._usage.cache_audio_read_tokens,
             correlation_id=self._correlation_id,
         )
 

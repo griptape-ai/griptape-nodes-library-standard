@@ -342,6 +342,8 @@ def test_report_sends_token_counts_for_cloud_to_price(node: _StubNode, monkeypat
         input_tokens=1000,
         output_tokens=500,
         cache_read_tokens=900,
+        input_audio_tokens=300,
+        cache_audio_read_tokens=100,
         correlation_id="corr-1",
     )
 
@@ -355,6 +357,8 @@ def test_report_sends_token_counts_for_cloud_to_price(node: _StubNode, monkeypat
         "output_tokens": 500,
         "cache_read_tokens": 900,
         "cache_write_tokens": 0,
+        "input_audio_tokens": 300,
+        "cache_audio_read_tokens": 100,
         "node_type": "_StubNode",
         "correlation_id": "corr-1",
     }
@@ -389,6 +393,8 @@ def test_report_reaches_cloud_as_a_usage_body(node: _StubNode, monkeypatch: pyte
         input_tokens=1000,
         output_tokens=500,
         cache_read_tokens=900,
+        input_audio_tokens=300,
+        cache_audio_read_tokens=100,
         correlation_id="corr-1",
     )
 
@@ -398,6 +404,8 @@ def test_report_reaches_cloud_as_a_usage_body(node: _StubNode, monkeypatch: pyte
         "output_tokens": 500,
         "cache_read_tokens": 900,
         "cache_write_tokens": 0,
+        "input_audio_tokens": 300,
+        "cache_audio_read_tokens": 100,
     }
     assert "declared_cost_micro_usd" not in body
     assert (body["provider"], body["model"], body["correlation_id"]) == ("openai", "gpt-4o", "corr-1")
