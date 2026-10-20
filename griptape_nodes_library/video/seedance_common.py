@@ -3,9 +3,10 @@
 The Seedance 2.0 and 2.5 nodes talk to the same BytePlus endpoints through the same Griptape
 Cloud proxy, so everything that is about *the provider* rather than *the model* lives here:
 media coercion, audio-subtype normalization, provider response parsing, the private-asset
-(``asset://``) registration flow, and the input limits BytePlus documents for every Seedance model
-(which the Seedance 1.x node checks too). What differs per model version — task/input modes,
-capability tables, parameter layout, validation — stays in the node modules.
+(``asset://``) registration flow, the input limits BytePlus documents for every Seedance model
+(which the Seedance 1.x node checks too), and the pre-run media checks the 2.0 and 2.5 nodes share.
+What differs per model version — task/input modes, capability tables, parameter layout,
+validation — stays in the node modules.
 
 `SeedanceProxyNode` is the shared base class. It carries the private-asset flow because that
 flow needs node state (the proxy base URL, the API key, the transient upload parameters it
@@ -20,14 +21,14 @@ import io
 import json as _json
 import logging
 from abc import ABC
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from contextlib import suppress
 from typing import Any, NamedTuple
 from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 
 import httpx
-from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, NodeErrorLink, Parameter, ParameterMode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
@@ -41,6 +42,7 @@ from griptape_nodes_library.assets import (
     ASSET_KIND_VIDEO,
     get_provider_asset_kind,
     get_provider_asset_value,
+    is_provider_asset_reference,
 )
 from griptape_nodes_library.media import (
     coerce_media_url_or_data_uri,
@@ -49,6 +51,15 @@ from griptape_nodes_library.media import (
 )
 from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
 from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.proxy.preflight import (
+    LIMITS_LINK_LABEL,
+    check_size,
+    image_errors,
+    local_image_info,
+    local_size_bytes,
+    local_video_probe,
+    video_errors,
+)
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers_async
 from griptape_nodes_library.utils.node_error_utils import error_fields, error_response, request_id_from_headers
 
@@ -76,6 +87,9 @@ __all__ = [
     "downscale_oversized_image_file",
     "normalize_audio_data_uri_subtype",
     "parse_provider_response",
+    "seedance_audio_errors",
+    "seedance_image_errors",
+    "seedance_reference_video_errors",
     "summarize_media_input",
 ]
 
@@ -117,6 +131,20 @@ MIN_IMAGE_SIDE = 300
 # "Aspect ratio (width/height): [0.4, 2.5]", for images and videos alike.
 WIDEST_ASPECT_RATIO = "2.5:1"
 TALLEST_ASPECT_RATIO = "1:2.5"
+# Videos (Seedance 2.0 and 2.5 only): "Size: Each video must not exceed 200 MB."
+MAX_VIDEO_BYTES = 200 * 1024 * 1024
+# "Width and height (px): [300, 6000]"
+MIN_VIDEO_SIDE = 300
+MAX_VIDEO_SIDE = 6000
+# "Total pixels: [614×664=407696, 3326×2494=8295044]"
+MIN_VIDEO_MEGAPIXELS = 0.407696
+MAX_VIDEO_MEGAPIXELS = 8.295044
+# "Frame rate (FPS): [24, 60]"
+MIN_VIDEO_FPS = 24
+MAX_VIDEO_FPS = 60
+# Audio (Seedance 2.0 and 2.5 only): "Each audio file must not exceed 15 MB." Its formats (wav,
+# mp3) and durations need an audio reader the pre-run checks don't have yet.
+MAX_AUDIO_BYTES = 15 * 1024 * 1024
 
 # Seedance only accepts audio data URIs whose subtype is exactly `wav` or `mp3` (per the BytePlus
 # docs). The local File/mimetypes layer emits other subtypes for the same formats (e.g. an .mp3
@@ -227,6 +255,124 @@ def downscale_oversized_image_file(path: str) -> DownscaledImage | None:
             return _downscale_decoded_image(decoded_image)
     except (OSError, ValueError):
         return None
+
+
+def seedance_image_errors(image: Any, *, subject: str, docs_url: str) -> list[NodeError]:
+    """One error per BytePlus limit an image the Seedance 2.0 or 2.5 node sends breaks.
+
+    A private-asset reference is sent as an ``asset://`` ID, so it isn't checked. An image over
+    SEEDANCE_MAX_IMAGE_DIMENSION_PX is downscaled and re-encoded as PNG or JPEG before it's sent
+    (see `SeedanceProxyNode._prepare_frame_url_async`), so for one only the limits a resize keeps
+    are checked: the shortest side and the aspect ratio.
+    """
+    if is_provider_asset_reference(image):
+        return []
+    info = local_image_info(image)
+    if info is not None and max(info.width, info.height) > SEEDANCE_MAX_IMAGE_DIMENSION_PX:
+        return image_errors(
+            image,
+            subject=subject,
+            min_side=MIN_IMAGE_SIDE,
+            widest=WIDEST_ASPECT_RATIO,
+            tallest=TALLEST_ASPECT_RATIO,
+            docs_url=docs_url,
+        )
+    return image_errors(
+        image,
+        subject=subject,
+        allowed_mime_types=SUPPORTED_IMAGE_MIME_TYPES + HEIF_IMAGE_MIME_TYPES,
+        maximum_bytes=MAX_IMAGE_BYTES,
+        min_side=MIN_IMAGE_SIDE,
+        widest=WIDEST_ASPECT_RATIO,
+        tallest=TALLEST_ASPECT_RATIO,
+        docs_url=docs_url,
+    )
+
+
+def seedance_reference_video_errors(  # noqa: PLR0913
+    videos: Sequence[tuple[str, Any]],
+    *,
+    min_seconds: float,
+    max_seconds: float,
+    max_total_seconds: float,
+    parameters: str,
+    docs_url: str,
+) -> list[NodeError]:
+    """One error per BytePlus limit the reference videos break, each on its own and together.
+
+    Each video is probed once, for its own checks and for the total. The total is checked only
+    when there are two or more videos (for one, its own maximum is the same number) and every
+    video's duration could be read. It sums each video's shorter reading, the one its own maximum
+    is checked against.
+
+    Args:
+        videos: Each video with its subject, from `input_subject`.
+        min_seconds: The shortest video accepted.
+        max_seconds: The longest video accepted.
+        max_total_seconds: The longest the videos may be together.
+        parameters: The parameters holding the videos as the UI shows them, quoted, such as
+            "'Reference Videos'".
+        docs_url: The provider's page documenting the limits.
+    """
+    errors: list[NodeError | None] = []
+    durations: list[float | None] = []
+    for subject, video in videos:
+        # A private-asset reference is sent as an asset:// ID, so it isn't checked.
+        if is_provider_asset_reference(video):
+            durations.append(None)
+            continue
+        probe = local_video_probe(video)
+        durations.append(probe.shortest_seconds if probe else None)
+        errors += video_errors(
+            video,
+            subject=subject,
+            maximum_bytes=MAX_VIDEO_BYTES,
+            min_seconds=min_seconds,
+            max_seconds=max_seconds,
+            min_side=MIN_VIDEO_SIDE,
+            max_side=MAX_VIDEO_SIDE,
+            min_megapixels=MIN_VIDEO_MEGAPIXELS,
+            max_megapixels=MAX_VIDEO_MEGAPIXELS,
+            widest=WIDEST_ASPECT_RATIO,
+            tallest=TALLEST_ASPECT_RATIO,
+            min_fps=MIN_VIDEO_FPS,
+            max_fps=MAX_VIDEO_FPS,
+            docs_url=docs_url,
+            probe=probe,
+        )
+    known = [seconds for seconds in durations if seconds is not None]
+    if len(durations) > 1 and len(known) == len(durations) and sum(known) > max_total_seconds:
+        errors.append(
+            NodeError(
+                f"Together, the videos in {parameters} are {_seconds_past(sum(known), max_total_seconds)} seconds "
+                f"long and the limit is {max_total_seconds:g} seconds in total. Use a Trim Video node to shorten "
+                "one, or remove one.",
+                links=[NodeErrorLink(label=LIMITS_LINK_LABEL, url=docs_url)],
+            )
+        )
+    return [error for error in errors if error]
+
+
+def _seconds_past(seconds: float, limit: float) -> str:
+    """Seconds over a limit to two places, with more when two would read as the limit itself."""
+    for places in range(2, 9):
+        text = f"{seconds:.{places}f}"
+        if float(text) > limit:
+            return text
+    return repr(seconds)
+
+
+def seedance_audio_errors(audio: Any, *, subject: str, docs_url: str) -> list[NodeError]:
+    """The error for a reference audio clip over BytePlus's size limit, or none.
+
+    A private-asset reference is sent as an ``asset://`` ID, so it isn't checked.
+    """
+    if is_provider_asset_reference(audio):
+        return []
+    error = check_size(
+        local_size_bytes(audio, kind="audio"), maximum_bytes=MAX_AUDIO_BYTES, subject=subject, docs_url=docs_url
+    )
+    return [error] if error else []
 
 
 def coerce_video_url(val: Any) -> str | None:

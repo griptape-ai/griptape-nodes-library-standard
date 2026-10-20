@@ -7,7 +7,7 @@ from typing import Any, ClassVar
 from griptape.artifacts import AudioArtifact, ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
@@ -32,9 +32,13 @@ from griptape_nodes_library.assets import (
     is_provider_asset_reference,
 )
 from griptape_nodes_library.proxy import ArtifactKind
+from griptape_nodes_library.proxy.preflight import input_subject
 from griptape_nodes_library.video.seedance_common import (
     SeedanceProxyNode,
     coerce_video_url,
+    seedance_audio_errors,
+    seedance_image_errors,
+    seedance_reference_video_errors,
 )
 
 logger = logging.getLogger("griptape_nodes")
@@ -50,6 +54,21 @@ MODEL_NAME_SEEDANCE_2_0_MINI = "dreamina-seedance-2-0-mini-260615"
 SEEDANCE_2_0_MODEL_ID = "dreamina-seedance-2-0-260128"
 SEEDANCE_2_0_FAST_MODEL_ID = "dreamina-seedance-2-0-fast-260128"
 SEEDANCE_2_0_MINI_MODEL_ID = "dreamina-seedance-2-0-mini-260615"
+
+# BytePlus documents the input limits of all three Seedance 2.0 models on one page, "Create a video
+# generation task" (content > Image / Video / Audio); seedance_common holds the shared ones.
+INPUT_LIMITS_URL = "https://docs.byteplus.com/en/docs/ModelArk/1520757"
+# "Dreamina Seedance 2.0 series: Each video must be 2–15 seconds long. You can submit up to 3
+# reference videos with a total duration of no more than 15 seconds."
+MIN_REFERENCE_VIDEO_SECONDS = 2
+MAX_REFERENCE_VIDEO_SECONDS = 15
+MAX_TOTAL_REFERENCE_VIDEO_SECONDS = 15
+# Each reference video's parameter name and its label in the UI.
+REFERENCE_VIDEO_PARAMETERS = {
+    "reference_video_1": "Reference Video 1",
+    "reference_video_2": "Reference Video 2",
+    "reference_video_3": "Reference Video 3",
+}
 
 
 @dataclass(frozen=True)
@@ -92,6 +111,13 @@ _DEFAULT_MODEL_CAPABILITIES = SeedanceModelCapabilities(
     supports_last_frame=True,
     supports_private_assets=False,
 )
+
+
+def _join_and(names: list[str]) -> str:
+    """Names joined for a message: "'A'", "'A' and 'B'", "'A', 'B' and 'C'"."""
+    if len(names) <= 1:
+        return "".join(names)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
 
 
 def _get_model_capabilities(model_id: str) -> SeedanceModelCapabilities:
@@ -531,7 +557,47 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
         except ValueError as e:
             exceptions.append(e)
 
+        exceptions.extend(self._media_errors(params))
+
         return exceptions if exceptions else None
+
+    def _media_errors(self, params: dict[str, Any]) -> list[NodeError]:
+        """One error per BytePlus limit the media the selected input mode sends breaks, read without
+        any network call.
+
+        First/Last Frame mode sends only the frames, Multimodal References mode only the references,
+        and Text Only nothing; media the mode doesn't send is reported by `_validate_parameters`.
+        """
+        errors: list[NodeError] = []
+        if params["input_mode"] == INPUT_MODE_FIRST_LAST_FRAME:
+            for parameter, name in (("first_frame", "First Frame"), ("last_frame", "Last Frame")):
+                if params[parameter] is not None:
+                    errors += seedance_image_errors(
+                        params[parameter], subject=input_subject(name, noun="image"), docs_url=INPUT_LIMITS_URL
+                    )
+        elif params["input_mode"] == INPUT_MODE_MULTIMODAL_REFERENCES:
+            for position, image in enumerate(params["reference_images"], start=1):
+                errors += seedance_image_errors(
+                    image,
+                    subject=input_subject("Reference Images", noun="image", position=position),
+                    docs_url=INPUT_LIMITS_URL,
+                )
+            connected = {parameter: name for parameter, name in REFERENCE_VIDEO_PARAMETERS.items() if params[parameter]}
+            errors += seedance_reference_video_errors(
+                [(input_subject(name, noun="video"), params[parameter]) for parameter, name in connected.items()],
+                min_seconds=MIN_REFERENCE_VIDEO_SECONDS,
+                max_seconds=MAX_REFERENCE_VIDEO_SECONDS,
+                max_total_seconds=MAX_TOTAL_REFERENCE_VIDEO_SECONDS,
+                parameters=_join_and([f"'{name}'" for name in connected.values()]),
+                docs_url=INPUT_LIMITS_URL,
+            )
+            for position, audio in enumerate(params["reference_audio"], start=1):
+                errors += seedance_audio_errors(
+                    audio,
+                    subject=input_subject("Reference Audio", noun="audio clip", position=position),
+                    docs_url=INPUT_LIMITS_URL,
+                )
+        return errors
 
     def _get_parameters(self) -> dict[str, Any]:
         model_id = self.get_parameter_value("model_id") or MODEL_NAME_SEEDANCE_2_0
