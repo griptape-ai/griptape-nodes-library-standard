@@ -16,6 +16,7 @@ from griptape_nodes_library.assets import ASSET_KIND_IMAGE, ASSET_KIND_VIDEO, cr
 from griptape_nodes_library.proxy.preflight import ImageInfo, VideoProbe
 from griptape_nodes_library.video import seedance_common
 from griptape_nodes_library.video.seedance_2_0_video_generation import Seedance20VideoGeneration
+from griptape_nodes_library.video.seedance_2_5_video_generation import Seedance25VideoGeneration, SeedanceTask
 from griptape_nodes_library.video.seedance_video_generation import SeedanceVideoGeneration
 
 SEEDANCE_1_5_PRO = "seedance-1-5-pro-251215"
@@ -476,5 +477,185 @@ class TestSeedance20:
     def test_errors_link_byteplus_page(self, references: Seedance20VideoGeneration, tmp_path: Path) -> None:
         _set_list(references, "reference_images", [_image(tmp_path, image_format="PPM")])
         errors = _errors(references)
+        assert errors[0].links
+        assert errors[0].links[0].url == CREATE_TASK_PAGE
+
+
+class TestSeedance25:
+    @pytest.fixture
+    def node(self) -> Seedance25VideoGeneration:
+        return Seedance25VideoGeneration(name="Seedance25")
+
+    def _references(
+        self, node: Seedance25VideoGeneration, task: SeedanceTask = SeedanceTask.REFERENCE_TO_VIDEO
+    ) -> Seedance25VideoGeneration:
+        node.set_parameter_value("task", task)
+        node.set_parameter_value("prompt", "Edit @Video 1 and extend it")
+        return node
+
+    def test_accepts_valid_frames(self, node: Seedance25VideoGeneration, tmp_path: Path) -> None:
+        node.set_parameter_value("task", SeedanceTask.FIRST_LAST_FRAME)
+        node.set_parameter_value("first_frame", _image(tmp_path, image_format="JPEG", name="first"))
+        node.set_parameter_value("last_frame", _image(tmp_path, image_format="GIF", name="last"))
+        assert _messages(node) == []
+
+    def test_accepts_valid_references(
+        self,
+        node: Seedance25VideoGeneration,
+        tmp_path: Path,
+        videos: dict[str, VideoProbe | None],  # noqa: ARG002
+    ) -> None:
+        self._references(node)
+        _set_list(node, "reference_images", [_image(tmp_path, image_format="WEBP")])
+        _set_list(node, "reference_videos", [str(tmp_path / "a.mp4"), str(tmp_path / "b.mp4")])
+        _set_list(node, "reference_audio", [_audio(tmp_path)])
+        assert _messages(node) == []
+
+    def test_rejects_invalid_frames(self, node: Seedance25VideoGeneration, tmp_path: Path) -> None:
+        node.set_parameter_value("task", SeedanceTask.FIRST_LAST_FRAME)
+        node.set_parameter_value("first_frame", _image(tmp_path, (200, 400), name="first"))
+        node.set_parameter_value("last_frame", _image(tmp_path, (400, 1100), "PPM", name="last"))
+        assert _messages(node) == [
+            "The image in 'First Frame' is 200x400 and each side must be at least 300 pixels. Use a larger one.",
+            "The image in 'Last Frame' is in PPM format. Convert it to JPEG, PNG, WEBP, BMP, TIFF, GIF, HEIC or HEIF.",
+            "The image in 'Last Frame' is 400x1100, which is too tall. "
+            "The aspect ratio must be between 1:2.5 and 2.5:1. Crop it.",
+        ]
+
+    def test_names_the_position_of_an_invalid_reference_image(
+        self, node: Seedance25VideoGeneration, tmp_path: Path
+    ) -> None:
+        self._references(node)
+        _set_list(node, "reference_images", [_image(tmp_path, name="ok.png"), _image(tmp_path, image_format="PPM")])
+        assert _messages(node) == [
+            "Image 2 in 'Reference Images' is in PPM format. Convert it to JPEG, PNG, WEBP, BMP, TIFF, GIF, HEIC or HEIF."
+        ]
+
+    @pytest.mark.parametrize(
+        ("task", "seconds", "expected"),
+        [
+            (SeedanceTask.REFERENCE_TO_VIDEO, 3.0, None),
+            (SeedanceTask.VIDEO_EXTENSION, 3.0, None),
+            (
+                SeedanceTask.REFERENCE_TO_VIDEO,
+                1.5,
+                "Video 1 in 'Reference Videos' is 1.50 seconds long and the minimum is 2. Use a longer clip.",
+            ),
+            (
+                SeedanceTask.VIDEO_EDITING,
+                3.0,
+                "Video 1 in 'Reference Videos' is 3.00 seconds long and the minimum is 4. Use a longer clip.",
+            ),
+            (
+                SeedanceTask.VIDEO_EXTENSION,
+                31.0,
+                "Video 1 in 'Reference Videos' is 31.00 seconds long and the limit is 30. "
+                "Use a Trim Video node to shorten it.",
+            ),
+        ],
+        ids=["reference-3s", "extension-3s", "reference-1.5s", "editing-3s", "extension-31s"],
+    )
+    def test_the_shortest_reference_video_depends_on_the_task(
+        self,
+        node: Seedance25VideoGeneration,
+        tmp_path: Path,
+        videos: dict[str, VideoProbe | None],
+        task: SeedanceTask,
+        seconds: float,
+        expected: str | None,
+    ) -> None:
+        videos["a.mp4"] = VideoProbe(info=ImageInfo(1280, 720, None), seconds=seconds, fps=30.0)
+        self._references(node, task)
+        _set_list(node, "reference_videos", [str(tmp_path / "a.mp4")])
+        assert _messages(node) == ([] if expected is None else [expected])
+
+    def test_names_the_position_of_an_invalid_reference_video(
+        self, node: Seedance25VideoGeneration, tmp_path: Path, videos: dict[str, VideoProbe | None]
+    ) -> None:
+        videos["b.mp4"] = VideoProbe(info=ImageInfo(640, 480, None), seconds=5.0, fps=30.0)
+        self._references(node)
+        _set_list(node, "reference_videos", [str(tmp_path / "a.mp4"), str(tmp_path / "b.mp4")])
+        assert _messages(node) == [
+            "Video 2 in 'Reference Videos' is 640x480 (0.3 megapixels) and the minimum is 0.407696 megapixels. "
+            "Use a larger one."
+        ]
+
+    def test_rejects_reference_videos_over_the_total_duration(
+        self, node: Seedance25VideoGeneration, tmp_path: Path, videos: dict[str, VideoProbe | None]
+    ) -> None:
+        for name in ("a.mp4", "b.mp4", "c.mp4"):
+            videos[name] = VideoProbe(info=ImageInfo(1280, 720, None), seconds=10.5, fps=30.0)
+        self._references(node)
+        _set_list(node, "reference_videos", [str(tmp_path / name) for name in ("a.mp4", "b.mp4", "c.mp4")])
+        assert _messages(node) == [
+            "Together, the videos in 'Reference Videos' are 31.50 seconds long and the limit is 30 seconds in "
+            "total. Use a Trim Video node to shorten one, or remove one."
+        ]
+
+    def test_accepts_reference_videos_exactly_on_the_total_duration(
+        self, node: Seedance25VideoGeneration, tmp_path: Path, videos: dict[str, VideoProbe | None]
+    ) -> None:
+        for name in ("a.mp4", "b.mp4", "c.mp4"):
+            videos[name] = VideoProbe(info=ImageInfo(1280, 720, None), seconds=10.0, fps=30.0)
+        self._references(node)
+        _set_list(node, "reference_videos", [str(tmp_path / name) for name in ("a.mp4", "b.mp4", "c.mp4")])
+        assert _messages(node) == []
+
+    def test_rejects_an_oversized_reference_audio_clip(
+        self, node: Seedance25VideoGeneration, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(seedance_common, "MAX_AUDIO_BYTES", 10)
+        self._references(node)
+        _set_list(node, "reference_audio", [_audio(tmp_path)])
+        messages = _messages(node)
+        assert len(messages) == 1
+        assert messages[0].startswith("Audio clip 1 in 'Reference Audio' is ")
+        assert "and the limit is" in messages[0]
+
+    def test_does_not_check_frames_the_task_does_not_send(
+        self, node: Seedance25VideoGeneration, tmp_path: Path
+    ) -> None:
+        self._references(node)
+        _set_list(node, "reference_images", [_image(tmp_path)])
+        node.set_parameter_value("first_frame", _image(tmp_path, (200, 400), "PPM"))
+        # _validate_parameters reports the frame as unused by this task; no limit is checked on it.
+        assert _messages(node) == []
+
+    def test_does_not_check_references_the_task_does_not_send(
+        self, node: Seedance25VideoGeneration, tmp_path: Path, videos: dict[str, VideoProbe | None]
+    ) -> None:
+        videos["a.mp4"] = VideoProbe(info=ImageInfo(640, 480, None), seconds=45.0, fps=15.0)
+        node.set_parameter_value("task", SeedanceTask.FIRST_LAST_FRAME)
+        _set_list(node, "reference_images", [_image(tmp_path, (200, 400), "PPM")])
+        _set_list(node, "reference_videos", [str(tmp_path / "a.mp4")])
+        assert _messages(node) == []
+
+    def test_does_not_check_private_asset_references(
+        self, node: Seedance25VideoGeneration, tmp_path: Path, videos: dict[str, VideoProbe | None]
+    ) -> None:
+        videos["a.mp4"] = VideoProbe(info=ImageInfo(640, 480, None), seconds=45.0, fps=15.0)
+        self._references(node)
+        _set_list(
+            node,
+            "reference_images",
+            [create_provider_asset_reference(_image(tmp_path, (200, 400), "PPM"), ASSET_KIND_IMAGE)],
+        )
+        _set_list(
+            node, "reference_videos", [create_provider_asset_reference(str(tmp_path / "a.mp4"), ASSET_KIND_VIDEO)]
+        )
+        assert _messages(node) == []
+
+    def test_skips_remote_references(self, node: Seedance25VideoGeneration, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(subprocess, "run", lambda *_a, **_k: pytest.fail("a remote video must not be probed"))
+        self._references(node)
+        _set_list(node, "reference_images", ["https://example.com/ref.ppm"])
+        _set_list(node, "reference_videos", ["https://example.com/a.mp4", "asset://asset-123"])
+        _set_list(node, "reference_audio", ["https://example.com/a.wav"])
+        assert _messages(node) == []
+
+    def test_errors_link_byteplus_page(self, node: Seedance25VideoGeneration, tmp_path: Path) -> None:
+        self._references(node)
+        _set_list(node, "reference_images", [_image(tmp_path, image_format="PPM")])
+        errors = _errors(node)
         assert errors[0].links
         assert errors[0].links[0].url == CREATE_TASK_PAGE
