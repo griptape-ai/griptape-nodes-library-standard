@@ -60,7 +60,7 @@ class TestImageToVideo:
             (
                 (1280, 720),
                 "GIF",
-                "The image in 'Start Frame' is a GIF file. Convert it to JPEG or PNG.",
+                "The image in 'Start Frame' is in GIF format. Convert it to JPEG or PNG.",
             ),
             (
                 (200, 400),
@@ -107,7 +107,7 @@ class TestImageToVideo:
     def test_checks_the_end_frames_format_and_size(self, node: KlingImageToVideoGeneration, tmp_path: Path) -> None:
         node.set_parameter_value("image_tail", _image(tmp_path, (200, 400), "GIF"))
         messages = _messages(node)
-        assert "The image in 'End Frame' is a GIF file. Convert it to JPEG or PNG." in messages
+        assert "The image in 'End Frame' is in GIF format. Convert it to JPEG or PNG." in messages
         assert (
             "The image in 'End Frame' is 200x400 and each side must be at least 300 pixels. Use a larger one."
             in messages
@@ -153,7 +153,7 @@ class TestOmni:
             "reference_images",
             [_image(tmp_path, name="ok.png"), _image(tmp_path, (1280, 720), "GIF", name="bad.gif")],
         )
-        assert _messages(node) == ["Image 2 in 'reference images' is a GIF file. Convert it to JPEG or PNG."]
+        assert _messages(node) == ["Image 2 in 'reference images' is in GIF format. Convert it to JPEG or PNG."]
 
     @pytest.mark.parametrize(
         ("info", "seconds", "expected"),
@@ -291,7 +291,7 @@ class TestMotionControl:
         node.set_parameter_value("reference_image", _image(tmp_path, (3000, 1000), "GIF"))
         node.set_parameter_value("reference_video", video["path"])
         assert _messages(node) == [
-            "The image in 'reference_image' is a GIF file. Convert it to JPEG or PNG.",
+            "The image in 'reference_image' is in GIF format. Convert it to JPEG or PNG.",
             "The image in 'reference_image' is 3000x1000, which is too wide. "
             "The aspect ratio must be between 1:2.5 and 2.5:1. Crop it.",
         ]
