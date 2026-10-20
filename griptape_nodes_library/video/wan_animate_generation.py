@@ -22,14 +22,9 @@ from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, gather_limited
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.proxy.preflight import (
-    check_aspect_ratio_range,
-    check_dimensions,
-    check_duration,
-    check_size,
     image_errors,
     input_subject,
-    local_size_bytes,
-    local_video_probe,
+    video_errors,
 )
 from griptape_nodes_library.utils.video_utils import get_video_duration
 
@@ -263,36 +258,18 @@ class WanAnimateGeneration(GriptapeProxyNode):
 
     def _video_errors(self, video: Any) -> list[NodeError]:
         """One error per DashScope video limit the input breaks, read without any network call."""
-        docs_url = self._input_limits_url()
-        subject = input_subject("Video URL", noun="video")
-        probe = local_video_probe(video)
-        info = probe.info if probe else None
-        checks = (
-            check_size(
-                local_size_bytes(video, kind="video"),
-                maximum_bytes=MAX_VIDEO_BYTES,
-                subject=subject,
-                docs_url=docs_url,
-            ),
-            check_duration(
-                probe.seconds if probe else None,
-                subject=subject,
-                minimum=MIN_VIDEO_SECONDS,
-                maximum=MAX_VIDEO_SECONDS,
-                docs_url=docs_url,
-            ),
-            check_dimensions(
-                info, subject=subject, min_side=MIN_VIDEO_SIDE, max_side=MAX_VIDEO_SIDE, docs_url=docs_url
-            ),
-            check_aspect_ratio_range(
-                info,
-                subject=subject,
-                widest=WIDEST_ASPECT_RATIO,
-                tallest=TALLEST_ASPECT_RATIO,
-                docs_url=docs_url,
-            ),
+        return video_errors(
+            video,
+            subject=input_subject("Video URL", noun="video"),
+            maximum_bytes=MAX_VIDEO_BYTES,
+            min_seconds=MIN_VIDEO_SECONDS,
+            max_seconds=MAX_VIDEO_SECONDS,
+            min_side=MIN_VIDEO_SIDE,
+            max_side=MAX_VIDEO_SIDE,
+            widest=WIDEST_ASPECT_RATIO,
+            tallest=TALLEST_ASPECT_RATIO,
+            docs_url=self._input_limits_url(),
         )
-        return [error for error in checks if error]
 
     async def aprocess(self) -> None:
         await self._process_generation()
