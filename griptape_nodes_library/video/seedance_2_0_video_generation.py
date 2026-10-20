@@ -8,6 +8,7 @@ from griptape.artifacts import AudioArtifact, ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.input_checks import input_subject
 from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
@@ -32,7 +33,6 @@ from griptape_nodes_library.assets import (
     is_provider_asset_reference,
 )
 from griptape_nodes_library.proxy import ArtifactKind
-from griptape_nodes_library.proxy.preflight import input_subject
 from griptape_nodes_library.video.seedance_common import (
     SeedanceProxyNode,
     coerce_video_url,

@@ -10,10 +10,10 @@ from typing import Any
 
 import pytest
 from griptape_nodes.exe_types.core_types import NodeError, ParameterList
+from griptape_nodes.exe_types.input_checks import ImageInfo, VideoProbe
 from PIL import Image
 
 from griptape_nodes_library.assets import ASSET_KIND_IMAGE, ASSET_KIND_VIDEO, create_provider_asset_reference
-from griptape_nodes_library.proxy.preflight import ImageInfo, VideoProbe
 from griptape_nodes_library.video import seedance_common
 from griptape_nodes_library.video.seedance_2_0_video_generation import Seedance20VideoGeneration
 from griptape_nodes_library.video.seedance_2_5_video_generation import Seedance25VideoGeneration, SeedanceTask
