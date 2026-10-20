@@ -6,7 +6,7 @@ import math
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, ParameterMode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
@@ -25,13 +25,11 @@ from griptape_nodes_library.proxy.preflight import (
     check_aspect_ratio_range,
     check_dimensions,
     check_duration,
-    check_mime_type,
     check_size,
+    image_errors,
     input_subject,
-    local_image_info,
     local_size_bytes,
-    local_video_duration,
-    local_video_info,
+    local_video_probe,
 )
 from griptape_nodes_library.utils.video_utils import get_video_duration
 
@@ -245,46 +243,30 @@ class WanAnimateGeneration(GriptapeProxyNode):
             exceptions.extend(self._video_errors(video_url))
         return exceptions if exceptions else None
 
-    def _image_errors(self, image: Any) -> list[Exception]:
+    def _image_errors(self, image: Any) -> list[NodeError]:
         """One error per DashScope image limit the input breaks, read without any network call."""
-        docs_url = self._input_limits_url()
-        subject = input_subject("Image URL", noun="image")
-        info = local_image_info(image)
-        checks = (
-            check_mime_type(
-                info.mime_type if info else None,
-                subject=subject,
-                allowed=SUPPORTED_IMAGE_MIME_TYPES,
-                docs_url=docs_url,
-            ),
-            check_size(
-                local_size_bytes(image, kind="image"),
-                maximum_bytes=MAX_IMAGE_BYTES,
-                subject=subject,
-                docs_url=docs_url,
-            ),
-            check_dimensions(
-                info, subject=subject, min_side=MIN_IMAGE_SIDE, max_side=MAX_IMAGE_SIDE, docs_url=docs_url
-            ),
-            check_aspect_ratio_range(
-                info,
-                subject=subject,
-                widest=WIDEST_ASPECT_RATIO,
-                tallest=TALLEST_ASPECT_RATIO,
-                docs_url=docs_url,
-            ),
+        return image_errors(
+            image,
+            subject=input_subject("Image URL", noun="image"),
+            allowed_mime_types=SUPPORTED_IMAGE_MIME_TYPES,
+            maximum_bytes=MAX_IMAGE_BYTES,
+            min_side=MIN_IMAGE_SIDE,
+            max_side=MAX_IMAGE_SIDE,
+            widest=WIDEST_ASPECT_RATIO,
+            tallest=TALLEST_ASPECT_RATIO,
+            docs_url=self._input_limits_url(),
         )
-        return [error for error in checks if error]
 
     def _input_limits_url(self) -> str:
         """DashScope's limits page for the selected model; the mix page when the selection is unknown."""
         return INPUT_LIMITS_URLS.get(self._get_selected_model_id(), INPUT_LIMITS_URLS[MODEL_OPTIONS[0]])
 
-    def _video_errors(self, video: Any) -> list[Exception]:
+    def _video_errors(self, video: Any) -> list[NodeError]:
         """One error per DashScope video limit the input breaks, read without any network call."""
         docs_url = self._input_limits_url()
         subject = input_subject("Video URL", noun="video")
-        info = local_video_info(video)
+        probe = local_video_probe(video)
+        info = probe.info if probe else None
         checks = (
             check_size(
                 local_size_bytes(video, kind="video"),
@@ -293,7 +275,7 @@ class WanAnimateGeneration(GriptapeProxyNode):
                 docs_url=docs_url,
             ),
             check_duration(
-                local_video_duration(video),
+                probe.seconds if probe else None,
                 subject=subject,
                 minimum=MIN_VIDEO_SECONDS,
                 maximum=MAX_VIDEO_SECONDS,

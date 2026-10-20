@@ -11,7 +11,7 @@ import pytest
 from griptape_nodes.exe_types.core_types import NodeError
 from PIL import Image
 
-from griptape_nodes_library.proxy.preflight import ImageInfo
+from griptape_nodes_library.proxy.preflight import ImageInfo, VideoProbe
 from griptape_nodes_library.video.wan_animate_generation import WanAnimateGeneration
 
 
@@ -28,8 +28,9 @@ def video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     probe: dict[str, Any] = {"path": str(path), "info": ImageInfo(1280, 720, None), "seconds": 5.0}
     # The node imported the readers by name, so patch them where it looks them up.
     node_module = sys.modules[WanAnimateGeneration.__module__]
-    monkeypatch.setattr(node_module, "local_video_info", lambda _value: probe["info"])
-    monkeypatch.setattr(node_module, "local_video_duration", lambda _value: probe["seconds"])
+    monkeypatch.setattr(
+        node_module, "local_video_probe", lambda _value: VideoProbe(info=probe["info"], seconds=probe["seconds"])
+    )
     return probe
 
 
