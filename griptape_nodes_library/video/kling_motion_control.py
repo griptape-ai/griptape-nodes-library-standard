@@ -18,6 +18,18 @@ from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, gather_limited
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.proxy.preflight import (
+    check_aspect_ratio_range,
+    check_dimensions,
+    check_duration,
+    check_mime_type,
+    check_size,
+    input_subject,
+    local_image_info,
+    local_size_bytes,
+    local_video_duration,
+    local_video_info,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -25,6 +37,25 @@ __all__ = ["KlingMotionControl"]
 
 # Constants
 MAX_PROMPT_LENGTH = 2500
+
+# Kling's documented limits on POST /v1/videos/motion-control.
+# Image: "Supported image formats: .jpg / .jpeg / .png" and "File size: ≤10MB, dimensions:
+# 300px ~ 65536px, aspect ratio: 1:2.5 ~ 2.5:1".
+# Video: "Supported formats: .mp4 / .mov, file size: ≤100MB, dimensions: 340px ~ 3850px" and
+# "minimum 3 seconds, maximum depends on character_orientation" (30 s for "video", 10 s for "image").
+# https://kling.ai/document-api/api/video/motion-control/legacy
+INPUT_LIMITS_URL = "https://kling.ai/document-api/api/video/motion-control/legacy"
+SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png")
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MIN_IMAGE_SIDE = 300
+MAX_IMAGE_SIDE = 65536
+WIDEST_IMAGE_ASPECT_RATIO = "2.5:1"
+TALLEST_IMAGE_ASPECT_RATIO = "1:2.5"
+MAX_VIDEO_BYTES = 100 * 1024 * 1024
+MIN_VIDEO_SIDE = 340
+MAX_VIDEO_SIDE = 3850
+MIN_VIDEO_SECONDS = 3
+MAX_VIDEO_SECONDS_BY_ORIENTATION = {"video": 30, "image": 10}
 
 
 class KlingMotionControl(GriptapeProxyNode):
@@ -269,4 +300,70 @@ class KlingMotionControl(GriptapeProxyNode):
         if not reference_video_param:
             exceptions.append(ValueError("A reference video is required. Connect one to 'reference_video'."))
 
+        if reference_image_param:
+            exceptions.extend(self._image_errors(reference_image_param))
+        if reference_video_param:
+            exceptions.extend(self._video_errors(reference_video_param))
+
         return exceptions if exceptions else None
+
+    def _image_errors(self, image: Any) -> list[Exception]:
+        """One error per Kling image limit the reference image breaks, read without any network call."""
+        subject = input_subject("reference_image", noun="image")
+        info = local_image_info(image)
+        checks = (
+            check_mime_type(
+                info.mime_type if info else None,
+                subject=subject,
+                allowed=SUPPORTED_IMAGE_MIME_TYPES,
+                docs_url=INPUT_LIMITS_URL,
+            ),
+            check_size(
+                local_size_bytes(image, kind="image"),
+                maximum_bytes=MAX_IMAGE_BYTES,
+                subject=subject,
+                docs_url=INPUT_LIMITS_URL,
+            ),
+            check_dimensions(
+                info, subject=subject, min_side=MIN_IMAGE_SIDE, max_side=MAX_IMAGE_SIDE, docs_url=INPUT_LIMITS_URL
+            ),
+            check_aspect_ratio_range(
+                info,
+                subject=subject,
+                widest=WIDEST_IMAGE_ASPECT_RATIO,
+                tallest=TALLEST_IMAGE_ASPECT_RATIO,
+                docs_url=INPUT_LIMITS_URL,
+            ),
+        )
+        return [error for error in checks if error]
+
+    def _video_errors(self, video: Any) -> list[Exception]:
+        """One error per Kling video limit the reference video breaks, read without any network call.
+
+        The longest clip Kling accepts depends on 'character orientation'.
+        """
+        subject = input_subject("reference_video", noun="video")
+        orientation = self.get_parameter_value("character_orientation") or "video"
+        checks = (
+            check_size(
+                local_size_bytes(video, kind="video"),
+                maximum_bytes=MAX_VIDEO_BYTES,
+                subject=subject,
+                docs_url=INPUT_LIMITS_URL,
+            ),
+            check_duration(
+                local_video_duration(video),
+                subject=subject,
+                minimum=MIN_VIDEO_SECONDS,
+                maximum=MAX_VIDEO_SECONDS_BY_ORIENTATION.get(orientation, MAX_VIDEO_SECONDS_BY_ORIENTATION["video"]),
+                docs_url=INPUT_LIMITS_URL,
+            ),
+            check_dimensions(
+                local_video_info(video),
+                subject=subject,
+                min_side=MIN_VIDEO_SIDE,
+                max_side=MAX_VIDEO_SIDE,
+                docs_url=INPUT_LIMITS_URL,
+            ),
+        )
+        return [error for error in checks if error]

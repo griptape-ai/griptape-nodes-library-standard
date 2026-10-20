@@ -26,6 +26,15 @@ from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.proxy.preflight import (
+    check_aspect_ratio_range,
+    check_dimensions,
+    check_mime_type,
+    check_size,
+    input_subject,
+    local_image_info,
+    local_size_bytes,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -33,6 +42,18 @@ __all__ = ["KlingImageToVideoGeneration"]
 
 # Constants
 MAX_PROMPT_LENGTH = 2500
+
+# Kling's documented limits for the Start Frame (`image`) and End Frame (`image_tail`) on
+# POST /v1/videos/image2video: "Supported image formats: .jpg / .jpeg / .png" and
+# "File size: ≤10MB, dimensions: min 300px, aspect ratio: 1:2.5 ~ 2.5:1". The aspect ratio is
+# stated for `image` only.
+# https://kling.ai/document-api/api/video/image-to-video
+INPUT_LIMITS_URL = "https://kling.ai/document-api/api/video/image-to-video"
+SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png")
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MIN_IMAGE_SIDE = 300
+WIDEST_IMAGE_ASPECT_RATIO = "2.5:1"
+TALLEST_IMAGE_ASPECT_RATIO = "1:2.5"
 DEFAULT_DURATION_5S = 5
 MAX_MULTI_PROMPT_COUNT = 6
 V3_MODEL_ID = "kling-v3"
@@ -990,4 +1011,43 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             except json.JSONDecodeError as e:
                 exceptions.append(ValueError(f"'dynamic_masks' is not valid JSON: {e}"))
 
+        if image:
+            exceptions.extend(self._frame_image_errors(image, "Start Frame", check_aspect_ratio=True))
+        if image_tail:
+            exceptions.extend(self._frame_image_errors(image_tail, "End Frame", check_aspect_ratio=False))
+
         return exceptions if exceptions else None
+
+    def _frame_image_errors(self, image: Any, parameter: str, *, check_aspect_ratio: bool) -> list[Exception]:
+        """One error per Kling image limit a frame breaks, read without any network call.
+
+        Kling states the aspect-ratio limit for the start frame only, so the end frame skips it.
+        """
+        subject = input_subject(parameter, noun="image")
+        info = local_image_info(image)
+        checks = [
+            check_mime_type(
+                info.mime_type if info else None,
+                subject=subject,
+                allowed=SUPPORTED_IMAGE_MIME_TYPES,
+                docs_url=INPUT_LIMITS_URL,
+            ),
+            check_size(
+                local_size_bytes(image, kind="image"),
+                maximum_bytes=MAX_IMAGE_BYTES,
+                subject=subject,
+                docs_url=INPUT_LIMITS_URL,
+            ),
+            check_dimensions(info, subject=subject, min_side=MIN_IMAGE_SIDE, docs_url=INPUT_LIMITS_URL),
+        ]
+        if check_aspect_ratio:
+            checks.append(
+                check_aspect_ratio_range(
+                    info,
+                    subject=subject,
+                    widest=WIDEST_IMAGE_ASPECT_RATIO,
+                    tallest=TALLEST_IMAGE_ASPECT_RATIO,
+                    docs_url=INPUT_LIMITS_URL,
+                )
+            )
+        return [error for error in checks if error]
