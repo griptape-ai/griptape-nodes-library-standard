@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterMode
-from griptape_nodes.exe_types.input_checks import check_duration, check_mime_type, input_subject, local_video_duration
+from griptape_nodes.exe_types.input_checks import check_duration, check_mime_type, input_subject, local_video_probe
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
@@ -177,6 +177,12 @@ class GrokVideoEdit(GriptapeProxyNode):
         if not video_value:
             return []
         subject = input_subject("Video", noun="video")
+        # xAI doesn't say whether it measures the video stream or the whole file, so the maximum is
+        # checked against the shorter of the two, as the engine's video_errors does.
+        probe = local_video_probe(video_value)
+        seconds = None
+        if probe is not None:
+            seconds = probe.shortest_seconds
         errors = [
             check_mime_type(
                 self._video_mime_type(video_value),
@@ -185,7 +191,7 @@ class GrokVideoEdit(GriptapeProxyNode):
                 docs_url=XAI_VIDEO_EDIT_DOCS_URL,
             ),
             check_duration(
-                local_video_duration(video_value),
+                seconds,
                 subject=subject,
                 maximum=MAX_INPUT_DURATION_SECONDS,
                 docs_url=XAI_VIDEO_EDIT_DOCS_URL,

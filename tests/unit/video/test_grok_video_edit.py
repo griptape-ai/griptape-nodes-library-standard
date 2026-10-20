@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeError
+from griptape_nodes.exe_types.input_checks import VideoProbe
 from griptape_nodes.exe_types.param_components.artifact_url import (
     public_artifact_url_parameter as public_artifact_url_parameter_module,
 )
@@ -86,7 +87,8 @@ class TestPrepareVideoUrlFallback:
 
 
 def _stub_duration(monkeypatch: pytest.MonkeyPatch, duration: float | None) -> None:
-    monkeypatch.setattr(grok_video_edit_module, "local_video_duration", lambda _value: duration)
+    probe = None if duration is None else VideoProbe(info=None, seconds=duration)
+    monkeypatch.setattr(grok_video_edit_module, "local_video_probe", lambda _value: probe)
 
 
 def _validated_node(monkeypatch: pytest.MonkeyPatch, video: Any, duration: float | None = 5.0) -> GrokVideoEdit:
@@ -154,6 +156,15 @@ class TestInputLimits:
 
     def test_video_at_limit_passes_validation(self, monkeypatch: pytest.MonkeyPatch) -> None:
         assert _messages(_validated_node(monkeypatch, "{inputs}/clip.mp4", duration=8.7)) == []
+
+    def test_checks_the_limit_against_the_shorter_reading(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # 6 s of video with a 12 s audio track: the container is longer, but the clip may be within xAI's limit.
+        probe = VideoProbe(info=None, seconds=6.0, container_seconds=12.0)
+        monkeypatch.setattr(grok_video_edit_module, "local_video_probe", lambda _value: probe)
+        node = GrokVideoEdit(name="GrokVideoEdit")
+        node.set_parameter_value("prompt", "make it snow")
+        node.set_parameter_value("video", "{inputs}/clip.mp4")
+        assert _messages(node) == []
 
     def test_unknown_duration_passes_validation(self, monkeypatch: pytest.MonkeyPatch) -> None:
         assert _messages(_validated_node(monkeypatch, "{inputs}/clip.mp4", duration=None)) == []
