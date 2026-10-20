@@ -25,6 +25,9 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["SeedanceVideoGeneration"]
 
+# The models that send a Last Frame; Seedance 1.0 Pro Fast takes a first frame only.
+LAST_FRAME_MODELS = ("seedance-1-5-pro-251215", "seedance-1-0-pro-250528")
+
 
 class SeedanceVideoGeneration(GriptapeProxyNode):
     """Generate a video using the Seedance model via Griptape Cloud model proxy.
@@ -237,11 +240,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         """Show/hide first_frame, last_frame, and generate_audio based on model capabilities."""
         self.show_parameter_by_name("first_frame")
 
-        supports_last_frame = provider_model_id in (
-            "seedance-1-5-pro-251215",
-            "seedance-1-0-pro-250528",
-        )
-        if supports_last_frame:
+        if provider_model_id in LAST_FRAME_MODELS:
             self.show_parameter_by_name("last_frame")
         else:
             self.hide_parameter_by_name("last_frame")
@@ -324,21 +323,13 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
 
         Role is always specified in image_url object: "first_frame" or "last_frame"
         """
-        model_id = params["model_id"]
-
-        # Determine which frames this model supports
-        supports_last_frame = model_id in (
-            "seedance-1-5-pro-251215",
-            "seedance-1-0-pro-250528",
-        )
-
         # Add first_frame if provided
         first_frame_url = await self._prepare_frame_url_async(params["first_frame"])
         if first_frame_url:
             content_list.append({"type": "image_url", "image_url": {"url": first_frame_url}, "role": "first_frame"})
 
         # Add last_frame only if model supports it and it's provided
-        if supports_last_frame:
+        if params["model_id"] in LAST_FRAME_MODELS:
             last_frame_url = await self._prepare_frame_url_async(params["last_frame"])
             if last_frame_url:
                 content_list.append({"type": "image_url", "image_url": {"url": last_frame_url}, "role": "last_frame"})
