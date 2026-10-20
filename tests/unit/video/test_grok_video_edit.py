@@ -116,7 +116,7 @@ class TestInputLimits:
         self, monkeypatch: pytest.MonkeyPatch, video_input: str, format_name: str
     ) -> None:
         assert _messages(_validated_node(monkeypatch, video_input)) == [
-            f"The video in 'Video' is a {format_name} file. Convert it to MP4."
+            f"The video in 'Video' is in {format_name} format. Convert it to MP4."
         ]
 
     @pytest.mark.parametrize("video_input", ["{inputs}/Take #2.mp4", "/Users/me/Shots/edit.v3?final.mp4"])
@@ -127,7 +127,7 @@ class TestInputLimits:
 
     def test_local_mov_with_a_hash_in_its_name_fails_validation(self, monkeypatch: pytest.MonkeyPatch) -> None:
         assert _messages(_validated_node(monkeypatch, "{inputs}/Take #2.mov")) == [
-            "The video in 'Video' is a MOV file. Convert it to MP4."
+            "The video in 'Video' is in MOV format. Convert it to MP4."
         ]
 
     def test_url_without_extension_passes_validation(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -149,7 +149,7 @@ class TestInputLimits:
         messages = _messages(_validated_node(monkeypatch, "{inputs}/IMG_2689.mov", duration=8.798))
 
         assert len(messages) == 2
-        assert "is a MOV file" in messages[0]
+        assert "is in MOV format" in messages[0]
         assert "is 8.80 seconds long" in messages[1]
 
     def test_video_at_limit_passes_validation(self, monkeypatch: pytest.MonkeyPatch) -> None:
