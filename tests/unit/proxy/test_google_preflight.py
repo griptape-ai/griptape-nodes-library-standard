@@ -67,7 +67,7 @@ class TestGoogleImageGeneration:
         node.set_parameter_value("input_images", [_image_uri("PNG"), _image_uri("GIF")])
         errors = _node_errors(node)
         assert [str(e) for e in errors] == [
-            "Image 2 in 'Input Images' is a GIF file. Convert it to PNG, JPEG, WEBP, HEIC or HEIF."
+            "Image 2 in 'Input Images' is in GIF format. Convert it to PNG, JPEG, WEBP, HEIC or HEIF."
         ]
         assert errors[0].links
 
@@ -112,7 +112,7 @@ class TestVeo3VideoGeneration:
     def test_rejects_an_unsupported_frame_format(self, node: Any) -> None:
         node.set_parameter_value("start_frame", _image_uri("WEBP"))
         errors = _node_errors(node)
-        assert [str(e) for e in errors] == ["The image in 'start frame' is a WEBP file. Convert it to JPEG or PNG."]
+        assert [str(e) for e in errors] == ["The image in 'start frame' is in WEBP format. Convert it to JPEG or PNG."]
         assert errors[0].links
         assert errors[0].links[0].url == veo3_video_generation.FRAME_FORMATS_URL
 
@@ -131,7 +131,7 @@ class TestVeo3VideoGeneration:
     def test_rejects_an_unsupported_reference_format(self, node: Any) -> None:
         node.set_parameter_value("reference_images", [_image_uri(), _image_uri("GIF")])
         errors = _node_errors(node)
-        assert [str(e) for e in errors] == ["Image 2 in 'reference images' is a GIF file. Convert it to JPEG or PNG."]
+        assert [str(e) for e in errors] == ["Image 2 in 'reference images' is in GIF format. Convert it to JPEG or PNG."]
         assert errors[0].links
         assert errors[0].links[0].url == veo3_video_generation.REFERENCE_IMAGES_URL
 
@@ -156,13 +156,13 @@ class TestGeminiOmniFlashGeneration:
         node.set_parameter_value("reference_images", [_image_uri("GIF")])
         errors = _node_errors(node)
         assert [str(e) for e in errors] == [
-            "Image 1 in 'reference images' is a GIF file. Convert it to PNG, JPEG, WEBP, HEIC or HEIF."
+            "Image 1 in 'reference images' is in GIF format. Convert it to PNG, JPEG, WEBP, HEIC or HEIF."
         ]
 
     def test_rejects_an_unsupported_deprecated_image(self, node: Any) -> None:
         node.set_parameter_value("image", _image_uri("GIF"))
         assert [str(e) for e in _node_errors(node)] == [
-            "The image in 'image (deprecated)' is a GIF file. Convert it to PNG, JPEG, WEBP, HEIC or HEIF."
+            "The image in 'image (deprecated)' is in GIF format. Convert it to PNG, JPEG, WEBP, HEIC or HEIF."
         ]
 
     def test_ignores_the_deprecated_image_when_references_are_connected(self, node: Any) -> None:
