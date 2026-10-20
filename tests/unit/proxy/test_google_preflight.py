@@ -24,9 +24,13 @@ LIBRARY_NAME = "Griptape Nodes Library"
 
 def _create(node_type: str, monkeypatch: pytest.MonkeyPatch) -> Any:
     node = LibraryRegistry.get_library(name=LIBRARY_NAME).create_node(node_type=node_type, name=node_type)
-    # A ParameterList reads its items from child parameters; with no connections in a unit test,
-    # read the value set on the list itself.
-    monkeypatch.setattr(node, "get_parameter_list_value", lambda name: node.parameter_values.get(name) or [])
+    # Engine 0.104 reads a ParameterList's items from its child rows, which a unit test never
+    # creates, so fall back to the value set on the list itself. Later engines keep the rows in step
+    # with the list, and the real reader returns it.
+    read_list = node.get_parameter_list_value
+    monkeypatch.setattr(
+        node, "get_parameter_list_value", lambda name: read_list(name) or node.parameter_values.get(name) or []
+    )
     return node
 
 

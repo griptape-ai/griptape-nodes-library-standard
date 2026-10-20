@@ -9,6 +9,13 @@ from typing import Any
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.input_checks import (
+    check_mime_type,
+    check_size,
+    input_subject,
+    local_image_info,
+    local_size_bytes,
+)
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
@@ -24,13 +31,6 @@ from griptape_nodes.traits.slider import Slider
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
-from griptape_nodes_library.proxy.preflight import (
-    check_mime_type,
-    check_size,
-    input_subject,
-    local_image_info,
-    local_size_bytes,
-)
 
 logger = logging.getLogger("griptape_nodes")
 

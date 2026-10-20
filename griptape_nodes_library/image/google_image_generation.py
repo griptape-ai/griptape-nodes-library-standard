@@ -10,6 +10,14 @@ from typing import Any, ClassVar
 from griptape.artifacts import ImageArtifact
 from griptape.artifacts.image_url_artifact import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.input_checks import (
+    check_count,
+    check_mime_type,
+    check_size,
+    input_subject,
+    local_image_info,
+    local_size_bytes,
+)
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -22,14 +30,6 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
-from griptape_nodes_library.proxy.preflight import (
-    check_count,
-    check_mime_type,
-    check_size,
-    input_subject,
-    local_image_info,
-    local_size_bytes,
-)
 from griptape_nodes_library.utils.image_utils import shrink_image_to_size
 
 logger = logging.getLogger("griptape_nodes")
