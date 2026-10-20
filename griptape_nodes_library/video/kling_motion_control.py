@@ -4,7 +4,7 @@ import logging
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
@@ -19,16 +19,13 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, gather_limited
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.proxy.preflight import (
-    check_aspect_ratio_range,
     check_dimensions,
     check_duration,
-    check_mime_type,
     check_size,
+    image_errors,
     input_subject,
-    local_image_info,
     local_size_bytes,
-    local_video_duration,
-    local_video_info,
+    local_video_probe,
 )
 
 logger = logging.getLogger("griptape_nodes")
@@ -307,43 +304,28 @@ class KlingMotionControl(GriptapeProxyNode):
 
         return exceptions if exceptions else None
 
-    def _image_errors(self, image: Any) -> list[Exception]:
+    def _image_errors(self, image: Any) -> list[NodeError]:
         """One error per Kling image limit the reference image breaks, read without any network call."""
-        subject = input_subject("reference_image", noun="image")
-        info = local_image_info(image)
-        checks = (
-            check_mime_type(
-                info.mime_type if info else None,
-                subject=subject,
-                allowed=SUPPORTED_IMAGE_MIME_TYPES,
-                docs_url=INPUT_LIMITS_URL,
-            ),
-            check_size(
-                local_size_bytes(image, kind="image"),
-                maximum_bytes=MAX_IMAGE_BYTES,
-                subject=subject,
-                docs_url=INPUT_LIMITS_URL,
-            ),
-            check_dimensions(
-                info, subject=subject, min_side=MIN_IMAGE_SIDE, max_side=MAX_IMAGE_SIDE, docs_url=INPUT_LIMITS_URL
-            ),
-            check_aspect_ratio_range(
-                info,
-                subject=subject,
-                widest=WIDEST_IMAGE_ASPECT_RATIO,
-                tallest=TALLEST_IMAGE_ASPECT_RATIO,
-                docs_url=INPUT_LIMITS_URL,
-            ),
+        return image_errors(
+            image,
+            subject=input_subject("reference_image", noun="image"),
+            allowed_mime_types=SUPPORTED_IMAGE_MIME_TYPES,
+            maximum_bytes=MAX_IMAGE_BYTES,
+            min_side=MIN_IMAGE_SIDE,
+            max_side=MAX_IMAGE_SIDE,
+            widest=WIDEST_IMAGE_ASPECT_RATIO,
+            tallest=TALLEST_IMAGE_ASPECT_RATIO,
+            docs_url=INPUT_LIMITS_URL,
         )
-        return [error for error in checks if error]
 
-    def _video_errors(self, video: Any) -> list[Exception]:
+    def _video_errors(self, video: Any) -> list[NodeError]:
         """One error per Kling video limit the reference video breaks, read without any network call.
 
         The longest clip Kling accepts depends on 'character orientation'.
         """
         subject = input_subject("reference_video", noun="video")
         orientation = self.get_parameter_value("character_orientation") or "video"
+        probe = local_video_probe(video)
         checks = (
             check_size(
                 local_size_bytes(video, kind="video"),
@@ -352,14 +334,14 @@ class KlingMotionControl(GriptapeProxyNode):
                 docs_url=INPUT_LIMITS_URL,
             ),
             check_duration(
-                local_video_duration(video),
+                probe.seconds if probe else None,
                 subject=subject,
                 minimum=MIN_VIDEO_SECONDS,
                 maximum=MAX_VIDEO_SECONDS_BY_ORIENTATION.get(orientation, MAX_VIDEO_SECONDS_BY_ORIENTATION["video"]),
                 docs_url=INPUT_LIMITS_URL,
             ),
             check_dimensions(
-                local_video_info(video),
+                probe.info if probe else None,
                 subject=subject,
                 min_side=MIN_VIDEO_SIDE,
                 max_side=MAX_VIDEO_SIDE,

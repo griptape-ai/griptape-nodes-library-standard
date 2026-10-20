@@ -9,7 +9,7 @@ from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -27,13 +27,8 @@ from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.proxy.preflight import (
-    check_aspect_ratio_range,
-    check_dimensions,
-    check_mime_type,
-    check_size,
+    image_errors,
     input_subject,
-    local_image_info,
-    local_size_bytes,
 )
 
 logger = logging.getLogger("griptape_nodes")
@@ -1018,36 +1013,18 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
         return exceptions if exceptions else None
 
-    def _frame_image_errors(self, image: Any, parameter: str, *, check_aspect_ratio: bool) -> list[Exception]:
+    def _frame_image_errors(self, image: Any, parameter: str, *, check_aspect_ratio: bool) -> list[NodeError]:
         """One error per Kling image limit a frame breaks, read without any network call.
 
         Kling states the aspect-ratio limit for the start frame only, so the end frame skips it.
         """
-        subject = input_subject(parameter, noun="image")
-        info = local_image_info(image)
-        checks = [
-            check_mime_type(
-                info.mime_type if info else None,
-                subject=subject,
-                allowed=SUPPORTED_IMAGE_MIME_TYPES,
-                docs_url=INPUT_LIMITS_URL,
-            ),
-            check_size(
-                local_size_bytes(image, kind="image"),
-                maximum_bytes=MAX_IMAGE_BYTES,
-                subject=subject,
-                docs_url=INPUT_LIMITS_URL,
-            ),
-            check_dimensions(info, subject=subject, min_side=MIN_IMAGE_SIDE, docs_url=INPUT_LIMITS_URL),
-        ]
-        if check_aspect_ratio:
-            checks.append(
-                check_aspect_ratio_range(
-                    info,
-                    subject=subject,
-                    widest=WIDEST_IMAGE_ASPECT_RATIO,
-                    tallest=TALLEST_IMAGE_ASPECT_RATIO,
-                    docs_url=INPUT_LIMITS_URL,
-                )
-            )
-        return [error for error in checks if error]
+        return image_errors(
+            image,
+            subject=input_subject(parameter, noun="image"),
+            allowed_mime_types=SUPPORTED_IMAGE_MIME_TYPES,
+            maximum_bytes=MAX_IMAGE_BYTES,
+            min_side=MIN_IMAGE_SIDE,
+            widest=WIDEST_IMAGE_ASPECT_RATIO if check_aspect_ratio else None,
+            tallest=TALLEST_IMAGE_ASPECT_RATIO if check_aspect_ratio else None,
+            docs_url=INPUT_LIMITS_URL,
+        )

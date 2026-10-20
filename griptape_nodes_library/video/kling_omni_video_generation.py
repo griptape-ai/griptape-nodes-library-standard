@@ -7,7 +7,7 @@ from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
@@ -29,13 +29,11 @@ from griptape_nodes_library.proxy.preflight import (
     check_aspect_ratio_range,
     check_dimensions,
     check_duration,
-    check_mime_type,
     check_size,
+    image_errors,
     input_subject,
-    local_image_info,
     local_size_bytes,
-    local_video_duration,
-    local_video_info,
+    local_video_probe,
 )
 
 logger = logging.getLogger("griptape_nodes")
@@ -795,7 +793,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
 
         return exceptions if exceptions else None
 
-    def _media_errors(self) -> list[Exception]:
+    def _media_errors(self) -> list[NodeError]:
         """One error per Kling media limit an input breaks, read without any network call."""
         images = [
             (input_subject(name, noun="image"), self.get_parameter_value(parameter))
@@ -805,37 +803,24 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             (input_subject("reference images", noun="image", position=position), image)
             for position, image in enumerate(self.get_parameter_list_value("reference_images") or [], start=1)
         ]
-        errors: list[Exception | None] = []
+        errors: list[NodeError | None] = []
         for subject, image in images:
-            if not image:
-                continue
-            info = local_image_info(image)
-            errors += [
-                check_mime_type(
-                    info.mime_type if info else None,
+            if image:
+                errors += image_errors(
+                    image,
                     subject=subject,
-                    allowed=SUPPORTED_IMAGE_MIME_TYPES,
-                    docs_url=INPUT_LIMITS_URL,
-                ),
-                check_size(
-                    local_size_bytes(image, kind="image"),
+                    allowed_mime_types=SUPPORTED_IMAGE_MIME_TYPES,
                     maximum_bytes=MAX_IMAGE_BYTES,
-                    subject=subject,
-                    docs_url=INPUT_LIMITS_URL,
-                ),
-                check_dimensions(info, subject=subject, min_side=MIN_IMAGE_SIDE, docs_url=INPUT_LIMITS_URL),
-                check_aspect_ratio_range(
-                    info,
-                    subject=subject,
+                    min_side=MIN_IMAGE_SIDE,
                     widest=WIDEST_ASPECT_RATIO,
                     tallest=TALLEST_ASPECT_RATIO,
                     docs_url=INPUT_LIMITS_URL,
-                ),
-            ]
+                )
         video = self.get_parameter_value("reference_video")
         if video:
             subject = input_subject("reference_video", noun="video")
-            info = local_video_info(video)
+            probe = local_video_probe(video)
+            info = probe.info if probe else None
             errors += [
                 check_size(
                     local_size_bytes(video, kind="video"),
@@ -844,7 +829,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                     docs_url=INPUT_LIMITS_URL,
                 ),
                 check_duration(
-                    local_video_duration(video),
+                    probe.seconds if probe else None,
                     subject=subject,
                     minimum=MIN_VIDEO_SECONDS,
                     maximum=MAX_VIDEO_SECONDS,
