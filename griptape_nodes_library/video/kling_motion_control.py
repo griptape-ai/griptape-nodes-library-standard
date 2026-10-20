@@ -19,13 +19,9 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, gather_limited
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.proxy.preflight import (
-    check_dimensions,
-    check_duration,
-    check_size,
     image_errors,
     input_subject,
-    local_size_bytes,
-    local_video_probe,
+    video_errors,
 )
 
 logger = logging.getLogger("griptape_nodes")
@@ -323,29 +319,14 @@ class KlingMotionControl(GriptapeProxyNode):
 
         The longest clip Kling accepts depends on 'character orientation'.
         """
-        subject = input_subject("reference_video", noun="video")
         orientation = self.get_parameter_value("character_orientation") or "video"
-        probe = local_video_probe(video)
-        checks = (
-            check_size(
-                local_size_bytes(video, kind="video"),
-                maximum_bytes=MAX_VIDEO_BYTES,
-                subject=subject,
-                docs_url=INPUT_LIMITS_URL,
-            ),
-            check_duration(
-                probe.seconds if probe else None,
-                subject=subject,
-                minimum=MIN_VIDEO_SECONDS,
-                maximum=MAX_VIDEO_SECONDS_BY_ORIENTATION.get(orientation, MAX_VIDEO_SECONDS_BY_ORIENTATION["video"]),
-                docs_url=INPUT_LIMITS_URL,
-            ),
-            check_dimensions(
-                probe.info if probe else None,
-                subject=subject,
-                min_side=MIN_VIDEO_SIDE,
-                max_side=MAX_VIDEO_SIDE,
-                docs_url=INPUT_LIMITS_URL,
-            ),
+        return video_errors(
+            video,
+            subject=input_subject("reference_video", noun="video"),
+            maximum_bytes=MAX_VIDEO_BYTES,
+            min_seconds=MIN_VIDEO_SECONDS,
+            max_seconds=MAX_VIDEO_SECONDS_BY_ORIENTATION.get(orientation, MAX_VIDEO_SECONDS_BY_ORIENTATION["video"]),
+            min_side=MIN_VIDEO_SIDE,
+            max_side=MAX_VIDEO_SIDE,
+            docs_url=INPUT_LIMITS_URL,
         )
-        return [error for error in checks if error]

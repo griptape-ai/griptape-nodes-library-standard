@@ -11,6 +11,7 @@ import pytest
 from griptape_nodes.exe_types.core_types import NodeError
 from PIL import Image
 
+from griptape_nodes_library.proxy import preflight
 from griptape_nodes_library.proxy.preflight import ImageInfo, VideoProbe
 from griptape_nodes_library.video.kling_image_to_video_generation import KlingImageToVideoGeneration
 from griptape_nodes_library.video.kling_motion_control import KlingMotionControl
@@ -33,12 +34,10 @@ def video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     path = tmp_path / "reference.mp4"
     path.write_bytes(b"video")
     probe: dict[str, Any] = {"path": str(path), "info": ImageInfo(1280, 720, None), "seconds": 5.0}
-    # The nodes imported the readers by name, so patch them where each node looks them up.
-    for node_class in (KlingMotionControl, KlingOmniVideoGeneration):
-        module = sys.modules[node_class.__module__]
-        monkeypatch.setattr(
-            module, "local_video_probe", lambda _value: VideoProbe(info=probe["info"], seconds=probe["seconds"])
-        )
+    # video_errors probes through preflight's own reader, so patch it there.
+    monkeypatch.setattr(
+        preflight, "local_video_probe", lambda _value: VideoProbe(info=probe["info"], seconds=probe["seconds"])
+    )
     return probe
 
 

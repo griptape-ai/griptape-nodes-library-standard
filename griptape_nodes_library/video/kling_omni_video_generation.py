@@ -26,14 +26,9 @@ from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.proxy.preflight import (
-    check_aspect_ratio_range,
-    check_dimensions,
-    check_duration,
-    check_size,
     image_errors,
     input_subject,
-    local_size_bytes,
-    local_video_probe,
+    video_errors,
 )
 
 logger = logging.getLogger("griptape_nodes")
@@ -818,39 +813,19 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 )
         video = self.get_parameter_value("reference_video")
         if video:
-            subject = input_subject("reference_video", noun="video")
-            probe = local_video_probe(video)
-            info = probe.info if probe else None
-            errors += [
-                check_size(
-                    local_size_bytes(video, kind="video"),
-                    maximum_bytes=MAX_VIDEO_BYTES,
-                    subject=subject,
-                    docs_url=INPUT_LIMITS_URL,
-                ),
-                check_duration(
-                    probe.seconds if probe else None,
-                    subject=subject,
-                    minimum=MIN_VIDEO_SECONDS,
-                    maximum=MAX_VIDEO_SECONDS,
-                    docs_url=INPUT_LIMITS_URL,
-                ),
-                check_dimensions(
-                    info,
-                    subject=subject,
-                    min_side=MIN_VIDEO_SIDE,
-                    max_side=MAX_VIDEO_SIDE,
-                    max_megapixels=MAX_VIDEO_MEGAPIXELS,
-                    docs_url=INPUT_LIMITS_URL,
-                ),
-                check_aspect_ratio_range(
-                    info,
-                    subject=subject,
-                    widest=WIDEST_ASPECT_RATIO,
-                    tallest=TALLEST_ASPECT_RATIO,
-                    docs_url=INPUT_LIMITS_URL,
-                ),
-            ]
+            errors += video_errors(
+                video,
+                subject=input_subject("reference_video", noun="video"),
+                maximum_bytes=MAX_VIDEO_BYTES,
+                min_seconds=MIN_VIDEO_SECONDS,
+                max_seconds=MAX_VIDEO_SECONDS,
+                min_side=MIN_VIDEO_SIDE,
+                max_side=MAX_VIDEO_SIDE,
+                max_megapixels=MAX_VIDEO_MEGAPIXELS,
+                widest=WIDEST_ASPECT_RATIO,
+                tallest=TALLEST_ASPECT_RATIO,
+                docs_url=INPUT_LIMITS_URL,
+            )
         return [error for error in errors if error]
 
     async def _prepare_image_data_url_async(self, image_input: Any) -> str | None:
