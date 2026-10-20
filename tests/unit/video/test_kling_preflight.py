@@ -146,6 +146,23 @@ class TestOmni:
             "The image in 'first frame' is 200x400 and each side must be at least 300 pixels. Use a larger one."
         ]
 
+    @pytest.mark.parametrize(
+        ("model", "url"),
+        [
+            ("kling-v3-omni", "https://kling.ai/document-api/api/video/3-0-omni/video-omni/legacy"),
+            ("kling-video-o1", "https://kling.ai/document-api/api/video/o1/video-omni/legacy"),
+            # A legacy display name resolves to its model id before the page is chosen.
+            ("Kling Omni", "https://kling.ai/document-api/api/video/o1/video-omni/legacy"),
+        ],
+    )
+    def test_errors_link_the_selected_models_page(
+        self, node: KlingOmniVideoGeneration, tmp_path: Path, model: str, url: str
+    ) -> None:
+        node.set_parameter_value("model_name", model)
+        node.set_parameter_value("first_frame_image", _image(tmp_path, (200, 400)))
+        errors = [e for e in node.validate_before_node_run() or [] if isinstance(e, NodeError)]
+        assert [link.url for error in errors for link in error.links] == [url]
+
     def test_names_the_position_of_an_invalid_reference_image(
         self, node: KlingOmniVideoGeneration, tmp_path: Path
     ) -> None:

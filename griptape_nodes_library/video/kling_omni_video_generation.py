@@ -45,9 +45,11 @@ MAX_IMAGES_FOR_END_FRAME = 2
 # Images: "Formats: .jpg / .jpeg / .png", "File size: ≤10MB", "Dimensions: min 300px, aspect
 # ratio 1:2.5 ~ 2.5:1". Reference video: "Format: MP4/MOV only", "Max 1 video, size ≤200MB,
 # aspect ratio between 1:2.5 and 2.5:1".
-# https://kling.ai/document-api/api/video/3-0-omni/video-omni/legacy
-# https://kling.ai/document-api/api/video/o1/video-omni/legacy
-INPUT_LIMITS_URL = "https://kling.ai/document-api/api/video/3-0-omni/video-omni/legacy"
+# Errors link the page for the selected model.
+INPUT_LIMITS_URLS = {
+    "kling-v3-omni": "https://kling.ai/document-api/api/video/3-0-omni/video-omni/legacy",
+    "kling-video-o1": "https://kling.ai/document-api/api/video/o1/video-omni/legacy",
+}
 SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png")
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MIN_IMAGE_SIDE = 300
@@ -811,6 +813,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
 
     def _media_errors(self) -> list[NodeError]:
         """One error per Kling media limit an input breaks, read without any network call."""
+        docs_url = self._input_limits_url()
         images = [
             (input_subject(name, noun="image"), self.get_parameter_value(parameter))
             for parameter, name in (("first_frame_image", "first frame"), ("end_frame_image", "end frame"))
@@ -830,7 +833,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                     min_side=MIN_IMAGE_SIDE,
                     widest=WIDEST_ASPECT_RATIO,
                     tallest=TALLEST_ASPECT_RATIO,
-                    docs_url=INPUT_LIMITS_URL,
+                    docs_url=docs_url,
                 )
         video = self.get_parameter_value("reference_video")
         if video:
@@ -847,9 +850,13 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 tallest=TALLEST_ASPECT_RATIO,
                 min_fps=MIN_VIDEO_FPS,
                 max_fps=MAX_VIDEO_FPS,
-                docs_url=INPUT_LIMITS_URL,
+                docs_url=docs_url,
             )
         return errors
+
+    def _input_limits_url(self) -> str:
+        """Kling's limits page for the selected model; the 3.0 Omni page when the selection is unknown."""
+        return INPUT_LIMITS_URLS.get(self._get_selected_model_id(), INPUT_LIMITS_URLS["kling-v3-omni"])
 
     async def _prepare_image_data_url_async(self, image_input: Any) -> str | None:
         """Convert image input to a data URL, handling external URLs by downloading and converting."""
