@@ -2,9 +2,10 @@
 
 The Seedance 2.0 and 2.5 nodes talk to the same BytePlus endpoints through the same Griptape
 Cloud proxy, so everything that is about *the provider* rather than *the model* lives here:
-media coercion, audio-subtype normalization, provider response parsing, and the private-asset
-(``asset://``) registration flow. What differs per model version — task/input modes, capability
-tables, parameter layout, validation — stays in the node modules.
+media coercion, audio-subtype normalization, provider response parsing, the private-asset
+(``asset://``) registration flow, and the input limits BytePlus documents for every Seedance model
+(which the Seedance 1.x node checks too). What differs per model version — task/input modes,
+capability tables, parameter layout, validation — stays in the node modules.
 
 `SeedanceProxyNode` is the shared base class. It carries the private-asset flow because that
 flow needs node state (the proxy base URL, the API key, the transient upload parameters it
@@ -61,8 +62,14 @@ __all__ = [
     "ASSET_STATUS_ACTIVE",
     "ASSET_STATUS_DELETED",
     "ASSET_STATUS_FAILED",
+    "HEIF_IMAGE_MIME_TYPES",
+    "MAX_IMAGE_BYTES",
+    "MIN_IMAGE_SIDE",
     "SEEDANCE_AUDIO_SUBTYPE_ALIASES",
     "SEEDANCE_MAX_IMAGE_DIMENSION_PX",
+    "SUPPORTED_IMAGE_MIME_TYPES",
+    "TALLEST_ASPECT_RATIO",
+    "WIDEST_ASPECT_RATIO",
     "SeedanceProxyNode",
     "coerce_video_url",
     "downscale_oversized_image_data_uri",
@@ -94,6 +101,22 @@ _ASSET_KIND_ARTIFACT_TYPES = {
 # for an oversized image, while the 2.0 backend downscales it silently -- so any image we read
 # locally is downscaled to fit before it is sent, matching what 2.0 already does server-side.
 SEEDANCE_MAX_IMAGE_DIMENSION_PX = 6000
+
+# BytePlus's image limits, the same for every Seedance model unless noted, from "Create a video
+# generation task" (content > Image). The Seedance 2.5 tutorial repeats them.
+# "Format: jpeg, png, webp, bmp, tiff, or gif. Seedance 1.5 pro and later models also
+# support heic and heif." Pillow can't read HEIC or HEIF, so they're never checked locally, but
+# they're listed so a format error names every format the model takes.
+SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png", "image/webp", "image/bmp", "image/tiff", "image/gif")
+HEIF_IMAGE_MIME_TYPES = ("image/heic", "image/heif")
+# "Single image must be less than 30 MB". check_size lets exactly 30 MB through; one byte over
+# BytePlus's limit isn't worth a stricter check.
+MAX_IMAGE_BYTES = 30 * 1024 * 1024
+# "Width and height (px): [300, 6000]"; the 6000 px maximum is SEEDANCE_MAX_IMAGE_DIMENSION_PX.
+MIN_IMAGE_SIDE = 300
+# "Aspect ratio (width/height): [0.4, 2.5]", for images and videos alike.
+WIDEST_ASPECT_RATIO = "2.5:1"
+TALLEST_ASPECT_RATIO = "1:2.5"
 
 # Seedance only accepts audio data URIs whose subtype is exactly `wav` or `mp3` (per the BytePlus
 # docs). The local File/mimetypes layer emits other subtypes for the same formats (e.g. an .mp3

@@ -6,7 +6,7 @@ from contextlib import suppress
 from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -20,6 +20,16 @@ from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.proxy.preflight import image_errors, input_subject
+from griptape_nodes_library.video.seedance_common import (
+    HEIF_IMAGE_MIME_TYPES,
+    MAX_IMAGE_BYTES,
+    MIN_IMAGE_SIDE,
+    SEEDANCE_MAX_IMAGE_DIMENSION_PX,
+    SUPPORTED_IMAGE_MIME_TYPES,
+    TALLEST_ASPECT_RATIO,
+    WIDEST_ASPECT_RATIO,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -27,6 +37,12 @@ __all__ = ["SeedanceVideoGeneration"]
 
 # The models that send a Last Frame; Seedance 1.0 Pro Fast takes a first frame only.
 LAST_FRAME_MODELS = ("seedance-1-5-pro-251215", "seedance-1-0-pro-250528")
+
+# BytePlus documents every model this node offers on one page, which states the image limits in
+# seedance_common: "Create a video generation task" (content > Image).
+INPUT_LIMITS_URL = "https://docs.byteplus.com/en/docs/ModelArk/1520757"
+# "Seedance 1.5 pro and later models also support heic and heif."
+HEIF_MODELS = ("seedance-1-5-pro-251215",)
 
 
 class SeedanceVideoGeneration(GriptapeProxyNode):
@@ -249,6 +265,39 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
             self.show_parameter_by_name("generate_audio")
         else:
             self.hide_parameter_by_name("generate_audio")
+
+    def validate_before_node_run(self) -> list[Exception] | None:
+        exceptions = super().validate_before_node_run() or []
+        exceptions.extend(self._frame_errors())
+        return exceptions or None
+
+    def _frame_errors(self) -> list[NodeError]:
+        """One error per BytePlus image limit a frame the request sends breaks, read without any network call.
+
+        Last Frame is sent only by the models in LAST_FRAME_MODELS. Unlike the Seedance 2.0 and 2.5
+        nodes, this one sends a frame as it is, never downscaled, so the 6000 px maximum applies.
+        """
+        model_id = self._get_api_model_id()
+        frames = [("first_frame", "First Frame")]
+        if model_id in LAST_FRAME_MODELS:
+            frames.append(("last_frame", "Last Frame"))
+        allowed_mime_types = SUPPORTED_IMAGE_MIME_TYPES + (HEIF_IMAGE_MIME_TYPES if model_id in HEIF_MODELS else ())
+        errors: list[NodeError] = []
+        for parameter, name in frames:
+            image = self.get_parameter_value(parameter)
+            if image:
+                errors += image_errors(
+                    image,
+                    subject=input_subject(name, noun="image"),
+                    allowed_mime_types=allowed_mime_types,
+                    maximum_bytes=MAX_IMAGE_BYTES,
+                    min_side=MIN_IMAGE_SIDE,
+                    max_side=SEEDANCE_MAX_IMAGE_DIMENSION_PX,
+                    widest=WIDEST_ASPECT_RATIO,
+                    tallest=TALLEST_ASPECT_RATIO,
+                    docs_url=INPUT_LIMITS_URL,
+                )
+        return errors
 
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
