@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from griptape_nodes.exe_types import input_checks
 from griptape_nodes.exe_types.core_types import NodeError
+from griptape_nodes.exe_types.input_checks import ImageInfo, VideoProbe
 from PIL import Image
 
-from griptape_nodes_library.proxy import preflight
-from griptape_nodes_library.proxy.preflight import ImageInfo, VideoProbe
 from griptape_nodes_library.video.kling_image_to_video_generation import KlingImageToVideoGeneration
 from griptape_nodes_library.video.kling_motion_control import KlingMotionControl
 from griptape_nodes_library.video.kling_omni_video_generation import KlingOmniVideoGeneration
@@ -34,9 +34,9 @@ def video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     path = tmp_path / "reference.mp4"
     path.write_bytes(b"video")
     probe: dict[str, Any] = {"path": str(path), "info": ImageInfo(1280, 720, None), "seconds": 5.0, "fps": 30.0}
-    # video_errors probes through preflight's own reader, so patch it there.
+    # video_errors probes through the engine's own reader, so patch it there.
     monkeypatch.setattr(
-        preflight,
+        input_checks,
         "local_video_probe",
         lambda _value: VideoProbe(info=probe["info"], seconds=probe["seconds"], fps=probe["fps"]),
     )
@@ -129,9 +129,13 @@ class TestOmni:
     def node(self, monkeypatch: pytest.MonkeyPatch) -> KlingOmniVideoGeneration:
         node = KlingOmniVideoGeneration(name="KlingOmni")
         node.set_parameter_value("prompt", "a cat")
-        # A ParameterList reads its items from child parameters; with no connections in a unit
-        # test, read the value set on the list itself.
-        monkeypatch.setattr(node, "get_parameter_list_value", lambda name: node.parameter_values.get(name) or [])
+        # Engine 0.104 reads a ParameterList's items from its child rows, which a unit test never
+        # creates, so fall back to the value set on the list itself. Later engines keep the rows in
+        # step with the list, and the real reader returns it.
+        read_list = node.get_parameter_list_value
+        monkeypatch.setattr(
+            node, "get_parameter_list_value", lambda name: read_list(name) or node.parameter_values.get(name) or []
+        )
         return node
 
     def test_accepts_valid_media(self, node: KlingOmniVideoGeneration, tmp_path: Path, video: dict[str, Any]) -> None:

@@ -5,6 +5,11 @@ from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeError, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.input_checks import (
+    image_errors,
+    input_subject,
+    video_errors,
+)
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
@@ -18,11 +23,6 @@ from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, gather_limited
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
-from griptape_nodes_library.proxy.preflight import (
-    image_errors,
-    input_subject,
-    video_errors,
-)
 
 logger = logging.getLogger("griptape_nodes")
 
