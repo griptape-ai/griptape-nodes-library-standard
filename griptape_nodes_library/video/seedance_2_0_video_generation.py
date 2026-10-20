@@ -557,7 +557,10 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
         except ValueError as e:
             exceptions.append(e)
 
-        exceptions.extend(self._media_errors(params))
+        try:
+            exceptions.extend(self._media_errors(params))
+        except ValueError as e:
+            exceptions.append(e)
 
         return exceptions if exceptions else None
 
@@ -568,35 +571,55 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
         First/Last Frame mode sends only the frames, Multimodal References mode only the references,
         and Text Only nothing; media the mode doesn't send is reported by `_validate_parameters`.
         """
-        errors: list[NodeError] = []
-        if params["input_mode"] == INPUT_MODE_FIRST_LAST_FRAME:
-            for parameter, name in (("first_frame", "First Frame"), ("last_frame", "Last Frame")):
-                if params[parameter] is not None:
-                    errors += seedance_image_errors(
-                        params[parameter], subject=input_subject(name, noun="image"), docs_url=INPUT_LIMITS_URL
-                    )
-        elif params["input_mode"] == INPUT_MODE_MULTIMODAL_REFERENCES:
-            for position, image in enumerate(params["reference_images"], start=1):
-                errors += seedance_image_errors(
-                    image,
-                    subject=input_subject("Reference Images", noun="image", position=position),
-                    docs_url=INPUT_LIMITS_URL,
+        input_mode = params["input_mode"]
+        match input_mode:
+            case mode if mode == INPUT_MODE_TEXT_ONLY:
+                return []
+            case mode if mode == INPUT_MODE_FIRST_LAST_FRAME:
+                return self._frame_errors(params)
+            case mode if mode == INPUT_MODE_MULTIMODAL_REFERENCES:
+                return self._reference_errors(params)
+            case _:
+                msg = (
+                    f"'Input Mode' is {input_mode!r}, which isn't one of {INPUT_MODE_TEXT_ONLY}, "
+                    f"{INPUT_MODE_FIRST_LAST_FRAME} or {INPUT_MODE_MULTIMODAL_REFERENCES}. Choose one of them."
                 )
-            connected = {parameter: name for parameter, name in REFERENCE_VIDEO_PARAMETERS.items() if params[parameter]}
-            errors += seedance_reference_video_errors(
-                [(input_subject(name, noun="video"), params[parameter]) for parameter, name in connected.items()],
-                min_seconds=MIN_REFERENCE_VIDEO_SECONDS,
-                max_seconds=MAX_REFERENCE_VIDEO_SECONDS,
-                max_total_seconds=MAX_TOTAL_REFERENCE_VIDEO_SECONDS,
-                parameters=_join_and([f"'{name}'" for name in connected.values()]),
+                raise ValueError(msg)
+
+    def _frame_errors(self, params: dict[str, Any]) -> list[NodeError]:
+        """One error per BytePlus limit the First Frame or Last Frame breaks."""
+        errors: list[NodeError] = []
+        for parameter, name in (("first_frame", "First Frame"), ("last_frame", "Last Frame")):
+            if params[parameter] is not None:
+                errors += seedance_image_errors(
+                    params[parameter], subject=input_subject(name, noun="image"), docs_url=INPUT_LIMITS_URL
+                )
+        return errors
+
+    def _reference_errors(self, params: dict[str, Any]) -> list[NodeError]:
+        """One error per BytePlus limit the reference images, videos or audio break."""
+        errors: list[NodeError] = []
+        for position, image in enumerate(params["reference_images"], start=1):
+            errors += seedance_image_errors(
+                image,
+                subject=input_subject("Reference Images", noun="image", position=position),
                 docs_url=INPUT_LIMITS_URL,
             )
-            for position, audio in enumerate(params["reference_audio"], start=1):
-                errors += seedance_audio_errors(
-                    audio,
-                    subject=input_subject("Reference Audio", noun="audio clip", position=position),
-                    docs_url=INPUT_LIMITS_URL,
-                )
+        connected = {parameter: name for parameter, name in REFERENCE_VIDEO_PARAMETERS.items() if params[parameter]}
+        errors += seedance_reference_video_errors(
+            [(input_subject(name, noun="video"), params[parameter]) for parameter, name in connected.items()],
+            min_seconds=MIN_REFERENCE_VIDEO_SECONDS,
+            max_seconds=MAX_REFERENCE_VIDEO_SECONDS,
+            max_total_seconds=MAX_TOTAL_REFERENCE_VIDEO_SECONDS,
+            parameters=_join_and([f"'{name}'" for name in connected.values()]),
+            docs_url=INPUT_LIMITS_URL,
+        )
+        for position, audio in enumerate(params["reference_audio"], start=1):
+            errors += seedance_audio_errors(
+                audio,
+                subject=input_subject("Reference Audio", noun="audio clip", position=position),
+                docs_url=INPUT_LIMITS_URL,
+            )
         return errors
 
     def _get_parameters(self) -> dict[str, Any]:

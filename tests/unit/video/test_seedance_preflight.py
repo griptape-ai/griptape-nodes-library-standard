@@ -222,6 +222,16 @@ class TestSeedance20:
         node.set_parameter_value("last_frame", _image(tmp_path, image_format="TIFF", name="last"))
         assert _messages(node) == []
 
+    def test_reports_an_unknown_input_mode_instead_of_failing(self, node: Seedance20VideoGeneration) -> None:
+        # The dropdown turns a value outside its choices into the default when it's set, so store one
+        # directly to reach the guard behind it.
+        node.parameter_values["input_mode"] = "Storyboard"
+        messages = [str(e) for e in node.validate_before_node_run() or []]
+        assert (
+            "'Input Mode' is 'Storyboard', which isn't one of Text Only, First/Last Frame or Multimodal "
+            "References. Choose one of them."
+        ) in messages
+
     def test_accepts_valid_references(
         self,
         references: Seedance20VideoGeneration,
