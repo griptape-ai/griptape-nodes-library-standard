@@ -54,15 +54,36 @@ MIN_IMAGE_SIDE = 300
 MAX_VIDEO_BYTES = 200 * 1024 * 1024
 WIDEST_ASPECT_RATIO = "2.5:1"
 TALLEST_ASPECT_RATIO = "1:2.5"
-# The two pages disagree on the reference video's size ("700px～4553px; and the area does not
-# exceed 8294400" vs "720px-2160px"), so the wider of the two is checked. For duration both pages
-# set a 3 s minimum; only the 3.0 Omni page gives a number for the upper limit ("3s～15.5s"),
-# and it is the most Kling allows any model on this endpoint.
+# Reference video duration and frame size: the wider bounds of two Kling pages, on purpose.
+#
+# Both pages document this same endpoint (POST /v1/videos/omni-video) and list both models it
+# serves (kling-video-o1 and kling-v3-omni), but they give different reference-video limits and
+# neither says which model each set belongs to:
+#   3.0 Omni page: "Duration: 3s～15.5s" and "Resolution: width and height: 700px～4553px; and
+#   the area does not exceed 8294400"
+#   https://kling.ai/document-api/api/video/3-0-omni/video-omni/legacy
+#   O1 page: "Duration: ≥3 seconds, upper limit depends on model version" and
+#   "Resolution: 720px-2160px (width and height)"
+#   https://kling.ai/document-api/api/video/o1/video-omni/legacy
+#
+# A pre-run check must only refuse what Kling is certain to reject, and refusing a valid video is
+# worse than letting a borderline one reach Kling. So the checks use the bounds neither page
+# contradicts: 3 to 15.5 s (the O1 page gives no upper number) and 700 to 4553 px with the
+# 8,294,400 px area cap. A 3000 px clip with O1 selected passes here even though the O1 page says
+# 2160 px; Kling has the final word.
+#
+# Kling's newer API pages do split these by model (O1: 3-10 s and 700-2160 px), but they document
+# a different endpoint, so they aren't used:
+#   https://kling.ai/document-api/api/video/o1/video-omni
+#   https://kling.ai/document-api/api/video/3-0-omni/video-omni
 MIN_VIDEO_SECONDS = 3
 MAX_VIDEO_SECONDS = 15.5
 MIN_VIDEO_SIDE = 700
 MAX_VIDEO_SIDE = 4553
 MAX_VIDEO_MEGAPIXELS = 8.2944
+# "Frame rate: 24-60fps (output will be 24fps)", the same on both pages above.
+MIN_VIDEO_FPS = 24
+MAX_VIDEO_FPS = 60
 MAX_MULTI_PROMPT_COUNT = 6
 MODE_STD = "std"
 MODE_PRO = "pro"
@@ -798,7 +819,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             (input_subject("reference images", noun="image", position=position), image)
             for position, image in enumerate(self.get_parameter_list_value("reference_images") or [], start=1)
         ]
-        errors: list[NodeError | None] = []
+        errors: list[NodeError] = []
         for subject, image in images:
             if image:
                 errors += image_errors(
@@ -824,9 +845,11 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 max_megapixels=MAX_VIDEO_MEGAPIXELS,
                 widest=WIDEST_ASPECT_RATIO,
                 tallest=TALLEST_ASPECT_RATIO,
+                min_fps=MIN_VIDEO_FPS,
+                max_fps=MAX_VIDEO_FPS,
                 docs_url=INPUT_LIMITS_URL,
             )
-        return [error for error in errors if error]
+        return errors
 
     async def _prepare_image_data_url_async(self, image_input: Any) -> str | None:
         """Convert image input to a data URL, handling external URLs by downloading and converting."""

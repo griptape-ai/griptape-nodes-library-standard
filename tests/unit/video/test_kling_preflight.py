@@ -33,10 +33,12 @@ def video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """A local video whose probed frame size and duration a test can set, for any Kling node."""
     path = tmp_path / "reference.mp4"
     path.write_bytes(b"video")
-    probe: dict[str, Any] = {"path": str(path), "info": ImageInfo(1280, 720, None), "seconds": 5.0}
+    probe: dict[str, Any] = {"path": str(path), "info": ImageInfo(1280, 720, None), "seconds": 5.0, "fps": 30.0}
     # video_errors probes through preflight's own reader, so patch it there.
     monkeypatch.setattr(
-        preflight, "local_video_probe", lambda _value: VideoProbe(info=probe["info"], seconds=probe["seconds"])
+        preflight,
+        "local_video_probe",
+        lambda _value: VideoProbe(info=probe["info"], seconds=probe["seconds"], fps=probe["fps"]),
     )
     return probe
 
@@ -238,6 +240,29 @@ class TestOmni:
         assert len(messages) == 1
         assert messages[0].startswith("Image 1 in 'reference images' is ")
         assert "and the limit is" in messages[0]
+
+    @pytest.mark.parametrize("fps", [24.0, 23.976, 59.94, 60.0])
+    def test_accepts_a_reference_video_frame_rate_in_range(
+        self, node: KlingOmniVideoGeneration, video: dict[str, Any], fps: float
+    ) -> None:
+        video["fps"] = fps
+        node.set_parameter_value("reference_video", video["path"])
+        assert _messages(node) == []
+
+    @pytest.mark.parametrize(
+        ("fps", "expected"),
+        [
+            (15.0, "is 15 fps and the minimum is 24 fps. Re-export it at a higher frame rate."),
+            (120.0, "is 120 fps and the maximum is 60 fps. Re-export it at a lower frame rate."),
+        ],
+        ids=["too-low", "too-high"],
+    )
+    def test_rejects_a_reference_video_frame_rate_out_of_range(
+        self, node: KlingOmniVideoGeneration, video: dict[str, Any], fps: float, expected: str
+    ) -> None:
+        video["fps"] = fps
+        node.set_parameter_value("reference_video", video["path"])
+        assert _messages(node) == [f"The video in 'reference_video' {expected}"]
 
     def test_rejects_an_oversized_reference_video(
         self, node: KlingOmniVideoGeneration, video: dict[str, Any], monkeypatch: pytest.MonkeyPatch
