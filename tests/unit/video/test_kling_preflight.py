@@ -229,6 +229,16 @@ class TestOmni:
         assert messages[0].startswith("The video in 'reference_video' is ")
         assert expected in messages[0]
 
+    def test_rejects_an_oversized_reference_image(
+        self, node: KlingOmniVideoGeneration, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys.modules[KlingOmniVideoGeneration.__module__], "MAX_IMAGE_BYTES", 10)
+        node.set_parameter_value("reference_images", [_image(tmp_path)])
+        messages = _messages(node)
+        assert len(messages) == 1
+        assert messages[0].startswith("Image 1 in 'reference images' is ")
+        assert "and the limit is" in messages[0]
+
     def test_rejects_an_oversized_reference_video(
         self, node: KlingOmniVideoGeneration, video: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -298,6 +308,49 @@ class TestMotionControl:
         node.set_parameter_value("reference_video", video["path"])
         assert _messages(node) == [
             "The video in 'reference_video' is 160x120 and each side must be at least 340 pixels. Use a larger one."
+        ]
+
+    def test_rejects_an_oversized_reference_image(
+        self, node: KlingMotionControl, tmp_path: Path, video: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys.modules[KlingMotionControl.__module__], "MAX_IMAGE_BYTES", 10)
+        node.set_parameter_value("reference_image", _image(tmp_path))
+        node.set_parameter_value("reference_video", video["path"])
+        messages = _messages(node)
+        assert len(messages) == 1
+        assert messages[0].startswith("The image in 'reference_image' is ")
+        assert "and the limit is" in messages[0]
+
+    def test_rejects_a_reference_image_over_the_largest_side(
+        self, node: KlingMotionControl, tmp_path: Path, video: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A real 65537 px image is too large to build in a test; lower the limit instead.
+        monkeypatch.setattr(sys.modules[KlingMotionControl.__module__], "MAX_IMAGE_SIDE", 1000)
+        node.set_parameter_value("reference_image", _image(tmp_path, (1200, 800)))
+        node.set_parameter_value("reference_video", video["path"])
+        assert _messages(node) == [
+            "The image in 'reference_image' is 1200x800 and each side must be at most 1000 pixels. Resize it smaller."
+        ]
+
+    def test_rejects_an_oversized_reference_video(
+        self, node: KlingMotionControl, tmp_path: Path, video: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys.modules[KlingMotionControl.__module__], "MAX_VIDEO_BYTES", 1)
+        node.set_parameter_value("reference_image", _image(tmp_path))
+        node.set_parameter_value("reference_video", video["path"])
+        messages = _messages(node)
+        assert len(messages) == 1
+        assert messages[0].startswith("The video in 'reference_video' is ")
+        assert "and the limit is" in messages[0]
+
+    def test_rejects_a_reference_video_over_3850_pixels(
+        self, node: KlingMotionControl, tmp_path: Path, video: dict[str, Any]
+    ) -> None:
+        video["info"] = ImageInfo(3851, 2000, None)
+        node.set_parameter_value("reference_image", _image(tmp_path))
+        node.set_parameter_value("reference_video", video["path"])
+        assert _messages(node) == [
+            "The video in 'reference_video' is 3851x2000 and each side must be at most 3850 pixels. Resize it smaller."
         ]
 
     def test_skips_remote_inputs(self, node: KlingMotionControl, monkeypatch: pytest.MonkeyPatch) -> None:
