@@ -131,7 +131,9 @@ class TestVeo3VideoGeneration:
     def test_rejects_an_unsupported_reference_format(self, node: Any) -> None:
         node.set_parameter_value("reference_images", [_image_uri(), _image_uri("GIF")])
         errors = _node_errors(node)
-        assert [str(e) for e in errors] == ["Image 2 in 'reference images' is in GIF format. Convert it to JPEG or PNG."]
+        assert [str(e) for e in errors] == [
+            "Image 2 in 'reference images' is in GIF format. Convert it to JPEG or PNG."
+        ]
         assert errors[0].links
         assert errors[0].links[0].url == veo3_video_generation.REFERENCE_IMAGES_URL
 
