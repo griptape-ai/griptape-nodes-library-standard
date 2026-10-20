@@ -25,6 +25,18 @@ from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.proxy.preflight import (
+    check_aspect_ratio_range,
+    check_dimensions,
+    check_duration,
+    check_mime_type,
+    check_size,
+    input_subject,
+    local_image_info,
+    local_size_bytes,
+    local_video_duration,
+    local_video_info,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -35,6 +47,28 @@ MAX_PROMPT_LENGTH = 2500
 MAX_IMAGES_WITH_VIDEO = 4
 MAX_IMAGES_WITHOUT_VIDEO = 7
 MAX_IMAGES_FOR_END_FRAME = 2
+
+# Kling's documented limits on POST /v1/videos/omni-video, the same on both model pages.
+# Images: "Formats: .jpg / .jpeg / .png", "File size: ≤10MB", "Dimensions: min 300px, aspect
+# ratio 1:2.5 ~ 2.5:1". Reference video: "Format: MP4/MOV only", "Max 1 video, size ≤200MB,
+# aspect ratio between 1:2.5 and 2.5:1".
+# https://kling.ai/document-api/api/video/3-0-omni/video-omni/legacy
+# https://kling.ai/document-api/api/video/o1/video-omni/legacy
+INPUT_LIMITS_URL = "https://kling.ai/document-api/api/video/3-0-omni/video-omni/legacy"
+SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png")
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MIN_IMAGE_SIDE = 300
+MAX_VIDEO_BYTES = 200 * 1024 * 1024
+WIDEST_ASPECT_RATIO = "2.5:1"
+TALLEST_ASPECT_RATIO = "1:2.5"
+# The two pages disagree on the reference video's duration and size ("3s～15.5s" and
+# "700px～4553px; and the area does not exceed 8294400" vs "≥3 seconds" and "720px-2160px"),
+# so only what both refuse is checked: the widest bounds of the two.
+MIN_VIDEO_SECONDS = 3
+MAX_VIDEO_SECONDS = 15.5
+MIN_VIDEO_SIDE = 700
+MAX_VIDEO_SIDE = 4553
+MAX_VIDEO_MEGAPIXELS = 8.2944
 MAX_MULTI_PROMPT_COUNT = 6
 MODE_STD = "std"
 MODE_PRO = "pro"
@@ -756,7 +790,82 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                     )
                 )
 
+        exceptions.extend(self._media_errors())
+
         return exceptions if exceptions else None
+
+    def _media_errors(self) -> list[Exception]:
+        """One error per Kling media limit an input breaks, read without any network call."""
+        images = [
+            (input_subject(name, noun="image"), self.get_parameter_value(parameter))
+            for parameter, name in (("first_frame_image", "first frame"), ("end_frame_image", "end frame"))
+        ]
+        images += [
+            (input_subject("reference images", noun="image", position=position), image)
+            for position, image in enumerate(self.get_parameter_list_value("reference_images") or [], start=1)
+        ]
+        errors: list[Exception | None] = []
+        for subject, image in images:
+            if not image:
+                continue
+            info = local_image_info(image)
+            errors += [
+                check_mime_type(
+                    info.mime_type if info else None,
+                    subject=subject,
+                    allowed=SUPPORTED_IMAGE_MIME_TYPES,
+                    docs_url=INPUT_LIMITS_URL,
+                ),
+                check_size(
+                    local_size_bytes(image, kind="image"),
+                    maximum_bytes=MAX_IMAGE_BYTES,
+                    subject=subject,
+                    docs_url=INPUT_LIMITS_URL,
+                ),
+                check_dimensions(info, subject=subject, min_side=MIN_IMAGE_SIDE, docs_url=INPUT_LIMITS_URL),
+                check_aspect_ratio_range(
+                    info,
+                    subject=subject,
+                    widest=WIDEST_ASPECT_RATIO,
+                    tallest=TALLEST_ASPECT_RATIO,
+                    docs_url=INPUT_LIMITS_URL,
+                ),
+            ]
+        video = self.get_parameter_value("reference_video")
+        if video:
+            subject = input_subject("reference video", noun="video")
+            info = local_video_info(video)
+            errors += [
+                check_size(
+                    local_size_bytes(video, kind="video"),
+                    maximum_bytes=MAX_VIDEO_BYTES,
+                    subject=subject,
+                    docs_url=INPUT_LIMITS_URL,
+                ),
+                check_duration(
+                    local_video_duration(video),
+                    subject=subject,
+                    minimum=MIN_VIDEO_SECONDS,
+                    maximum=MAX_VIDEO_SECONDS,
+                    docs_url=INPUT_LIMITS_URL,
+                ),
+                check_dimensions(
+                    info,
+                    subject=subject,
+                    min_side=MIN_VIDEO_SIDE,
+                    max_side=MAX_VIDEO_SIDE,
+                    max_megapixels=MAX_VIDEO_MEGAPIXELS,
+                    docs_url=INPUT_LIMITS_URL,
+                ),
+                check_aspect_ratio_range(
+                    info,
+                    subject=subject,
+                    widest=WIDEST_ASPECT_RATIO,
+                    tallest=TALLEST_ASPECT_RATIO,
+                    docs_url=INPUT_LIMITS_URL,
+                ),
+            ]
+        return [error for error in errors if error]
 
     async def _prepare_image_data_url_async(self, image_input: Any) -> str | None:
         """Convert image input to a data URL, handling external URLs by downloading and converting."""
