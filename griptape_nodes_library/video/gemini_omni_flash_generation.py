@@ -17,7 +17,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
-from griptape_nodes_library.proxy.preflight import check_mime_type, input_subject, local_image_info
+from griptape_nodes_library.proxy.preflight import image_errors, input_subject
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -210,15 +210,11 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
         if legacy_image and not reference_images:
             images.append((input_subject("image (deprecated)", noun="image"), legacy_image))
         for subject, image in images:
-            info = local_image_info(image)
-            error = check_mime_type(
-                info.mime_type if info else None,
-                subject=subject,
-                allowed=SUPPORTED_IMAGE_MIME_TYPES,
-                docs_url=INPUT_LIMITS_URL,
+            exceptions.extend(
+                image_errors(
+                    image, subject=subject, allowed_mime_types=SUPPORTED_IMAGE_MIME_TYPES, docs_url=INPUT_LIMITS_URL
+                )
             )
-            if error:
-                exceptions.append(error)
 
         return exceptions or None
 
