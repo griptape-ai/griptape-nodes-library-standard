@@ -66,6 +66,11 @@ MODEL_FAMILIES = {
 # top level of the payload. Starlight accepts none of them.
 ASTRA_FILTER_PARAMS = ("prompt", "creativity", "sharp", "realism")
 
+# Starlight models that accept a `sharpness` filter. A property of the version rather
+# than the family: Topaz documents it for Precise 2.6 and not for 2.5.
+# https://developer.topazlabs.com/video-models/starlight/starlight-precise-2.6
+SHARPNESS_MODELS = frozenset({"Starlight Precise 2.6"})
+
 # Topaz caps a Starlight job at 9000 frames. The proxy clamps the *billed* volume to
 # match, so exceeding it does not overcharge -- but Topaz still rejects the job, and
 # failing here is cheaper than discovering it after the upload.
@@ -125,7 +130,8 @@ class TopazVideoUpscale(GriptapeProxyNode):
 
     Both families share the source probing and the resize modes. Astra additionally
     accepts four creative controls (prompt, creativity, sharp, realism), which are shown
-    only while an Astra model is selected.
+    only while an Astra model is selected. Starlight Precise 2.6 accepts a sharpness
+    control, shown only while that model is selected.
 
     Inputs:
         - video (VideoUrlArtifact): source video to upscale (sent as a base64 data URI)
@@ -150,15 +156,29 @@ class TopazVideoUpscale(GriptapeProxyNode):
         model_param = ParameterString(
             name="model",
             default_value=DEFAULT_MODEL,
-            tooltip="Topaz video model to upscale with. Astra adds creative controls; Starlight does not.",
+            tooltip="Topaz video model to upscale with. Astra adds creative controls; Starlight Precise 2.6 adds sharpness.",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             traits={Options(choices=list(MODEL_MAPPING.keys()))},
         )
         self.add_parameter(model_param)
 
+        # Starlight Precise 2.6 only. 5.0 is Topaz's own default, so leaving the slider
+        # alone produces the same output as not sending the field.
+        sharpness_param = ParameterFloat(
+            name="sharpness",
+            default_value=5.0,
+            tooltip=(
+                "Starlight Precise 2.6 only. How much sharpening the model applies: "
+                "1.0 gives a softer, natural look, 5.0 the sharpest generative detail."
+            ),
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        sharpness_param.add_trait(Slider(min_val=1.0, max_val=5.0))
+        self.add_parameter(sharpness_param)
+
         # Astra only. Hidden by default because the default model is Starlight, and
         # declaring them hidden matters beyond tidiness: a visible prompt box under
-        # Starlight would silently do nothing, since Starlight sends no filters at all.
+        # Starlight would silently do nothing, since Starlight never sends Astra's filters.
         prompt_param = ParameterString(
             name="prompt",
             default_value="",
@@ -347,6 +367,9 @@ class TopazVideoUpscale(GriptapeProxyNode):
             raise ValueError(msg)
         return family
 
+    def _supports_sharpness(self) -> bool:
+        return (self.get_parameter_value("model") or DEFAULT_MODEL) in SHARPNESS_MODELS
+
     def _has_prompt(self) -> bool:
         """Whether a prompt will actually reach Topaz.
 
@@ -356,6 +379,29 @@ class TopazVideoUpscale(GriptapeProxyNode):
         return bool((self.get_parameter_value("prompt") or "").strip())
 
     # -- UI reactions ------------------------------------------------------
+
+    def set_parameter_value(
+        self,
+        param_name: str,
+        value: Any,
+        *,
+        initial_setup: bool = False,
+        emit_change: bool = True,
+        skip_before_value_set: bool = False,
+    ) -> None:
+        super().set_parameter_value(
+            param_name,
+            value,
+            initial_setup=initial_setup,
+            emit_change=emit_change,
+            skip_before_value_set=skip_before_value_set,
+        )
+
+        # Workflow loading restores values with initial_setup, which skips
+        # after_value_set. A workflow saved before `sharpness` existed carries no hide
+        # state for it, so without this it would load visible under every model.
+        if initial_setup and param_name == "model":
+            self._update_model_visibility()
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
@@ -394,7 +440,7 @@ class TopazVideoUpscale(GriptapeProxyNode):
                 raise ValueError(msg)
 
     def _update_model_visibility(self) -> None:
-        """Show the creative controls only for the family that accepts them."""
+        """Show the creative controls only for the model that accepts them."""
         match self._family():
             case TopazVideoFamily.ASTRA:
                 self.show_parameter_by_name(list(ASTRA_FILTER_PARAMS))
@@ -403,6 +449,11 @@ class TopazVideoUpscale(GriptapeProxyNode):
             case family:
                 msg = f"Unknown model family: {family!r}"
                 raise ValueError(msg)
+
+        if self._supports_sharpness():
+            self.show_parameter_by_name("sharpness")
+        else:
+            self.hide_parameter_by_name("sharpness")
 
     def _update_prompt_badge(self) -> None:
         """State Astra's prompt-dependent frame cap while the graph is still being wired.
@@ -688,7 +739,7 @@ class TopazVideoUpscale(GriptapeProxyNode):
         return payload
 
     def _build_filters(self) -> list[dict[str, Any]] | None:
-        """Astra's creative controls, as the single ``filters`` entry Topaz expects.
+        """The model's creative controls, as the single ``filters`` entry Topaz expects.
 
         No ``model`` key is sent. The proxy passes filter dicts through verbatim and
         stamps the routed code onto the first entry itself when none carries one, so
@@ -696,12 +747,15 @@ class TopazVideoUpscale(GriptapeProxyNode):
         rejection -- and means this node never has to know that the code is the id
         minus its "topaz-video-" prefix.
 
-        Returns None rather than an empty list for Starlight: the proxy rejects
-        ``filters: []`` outright, and omitting the key is what Starlight does today.
+        Returns None rather than an empty list for a Starlight model with no controls:
+        the proxy rejects ``filters: []`` outright, and synthesizes the entry itself when
+        the key is omitted.
         """
         match self._family():
             case TopazVideoFamily.STARLIGHT:
-                return None
+                if not self._supports_sharpness():
+                    return None
+                return [{"sharpness": float(self.get_parameter_value("sharpness"))}]
             case TopazVideoFamily.ASTRA:
                 # float() because a value arriving over a connection or a workflow
                 # round-trip can be an int, and `json.dumps(1)` emits `1` against a
