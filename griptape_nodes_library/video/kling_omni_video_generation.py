@@ -61,9 +61,10 @@ MIN_IMAGE_SIDE = 300
 MAX_VIDEO_BYTES = 200 * 1024 * 1024
 WIDEST_ASPECT_RATIO = "2.5:1"
 TALLEST_ASPECT_RATIO = "1:2.5"
-# The two pages disagree on the reference video's duration and size ("3s～15.5s" and
-# "700px～4553px; and the area does not exceed 8294400" vs "≥3 seconds" and "720px-2160px"),
-# so only what both refuse is checked: the widest bounds of the two.
+# The two pages disagree on the reference video's size ("700px～4553px; and the area does not
+# exceed 8294400" vs "720px-2160px"), so the wider of the two is checked. For duration both pages
+# set a 3 s minimum; only the 3.0 Omni page gives a number for the upper limit ("3s～15.5s"),
+# and it is the most Kling allows any model on this endpoint.
 MIN_VIDEO_SECONDS = 3
 MAX_VIDEO_SECONDS = 15.5
 MIN_VIDEO_SIDE = 700
@@ -833,7 +834,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             ]
         video = self.get_parameter_value("reference_video")
         if video:
-            subject = input_subject("reference video", noun="video")
+            subject = input_subject("reference_video", noun="video")
             info = local_video_info(video)
             errors += [
                 check_size(

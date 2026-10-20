@@ -159,24 +159,24 @@ class TestOmni:
             (
                 ImageInfo(1280, 720, None),
                 2.0,
-                "The video in 'reference video' is 2.00 seconds long and the minimum is 3. Use a longer clip.",
+                "The video in 'reference_video' is 2.00 seconds long and the minimum is 3. Use a longer clip.",
             ),
             (
                 ImageInfo(1280, 720, None),
                 20.0,
-                "The video in 'reference video' is 20.00 seconds long and the limit is 15.5. "
+                "The video in 'reference_video' is 20.00 seconds long and the limit is 15.5. "
                 "Use a Trim Video node to shorten it.",
             ),
             (
                 ImageInfo(640, 480, None),
                 5.0,
-                "The video in 'reference video' is 640x480 and each side must be at least 700 pixels. "
+                "The video in 'reference_video' is 640x480 and each side must be at least 700 pixels. "
                 "Use a larger one.",
             ),
             (
                 ImageInfo(3000, 1000, None),
                 5.0,
-                "The video in 'reference video' is 3000x1000, which is too wide. "
+                "The video in 'reference_video' is 3000x1000, which is too wide. "
                 "The aspect ratio must be between 1:2.5 and 2.5:1. Crop it.",
             ),
         ],
@@ -203,6 +203,32 @@ class TestOmni:
         node.set_parameter_value("reference_video", video["path"])
         assert _messages(node) == []
 
+    def test_accepts_a_reference_video_exactly_on_the_area_limit(
+        self, node: KlingOmniVideoGeneration, video: dict[str, Any]
+    ) -> None:
+        # 3840x2160 is exactly 8,294,400 px, the most the 3.0 Omni page allows.
+        video["info"] = ImageInfo(3840, 2160, None)
+        node.set_parameter_value("reference_video", video["path"])
+        assert _messages(node) == []
+
+    @pytest.mark.parametrize(
+        ("info", "expected"),
+        [
+            (ImageInfo(4000, 2100, None), "megapixels"),
+            (ImageInfo(4600, 2000, None), "each side must be at most 4553 pixels"),
+        ],
+        ids=["over-the-area-limit", "side-over-4553"],
+    )
+    def test_rejects_a_reference_video_over_the_size_limits(
+        self, node: KlingOmniVideoGeneration, video: dict[str, Any], info: ImageInfo, expected: str
+    ) -> None:
+        video["info"] = info
+        node.set_parameter_value("reference_video", video["path"])
+        messages = _messages(node)
+        assert len(messages) == 1
+        assert messages[0].startswith("The video in 'reference_video' is ")
+        assert expected in messages[0]
+
     def test_rejects_an_oversized_reference_video(
         self, node: KlingOmniVideoGeneration, video: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -210,7 +236,7 @@ class TestOmni:
         node.set_parameter_value("reference_video", video["path"])
         messages = _messages(node)
         assert len(messages) == 1
-        assert messages[0].startswith("The video in 'reference video' is ")
+        assert messages[0].startswith("The video in 'reference_video' is ")
         assert "and the limit is" in messages[0]
 
 
