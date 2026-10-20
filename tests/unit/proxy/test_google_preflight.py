@@ -63,6 +63,29 @@ class TestGoogleImageGeneration:
         errors = _node_errors(node)
         assert [str(e) for e in errors] == ["15 images are connected to 'Input Images' and the limit is 14. Remove 1."]
 
+    @pytest.mark.parametrize(
+        ("model", "url"),
+        [
+            (
+                "gemini-3-pro-image",
+                "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-pro-image",
+            ),
+            (
+                "gemini-3.1-flash-image",
+                "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-1-flash-image",
+            ),
+            # A legacy display name resolves to its model id before the page is chosen.
+            (
+                "Nano Banana 2",
+                "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-1-flash-image",
+            ),
+        ],
+    )
+    def test_errors_link_the_selected_models_page(self, node: Any, model: str, url: str) -> None:
+        node.set_parameter_value("model", model)
+        node.set_parameter_value("input_images", [_image_uri("GIF")])
+        assert [link.url for error in _node_errors(node) for link in error.links] == [url]
+
     def test_rejects_an_unsupported_format(self, node: Any) -> None:
         node.set_parameter_value("input_images", [_image_uri("PNG"), _image_uri("GIF")])
         errors = _node_errors(node)

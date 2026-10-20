@@ -37,9 +37,11 @@ logger = logging.getLogger("griptape_nodes")
 __all__ = ["GoogleImageGeneration"]
 
 # Google's documented input limits for Gemini 3 Pro Image and Gemini 3.1 Flash Image.
-# https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-pro-image
-# https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-1-flash-image
-INPUT_LIMITS_URL = "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-pro-image"
+# Errors link the page for the selected model.
+INPUT_LIMITS_URLS = {
+    "gemini-3-pro-image": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-pro-image",
+    "gemini-3.1-flash-image": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-1-flash-image",
+}
 MAX_INPUT_IMAGES = 14
 SUPPORTED_INPUT_MIME_TYPES = ("image/png", "image/jpeg", "image/webp", "image/heic", "image/heif")
 # Deprecated constants - kept for backwards compatibility
@@ -359,7 +361,11 @@ class GoogleImageGeneration(GriptapeProxyNode):
         # Validate combined image count does not exceed maximum
         total_images = sum(len(images) for images in image_lists.values())
         count_error = check_count(
-            total_images, maximum=MAX_INPUT_IMAGES, parameter="Input Images", noun="images", docs_url=INPUT_LIMITS_URL
+            total_images,
+            maximum=MAX_INPUT_IMAGES,
+            parameter="Input Images",
+            noun="images",
+            docs_url=self._input_limits_url(),
         )
         if count_error:
             exceptions.append(count_error)
@@ -368,6 +374,10 @@ class GoogleImageGeneration(GriptapeProxyNode):
 
         return exceptions or None
 
+    def _input_limits_url(self) -> str:
+        """Google's limits page for the selected model; the default model's page when the selection is unknown."""
+        return INPUT_LIMITS_URLS.get(self._get_selected_model_id(), INPUT_LIMITS_URLS[self.DEFAULT_MODEL])
+
     def _input_image_errors(self, image_lists: dict[str, list[Any]]) -> list[Exception]:
         """One error per input image Google is certain to reject, read without any network call.
 
@@ -375,6 +385,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
         neither its size nor its source format is checked. With it off, both are.
         """
         auto_image_resize = self.get_parameter_value("auto_image_resize")
+        docs_url = self._input_limits_url()
         errors: list[Exception] = []
         for parameter, images in image_lists.items():
             for position, image in enumerate(images, start=1):
@@ -387,7 +398,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
                     info.mime_type if info else None,
                     subject=subject,
                     allowed=SUPPORTED_INPUT_MIME_TYPES,
-                    docs_url=INPUT_LIMITS_URL,
+                    docs_url=docs_url,
                 )
                 if error is None and not auto_image_resize:
                     error = check_size(
@@ -395,7 +406,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
                         maximum_bytes=MAX_IMAGE_SIZE_BYTES,
                         subject=subject,
                         fix="Turn on 'Auto Image Resize' or use a smaller image.",
-                        docs_url=INPUT_LIMITS_URL,
+                        docs_url=docs_url,
                     )
                 if error:
                     errors.append(error)
