@@ -80,7 +80,7 @@ def test_rejects_an_image_outside_the_pixel_limits(
 def test_rejects_an_unsupported_image_format(node: WanAnimateGeneration, tmp_path: Path, video: dict[str, Any]) -> None:
     node.set_parameter_value("image_url", _image(tmp_path, image_format="GIF"))
     node.set_parameter_value("video_url", video["path"])
-    assert _messages(node) == ["The image in 'Image URL' is a GIF file. Convert it to JPEG, PNG, BMP or WEBP."]
+    assert _messages(node) == ["The image in 'Image URL' is in GIF format. Convert it to JPEG, PNG, BMP or WEBP."]
 
 
 def test_rejects_an_oversized_image(
