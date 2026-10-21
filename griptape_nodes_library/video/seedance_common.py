@@ -28,16 +28,13 @@ from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 
 import httpx
-from griptape_nodes.exe_types.core_types import NodeError, NodeErrorLink, Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterMode
 from griptape_nodes.exe_types.input_checks import (
-    LIMITS_LINK_LABEL,
-    check_duration,
-    check_mime_type,
-    check_size,
+    audio_errors,
+    check_total_duration,
     image_errors,
     local_audio_probe,
     local_image_info,
-    local_size_bytes,
     local_video_probe,
     video_errors,
 )
@@ -353,42 +350,16 @@ def seedance_reference_video_errors(  # noqa: PLR0913
             probe=probe,
         )
     errors.append(
-        _total_duration_error(
+        check_total_duration(
             durations,
-            max_total_seconds=max_total_seconds,
-            what=f"the videos in {parameters}",
+            parameters=parameters,
+            noun="videos",
+            maximum=max_total_seconds,
             fix="Use a Trim Video node to shorten one, or remove one.",
             docs_url=docs_url,
         )
     )
     return [error for error in errors if error]
-
-
-def _total_duration_error(
-    durations: Sequence[float | None], *, max_total_seconds: float, what: str, fix: str, docs_url: str
-) -> NodeError | None:
-    """The error for clips longer together than BytePlus allows, or None.
-
-    Checked only for two or more clips (for one, its own maximum is the same number) when every
-    clip's duration was read.
-    """
-    known = [seconds for seconds in durations if seconds is not None]
-    if len(durations) < 2 or len(known) < len(durations) or sum(known) <= max_total_seconds:  # noqa: PLR2004
-        return None
-    return NodeError(
-        f"Together, {what} are {_seconds_past(sum(known), max_total_seconds)} seconds long and the limit is "
-        f"{max_total_seconds:g} seconds in total. {fix}",
-        links=[NodeErrorLink(label=LIMITS_LINK_LABEL, url=docs_url)],
-    )
-
-
-def _seconds_past(seconds: float, limit: float) -> str:
-    """Seconds over a limit to two places, with more when two would read as the limit itself."""
-    for places in range(2, 9):
-        text = f"{seconds:.{places}f}"
-        if float(text) > limit:
-            return text
-    return repr(seconds)
 
 
 def seedance_reference_audio_errors(  # noqa: PLR0913
@@ -402,8 +373,8 @@ def seedance_reference_audio_errors(  # noqa: PLR0913
 ) -> list[NodeError]:
     """One error per BytePlus limit the reference audio clips break, each on its own and together.
 
-    Each clip is probed once, for its format, its duration and the total; its size is read from the
-    file. A maximum and the total use a clip's shorter reading, and a minimum its longer one.
+    Each clip is probed once, for its own checks and for the total. The total is checked only when
+    there are two or more clips and every clip's duration could be read.
 
     Args:
         clips: Each clip with its subject, from `input_subject`.
@@ -423,39 +394,22 @@ def seedance_reference_audio_errors(  # noqa: PLR0913
             continue
         probe = local_audio_probe(audio)
         durations.append(probe.shortest_seconds if probe else None)
-        errors += [
-            check_mime_type(
-                probe.mime_type if probe else None,
-                subject=subject,
-                allowed=SUPPORTED_AUDIO_MIME_TYPES,
-                docs_url=docs_url,
-            ),
-            check_size(
-                local_size_bytes(audio, kind="audio"),
-                maximum_bytes=MAX_AUDIO_BYTES,
-                subject=subject,
-                docs_url=docs_url,
-            ),
-            check_duration(
-                probe.longest_seconds if probe else None,
-                subject=subject,
-                minimum=min_seconds,
-                fix="Use a longer clip.",
-                docs_url=docs_url,
-            ),
-            check_duration(
-                probe.shortest_seconds if probe else None,
-                subject=subject,
-                maximum=max_seconds,
-                fix="Trim it in an audio editor.",
-                docs_url=docs_url,
-            ),
-        ]
+        errors += audio_errors(
+            audio,
+            subject=subject,
+            allowed_mime_types=SUPPORTED_AUDIO_MIME_TYPES,
+            maximum_bytes=MAX_AUDIO_BYTES,
+            min_seconds=min_seconds,
+            max_seconds=max_seconds,
+            docs_url=docs_url,
+            probe=probe,
+        )
     errors.append(
-        _total_duration_error(
+        check_total_duration(
             durations,
-            max_total_seconds=max_total_seconds,
-            what=f"the clips in {parameters}",
+            parameters=parameters,
+            noun="clips",
+            maximum=max_total_seconds,
             fix="Trim one in an audio editor, or remove one.",
             docs_url=docs_url,
         )
