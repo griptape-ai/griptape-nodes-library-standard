@@ -153,7 +153,7 @@ class TestSeedanceVideoGeneration:
         messages = _messages(node)
         assert len(messages) == 1
         assert messages[0].startswith("The image in 'First Frame' is ")
-        assert "and the limit is" in messages[0]
+        assert "and it must be under" in messages[0]
 
     @pytest.mark.parametrize("model", [SEEDANCE_1_5_PRO, SEEDANCE_1_0_PRO])
     def test_checks_the_last_frame_for_the_models_that_send_it(
@@ -193,12 +193,45 @@ class TestSeedanceVideoGeneration:
         assert errors[0].links
         assert errors[0].links[0].url == CREATE_TASK_PAGE
 
-    def test_skips_a_frame_pillow_cannot_read(self, node: SeedanceVideoGeneration, tmp_path: Path) -> None:
-        # Pillow has no HEIC decoder, so neither its format nor its size in pixels can be read.
+    def test_skips_a_frame_that_cannot_be_read(self, node: SeedanceVideoGeneration, tmp_path: Path) -> None:
         path = tmp_path / "first.heic"
         path.write_bytes(b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00")
         node.set_parameter_value("first_frame", str(path))
         assert _messages(node) == []
+
+    @pytest.mark.parametrize(
+        ("model", "expected"),
+        [
+            (SEEDANCE_1_5_PRO, []),
+            (
+                SEEDANCE_1_0_PRO,
+                ["The image in 'First Frame' is in HEIC format. Convert it to JPEG, PNG, WEBP, BMP, TIFF or GIF."],
+            ),
+        ],
+    )
+    def test_checks_a_heic_frame_against_the_models_formats(
+        self, node: SeedanceVideoGeneration, tmp_path: Path, model: str, expected: list[str]
+    ) -> None:
+        # The engine reads HEIC through pillow-heif, which it installs.
+        pillow_heif = pytest.importorskip("pillow_heif")
+        path = tmp_path / "first.heic"
+        pillow_heif.from_pillow(Image.new("RGB", (800, 600))).save(path)
+        node.set_parameter_value("model_id", model)
+        node.set_parameter_value("first_frame", str(path))
+        assert _messages(node) == expected
+
+    def test_refuses_a_frame_of_exactly_30_mb(
+        self, node: SeedanceVideoGeneration, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # BytePlus writes "less than 30 MB"; lower the limit to this image's size to keep the test fast.
+        image = _image(tmp_path)
+        monkeypatch.setattr(
+            sys.modules[SeedanceVideoGeneration.__module__], "MAX_IMAGE_BYTES", Path(image).stat().st_size
+        )
+        node.set_parameter_value("first_frame", image)
+        messages = _messages(node)
+        assert len(messages) == 1
+        assert "and it must be under" in messages[0]
 
     def test_skips_remote_frames(self, node: SeedanceVideoGeneration) -> None:
         node.set_parameter_value("first_frame", "https://example.com/first.ppm")
@@ -272,7 +305,7 @@ class TestSeedance20:
         messages = _messages(references)
         assert len(messages) == 1
         assert messages[0].startswith("Image 1 in 'Reference Images' is ")
-        assert "and the limit is" in messages[0]
+        assert "and it must be under" in messages[0]
 
     def test_checks_only_the_shortest_side_and_shape_of_an_image_it_will_downscale(
         self, references: Seedance20VideoGeneration, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -291,6 +291,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
                     subject=input_subject(name, noun="image"),
                     allowed_mime_types=allowed_mime_types,
                     maximum_bytes=MAX_IMAGE_BYTES,
+                    strict_maximum_bytes=True,
                     min_side=MIN_IMAGE_SIDE,
                     max_side=SEEDANCE_MAX_IMAGE_DIMENSION_PX,
                     widest=WIDEST_ASPECT_RATIO,

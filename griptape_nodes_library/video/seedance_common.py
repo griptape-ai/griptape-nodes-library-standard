@@ -119,12 +119,10 @@ SEEDANCE_MAX_IMAGE_DIMENSION_PX = 6000
 # BytePlus's image limits, the same for every Seedance model unless noted, from "Create a video
 # generation task" (content > Image). The Seedance 2.5 tutorial repeats them.
 # "Format: jpeg, png, webp, bmp, tiff, or gif. Seedance 1.5 pro and later models also
-# support heic and heif." Pillow can't read HEIC or HEIF, so they're never checked locally, but
-# they're listed so a format error names every format the model takes.
+# support heic and heif."
 SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png", "image/webp", "image/bmp", "image/tiff", "image/gif")
 HEIF_IMAGE_MIME_TYPES = ("image/heic", "image/heif")
-# "Single image must be less than 30 MB". check_size lets exactly 30 MB through; one byte over
-# BytePlus's limit isn't worth a stricter check.
+# "Single image must be less than 30 MB", so a file of exactly 30 MB is refused too.
 MAX_IMAGE_BYTES = 30 * 1024 * 1024
 # "Width and height (px): [300, 6000]"; the 6000 px maximum is SEEDANCE_MAX_IMAGE_DIMENSION_PX.
 MIN_IMAGE_SIDE = 300
@@ -142,8 +140,7 @@ MAX_VIDEO_MEGAPIXELS = 8.295044
 # "Frame rate (FPS): [24, 60]"
 MIN_VIDEO_FPS = 24
 MAX_VIDEO_FPS = 60
-# Audio (Seedance 2.0 and 2.5 only): "Each audio file must not exceed 15 MB." Its formats (wav,
-# mp3) and durations need an audio reader the pre-run checks don't have yet.
+# Audio (Seedance 2.0 and 2.5 only): "Each audio file must not exceed 15 MB."
 MAX_AUDIO_BYTES = 15 * 1024 * 1024
 
 # Seedance only accepts audio data URIs whose subtype is exactly `wav` or `mp3` (per the BytePlus
@@ -282,6 +279,7 @@ def seedance_image_errors(image: Any, *, subject: str, docs_url: str) -> list[No
         subject=subject,
         allowed_mime_types=SUPPORTED_IMAGE_MIME_TYPES + HEIF_IMAGE_MIME_TYPES,
         maximum_bytes=MAX_IMAGE_BYTES,
+        strict_maximum_bytes=True,
         min_side=MIN_IMAGE_SIDE,
         widest=WIDEST_ASPECT_RATIO,
         tallest=TALLEST_ASPECT_RATIO,
