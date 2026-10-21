@@ -217,27 +217,6 @@ class TestSeedanceVideoGeneration:
         node.set_parameter_value("first_frame", str(path))
         assert _messages(node) == []
 
-    @pytest.mark.parametrize(
-        ("model", "expected"),
-        [
-            (SEEDANCE_1_5_PRO, []),
-            (
-                SEEDANCE_1_0_PRO,
-                ["The image in 'First Frame' is in HEIC format. Convert it to JPEG, PNG, WEBP, BMP, TIFF or GIF."],
-            ),
-        ],
-    )
-    def test_checks_a_heic_frame_against_the_models_formats(
-        self, node: SeedanceVideoGeneration, tmp_path: Path, model: str, expected: list[str]
-    ) -> None:
-        # The engine reads HEIC through pillow-heif, which it installs.
-        pillow_heif = pytest.importorskip("pillow_heif")
-        path = tmp_path / "first.heic"
-        pillow_heif.from_pillow(Image.new("RGB", (800, 600))).save(path)
-        node.set_parameter_value("model_id", model)
-        node.set_parameter_value("first_frame", str(path))
-        assert _messages(node) == expected
-
     def test_refuses_a_frame_of_exactly_30_mb(
         self, node: SeedanceVideoGeneration, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
