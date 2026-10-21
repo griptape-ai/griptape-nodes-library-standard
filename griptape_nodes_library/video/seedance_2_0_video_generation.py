@@ -36,8 +36,8 @@ from griptape_nodes_library.proxy import ArtifactKind
 from griptape_nodes_library.video.seedance_common import (
     SeedanceProxyNode,
     coerce_video_url,
-    seedance_audio_errors,
     seedance_image_errors,
+    seedance_reference_audio_errors,
     seedance_reference_video_errors,
 )
 
@@ -63,6 +63,11 @@ INPUT_LIMITS_URL = "https://docs.byteplus.com/en/docs/ModelArk/1520757"
 MIN_REFERENCE_VIDEO_SECONDS = 2
 MAX_REFERENCE_VIDEO_SECONDS = 15
 MAX_TOTAL_REFERENCE_VIDEO_SECONDS = 15
+# "Dreamina Seedance 2.0 series: Each audio clip must be 2–15 seconds long. You can submit up to 3
+# reference audio clips with a total duration of no more than 15 seconds."
+MIN_REFERENCE_AUDIO_SECONDS = 2
+MAX_REFERENCE_AUDIO_SECONDS = 15
+MAX_TOTAL_REFERENCE_AUDIO_SECONDS = 15
 # Each reference video's parameter name and its label in the UI.
 REFERENCE_VIDEO_PARAMETERS = {
     "reference_video_1": "Reference Video 1",
@@ -614,12 +619,17 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
             parameters=_join_and([f"'{name}'" for name in connected.values()]),
             docs_url=INPUT_LIMITS_URL,
         )
-        for position, audio in enumerate(params["reference_audio"], start=1):
-            errors += seedance_audio_errors(
-                audio,
-                subject=input_subject("Reference Audio", noun="audio clip", position=position),
-                docs_url=INPUT_LIMITS_URL,
-            )
+        errors += seedance_reference_audio_errors(
+            [
+                (input_subject("Reference Audio", noun="audio clip", position=position), audio)
+                for position, audio in enumerate(params["reference_audio"], start=1)
+            ],
+            min_seconds=MIN_REFERENCE_AUDIO_SECONDS,
+            max_seconds=MAX_REFERENCE_AUDIO_SECONDS,
+            max_total_seconds=MAX_TOTAL_REFERENCE_AUDIO_SECONDS,
+            parameters="'Reference Audio'",
+            docs_url=INPUT_LIMITS_URL,
+        )
         return errors
 
     def _get_parameters(self) -> dict[str, Any]:

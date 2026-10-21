@@ -9,8 +9,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from griptape_nodes.exe_types import input_checks
 from griptape_nodes.exe_types.core_types import NodeError, ParameterList
-from griptape_nodes.exe_types.input_checks import ImageInfo, VideoProbe
+from griptape_nodes.exe_types.input_checks import AudioProbe, ImageInfo, VideoProbe
 from PIL import Image
 
 from griptape_nodes_library.assets import ASSET_KIND_IMAGE, ASSET_KIND_VIDEO, create_provider_asset_reference
@@ -31,15 +32,32 @@ def _image(tmp_path: Path, size: tuple[int, int] = (1280, 720), image_format: st
     return str(path)
 
 
-def _audio(tmp_path: Path) -> str:
-    """A one-second silent WAV file."""
-    path = tmp_path / "voice.wav"
+def _audio(tmp_path: Path, seconds: float = 3.0, name: str = "voice.wav") -> str:
+    """A silent WAV file, 3 seconds long unless a test says otherwise."""
+    path = tmp_path / name
     with wave.open(str(path), "wb") as clip:
         clip.setnchannels(1)
         clip.setsampwidth(2)
         clip.setframerate(8000)
-        clip.writeframes(b"\x00\x00" * 8000)
+        clip.writeframes(b"\x00\x00" * int(8000 * seconds))
     return str(path)
+
+
+@pytest.fixture
+def audio_clips(monkeypatch: pytest.MonkeyPatch) -> dict[str, AudioProbe | None]:
+    """Reference audio probed as the AudioProbe a test sets for its file name.
+
+    A name a test hasn't set probes as a valid 3 s WAV; one set to None reads as unreadable.
+    """
+    probes: dict[str, AudioProbe | None] = {}
+    valid = AudioProbe(mime_type="audio/wav", codec="pcm_s16le", profile=None, seconds=3.0)
+
+    def fake_probe(value: Any) -> AudioProbe | None:
+        return probes.get(Path(str(value)).name, valid)
+
+    # The Seedance checks probe through seedance_common's import of the reader, so patch it there.
+    monkeypatch.setattr(seedance_common, "local_audio_probe", fake_probe)
+    return probes
 
 
 def _errors(node: Any) -> list[NodeError]:
@@ -475,6 +493,102 @@ class TestSeedance20:
         assert messages[0].startswith("Audio clip 1 in 'Reference Audio' is ")
         assert "and the limit is" in messages[0]
 
+    @pytest.mark.parametrize(
+        ("probe", "expected"),
+        [
+            (
+                AudioProbe(mime_type="audio/flac", codec="flac", profile=None, seconds=3.0),
+                "Audio clip 1 in 'Reference Audio' is in FLAC format. Convert it to WAV or MP3.",
+            ),
+            (
+                AudioProbe(mime_type="audio/mpeg", codec="mp3", profile=None, seconds=1.5),
+                "Audio clip 1 in 'Reference Audio' is 1.50 seconds long and the minimum is 2. Use a longer clip.",
+            ),
+            (
+                AudioProbe(mime_type="audio/wav", codec="pcm_s16le", profile=None, seconds=16.0),
+                "Audio clip 1 in 'Reference Audio' is 16.00 seconds long and the limit is 15. "
+                "Trim it in an audio editor.",
+            ),
+        ],
+        ids=["format", "too-short", "too-long"],
+    )
+    def test_rejects_a_reference_audio_clip_outside_the_limits(
+        self,
+        references: Seedance20VideoGeneration,
+        tmp_path: Path,
+        audio_clips: dict[str, AudioProbe | None],
+        probe: AudioProbe,
+        expected: str,
+    ) -> None:
+        audio_clips["voice.wav"] = probe
+        _set_list(references, "reference_audio", [_audio(tmp_path)])
+        assert _messages(references) == [expected]
+
+    def test_rejects_reference_audio_over_the_total_duration(
+        self, references: Seedance20VideoGeneration, tmp_path: Path, audio_clips: dict[str, AudioProbe | None]
+    ) -> None:
+        for name in ("a.wav", "b.wav", "c.wav"):
+            audio_clips[name] = AudioProbe(mime_type="audio/wav", codec="pcm_s16le", profile=None, seconds=6.0)
+        _set_list(references, "reference_audio", [_audio(tmp_path, name=n) for n in ("a.wav", "b.wav", "c.wav")])
+        assert _messages(references) == [
+            "Together, the clips in 'Reference Audio' are 18.00 seconds long and the limit is 15 seconds in total. "
+            "Trim one in an audio editor, or remove one."
+        ]
+
+    def test_accepts_reference_audio_exactly_on_the_total_duration(
+        self, references: Seedance20VideoGeneration, tmp_path: Path, audio_clips: dict[str, AudioProbe | None]
+    ) -> None:
+        for name in ("a.wav", "b.wav", "c.wav"):
+            audio_clips[name] = AudioProbe(mime_type="audio/mpeg", codec="mp3", profile=None, seconds=5.0)
+        _set_list(references, "reference_audio", [_audio(tmp_path, name=n) for n in ("a.wav", "b.wav", "c.wav")])
+        assert _messages(references) == []
+
+    def test_reads_a_real_audio_clips_duration(self, references: Seedance20VideoGeneration, tmp_path: Path) -> None:
+        # A real WAV, read by the real ffprobe when one is installed.
+        if input_checks.local_audio_probe(_audio(tmp_path, name="probe.wav")) is None:
+            pytest.skip("ffprobe isn't installed")
+        _set_list(references, "reference_audio", [_audio(tmp_path, seconds=1.0)])
+        assert _messages(references) == [
+            "Audio clip 1 in 'Reference Audio' is 1.00 seconds long and the minimum is 2. Use a longer clip."
+        ]
+
+    @pytest.mark.parametrize(
+        ("probe", "expected"),
+        [
+            (
+                VideoProbe(info=ImageInfo(1280, 720, None), seconds=5.0, fps=30.0, mime_type="video/webm", codec="vp9"),
+                [
+                    "The video in 'Reference Video 1' is in WebM format. Convert it to MP4 or MOV.",
+                    "The video in 'Reference Video 1' is encoded as VP9. Re-encode it as H.264 or H.265.",
+                ],
+            ),
+            (
+                VideoProbe(
+                    info=ImageInfo(1280, 720, None), seconds=5.0, fps=30.0, mime_type="video/quicktime", codec="prores"
+                ),
+                ["The video in 'Reference Video 1' is encoded as ProRes. Re-encode it as H.264 or H.265."],
+            ),
+            (
+                VideoProbe(
+                    info=ImageInfo(1280, 720, None), seconds=5.0, fps=30.0, mime_type="video/quicktime", codec="hevc"
+                ),
+                [],
+            ),
+        ],
+        ids=["webm-vp9", "mov-prores", "mov-hevc"],
+    )
+    def test_checks_a_reference_videos_format_and_codec(
+        self,
+        references: Seedance20VideoGeneration,
+        tmp_path: Path,
+        videos: dict[str, VideoProbe | None],
+        probe: VideoProbe,
+        expected: list[str],
+    ) -> None:
+        videos["a.mp4"] = probe
+        references.set_parameter_value("reference_video_1", str(tmp_path / "a.mp4"))
+        assert _messages(references) == expected
+
     def test_does_not_check_frames_the_mode_does_not_send(
         self, references: Seedance20VideoGeneration, tmp_path: Path
     ) -> None:
@@ -553,6 +667,23 @@ class TestSeedance25:
         _set_list(node, "reference_videos", [str(tmp_path / "a.mp4"), str(tmp_path / "b.mp4")])
         _set_list(node, "reference_audio", [_audio(tmp_path)])
         assert _messages(node) == []
+
+    def test_rejects_reference_audio_past_its_own_limits(
+        self, node: Seedance25VideoGeneration, tmp_path: Path, audio_clips: dict[str, AudioProbe | None]
+    ) -> None:
+        self._references(node)
+        audio_clips["a.wav"] = AudioProbe(mime_type="audio/wav", codec="pcm_s16le", profile=None, seconds=31.0)
+        audio_clips["b.wav"] = AudioProbe(mime_type="audio/wav", codec="pcm_s16le", profile=None, seconds=20.0)
+        _set_list(node, "reference_audio", [_audio(tmp_path, name="a.wav")])
+        assert _messages(node) == [
+            "Audio clip 1 in 'Reference Audio' is 31.00 seconds long and the limit is 30. Trim it in an audio editor."
+        ]
+        _set_list(node, "reference_audio", [_audio(tmp_path, name="b.wav"), _audio(tmp_path, name="b2.wav")])
+        audio_clips["b2.wav"] = audio_clips["b.wav"]
+        assert _messages(node) == [
+            "Together, the clips in 'Reference Audio' are 40.00 seconds long and the limit is 30 seconds in total. "
+            "Trim one in an audio editor, or remove one."
+        ]
 
     def test_rejects_invalid_frames(self, node: Seedance25VideoGeneration, tmp_path: Path) -> None:
         node.set_parameter_value("task", SeedanceTask.FIRST_LAST_FRAME)

@@ -31,8 +31,11 @@ import httpx
 from griptape_nodes.exe_types.core_types import NodeError, NodeErrorLink, Parameter, ParameterMode
 from griptape_nodes.exe_types.input_checks import (
     LIMITS_LINK_LABEL,
+    check_duration,
+    check_mime_type,
     check_size,
     image_errors,
+    local_audio_probe,
     local_image_info,
     local_size_bytes,
     local_video_probe,
@@ -78,7 +81,10 @@ __all__ = [
     "MIN_IMAGE_SIDE",
     "SEEDANCE_AUDIO_SUBTYPE_ALIASES",
     "SEEDANCE_MAX_IMAGE_DIMENSION_PX",
+    "SUPPORTED_AUDIO_MIME_TYPES",
     "SUPPORTED_IMAGE_MIME_TYPES",
+    "SUPPORTED_VIDEO_CODECS",
+    "SUPPORTED_VIDEO_MIME_TYPES",
     "TALLEST_ASPECT_RATIO",
     "WIDEST_ASPECT_RATIO",
     "SeedanceProxyNode",
@@ -87,8 +93,8 @@ __all__ = [
     "downscale_oversized_image_file",
     "normalize_audio_data_uri_subtype",
     "parse_provider_response",
-    "seedance_audio_errors",
     "seedance_image_errors",
+    "seedance_reference_audio_errors",
     "seedance_reference_video_errors",
     "summarize_media_input",
 ]
@@ -129,7 +135,11 @@ MIN_IMAGE_SIDE = 300
 # "Aspect ratio (width/height): [0.4, 2.5]", for images and videos alike.
 WIDEST_ASPECT_RATIO = "2.5:1"
 TALLEST_ASPECT_RATIO = "1:2.5"
-# Videos (Seedance 2.0 and 2.5 only): "Size: Each video must not exceed 200 MB."
+# Videos (Seedance 2.0 and 2.5 only): "Video format: mp4, mov", and the table of supported encodings
+# gives "Video: H.264/AVC, H.265/HEVC" for both.
+SUPPORTED_VIDEO_MIME_TYPES = ("video/mp4", "video/quicktime")
+SUPPORTED_VIDEO_CODECS = ("h264", "hevc")
+# "Size: Each video must not exceed 200 MB."
 MAX_VIDEO_BYTES = 200 * 1024 * 1024
 # "Width and height (px): [300, 6000]"
 MIN_VIDEO_SIDE = 300
@@ -140,7 +150,9 @@ MAX_VIDEO_MEGAPIXELS = 8.295044
 # "Frame rate (FPS): [24, 60]"
 MIN_VIDEO_FPS = 24
 MAX_VIDEO_FPS = 60
-# Audio (Seedance 2.0 and 2.5 only): "Each audio file must not exceed 15 MB."
+# Audio (Seedance 2.0 and 2.5 only): "Format: wav, mp3"
+SUPPORTED_AUDIO_MIME_TYPES = ("audio/wav", "audio/mpeg")
+# "Each audio file must not exceed 15 MB."
 MAX_AUDIO_BYTES = 15 * 1024 * 1024
 
 # Seedance only accepts audio data URIs whose subtype is exactly `wav` or `mp3` (per the BytePlus
@@ -325,6 +337,8 @@ def seedance_reference_video_errors(  # noqa: PLR0913
             video,
             subject=subject,
             maximum_bytes=MAX_VIDEO_BYTES,
+            allowed_mime_types=SUPPORTED_VIDEO_MIME_TYPES,
+            allowed_codecs=SUPPORTED_VIDEO_CODECS,
             min_seconds=min_seconds,
             max_seconds=max_seconds,
             min_side=MIN_VIDEO_SIDE,
@@ -338,17 +352,34 @@ def seedance_reference_video_errors(  # noqa: PLR0913
             docs_url=docs_url,
             probe=probe,
         )
-    known = [seconds for seconds in durations if seconds is not None]
-    if len(durations) > 1 and len(known) == len(durations) and sum(known) > max_total_seconds:
-        errors.append(
-            NodeError(
-                f"Together, the videos in {parameters} are {_seconds_past(sum(known), max_total_seconds)} seconds "
-                f"long and the limit is {max_total_seconds:g} seconds in total. Use a Trim Video node to shorten "
-                "one, or remove one.",
-                links=[NodeErrorLink(label=LIMITS_LINK_LABEL, url=docs_url)],
-            )
+    errors.append(
+        _total_duration_error(
+            durations,
+            max_total_seconds=max_total_seconds,
+            what=f"the videos in {parameters}",
+            fix="Use a Trim Video node to shorten one, or remove one.",
+            docs_url=docs_url,
         )
+    )
     return [error for error in errors if error]
+
+
+def _total_duration_error(
+    durations: Sequence[float | None], *, max_total_seconds: float, what: str, fix: str, docs_url: str
+) -> NodeError | None:
+    """The error for clips longer together than BytePlus allows, or None.
+
+    Checked only for two or more clips (for one, its own maximum is the same number) when every
+    clip's duration was read.
+    """
+    known = [seconds for seconds in durations if seconds is not None]
+    if len(durations) < 2 or len(known) < len(durations) or sum(known) <= max_total_seconds:  # noqa: PLR2004
+        return None
+    return NodeError(
+        f"Together, {what} are {_seconds_past(sum(known), max_total_seconds)} seconds long and the limit is "
+        f"{max_total_seconds:g} seconds in total. {fix}",
+        links=[NodeErrorLink(label=LIMITS_LINK_LABEL, url=docs_url)],
+    )
 
 
 def _seconds_past(seconds: float, limit: float) -> str:
@@ -360,17 +391,76 @@ def _seconds_past(seconds: float, limit: float) -> str:
     return repr(seconds)
 
 
-def seedance_audio_errors(audio: Any, *, subject: str, docs_url: str) -> list[NodeError]:
-    """The error for a reference audio clip over BytePlus's size limit, or none.
+def seedance_reference_audio_errors(  # noqa: PLR0913
+    clips: Sequence[tuple[str, Any]],
+    *,
+    min_seconds: float,
+    max_seconds: float,
+    max_total_seconds: float,
+    parameters: str,
+    docs_url: str,
+) -> list[NodeError]:
+    """One error per BytePlus limit the reference audio clips break, each on its own and together.
 
-    A private-asset reference is sent as an ``asset://`` ID, so it isn't checked.
+    Each clip is probed once, for its format, its duration and the total; its size is read from the
+    file. A maximum and the total use a clip's shorter reading, and a minimum its longer one.
+
+    Args:
+        clips: Each clip with its subject, from `input_subject`.
+        min_seconds: The shortest clip accepted.
+        max_seconds: The longest clip accepted.
+        max_total_seconds: The longest the clips may be together.
+        parameters: The parameter holding the clips as the UI shows it, quoted, such as
+            "'Reference Audio'".
+        docs_url: The provider's page documenting the limits.
     """
-    if is_provider_asset_reference(audio):
-        return []
-    error = check_size(
-        local_size_bytes(audio, kind="audio"), maximum_bytes=MAX_AUDIO_BYTES, subject=subject, docs_url=docs_url
+    errors: list[NodeError | None] = []
+    durations: list[float | None] = []
+    for subject, audio in clips:
+        # A private-asset reference is sent as an asset:// ID, so it isn't checked.
+        if is_provider_asset_reference(audio):
+            durations.append(None)
+            continue
+        probe = local_audio_probe(audio)
+        durations.append(probe.shortest_seconds if probe else None)
+        errors += [
+            check_mime_type(
+                probe.mime_type if probe else None,
+                subject=subject,
+                allowed=SUPPORTED_AUDIO_MIME_TYPES,
+                docs_url=docs_url,
+            ),
+            check_size(
+                local_size_bytes(audio, kind="audio"),
+                maximum_bytes=MAX_AUDIO_BYTES,
+                subject=subject,
+                docs_url=docs_url,
+            ),
+            check_duration(
+                probe.longest_seconds if probe else None,
+                subject=subject,
+                minimum=min_seconds,
+                fix="Use a longer clip.",
+                docs_url=docs_url,
+            ),
+            check_duration(
+                probe.shortest_seconds if probe else None,
+                subject=subject,
+                maximum=max_seconds,
+                fix="Trim it in an audio editor.",
+                docs_url=docs_url,
+            ),
+        ]
+    errors.append(
+        _total_duration_error(
+            durations,
+            max_total_seconds=max_total_seconds,
+            what=f"the clips in {parameters}",
+            fix="Trim one in an audio editor, or remove one.",
+            docs_url=docs_url,
+        )
     )
-    return [error] if error else []
+    return [error for error in errors if error]
 
 
 def coerce_video_url(val: Any) -> str | None:

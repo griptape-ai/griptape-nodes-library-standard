@@ -32,8 +32,8 @@ from griptape_nodes_library.proxy import ArtifactKind
 from griptape_nodes_library.video.seedance_common import (
     SeedanceProxyNode,
     coerce_video_url,
-    seedance_audio_errors,
     seedance_image_errors,
+    seedance_reference_audio_errors,
     seedance_reference_video_errors,
 )
 
@@ -61,6 +61,11 @@ MIN_REFERENCE_VIDEO_SECONDS = 2
 MIN_EDITED_VIDEO_SECONDS = 4
 MAX_REFERENCE_VIDEO_SECONDS = 30
 MAX_TOTAL_REFERENCE_VIDEO_SECONDS = 30
+# "Each audio clip must be 2–30 seconds long. You can submit up to 10 reference audio clips with a
+# total duration of no more than 30 seconds."
+MIN_REFERENCE_AUDIO_SECONDS = 2
+MAX_REFERENCE_AUDIO_SECONDS = 30
+MAX_TOTAL_REFERENCE_AUDIO_SECONDS = 30
 
 MIN_DURATION = 4
 MAX_DURATION = 30
@@ -675,12 +680,17 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
                 parameters="'Reference Videos'",
                 docs_url=INPUT_LIMITS_URL,
             )
-            for position, audio in enumerate(params[REFERENCE_AUDIO_PARAMETER], start=1):
-                errors += seedance_audio_errors(
-                    audio,
-                    subject=input_subject("Reference Audio", noun="audio clip", position=position),
-                    docs_url=INPUT_LIMITS_URL,
-                )
+            errors += seedance_reference_audio_errors(
+                [
+                    (input_subject("Reference Audio", noun="audio clip", position=position), audio)
+                    for position, audio in enumerate(params[REFERENCE_AUDIO_PARAMETER], start=1)
+                ],
+                min_seconds=MIN_REFERENCE_AUDIO_SECONDS,
+                max_seconds=MAX_REFERENCE_AUDIO_SECONDS,
+                max_total_seconds=MAX_TOTAL_REFERENCE_AUDIO_SECONDS,
+                parameters="'Reference Audio'",
+                docs_url=INPUT_LIMITS_URL,
+            )
         return errors
 
     def _get_parameters(self) -> dict[str, Any]:
