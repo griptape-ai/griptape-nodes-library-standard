@@ -26,10 +26,17 @@ def video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """A local video whose probed size and duration a test can set."""
     path = tmp_path / "reference.mp4"
     path.write_bytes(b"video")
-    probe: dict[str, Any] = {"path": str(path), "info": ImageInfo(1280, 720, None), "seconds": 5.0}
+    probe: dict[str, Any] = {
+        "path": str(path),
+        "info": ImageInfo(1280, 720, None),
+        "seconds": 5.0,
+        "mime_type": "video/mp4",
+    }
     # video_errors probes through the engine's own reader, so patch it there.
     monkeypatch.setattr(
-        input_checks, "local_video_probe", lambda _value: VideoProbe(info=probe["info"], seconds=probe["seconds"])
+        input_checks,
+        "local_video_probe",
+        lambda _value: VideoProbe(info=probe["info"], seconds=probe["seconds"], mime_type=probe["mime_type"]),
     )
     return probe
 
@@ -93,6 +100,23 @@ def test_rejects_an_oversized_image(
     assert len(messages) == 1
     assert messages[0].startswith("The image in 'Image URL' is ")
     assert "and the limit is" in messages[0]
+
+
+@pytest.mark.parametrize("mime_type", ["video/mp4", "video/x-msvideo", "video/quicktime"])
+def test_accepts_each_documented_video_format(
+    node: WanAnimateGeneration, tmp_path: Path, video: dict[str, Any], mime_type: str
+) -> None:
+    video["mime_type"] = mime_type
+    node.set_parameter_value("image_url", _image(tmp_path))
+    node.set_parameter_value("video_url", video["path"])
+    assert _messages(node) == []
+
+
+def test_rejects_an_unsupported_video_format(node: WanAnimateGeneration, tmp_path: Path, video: dict[str, Any]) -> None:
+    video["mime_type"] = "video/webm"
+    node.set_parameter_value("image_url", _image(tmp_path))
+    node.set_parameter_value("video_url", video["path"])
+    assert _messages(node) == ["The video in 'Video URL' is in WebM format. Convert it to MP4, AVI or MOV."]
 
 
 def test_rejects_an_oversized_video(

@@ -66,6 +66,8 @@ MIN_IMAGE_SIDE = 200
 MAX_IMAGE_SIDE = 4096
 # "File size: Up to 5 MB."
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
+# "Format: MP4, AVI, or MOV"
+SUPPORTED_VIDEO_MIME_TYPES = ("video/mp4", "video/x-msvideo", "video/quicktime")
 # "Duration: 2 to 30 seconds."
 MIN_VIDEO_SECONDS = 2
 MAX_VIDEO_SECONDS = 30
@@ -261,6 +263,7 @@ class WanAnimateGeneration(GriptapeProxyNode):
         return video_errors(
             video,
             subject=input_subject("Video URL", noun="video"),
+            allowed_mime_types=SUPPORTED_VIDEO_MIME_TYPES,
             maximum_bytes=MAX_VIDEO_BYTES,
             min_seconds=MIN_VIDEO_SECONDS,
             max_seconds=MAX_VIDEO_SECONDS,
