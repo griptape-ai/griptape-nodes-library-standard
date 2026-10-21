@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any, ClassVar
-from urllib.parse import urlsplit
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterMode
-from griptape_nodes.exe_types.input_checks import check_duration, check_mime_type, input_subject, local_video_probe
+from griptape_nodes.exe_types.input_checks import input_subject, video_errors
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
@@ -17,7 +15,6 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.files.path_utils import is_url
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri, is_publicly_reachable_url
 from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
@@ -154,50 +151,22 @@ class GrokVideoEdit(GriptapeProxyNode):
             return bool(value.value)
         return bool(value)
 
-    @staticmethod
-    def _video_mime_type(video_value: str) -> str | None:
-        """Return the MIME type named by a data URI's header or a path's or URL's extension, or None.
-
-        No extension carries no signal (a signed URL that strips the filename, say), so it is
-        let through. Only a URL is split, so a local path keeps a "#" or "?" in its filename.
-        """
-        if video_value.startswith("data:"):
-            return video_value.removeprefix("data:").split(",", 1)[0].split(";", 1)[0].lower() or None
-        location = urlsplit(video_value).path if is_url(video_value) else video_value
-        extension = Path(location).suffix.lstrip(".").lower()
-        return f"video/{extension}" if extension else None
-
     def _find_input_limit_errors(self, video_input: Any) -> list[Exception]:
         """Return an error per xAI input limit the video breaks, or an empty list.
 
-        The duration is only read for a file on this machine. A remote URL or a data URI goes
-        unchecked and xAI enforces the limit.
+        The format and duration are read from the file itself, so a MOV renamed to .mp4 is still
+        refused. Only a file on this machine is read: a remote URL or a data URI goes unchecked and
+        xAI enforces the limits.
         """
-        video_value = coerce_media_url_or_data_uri(video_input, kind="video")
-        if not video_value:
-            return []
-        subject = input_subject("Video", noun="video")
-        # xAI doesn't say whether it measures the video stream or the whole file, so the maximum is
-        # checked against the shorter of the two, as the engine's video_errors does.
-        probe = local_video_probe(video_value)
-        seconds = None
-        if probe is not None:
-            seconds = probe.shortest_seconds
-        errors = [
-            check_mime_type(
-                self._video_mime_type(video_value),
-                subject=subject,
-                allowed=(SUPPORTED_MIME_TYPE,),
+        return list(
+            video_errors(
+                video_input,
+                subject=input_subject("Video", noun="video"),
+                allowed_mime_types=(SUPPORTED_MIME_TYPE,),
+                max_seconds=MAX_INPUT_DURATION_SECONDS,
                 docs_url=XAI_VIDEO_EDIT_DOCS_URL,
-            ),
-            check_duration(
-                seconds,
-                subject=subject,
-                maximum=MAX_INPUT_DURATION_SECONDS,
-                docs_url=XAI_VIDEO_EDIT_DOCS_URL,
-            ),
-        ]
-        return [error for error in errors if error is not None]
+            )
+        )
 
     async def aprocess(self) -> None:
         try:

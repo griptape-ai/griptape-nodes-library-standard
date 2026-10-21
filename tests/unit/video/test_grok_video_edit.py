@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
+from griptape_nodes.exe_types import input_checks
 from griptape_nodes.exe_types.core_types import NodeError
 from griptape_nodes.exe_types.input_checks import VideoProbe
 from griptape_nodes.exe_types.param_components.artifact_url import (
@@ -17,7 +18,6 @@ from griptape_nodes.files.file import FileLoadError
 from griptape_nodes.retained_mode.events.os_events import FileIOFailureReason
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
-from griptape_nodes_library.video import grok_video_edit as grok_video_edit_module
 from griptape_nodes_library.video.grok_video_edit import XAI_VIDEO_EDIT_DOCS_URL, GrokVideoEdit
 
 RESOLVED = "data:video/mp4;base64,RESOLVED"
@@ -86,14 +86,17 @@ class TestPrepareVideoUrlFallback:
             await _node()._prepare_video_url(VideoUrlArtifact(value=""))
 
 
-def _stub_duration(monkeypatch: pytest.MonkeyPatch, duration: float | None) -> None:
-    probe = None if duration is None else VideoProbe(info=None, seconds=duration)
-    monkeypatch.setattr(grok_video_edit_module, "local_video_probe", lambda _value: probe)
+def _stub_probe(monkeypatch: pytest.MonkeyPatch, duration: float | None, mime_type: str | None) -> None:
+    probe = VideoProbe(info=None, seconds=duration, mime_type=mime_type)
+    # video_errors probes through the engine's own reader, so patch it there.
+    monkeypatch.setattr(input_checks, "local_video_probe", lambda _value: probe)
 
 
-def _validated_node(monkeypatch: pytest.MonkeyPatch, video: Any, duration: float | None = 5.0) -> GrokVideoEdit:
-    """A real node with a prompt and a video set, whose duration probe reports `duration`."""
-    _stub_duration(monkeypatch, duration)
+def _validated_node(
+    monkeypatch: pytest.MonkeyPatch, video: Any, duration: float | None = 5.0, mime_type: str | None = "video/mp4"
+) -> GrokVideoEdit:
+    """A real node with a prompt and a video set, whose probe reads `duration` and `mime_type` from the file."""
+    _stub_probe(monkeypatch, duration, mime_type)
     node = GrokVideoEdit(name="GrokVideoEdit")
     node.set_parameter_value("prompt", "make it snow")
     node.set_parameter_value("video", video)
@@ -106,34 +109,33 @@ def _messages(node: GrokVideoEdit) -> list[str]:
 
 class TestInputLimits:
     @pytest.mark.parametrize(
-        ("video_input", "format_name"),
-        [
-            ("{inputs}/videos/IMG_2689.mov", "MOV"),
-            ("data:video/quicktime;base64,ABC", "MOV"),
-            ("https://example.com/clip.webm?sig=1", "WebM"),
-        ],
-        ids=["mov-path", "quicktime-data-uri", "webm-url"],
+        ("mime_type", "format_name"), [("video/quicktime", "MOV"), ("video/webm", "WebM")], ids=["mov", "webm"]
     )
     def test_non_mp4_video_fails_validation(
-        self, monkeypatch: pytest.MonkeyPatch, video_input: str, format_name: str
+        self, monkeypatch: pytest.MonkeyPatch, mime_type: str, format_name: str
     ) -> None:
-        assert _messages(_validated_node(monkeypatch, video_input)) == [
+        assert _messages(_validated_node(monkeypatch, "{inputs}/clip.mp4", mime_type=mime_type)) == [
             f"The video in 'Video' is in {format_name} format. Convert it to MP4."
         ]
 
-    @pytest.mark.parametrize("video_input", ["{inputs}/Take #2.mp4", "/Users/me/Shots/edit.v3?final.mp4"])
-    def test_local_mp4_with_url_characters_in_its_name_passes_validation(
+    def test_reads_the_format_from_the_file_not_its_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # An MP4 saved as .mov is an MP4, so xAI takes it.
+        assert _messages(_validated_node(monkeypatch, "{inputs}/IMG_2689.mov", mime_type="video/mp4")) == []
+
+    @pytest.mark.parametrize(
+        "video_input",
+        ["https://example.com/clip.webm?sig=1", "data:video/quicktime;base64,ABC"],
+        ids=["url", "data-uri"],
+    )
+    def test_leaves_a_video_it_cannot_read_locally_to_xai(
         self, monkeypatch: pytest.MonkeyPatch, video_input: str
     ) -> None:
-        assert _messages(_validated_node(monkeypatch, video_input)) == []
-
-    def test_local_mov_with_a_hash_in_its_name_fails_validation(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        assert _messages(_validated_node(monkeypatch, "{inputs}/Take #2.mov")) == [
-            "The video in 'Video' is in MOV format. Convert it to MP4."
-        ]
-
-    def test_url_without_extension_passes_validation(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        assert _messages(_validated_node(monkeypatch, "https://example.com/signed/abc123")) == []
+        # The real reader: it reads only files on this machine, so it returns nothing for these.
+        monkeypatch.setattr(input_checks.subprocess, "run", lambda *_a, **_k: pytest.fail("ffprobe not run"))
+        node = GrokVideoEdit(name="GrokVideoEdit")
+        node.set_parameter_value("prompt", "make it snow")
+        node.set_parameter_value("video", video_input)
+        assert _messages(node) == []
 
     def test_over_long_video_fails_validation_with_duration(self, monkeypatch: pytest.MonkeyPatch) -> None:
         assert _messages(_validated_node(monkeypatch, "{inputs}/clip.mp4", duration=8.798)) == [
@@ -148,7 +150,9 @@ class TestInputLimits:
         assert [link.url for link in errors[0].links or []] == [XAI_VIDEO_EDIT_DOCS_URL]
 
     def test_wrong_container_and_too_long_are_reported_together(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        messages = _messages(_validated_node(monkeypatch, "{inputs}/IMG_2689.mov", duration=8.798))
+        messages = _messages(
+            _validated_node(monkeypatch, "{inputs}/IMG_2689.mov", duration=8.798, mime_type="video/quicktime")
+        )
 
         assert len(messages) == 2
         assert "is in MOV format" in messages[0]
@@ -159,8 +163,8 @@ class TestInputLimits:
 
     def test_checks_the_limit_against_the_shorter_reading(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # 6 s of video with a 12 s audio track: the container is longer, but the clip may be within xAI's limit.
-        probe = VideoProbe(info=None, seconds=6.0, container_seconds=12.0)
-        monkeypatch.setattr(grok_video_edit_module, "local_video_probe", lambda _value: probe)
+        probe = VideoProbe(info=None, seconds=6.0, container_seconds=12.0, mime_type="video/mp4")
+        monkeypatch.setattr(input_checks, "local_video_probe", lambda _value: probe)
         node = GrokVideoEdit(name="GrokVideoEdit")
         node.set_parameter_value("prompt", "make it snow")
         node.set_parameter_value("video", "{inputs}/clip.mp4")
