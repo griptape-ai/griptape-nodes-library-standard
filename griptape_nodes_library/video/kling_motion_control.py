@@ -45,6 +45,7 @@ MAX_IMAGE_SIDE = 65536
 WIDEST_IMAGE_ASPECT_RATIO = "2.5:1"
 TALLEST_IMAGE_ASPECT_RATIO = "1:2.5"
 MAX_VIDEO_BYTES = 100 * 1024 * 1024
+SUPPORTED_VIDEO_MIME_TYPES = ("video/mp4", "video/quicktime")
 MIN_VIDEO_SIDE = 340
 MAX_VIDEO_SIDE = 3850
 MIN_VIDEO_SECONDS = 3
@@ -323,6 +324,7 @@ class KlingMotionControl(GriptapeProxyNode):
         return video_errors(
             video,
             subject=input_subject("reference_video", noun="video"),
+            allowed_mime_types=SUPPORTED_VIDEO_MIME_TYPES,
             maximum_bytes=MAX_VIDEO_BYTES,
             min_seconds=MIN_VIDEO_SECONDS,
             max_seconds=MAX_VIDEO_SECONDS_BY_ORIENTATION.get(orientation, MAX_VIDEO_SECONDS_BY_ORIENTATION["video"]),

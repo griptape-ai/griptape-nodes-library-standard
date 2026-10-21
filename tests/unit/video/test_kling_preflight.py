@@ -33,12 +33,20 @@ def video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """A local video whose probed frame size and duration a test can set, for any Kling node."""
     path = tmp_path / "reference.mp4"
     path.write_bytes(b"video")
-    probe: dict[str, Any] = {"path": str(path), "info": ImageInfo(1280, 720, None), "seconds": 5.0, "fps": 30.0}
+    probe: dict[str, Any] = {
+        "path": str(path),
+        "info": ImageInfo(1280, 720, None),
+        "seconds": 5.0,
+        "fps": 30.0,
+        "mime_type": "video/mp4",
+    }
     # video_errors probes through the engine's own reader, so patch it there.
     monkeypatch.setattr(
         input_checks,
         "local_video_probe",
-        lambda _value: VideoProbe(info=probe["info"], seconds=probe["seconds"], fps=probe["fps"]),
+        lambda _value: VideoProbe(
+            info=probe["info"], seconds=probe["seconds"], fps=probe["fps"], mime_type=probe["mime_type"]
+        ),
     )
     return probe
 
@@ -143,6 +151,21 @@ class TestOmni:
         node.set_parameter_value("reference_images", [_image(tmp_path, image_format="JPEG", name="ref.jpeg")])
         node.set_parameter_value("reference_video", video["path"])
         assert _messages(node) == []
+
+    @pytest.mark.parametrize("mime_type", ["video/mp4", "video/quicktime"])
+    def test_accepts_each_documented_reference_video_format(
+        self, node: KlingOmniVideoGeneration, video: dict[str, Any], mime_type: str
+    ) -> None:
+        video["mime_type"] = mime_type
+        node.set_parameter_value("reference_video", video["path"])
+        assert _messages(node) == []
+
+    def test_rejects_a_reference_video_in_another_format(
+        self, node: KlingOmniVideoGeneration, video: dict[str, Any]
+    ) -> None:
+        video["mime_type"] = "video/webm"
+        node.set_parameter_value("reference_video", video["path"])
+        assert _messages(node) == ["The video in 'reference_video' is in WebM format. Convert it to MP4 or MOV."]
 
     def test_rejects_an_invalid_first_frame(self, node: KlingOmniVideoGeneration, tmp_path: Path) -> None:
         node.set_parameter_value("first_frame_image", _image(tmp_path, (200, 400)))
@@ -305,6 +328,23 @@ class TestMotionControl:
         node.set_parameter_value("reference_image", _image(tmp_path))
         node.set_parameter_value("reference_video", video["path"])
         assert _messages(node) == []
+
+    @pytest.mark.parametrize("mime_type", ["video/mp4", "video/quicktime"])
+    def test_accepts_each_documented_reference_video_format(
+        self, node: KlingMotionControl, tmp_path: Path, video: dict[str, Any], mime_type: str
+    ) -> None:
+        video["mime_type"] = mime_type
+        node.set_parameter_value("reference_image", _image(tmp_path))
+        node.set_parameter_value("reference_video", video["path"])
+        assert _messages(node) == []
+
+    def test_rejects_a_reference_video_in_another_format(
+        self, node: KlingMotionControl, tmp_path: Path, video: dict[str, Any]
+    ) -> None:
+        video["mime_type"] = "video/x-matroska"
+        node.set_parameter_value("reference_image", _image(tmp_path))
+        node.set_parameter_value("reference_video", video["path"])
+        assert _messages(node) == ["The video in 'reference_video' is in MKV format. Convert it to MP4 or MOV."]
 
     def test_rejects_an_invalid_reference_image(
         self, node: KlingMotionControl, tmp_path: Path, video: dict[str, Any]

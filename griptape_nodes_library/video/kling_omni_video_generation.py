@@ -54,6 +54,7 @@ SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png")
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MIN_IMAGE_SIDE = 300
 MAX_VIDEO_BYTES = 200 * 1024 * 1024
+SUPPORTED_VIDEO_MIME_TYPES = ("video/mp4", "video/quicktime")
 WIDEST_ASPECT_RATIO = "2.5:1"
 TALLEST_ASPECT_RATIO = "1:2.5"
 # Reference video duration and frame size: the wider bounds of two Kling pages, on purpose.
@@ -840,6 +841,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             errors += video_errors(
                 video,
                 subject=input_subject("reference_video", noun="video"),
+                allowed_mime_types=SUPPORTED_VIDEO_MIME_TYPES,
                 maximum_bytes=MAX_VIDEO_BYTES,
                 min_seconds=MIN_VIDEO_SECONDS,
                 max_seconds=MAX_VIDEO_SECONDS,
