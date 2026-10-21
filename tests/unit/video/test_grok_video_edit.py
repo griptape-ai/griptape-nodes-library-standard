@@ -110,7 +110,7 @@ class TestInputLimits:
         [
             ("{inputs}/videos/IMG_2689.mov", "MOV"),
             ("data:video/quicktime;base64,ABC", "MOV"),
-            ("https://example.com/clip.webm?sig=1", "WEBM"),
+            ("https://example.com/clip.webm?sig=1", "WebM"),
         ],
         ids=["mov-path", "quicktime-data-uri", "webm-url"],
     )
