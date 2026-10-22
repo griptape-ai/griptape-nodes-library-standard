@@ -29,9 +29,6 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["WanImageToVideoGeneration"]
 
-# Define constant for prompt truncation length
-PROMPT_TRUNCATE_LENGTH = 100
-
 # Model options with their constraints
 MODEL_OPTIONS = [
     "wan2.6-i2v",

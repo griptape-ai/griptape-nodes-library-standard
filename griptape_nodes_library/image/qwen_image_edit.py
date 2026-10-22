@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import suppress
-from copy import deepcopy
 from http import HTTPStatus
 from typing import Any
 
@@ -24,9 +23,6 @@ from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["QwenImageEdit"]
-
-# Define constant for prompt truncation length
-PROMPT_TRUNCATE_LENGTH = 100
 
 # Model options
 MODEL_OPTIONS = ["qwen-image-3.0"]
@@ -316,29 +312,6 @@ class QwenImageEdit(GriptapeProxyNode):
             logger.error("Failed to extract image value: %s", e)
 
         return None
-
-    def _log_request(self, payload: dict[str, Any]) -> None:
-        with suppress(Exception):
-            sanitized_payload = deepcopy(payload)
-            # Truncate long editing instructions
-            if "messages" in sanitized_payload:
-                for msg in sanitized_payload["messages"]:
-                    if "content" in msg:
-                        for item in msg["content"]:
-                            if "text" in item:
-                                text = item["text"]
-                                if len(text) > PROMPT_TRUNCATE_LENGTH:
-                                    item["text"] = text[:PROMPT_TRUNCATE_LENGTH] + "..."
-                            # Redact base64 image data
-                            if "image" in item:
-                                image_data = item["image"]
-                                if isinstance(image_data, str) and image_data.startswith("data:image/"):
-                                    parts = image_data.split(",", 1)
-                                    header = parts[0] if parts else "data:image/"
-                                    b64_len = len(parts[1]) if len(parts) > 1 else 0
-                                    item["image"] = f"{header},<base64 data length={b64_len}>"
-
-            logger.info("Request payload: %s", json.dumps(sanitized_payload, indent=2))
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         """Handle Qwen response and save the hosted image.

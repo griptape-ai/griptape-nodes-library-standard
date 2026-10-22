@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import json as _json
 import logging
-from contextlib import suppress
-from copy import deepcopy
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
@@ -273,10 +270,6 @@ class Flux2ImageGeneration(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
 
-    def _log(self, message: str) -> None:
-        with suppress(Exception):
-            logger.info(message)
-
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
         self._seed_parameter.after_value_set(parameter, value)
@@ -461,21 +454,6 @@ class Flux2ImageGeneration(GriptapeProxyNode):
             self._log(f"Failed to extract image value: {e}")
 
         return None
-
-    def _log_request(self, payload: dict[str, Any]) -> None:
-        with suppress(Exception):
-            sanitized_payload = deepcopy(payload)
-            # Redact base64 input image data for all input images (input_image, input_image_2, ..., input_image_9)
-            for key in list(sanitized_payload.keys()):
-                if key == "input_image" or (key.startswith("input_image_") and key[12:].isdigit()):
-                    image_data = sanitized_payload[key]
-                    if isinstance(image_data, str) and image_data.startswith("data:image/"):
-                        parts = image_data.split(",", 1)
-                        header = parts[0] if parts else "data:image/"
-                        b64_len = len(parts[1]) if len(parts) > 1 else 0
-                        sanitized_payload[key] = f"{header},<base64 data length={b64_len}>"
-
-            self._log(f"Request payload: {_json.dumps(sanitized_payload, indent=2)}")
 
     def _set_safe_defaults(self) -> None:
         """Set safe default values for outputs."""

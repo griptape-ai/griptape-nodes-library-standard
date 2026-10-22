@@ -28,9 +28,6 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["WanReferenceToVideoGeneration"]
 
-# Define constant for prompt truncation length
-PROMPT_TRUNCATE_LENGTH = 100
-
 # HTTP status code threshold for error responses
 HTTP_ERROR_STATUS = 400
 

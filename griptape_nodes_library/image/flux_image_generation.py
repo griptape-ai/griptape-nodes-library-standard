@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-from contextlib import suppress
-from copy import deepcopy
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
@@ -24,9 +22,6 @@ from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["FluxImageGeneration"]
-
-# Define constant for prompt truncation length
-PROMPT_TRUNCATE_LENGTH = 100
 
 # API timeout in seconds
 API_TIMEOUT = 60
@@ -208,10 +203,6 @@ class FluxImageGeneration(GriptapeProxyNode):
         )
         self.set_initial_node_size(height=826)
 
-    def _log(self, message: str) -> None:
-        with suppress(Exception):
-            logger.info(message)
-
     async def _process_generation(self) -> None:
         self.preprocess()
         await super()._process_generation()
@@ -329,24 +320,6 @@ class FluxImageGeneration(GriptapeProxyNode):
             self._log(f"Failed to extract image value: {e}")
 
         return None
-
-    def _log_request(self, payload: dict[str, Any]) -> None:
-        with suppress(Exception):
-            sanitized_payload = deepcopy(payload)
-            # Truncate long prompts
-            prompt = sanitized_payload.get("prompt", "")
-            if len(prompt) > PROMPT_TRUNCATE_LENGTH:
-                sanitized_payload["prompt"] = prompt[:PROMPT_TRUNCATE_LENGTH] + "..."
-            # Redact base64 input image data
-            if "input_image" in sanitized_payload:
-                image_data = sanitized_payload["input_image"]
-                if isinstance(image_data, str) and image_data.startswith("data:image/"):
-                    parts = image_data.split(",", 1)
-                    header = parts[0] if parts else "data:image/"
-                    b64_len = len(parts[1]) if len(parts) > 1 else 0
-                    sanitized_payload["input_image"] = f"{header},<base64 data length={b64_len}>"
-
-            self._log(f"Request payload: {json.dumps(sanitized_payload, indent=2)}")
 
     async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
         """Save the hosted image."""

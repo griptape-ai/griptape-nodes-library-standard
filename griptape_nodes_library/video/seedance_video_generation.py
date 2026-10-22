@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json as _json
 import logging
-from contextlib import suppress
 from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
@@ -257,10 +256,6 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         The stored dropdown value is already the provider's model id.
         """
         return self.get_parameter_value("model_id") or "seedance-1-5-pro-251215"
-
-    def _log(self, message: str) -> None:
-        with suppress(Exception):
-            logger.info(message)
 
     def _get_parameters(self) -> dict[str, Any]:
         model_id = self.get_parameter_value("model_id") or "seedance-1-5-pro-251215"

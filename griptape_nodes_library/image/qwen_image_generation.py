@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-from contextlib import suppress
-from copy import deepcopy
 from http import HTTPStatus
 from typing import Any
 
@@ -23,9 +21,6 @@ from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["QwenImageGeneration"]
-
-# Define constant for prompt truncation length
-PROMPT_TRUNCATE_LENGTH = 100
 
 # Size options (Qwen's available resolutions)
 SIZE_OPTIONS = ["1328*1328", "1664*928", "1472*1140", "1140*1472", "928*1664"]
@@ -217,16 +212,6 @@ class QwenImageGeneration(GriptapeProxyNode):
         }
 
         return payload
-
-    def _log_request(self, payload: dict[str, Any]) -> None:
-        with suppress(Exception):
-            sanitized_payload = deepcopy(payload)
-            # Truncate long prompts
-            prompt = sanitized_payload.get("prompt", "")
-            if len(prompt) > PROMPT_TRUNCATE_LENGTH:
-                sanitized_payload["prompt"] = prompt[:PROMPT_TRUNCATE_LENGTH] + "..."
-
-            logger.info("Request payload: %s", json.dumps(sanitized_payload, indent=2))
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         """Handle Qwen response and save the hosted image.

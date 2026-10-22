@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import json
 import logging
 import math
-from contextlib import suppress
-from copy import deepcopy
 from enum import StrEnum
 from typing import Any
 
@@ -895,10 +892,6 @@ class TopazImageEnhance(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
 
-    def _log(self, message: str) -> None:
-        with suppress(Exception):
-            logger.info(message)
-
     def _update_visible_params_for_model(self, model_name: str) -> None:
         """Show/hide parameters based on the selected model's supported params."""
         operation = self.get_parameter_value("operation") or "enhance"
@@ -1269,19 +1262,6 @@ class TopazImageEnhance(GriptapeProxyNode):
             self._log(f"Failed to extract image value: {e}")
 
         return None
-
-    def _log_request(self, payload: dict[str, Any]) -> None:
-        with suppress(Exception):
-            sanitized_payload = deepcopy(payload)
-            if "image" in sanitized_payload:
-                image_data = sanitized_payload["image"]
-                if isinstance(image_data, str) and image_data.startswith("data:image/"):
-                    parts = image_data.split(",", 1)
-                    header = parts[0] if parts else "data:image/"
-                    b64_len = len(parts[1]) if len(parts) > 1 else 0
-                    sanitized_payload["image"] = f"{header},<base64 data length={b64_len}>"
-
-            self._log(f"Request payload: {json.dumps(sanitized_payload, indent=2)}")
 
     async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
         """Save the hosted image."""

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -323,10 +322,6 @@ class Rodin23DGeneration(GriptapeProxyNode):
             result_details_placeholder="Generation status and details will appear here.",
             parameter_group_initially_collapsed=True,
         )
-
-    def _log(self, message: str) -> None:
-        with suppress(Exception):
-            logger.info(message)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)

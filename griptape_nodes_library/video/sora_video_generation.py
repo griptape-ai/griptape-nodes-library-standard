@@ -4,8 +4,6 @@ import asyncio
 import base64
 import io
 import json as _json
-import logging
-from contextlib import suppress
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
@@ -41,7 +39,6 @@ if TYPE_CHECKING:
     from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
     from PIL import Image
 
-logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["SoraVideoGeneration"]
 
@@ -250,10 +247,6 @@ class SoraVideoGeneration(GriptapeProxyNode):
             result_details_placeholder="Generation status and details will appear here.",
             parameter_group_initially_collapsed=True,
         )
-
-    def _log(self, message: str) -> None:
-        with suppress(Exception):
-            logger.info(message)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Update size options based on model selection and auto-update size from start_frame."""

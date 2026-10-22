@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 from copy import deepcopy
 from enum import StrEnum
@@ -626,48 +625,6 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             parameters["sampleCount"] = int(sample_count)
 
         return {"instances": [instance], "parameters": parameters}
-
-    def _log_request(self, url: str, headers: dict[str, str], payload: dict[str, Any]) -> None:  # noqa: C901
-        def _sanitize_body(b: dict[str, Any]) -> dict[str, Any]:  # noqa: C901
-            try:
-                red = deepcopy(b)
-                # Sanitize images in instances array
-                instances = red.get("instances", [])
-                if instances and isinstance(instances, list):
-                    for instance in instances:
-                        if isinstance(instance, dict):
-                            # Sanitize start frame and last frame
-                            for key in ["image", "lastFrame"]:
-                                if key in instance and isinstance(instance[key], dict):
-                                    instance[key] = self._sanitize_base64_image_dict(instance[key])
-                            # Sanitize reference images
-                            if "referenceImages" in instance and isinstance(instance["referenceImages"], list):
-                                for ref_img in instance["referenceImages"]:
-                                    if isinstance(ref_img, dict) and "image" in ref_img:
-                                        ref_img["image"] = self._sanitize_base64_image_dict(ref_img["image"])
-            except Exception:
-                return b
-            else:
-                return red
-
-        dbg_headers = {**headers, "Authorization": "Bearer ***"}
-        logger.debug(
-            "%s: POST %s\nheaders=%s\nbody=%s",
-            self.name,
-            url,
-            dbg_headers,
-            json.dumps(_sanitize_body(payload), indent=2),
-        )
-
-    def _sanitize_base64_image_dict(self, image_dict: dict[str, str]) -> dict[str, str]:
-        """Sanitize base64 image dict for logging by redacting the base64 data."""
-        if not isinstance(image_dict, dict):
-            return image_dict
-        sanitized = image_dict.copy()
-        if "bytesBase64Encoded" in sanitized:
-            b64_data = sanitized["bytesBase64Encoded"]
-            sanitized["bytesBase64Encoded"] = f"<redacted base64 length={len(b64_data)}>"
-        return sanitized
 
     def _sanitize_result_json(self, result_json: dict[str, Any]) -> dict[str, Any]:
         """Sanitize result JSON by redacting base64-encoded video data."""

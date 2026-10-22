@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import logging
-from contextlib import suppress
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import ParameterMode
@@ -23,8 +21,6 @@ from griptape_nodes_library.three_d._tripo_utils import (
     parse_tripo_task_result,
     supports,
 )
-
-logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["TripoImageTo3DGeneration"]
 
@@ -189,10 +185,6 @@ class TripoImageTo3DGeneration(GriptapeProxyNode):
         )
 
         self._update_parameter_visibility_for_model(DEFAULT_MODEL_VERSION)
-
-    def _log(self, message: str) -> None:
-        with suppress(Exception):
-            logger.info(message)
 
     def _update_parameter_visibility_for_model(self, model_version: str) -> None:
         if supports(TRIPO_ENDPOINT, model_version, TripoCapability.TEXTURE):

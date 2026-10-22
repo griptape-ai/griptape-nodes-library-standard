@@ -3,8 +3,6 @@ from __future__ import annotations
 import base64
 import json as _json
 import logging
-from contextlib import suppress
-from copy import deepcopy
 from io import BytesIO
 from typing import Any
 
@@ -31,9 +29,6 @@ from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode, Hosted
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["SeedreamImageGeneration"]
-
-# Define constant for prompt truncation length
-PROMPT_TRUNCATE_LENGTH = 100
 
 # The models this node offers, as the provider's own ids -- the dropdown stores these and
 # the payload sends them as-is. Only Seedream 5.0 Pro carries the "dola-" prefix; the
@@ -476,10 +471,6 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         else:
             size_parameter.clear_badge()
 
-    def _log(self, message: str) -> None:
-        with suppress(Exception):
-            logger.info(message)
-
     async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
         """Save the hosted images.
 
@@ -729,37 +720,6 @@ class SeedreamImageGeneration(GriptapeProxyNode):
             self._log(f"Failed to extract image value: {e}")
 
         return None
-
-    def _log_request(self, payload: dict[str, Any]) -> None:
-        with suppress(Exception):
-            sanitized_payload = deepcopy(payload)
-            # Truncate long prompts
-            prompt = sanitized_payload.get("prompt", "")
-            if len(prompt) > PROMPT_TRUNCATE_LENGTH:
-                sanitized_payload["prompt"] = prompt[:PROMPT_TRUNCATE_LENGTH] + "..."
-            # Redact base64 image data
-            if "image" in sanitized_payload:
-                image_data = sanitized_payload["image"]
-                if isinstance(image_data, list):
-                    # Handle array of images
-                    redacted_images = []
-                    for img in image_data:
-                        if isinstance(img, str) and img.startswith("data:image/"):
-                            parts = img.split(",", 1)
-                            header = parts[0] if parts else "data:image/"
-                            b64_len = len(parts[1]) if len(parts) > 1 else 0
-                            redacted_images.append(f"{header},<base64 data length={b64_len}>")
-                        else:
-                            redacted_images.append(img)
-                    sanitized_payload["image"] = redacted_images
-                elif isinstance(image_data, str) and image_data.startswith("data:image/"):
-                    # Handle single image
-                    parts = image_data.split(",", 1)
-                    header = parts[0] if parts else "data:image/"
-                    b64_len = len(parts[1]) if len(parts) > 1 else 0
-                    sanitized_payload["image"] = f"{header},<base64 data length={b64_len}>"
-
-            self._log(f"Request payload: {_json.dumps(sanitized_payload, indent=2)}")
 
     async def _save_single_hosted_image(self, artifact: HostedArtifact, index: int) -> ImageUrlArtifact | None:
         """Download and save a single hosted image.

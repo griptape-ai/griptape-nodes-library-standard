@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-import logging
-from copy import deepcopy
 from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
@@ -19,8 +16,6 @@ from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
-
-logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["MinimaxHailuoVideoGeneration"]
 
@@ -357,25 +352,6 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
     async def _prepare_frame_data_url_async(self, frame_input: Any) -> str | None:
         """Convert frame input to a data URL, handling external URLs by downloading and converting."""
         return await prepare_media_data_uri(frame_input, kind="image", node_name=self.name, fallback_mime="image/jpeg")
-
-    def _log_request(self, url: str, headers: dict[str, str], payload: dict[str, Any]) -> None:
-        def _sanitize_body(b: dict[str, Any]) -> dict[str, Any]:
-            try:
-                red = deepcopy(b)
-                # Redact data URLs in frame images
-                for key in ("first_frame_image", "last_frame_image"):
-                    if key in red and isinstance(red[key], str) and red[key].startswith("data:image/"):
-                        parts = red[key].split(",", 1)
-                        header = parts[0] if parts else "data:image/"
-                        b64 = parts[1] if len(parts) > 1 else ""
-                        red[key] = f"{header},<redacted base64 length={len(b64)}>"
-            except (KeyError, TypeError, ValueError):
-                return b
-            else:
-                return red
-
-        dbg_headers = {**headers, "Authorization": "Bearer ***"}
-        logger.debug("POST %s\nheaders=%s\nbody=%s", url, dbg_headers, json.dumps(_sanitize_body(payload), indent=2))
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         self.parameter_output_values["provider_response"] = result_json
