@@ -8,7 +8,8 @@ from typing import Any, ClassVar
 from griptape.artifacts import AudioArtifact, ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.input_checks import input_subject
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -31,6 +32,9 @@ from griptape_nodes_library.proxy import ArtifactKind
 from griptape_nodes_library.video.seedance_common import (
     SeedanceProxyNode,
     coerce_video_url,
+    seedance_image_errors,
+    seedance_reference_audio_errors,
+    seedance_reference_video_errors,
 )
 
 logger = logging.getLogger("griptape_nodes")
@@ -45,6 +49,23 @@ MAX_REFERENCE_IMAGES = 30
 MAX_REFERENCE_VIDEOS = 10
 MAX_REFERENCE_AUDIO = 10
 MAX_TOTAL_REFERENCE_ASSETS = 50
+
+# BytePlus states every Seedance 2.5 input limit on "Create a video generation task" (content >
+# Image / Video / Audio), which the Seedance 2.5 tutorial repeats; seedance_common holds the ones
+# shared with Seedance 2.0.
+INPUT_LIMITS_URL = "https://docs.byteplus.com/en/docs/ModelArk/1520757"
+# "Non-video-editing tasks: Each video must be 2–30 seconds long." "Video editing tasks: Each video
+# must be 4–30 seconds long." "You can submit up to 10 reference videos with a total duration of no
+# more than 30 seconds."
+MIN_REFERENCE_VIDEO_SECONDS = 2
+MIN_EDITED_VIDEO_SECONDS = 4
+MAX_REFERENCE_VIDEO_SECONDS = 30
+MAX_TOTAL_REFERENCE_VIDEO_SECONDS = 30
+# "Each audio clip must be 2–30 seconds long. You can submit up to 10 reference audio clips with a
+# total duration of no more than 30 seconds."
+MIN_REFERENCE_AUDIO_SECONDS = 2
+MAX_REFERENCE_AUDIO_SECONDS = 30
+MAX_TOTAL_REFERENCE_AUDIO_SECONDS = 30
 
 MIN_DURATION = 4
 MAX_DURATION = 30
@@ -613,12 +634,64 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         """Validate parameters before execution."""
         exceptions = super().validate_before_node_run() or []
 
+        params = self._get_parameters()
         try:
-            self._validate_parameters(self._get_parameters())
+            self._validate_parameters(params)
         except ValueError as e:
             exceptions.append(e)
 
+        exceptions.extend(self._media_errors(params))
+
         return exceptions if exceptions else None
+
+    def _media_errors(self, params: dict[str, Any]) -> list[NodeError]:
+        """One error per BytePlus limit the media the selected task sends breaks, read without any
+        network call.
+
+        A task sends either the frames or the references, per TASK_CONSTRAINTS; media it doesn't
+        send is reported by `_validate_parameters`, as is an unknown task, which checks nothing here.
+        """
+        task = params["task"]
+        constraints = _get_task_constraints(task)
+        errors: list[NodeError] = []
+        if constraints.allows_frames:
+            for parameter, name in (("first_frame", "First Frame"), ("last_frame", "Last Frame")):
+                if params[parameter] is not None:
+                    errors += seedance_image_errors(
+                        params[parameter], subject=input_subject(name, noun="image"), docs_url=INPUT_LIMITS_URL
+                    )
+        if constraints.allows_references:
+            for position, image in enumerate(params[REFERENCE_IMAGES_PARAMETER], start=1):
+                errors += seedance_image_errors(
+                    image,
+                    subject=input_subject("Reference Images", noun="image", position=position),
+                    docs_url=INPUT_LIMITS_URL,
+                )
+            errors += seedance_reference_video_errors(
+                [
+                    (input_subject("Reference Videos", noun="video", position=position), video)
+                    for position, video in enumerate(params[REFERENCE_VIDEOS_PARAMETER], start=1)
+                ],
+                min_seconds=MIN_EDITED_VIDEO_SECONDS
+                if task == SeedanceTask.VIDEO_EDITING
+                else MIN_REFERENCE_VIDEO_SECONDS,
+                max_seconds=MAX_REFERENCE_VIDEO_SECONDS,
+                max_total_seconds=MAX_TOTAL_REFERENCE_VIDEO_SECONDS,
+                parameters="'Reference Videos'",
+                docs_url=INPUT_LIMITS_URL,
+            )
+            errors += seedance_reference_audio_errors(
+                [
+                    (input_subject("Reference Audio", noun="audio clip", position=position), audio)
+                    for position, audio in enumerate(params[REFERENCE_AUDIO_PARAMETER], start=1)
+                ],
+                min_seconds=MIN_REFERENCE_AUDIO_SECONDS,
+                max_seconds=MAX_REFERENCE_AUDIO_SECONDS,
+                max_total_seconds=MAX_TOTAL_REFERENCE_AUDIO_SECONDS,
+                parameters="'Reference Audio'",
+                docs_url=INPUT_LIMITS_URL,
+            )
+        return errors
 
     def _get_parameters(self) -> dict[str, Any]:
         first_frame = normalize_artifact_input(
