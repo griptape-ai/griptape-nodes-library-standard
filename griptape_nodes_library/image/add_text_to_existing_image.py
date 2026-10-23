@@ -76,6 +76,9 @@ class _TextExpansionResult:
 class AddTextToExistingImage(SuccessFailureNode):
     """Node to add text rendered on top of an existing image."""
 
+    # A preview cache; a node without it renders again and gets the same result.
+    attributes_outside_parameters = frozenset({"_cached_render_signature"})
+
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
 

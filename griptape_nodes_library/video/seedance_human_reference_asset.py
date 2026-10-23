@@ -71,6 +71,9 @@ class SeedanceHumanReferenceAsset(DataNode):
         - asset_reference: The packaged provider-asset reference
     """
 
+    # Caches the badge the editor shows; process() looks the asset up itself.
+    attributes_outside_parameters = frozenset({"_access"})
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.category = "video/seedance"

@@ -9,6 +9,7 @@ from griptape_nodes.traits.button import Button
 
 from griptape_nodes_library.proxy.proxy_api_key_providers import ProxyApiKeyProviderConfig
 from griptape_nodes_library.utils.node_error_utils import missing_secret_error, missing_secret_message
+from griptape_nodes_library.utils.secret_utils import get_secret
 
 __all__ = ["ProxyAuthProviderParameter"]
 
@@ -108,7 +109,7 @@ class ProxyAuthProviderParameter:
         return bool(secret_value)
 
     def _get_secret(self, secret_name: str) -> str:
-        secret_value = GriptapeNodes.SecretsManager().get_secret(secret_name)
+        secret_value = get_secret(secret_name)
         if not secret_value:
             config = self._provider_config
             msg = (
