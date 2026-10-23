@@ -9,6 +9,13 @@ from typing import Any
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.input_checks import (
+    check_mime_type,
+    check_size,
+    input_subject,
+    local_image_info,
+    local_size_bytes,
+)
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
@@ -28,6 +35,35 @@ from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["Veo3VideoGeneration"]
+
+
+# Google's documented input limits for Veo 3.1 on Vertex AI.
+# "Image-to-video maximum input image size: 20 MB"
+# https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/veo/3-1-generate
+INPUT_LIMITS_URL = "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/veo/3-1-generate"
+MAX_FRAME_IMAGE_BYTES = 20 * 1024 * 1024
+# Start, last frame, and reference images accept only JPEG and PNG.
+# https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/video/generate-videos-from-an-image
+# https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/video/generate-videos-from-first-and-last-frames
+# https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/video/generate-videos-from-references
+FRAME_FORMATS_URL = (
+    "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/video/generate-videos-from-an-image"
+)
+SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png")
+REFERENCE_IMAGES_URL = (
+    "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/video/generate-videos-from-references"
+)
+
+
+class ReferenceType(StrEnum):
+    ASSET = "asset"
+    STYLE = "style"
+
+
+# The request sends at most this many reference images of each type and drops the rest. Asset:
+# "You provide up to three images of a single person, character, or product." (reference-images
+# page above).
+MAX_REFERENCE_IMAGES: dict[ReferenceType, int] = {ReferenceType.ASSET: 3, ReferenceType.STYLE: 1}
 
 
 class ModelId(StrEnum):
@@ -185,10 +221,10 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             # Reference type for reference images
             ParameterString(
                 name="reference_type",
-                default_value="asset",
+                default_value=ReferenceType.ASSET.value,
                 tooltip="Type of reference: 'asset' preserves objects/characters (max 3), 'style' preserves artistic style (max 1)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["asset", "style"])},
+                traits={Options(choices=[reference_type.value for reference_type in ReferenceType])},
             )
 
             # Aspect ratio selection
@@ -412,7 +448,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             "image": self.get_parameter_value("start_frame"),
             "last_frame": self.get_parameter_value("last_frame"),
             "reference_images": normalized_reference_images,
-            "reference_type": self.get_parameter_value("reference_type") or "asset",
+            "reference_type": self.get_parameter_value("reference_type") or ReferenceType.ASSET.value,
             "aspect_ratio": self.get_parameter_value("aspect_ratio") or "16:9",
             "resolution": self.get_parameter_value("resolution") or "720p",
             "duration_seconds": self.get_parameter_value("duration_seconds") or "6",
@@ -421,6 +457,55 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             "generate_audio": generate_audio,
             "sample_count": sample_count,
         }
+
+    def validate_before_node_run(self) -> list[Exception] | None:
+        exceptions = super().validate_before_node_run() or []
+
+        # Only the reference images the request sends are checked; it drops the rest.
+        reference_images = self.get_parameter_list_value("reference_images") or []
+        reference_images = reference_images[: _max_reference_images(self.get_parameter_value("reference_type"))]
+
+        for parameter in ("start_frame", "last_frame"):
+            image = self.get_parameter_value(parameter)
+            if not image:
+                continue
+            subject = input_subject(parameter.replace("_", " "), noun="image")
+            exceptions.extend(
+                self._input_image_errors(image, subject, formats_url=FRAME_FORMATS_URL, check_file_size=True)
+            )
+
+        for position, image in enumerate(reference_images, start=1):
+            subject = input_subject("reference images", noun="image", position=position)
+            exceptions.extend(
+                self._input_image_errors(image, subject, formats_url=REFERENCE_IMAGES_URL, check_file_size=False)
+            )
+
+        return exceptions or None
+
+    def _input_image_errors(
+        self, image: Any, subject: str, *, formats_url: str, check_file_size: bool
+    ) -> list[Exception]:
+        """The errors for one input image (frame or reference) Google is certain to reject, read without
+        any network call.
+
+        Google documents the 20 MB limit for image-to-video input, so it is checked on the start and
+        last frame only. `formats_url` is the page stating the JPEG/PNG rule for this kind of input.
+        """
+        info = local_image_info(image)
+        error = check_mime_type(
+            info.mime_type if info else None,
+            subject=subject,
+            allowed=SUPPORTED_IMAGE_MIME_TYPES,
+            docs_url=formats_url,
+        )
+        if error is None and check_file_size:
+            error = check_size(
+                local_size_bytes(image, kind="image"),
+                maximum_bytes=MAX_FRAME_IMAGE_BYTES,
+                subject=subject,
+                docs_url=INPUT_LIMITS_URL,
+            )
+        return [error] if error else []
 
     def _get_api_model_id(self) -> str:
         model_id = self.get_parameter_value("model_id") or ModelId.VEO_3_1_GENERATE_001.value
@@ -570,16 +655,14 @@ class Veo3VideoGeneration(GriptapeProxyNode):
 
         # Add reference images to instance object (max 3 for asset, max 1 for style)
         ref_images_input = params.get("reference_images", [])
-        reference_type = params.get("reference_type", "asset")
+        reference_type = params.get("reference_type", ReferenceType.ASSET.value)
         if ref_images_input:
             # Ensure it's a list
             if not isinstance(ref_images_input, list):
                 ref_images_input = [ref_images_input]
 
-            # Limit based on reference type
-            max_refs = 1 if reference_type == "style" else 3
             reference_images = []
-            for ref_image in ref_images_input[:max_refs]:
+            for ref_image in ref_images_input[: _max_reference_images(reference_type)]:
                 if ref_image:
                     ref_image_dict = self._convert_image_to_base64_dict(ref_image)
                     if ref_image_dict:
@@ -822,3 +905,11 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         if not obj or not isinstance(obj, dict):
             return None
         return obj.get("status") if isinstance(obj.get("status"), str) else None
+
+
+def _max_reference_images(reference_type: Any) -> int:
+    """How many reference images the request sends for `reference_type`; an unknown type counts as asset."""
+    try:
+        return MAX_REFERENCE_IMAGES[ReferenceType(reference_type)]
+    except ValueError:
+        return MAX_REFERENCE_IMAGES[ReferenceType.ASSET]
