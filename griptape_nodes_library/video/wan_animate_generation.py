@@ -6,7 +6,12 @@ import math
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, ParameterMode
+from griptape_nodes.exe_types.input_checks import (
+    image_errors,
+    input_subject,
+    video_errors,
+)
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
@@ -47,6 +52,34 @@ MODE_OPTIONS = [
     "wan-pro",
 ]
 
+# DashScope's documented input limits, the same for wan2.2-animate-mix and wan2.2-animate-move
+# (Request body > input > image_url / video_url on each page).
+# Errors link the page for the selected model.
+INPUT_LIMITS_URLS = {
+    "wan2.2-animate-mix": "https://www.alibabacloud.com/help/en/model-studio/wan-animate-mix-api",
+    "wan2.2-animate-move": "https://www.alibabacloud.com/help/en/model-studio/wan-animate-move-api",
+}
+# "Format: JPG, JPEG, PNG, BMP, or WEBP"
+SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png", "image/bmp", "image/webp")
+# "Width and height must each be in the range [200, 4096] pixels."
+MIN_IMAGE_SIDE = 200
+MAX_IMAGE_SIDE = 4096
+# "File size: Up to 5 MB."
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+# "Format: MP4, AVI, or MOV"
+SUPPORTED_VIDEO_MIME_TYPES = ("video/mp4", "video/x-msvideo", "video/quicktime")
+# "Duration: 2 to 30 seconds."
+MIN_VIDEO_SECONDS = 2
+MAX_VIDEO_SECONDS = 30
+# "Width and height must each be in the range [200, 2048] pixels."
+MIN_VIDEO_SIDE = 200
+MAX_VIDEO_SIDE = 2048
+# "File size: Up to 200 MB."
+MAX_VIDEO_BYTES = 200 * 1024 * 1024
+# "Aspect ratio must be between 1:3 and 3:1." (image and video)
+WIDEST_ASPECT_RATIO = "3:1"
+TALLEST_ASPECT_RATIO = "1:3"
+
 # HTTP status code threshold for error responses
 HTTP_ERROR_STATUS = 400
 
@@ -77,13 +110,11 @@ class WanAnimateGeneration(GriptapeProxyNode):
             Format: JPG, JPEG, PNG, BMP, or WEBP
             Dimensions: 200-4096 pixels (width and height), aspect ratio 1:3 to 3:1
             Size: Max 5 MB
-            Content: Single person facing camera, complete face, not obstructed
         - video_url (VideoUrlArtifact): Reference video for motion (required)
             Format: MP4, AVI, or MOV
             Duration: 2-30 seconds
             Dimensions: 200-2048 pixels (width and height), aspect ratio 1:3 to 3:1
             Size: Max 200 MB
-            Content: Single person facing camera, complete face, not obstructed
 
     Outputs:
         - generation_id (str): Generation ID from the API
@@ -203,7 +234,45 @@ class WanAnimateGeneration(GriptapeProxyNode):
         video_url = self.get_parameter_value("video_url")
         if not video_url:
             exceptions.append(ValueError("Video URL must be provided"))
+        if image_url:
+            exceptions.extend(self._image_errors(image_url))
+        if video_url:
+            exceptions.extend(self._video_errors(video_url))
         return exceptions if exceptions else None
+
+    def _image_errors(self, image: Any) -> list[NodeError]:
+        """One error per DashScope image limit the input breaks, read without any network call."""
+        return image_errors(
+            image,
+            subject=input_subject("Image URL", noun="image"),
+            allowed_mime_types=SUPPORTED_IMAGE_MIME_TYPES,
+            maximum_bytes=MAX_IMAGE_BYTES,
+            min_side=MIN_IMAGE_SIDE,
+            max_side=MAX_IMAGE_SIDE,
+            widest=WIDEST_ASPECT_RATIO,
+            tallest=TALLEST_ASPECT_RATIO,
+            docs_url=self._input_limits_url(),
+        )
+
+    def _input_limits_url(self) -> str:
+        """DashScope's limits page for the selected model; the mix page when the selection is unknown."""
+        return INPUT_LIMITS_URLS.get(self._get_selected_model_id(), INPUT_LIMITS_URLS[MODEL_OPTIONS[0]])
+
+    def _video_errors(self, video: Any) -> list[NodeError]:
+        """One error per DashScope video limit the input breaks, read without any network call."""
+        return video_errors(
+            video,
+            subject=input_subject("Video URL", noun="video"),
+            allowed_mime_types=SUPPORTED_VIDEO_MIME_TYPES,
+            maximum_bytes=MAX_VIDEO_BYTES,
+            min_seconds=MIN_VIDEO_SECONDS,
+            max_seconds=MAX_VIDEO_SECONDS,
+            min_side=MIN_VIDEO_SIDE,
+            max_side=MAX_VIDEO_SIDE,
+            widest=WIDEST_ASPECT_RATIO,
+            tallest=TALLEST_ASPECT_RATIO,
+            docs_url=self._input_limits_url(),
+        )
 
     async def aprocess(self) -> None:
         await self._process_generation()
