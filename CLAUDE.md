@@ -1,5 +1,14 @@
 # Griptape Nodes Library — Standard
 
+## Validate inputs before the run
+
+When you add or edit a node that sends an image, video or audio input to a provider, declare the provider's documented limits on the parameter with `pre_run_validators=`. The engine checks them at the node's turn, before it runs, so a bad input fails before anything is uploaded and the error says which limit it broke.
+
+- **Use the engine's validators.** `griptape_nodes.exe_types.validators.media` has `AllowedFormats`, `MaxFileSize`, `SideRange`, `PixelArea`, `AspectRatioRange`, `ExactAspectRatios`, `Duration`, `FrameRate`, `FrameCount`, `VideoCodecs` and `AudioCodecs`; `validators.common` has `MaxCount` for a list's length and `ByParameter` for limits that change with another parameter, such as the selected model. They read each input once, from the file, and skip anything they can't read locally. Don't write your own readers or limit checks in the library. See [Checking inputs before a run](https://docs.griptapenodes.com/en/stable/development/custom_nodes/error_handling/#checking-inputs-before-a-run).
+- **Rules across inputs go in `node_validators`.** A limit that involves more than one input or setting, such as a total length across several clips, is a `NodeValidator` subclass listed in the node's `node_validators`. It gets what the parameter validators already read. A rule the engine's validators can't express on one input is a small `PreRunValidator` subclass built from the engine's single checks (`check_size`, `check_dimensions` and the rest in `griptape_nodes.exe_types.input_checks`).
+- **Keep only the provider's specifics in the node:** the limits, each with a comment quoting the provider's docs and its URL, and `input_limits_url()`, which returns the page the errors link to (the selected model's page, where the provider has one). Name the input with the parameter's `display_name`, or `pre_run_noun=` when "image", "video" or "audio clip" isn't the right word. Lists and validators shared by one provider's nodes go in that provider's existing common module. Keep `validate_before_node_run` for checks that aren't media limits, such as a missing API key.
+- **Move a check into the engine only when two or more nodes need it now.** If a validator or check isn't in the engine yet and two or more nodes from different providers need it, add it to the engine, not to a library module. Nodes from one provider that already share a module (such as `seedance_common.py`) don't count, and neither does a node that might need it later: keep that logic in the library until a second real user exists.
+
 ## Python conventions
 
 ### Hoist imports to the top level unless they cause circular imports
