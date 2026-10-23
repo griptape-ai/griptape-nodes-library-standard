@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, ClassVar
 
 from griptape.artifacts import AudioArtifact, ImageArtifact, ImageUrlArtifact
@@ -224,6 +225,9 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
         self.add_parameter(
             ParameterList(
                 name="reference_images",
+                item_converters=[
+                    partial(normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                ],
                 input_types=["ImageUrlArtifact", "ImageArtifact", "str", ASSET_REFERENCE_TYPE_NAMES[ASSET_KIND_IMAGE]],
                 default_value=[],
                 tooltip="Optional reference images (0-9 images). Connect a Seedance Human Reference Asset to register an image as a private asset.",
@@ -297,6 +301,9 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
         self.add_parameter(
             ParameterList(
                 name="reference_audio",
+                item_converters=[
+                    partial(normalize_artifact_input, artifact_type=AudioUrlArtifact, accepted_types=(AudioArtifact,))
+                ],
                 input_types=["AudioArtifact", "AudioUrlArtifact", "str", ASSET_REFERENCE_TYPE_NAMES[ASSET_KIND_AUDIO]],
                 default_value=[],
                 tooltip="Optional reference audio (0-3 audio files, 2-15s each, max 15s total). URLs, asset:// IDs, or base64/data URIs are supported. Connect a Seedance Human Reference Asset to register audio as a private asset.",
@@ -402,17 +409,6 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
             artifact = normalize_artifact_input(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
             if artifact != value:
                 self.set_parameter_value(parameter.name, artifact)
-
-        # Normalize reference images
-        if parameter.name == "reference_images" and isinstance(value, list):
-            updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
-            if updated_list != value:
-                self.set_parameter_value("reference_images", updated_list)
-
-        if parameter.name == "reference_audio" and isinstance(value, list):
-            updated_list = normalize_artifact_list(value, AudioUrlArtifact, accepted_types=(AudioArtifact,))
-            if updated_list != value:
-                self.set_parameter_value("reference_audio", updated_list)
 
         return super().after_value_set(parameter, value)
 

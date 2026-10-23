@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import logging
 from decimal import Decimal, InvalidOperation
+from functools import partial
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
@@ -21,7 +22,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
-from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
+from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
@@ -195,6 +196,9 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterList(
                 name="reference_images",
+                item_converters=[
+                    partial(normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                ],
                 input_types=[
                     "ImageArtifact",
                     "ImageUrlArtifact",
@@ -352,12 +356,6 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
 
         if parameter.name in {"multi_shot", "shot_count"}:
             self._update_multi_shot_parameter_visibility()
-
-        # Convert string paths to ImageUrlArtifact by uploading to static storage
-        if parameter.name == "reference_images" and isinstance(value, list):
-            updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
-            if updated_list != value:
-                self.set_parameter_value("reference_images", updated_list)
 
     def _get_supported_modes(self) -> list[str]:
         """Return the valid mode choices for the selected model and inputs."""

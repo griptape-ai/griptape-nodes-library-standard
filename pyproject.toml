@@ -71,6 +71,10 @@ dev = [
   "pytest-xdist>=3.8.0",
 ]
 
+# Track engine main until the next release ships item_converters.
+[tool.uv.sources]
+griptape-nodes-engine = { git = "https://github.com/griptape-ai/griptape-nodes-engine", branch = "main" }
+
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
