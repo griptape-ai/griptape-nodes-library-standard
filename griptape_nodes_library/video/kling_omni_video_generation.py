@@ -6,7 +6,12 @@ from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.input_checks import (
+    image_errors,
+    input_subject,
+    video_errors,
+)
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
@@ -33,6 +38,53 @@ MAX_PROMPT_LENGTH = 2500
 MAX_IMAGES_WITH_VIDEO = 4
 MAX_IMAGES_WITHOUT_VIDEO = 7
 MAX_IMAGES_FOR_END_FRAME = 2
+
+# Kling's documented limits on POST /v1/videos/omni-video, the same on both model pages.
+# Images: "Formats: .jpg / .jpeg / .png", "File size: ≤10MB", "Dimensions: min 300px, aspect
+# ratio 1:2.5 ~ 2.5:1". Reference video: "Format: MP4/MOV only", "Max 1 video, size ≤200MB,
+# aspect ratio between 1:2.5 and 2.5:1".
+# Errors link the page for the selected model.
+INPUT_LIMITS_URLS = {
+    "kling-v3-omni": "https://kling.ai/document-api/api/video/3-0-omni/video-omni/legacy",
+    "kling-video-o1": "https://kling.ai/document-api/api/video/o1/video-omni/legacy",
+}
+SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png")
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MIN_IMAGE_SIDE = 300
+MAX_VIDEO_BYTES = 200 * 1024 * 1024
+SUPPORTED_VIDEO_MIME_TYPES = ("video/mp4", "video/quicktime")
+WIDEST_ASPECT_RATIO = "2.5:1"
+TALLEST_ASPECT_RATIO = "1:2.5"
+# Reference video duration and frame size: the wider bounds of two Kling pages, on purpose.
+#
+# Both pages document this same endpoint (POST /v1/videos/omni-video) and list both models it
+# serves (kling-video-o1 and kling-v3-omni), but they give different reference-video limits and
+# neither says which model each set belongs to:
+#   3.0 Omni page: "Duration: 3s～15.5s" and "Resolution: width and height: 700px～4553px; and
+#   the area does not exceed 8294400"
+#   https://kling.ai/document-api/api/video/3-0-omni/video-omni/legacy
+#   O1 page: "Duration: ≥3 seconds, upper limit depends on model version" and
+#   "Resolution: 720px-2160px (width and height)"
+#   https://kling.ai/document-api/api/video/o1/video-omni/legacy
+#
+# A pre-run check must only refuse what Kling is certain to reject, and refusing a valid video is
+# worse than letting a borderline one reach Kling. So the checks use the bounds neither page
+# contradicts: 3 to 15.5 s (the O1 page gives no upper number) and 700 to 4553 px with the
+# 8,294,400 px area cap. A 3000 px clip with O1 selected passes here even though the O1 page says
+# 2160 px; Kling has the final word.
+#
+# Kling's newer API pages do split these by model (O1: 3-10 s and 700-2160 px), but they document
+# a different endpoint, so they aren't used:
+#   https://kling.ai/document-api/api/video/o1/video-omni
+#   https://kling.ai/document-api/api/video/3-0-omni/video-omni
+MIN_VIDEO_SECONDS = 3
+MAX_VIDEO_SECONDS = 15.5
+MIN_VIDEO_SIDE = 700
+MAX_VIDEO_SIDE = 4553
+MAX_VIDEO_MEGAPIXELS = 8.2944
+# "Frame rate: 24-60fps (output will be 24fps)", the same on both pages above.
+MIN_VIDEO_FPS = 24
+MAX_VIDEO_FPS = 60
 MAX_MULTI_PROMPT_COUNT = 6
 MODE_STD = "std"
 MODE_PRO = "pro"
@@ -754,7 +806,57 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                     )
                 )
 
+        exceptions.extend(self._media_errors())
+
         return exceptions if exceptions else None
+
+    def _media_errors(self) -> list[NodeError]:
+        """One error per Kling media limit an input breaks, read without any network call."""
+        docs_url = self._input_limits_url()
+        images = [
+            (input_subject(name, noun="image"), self.get_parameter_value(parameter))
+            for parameter, name in (("first_frame_image", "first frame"), ("end_frame_image", "end frame"))
+        ]
+        images += [
+            (input_subject("reference images", noun="image", position=position), image)
+            for position, image in enumerate(self.get_parameter_list_value("reference_images") or [], start=1)
+        ]
+        errors: list[NodeError] = []
+        for subject, image in images:
+            if image:
+                errors += image_errors(
+                    image,
+                    subject=subject,
+                    allowed_mime_types=SUPPORTED_IMAGE_MIME_TYPES,
+                    maximum_bytes=MAX_IMAGE_BYTES,
+                    min_side=MIN_IMAGE_SIDE,
+                    widest=WIDEST_ASPECT_RATIO,
+                    tallest=TALLEST_ASPECT_RATIO,
+                    docs_url=docs_url,
+                )
+        video = self.get_parameter_value("reference_video")
+        if video:
+            errors += video_errors(
+                video,
+                subject=input_subject("reference_video", noun="video"),
+                allowed_mime_types=SUPPORTED_VIDEO_MIME_TYPES,
+                maximum_bytes=MAX_VIDEO_BYTES,
+                min_seconds=MIN_VIDEO_SECONDS,
+                max_seconds=MAX_VIDEO_SECONDS,
+                min_side=MIN_VIDEO_SIDE,
+                max_side=MAX_VIDEO_SIDE,
+                max_megapixels=MAX_VIDEO_MEGAPIXELS,
+                widest=WIDEST_ASPECT_RATIO,
+                tallest=TALLEST_ASPECT_RATIO,
+                min_fps=MIN_VIDEO_FPS,
+                max_fps=MAX_VIDEO_FPS,
+                docs_url=docs_url,
+            )
+        return errors
+
+    def _input_limits_url(self) -> str:
+        """Kling's limits page for the selected model; the 3.0 Omni page when the selection is unknown."""
+        return INPUT_LIMITS_URLS.get(self._get_selected_model_id(), INPUT_LIMITS_URLS["kling-v3-omni"])
 
     async def _prepare_image_data_url_async(self, image_input: Any) -> str | None:
         """Load an image input as raw base64; Kling expects no ``data:`` prefix."""

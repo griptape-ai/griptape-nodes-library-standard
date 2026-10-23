@@ -4,7 +4,12 @@ import logging
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.input_checks import (
+    image_errors,
+    input_subject,
+    video_errors,
+)
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
@@ -25,6 +30,26 @@ __all__ = ["KlingMotionControl"]
 
 # Constants
 MAX_PROMPT_LENGTH = 2500
+
+# Kling's documented limits on POST /v1/videos/motion-control.
+# Image: "Supported image formats: .jpg / .jpeg / .png" and "File size: ≤10MB, dimensions:
+# 300px ~ 65536px, aspect ratio: 1:2.5 ~ 2.5:1".
+# Video: "Supported formats: .mp4 / .mov, file size: ≤100MB, dimensions: 340px ~ 3850px" and
+# "minimum 3 seconds, maximum depends on character_orientation" (30 s for "video", 10 s for "image").
+# https://kling.ai/document-api/api/video/motion-control/legacy
+INPUT_LIMITS_URL = "https://kling.ai/document-api/api/video/motion-control/legacy"
+SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png")
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MIN_IMAGE_SIDE = 300
+MAX_IMAGE_SIDE = 65536
+WIDEST_IMAGE_ASPECT_RATIO = "2.5:1"
+TALLEST_IMAGE_ASPECT_RATIO = "1:2.5"
+MAX_VIDEO_BYTES = 100 * 1024 * 1024
+SUPPORTED_VIDEO_MIME_TYPES = ("video/mp4", "video/quicktime")
+MIN_VIDEO_SIDE = 340
+MAX_VIDEO_SIDE = 3850
+MIN_VIDEO_SECONDS = 3
+MAX_VIDEO_SECONDS_BY_ORIENTATION = {"video": 30, "image": 10}
 
 
 class KlingMotionControl(GriptapeProxyNode):
@@ -269,4 +294,41 @@ class KlingMotionControl(GriptapeProxyNode):
         if not reference_video_param:
             exceptions.append(ValueError("A reference video is required. Connect one to 'reference_video'."))
 
+        if reference_image_param:
+            exceptions.extend(self._image_errors(reference_image_param))
+        if reference_video_param:
+            exceptions.extend(self._video_errors(reference_video_param))
+
         return exceptions if exceptions else None
+
+    def _image_errors(self, image: Any) -> list[NodeError]:
+        """One error per Kling image limit the reference image breaks, read without any network call."""
+        return image_errors(
+            image,
+            subject=input_subject("reference_image", noun="image"),
+            allowed_mime_types=SUPPORTED_IMAGE_MIME_TYPES,
+            maximum_bytes=MAX_IMAGE_BYTES,
+            min_side=MIN_IMAGE_SIDE,
+            max_side=MAX_IMAGE_SIDE,
+            widest=WIDEST_IMAGE_ASPECT_RATIO,
+            tallest=TALLEST_IMAGE_ASPECT_RATIO,
+            docs_url=INPUT_LIMITS_URL,
+        )
+
+    def _video_errors(self, video: Any) -> list[NodeError]:
+        """One error per Kling video limit the reference video breaks, read without any network call.
+
+        The longest clip Kling accepts depends on 'character orientation'.
+        """
+        orientation = self.get_parameter_value("character_orientation") or "video"
+        return video_errors(
+            video,
+            subject=input_subject("reference_video", noun="video"),
+            allowed_mime_types=SUPPORTED_VIDEO_MIME_TYPES,
+            maximum_bytes=MAX_VIDEO_BYTES,
+            min_seconds=MIN_VIDEO_SECONDS,
+            max_seconds=MAX_VIDEO_SECONDS_BY_ORIENTATION.get(orientation, MAX_VIDEO_SECONDS_BY_ORIENTATION["video"]),
+            min_side=MIN_VIDEO_SIDE,
+            max_side=MAX_VIDEO_SIDE,
+            docs_url=INPUT_LIMITS_URL,
+        )
