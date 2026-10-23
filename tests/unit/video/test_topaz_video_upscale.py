@@ -667,7 +667,7 @@ async def _astra_payload(monkeypatch: pytest.MonkeyPatch, node: TopazVideoUpscal
 async def test_astra_payload_carries_the_creative_filters(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = await _astra_payload(monkeypatch, _astra_node())
 
-    assert payload["filters"] == [{"creativity": 0.5, "sharp": 0.5, "realism": 0.5}]
+    assert payload["filters"] == [{"creativity": 0.5, "sharp": 0.5}]
 
 
 @pytest.mark.asyncio
@@ -694,13 +694,11 @@ async def test_astra_creative_values_reach_the_filter_verbatim(monkeypatch: pyte
     node = _astra_node()
     node.set_parameter_value("creativity", 0.9)
     node.set_parameter_value("sharp", 0.1)
-    node.set_parameter_value("realism", 0.75)
 
     payload = await _astra_payload(monkeypatch, node)
 
     assert payload["filters"][0]["creativity"] == 0.9
     assert payload["filters"][0]["sharp"] == 0.1
-    assert payload["filters"][0]["realism"] == 0.75
 
 
 @pytest.mark.asyncio
