@@ -18,7 +18,7 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
     PublicArtifactUrlParameter,
 )
 
-from griptape_nodes_library.video import seedance_common
+from griptape_nodes_library.media import public_urls
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -69,9 +69,7 @@ def upload_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> UploadEnv:
         self._storage_driver = env  # type: ignore[assignment] - fake stands in for GriptapeCloudStorageDriver
 
     monkeypatch.setattr(PublicArtifactUrlParameter, "__init__", fake_init)
-    monkeypatch.setattr(
-        seedance_common.GriptapeNodes, "ConfigManager", lambda: SimpleNamespace(workspace_path=tmp_path)
-    )
+    monkeypatch.setattr(public_urls.GriptapeNodes, "ConfigManager", lambda: SimpleNamespace(workspace_path=tmp_path))
 
     static_file = tmp_path / "static_files" / "style.png"
     static_file.parent.mkdir(parents=True, exist_ok=True)

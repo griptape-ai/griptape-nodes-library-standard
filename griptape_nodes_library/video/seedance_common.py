@@ -22,7 +22,7 @@ from abc import ABC
 from collections.abc import Iterable
 from contextlib import suppress
 from typing import Any, NamedTuple
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 from uuid import uuid4
 
 import httpx
@@ -31,7 +31,6 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
     PublicArtifactUrlParameter,
 )
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from PIL import Image, ImageOps
 
 from griptape_nodes_library.assets import (
@@ -46,7 +45,7 @@ from griptape_nodes_library.media import (
     is_publicly_reachable_url,
     prepare_media_data_uri,
 )
-from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, local_path_for_static_server_url
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers_async
 from griptape_nodes_library.utils.node_error_utils import error_fields, error_response, request_id_from_headers
@@ -358,7 +357,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             return None
 
         if image_url.startswith(("http://", "https://")):
-            local_path = self._local_path_for_static_server_url(image_url)
+            local_path = local_path_for_static_server_url(image_url)
         else:
             local_path = image_url
         if not local_path:
@@ -479,25 +478,6 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             raise RuntimeError(msg)
         return public_url
 
-    def _local_path_for_static_server_url(self, url: str) -> str | None:
-        """Map one of our own static-server URLs back to the file on disk, or None if it isn't one.
-
-        Mirrors StaticServerFileDriver._resolve_to_local_path, which does the same thing for the
-        `localhost` spelling only: take the path after `/workspace/` and anchor it to the workspace
-        directory. Query parameters are stripped because the static server appends a cachebuster.
-
-        Returns None unless the result is a file on this machine, so a static server running on a
-        different host degrades to base64 rather than uploading whatever the path happens to hit.
-        """
-        path = urlparse(url.split("?", maxsplit=1)[0]).path
-        if "/workspace/" not in path:
-            return None
-        workspace_relative = path.split("/workspace/", 1)[1]
-        if not workspace_relative:
-            return None
-        candidate = GriptapeNodes.ConfigManager().workspace_path / workspace_relative
-        return str(candidate) if candidate.is_file() else None
-
     async def _resolve_public_url_for_media(self, media_value: Any, *, artifact_type: str) -> str:
         """Upload media to GTC static storage through a transient parameter and return its URL.
 
@@ -530,7 +510,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         # uploaded rather than inlined, which is the whole point of this path for a static server
         # reached by LAN IP or container name. Falls back to the URL when it resolves to nothing on
         # this machine -- the file may well live on another host -- and the guard below catches it.
-        upload_value = self._local_path_for_static_server_url(url) or url
+        upload_value = local_path_for_static_server_url(url) or url
 
         # Adding this scratch parameter during aprocess trips the strict-mode
         # "parameter-mutation-during-aprocess" warning. That is expected and harmless here: the

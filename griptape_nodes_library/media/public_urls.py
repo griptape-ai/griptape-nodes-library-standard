@@ -3,6 +3,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit, urlunsplit
+
+from griptape_nodes.files.path_utils import parse_static_server_url
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine, Iterable
@@ -15,6 +19,32 @@ logger = logging.getLogger("griptape_nodes")
 
 # Enough to overlap round trips without one node saturating the user's upload bandwidth.
 MAX_CONCURRENT_UPLOADS = 4
+
+
+def local_path_for_static_server_url(url: str) -> str | None:
+    """Map one of our own static-server URLs back to the file on disk, or None if it isn't one.
+
+    The engine's parse_static_server_url does this for the `localhost` spelling only, while the
+    static server is just as often reached by a loopback or LAN IP or a container name. So the
+    host is swapped for `localhost` and the engine does the rest, `/workspace/` and `/external/`
+    paths alike.
+
+    Returns None unless the result is a file on this machine, so a static server running on a
+    different host degrades to base64 rather than uploading whatever the path happens to hit.
+    """
+    # Not percent-encoded, so `#` is part of the filename, as the engine treats it.
+    parsed = urlsplit(url, allow_fragments=False)
+    if parsed.scheme not in ("http", "https"):
+        return None
+    try:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError:
+        return None
+    netloc = f"localhost:{port}"
+    candidate = parse_static_server_url(
+        urlunsplit(parsed._replace(netloc=netloc)), GriptapeNodes.ConfigManager().workspace_path
+    )
+    return str(candidate) if candidate is not None and candidate.is_file() else None
 
 
 async def adelete_uploaded_artifacts(helpers: Iterable[PublicArtifactUrlParameter], *, node_name: str) -> None:
