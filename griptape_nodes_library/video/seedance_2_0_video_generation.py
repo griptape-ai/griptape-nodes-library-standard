@@ -511,13 +511,7 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
         try:
             await super()._process_generation()
         finally:
-            await self._cleanup_pending_asset_uploads(
-                (
-                    self._public_reference_video_parameter_1,
-                    self._public_reference_video_parameter_2,
-                    self._public_reference_video_parameter_3,
-                )
-            )
+            await self._cleanup_pending_asset_uploads()
 
     def validate_before_node_run(self) -> list[Exception] | None:
         """Validate parameters before execution."""
@@ -899,20 +893,11 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
         if direct_url:
             return direct_url
 
-        helper_map = {
-            "reference_video_1": self._public_reference_video_parameter_1,
-            "reference_video_2": self._public_reference_video_parameter_2,
-            "reference_video_3": self._public_reference_video_parameter_3,
-        }
-        helper = helper_map.get(parameter_name)
-        if helper is None:
-            return None
-
         try:
-            public_url = await helper.aget_public_url_for_parameter()
+            public_url = await self._resolve_public_url_for_media(value, artifact_type="VideoUrlArtifact")
         except Exception as e:
-            self._log(f"{self.name} failed to prepare public URL for {parameter_name}: {e}")
-            return None
+            msg = f"Could not prepare a public URL for {parameter_name}: {e}"
+            raise ValueError(msg) from e
 
         return coerce_video_url(public_url)
 
