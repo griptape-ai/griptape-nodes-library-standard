@@ -14,6 +14,11 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.retained_mode.events.parameter_events import (
+    GetConnectionsForParameterRequest,
+    GetConnectionsForParameterResultSuccess,
+)
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
@@ -64,10 +69,6 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
-        # Tracked from the connection hooks; there is no public API to query a parameter's
-        # incoming connections, and the deprecated `image` stays visible while one exists.
-        self._legacy_image_connected = False
-
         # INPUTS / PROPERTIES
         self.add_parameter(
             ParameterString(
@@ -110,7 +111,7 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
             )
         )
 
-        self._update_legacy_image_visibility()
+        self._update_legacy_image_visibility(connected=False)
 
         with ParameterGroup(name="Generation Settings") as generation_settings_group:
             # The model chooses clip length itself (3-10s); duration is not a
@@ -167,8 +168,7 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
         target_parameter: Parameter,
     ) -> None:
         if target_parameter.name == "image":
-            self._legacy_image_connected = True
-            self._update_legacy_image_visibility()
+            self._update_legacy_image_visibility(connected=True)
         return super().after_incoming_connection(source_node, source_parameter, target_parameter)
 
     def after_incoming_connection_removed(
@@ -178,13 +178,12 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
         target_parameter: Parameter,
     ) -> None:
         if target_parameter.name == "image":
-            self._legacy_image_connected = False
-            self._update_legacy_image_visibility()
+            self._update_legacy_image_visibility(connected=False)
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "image":
-            self._update_legacy_image_visibility()
+            self._update_legacy_image_visibility(connected=self._legacy_image_is_connected())
         return super().after_value_set(parameter, value)
 
     def validate_before_node_run(self) -> list[Exception] | None:
@@ -193,17 +192,23 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
             exceptions.append(ValueError("A prompt is required. Enter one in 'prompt'."))
         return exceptions or None
 
-    def _update_legacy_image_visibility(self) -> None:
+    def _update_legacy_image_visibility(self, *, connected: bool) -> None:
         """Show the deprecated `image` parameter only while a workflow still uses it.
 
         New graphs never see it; graphs saved before `reference_images` existed keep working and
-        can still see what they are wired to.
+        can still see what they are wired to. ``connected`` is whether something is wired to it.
         """
-        in_use = bool(self.get_parameter_value("image")) or self._legacy_image_connected
+        in_use = bool(self.get_parameter_value("image")) or connected
         if in_use:
             self.show_parameter_by_name("image")
         else:
             self.hide_parameter_by_name("image")
+
+    def _legacy_image_is_connected(self) -> bool:
+        result = GriptapeNodes.handle_request(
+            GetConnectionsForParameterRequest(parameter_name="image", node_name=self.name, broadcast_result=False)
+        )
+        return isinstance(result, GetConnectionsForParameterResultSuccess) and result.has_incoming_connections()
 
     def _get_api_model_id(self) -> str:
         # Bare provider id; the base class builds POST /api/proxy/v2/models/{id}.

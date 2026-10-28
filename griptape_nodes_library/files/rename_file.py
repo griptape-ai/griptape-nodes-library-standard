@@ -6,6 +6,7 @@ from typing import Any, cast
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import FileLoadError
+from griptape_nodes.files.path_utils import sanitize_path_string
 from griptape_nodes.retained_mode.events.os_events import (
     DeleteFileRequest,
     DeleteFileResultFailure,
@@ -132,8 +133,8 @@ class RenameFile(FileOperationBaseNode):
             Full resolved new path
         """
         # Clean paths to remove newlines/carriage returns that cause Windows errors
-        old_path = GriptapeNodes.OSManager().sanitize_path_string(old_path)
-        new_path = GriptapeNodes.OSManager().sanitize_path_string(new_path)
+        old_path = sanitize_path_string(old_path)
+        new_path = sanitize_path_string(new_path)
 
         new_path_obj = Path(new_path)
         old_path_obj = Path(old_path)
@@ -177,8 +178,8 @@ class RenameFile(FileOperationBaseNode):
         old_path = self._extract_value_from_artifact(old_path)
 
         # Clean paths to remove newlines/carriage returns that cause Windows errors
-        old_path = GriptapeNodes.OSManager().sanitize_path_string(old_path)
-        new_path_input = GriptapeNodes.OSManager().sanitize_path_string(new_path_input)
+        old_path = sanitize_path_string(old_path)
+        new_path_input = sanitize_path_string(new_path_input)
 
         # Resolve project macro paths like "{outputs}/image.png" to the file on disk
         try:

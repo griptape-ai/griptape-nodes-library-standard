@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
-from griptape_nodes.exe_types.flow import ControlFlow
 from griptape_nodes.exe_types.node_types import NodeDependencies, SuccessFailureNode
 from griptape_nodes.node_library.workflow_registry import WorkflowRegistry, WorkflowShape
 from griptape_nodes.retained_mode.events.execution_events import (
@@ -16,10 +16,16 @@ from griptape_nodes.retained_mode.events.flow_events import (
     GetFlowDetailsResultSuccess,
     GetFlowMetadataRequest,
     GetFlowMetadataResultSuccess,
+    ListFlowsInFlowRequest,
+    ListFlowsInFlowResultSuccess,
+    ListNodesInFlowRequest,
+    ListNodesInFlowResultSuccess,
     SetFlowMetadataRequest,
 )
 from griptape_nodes.retained_mode.events.node_events import GetFlowForNodeRequest, GetFlowForNodeResultSuccess
 from griptape_nodes.retained_mode.events.parameter_events import (
+    GetParameterValueRequest,
+    GetParameterValueResultSuccess,
     RemoveParameterFromNodeRequest,
     SetParameterValueRequest,
 )
@@ -49,6 +55,9 @@ SUBFLOW_WORKFLOW_KEY = "_subflow_workflow"
 
 
 class SubflowWorkflowNode(SuccessFailureNode):
+    # Markers of an unmigrated legacy subflow, read from the metadata at creation and cleared once claimed.
+    attributes_outside_parameters = frozenset({"_legacy_workflow", "_legacy_flow_name"})
+
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
 
@@ -163,8 +172,7 @@ class SubflowWorkflowNode(SuccessFailureNode):
         # Reuse the subflow we already imported, if it still exists.
         tracked = self.metadata.get(SUBFLOW_NAME_KEY)
         if tracked is not None:
-            existing = GriptapeNodes.ObjectManager().attempt_get_object_by_name_as_type(tracked, ControlFlow)
-            if existing is not None:
+            if self._flow_exists(tracked):
                 return tracked
             # It was torn down out from under us (e.g. parent-flow deletion);
             # drop the stale hint.
@@ -216,8 +224,7 @@ class SubflowWorkflowNode(SuccessFailureNode):
             tracked = self._claim_legacy_serialised_flow()
         if tracked is None:
             return
-        subflow = GriptapeNodes.ObjectManager().attempt_get_object_by_name_as_type(tracked, ControlFlow)
-        if subflow is not None:
+        if self._flow_exists(tracked):
             GriptapeNodes.handle_request(DeleteFlowRequest(flow_name=tracked))
         self.metadata.pop(SUBFLOW_NAME_KEY, None)
 
@@ -300,10 +307,31 @@ class SubflowWorkflowNode(SuccessFailureNode):
     def _scan_for_and_claim_legacy_flow(self, expected_workflow: str, containing_flow: str) -> str | None:
         """Find and claim an un-migrated legacy import of ``expected_workflow``
         among this node's own child flows."""
-        for candidate_name in GriptapeNodes.ObjectManager().get_filtered_subset(type=ControlFlow):
+        children = GriptapeNodes.handle_request(
+            ListFlowsInFlowRequest(parent_flow_name=containing_flow, broadcast_result=False)
+        )
+        if not isinstance(children, ListFlowsInFlowResultSuccess):
+            return None
+        for candidate_name in children.flow_names:
             if self._claim_flow_if_legacy(candidate_name, expected_workflow, containing_flow) is not None:
                 return candidate_name
         return None
+
+    @staticmethod
+    def _flow_exists(flow_name: str) -> bool:
+        # A missing flow is a routine answer here, not an error to log.
+        result = GriptapeNodes.handle_request(
+            GetFlowMetadataRequest(flow_name=flow_name, broadcast_result=False, failure_log_level=logging.DEBUG)
+        )
+        return isinstance(result, GetFlowMetadataResultSuccess)
+
+    @staticmethod
+    def _node_names_in_flow(flow_name: str) -> set[str]:
+        result = GriptapeNodes.handle_request(ListNodesInFlowRequest(flow_name=flow_name, broadcast_result=False))
+        if not isinstance(result, ListNodesInFlowResultSuccess):
+            msg = f"Failed to list the nodes in subflow '{flow_name}': {result.result_details}"
+            raise RuntimeError(msg)  # noqa: TRY004
+        return set(result.node_names)
 
     def _mark_flow_transient(self, flow_name: str) -> None:
         GriptapeNodes.handle_request(SetFlowMetadataRequest(flow_name=flow_name, metadata={TRANSIENT_KEY: True}))
@@ -463,10 +491,9 @@ class SubflowWorkflowNode(SuccessFailureNode):
         )
 
     def _set_workflow_inputs(self, flow_name: str, workflow_shape: Any) -> None:
-        flow = GriptapeNodes.FlowManager().get_flow_by_name(flow_name)
+        node_names = self._node_names_in_flow(flow_name)
         for start_node_name, params in workflow_shape.inputs.items():
-            start_node = flow.nodes.get(start_node_name)
-            if start_node is None:
+            if start_node_name not in node_names:
                 continue
             for param_name, param_dict in params.items():
                 if param_dict.get("type") == ParameterTypeBuiltin.CONTROL_TYPE:
@@ -481,17 +508,18 @@ class SubflowWorkflowNode(SuccessFailureNode):
                 )
 
     def _collect_workflow_outputs(self, flow_name: str, workflow_shape: Any) -> None:
-        flow = GriptapeNodes.FlowManager().get_flow_by_name(flow_name)
+        node_names = self._node_names_in_flow(flow_name)
         for end_node_name, params in workflow_shape.outputs.items():
-            end_node = flow.nodes.get(end_node_name)
-            if end_node is None:
+            if end_node_name not in node_names:
                 continue
             for param_name, param_dict in params.items():
                 if param_dict.get("type") == ParameterTypeBuiltin.CONTROL_TYPE:
                     continue
-                if param_name in end_node.parameter_output_values:
-                    value = end_node.parameter_output_values[param_name]
-                else:
-                    value = end_node.get_parameter_value(param_name)
+                value_result = GriptapeNodes.handle_request(
+                    GetParameterValueRequest(parameter_name=param_name, node_name=end_node_name, broadcast_result=False)
+                )
+                if not isinstance(value_result, GetParameterValueResultSuccess):
+                    continue
+                value = value_result.value
                 if value is not None:
                     self.parameter_output_values[param_name] = value
