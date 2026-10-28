@@ -22,16 +22,14 @@ from abc import ABC
 from collections.abc import Iterable
 from contextlib import suppress
 from typing import Any, NamedTuple
-from urllib.parse import urljoin, urlparse
-from uuid import uuid4
+from urllib.parse import urljoin
 
 import httpx
-from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
 from griptape_nodes.files.file import File, FileLoadError
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from PIL import Image, ImageOps
 
 from griptape_nodes_library.assets import (
@@ -46,7 +44,12 @@ from griptape_nodes_library.media import (
     is_publicly_reachable_url,
     prepare_media_data_uri,
 )
-from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
+from griptape_nodes_library.media.public_urls import (
+    adelete_uploaded_artifacts,
+    adownload_as_data_uri,
+    aupload_media_to_public_url,
+    local_path_for_static_server_url,
+)
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers_async
 from griptape_nodes_library.utils.node_error_utils import error_fields, error_response, request_id_from_headers
@@ -206,24 +209,28 @@ def downscale_oversized_image_file(path: str) -> DownscaledImage | None:
         return None
 
 
+def _usable_video_reference(value: str) -> str | None:
+    stripped = value.strip()
+    if stripped.startswith("asset://") or is_publicly_reachable_url(stripped):
+        return stripped
+    return None
+
+
 def coerce_video_url(val: Any) -> str | None:
-    """Convert video input to a Seedance-supported public URL or asset ID."""
+    """Return the video input as a URL Seedance can fetch or an asset ID, or None if it is neither.
+
+    A URL BytePlus cannot reach (the static server's own address, a LAN host) is None too, so the
+    caller uploads the media instead of sending it.
+    """
     if val is None:
         return None
 
     if isinstance(val, dict):
         value = val.get("value")
-        if isinstance(value, str):
-            stripped = value.strip()
-            if stripped.startswith(("http://", "https://", "asset://")):
-                return stripped
-        return None
+        return _usable_video_reference(value) if isinstance(value, str) else None
 
     if isinstance(val, str):
-        v = val.strip()
-        if not v:
-            return None
-        return v if v.startswith(("http://", "https://", "asset://")) else None
+        return _usable_video_reference(val)
 
     try:
         to_dict = getattr(val, "to_dict", None)
@@ -236,9 +243,7 @@ def coerce_video_url(val: Any) -> str | None:
 
         v = getattr(val, "value", None)
         if isinstance(v, str):
-            stripped = v.strip()
-            if stripped.startswith(("http://", "https://", "asset://")):
-                return stripped
+            return _usable_video_reference(v)
     except Exception:  # noqa: S110
         pass
 
@@ -358,7 +363,7 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             return None
 
         if image_url.startswith(("http://", "https://")):
-            local_path = self._local_path_for_static_server_url(image_url)
+            local_path = local_path_for_static_server_url(image_url)
         else:
             local_path = image_url
         if not local_path:
@@ -419,15 +424,23 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             )
             return None
 
-        if audio_url.startswith(("data:audio/", "http://", "https://", "asset://")):
+        if audio_url.startswith(("data:audio/", "asset://")) or is_publicly_reachable_url(audio_url):
             self._log(f"{self.name} {audio_label} prepared as direct audio URL/data URI")
             return normalize_audio_data_uri_subtype(audio_url)
 
+        # Anything else -- a local path, or a URL BytePlus cannot reach such as the static server's
+        # own address -- is read here and sent inline.
         try:
-            data_uri = await File(audio_url).aread_data_uri(fallback_mime="audio/wav")
+            local_path = audio_url
+            if audio_url.startswith(("http://", "https://")):
+                local_path = local_path_for_static_server_url(audio_url)
+            if local_path:
+                data_uri = await File(local_path).aread_data_uri(fallback_mime="audio/wav")
+            else:
+                data_uri = await adownload_as_data_uri(audio_url, fallback_mime="audio/wav")
             self._log(f"{self.name} {audio_label} loaded from file into data URI")
             return normalize_audio_data_uri_subtype(data_uri)
-        except FileLoadError as e:
+        except (FileLoadError, httpx.HTTPError) as e:
             self._log(f"{self.name} {audio_label} failed to load from {audio_url}: {e}")
             return None
 
@@ -479,99 +492,15 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
             raise RuntimeError(msg)
         return public_url
 
-    def _local_path_for_static_server_url(self, url: str) -> str | None:
-        """Map one of our own static-server URLs back to the file on disk, or None if it isn't one.
-
-        Mirrors StaticServerFileDriver._resolve_to_local_path, which does the same thing for the
-        `localhost` spelling only: take the path after `/workspace/` and anchor it to the workspace
-        directory. Query parameters are stripped because the static server appends a cachebuster.
-
-        Returns None unless the result is a file on this machine, so a static server running on a
-        different host degrades to base64 rather than uploading whatever the path happens to hit.
-        """
-        path = urlparse(url.split("?", maxsplit=1)[0]).path
-        if "/workspace/" not in path:
-            return None
-        workspace_relative = path.split("/workspace/", 1)[1]
-        if not workspace_relative:
-            return None
-        candidate = GriptapeNodes.ConfigManager().workspace_path / workspace_relative
-        return str(candidate) if candidate.is_file() else None
-
     async def _resolve_public_url_for_media(self, media_value: Any, *, artifact_type: str) -> str:
-        """Upload media to GTC static storage through a transient parameter and return its URL.
+        """Return a URL Seedance can fetch for the media, uploading it to Griptape Cloud when needed.
 
-        A URL the provider can already fetch passes through untouched, per
-        is_publicly_reachable_url. The static server's own address does not qualify, whether it is
-        spelled localhost, a loopback or LAN IP, or a container name, so it uploads like any local
-        path. PublicArtifactUrlParameter binds to a named parameter, so a hidden scratch parameter
-        is created per call and torn down together with the upload by _cleanup_pending_asset_uploads.
-
-        Raises if the upload did not happen, rather than returning a URL the provider cannot fetch.
-        Callers that can inline instead catch this and fall back to base64; the private-asset path,
-        which has no fallback, surfaces it.
+        Raises if the upload did not happen. Callers that can inline instead catch this and fall back
+        to base64; the reference-video and private-asset paths, which have no fallback, surface it.
         """
-        # Media reaches this node as a URL string, an artifact, or a serialized artifact dict, and
-        # any of the three can already carry a public URL that needs no upload.
-        if isinstance(media_value, dict):
-            url = media_value.get("value")
-        else:
-            url = getattr(media_value, "value", media_value)
-        if not isinstance(url, str) or not url:
-            msg = f"Could not get a public URL for a {type(media_value).__name__} value: it has no media path or URL."
-            raise ValueError(msg)
-        if is_publicly_reachable_url(url):
-            return url
-
-        # A URL naming our own static server is uploaded by nobody as it stands: the engine's
-        # StaticServerFileDriver only recognizes one spelled `localhost`
-        # (static_server_file_driver.py:42), and PublicArtifactUrlParameter only uploads a value
-        # that is not an http(s) URL at all. Handing over the file it resolves to is what gets it
-        # uploaded rather than inlined, which is the whole point of this path for a static server
-        # reached by LAN IP or container name. Falls back to the URL when it resolves to nothing on
-        # this machine -- the file may well live on another host -- and the guard below catches it.
-        upload_value = self._local_path_for_static_server_url(url) or url
-
-        # Adding this scratch parameter during aprocess trips the strict-mode
-        # "parameter-mutation-during-aprocess" warning. That is expected and harmless here: the
-        # parameter is a transient, worker-local helper that only exists to feed the upload
-        # (PublicArtifactUrlParameter reads its value locally) and is removed before the run ends,
-        # so there is nothing for the orchestrator to stay in sync with.
-        scratch_name = f"_asset_upload_{uuid4().hex}"
-        helper = PublicArtifactUrlParameter(
-            node=self,
-            artifact_url_parameter=Parameter(
-                name=scratch_name,
-                input_types=[artifact_type],
-                type=artifact_type,
-                default_value="",
-                tooltip="",
-                allowed_modes={ParameterMode.PROPERTY},
-                hide=True,
-                hide_property=True,
-            ),
+        return await aupload_media_to_public_url(
+            self, media_value, artifact_type=artifact_type, pending_uploads=self._pending_asset_uploads
         )
-        helper.add_input_parameters()
-        self._pending_asset_uploads.append((helper, scratch_name))
-        self.set_parameter_value(scratch_name, upload_value)
-
-        public_url = await helper.aget_public_url_for_parameter()
-
-        # The engine's upload opens with its own "is this already public?" test, and in
-        # engine 0.96.0 that test is the weak substring form this module no longer uses
-        # (public_artifact_url_parameter.py:172). So for a URL it considers public but we do not --
-        # a LAN IP, a container name, plain http on a non-routable host -- it returns the value
-        # unchanged and uploads nothing, and the truthy return would otherwise read as success.
-        # gtc_file_path is the engine's own record of having uploaded (delete_uploaded_artifact
-        # keys off it), and it stays None on that pass-through, so it is what distinguishes the two.
-        if helper.gtc_file_path is None:
-            msg = (
-                f"{url} was not uploaded. The engine treated it as already public "
-                "and returned it unchanged, but the provider cannot fetch it."
-            )
-            raise RuntimeError(msg)
-
-        return public_url
 
     async def _create_provider_asset(self, public_url: str, asset_kind: str, headers: dict[str, str]) -> str:
         """POST proxy/v2/assets; return the provider asset id to poll to ACTIVE.

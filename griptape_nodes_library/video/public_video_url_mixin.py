@@ -3,18 +3,16 @@ from __future__ import annotations
 import logging
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
-from uuid import uuid4
-
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
-    PublicArtifactUrlParameter,
-)
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri, is_public_https_domain_url
-from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, aupload_media_to_public_url
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
+
+    from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
+        PublicArtifactUrlParameter,
+    )
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -107,38 +105,22 @@ class PublicVideoUrlMixin:
         """Upload the video to Griptape Cloud and return a public URL, or None to fall back.
 
         Already-public remote https URLs pass through unchanged (LTX fetches them directly).
-        Local paths, ``data:`` URIs, and localhost URLs are uploaded via a transient
-        ``PublicArtifactUrlParameter``. Returns None (and logs a warning) if the upload can't
-        be performed so the caller falls back to base64.
+        Anything else -- local paths, ``data:`` URIs, plain http, localhost or LAN URLs -- is
+        uploaded. Returns None (and logs a warning) if the upload can't be performed so the caller
+        falls back to base64.
         """
         video_value = coerce_media_url_or_data_uri(video_input, kind="video")
         if not video_value:
             return None
-        if is_public_https_domain_url(video_value):
-            return video_value
 
-        # The scratch parameter is a transient, worker-local helper that only exists to feed the
-        # upload (PublicArtifactUrlParameter reads its value locally). Its name is unique per
-        # call and it is removed in _cleanup_video_uploads before the run ends.
-        scratch_name = f"_video_upload_{uuid4().hex}"
         try:
-            helper = PublicArtifactUrlParameter(
-                node=self,  # type: ignore[arg-type]
-                artifact_url_parameter=Parameter(
-                    name=scratch_name,
-                    input_types=["VideoUrlArtifact"],
-                    type="VideoUrlArtifact",
-                    default_value="",
-                    tooltip="",
-                    allowed_modes={ParameterMode.PROPERTY},
-                    hide=True,
-                    hide_property=True,
-                ),
+            return await aupload_media_to_public_url(
+                self,  # type: ignore[arg-type]
+                video_value,
+                artifact_type="VideoUrlArtifact",
+                pending_uploads=self._pending_video_uploads,
+                passes_through=is_public_https_domain_url,
             )
-            helper.add_input_parameters()
-            self._pending_video_uploads.append((helper, scratch_name))
-            self.set_parameter_value(scratch_name, video_value)  # type: ignore[attr-defined]
-            return await helper.aget_public_url_for_parameter()
         except Exception as e:  # noqa: BLE001 - any upload failure should degrade to base64
             logger.warning(
                 "%s: public-URL upload failed, falling back to base64: %s",
