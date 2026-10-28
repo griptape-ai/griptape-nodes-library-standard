@@ -246,3 +246,24 @@ def test_control_wires_merge_into_pass_through_chain(
     incoming_ids = connections.incoming_index.get(first, {}).get(first_param, [])
     sources = {connections.connections[connection_id].source_node.name for connection_id in incoming_ids}
     assert sources == {first_if_else, second_if_else}
+
+
+@pytest.mark.parametrize("node_type", PASS_THROUGH_TYPES)
+def test_connection_hooks_keep_no_state_outside_parameters(flow_name: str, node_type: str) -> None:
+    """Connection hooks must not set node attributes, or strict mode warns on every workflow load."""
+    source = _create("TextInput", flow_name)
+    target = _create("ToText", flow_name)
+    name = _create(node_type, flow_name)
+    node = _node(name)
+    param = node.get_pass_thru_parameter()
+    before = {attr: id(value) for attr, value in vars(node).items()}
+
+    _connect(source, "text", name, param.name)
+    _connect(name, param.name, target, "from")
+    assert node.incoming_source_parameter is not None
+    assert {attr: id(value) for attr, value in vars(node).items()} == before
+
+    _disconnect(name, param.name, target, "from")
+    _disconnect(source, "text", name, param.name)
+    assert node.incoming_source_parameter is None
+    assert {attr: id(value) for attr, value in vars(node).items()} == before

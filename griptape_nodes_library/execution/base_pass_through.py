@@ -40,7 +40,6 @@ class BasePassThroughNode(DataNode, ABC):
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
 
-        self.incoming_source_parameter: Parameter | None = None
         self.outgoing_target_parameters: dict[str, Parameter] = {}
 
         self.pass_thru_parameter = Parameter(
@@ -57,6 +56,13 @@ class BasePassThroughNode(DataNode, ABC):
     def get_pass_thru_parameter(self) -> Parameter:
         return self.pass_thru_parameter
 
+    @property
+    def incoming_source_parameter(self) -> Parameter | None:
+        """The parameter wired into the pass-through, read from the flow's connections."""
+        connections = GriptapeNodes.FlowManager().get_connections()
+        incoming = connections.get_incoming_connections_to_parameter(self, self.pass_thru_parameter)
+        return incoming[0].source_parameter if incoming else None
+
     def allow_incoming_connection(
         self,
         source_node: BaseNode,  # noqa: ARG002
@@ -72,26 +78,23 @@ class BasePassThroughNode(DataNode, ABC):
     def after_incoming_connection(
         self,
         source_node: BaseNode,  # noqa: ARG002
-        source_parameter: Parameter,
+        source_parameter: Parameter,  # noqa: ARG002
         target_parameter: Parameter,
     ) -> None:
         """Callback after a Connection has been established TO this Node."""
         if target_parameter is not self.pass_thru_parameter:
             return
-        self.incoming_source_parameter = source_parameter
         self._propagate_forwards()
 
     def after_incoming_connection_removed(
         self,
         source_node: BaseNode,  # noqa: ARG002
-        source_parameter: Parameter,
+        source_parameter: Parameter,  # noqa: ARG002
         target_parameter: Parameter,
     ) -> None:
         """Callback after a Connection TO this Node was REMOVED."""
         if target_parameter is not self.pass_thru_parameter:
             return
-        # Control wires can merge into the pass-through, so another source may still be connected.
-        self.incoming_source_parameter = self._find_remaining_incoming_source_parameter(source_parameter)
         self._propagate_forwards()
 
     def after_outgoing_connection(
@@ -138,13 +141,6 @@ class BasePassThroughNode(DataNode, ABC):
             isinstance(node, BasePassThroughNode) and node._fans_out()
             for node in (param.get_node() for param in self.outgoing_target_parameters.values())
         )
-
-    def _find_remaining_incoming_source_parameter(self, removed_source_parameter: Parameter) -> Parameter | None:
-        connections = GriptapeNodes.FlowManager().get_connections()
-        for connection in connections.get_incoming_connections_to_parameter(self, self.pass_thru_parameter):
-            if connection.source_parameter is not removed_source_parameter:
-                return connection.source_parameter
-        return None
 
     def _resolve_types(self) -> None:
         param = self.get_pass_thru_parameter()
