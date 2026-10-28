@@ -34,8 +34,6 @@ def has_control_type(param: Parameter) -> bool:
 
 
 class BasePassThroughNode(DataNode, ABC):
-    # Drives type propagation in the editor; process() passes the value through without reading it.
-    attributes_outside_parameters = frozenset({"incoming_source_parameter"})
     pass_thru_parameter_name: str
     pass_thru_parameter_tooltip = ""
 
