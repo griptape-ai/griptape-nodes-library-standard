@@ -250,7 +250,7 @@ def test_control_wires_merge_into_pass_through_chain(
 
 @pytest.mark.parametrize("node_type", PASS_THROUGH_TYPES)
 def test_connection_hooks_keep_no_state_outside_parameters(flow_name: str, node_type: str) -> None:
-    """Connection hooks must not set node attributes, or strict mode warns on every workflow load."""
+    """Connection hooks must not keep connection state on the node, or strict mode warns on every workflow load."""
     source = _create("TextInput", flow_name)
     target = _create("ToText", flow_name)
     name = _create(node_type, flow_name)
@@ -261,9 +261,13 @@ def test_connection_hooks_keep_no_state_outside_parameters(flow_name: str, node_
     _connect(source, "text", name, param.name)
     _connect(name, param.name, target, "from")
     assert node.incoming_source_parameter is not None
+    assert list(node.outgoing_target_parameters.values()) == [_node(target).get_parameter_by_name("from")]
     assert {attr: id(value) for attr, value in vars(node).items()} == before
 
     _disconnect(name, param.name, target, "from")
     _disconnect(source, "text", name, param.name)
     assert node.incoming_source_parameter is None
+    assert node.outgoing_target_parameters == {}
     assert {attr: id(value) for attr, value in vars(node).items()} == before
+    # The detector compares by identity, so a dict filled in place would slip past the check above.
+    assert not {"incoming_source_parameter", "outgoing_target_parameters"} & vars(node).keys()
