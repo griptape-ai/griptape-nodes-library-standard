@@ -261,7 +261,8 @@ def test_connection_hooks_keep_no_state_outside_parameters(flow_name: str, node_
     _connect(source, "text", name, param.name)
     _connect(name, param.name, target, "from")
     assert node.incoming_source_parameter is not None
-    assert list(node.outgoing_target_parameters.values()) == [_node(target).get_parameter_by_name("from")]
+    target_param = GriptapeNodes.NodeManager().get_node_by_name(target).get_parameter_by_name("from")
+    assert list(node.outgoing_target_parameters.values()) == [target_param]
     assert {attr: id(value) for attr, value in vars(node).items()} == before
 
     _disconnect(name, param.name, target, "from")
