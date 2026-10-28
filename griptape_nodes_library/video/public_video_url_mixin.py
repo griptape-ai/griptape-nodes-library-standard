@@ -11,7 +11,7 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
 )
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri, is_public_https_domain_url
-from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, local_path_for_static_server_url
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -107,15 +107,21 @@ class PublicVideoUrlMixin:
         """Upload the video to Griptape Cloud and return a public URL, or None to fall back.
 
         Already-public remote https URLs pass through unchanged (LTX fetches them directly).
-        Local paths, ``data:`` URIs, and localhost URLs are uploaded via a transient
+        Local paths, ``data:`` URIs, and our own static-server URLs are uploaded via a transient
         ``PublicArtifactUrlParameter``. Returns None (and logs a warning) if the upload can't
-        be performed so the caller falls back to base64.
+        be performed, or if the engine declined to upload a URL that isn't public HTTPS (plain
+        http, a LAN or container host), so the caller falls back to base64.
         """
         video_value = coerce_media_url_or_data_uri(video_input, kind="video")
         if not video_value:
             return None
         if is_public_https_domain_url(video_value):
             return video_value
+
+        # The engine skips the upload for any http(s) URL without "localhost" in it, so a
+        # static-server URL reached by LAN IP or container name is handed over as the file it
+        # resolves to. Any other http(s) URL is passed as-is and caught by the guard below.
+        upload_value = local_path_for_static_server_url(video_value) or video_value
 
         # The scratch parameter is a transient, worker-local helper that only exists to feed the
         # upload (PublicArtifactUrlParameter reads its value locally). Its name is unique per
@@ -137,8 +143,8 @@ class PublicVideoUrlMixin:
             )
             helper.add_input_parameters()
             self._pending_video_uploads.append((helper, scratch_name))
-            self.set_parameter_value(scratch_name, video_value)  # type: ignore[attr-defined]
-            return await helper.aget_public_url_for_parameter()
+            self.set_parameter_value(scratch_name, upload_value)  # type: ignore[attr-defined]
+            public_url = await helper.aget_public_url_for_parameter()
         except Exception as e:  # noqa: BLE001 - any upload failure should degrade to base64
             logger.warning(
                 "%s: public-URL upload failed, falling back to base64: %s",
@@ -146,3 +152,15 @@ class PublicVideoUrlMixin:
                 e,
             )
             return None
+
+        # The engine returns a URL it considers already public unchanged without uploading it,
+        # including plain http and LAN hosts that LTX refuses. gtc_file_path stays None on that
+        # pass-through, so it distinguishes a real upload from a URL LTX can't use.
+        if helper.gtc_file_path is None:
+            logger.warning(
+                "%s: %s was not uploaded and is not a public HTTPS URL, falling back to base64",
+                self.name,  # type: ignore[attr-defined]
+                video_value,
+            )
+            return None
+        return public_url

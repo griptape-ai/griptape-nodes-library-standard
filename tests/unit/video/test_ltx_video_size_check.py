@@ -238,71 +238,81 @@ async def test_upload_uploads_localhost_url(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 @pytest.mark.asyncio
-async def test_upload_uploads_plain_http_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    """http:// URLs must upload — LTX requires HTTPS-only with a domain name."""
+@pytest.mark.parametrize(
+    "static_url",
+    [
+        "http://localhost:8124/workspace/static_files/clip.mp4",
+        "http://127.0.0.1:8124/workspace/static_files/clip.mp4",
+        "http://0.0.0.0:8124/workspace/static_files/clip.mp4",
+        "http://192.168.1.20:8124/workspace/static_files/clip.mp4",
+        "http://my-container:8124/workspace/static_files/clip.mp4",
+        "https://192.168.1.20:8124/workspace/static_files/clip.mp4",
+        "http://192.168.1.20:8124/workspace/static_files/clip.mp4?t=1730000000",
+        "http://static-host/workspace/static_files/clip.mp4",
+    ],
+)
+async def test_upload_really_uploads_static_server_url(upload_env, static_url: str) -> None:
+    """Every spelling of the static server's address must upload, against the engine's real upload path."""
+    clip = upload_env.workspace / "static_files" / "clip.mp4"
+    clip.write_bytes(b"clip bytes")
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
 
-    helper = _upload_helper()
-    helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
-    monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
-    monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
+    result = await node._upload_video_to_public_url(VideoUrlArtifact(static_url))
 
-    result = await node._upload_video_to_public_url(VideoUrlArtifact("http://example.com/video.mp4"))
-
-    assert result == _PUBLIC_URL
-    helper.get_public_url_for_parameter.assert_called_once()
+    assert result == upload_env.signed_url
+    assert len(upload_env.uploaded_keys) == 1
+    assert upload_env.uploaded_keys[0].endswith("/clip.mp4")
 
 
 @pytest.mark.asyncio
-async def test_upload_uploads_ip_address_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    """LAN IP URLs must upload — LTX requires a domain name, not a bare IP."""
+async def test_upload_really_uploads_external_static_server_url(upload_env, tmp_path_factory) -> None:
+    """A static-server URL for a file outside the workspace uploads that file, not a workspace one."""
+    outside = tmp_path_factory.mktemp("outside") / "workspace" / "clip.mp4"
+    outside.parent.mkdir()
+    outside.write_bytes(b"outside bytes")
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
 
-    helper = _upload_helper()
-    helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
-    monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
-    monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
+    result = await node._upload_video_to_public_url(VideoUrlArtifact(f"http://192.168.1.20:8124/external{outside}"))
 
-    result = await node._upload_video_to_public_url(VideoUrlArtifact("https://192.168.1.20:8124/static/v.mp4"))
-
-    assert result == _PUBLIC_URL
-    helper.get_public_url_for_parameter.assert_called_once()
+    assert result == upload_env.signed_url
+    assert len(upload_env.uploaded_keys) == 1
+    assert upload_env.uploaded_keys[0].endswith("/clip.mp4")
 
 
 @pytest.mark.asyncio
-async def test_upload_uploads_zero_zero_ip_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    """0.0.0.0 URLs must upload — not publicly reachable."""
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://example.com/clip.mp4",
+        "http://192.168.1.20:9000/clip.mp4",
+        "https://192.168.1.20:9000/clip.mp4",
+        "https://my-container:9000/clip.mp4",
+    ],
+)
+async def test_upload_falls_back_when_engine_passes_url_through(upload_env, url: str) -> None:
+    """A URL LTX refuses that the engine returns unchanged must not be sent to LTX as-is."""
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
 
-    helper = _upload_helper()
-    helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
-    monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
-    monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
+    result = await node._upload_video_to_public_url(VideoUrlArtifact(url))
 
-    result = await node._upload_video_to_public_url(VideoUrlArtifact("https://0.0.0.0:8124/static/v.mp4"))
-
-    assert result == _PUBLIC_URL
-    helper.get_public_url_for_parameter.assert_called_once()
+    assert result is None
+    assert upload_env.uploaded_keys == []
 
 
 @pytest.mark.asyncio
-async def test_upload_uploads_bare_hostname_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Bare single-label hostnames (container names, etc.) must upload — not publicly reachable."""
+async def test_resolve_sends_base64_for_plain_http_url(upload_env, monkeypatch: pytest.MonkeyPatch) -> None:
+    """End to end: a plain http URL reaches LTX as a data URI, never as the http URL."""
     node = LTXVideoRetake(name="Retake")
     node._reset_video_uploads()
+    monkeypatch.setattr(node, "_prepare_video_data_uri_async", AsyncMock(return_value=_SMALL_DATA_URI))
 
-    helper = _upload_helper()
-    helper.get_public_url_for_parameter.return_value = _PUBLIC_URL
-    monkeypatch.setattr(public_video_url_mixin, "PublicArtifactUrlParameter", MagicMock(return_value=helper))
-    monkeypatch.setattr(node, "set_parameter_value", lambda *_args, **_kwargs: None)
+    result = await node._resolve_video_uri(VideoUrlArtifact("http://example.com/clip.mp4"))
 
-    result = await node._upload_video_to_public_url(VideoUrlArtifact("https://my-container:8124/static/v.mp4"))
-
-    assert result == _PUBLIC_URL
-    helper.get_public_url_for_parameter.assert_called_once()
+    assert result == _SMALL_DATA_URI
+    assert upload_env.uploaded_keys == []
 
 
 @pytest.mark.asyncio
