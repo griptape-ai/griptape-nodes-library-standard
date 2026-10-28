@@ -12,6 +12,9 @@ from griptape_nodes.traits.widget import Widget
 
 
 class VideoCapture(DataNode):
+    # State of a capture streaming in from the editor, which only the editor process has.
+    attributes_outside_parameters = frozenset({"_pending_mime", "_expected_seq"})
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         # MIME type of the recorded blob (e.g. "video/webm;codecs=vp9,opus").

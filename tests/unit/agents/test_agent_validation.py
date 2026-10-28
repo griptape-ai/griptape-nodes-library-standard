@@ -10,19 +10,19 @@ _LICENSE = "header.payload.signature"
 
 
 def _stub_secrets(monkeypatch: pytest.MonkeyPatch, secrets: dict[str, str]) -> None:
-    """Make the engine's SecretsManager resolve only the names in *secrets*.
+    """Make secret resolution see only the names in *secrets*.
 
-    Stubbed at the SecretsManager rather than at ``resolve_cloud_api_key`` so the
+    Stubbed at the environment rather than at ``resolve_cloud_api_key`` so the
     License-before-API-key precedence is exercised for real, and so a test can model
-    a license-only user by simply omitting ``GT_CLOUD_API_KEY``.
+    a license-only user by simply omitting ``GT_CLOUD_API_KEY``. Resolution reads secrets
+    through a request, which the isolated test env answers from `os.environ` -- the
+    highest-priority source `SecretsManager.get_secret` searches.
     """
-    import griptape_nodes_library.utils.cloud_credential_utils as cloud_credential_utils
-
-    class _FakeSecrets:
-        def get_secret(self, name: str, **_kwargs: object) -> str | None:
-            return secrets.get(name)
-
-    monkeypatch.setattr(cloud_credential_utils.GriptapeNodes, "SecretsManager", lambda: _FakeSecrets())
+    for name in ("GRIPTAPE_NODES_LICENSE", "GT_CLOUD_API_KEY"):
+        if name in secrets:
+            monkeypatch.setenv(name, secrets[name])
+        else:
+            monkeypatch.delenv(name, raising=False)
 
 
 def _stub_params(agent_node: Agent, monkeypatch: pytest.MonkeyPatch, *, model: object, agent: object) -> None:

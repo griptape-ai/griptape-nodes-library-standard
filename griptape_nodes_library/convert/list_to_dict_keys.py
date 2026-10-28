@@ -58,6 +58,9 @@ class ListToDictKeys(SuccessFailureNode):
     Note: The first occurrence uses the original key name, subsequent duplicates are numbered starting from _2.
     """
 
+    # A copy of the KeyValuePairs value, which is what process() reads the user's values from.
+    attributes_outside_parameters = frozenset({"_user_values"})
+
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         """Initialize the ListToDictKeys node with all required parameters.
 
