@@ -12,6 +12,7 @@ from typing import Any
 
 from griptape_nodes.common.sequences import MissingItemPolicy, Sequence
 from griptape_nodes.exe_types.core_types import (
+    NodeError,
     NodeMessageResult,
     Parameter,
     ParameterGroup,
@@ -22,10 +23,15 @@ from griptape_nodes.exe_types.param_components.progress_bar_component import Pro
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import File, FileDestinationProvider
+from griptape_nodes.files.file import File
+from griptape_nodes.files.project_file import file_destination_from_spec
 from griptape_nodes.retained_mode.events.connection_events import (
     ListConnectionsForNodeRequest,
     ListConnectionsForNodeResultSuccess,
+)
+from griptape_nodes.retained_mode.events.destination_events import (
+    GetConnectedFileDestinationRequest,
+    GetConnectedFileDestinationResultSuccess,
 )
 from griptape_nodes.retained_mode.events.os_events import (
     ScanSequencesRequest,
@@ -444,15 +450,13 @@ class ExtractFrames(SuccessFailureNode):
         self.publish_update_to_parameter("directory", "")
 
     def _resolve_output_dir(self) -> pathlib.Path:
-        conn_result = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=self.name))
-        if isinstance(conn_result, ListConnectionsForNodeResultSuccess):
-            for conn in conn_result.incoming_connections:
-                if conn.target_parameter_name == "directory":
-                    source = GriptapeNodes.ObjectManager().attempt_get_object_by_name(conn.source_node_name)
-                    if isinstance(source, FileDestinationProvider):
-                        fd = source.file_destination
-                        if fd is not None:
-                            return pathlib.Path(fd.resolve()).parent
+        settings_result = GriptapeNodes.handle_request(
+            GetConnectedFileDestinationRequest(node_name=self.name, parameter_name="directory")
+        )
+        if not isinstance(settings_result, GetConnectedFileDestinationResultSuccess):
+            raise NodeError(str(settings_result.result_details))
+        if settings_result.destination is not None:
+            return pathlib.Path(file_destination_from_spec(settings_result.destination).resolve()).parent
         value = (self.get_parameter_value("directory") or DEFAULT_DIRECTORY).strip().rstrip("/")
         if not value:
             value = DEFAULT_DIRECTORY
