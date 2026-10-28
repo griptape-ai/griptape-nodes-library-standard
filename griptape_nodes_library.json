@@ -877,24 +877,6 @@
                 "provider_model_id": "kling-v2-5-turbo",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
-              "gtc_kling_v2_1": {
-                "display_name": "Kling v2.1",
-                "family": "Kling",
-                "provider_model_id": "kling-v2-1",
-                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
-              },
-              "gtc_kling_v1_5": {
-                "display_name": "Kling v1.5",
-                "family": "Kling",
-                "provider_model_id": "kling-v1-5",
-                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
-              },
-              "gtc_kling_v1": {
-                "display_name": "Kling v1",
-                "family": "Kling",
-                "provider_model_id": "kling-v1",
-                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
-              },
               "gtc_kling_video_o1_omni": {
                 "display_name": "Kling Omni",
                 "family": "Kling",
@@ -2828,10 +2810,7 @@
             "model_ids": [
               "gtc_kling_v3",
               "gtc_kling_v2_6",
-              "gtc_kling_v2_5_turbo",
-              "gtc_kling_v2_1",
-              "gtc_kling_v1_5",
-              "gtc_kling_v1"
+              "gtc_kling_v2_5_turbo"
             ]
           }
         ]
