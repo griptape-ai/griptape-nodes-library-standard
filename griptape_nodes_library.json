@@ -30,7 +30,7 @@
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
     "library_version": "0.89.0",
-    "engine_version": "0.104.0",
+    "engine_version": "0.106.0",
     "tags": [
       "Griptape",
       "AI"
