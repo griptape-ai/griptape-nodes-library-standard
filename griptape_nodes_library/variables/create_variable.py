@@ -227,6 +227,11 @@ class CreateVariable(ControlNode):
                             raise TypeError(error_msg)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        # Connection cleanup lives here rather than in before_value_set because the engine skips
+        # after_value_set while loading a saved node, and a load must not touch connections.
+        if parameter is self.variable_type_param and value is not None:
+            self._cleanup_incompatible_value_connections()
+
         if parameter is self.auto_name_param:
             if value:
                 self.show_parameter_by_name(self.auto_name_case_param.name)
@@ -360,13 +365,10 @@ class CreateVariable(ControlNode):
                 self.value_param.type = ParameterTypeBuiltin.ANY.value
                 self.value_param.output_type = ParameterTypeBuiltin.ALL.value
             else:
-                # Step 3: If variable_type_param is NOT being set to None, delete incompatible connections
-                # Update value_param type information first
+                # Step 3: If variable_type_param is NOT being set to None, update value_param's type.
+                # after_value_set then deletes the connections the new type no longer accepts.
                 self.value_param.type = value
                 self.value_param.output_type = value
-
-                # Clean up incompatible connections
-                self._cleanup_incompatible_value_connections()
 
         return value
 

@@ -3,7 +3,15 @@ from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterType, ParameterTypeBuiltin
 from griptape_nodes.exe_types.node_types import ControlNode
-from griptape_nodes.retained_mode.events.connection_events import DeleteConnectionRequest
+from griptape_nodes.retained_mode.events.connection_events import (
+    DeleteConnectionRequest,
+    ListConnectionsForNodeRequest,
+    ListConnectionsForNodeResultSuccess,
+)
+from griptape_nodes.retained_mode.events.parameter_events import (
+    GetParameterDetailsRequest,
+    GetParameterDetailsResultSuccess,
+)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.utils.type_utils import infer_type_from_value
@@ -248,26 +256,38 @@ class DictGetValueByKey(ControlNode):
         logger = logging.getLogger("griptape_nodes")
 
         # Get outgoing connections from the output parameter
-        connections = GriptapeNodes.FlowManager().get_connections()
-        outgoing_for_node = connections.outgoing_index.get(self.name, {})
-        connection_ids = outgoing_for_node.get("value", [])
+        connections_result = GriptapeNodes.handle_request(
+            ListConnectionsForNodeRequest(node_name=self.name, broadcast_result=False)
+        )
+        if not isinstance(connections_result, ListConnectionsForNodeResultSuccess):
+            return
 
-        if not connection_ids:
+        outgoing_for_value = [
+            connection
+            for connection in connections_result.outgoing_connections
+            if connection.source_parameter_name == "value"
+        ]
+
+        if not outgoing_for_value:
             return
 
         # Validate type compatibility and remove incompatible connections
-        for connection_id in connection_ids:
-            if connection_id not in connections.connections:
-                continue
+        for connection in outgoing_for_value:
+            target_node_name = connection.target_node_name
+            target_parameter_name = connection.target_parameter_name
 
-            connection = connections.connections[connection_id]
-            target_param = connection.target_parameter
-            target_node = connection.target_node
+            details_result = GriptapeNodes.handle_request(
+                GetParameterDetailsRequest(
+                    parameter_name=target_parameter_name, node_name=target_node_name, broadcast_result=False
+                )
+            )
+            if not isinstance(details_result, GetParameterDetailsResultSuccess):
+                continue
 
             # Check if target parameter accepts the new output type
             is_compatible = any(
                 ParameterType.are_types_compatible(new_output_type, input_type)
-                for input_type in target_param.input_types
+                for input_type in details_result.input_types
             )
 
             if not is_compatible:
@@ -276,9 +296,9 @@ class DictGetValueByKey(ControlNode):
                     self.__class__.__name__,
                     self.name,
                     new_output_type,
-                    target_node.name,
-                    target_param.name,
-                    target_param.input_types,
+                    target_node_name,
+                    target_parameter_name,
+                    details_result.input_types,
                 )
 
                 # Remove the incompatible connection
@@ -286,8 +306,8 @@ class DictGetValueByKey(ControlNode):
                     DeleteConnectionRequest(
                         source_node_name=self.name,
                         source_parameter_name="value",
-                        target_node_name=target_node.name,
-                        target_parameter_name=target_param.name,
+                        target_node_name=target_node_name,
+                        target_parameter_name=target_parameter_name,
                     )
                 )
 
@@ -296,8 +316,8 @@ class DictGetValueByKey(ControlNode):
                         "Failed to delete incompatible connection from %s.%s to %s.%s: %s",
                         self.name,
                         "value",
-                        target_node.name,
-                        target_param.name,
+                        target_node_name,
+                        target_parameter_name,
                         delete_result.result_details,
                     )
 
