@@ -64,7 +64,7 @@ MODEL_FAMILIES = {
 
 # Astra's creative controls. These ride *inside* a `filters` entry rather than at the
 # top level of the payload. Starlight accepts none of them.
-ASTRA_FILTER_PARAMS = ("prompt", "creativity", "sharp", "realism")
+ASTRA_FILTER_PARAMS = ("prompt", "creativity", "sharp")
 
 # Topaz caps a Starlight job at 9000 frames. The proxy clamps the *billed* volume to
 # match, so exceeding it does not overcharge -- but Topaz still rejects the job, and
@@ -124,7 +124,7 @@ class TopazVideoUpscale(GriptapeProxyNode):
     """Upscale a video with Topaz Starlight Precise or Astra 2 via the Griptape Cloud model proxy.
 
     Both families share the source probing and the resize modes. Astra additionally
-    accepts four creative controls (prompt, creativity, sharp, realism), which are shown
+    accepts three creative controls (prompt, creativity, sharp), which are shown
     only while an Astra model is selected.
 
     Inputs:
@@ -192,19 +192,6 @@ class TopazVideoUpscale(GriptapeProxyNode):
         )
         sharp_param.add_trait(Slider(min_val=0.0, max_val=1.0))
         self.add_parameter(sharp_param)
-
-        # Topaz documents a default for `sharp` but not for `realism`; 0.5 is our own
-        # midpoint choice, picked so the slider is WYSIWYG rather than to match an
-        # unpublished provider default.
-        realism_param = ParameterFloat(
-            name="realism",
-            default_value=0.5,
-            tooltip="Astra only. Biases the generated detail toward photorealism (0.0-1.0).",
-            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            hide=True,
-        )
-        realism_param.add_trait(Slider(min_val=0.0, max_val=1.0))
-        self.add_parameter(realism_param)
 
         # Topaz downloads the source itself rather than receiving it in the request
         # body -- a video is far too large to base64 into JSON. This uploads the
@@ -709,7 +696,6 @@ class TopazVideoUpscale(GriptapeProxyNode):
                 creative: dict[str, Any] = {
                     "creativity": float(self.get_parameter_value("creativity")),
                     "sharp": float(self.get_parameter_value("sharp")),
-                    "realism": float(self.get_parameter_value("realism")),
                 }
                 # Omitted rather than sent blank: the proxy decides whether the job is
                 # "prompted" -- and which frame cap to bill against -- from the

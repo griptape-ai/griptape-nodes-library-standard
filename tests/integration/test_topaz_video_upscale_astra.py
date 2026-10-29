@@ -257,18 +257,6 @@ async def build_workflow() -> None:
                     initial_setup=True,
                 )
             )
-            await GriptapeNodes.ahandle_request(
-                AlterParameterDetailsRequest(
-                    parameter_name="realism",
-                    ui_options={
-                        "slider": {"min_val": 0.0, "max_val": 1.0},
-                        "hide": False,
-                        "hide_label": False,
-                        "hide_property": False,
-                    },
-                    initial_setup=True,
-                )
-            )
         node3_name = (
             await GriptapeNodes.ahandle_request(
                 CreateNodeRequest(
@@ -613,15 +601,6 @@ async def build_workflow() -> None:
             await GriptapeNodes.ahandle_request(
                 SetParameterValueRequest(
                     parameter_name="sharp",
-                    node_name=node2_name,
-                    value=top_level_unique_values_dict["6416a526-e1a9-4fb1-b789-57c99361eacb"],
-                    initial_setup=True,
-                    is_output=False,
-                )
-            )
-            await GriptapeNodes.ahandle_request(
-                SetParameterValueRequest(
-                    parameter_name="realism",
                     node_name=node2_name,
                     value=top_level_unique_values_dict["6416a526-e1a9-4fb1-b789-57c99361eacb"],
                     initial_setup=True,
