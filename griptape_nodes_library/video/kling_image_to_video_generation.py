@@ -382,15 +382,13 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             self._update_parameter_visibility_for_model(value)
             self._update_multi_shot_parameter_visibility()
             self._update_duration_choices()
-        elif parameter.name == "image_tail":
-            self._update_duration_choices()
         elif parameter.name in {"multi_shot", "shot_type", "shot_count"}:
             self._update_multi_shot_parameter_visibility()
         elif parameter.name == "mode":
             self._update_mode_dependent_features()
 
     def _update_duration_choices(self) -> None:
-        """Update duration dropdown based on current model and image_tail state."""
+        """Update duration dropdown based on the current model."""
         model_name = self.get_parameter_value("model_name") or "kling-v3"
         model_id = model_name
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
