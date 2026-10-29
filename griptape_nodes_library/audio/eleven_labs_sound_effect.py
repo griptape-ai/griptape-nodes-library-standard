@@ -7,6 +7,7 @@ from typing import Any
 
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -23,12 +24,16 @@ __all__ = ["ElevenLabsSoundEffectGeneration"]
 PROMPT_TRUNCATE_LENGTH = 100
 MIN_SOUND_DURATION_SEC = 0.5
 MAX_SOUND_DURATION_SEC = 30.0
+MODEL_CHOICES = ["eleven_text_to_sound_v2", "eleven_text_to_sound_v3"]
+DEFAULT_MODEL = "eleven_text_to_sound_v2"
 
 
 class ElevenLabsSoundEffectGeneration(GriptapeProxyNode):
     """Generate sound effects from text prompts using Eleven Labs API via Griptape model proxy.
 
-    Uses the Eleven Text to Sound v2 model to create custom sound effects from text descriptions.
+    Supports two models:
+    - Eleven Text to Sound v2
+    - Eleven Text to Sound v3
 
     Outputs:
         - generation_id (str): Generation ID from the API
@@ -41,6 +46,24 @@ class ElevenLabsSoundEffectGeneration(GriptapeProxyNode):
         self.description = "Generate sound effects from text prompts using Eleven Labs"
 
         # INPUTS / PROPERTIES
+        # Model Selection
+        model_param = ParameterString(
+            name="model",
+            default_value=DEFAULT_MODEL,
+            tooltip="Select the Eleven Labs sound effects model to use",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={"display_name": "Model"},
+        )
+        self.add_parameter(model_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_param,
+            model_choices=MODEL_CHOICES,
+            default_model=DEFAULT_MODEL,
+        )
+
         # Text input
         self.add_parameter(
             ParameterString(
@@ -110,10 +133,6 @@ class ElevenLabsSoundEffectGeneration(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
 
-    def _get_api_model_id(self) -> str:
-        """Get the API model ID for this generation."""
-        return "eleven_text_to_sound_v2"
-
     def _log(self, message: str) -> None:
         with suppress(Exception):
             logger.info(message)
@@ -125,7 +144,7 @@ class ElevenLabsSoundEffectGeneration(GriptapeProxyNode):
         duration_seconds = self.get_parameter_value("sound_duration_seconds")
         prompt_influence = self.get_parameter_value("prompt_influence")
 
-        params = {"text": text}
+        params = {"text": text, "model_id": self._get_selected_model_id() or DEFAULT_MODEL}
 
         # Add optional parameters if they have values
         if loop is not None:

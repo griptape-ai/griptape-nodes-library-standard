@@ -1000,6 +1000,12 @@
                 "provider_model_id": "eleven_text_to_sound_v2",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
+              "gtc_eleven_text_to_sound_v3": {
+                "display_name": "Eleven Text to Sound v3",
+                "family": "ElevenLabs",
+                "provider_model_id": "eleven_text_to_sound_v3",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
               "gtc_eleven_multilingual_v2": {
                 "display_name": "Eleven Multilingual v2",
                 "family": "ElevenLabs",
@@ -2339,7 +2345,8 @@
           {
             "type": "model_usage",
             "model_ids": [
-              "gtc_eleven_text_to_sound_v2"
+              "gtc_eleven_text_to_sound_v2",
+              "gtc_eleven_text_to_sound_v3"
             ]
           }
         ]
