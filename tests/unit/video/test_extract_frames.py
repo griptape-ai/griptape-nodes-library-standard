@@ -9,11 +9,22 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from griptape_nodes.exe_types.core_types import NodeError
+from griptape_nodes.retained_mode.events.destination_events import (
+    FileDestinationSpec,
+    GetConnectedFileDestinationRequest,
+    GetConnectedFileDestinationResultFailure,
+    GetConnectedFileDestinationResultSuccess,
+)
+from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
 
+from griptape_nodes_library.video import extract_frames as extract_frames_mod
 from griptape_nodes_library.video.extract_frames import ExtractFrames
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from griptape_nodes.retained_mode.events.base_events import RequestPayload, ResultPayload
 
 
 def _write_frames(directory: Path, numbers: list[int], *, prefix: str = "frames", padding: int = 4) -> None:
@@ -96,6 +107,52 @@ class TestSequenceOutputWiring:
         node._set_safe_defaults()
 
         assert node.parameter_output_values["sequence"] is None
+
+
+def _answer_settings_request(monkeypatch: pytest.MonkeyPatch, result: ResultPayload) -> list[RequestPayload]:
+    """Answer every request with ``result`` and record the requests sent."""
+    sent: list[RequestPayload] = []
+
+    def handle_request(request: RequestPayload) -> ResultPayload:
+        sent.append(request)
+        return result
+
+    monkeypatch.setattr(extract_frames_mod.GriptapeNodes, "handle_request", handle_request)
+    return sent
+
+
+class TestOutputDirectoryFromSettings:
+    """A File Output Settings node wired to 'directory' is read by request, so a worker run honors it too."""
+
+    def test_uses_the_folder_of_the_settings_nodes_destination(
+        self, node: ExtractFrames, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        spec = FileDestinationSpec(
+            file_path=str(tmp_path / "shots" / "frame.png"),
+            existing_file_policy=ExistingFilePolicy.OVERWRITE,
+            append=False,
+            create_parents=True,
+            coerce_extension_to_match_bytes=True,
+            file_metadata=None,
+            map_to_project=False,
+        )
+        sent = _answer_settings_request(
+            monkeypatch, GetConnectedFileDestinationResultSuccess(destination=spec, result_details="ok")
+        )
+
+        output_dir = node._resolve_output_dir()
+
+        assert output_dir == tmp_path / "shots"
+        assert sent == [GetConnectedFileDestinationRequest(node_name=node.name, parameter_name="directory")]
+
+    def test_a_failed_read_fails_the_node(self, node: ExtractFrames, monkeypatch: pytest.MonkeyPatch) -> None:
+        _answer_settings_request(
+            monkeypatch,
+            GetConnectedFileDestinationResultFailure(result_details="'File Output Settings' has no destination set"),
+        )
+
+        with pytest.raises(NodeError, match="has no destination set"):
+            node._resolve_output_dir()
 
 
 class TestProcessFailures:
