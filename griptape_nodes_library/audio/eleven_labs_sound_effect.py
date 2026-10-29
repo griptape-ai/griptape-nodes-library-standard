@@ -144,7 +144,7 @@ class ElevenLabsSoundEffectGeneration(GriptapeProxyNode):
         duration_seconds = self.get_parameter_value("sound_duration_seconds")
         prompt_influence = self.get_parameter_value("prompt_influence")
 
-        params = {"text": text, "model_id": self._get_selected_model_id() or DEFAULT_MODEL}
+        params = {"text": text, "model_id": self._get_selected_model_id()}
 
         # Add optional parameters if they have values
         if loop is not None:
