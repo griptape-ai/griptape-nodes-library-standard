@@ -5,7 +5,7 @@ from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
 from griptape_nodes.exe_types.node_types import NodeDependencies, SuccessFailureNode
-from griptape_nodes.node_library.workflow_registry import WorkflowRegistry, WorkflowShape
+from griptape_nodes.node_library.workflow_registry import WorkflowRegistry
 from griptape_nodes.retained_mode.events.execution_events import (
     StartLocalSubflowRequest,
     StartLocalSubflowResultFailure,
@@ -22,7 +22,14 @@ from griptape_nodes.retained_mode.events.flow_events import (
     ListNodesInFlowResultSuccess,
     SetFlowMetadataRequest,
 )
-from griptape_nodes.retained_mode.events.node_events import GetFlowForNodeRequest, GetFlowForNodeResultSuccess
+from griptape_nodes.retained_mode.events.node_events import (
+    GetFlowForNodeRequest,
+    GetFlowForNodeResultSuccess,
+    GetNodeMetadataRequest,
+    GetNodeMetadataResultSuccess,
+    SetNodeMetadataRequest,
+    SetNodeMetadataResultSuccess,
+)
 from griptape_nodes.retained_mode.events.parameter_events import (
     GetParameterValueRequest,
     GetParameterValueResultSuccess,
@@ -32,6 +39,8 @@ from griptape_nodes.retained_mode.events.parameter_events import (
 
 # Add pyright ignore because this is a new event - we know it does exist
 from griptape_nodes.retained_mode.events.workflow_events import (
+    GetWorkflowShapeRequest,
+    GetWorkflowShapeResultSuccess,
     ImportWorkflowAsReferencedSubFlowRequest,
     ImportWorkflowAsReferencedSubFlowResultSuccess,
     ListCallableWorkflowsRequest,  # pyright: ignore[reportAttributeAccessIssue]
@@ -165,18 +174,21 @@ class SubflowWorkflowNode(SuccessFailureNode):
         node<->subflow link out of the saved workflow, preventing a whole class
         of serialization issues with flow name de-duplication.
 
-        The live subflow name is stored in ``metadata[SUBFLOW_NAME_KEY]``. It
-        serves purely as a runtime hint the editor reads to show the in-memory
-        subflow ("View Subflow" button); it is popped again on the next load.
+        The live subflow name is stored in the node's metadata under
+        ``SUBFLOW_NAME_KEY``. It serves purely as a runtime hint the editor reads
+        to show the in-memory subflow ("View Subflow" button); it is popped again
+        on the next load. It is read and written by request: in a worker this
+        node is a copy built for one run, and the hint belongs on the
+        orchestrator's node, which owns the subflow and outlives the run.
         """
         # Reuse the subflow we already imported, if it still exists.
-        tracked = self.metadata.get(SUBFLOW_NAME_KEY)
+        tracked = self._tracked_subflow_name()
         if tracked is not None:
             if self._flow_exists(tracked):
                 return tracked
             # It was torn down out from under us (e.g. parent-flow deletion);
             # drop the stale hint.
-            self.metadata.pop(SUBFLOW_NAME_KEY, None)
+            self._track_subflow(None)
 
         if not workflow_name or not WorkflowRegistry.has_workflow_with_name(workflow_name):
             return None
@@ -190,7 +202,7 @@ class SubflowWorkflowNode(SuccessFailureNode):
         if self._legacy_workflow == workflow_name:
             legacy_subflow = self._claim_legacy_serialised_flow()
             if legacy_subflow is not None:
-                self.metadata[SUBFLOW_NAME_KEY] = legacy_subflow
+                self._track_subflow(legacy_subflow)
                 return legacy_subflow
 
         # Resolve the parent flow for this node so the import knows where to
@@ -209,8 +221,23 @@ class SubflowWorkflowNode(SuccessFailureNode):
         )
         if not isinstance(result, ImportWorkflowAsReferencedSubFlowResultSuccess):
             return None
-        self.metadata[SUBFLOW_NAME_KEY] = result.created_flow_name
+        self._track_subflow(result.created_flow_name)
         return result.created_flow_name
+
+    def _tracked_subflow_name(self) -> str | None:
+        result = GriptapeNodes.handle_request(GetNodeMetadataRequest(node_name=self.name, broadcast_result=False))
+        if not isinstance(result, GetNodeMetadataResultSuccess):
+            msg = f"Failed to read which subflow this node imported: {result.result_details}"
+            raise RuntimeError(msg)  # noqa: TRY004
+        return result.metadata.get(SUBFLOW_NAME_KEY)
+
+    def _track_subflow(self, flow_name: str | None) -> None:
+        result = GriptapeNodes.handle_request(
+            SetNodeMetadataRequest(node_name=self.name, metadata={SUBFLOW_NAME_KEY: flow_name}, broadcast_result=False)
+        )
+        if not isinstance(result, SetNodeMetadataResultSuccess):
+            msg = f"Failed to record which subflow this node imported: {result.result_details}"
+            raise RuntimeError(msg)  # noqa: TRY004
 
     def _discard_subflow(self) -> None:
         """Delete the subflow this node owns, if it is still live, and stop
@@ -469,14 +496,15 @@ class SubflowWorkflowNode(SuccessFailureNode):
         # whose name collides with an existing one (e.g. 'Start Flow' -> 'Start
         # Flow_1'), which leaves the saved shape's node-name keys pointing at
         # nodes that no longer exist.
-        try:
-            shape = GriptapeNodes.WorkflowManager().extract_workflow_shape(workflow_name, flow_name=subflow_name)
-        except ValueError:
+        shape_result = GriptapeNodes.handle_request(
+            GetWorkflowShapeRequest(workflow_name=workflow_name, flow_name=subflow_name, broadcast_result=False)
+        )
+        if not isinstance(shape_result, GetWorkflowShapeResultSuccess):
             msg = f"Workflow '{workflow_name}' has no shape defined."
             self._set_status_results(was_successful=False, result_details=msg)
             self._handle_failure_exception(RuntimeError(msg))
             return
-        workflow_shape = WorkflowShape(inputs=shape["input"], outputs=shape["output"])
+        workflow_shape = shape_result.workflow_shape
 
         self._set_workflow_inputs(subflow_name, workflow_shape)
         result = await GriptapeNodes.ahandle_request(StartLocalSubflowRequest(flow_name=subflow_name))

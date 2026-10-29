@@ -11,7 +11,7 @@ Also retains regression coverage for issue #5134: when a child workflow is impor
 ``Start Flow`` / ``End Flow`` nodes collide with existing names, they are renamed
 (``Start Flow_1`` / ``End Flow_1``). The child's saved ``workflow_shape`` still holds the ORIGINAL
 names, so ``aprocess`` re-derives the shape from the freshly-imported subflow via
-``WorkflowManager.extract_workflow_shape`` instead of trusting the saved shape.
+``GetWorkflowShapeRequest`` instead of trusting the saved shape.
 """
 
 from __future__ import annotations
@@ -38,19 +38,28 @@ from griptape_nodes.retained_mode.events.flow_events import (
     SetFlowMetadataRequest,
     SetFlowMetadataResultSuccess,
 )
-from griptape_nodes.retained_mode.events.node_events import GetFlowForNodeRequest, GetFlowForNodeResultSuccess
+from griptape_nodes.retained_mode.events.node_events import (
+    GetFlowForNodeRequest,
+    GetFlowForNodeResultSuccess,
+    GetNodeMetadataRequest,
+    GetNodeMetadataResultSuccess,
+    SetNodeMetadataRequest,
+    SetNodeMetadataResultSuccess,
+)
 from griptape_nodes.retained_mode.events.parameter_events import (
     GetParameterValueRequest,
     GetParameterValueResultSuccess,
     SetParameterValueRequest,
 )
 from griptape_nodes.retained_mode.events.workflow_events import (
+    GetWorkflowShapeRequest,
+    GetWorkflowShapeResultFailure,
+    GetWorkflowShapeResultSuccess,
     ImportWorkflowAsReferencedSubFlowRequest,
     ImportWorkflowAsReferencedSubFlowResultSuccess,
     ListCallableWorkflowsResultSuccess,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-from griptape_nodes.retained_mode.managers.workflow_manager import WorkflowManager
 
 from griptape_nodes_library.engine.subflow_workflow_node import SubflowWorkflowNode
 
@@ -81,6 +90,20 @@ def _flow_metadata_result(live_flows: set[str], request: GetFlowMetadataRequest)
     return GetFlowMetadataResultFailure(result_details="not found")
 
 
+def _node_metadata_result(owner: SubflowWorkflowNode, request: Any) -> Any:
+    """Answer a node-metadata request from ``owner``, merging writes the way the engine's handler does.
+
+    ``owner`` is the node the engine holds under that name: the node itself in-process, the
+    orchestrator's node when the requester is a worker's copy. Returns None for any other request.
+    """
+    if isinstance(request, GetNodeMetadataRequest):
+        return GetNodeMetadataResultSuccess(metadata=owner.metadata, result_details="stubbed")
+    if isinstance(request, SetNodeMetadataRequest):
+        owner.metadata.update(request.metadata)
+        return SetNodeMetadataResultSuccess(result_details="stubbed")
+    return None
+
+
 def _capture_requests(monkeypatch: pytest.MonkeyPatch, live_flows: set[str]) -> list[Any]:
     """Install a ``handle_request`` that knows which flows are live and captures every request."""
     requests: list[Any] = []
@@ -97,16 +120,23 @@ def _capture_requests(monkeypatch: pytest.MonkeyPatch, live_flows: set[str]) -> 
 
 def _install_import_handler(
     monkeypatch: pytest.MonkeyPatch,
+    owner: SubflowWorkflowNode,
     *,
     live_flows: frozenset[str] | set[str] = frozenset(),
     parent_flow: str = "ParentFlow",
     created_flow: str = "sub",
 ) -> list[Any]:
-    """Install a ``handle_request`` that answers the import path and captures every request."""
+    """Install a ``handle_request`` that answers the import path and captures every request.
+
+    Node-metadata requests are answered from ``owner`` (see ``_node_metadata_result``).
+    """
     requests: list[Any] = []
 
     def _handle(request: Any) -> Any:
         requests.append(request)
+        metadata_result = _node_metadata_result(owner, request)
+        if metadata_result is not None:
+            return metadata_result
         if isinstance(request, GetFlowMetadataRequest):
             return _flow_metadata_result(set(live_flows), request)
         if isinstance(request, GetFlowForNodeRequest):
@@ -122,10 +152,10 @@ def _install_import_handler(
 
 
 @pytest.fixture
-def workflow_manager(monkeypatch: pytest.MonkeyPatch, shape_param: dict[str, Any]) -> Mock:
-    """Stub the engine calls ``aprocess`` makes up to the routing step, with the subflow already live.
+def aprocess_env(monkeypatch: pytest.MonkeyPatch, shape_param: dict[str, Any]) -> None:
+    """Stub the engine calls ``aprocess`` makes outside ``handle_request``.
 
-    Returns the ``WorkflowManager`` mock so each test can configure ``extract_workflow_shape``.
+    Each test installs its own ``handle_request``, which answers ``GetWorkflowShapeRequest``.
     """
     monkeypatch.setattr(WorkflowRegistry, "has_workflow_with_name", lambda _name: True)
 
@@ -141,14 +171,10 @@ def workflow_manager(monkeypatch: pytest.MonkeyPatch, shape_param: dict[str, Any
         lambda _name: SimpleNamespace(metadata=SimpleNamespace(workflow_shape=stale_shape)),
     )
 
-    manager = Mock(spec=WorkflowManager)
-    monkeypatch.setattr(GriptapeNodes, "WorkflowManager", lambda: manager)
-
     async def _ok(_request: Any) -> Mock:
         return Mock(spec=StartLocalSubflowResultSuccess)  # not a failure -> aprocess proceeds
 
     monkeypatch.setattr(GriptapeNodes, "ahandle_request", _ok)
-    return manager
 
 
 class TestLoadSubflowImportsTransient:
@@ -158,7 +184,7 @@ class TestLoadSubflowImportsTransient:
         self, node: SubflowWorkflowNode, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(WorkflowRegistry, "has_workflow_with_name", lambda _name: True)
-        requests = _install_import_handler(monkeypatch, created_flow="sub")  # nothing live yet
+        requests = _install_import_handler(monkeypatch, node, created_flow="sub")  # nothing live yet
 
         result = node._load_subflow("child")
 
@@ -178,7 +204,7 @@ class TestLoadSubflowImportsTransient:
     ) -> None:
         monkeypatch.setattr(WorkflowRegistry, "has_workflow_with_name", lambda _name: True)
         node.metadata["subflow_name"] = "sub"
-        requests = _install_import_handler(monkeypatch, live_flows={"sub"})
+        requests = _install_import_handler(monkeypatch, node, live_flows={"sub"})
 
         result = node._load_subflow("child")
 
@@ -192,7 +218,7 @@ class TestLoadSubflowImportsTransient:
         # Tracked name points at a flow that was torn down (e.g. parent flow deleted) -> re-import.
         monkeypatch.setattr(WorkflowRegistry, "has_workflow_with_name", lambda _name: True)
         node.metadata["subflow_name"] = "gone"
-        requests = _install_import_handler(monkeypatch, created_flow="sub_2")  # "gone" is not live
+        requests = _install_import_handler(monkeypatch, node, created_flow="sub_2")  # "gone" is not live
 
         result = node._load_subflow("child")
 
@@ -204,10 +230,35 @@ class TestLoadSubflowImportsTransient:
         self, node: SubflowWorkflowNode, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(WorkflowRegistry, "has_workflow_with_name", lambda _name: False)
-        requests = _install_import_handler(monkeypatch)
+        requests = _install_import_handler(monkeypatch, node)
 
         assert node._load_subflow("child") is None
         assert not [r for r in requests if isinstance(r, ImportWorkflowAsReferencedSubFlowRequest)]
+
+    def test_worker_copy_tracks_the_subflow_on_the_orchestrators_node(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A worker runs a fresh copy each time, so the hint has to live on the orchestrator's node.
+
+        The copy is built from the orchestrator node's metadata, which pops the hint, so a hint kept
+        on the copy would be gone by the next run and every run would import another subflow.
+        """
+        monkeypatch.setattr(WorkflowRegistry, "has_workflow_with_name", lambda _name: True)
+        orchestrator_node = _make_node_with_metadata(monkeypatch, {})
+
+        def _worker_copy() -> SubflowWorkflowNode:
+            return _make_node_with_metadata(monkeypatch, orchestrator_node.metadata)
+
+        first_copy = _worker_copy()
+        first_run = _install_import_handler(monkeypatch, orchestrator_node, created_flow="sub")
+        assert first_copy._load_subflow("child") == "sub"
+
+        second_copy = _worker_copy()
+        second_run = _install_import_handler(monkeypatch, orchestrator_node, live_flows={"sub"})
+        assert second_copy._load_subflow("child") == "sub"
+
+        assert orchestrator_node.metadata["subflow_name"] == "sub"
+        assert "subflow_name" not in second_copy.metadata
+        imports = [r for r in first_run + second_run if isinstance(r, ImportWorkflowAsReferencedSubFlowRequest)]
+        assert len(imports) == 1
 
 
 class TestDiscardSubflow:
@@ -261,22 +312,22 @@ class TestAprocessReDerivesShapeFromSubflow:
     whose node names may have been renamed on import.
     """
 
+    @pytest.mark.usefixtures("aprocess_env")
     @pytest.mark.asyncio
     async def test_routes_io_to_renamed_subflow_nodes(
         self,
         node: SubflowWorkflowNode,
         monkeypatch: pytest.MonkeyPatch,
         shape_param: dict[str, Any],
-        workflow_manager: Mock,
     ) -> None:
         # The subflow is already live; aprocess reuses it.
         node.metadata["subflow_name"] = "sub"
 
-        # The live subflow's Start/End were renamed on import; extract reports the live names.
-        workflow_manager.extract_workflow_shape.return_value = {
-            "input": {"Start Flow_1": {"text_in": shape_param}},
-            "output": {"End Flow_1": {"text_out": shape_param}},
-        }
+        # The live subflow's Start/End were renamed on import; the shape request reports the live names.
+        live_shape = WorkflowShape(
+            inputs={"Start Flow_1": {"text_in": shape_param}},
+            outputs={"End Flow_1": {"text_out": shape_param}},
+        )
 
         # The node carries the input value to forward and an output slot to receive.
         node.add_parameter(
@@ -298,8 +349,13 @@ class TestAprocessReDerivesShapeFromSubflow:
 
         def _handle(request: Any) -> Any:
             requests.append(request)
+            metadata_result = _node_metadata_result(node, request)
+            if metadata_result is not None:
+                return metadata_result
             if isinstance(request, GetFlowMetadataRequest):
                 return _flow_metadata_result({"sub"}, request)
+            if isinstance(request, GetWorkflowShapeRequest) and request.flow_name == "sub":
+                return GetWorkflowShapeResultSuccess(workflow_shape=live_shape, result_details="stubbed")
             if isinstance(request, ListNodesInFlowRequest) and request.flow_name == "sub":
                 return ListNodesInFlowResultSuccess(node_names=["Start Flow_1", "End Flow_1"], result_details="stubbed")
             if isinstance(request, GetParameterValueRequest) and request.node_name == "End Flow_1":
@@ -320,14 +376,25 @@ class TestAprocessReDerivesShapeFromSubflow:
         # ...and output collected from the renamed end node.
         assert node.parameter_output_values["text_out"] == "world"
 
+    @pytest.mark.usefixtures("aprocess_env")
     @pytest.mark.asyncio
     async def test_missing_shape_reports_failure(
-        self, node: SubflowWorkflowNode, workflow_manager: Mock, monkeypatch: pytest.MonkeyPatch
+        self, node: SubflowWorkflowNode, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         node.metadata["subflow_name"] = "sub"
-        _capture_requests(monkeypatch, {"sub"})
-        # extract_workflow_shape raises ValueError when the subflow has no Start/End nodes.
-        workflow_manager.extract_workflow_shape.side_effect = ValueError("no start/end nodes")
+
+        def _handle(request: Any) -> Any:
+            metadata_result = _node_metadata_result(node, request)
+            if metadata_result is not None:
+                return metadata_result
+            if isinstance(request, GetFlowMetadataRequest):
+                return _flow_metadata_result({"sub"}, request)
+            if isinstance(request, GetWorkflowShapeRequest):
+                # The engine fails the request when the subflow has no Start or End node.
+                return GetWorkflowShapeResultFailure(result_details="no start/end nodes")
+            return None
+
+        monkeypatch.setattr(GriptapeNodes, "handle_request", _handle)
 
         # The failure output is unconnected on a bare node, so the failure re-raises.
         with pytest.raises(RuntimeError, match="has no shape defined"):
@@ -352,6 +419,7 @@ def _install_legacy_env(
     flows: dict[str, SimpleNamespace],
     parents: dict[str, str],
     node_flow: str = "ParentFlow",
+    owner: SubflowWorkflowNode | None = None,
 ) -> list[Any]:
     """Stub the engine surface ``_claim_legacy_serialised_flow`` walks and capture every request.
 
@@ -360,12 +428,17 @@ def _install_legacy_env(
     ``GetFlowMetadataRequest`` reports each flow's metadata (or failure when absent);
     ``GetFlowDetailsRequest`` reports each flow's parent + referenced workflow; ``SetFlowMetadataRequest``
     is mirrored onto the stub flow's metadata so a claim's transient flag is visible to a subsequent
-    scan (as the real merge handler would make it).
+    scan (as the real merge handler would make it). Node-metadata requests are answered from ``owner``
+    when given (see ``_node_metadata_result``).
     """
     requests: list[Any] = []
 
     def _handle(request: Any) -> Any:
         requests.append(request)
+        if owner is not None:
+            metadata_result = _node_metadata_result(owner, request)
+            if metadata_result is not None:
+                return metadata_result
         if isinstance(request, GetFlowForNodeRequest):
             return GetFlowForNodeResultSuccess(flow_name=node_flow, result_details="stubbed")
         if isinstance(request, GetFlowMetadataRequest):
@@ -515,7 +588,7 @@ class TestLoadSubflowAdoptsLegacy:
         monkeypatch.setattr(WorkflowRegistry, "has_workflow_with_name", lambda _name: True)
         node = _make_legacy_node(monkeypatch, "Workflow Node", recorded="ControlFlow_2", workflow="child")
         flows = {"ControlFlow_2": _legacy_flow("ControlFlow_2", "child")}
-        requests = _install_legacy_env(monkeypatch, flows=flows, parents={"ControlFlow_2": "ParentFlow"})
+        requests = _install_legacy_env(monkeypatch, flows=flows, parents={"ControlFlow_2": "ParentFlow"}, owner=node)
 
         assert node._load_subflow("child") == "ControlFlow_2"
         assert node.metadata.get("subflow_name") == "ControlFlow_2"
@@ -529,7 +602,7 @@ class TestLoadSubflowAdoptsLegacy:
         monkeypatch.setattr(WorkflowRegistry, "has_workflow_with_name", lambda _name: True)
         node = _make_legacy_node(monkeypatch, "Workflow Node", recorded="ControlFlow_2", workflow="child")
         flows = {"ControlFlow_2": _legacy_flow("ControlFlow_2", "child")}
-        requests = _install_legacy_env(monkeypatch, flows=flows, parents={"ControlFlow_2": "ParentFlow"})
+        requests = _install_legacy_env(monkeypatch, flows=flows, parents={"ControlFlow_2": "ParentFlow"}, owner=node)
 
         node._load_subflow("other")
 
