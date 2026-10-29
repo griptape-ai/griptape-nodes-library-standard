@@ -5,13 +5,13 @@ version/get: ## Get version.
 	@jq -r '.metadata.library_version' griptape_nodes_library.json
 
 .PHONY: version/set
-version/set: ## Set version. Usage: make version/set v=1.2.3
+version/set: changelog/assert-committed ## Set version. Usage: make version/set v=1.2.3
 	@jq --arg v "$(v)" '.metadata.library_version = $$v' griptape_nodes_library.json > griptape_nodes_library.json.tmp
 	@mv griptape_nodes_library.json.tmp griptape_nodes_library.json
 	@make version/commit
 
 .PHONY: version/patch
-version/patch: ## Bump patch version.
+version/patch: changelog/assert-committed ## Bump patch version.
 	@CURRENT=$$($(MAKE) --no-print-directory version/get); \
 	IFS='.' read -r major minor patch <<< "$$CURRENT"; \
 	NEW_VERSION="$${major}.$${minor}.$$((patch + 1))"; \
@@ -21,7 +21,7 @@ version/patch: ## Bump patch version.
 	@$(MAKE) --no-print-directory version/commit
 
 .PHONY: version/minor
-version/minor: ## Bump minor version.
+version/minor: changelog/assert-committed ## Bump minor version.
 	@CURRENT=$$($(MAKE) --no-print-directory version/get); \
 	IFS='.' read -r major minor patch <<< "$$CURRENT"; \
 	NEW_VERSION="$${major}.$$((minor + 1)).0"; \
@@ -31,7 +31,7 @@ version/minor: ## Bump minor version.
 	@$(MAKE) --no-print-directory version/commit
 
 .PHONY: version/major
-version/major: ## Bump major version.
+version/major: changelog/assert-committed ## Bump major version.
 	@CURRENT=$$($(MAKE) --no-print-directory version/get); \
 	IFS='.' read -r major minor patch <<< "$$CURRENT"; \
 	NEW_VERSION="$$((major + 1)).0.0"; \
@@ -41,9 +41,20 @@ version/major: ## Bump major version.
 	@$(MAKE) --no-print-directory version/commit
 
 .PHONY: version/commit
-version/commit: ## Commit version.
-	@git add griptape_nodes_library.json
-	@git commit -m "chore: bump v$$($(MAKE) --no-print-directory version/get)"
+version/commit: ## Roll the changelog into the version, then commit both.
+	@uv run --no-project python scripts/changelog.py roll $$($(MAKE) --no-print-directory version/get) --allow-empty
+	@git commit -m "chore: bump v$$($(MAKE) --no-print-directory version/get)" -- griptape_nodes_library.json CHANGELOG.md changelog.d
+
+# The roll overwrites CHANGELOG.md and deletes the entry files, and the bump commits whatever it left,
+# so an entry still being written would ship half-finished or be lost. The library JSON is covered too:
+# a bump whose roll failed leaves the new version there, and bumping again from it skips a version.
+.PHONY: changelog/assert-committed
+changelog/assert-committed:
+	@git diff --quiet HEAD -- griptape_nodes_library.json CHANGELOG.md changelog.d \
+		&& test -z "$$(git ls-files --others --exclude-standard -- changelog.d)" \
+		|| { echo "griptape_nodes_library.json, CHANGELOG.md, or changelog.d holds changes that are not committed."; \
+			echo "Commit or stash them first. If a version bump stopped partway, undo it with:"; \
+			echo "  git restore griptape_nodes_library.json CHANGELOG.md changelog.d"; exit 1; }
 
 .PHONY: version/publish
 version/publish: ## Create and push git tags.
@@ -95,7 +106,7 @@ fix: ## Fix project.
 	@uv run ruff check --fix --unsafe-fixes
 
 .PHONY: check
-check: check/format check/lint check/types check/json ## Run all checks.
+check: check/format check/lint check/types check/json check/changelog ## Run all checks.
 
 .PHONY: check/format
 check/format:
@@ -116,6 +127,14 @@ check/json: ## Validate JSON files.
 		! -path "./.venv/*" \
 		! -path "./node_modules/*" \
 		-exec sh -c 'jq empty "{}" > /dev/null 2>&1 || (echo "Invalid JSON: {}" && exit 1)' \;
+
+.PHONY: check/changelog
+check/changelog: ## Check CHANGELOG.md and the changelog.d entries follow Keep a Changelog.
+	@uv run --no-project python scripts/changelog.py check
+
+.PHONY: changelog
+changelog: ## Print [Unreleased] as the next version will show it, changelog.d entries folded in.
+	@uv run --no-project python scripts/changelog.py render
 
 .PHONY: test
 test: ## Run all tests.
