@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 import jmespath  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
@@ -8,6 +9,8 @@ from griptape_nodes.retained_mode.events.parameter_events import SetParameterVal
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.json.json_utils import parse_json_input
+
+logger = logging.getLogger("griptape_nodes")
 
 
 class JsonExtractValue(DataNode):
@@ -75,14 +78,31 @@ class JsonExtractValue(DataNode):
 
         # Success path at the end - return raw Python value (no JSON serialization needed)
         # JMESPath already returns the correct Python types (str, dict, list, etc.)
+        self._update_output_parameter(result)
+
+    def _update_output_parameter(self, result: Any) -> None:
+        """Set and publish the output."""
         GriptapeNodes.handle_request(
             SetParameterValueRequest(parameter_name="output", value=result, node_name=self.name)
         )
         self.publish_update_to_parameter("output", result)
 
+    def _preview_extraction(self) -> None:
+        """Update the output while the user edits. Input that cannot be parsed yet clears the output.
+
+        Raising here would leave the new input stored on a node that still looks resolved, so parse
+        errors are caught. process() raises the same error on a real run.
+        """
+        try:
+            self._perform_extraction()
+        except ValueError as e:
+            # Clear the output so it never shows a result for input it no longer matches.
+            self._update_output_parameter(None)
+            logger.debug("%s: skipped preview: %s", self.name, e)
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name in ["json", "path"]:
-            self._perform_extraction()
+            self._preview_extraction()
 
         return super().after_value_set(parameter, value)
 
