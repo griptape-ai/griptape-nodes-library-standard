@@ -61,6 +61,7 @@ NODE_MODEL_CASES: list[tuple[str, str, str, str]] = [
     ("JevPickOne", "gtc_jev_preview", "jev-preview", "model"),
     ("JevRate", "gtc_jev_preview", "jev-preview", "model"),
     ("ElevenLabsTextToSpeechGeneration", "gtc_eleven_multilingual_v2", "eleven_multilingual_v2", "model"),
+    ("ElevenLabsSoundEffectGeneration", "gtc_eleven_text_to_sound_v3", "eleven_text_to_sound_v3", "model"),
     (
         "OmnihumanSubjectRecognition",
         "gtc_omnihuman_1_5_subject_recognition",
