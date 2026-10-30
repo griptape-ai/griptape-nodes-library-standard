@@ -49,8 +49,8 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
     Inputs:
         - image (ImageArtifact|ImageUrlArtifact|str): Start frame image (required)
-        - image_tail (ImageArtifact|ImageUrlArtifact|str): End frame image (optional, v2.1+ pro mode only)
-        - model_name (str): Model to use (default: Kling v2.6)
+        - image_tail (ImageArtifact|ImageUrlArtifact|str): End frame image (optional, pro mode only)
+        - model_name (str): Model to use (default: Kling v3.0)
         - multi_shot (bool): Enable multi-shot mode (Kling v3.0 only)
         - shot_type (str): Multi-shot type (customize/intelligence, Kling v3.0 only when multi_shot=true)
         - prompt (str): Text prompt for video generation (max 2500 chars)
@@ -72,30 +72,31 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         - result_details (str): Details about the generation result or error
     """
 
-    # Migrates values saved before the dropdown stored the provider's own model id (old
-    # display labels and catalog keys), plus models Kling has discontinued. Kling returns
-    # 404 for kling-v1-6, kling-v2-master, and kling-v2-1-master, so a saved workflow
-    # referencing one migrates to kling-v2-6 rather than calling through.
+    # Migrates old display labels and catalog keys to provider IDs. Image-to-video
+    # models Kling has retired resolve to v2.6 so saved 5/10s durations still work.
     LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
-        "Kling v1": "kling-v1",
-        "Kling v1.5": "kling-v1-5",
+        "Kling v1": "kling-v2-6",
+        "Kling v1.5": "kling-v2-6",
         "Kling v1.6": "kling-v2-6",
         "Kling v2 Master": "kling-v2-6",
-        "Kling v2.1": "kling-v2-1",
+        "Kling v2.1": "kling-v2-6",
         "Kling v2.1 Master": "kling-v2-6",
         "Kling v2.5 Turbo": "kling-v2-5-turbo",
         "Kling v2.6": "kling-v2-6",
         "Kling v3.0": "kling-v3",
-        "gtc_kling_v1": "kling-v1",
-        "gtc_kling_v1_5": "kling-v1-5",
+        "gtc_kling_v1": "kling-v2-6",
+        "gtc_kling_v1_5": "kling-v2-6",
         "gtc_kling_v1_6": "kling-v2-6",
-        "gtc_kling_v2_1": "kling-v2-1",
+        "gtc_kling_v2_1": "kling-v2-6",
         "gtc_kling_v2_1_master": "kling-v2-6",
         "gtc_kling_v2_5_turbo": "kling-v2-5-turbo",
         "gtc_kling_v2_6": "kling-v2-6",
         "gtc_kling_v2_master": "kling-v2-6",
         "gtc_kling_v3": "kling-v3",
+        "kling-v1": "kling-v2-6",
+        "kling-v1-5": "kling-v2-6",
         "kling-v1-6": "kling-v2-6",
+        "kling-v2-1": "kling-v2-6",
         "kling-v2-1-master": "kling-v2-6",
         "kling-v2-master": "kling-v2-6",
     }
@@ -109,26 +110,6 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             "supports_sound": False,
             "supports_tail_frame": True,
             "supports_multi_shot": True,
-        },
-        "kling-v1": {
-            "modes": BASE_MODE_CHOICES,
-            "durations": [5, 10],
-            "supports_sound": False,
-            "supports_tail_frame": True,
-            # tail frame only works at 5s — enforced in validation
-            "tail_frame_durations": [5],
-        },
-        "kling-v1-5": {
-            "modes": BASE_MODE_CHOICES,
-            "durations": [5, 10],
-            "supports_sound": False,
-            "supports_tail_frame": True,  # pro mode only — enforced by existing pro-mode validation
-        },
-        "kling-v2-1": {
-            "modes": BASE_MODE_CHOICES,
-            "durations": [5, 10],
-            "supports_sound": False,
-            "supports_tail_frame": True,  # pro mode only
         },
         "kling-v2-5-turbo": {
             "modes": BASE_MODE_CHOICES,
@@ -165,13 +146,13 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 "kling-v3",
                 "kling-v2-6",
                 "kling-v2-5-turbo",
-                "kling-v2-1",
-                "kling-v1-5",
-                "kling-v1",
             ],
             default_model="kling-v3",
             deprecated_values=self.LEGACY_MODEL_VALUES,
         )
+        # Restored workflows replay their saved dropdown after construction, including
+        # retired choices. Repair it after the component migrates the stored value.
+        model_name_param.add_converter(self._repair_replayed_model_dropdown)
 
         # Prompts
         self.add_parameter(
@@ -378,6 +359,21 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
         self.set_initial_node_size(height=1145)
 
+    def _repair_replayed_model_dropdown(self, value: Any) -> Any:
+        """Replace restored dropdown choices and rows with the current model list."""
+        parameter = self.get_parameter_by_name("model_name")
+        if parameter is None or self._model_access is None:
+            return value
+        options = parameter.find_elements_by_type(Options)
+        if options and (
+            options[0].choices != [*self._model_access.model_choices, *self.LEGACY_MODEL_VALUES]
+            or [row["name"] for row in parameter.ui_options.get("data", [])] != self._model_access.model_choices
+        ):
+            # Reinstalling without removing the old trait leaves its converter active.
+            parameter.remove_trait(options[0])
+            self._model_access.reinstall_options()
+        return value
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to show/hide dependent parameters."""
         super().after_value_set(parameter, value)
@@ -386,22 +382,17 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             self._update_parameter_visibility_for_model(value)
             self._update_multi_shot_parameter_visibility()
             self._update_duration_choices()
-        elif parameter.name == "image_tail":
-            self._update_duration_choices()
         elif parameter.name in {"multi_shot", "shot_type", "shot_count"}:
             self._update_multi_shot_parameter_visibility()
         elif parameter.name == "mode":
             self._update_mode_dependent_features()
 
     def _update_duration_choices(self) -> None:
-        """Update duration dropdown based on current model and image_tail state."""
+        """Update duration dropdown based on the current model."""
         model_name = self.get_parameter_value("model_name") or "kling-v3"
         model_id = model_name
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
         new_durations = list(capabilities.get("durations", [5, 10]))
-        # kling-v1: end frame restricts to 5s only
-        if self.get_parameter_value("image_tail") and capabilities.get("tail_frame_durations"):
-            new_durations = list(capabilities["tail_frame_durations"])
         current_duration = self.get_parameter_value("duration")
         if current_duration in new_durations:
             self._update_option_choices("duration", new_durations, current_duration)  # type: ignore[arg-type]
@@ -948,16 +939,6 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
             if supports_tail and mode != "pro":
                 exceptions.append(ValueError("'End Frame' requires pro mode."))
-
-            # kling-v1 tail frame only works at 5s
-            tail_frame_durations = capabilities.get("tail_frame_durations")
-            if supports_tail and tail_frame_durations and duration not in tail_frame_durations:
-                exceptions.append(
-                    ValueError(
-                        f"{model_name} only supports 'End Frame' with a "
-                        f"{tail_frame_durations}s duration (got {duration}s)."
-                    )
-                )
 
         # Validate dynamic_masks JSON if provided
         if dynamic_masks:

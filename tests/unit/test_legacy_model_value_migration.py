@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.node_library.library_registry import LibraryRegistry
+from griptape_nodes.traits.options import Options
 
 if TYPE_CHECKING:
     from griptape_nodes.exe_types.core_types import Parameter
@@ -165,13 +166,22 @@ EXPLICIT_LEGACY_VALUES: dict[str, dict[str, str]] = {
         "kling-v2-1-master": "kling-v2-6",
     },
     "KlingImageToVideoGeneration": {
+        "Kling v1": "kling-v2-6",
+        "Kling v1.5": "kling-v2-6",
         "Kling v1.6": "kling-v2-6",
         "Kling v2 Master": "kling-v2-6",
+        "Kling v2.1": "kling-v2-6",
         "Kling v2.1 Master": "kling-v2-6",
+        "gtc_kling_v1": "kling-v2-6",
+        "gtc_kling_v1_5": "kling-v2-6",
         "gtc_kling_v1_6": "kling-v2-6",
         "gtc_kling_v2_master": "kling-v2-6",
+        "gtc_kling_v2_1": "kling-v2-6",
         "gtc_kling_v2_1_master": "kling-v2-6",
+        "kling-v1": "kling-v2-6",
+        "kling-v1-5": "kling-v2-6",
         "kling-v1-6": "kling-v2-6",
+        "kling-v2-1": "kling-v2-6",
         "kling-v2-master": "kling-v2-6",
         "kling-v2-1-master": "kling-v2-6",
     },
@@ -277,3 +287,26 @@ def test_specific_historical_values_migrate(node_type: str) -> None:
             f"{node_type}: legacy value {legacy_value!r} migrated to {migrated!r}, expected {canonical_value!r}"
         )
         assert canonical_value in offered_names
+
+
+@pytest.mark.parametrize("saved_model", ["kling-v1", "kling-v1-5", "kling-v2-1"])
+def test_kling_image_retired_model_repairs_saved_dropdown(saved_model: str) -> None:
+    node = _create_node("KlingImageToVideoGeneration")
+    parameter = node.get_parameter_by_name("model_name")
+    assert parameter is not None
+    live_models = ["kling-v3", "kling-v2-6", "kling-v2-5-turbo"]
+    initial_choices = list(parameter.find_elements_by_type(Options)[0].choices)
+
+    # A saved workflow restores options after node construction, before the value.
+    parameter.ui_options = {
+        **parameter.ui_options,
+        "simple_dropdown": [saved_model, "kling-v2-6"],
+        "data": [{"name": saved_model}, {"name": "kling-v2-6"}],
+    }
+    node.set_parameter_value("model_name", saved_model)
+
+    assert node.get_parameter_value("model_name") == "kling-v2-6"
+    assert [row["name"] for row in parameter.ui_options["data"]] == live_models
+    assert parameter.ui_options["simple_dropdown"] == initial_choices
+    assert parameter.find_elements_by_type(Options)[0].choices == initial_choices
+    assert len(parameter.find_elements_by_type(Options)) == 1
