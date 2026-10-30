@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
+import time
+from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import pytest
@@ -14,13 +18,24 @@ import griptape_nodes_library.video.load_video as load_video_module
 from griptape_nodes_library.utils.macro_path_utils import MacroPathResult
 from griptape_nodes_library.video.load_video import LoadVideo
 
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
 _MACRO_PATH = "{inputs}/video.mp4"
+_PROBE_SECONDS = 2.0
 
 
 class TestLoadVideoProcess:
     @pytest.fixture
     def node(self, griptape_nodes: GriptapeNodes) -> LoadVideo:  # noqa: ARG002
         return LoadVideo(name="test_load_video")
+
+    @pytest.fixture(params=["process", "aprocess"])
+    def run_node(self, request: pytest.FixtureRequest) -> Callable[[LoadVideo], None]:
+        """Run the node through the sync entry point or the async one the engine calls."""
+        if request.param == "process":
+            return lambda node: node.process()
+        return lambda node: asyncio.run(node.aprocess())
 
     @pytest.fixture
     def mock_update_external_file_controls(self, monkeypatch: pytest.MonkeyPatch) -> Mock:
@@ -53,6 +68,7 @@ class TestLoadVideoProcess:
     def test_relative_video_url_artifact(
         self,
         node: LoadVideo,
+        run_node: Callable[[LoadVideo], None],
         mock_update_external_file_controls: Mock,
         mock_resolve_to_macro_path: Mock,
         mock_file_cls: Mock,
@@ -62,7 +78,7 @@ class TestLoadVideoProcess:
 
         node.parameter_values["video"] = VideoUrlArtifact(_MACRO_PATH)
 
-        node.process()
+        run_node(node)
 
         mock_update_external_file_controls.assert_called_once_with(
             mock_resolve_to_macro_path.return_value, node._external_warning, node._copy_button, node.name, "video"
@@ -78,6 +94,7 @@ class TestLoadVideoProcess:
     def test_relative_video_url_artifact_fails_to_resolve(
         self,
         node: LoadVideo,
+        run_node: Callable[[LoadVideo], None],
         monkeypatch: pytest.MonkeyPatch,
         mock_update_external_file_controls: Mock,
         mock_resolve_to_macro_path: Mock,
@@ -96,7 +113,7 @@ class TestLoadVideoProcess:
         node.parameter_values["path"] = "some_path"
         node.parameter_values["video"] = VideoUrlArtifact(_MACRO_PATH)
 
-        node.process()
+        run_node(node)
 
         mock_update_external_file_controls.assert_called_once_with(
             mock_resolve_to_macro_path.return_value, node._external_warning, node._copy_button, node.name, "video"
@@ -116,6 +133,7 @@ class TestLoadVideoProcess:
     def test_external_video_url_artifact(
         self,
         node: LoadVideo,
+        run_node: Callable[[LoadVideo], None],
         mock_update_external_file_controls: Mock,
         mock_resolve_to_macro_path: Mock,
         mock_file_cls: Mock,
@@ -126,7 +144,7 @@ class TestLoadVideoProcess:
         node.parameter_values["path"] = "some_path"
         node.parameter_values["video"] = VideoUrlArtifact(_MACRO_PATH)
 
-        node.process()
+        run_node(node)
 
         mock_update_external_file_controls.assert_called_once_with(
             mock_resolve_to_macro_path.return_value, node._external_warning, node._copy_button, node.name, "video"
@@ -142,6 +160,7 @@ class TestLoadVideoProcess:
     def test_not_a_video_url_artifact(
         self,
         node: LoadVideo,
+        run_node: Callable[[LoadVideo], None],
         mock_update_external_file_controls: Mock,
         mock_resolve_to_macro_path: Mock,
         mock_file_cls: Mock,
@@ -150,7 +169,7 @@ class TestLoadVideoProcess:
         node.parameter_values["path"] = "some_path"
         node.parameter_values["video"] = "something"
 
-        node.process()
+        run_node(node)
 
         mock_update_external_file_controls.assert_not_called()
         mock_resolve_to_macro_path.assert_not_called()
@@ -159,3 +178,53 @@ class TestLoadVideoProcess:
 
         assert node.parameter_output_values["video"] == "something"
         assert node.parameter_output_values["path"] == "some_path"
+
+    @pytest.fixture
+    def probe_release(self, mock_extract_video_player_metadata: Mock) -> Iterator[threading.Event]:
+        """Make the metadata probe block until released, like ffprobe on a slow or unreadable file."""
+        release = threading.Event()
+
+        def slow_probe(_video_path: str) -> dict:
+            release.wait(timeout=_PROBE_SECONDS)
+            return {"duration": 1.0}
+
+        mock_extract_video_player_metadata.side_effect = slow_probe
+        yield release
+        release.set()
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("mock_update_external_file_controls", "mock_resolve_to_macro_path", "mock_file_cls")
+    async def test_aprocess_probe_does_not_block_event_loop(
+        self, node: LoadVideo, probe_release: threading.Event
+    ) -> None:
+        node.parameter_values["video"] = VideoUrlArtifact(_MACRO_PATH)
+
+        task = asyncio.create_task(node.aprocess())
+        started = time.monotonic()
+        await asyncio.sleep(0.01)
+
+        assert time.monotonic() - started < _PROBE_SECONDS / 2
+        assert not task.done()
+
+        probe_release.set()
+        await task
+        assert node.parameter_output_values["video"].value == _MACRO_PATH
+        assert node.parameter_output_values["video"].meta == {"duration": 1.0}
+        assert node.parameter_output_values["path"] == _MACRO_PATH
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("mock_update_external_file_controls", "mock_resolve_to_macro_path", "mock_file_cls")
+    async def test_aprocess_cancel_lands_while_probe_runs(
+        self, node: LoadVideo, probe_release: threading.Event
+    ) -> None:
+        node.parameter_values["video"] = VideoUrlArtifact(_MACRO_PATH)
+
+        task = asyncio.create_task(node.aprocess())
+        await asyncio.sleep(0.01)
+        started = time.monotonic()
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert time.monotonic() - started < _PROBE_SECONDS / 2
+        probe_release.set()

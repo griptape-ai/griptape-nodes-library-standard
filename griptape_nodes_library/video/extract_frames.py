@@ -31,10 +31,6 @@ from griptape_nodes.retained_mode.events.os_events import (
     ScanSequencesRequest,
     ScanSequencesResultSuccess,
 )
-from griptape_nodes.retained_mode.events.static_file_events import (
-    CreateStaticFileDownloadUrlFromPathRequest,
-    CreateStaticFileDownloadUrlFromPathResultSuccess,
-)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.retained_mode import RetainedMode
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
@@ -232,6 +228,7 @@ class ExtractFrames(SuccessFailureNode):
                 placeholder_text="This will be automatically set to the output directory",
             )
         )
+        self._fps_probed_source: str | None = None
         self.progress_component = ProgressBarComponent(self)
         self.progress_component.add_property_parameters()
         self._create_status_parameters(
@@ -245,21 +242,7 @@ class ExtractFrames(SuccessFailureNode):
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         match parameter.name:
             case "input_video":
-                url = self._resolve_video_url(value)
-                current = self.parameter_values.get("input_video", "")
-                current_base = str(current).split("?")[0] if current else ""
-                if url:
-                    if url.split("?")[0] != current_base:
-                        self.set_parameter_value("input_video", url)
-                        try:
-                            fps = self._get_video_fps(url)
-                            if fps:
-                                self.set_parameter_value("_video_fps", fps)
-                                self.publish_update_to_parameter("_video_fps", fps)
-                        except Exception:
-                            logger.warning("%s: could not detect video FPS", self.name, exc_info=True)
-                elif current_base:
-                    self.set_parameter_value("input_video", "")
+                self._update_video_fps(value)
             case "directory":
                 if value and not str(value).startswith("{"):
                     result = resolve_to_macro_path(str(value))
@@ -298,23 +281,6 @@ class ExtractFrames(SuccessFailureNode):
         return exceptions or None
 
     # ── Video URL resolution ────────────────────────────────────────────────────
-
-    def _resolve_video_url(self, raw_value: Any) -> str | None:
-        """Resolve a video input value to an HTTP URL the widget can play."""
-        if not raw_value:
-            return None
-        file_path = raw_value.value if hasattr(raw_value, "value") else str(raw_value)
-        if not file_path:
-            return None
-        if str(file_path).startswith(("http://", "https://", "blob:", "data:")):
-            return str(file_path)
-        try:
-            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=str(file_path)))
-            if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
-                return result.url
-        except Exception:
-            logger.warning("%s: failed to resolve video URL for %s", self.name, file_path, exc_info=True)
-        return None
 
     def _resolve_video_for_ffmpeg(self, raw_video: Any) -> str:
         """Resolve the video input to a path or URL ffmpeg can read."""
@@ -379,6 +345,23 @@ class ExtractFrames(SuccessFailureNode):
     def _get_video_fps(self, video_url: str) -> float | None:
         fps, _ = self._probe_video(video_url)
         return fps if fps else None
+
+    def _update_video_fps(self, raw_video: Any) -> None:
+        """Detect the video's frame rate for the frame selector, once per video."""
+        if not raw_video:
+            return
+        try:
+            video_source = self._resolve_video_for_ffmpeg(raw_video)
+            # Upstream nodes send the same video again on every run.
+            if video_source == self._fps_probed_source:
+                return
+            self._fps_probed_source = video_source
+            fps = self._get_video_fps(video_source)
+            if fps:
+                self.set_parameter_value("_video_fps", fps)
+                self.publish_update_to_parameter("_video_fps", fps)
+        except Exception:
+            logger.warning("%s: could not detect video FPS", self.name, exc_info=True)
 
     # ── Frame list building ─────────────────────────────────────────────────────
 

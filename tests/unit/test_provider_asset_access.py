@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
 import pytest
+from griptape_nodes.retained_mode.events.secrets_events import GetSecretValueRequest, GetSecretValueResultSuccess
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 import griptape_nodes_library.proxy.provider_asset_access as access_module
 from griptape_nodes_library.proxy.provider_asset_access import (
@@ -142,16 +146,21 @@ def test_missing_api_key_is_indeterminate(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def _stub_secrets(monkeypatch: pytest.MonkeyPatch, secrets: dict[str, str | None]) -> None:
-    """Make GriptapeNodes.SecretsManager().get_secret() read from an in-memory dict.
+    """Make the GetSecretValueRequest lookup read from an in-memory dict.
 
-    Mirrors the real manager's contract: an absent secret is None, a secret registered with a
-    blank value is that blank string.
+    Mirrors the real handler's contract for `should_error_on_not_found=False`: an absent secret
+    answers Success with value=None, a secret registered with a blank value answers Success with
+    that blank string.
     """
-    monkeypatch.setattr(
-        access_module.GriptapeNodes,
-        "SecretsManager",
-        lambda: type("S", (), {"get_secret": lambda self, name, **_kwargs: secrets.get(name)})(),
-    )
+
+    real_handle_request = GriptapeNodes.handle_request
+
+    def _fake_handle_request(request: Any) -> Any:
+        if isinstance(request, GetSecretValueRequest):
+            return GetSecretValueResultSuccess(value=secrets.get(request.key), result_details="stub")
+        return real_handle_request(request)
+
+    monkeypatch.setattr(GriptapeNodes, "handle_request", _fake_handle_request)
 
 
 def test_resolve_prefers_proxy_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -258,20 +267,6 @@ def test_resolve_strips_surrounding_whitespace(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.delenv(PROXY_API_KEY_ENV_VAR, raising=False)
     _stub_secrets(monkeypatch, {LICENSE_SECRET_NAME: None, API_KEY_NAME: "  the-api-key\n"})
     assert resolve_proxy_credential().value == "the-api-key"
-
-
-def test_resolve_survives_unavailable_secrets_manager(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Resolution runs in contexts where the SecretsManager may not be reachable; the caller needs
-    # a credential message, not an unrelated exception.
-    monkeypatch.delenv(PROXY_API_KEY_ENV_VAR, raising=False)
-
-    def _raise() -> None:
-        raise RuntimeError("no engine here")
-
-    monkeypatch.setattr(access_module.GriptapeNodes, "SecretsManager", _raise)
-    credential = resolve_proxy_credential()
-    assert credential.value is None
-    assert credential.blank_sources == ()
 
 
 def test_missing_message_names_both_credentials() -> None:

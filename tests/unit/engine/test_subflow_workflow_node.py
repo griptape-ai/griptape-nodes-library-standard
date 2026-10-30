@@ -22,7 +22,6 @@ from unittest.mock import Mock
 
 import pytest
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import EndNode, StartNode
 from griptape_nodes.node_library.workflow_registry import WorkflowRegistry, WorkflowShape
 from griptape_nodes.retained_mode.events.execution_events import StartLocalSubflowResultSuccess
 from griptape_nodes.retained_mode.events.flow_events import (
@@ -32,19 +31,25 @@ from griptape_nodes.retained_mode.events.flow_events import (
     GetFlowMetadataRequest,
     GetFlowMetadataResultFailure,
     GetFlowMetadataResultSuccess,
+    ListFlowsInFlowRequest,
+    ListFlowsInFlowResultSuccess,
+    ListNodesInFlowRequest,
+    ListNodesInFlowResultSuccess,
     SetFlowMetadataRequest,
     SetFlowMetadataResultSuccess,
 )
 from griptape_nodes.retained_mode.events.node_events import GetFlowForNodeRequest, GetFlowForNodeResultSuccess
-from griptape_nodes.retained_mode.events.parameter_events import SetParameterValueRequest
+from griptape_nodes.retained_mode.events.parameter_events import (
+    GetParameterValueRequest,
+    GetParameterValueResultSuccess,
+    SetParameterValueRequest,
+)
 from griptape_nodes.retained_mode.events.workflow_events import (
     ImportWorkflowAsReferencedSubFlowRequest,
     ImportWorkflowAsReferencedSubFlowResultSuccess,
     ListCallableWorkflowsResultSuccess,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-from griptape_nodes.retained_mode.managers.flow_manager import FlowManager
-from griptape_nodes.retained_mode.managers.object_manager import ObjectManager
 from griptape_nodes.retained_mode.managers.workflow_manager import WorkflowManager
 
 from griptape_nodes_library.engine.subflow_workflow_node import SubflowWorkflowNode
@@ -69,26 +74,41 @@ def node(monkeypatch: pytest.MonkeyPatch) -> SubflowWorkflowNode:
     return SubflowWorkflowNode(name="Workflow Node")
 
 
-def _live_flow(name: str) -> SimpleNamespace:
-    """A stand-in ``ControlFlow`` exposing only the ``.metadata`` dict."""
-    return SimpleNamespace(name=name, metadata={})
+def _flow_metadata_result(live_flows: set[str], request: GetFlowMetadataRequest) -> Any:
+    """Answer a flow-existence check: success for a live flow, failure otherwise."""
+    if request.flow_name in live_flows:
+        return GetFlowMetadataResultSuccess(metadata={}, result_details="stubbed")
+    return GetFlowMetadataResultFailure(result_details="not found")
 
 
-def _stub_object_manager(monkeypatch: pytest.MonkeyPatch, live_flows: dict[str, Any]) -> None:
-    """Back ``ObjectManager.attempt_get_object_by_name_as_type`` with a fixed name -> flow map."""
-    object_manager = Mock(spec=ObjectManager)
-    object_manager.attempt_get_object_by_name_as_type.side_effect = lambda name, _type: live_flows.get(name)
-    monkeypatch.setattr(GriptapeNodes, "ObjectManager", lambda: object_manager)
+def _capture_requests(monkeypatch: pytest.MonkeyPatch, live_flows: set[str]) -> list[Any]:
+    """Install a ``handle_request`` that knows which flows are live and captures every request."""
+    requests: list[Any] = []
+
+    def _handle(request: Any) -> Any:
+        requests.append(request)
+        if isinstance(request, GetFlowMetadataRequest):
+            return _flow_metadata_result(live_flows, request)
+        return None
+
+    monkeypatch.setattr(GriptapeNodes, "handle_request", _handle)
+    return requests
 
 
 def _install_import_handler(
-    monkeypatch: pytest.MonkeyPatch, *, parent_flow: str = "ParentFlow", created_flow: str = "sub"
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    live_flows: frozenset[str] | set[str] = frozenset(),
+    parent_flow: str = "ParentFlow",
+    created_flow: str = "sub",
 ) -> list[Any]:
     """Install a ``handle_request`` that answers the import path and captures every request."""
     requests: list[Any] = []
 
     def _handle(request: Any) -> Any:
         requests.append(request)
+        if isinstance(request, GetFlowMetadataRequest):
+            return _flow_metadata_result(set(live_flows), request)
         if isinstance(request, GetFlowForNodeRequest):
             return GetFlowForNodeResultSuccess(flow_name=parent_flow, result_details="stubbed")
         if isinstance(request, ImportWorkflowAsReferencedSubFlowRequest):
@@ -121,9 +141,6 @@ def workflow_manager(monkeypatch: pytest.MonkeyPatch, shape_param: dict[str, Any
         lambda _name: SimpleNamespace(metadata=SimpleNamespace(workflow_shape=stale_shape)),
     )
 
-    # The subflow "sub" is already imported and live -> _load_subflow reuses it (no import).
-    _stub_object_manager(monkeypatch, {"sub": _live_flow("sub")})
-
     manager = Mock(spec=WorkflowManager)
     monkeypatch.setattr(GriptapeNodes, "WorkflowManager", lambda: manager)
 
@@ -141,8 +158,7 @@ class TestLoadSubflowImportsTransient:
         self, node: SubflowWorkflowNode, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(WorkflowRegistry, "has_workflow_with_name", lambda _name: True)
-        _stub_object_manager(monkeypatch, {})  # nothing live yet
-        requests = _install_import_handler(monkeypatch, created_flow="sub")
+        requests = _install_import_handler(monkeypatch, created_flow="sub")  # nothing live yet
 
         result = node._load_subflow("child")
 
@@ -162,8 +178,7 @@ class TestLoadSubflowImportsTransient:
     ) -> None:
         monkeypatch.setattr(WorkflowRegistry, "has_workflow_with_name", lambda _name: True)
         node.metadata["subflow_name"] = "sub"
-        _stub_object_manager(monkeypatch, {"sub": _live_flow("sub")})
-        requests = _install_import_handler(monkeypatch)
+        requests = _install_import_handler(monkeypatch, live_flows={"sub"})
 
         result = node._load_subflow("child")
 
@@ -177,8 +192,7 @@ class TestLoadSubflowImportsTransient:
         # Tracked name points at a flow that was torn down (e.g. parent flow deleted) -> re-import.
         monkeypatch.setattr(WorkflowRegistry, "has_workflow_with_name", lambda _name: True)
         node.metadata["subflow_name"] = "gone"
-        _stub_object_manager(monkeypatch, {})  # "gone" is not live
-        requests = _install_import_handler(monkeypatch, created_flow="sub_2")
+        requests = _install_import_handler(monkeypatch, created_flow="sub_2")  # "gone" is not live
 
         result = node._load_subflow("child")
 
@@ -190,7 +204,6 @@ class TestLoadSubflowImportsTransient:
         self, node: SubflowWorkflowNode, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(WorkflowRegistry, "has_workflow_with_name", lambda _name: False)
-        _stub_object_manager(monkeypatch, {})
         requests = _install_import_handler(monkeypatch)
 
         assert node._load_subflow("child") is None
@@ -202,9 +215,7 @@ class TestDiscardSubflow:
 
     def test_discard_deletes_live_subflow(self, node: SubflowWorkflowNode, monkeypatch: pytest.MonkeyPatch) -> None:
         node.metadata["subflow_name"] = "sub"
-        _stub_object_manager(monkeypatch, {"sub": _live_flow("sub")})
-        requests: list[Any] = []
-        monkeypatch.setattr(GriptapeNodes, "handle_request", requests.append)
+        requests = _capture_requests(monkeypatch, {"sub"})
 
         node._discard_subflow()
 
@@ -214,9 +225,7 @@ class TestDiscardSubflow:
     def test_discard_is_noop_when_nothing_tracked(
         self, node: SubflowWorkflowNode, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _stub_object_manager(monkeypatch, {})
-        requests: list[Any] = []
-        monkeypatch.setattr(GriptapeNodes, "handle_request", requests.append)
+        requests = _capture_requests(monkeypatch, set())
 
         node._discard_subflow()
 
@@ -228,9 +237,7 @@ class TestDiscardSubflow:
         # The subflow was already deleted (e.g. parent-flow teardown) -> no delete request, but the
         # stale metadata hint is cleared.
         node.metadata["subflow_name"] = "sub"
-        _stub_object_manager(monkeypatch, {})
-        requests: list[Any] = []
-        monkeypatch.setattr(GriptapeNodes, "handle_request", requests.append)
+        requests = _capture_requests(monkeypatch, set())
 
         node._discard_subflow()
 
@@ -241,9 +248,7 @@ class TestDiscardSubflow:
         self, node: SubflowWorkflowNode, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         node.metadata["subflow_name"] = "sub"
-        _stub_object_manager(monkeypatch, {"sub": _live_flow("sub")})
-        requests: list[Any] = []
-        monkeypatch.setattr(GriptapeNodes, "handle_request", requests.append)
+        requests = _capture_requests(monkeypatch, {"sub"})
 
         node.after_node_deleted()
 
@@ -287,17 +292,23 @@ class TestAprocessReDerivesShapeFromSubflow:
             Parameter(name="text_out", type="str", allowed_modes={ParameterMode.OUTPUT}, default_value="")
         )
 
-        # The live subflow with the renamed nodes the routing must target.
-        end_node = Mock(spec=EndNode)
-        end_node.parameter_output_values = {"text_out": "world"}
-        flow = SimpleNamespace(nodes={"Start Flow_1": Mock(spec=StartNode), "End Flow_1": end_node})
-        flow_manager = Mock(spec=FlowManager)
-        flow_manager.get_flow_by_name.return_value = flow
-        monkeypatch.setattr(GriptapeNodes, "FlowManager", lambda: flow_manager)
-
-        # Let _set_workflow_inputs run and capture the SetParameterValueRequests it issues.
+        # The live subflow "sub" holds the renamed nodes the routing must target; its end node
+        # produced "world". Capture the SetParameterValueRequests _set_workflow_inputs issues.
         requests: list[Any] = []
-        monkeypatch.setattr(GriptapeNodes, "handle_request", requests.append)
+
+        def _handle(request: Any) -> Any:
+            requests.append(request)
+            if isinstance(request, GetFlowMetadataRequest):
+                return _flow_metadata_result({"sub"}, request)
+            if isinstance(request, ListNodesInFlowRequest) and request.flow_name == "sub":
+                return ListNodesInFlowResultSuccess(node_names=["Start Flow_1", "End Flow_1"], result_details="stubbed")
+            if isinstance(request, GetParameterValueRequest) and request.node_name == "End Flow_1":
+                return GetParameterValueResultSuccess(
+                    input_types=["str"], type="str", output_type="str", value="world", result_details="stubbed"
+                )
+            return None
+
+        monkeypatch.setattr(GriptapeNodes, "handle_request", _handle)
 
         await node.aprocess()
 
@@ -310,8 +321,11 @@ class TestAprocessReDerivesShapeFromSubflow:
         assert node.parameter_output_values["text_out"] == "world"
 
     @pytest.mark.asyncio
-    async def test_missing_shape_reports_failure(self, node: SubflowWorkflowNode, workflow_manager: Mock) -> None:
+    async def test_missing_shape_reports_failure(
+        self, node: SubflowWorkflowNode, workflow_manager: Mock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         node.metadata["subflow_name"] = "sub"
+        _capture_requests(monkeypatch, {"sub"})
         # extract_workflow_shape raises ValueError when the subflow has no Start/End nodes.
         workflow_manager.extract_workflow_shape.side_effect = ValueError("no start/end nodes")
 
@@ -348,11 +362,6 @@ def _install_legacy_env(
     is mirrored onto the stub flow's metadata so a claim's transient flag is visible to a subsequent
     scan (as the real merge handler would make it).
     """
-    object_manager = Mock(spec=ObjectManager)
-    object_manager.attempt_get_object_by_name_as_type.side_effect = lambda name, _type: flows.get(name)
-    object_manager.get_filtered_subset.return_value = flows
-    monkeypatch.setattr(GriptapeNodes, "ObjectManager", lambda: object_manager)
-
     requests: list[Any] = []
 
     def _handle(request: Any) -> Any:
@@ -364,6 +373,9 @@ def _install_legacy_env(
             if flow is None:
                 return GetFlowMetadataResultFailure(result_details="not found")
             return GetFlowMetadataResultSuccess(metadata=flow.metadata, result_details="stubbed")
+        if isinstance(request, ListFlowsInFlowRequest):
+            children = [name for name in flows if parents.get(name) == request.parent_flow_name]
+            return ListFlowsInFlowResultSuccess(flow_names=children, result_details="stubbed")
         if isinstance(request, GetFlowDetailsRequest):
             flow = flows.get(request.flow_name) if request.flow_name is not None else None
             return GetFlowDetailsResultSuccess(

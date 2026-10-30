@@ -98,7 +98,7 @@ class GrokImageGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterString(
                 name="prompt",
-                tooltip="Prompt for image generation",
+                tooltip="Prompt for image generation. See the [xAI prompting guide](https://docs.x.ai/developers/model-capabilities/images/prompting-guide) for best practices.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 multiline=True,
                 placeholder_text="Describe the image you want to generate...",

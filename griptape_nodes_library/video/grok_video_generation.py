@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
@@ -12,12 +11,10 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
-
-logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["GrokVideoGeneration"]
 
@@ -179,38 +176,8 @@ class GrokVideoGeneration(GriptapeProxyNode):
             return bool(value.value)
         return bool(value)
 
-    def _extract_image_value(self, image_input: Any) -> str | None:
-        if isinstance(image_input, str):
-            return image_input
-
-        try:
-            if hasattr(image_input, "value"):
-                value = getattr(image_input, "value", None)
-                if isinstance(value, str):
-                    return value
-
-            if hasattr(image_input, "base64"):
-                b64 = getattr(image_input, "base64", None)
-                if isinstance(b64, str) and b64:
-                    return b64
-        except Exception:
-            return None
-
-        return None
-
     async def _prepare_image_data_uri(self, image_input: Any) -> str | None:
-        if not image_input:
-            return None
-
-        image_value = self._extract_image_value(image_input)
-        if not image_value:
-            return None
-
-        try:
-            return await File(image_value).aread_data_uri(fallback_mime="image/png")
-        except FileLoadError:
-            logger.debug("%s failed to load image value: %s", self.name, image_value)
-            return None
+        return await prepare_media_data_uri(image_input, kind="image", node_name=self.name)
 
     def _get_api_model_id(self) -> str:
         return f"{self._get_selected_model_id()}:generate"

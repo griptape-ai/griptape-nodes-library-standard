@@ -9,6 +9,7 @@ from typing import Any
 from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.progress_bar_component import ProgressBarComponent
 from griptape_nodes.files.file import FileLoadError
+from griptape_nodes.files.path_utils import sanitize_path_string
 from griptape_nodes.retained_mode.events.os_events import (
     CopyFileRequest,
     CopyFileResultFailure,
@@ -262,7 +263,7 @@ class CopyFiles(FileOperationBaseNode):
         overwrite = self.get_parameter_value("overwrite") or False
 
         # Clean destination path to remove newlines/carriage returns that cause Windows errors
-        destination_dir = GriptapeNodes.OSManager().sanitize_path_string(destination_dir)
+        destination_dir = sanitize_path_string(destination_dir)
 
         # Handle empty paths as success with info message (consistent with delete_file)
         if not source_paths_raw:

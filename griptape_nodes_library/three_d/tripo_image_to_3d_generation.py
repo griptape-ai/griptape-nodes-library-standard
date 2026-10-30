@@ -19,9 +19,12 @@ from griptape_nodes_library.three_d._tripo_utils import (
     DEFAULT_MODEL_VERSION,
     TripoCapability,
     TripoEndpoint,
+    add_mesh_topology_fields,
+    add_mesh_topology_parameters,
     add_model_version_parameter,
     parse_tripo_task_result,
     supports,
+    update_mesh_topology_visibility,
 )
 
 logger = logging.getLogger("griptape_nodes")
@@ -54,11 +57,13 @@ class TripoImageTo3DGeneration(GriptapeProxyNode):
         - geometry_quality (str): "standard" or "detailed" (v3.0/v3.1 only)
         - texture_alignment (str): "original_image" or "geometry"
         - enable_image_autofix (bool): Let Tripo auto-correct the input image
+        - quad (bool): Output a quad mesh instead of triangles (P2 only)
+        - face_limit (int): Maximum polycount, 0 for adaptive (P1 and P2)
 
     Outputs:
         - generation_id (str): Generation ID from the proxy
         - provider_response (dict): Verbatim proxy response
-        - model_url (ThreeDUrlArtifact): Generated GLB model
+        - model_url (ThreeDUrlArtifact): Generated model (GLB, or FBX when quad is enabled)
         - preview_image (ImageUrlArtifact): Rendered preview, if available
     """
 
@@ -145,6 +150,8 @@ class TripoImageTo3DGeneration(GriptapeProxyNode):
             )
         )
 
+        add_mesh_topology_parameters(self)
+
         self.add_parameter(
             ParameterDict(
                 name="provider_response",
@@ -158,7 +165,7 @@ class TripoImageTo3DGeneration(GriptapeProxyNode):
         self.add_parameter(
             Parameter3D(
                 name="model_url",
-                tooltip="Generated 3D model (GLB)",
+                tooltip="Generated 3D model (GLB, or FBX when Quad Mesh is enabled)",
                 allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
                 settable=False,
                 ui_options={"pulse_on_run": True, "display_name": "3D Model"},
@@ -214,6 +221,8 @@ class TripoImageTo3DGeneration(GriptapeProxyNode):
         else:
             self.hide_parameter_by_name("geometry_quality")
 
+        update_mesh_topology_visibility(self, TRIPO_ENDPOINT, model_version)
+
     def after_value_set(self, parameter: Any, value: Any) -> None:
         if parameter.name == "model_version":
             self._update_parameter_visibility_for_model(value)
@@ -245,6 +254,8 @@ class TripoImageTo3DGeneration(GriptapeProxyNode):
 
         if supports(TRIPO_ENDPOINT, model_version, TripoCapability.GEOMETRY_QUALITY):
             payload["geometry_quality"] = self.get_parameter_value("geometry_quality") or DEFAULT_GEOMETRY_QUALITY
+
+        add_mesh_topology_fields(self, TRIPO_ENDPOINT, model_version, payload)
 
         return payload
 
