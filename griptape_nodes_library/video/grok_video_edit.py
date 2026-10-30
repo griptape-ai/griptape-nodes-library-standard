@@ -7,7 +7,6 @@ from urllib.parse import unquote, urlsplit
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeError, NodeErrorLink, ParameterMode
-from griptape_nodes.exe_types.input_checks import LIMITS_LINK_LABEL, check_mime_type
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
@@ -16,8 +15,14 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.exe_types.validators.base import MediaInfo, MediaNeed, PreRunValidator
-from griptape_nodes.exe_types.validators.media import AllowedFormats, Duration
+from griptape_nodes.exe_types.validators import (
+    LIMITS_LINK_LABEL,
+    AllowedFormats,
+    MaxDuration,
+    MediaInfo,
+    MediaNeed,
+    MediaValidator,
+)
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.files.path_utils import is_url
 
@@ -35,9 +40,10 @@ XAI_VIDEO_EDIT_DOCS_URL = "https://docs.x.ai/developers/model-capabilities/video
 MAX_INPUT_DURATION_SECONDS = 8.7
 MP4_MIME_TYPE = "video/mp4"
 MP4_EXTENSION = ".mp4"
+_IS_MP4 = AllowedFormats(MP4_MIME_TYPE)
 
 
-class Mp4FileName(PreRunValidator):
+class Mp4FileName(MediaValidator):
     """xAI's rule that a video's name ends in .mp4, or that a data URI is typed video/mp4.
 
     xAI fails a job whose video URL ends in another extension, even for an MP4 saved as .mov, and
@@ -51,15 +57,21 @@ class Mp4FileName(PreRunValidator):
 
     needs = frozenset({MediaNeed.VIDEO})
 
-    def check(self, value: Any, *, subject: str, media: MediaInfo, docs_url: str | None) -> NodeError | None:  # noqa: ARG002
+    def check_media(
+        self,
+        value: Any,  # noqa: ARG002
+        media: MediaInfo,
+        *,
+        subject: str,
+        docs_url: str | None,
+        position: int | None = None,  # noqa: ARG002
+    ) -> NodeError | None:
         location = media.location
         if location is None:
             return None
         # A file read as another format already gets AllowedFormats' "Convert it to MP4", and
         # converting it gives it an .mp4 name too, so this stays quiet rather than repeat it.
-        if media.video is not None and (
-            check_mime_type(media.video.mime_type, subject=subject, allowed=(MP4_MIME_TYPE,)) is not None
-        ):
+        if media.video is not None and _IS_MP4.check_media(None, media, subject=subject, docs_url=None) is not None:
             return None
         if location.startswith("data:"):
             mime_type = location.removeprefix("data:").split(",", 1)[0].split(";", 1)[0].strip().lower()
@@ -98,7 +110,7 @@ def _limit_error(message: str, docs_url: str | None) -> NodeError:
 VIDEO_LIMITS = (
     AllowedFormats(MP4_MIME_TYPE),
     Mp4FileName(),
-    Duration(max=MAX_INPUT_DURATION_SECONDS),
+    MaxDuration(MAX_INPUT_DURATION_SECONDS),
 )
 
 

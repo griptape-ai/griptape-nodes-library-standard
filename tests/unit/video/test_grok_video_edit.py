@@ -5,19 +5,19 @@ from typing import Any
 
 import pytest
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types import input_checks
 from griptape_nodes.exe_types.core_types import NodeError
-from griptape_nodes.exe_types.input_checks import VideoProbe, input_check_readings
 from griptape_nodes.exe_types.param_components.artifact_url import (
     public_artifact_url_parameter as public_artifact_url_parameter_module,
 )
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
-from griptape_nodes.exe_types.pre_run_validation import run_pre_run_validators
+from griptape_nodes.exe_types.validators._runner import validate_node
 from griptape_nodes.files import file as file_module
 from griptape_nodes.files.file import FileLoadError
 from griptape_nodes.retained_mode.events.os_events import FileIOFailureReason
+from griptape_nodes.utils import media_probe
+from griptape_nodes.utils.media_probe import VideoProbe
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.video.grok_video_edit import XAI_VIDEO_EDIT_DOCS_URL, GrokVideoEdit
@@ -91,7 +91,7 @@ class TestPrepareVideoUrlFallback:
 def _stub_probe(monkeypatch: pytest.MonkeyPatch, duration: float | None, mime_type: str | None) -> None:
     probe = VideoProbe(info=None, seconds=duration, mime_type=mime_type)
     # The validators probe through the engine's own reader, so patch it there.
-    monkeypatch.setattr(input_checks, "local_video_probe", lambda _value: probe)
+    monkeypatch.setattr(media_probe, "local_video_probe", lambda _value: probe)
 
 
 def _validated_node(
@@ -107,8 +107,7 @@ def _validated_node(
 
 def _errors(node: GrokVideoEdit) -> list[Exception]:
     """What the engine reports at the node's turn: its pre-run validators', then its own checks'."""
-    with input_check_readings():
-        return [*run_pre_run_validators(node), *(node.validate_before_node_run() or [])]
+    return validate_node(node)
 
 
 def _messages(node: GrokVideoEdit) -> list[str]:
@@ -193,7 +192,7 @@ class TestInputLimits:
 
     def test_over_long_video_fails_validation_with_duration(self, monkeypatch: pytest.MonkeyPatch) -> None:
         assert _messages(_validated_node(monkeypatch, "{inputs}/clip.mp4", duration=8.798)) == [
-            "The video in 'Video' is 8.80 seconds long and the limit is 8.7. Use a Trim Video node to shorten it."
+            "The video in 'Video' is 8.80 seconds long and the limit is 8.7. Shorten it."
         ]
 
     def test_limit_errors_link_xai_docs(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -218,7 +217,7 @@ class TestInputLimits:
     def test_checks_the_limit_against_the_shorter_reading(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # 6 s of video with a 12 s audio track: the container is longer, but the clip may be within xAI's limit.
         probe = VideoProbe(info=None, seconds=6.0, container_seconds=12.0, mime_type="video/mp4")
-        monkeypatch.setattr(input_checks, "local_video_probe", lambda _value: probe)
+        monkeypatch.setattr(media_probe, "local_video_probe", lambda _value: probe)
         node = GrokVideoEdit(name="GrokVideoEdit")
         node.set_parameter_value("prompt", "make it snow")
         node.set_parameter_value("video", "{inputs}/clip.mp4")
