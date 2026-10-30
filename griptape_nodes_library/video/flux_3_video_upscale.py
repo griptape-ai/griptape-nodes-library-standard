@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from contextlib import suppress
 from enum import StrEnum
-from pathlib import Path
 from typing import Any, ClassVar
-from urllib.parse import urlsplit
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeError, ParameterGroup, ParameterMode
@@ -16,12 +13,17 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
-from griptape_nodes_library.utils.ffmpeg_utils import extract_video_metadata_structured
+from griptape_nodes_library.video.flux_3_common import (
+    SAFETY_TOLERANCE_OPTIONS,
+    Flux3SafetyTolerance,
+    has_media_value,
+    parse_flux_3_safety_tolerance,
+    prepare_mp4_video_data_uri,
+    probe_video_duration,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -33,18 +35,11 @@ MAX_INPUT_DURATION_SECONDS = 20.0
 MIN_UPSCALE_FACTOR = 1.5
 MAX_UPSCALE_FACTOR = 3.0
 DEFAULT_UPSCALE_FACTOR = 2.0
-SUPPORTED_CONTAINER = "mp4"
 
 
 class Flux3UpscaleCreativity(StrEnum):
     PRECISE = "precise"
     CREATIVE = "creative"
-
-
-class Flux3SafetyTolerance(StrEnum):
-    LEAST_RESTRICTIVE = "least restrictive"
-    MODERATE = "moderate"
-    MOST_RESTRICTIVE = "most restrictive"
 
 
 LEGACY_MODEL_VALUES: dict[str, str] = {
@@ -55,11 +50,6 @@ LEGACY_MODEL_VALUES: dict[str, str] = {
 CREATIVITY_OPTIONS = [
     Flux3UpscaleCreativity.PRECISE.value,
     Flux3UpscaleCreativity.CREATIVE.value,
-]
-SAFETY_TOLERANCE_OPTIONS = [
-    Flux3SafetyTolerance.LEAST_RESTRICTIVE.value,
-    Flux3SafetyTolerance.MODERATE.value,
-    Flux3SafetyTolerance.MOST_RESTRICTIVE.value,
 ]
 
 
@@ -208,68 +198,18 @@ class Flux3VideoUpscale(GriptapeProxyNode):
         with suppress(Exception):
             logger.info(message)
 
-    @staticmethod
-    def _has_media_value(value: Any) -> bool:
-        if value is None:
-            return False
-        if hasattr(value, "value"):
-            return bool(value.value)
-        return bool(value)
-
-    @staticmethod
-    def _container_token(video_value: str) -> str:
-        if video_value.startswith("data:"):
-            header = video_value.removeprefix("data:").split(",", 1)[0]
-            return header.split(";", 1)[0].split("/", 1)[-1].lower()
-        return Path(urlsplit(video_value).path).suffix.lstrip(".").lower()
-
     def _probe_duration(self, video_value: str) -> float | None:
-        try:
-            location = File(video_value).resolve()
-            metadata = extract_video_metadata_structured(location)
-        except (FileLoadError, ValueError, RuntimeError) as e:
-            logger.warning("%s: could not probe input video duration, skipping the check: %s", self.name, e)
-            return None
-        return metadata.file_details.optional_duration
-
-    def _find_input_problems(self, video_value: str) -> list[str]:
-        problems: list[str] = []
-
-        token = self._container_token(video_value)
-        if token and token != SUPPORTED_CONTAINER:
-            problems.append(f"It's a .{token} file. FLUX Video Upscale requires .mp4.")
-
-        if not video_value.startswith("data:"):
-            duration = self._probe_duration(video_value)
-            if duration is not None and duration > MAX_INPUT_DURATION_SECONDS:
-                problems.append(
-                    f"It's {duration:.2f} seconds long. FLUX Video Upscale's limit is {MAX_INPUT_DURATION_SECONDS:g} seconds."
-                )
-
-        return problems
-
-    async def _check_input_limits(self, video_value: str) -> None:
-        problems = await asyncio.to_thread(self._find_input_problems, video_value)
-        if problems:
-            msg = f"Cannot upscale this video connected to 'Input Video'. {' '.join(problems)} Use a Trim Video node to fix this."
-            raise NodeError(msg)
+        return probe_video_duration(video_value, node_name=self.name)
 
     async def _prepare_video_data_uri(self, video_input: Any) -> str:
-        video_value = coerce_media_url_or_data_uri(video_input, kind="video")
-        if not video_value:
-            msg = "Connect a video to 'Input Video'."
-            raise NodeError(msg)
-
-        await self._check_input_limits(video_value)
-
-        if video_value.startswith("data:"):
-            return video_value
-
-        try:
-            return await File(video_value).aread_data_uri(fallback_mime="video/mp4")
-        except FileLoadError as e:
-            msg = f"Could not load video from '{video_value}': {e}"
-            raise NodeError(msg) from e
+        return await prepare_mp4_video_data_uri(
+            video_input,
+            param_label="Input Video",
+            action_verb="upscale",
+            service_label="FLUX Video Upscale",
+            max_duration_seconds=MAX_INPUT_DURATION_SECONDS,
+            duration_prober=self._probe_duration,
+        )
 
     @staticmethod
     def _parse_creativity(value: str | None) -> int:
@@ -280,28 +220,11 @@ class Flux3VideoUpscale(GriptapeProxyNode):
         msg = f"'Creativity' must be one of {CREATIVITY_OPTIONS}. It's set to {value!r}."
         raise NodeError(msg)
 
-    @staticmethod
-    def _parse_safety_tolerance(value: str | None) -> int:
-        if not value:
-            msg = "Pick a 'safety_tolerance' value."
-            raise NodeError(msg)
-
-        match value:
-            case Flux3SafetyTolerance.MOST_RESTRICTIVE:
-                return 0
-            case Flux3SafetyTolerance.MODERATE:
-                return 2
-            case Flux3SafetyTolerance.LEAST_RESTRICTIVE:
-                return 4
-            case _:
-                msg = f"'safety_tolerance' must be one of {SAFETY_TOLERANCE_OPTIONS}. It's set to {value!r}."
-                raise NodeError(msg)
-
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []
 
         video_value = self.get_parameter_value("input_video")
-        if not self._has_media_value(video_value):
+        if not has_media_value(video_value):
             exceptions.append(NodeError("Connect a video to 'Input Video'."))
 
         upscale_factor = self.get_parameter_value("upscale_factor")
@@ -325,7 +248,7 @@ class Flux3VideoUpscale(GriptapeProxyNode):
         upscale_factor = float(self.get_parameter_value("upscale_factor") or DEFAULT_UPSCALE_FACTOR)
         creativity = self._parse_creativity(self.get_parameter_value("creativity"))
         prompt = (self.get_parameter_value("prompt") or "").strip()
-        safety_tolerance = self._parse_safety_tolerance(self.get_parameter_value("safety_tolerance"))
+        safety_tolerance = parse_flux_3_safety_tolerance(self.get_parameter_value("safety_tolerance"))
 
         return {
             "input_video": input_video_uri,

@@ -20,6 +20,12 @@ from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.video.flux_3_common import (
+    SAFETY_TOLERANCE_OPTIONS,
+    Flux3SafetyTolerance,
+    has_media_value,
+    parse_flux_3_safety_tolerance,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -44,12 +50,6 @@ class Flux3VideoResolution(StrEnum):
     FHD = "fhd"
     QHD = "qhd"
     UHD = "uhd"
-
-
-class Flux3SafetyTolerance(StrEnum):
-    LEAST_RESTRICTIVE = "least restrictive"
-    MODERATE = "moderate"
-    MOST_RESTRICTIVE = "most restrictive"
 
 
 LEGACY_MODEL_VALUES: dict[str, str] = {
@@ -81,11 +81,6 @@ RESOLUTION_OPTIONS = [
 ]
 DURATION_OPTIONS_T2V = ["auto", *[str(s) for s in range(MIN_DURATION_SEC, MAX_T2V_DURATION_SEC + 1)]]
 DURATION_OPTIONS_V2V = ["auto", *[str(s) for s in range(MIN_DURATION_SEC, MAX_V2V_DURATION_SEC + 1)]]
-SAFETY_TOLERANCE_OPTIONS = [
-    Flux3SafetyTolerance.LEAST_RESTRICTIVE.value,
-    Flux3SafetyTolerance.MODERATE.value,
-    Flux3SafetyTolerance.MOST_RESTRICTIVE.value,
-]
 
 
 class Flux3VideoGeneration(GriptapeProxyNode):
@@ -286,16 +281,23 @@ class Flux3VideoGeneration(GriptapeProxyNode):
 
     def _sync_mode_visibility(self) -> None:
         mode = self.get_parameter_value("mode") or Flux3VideoMode.T2V.value
+        current_duration = str(self.get_parameter_value("duration") or "auto")
         match mode:
             case Flux3VideoMode.T2V:
                 self.hide_parameter_by_name("keyframes")
                 self.hide_parameter_by_name("start_video")
+                default_dur = current_duration if current_duration in DURATION_OPTIONS_T2V else "auto"
+                self._update_option_choices("duration", DURATION_OPTIONS_T2V, default_dur)
             case Flux3VideoMode.I2V:
                 self.show_parameter_by_name("keyframes")
                 self.hide_parameter_by_name("start_video")
+                default_dur = current_duration if current_duration in DURATION_OPTIONS_T2V else "auto"
+                self._update_option_choices("duration", DURATION_OPTIONS_T2V, default_dur)
             case Flux3VideoMode.V2V:
                 self.hide_parameter_by_name("keyframes")
                 self.show_parameter_by_name("start_video")
+                default_dur = current_duration if current_duration in DURATION_OPTIONS_V2V else "auto"
+                self._update_option_choices("duration", DURATION_OPTIONS_V2V, default_dur)
             case _:
                 msg = f"Unknown FLUX 3 video mode: {mode!r}"
                 raise ValueError(msg)
@@ -313,20 +315,7 @@ class Flux3VideoGeneration(GriptapeProxyNode):
 
     @staticmethod
     def _parse_safety_tolerance(value: str | None) -> int:
-        if not value:
-            msg = "Pick a 'safety_tolerance' value."
-            raise NodeError(msg)
-
-        match value:
-            case Flux3SafetyTolerance.MOST_RESTRICTIVE:
-                return 0
-            case Flux3SafetyTolerance.MODERATE:
-                return 2
-            case Flux3SafetyTolerance.LEAST_RESTRICTIVE:
-                return 4
-            case _:
-                msg = f"'safety_tolerance' must be one of {SAFETY_TOLERANCE_OPTIONS}. It's set to {value!r}."
-                raise NodeError(msg)
+        return parse_flux_3_safety_tolerance(value)
 
     @staticmethod
     def _parse_duration(value: Any, *, mode: str) -> int | str:
@@ -348,14 +337,6 @@ class Flux3VideoGeneration(GriptapeProxyNode):
         if not isinstance(raw, list):
             raw = [raw] if raw else []
         return [item for item in raw if item is not None and item != ""]
-
-    @staticmethod
-    def _has_media_value(value: Any) -> bool:
-        if value is None:
-            return False
-        if hasattr(value, "value"):
-            return bool(value.value)
-        return bool(value)
 
     async def _prepare_video_data_uri(self, video_input: Any) -> str:
         video_value = coerce_media_url_or_data_uri(video_input, kind="video")
@@ -407,7 +388,7 @@ class Flux3VideoGeneration(GriptapeProxyNode):
                             )
                         )
                 case Flux3VideoMode.V2V:
-                    if not self._has_media_value(self.get_parameter_value("start_video")):
+                    if not has_media_value(self.get_parameter_value("start_video")):
                         exceptions.append(NodeError("Connect a video to 'Start Video' when 'Mode' is 'v2v'."))
                 case _:
                     msg = f"Unknown FLUX 3 video mode: {mode!r}"

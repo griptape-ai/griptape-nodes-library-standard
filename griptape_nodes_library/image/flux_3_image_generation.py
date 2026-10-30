@@ -20,6 +20,11 @@ from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
 from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.video.flux_3_common import (
+    SAFETY_TOLERANCE_OPTIONS,
+    Flux3SafetyTolerance,
+    parse_flux_3_safety_tolerance,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -44,12 +49,6 @@ class Flux3ImageModel(StrEnum):
 class Flux3SizeMode(StrEnum):
     RESOLUTION_TIER = "Resolution Tier"
     CUSTOM_DIMENSIONS = "Custom Dimensions"
-
-
-class Flux3SafetyTolerance(StrEnum):
-    LEAST_RESTRICTIVE = "least restrictive"
-    MODERATE = "moderate"
-    MOST_RESTRICTIVE = "most restrictive"
 
 
 MODEL_OPTIONS = [
@@ -91,11 +90,6 @@ SIZE_MODE_OPTIONS = [
     Flux3SizeMode.CUSTOM_DIMENSIONS.value,
 ]
 OUTPUT_FORMAT_OPTIONS = ["jpeg", "png"]
-SAFETY_TOLERANCE_OPTIONS = [
-    Flux3SafetyTolerance.LEAST_RESTRICTIVE.value,
-    Flux3SafetyTolerance.MODERATE.value,
-    Flux3SafetyTolerance.MOST_RESTRICTIVE.value,
-]
 
 
 class Flux3ImageGeneration(GriptapeProxyNode):
@@ -315,20 +309,21 @@ class Flux3ImageGeneration(GriptapeProxyNode):
     def _sync_model_parameter_visibility(self) -> None:
         api_model_id = self._get_selected_model_id() or DEFAULT_MODEL
         is_klein = api_model_id == Flux3ImageModel.FLUX_3_IMAGE_KLEIN
+        current_res = self.get_parameter_value("resolution") or "1k"
         if is_klein:
             self.hide_parameter_by_name("grounding")
             self.show_parameter_by_name("randomize_seed")
             self.show_parameter_by_name("seed")
             self.show_parameter_by_name("output_format")
             self.show_parameter_by_name("steps")
-            self._update_option_choices("resolution", RESOLUTION_OPTIONS_KLEIN, "1k")
+            default_res = current_res if current_res in RESOLUTION_OPTIONS_KLEIN else "1k"
+            self._update_option_choices("resolution", RESOLUTION_OPTIONS_KLEIN, default_res)
         else:
             self.show_parameter_by_name("grounding")
             self.hide_parameter_by_name("randomize_seed")
             self.hide_parameter_by_name("seed")
             self.hide_parameter_by_name("output_format")
             self.hide_parameter_by_name("steps")
-            current_res = self.get_parameter_value("resolution") or "1k"
             default_res = current_res if current_res in RESOLUTION_OPTIONS_FLUX_3_IMAGE else "1k"
             self._update_option_choices("resolution", RESOLUTION_OPTIONS_FLUX_3_IMAGE, default_res)
 
@@ -362,20 +357,7 @@ class Flux3ImageGeneration(GriptapeProxyNode):
 
     @staticmethod
     def _parse_safety_tolerance(value: str | None) -> int:
-        if not value:
-            msg = "Pick a 'safety_tolerance' value."
-            raise NodeError(msg)
-
-        match value:
-            case Flux3SafetyTolerance.MOST_RESTRICTIVE:
-                return 0
-            case Flux3SafetyTolerance.MODERATE:
-                return 2
-            case Flux3SafetyTolerance.LEAST_RESTRICTIVE:
-                return 4
-            case _:
-                msg = f"'safety_tolerance' must be one of {SAFETY_TOLERANCE_OPTIONS}. It's set to {value!r}."
-                raise NodeError(msg)
+        return parse_flux_3_safety_tolerance(value)
 
     def _raw_input_images(self) -> list[Any]:
         raw = self.get_parameter_list_value("input_images") or self.parameter_values.get("input_images") or []

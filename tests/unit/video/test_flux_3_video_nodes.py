@@ -27,8 +27,14 @@ def test_flux_3_video_validation_rules() -> None:
     assert errors_i2v is not None
     assert any("Keyframes" in str(e) for e in errors_i2v)
 
-    node.set_parameter_value("mode", Flux3VideoMode.V2V.value)
     node.set_parameter_value("duration", "20")
+    node.set_parameter_value("mode", Flux3VideoMode.V2V.value)
+    mode_param = node.get_parameter_by_name("mode")
+    assert mode_param is not None
+    node.after_value_set(mode_param, Flux3VideoMode.V2V.value)
+    assert node.get_parameter_value("duration") == "auto"
+
+    node.parameter_values["duration"] = "20"
     errors_v2v = node.validate_before_node_run()
     assert errors_v2v is not None
     assert any("between 5 and 15" in str(e) for e in errors_v2v)

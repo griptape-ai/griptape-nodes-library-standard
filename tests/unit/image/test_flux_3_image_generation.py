@@ -27,6 +27,7 @@ def test_default_model_and_visibility() -> None:
 
 def test_switching_to_klein_toggles_model_specific_parameters() -> None:
     node = _make_node()
+    node.set_parameter_value("resolution", "2k")
     node.set_parameter_value("model", Flux3ImageModel.FLUX_3_IMAGE_KLEIN.value)
     model_param = node.get_parameter_by_name("model")
     assert model_param is not None
@@ -38,6 +39,7 @@ def test_switching_to_klein_toggles_model_specific_parameters() -> None:
     assert grounding is not None and grounding.ui_options.get("hide") is True
     assert output_format is not None and not output_format.ui_options.get("hide", False)
     assert steps is not None and not steps.ui_options.get("hide", False)
+    assert node.get_parameter_value("resolution") == "2k"
 
 
 def test_validation_checks_prompt_and_match_input() -> None:
