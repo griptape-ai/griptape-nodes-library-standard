@@ -230,7 +230,6 @@ def test_an_http_error_reason_under_detail_or_message_is_the_message(key: str) -
 @pytest.mark.parametrize(
     "node_type",
     [
-        "griptape_nodes_library.video.sora_video_generation:SoraVideoGeneration",
         "griptape_nodes_library.video.wan_text_to_video_generation:WanTextToVideoGeneration",
         "griptape_nodes_library.image.flux_image_generation:FluxImageGeneration",
     ],

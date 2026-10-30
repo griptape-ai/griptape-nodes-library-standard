@@ -149,7 +149,6 @@ _NODE_PROVIDER_CONFIGS = {
     "Seedance20VideoGeneration": SEED,
     "Seedance25VideoGeneration": SEED,
     "SeedreamImageGeneration": SEED,
-    "SoraVideoGeneration": OPENAI,
     "TopazImageEnhance": TOPAZ,
     "TopazVideoUpscale": TOPAZ,
     "JevAskYesNo": TYPESAFE,

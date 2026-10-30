@@ -1,8 +1,9 @@
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import logger
 
 from griptape_nodes_library.utils.situation_utils import (
@@ -20,12 +21,12 @@ class SaveText(ControlNode):
 
         # Add text input parameter
         self.add_parameter(
-            Parameter(
+            ParameterString(
                 name="text",
-                input_types=["str"],
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 tooltip="The text content to save to file",
-                ui_options={"multiline": True, "placeholder_text": "Text to save to a file..."},
+                multiline=True,
+                placeholder_text="Text to save to a file...",
             )
         )
 

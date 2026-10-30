@@ -29,7 +29,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.89.0",
+    "library_version": "0.90.1",
     "engine_version": "0.104.0",
     "tags": [
       "Griptape",
@@ -404,18 +404,6 @@
                 "display_name": "GPT Image 2.5 Flare",
                 "family": "GPT Image",
                 "provider_model_id": "gpt-image-2.5-flare",
-                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
-              },
-              "gtc_sora_2": {
-                "display_name": "Sora 2",
-                "family": "Sora",
-                "provider_model_id": "sora-2",
-                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
-              },
-              "gtc_sora_2_pro": {
-                "display_name": "Sora 2 Pro",
-                "family": "Sora",
-                "provider_model_id": "sora-2-pro",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_whisper_1": {
@@ -1010,6 +998,12 @@
                 "display_name": "Eleven Text to Sound v2",
                 "family": "ElevenLabs",
                 "provider_model_id": "eleven_text_to_sound_v2",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_eleven_text_to_sound_v3": {
+                "display_name": "Eleven Text to Sound v3",
+                "family": "ElevenLabs",
+                "provider_model_id": "eleven_text_to_sound_v3",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_eleven_multilingual_v2": {
@@ -2047,6 +2041,22 @@
       }
     },
     {
+      "class_name": "JoinList",
+      "file_path": "griptape_nodes_library/lists/join_list.py",
+      "metadata": {
+        "category": "lists",
+        "description": "Joins the items of a list into one text, with a separator between items and an optional prefix and suffix on each.",
+        "display_name": "Join List",
+        "icon": "merge",
+        "group": "merge",
+        "tags": [
+          "text",
+          "list",
+          "data"
+        ]
+      }
+    },
+    {
       "class_name": "SplitText",
       "file_path": "griptape_nodes_library/lists/split_text.py",
       "metadata": {
@@ -2335,7 +2345,8 @@
           {
             "type": "model_usage",
             "model_ids": [
-              "gtc_eleven_text_to_sound_v2"
+              "gtc_eleven_text_to_sound_v2",
+              "gtc_eleven_text_to_sound_v3"
             ]
           }
         ]
@@ -3110,44 +3121,6 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_kling_motion_control"
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "class_name": "SoraVideoGeneration",
-      "file_path": "griptape_nodes_library/video/sora_video_generation.py",
-      "metadata": {
-        "category": "video",
-        "description": "Deprecated: OpenAI removes Sora 2 on 24 September 2026. Migrate to Veo 3.1 or Seedance 2.0 video generation.",
-        "display_name": "Sora 2 Video Generation",
-        "icon": "Sparkles",
-        "group": "create",
-        "tags": [
-          "video",
-          "generation",
-          "ai",
-          "api",
-          "sora",
-          "openai",
-          "retired",
-          "deprecated"
-        ],
-        "deprecation": {
-          "deprecation_message": "OpenAI removes the Videos API and all Sora 2 models on 24 September 2026 without naming a successor. Open the node and use its migrate buttons to rebuild it as Veo 3.1 Video Generation or Seedance 2.0 Video Generation, carrying over values and connections.",
-          "removal_version": "0.88.0"
-        },
-        "declarations": [
-          {
-            "type": "lifecycle_stage",
-            "stage": "DEPRECATED"
-          },
-          {
-            "type": "model_usage",
-            "model_ids": [
-              "gtc_sora_2",
-              "gtc_sora_2_pro"
             ]
           }
         ]
@@ -6868,7 +6841,11 @@
         "tags": [
           "data",
           "variable",
-          "workflow"
+          "workflow",
+          "teleport",
+          "postage stamp",
+          "stamp",
+          "set node"
         ]
       }
     },
@@ -6902,7 +6879,11 @@
         "tags": [
           "data",
           "variable",
-          "workflow"
+          "workflow",
+          "teleport",
+          "postage stamp",
+          "stamp",
+          "get node"
         ]
       }
     },
@@ -6918,7 +6899,11 @@
         "tags": [
           "data",
           "variable",
-          "workflow"
+          "workflow",
+          "teleport",
+          "postage stamp",
+          "stamp",
+          "set node"
         ]
       }
     },

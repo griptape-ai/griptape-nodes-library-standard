@@ -111,3 +111,30 @@ def test_image_artifact_uses_to_bytes_directly(file_capture: dict[str, Any], stu
     assert file_capture["paths"] == []
     assert isinstance(stub_output_file["written"], bytes)
     assert len(stub_output_file["written"]) > 0
+
+
+def test_jpeg_composites_transparent_pixels_over_black(
+    file_capture: dict[str, Any], stub_output_file: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """JPEG has no alpha, so straight-alpha RGB under alpha 0 must not show through."""
+    # Left half transparent, right half opaque, both with the same RGB.
+    source = Image.new("RGBA", (16, 8), (200, 120, 40, 255))
+    source.paste((200, 120, 40, 0), (0, 0, 8, 8))
+    buf = BytesIO()
+    source.save(buf, "PNG")
+    artifact = ImageArtifact(value=buf.getvalue(), format="png", width=16, height=8)
+
+    node = SaveImage(name="save")
+    monkeypatch.setattr(node, "_get_target_pil_format", lambda: "JPEG")
+    node.set_parameter_value("image", artifact)
+    node.process()
+
+    saved = Image.open(BytesIO(stub_output_file["written"]))
+    assert saved.format == "JPEG"
+    # JPEG is lossy, so sample away from the edge and allow a small tolerance.
+    transparent = saved.getpixel((2, 4))
+    opaque = saved.getpixel((13, 4))
+    assert isinstance(transparent, tuple)
+    assert isinstance(opaque, tuple)
+    assert all(c < 20 for c in transparent), transparent
+    assert all(abs(a - b) < 20 for a, b in zip(opaque, (200, 120, 40), strict=True)), opaque

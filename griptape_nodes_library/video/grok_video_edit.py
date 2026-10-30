@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+from pathlib import PureWindowsPath
 from typing import Any, ClassVar
+from urllib.parse import unquote, urlsplit
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, NodeErrorLink, ParameterMode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
@@ -13,8 +15,16 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.exe_types.validators.media import AllowedFormats, Duration
+from griptape_nodes.exe_types.validators import (
+    LIMITS_LINK_LABEL,
+    AllowedFormats,
+    MaxDuration,
+    MediaInfo,
+    MediaNeed,
+    MediaValidator,
+)
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.files.path_utils import is_url
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri, is_publicly_reachable_url
 from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
@@ -28,10 +38,80 @@ __all__ = ["GrokVideoEdit"]
 # then fails the job with no reason, so they are checked before the node runs.
 XAI_VIDEO_EDIT_DOCS_URL = "https://docs.x.ai/developers/model-capabilities/video/editing"
 MAX_INPUT_DURATION_SECONDS = 8.7
-# The format and duration are read from the file itself, so a MOV renamed to .mp4 is still refused.
-# Only a file on this machine is read: a remote URL or a data URI goes unchecked and xAI enforces
-# the limits.
-VIDEO_LIMITS = (AllowedFormats("video/mp4"), Duration(max=MAX_INPUT_DURATION_SECONDS))
+MP4_MIME_TYPE = "video/mp4"
+MP4_EXTENSION = ".mp4"
+_IS_MP4 = AllowedFormats(MP4_MIME_TYPE)
+
+
+class Mp4FileName(MediaValidator):
+    """xAI's rule that a video's name ends in .mp4, or that a data URI is typed video/mp4.
+
+    xAI fails a job whose video URL ends in another extension, even for an MP4 saved as .mov, and
+    gives no reason. The file's name normally reaches xAI intact: the uploaded URL ends in it, and
+    an inline video is typed from it. A name with no extension, such as a signed URL, passes.
+
+    The exception is a local name containing '#' or '?': the engine's upload currently cuts the
+    name at that character, so 'Take #2.mp4' passes here but is uploaded as 'Take '
+    (griptape-ai/griptape-nodes-engine#6048).
+    """
+
+    needs = frozenset({MediaNeed.VIDEO})
+
+    def check_media(
+        self,
+        value: Any,  # noqa: ARG002
+        media: MediaInfo,
+        *,
+        subject: str,
+        docs_url: str | None,
+        position: int | None = None,  # noqa: ARG002
+    ) -> NodeError | None:
+        location = media.location
+        if location is None:
+            return None
+        # A file read as another format already gets AllowedFormats' "Convert it to MP4", and
+        # converting it gives it an .mp4 name too, so this stays quiet rather than repeat it.
+        if media.video is not None and _IS_MP4.check_media(None, media, subject=subject, docs_url=None) is not None:
+            return None
+        if location.startswith("data:"):
+            mime_type = location.removeprefix("data:").split(",", 1)[0].split(";", 1)[0].strip().lower()
+            if mime_type == MP4_MIME_TYPE:
+                return None
+            return _limit_error(
+                f"{subject} is a data URI that isn't typed {MP4_MIME_TYPE}, which xAI requires. Convert it to MP4.",
+                docs_url,
+            )
+        name = _file_name(location)
+        if PureWindowsPath(name).suffix.lower() in ("", MP4_EXTENSION):
+            return None
+        return _limit_error(
+            f"{subject} is named '{name}', and xAI only accepts a file whose name ends in {MP4_EXTENSION}. "
+            f"If it's already an MP4, rename it to end in {MP4_EXTENSION}; otherwise convert it to MP4.",
+            docs_url,
+        )
+
+
+def _file_name(location: str) -> str:
+    """The last part of a path or URL, without a URL's query, such as a signed URL's signature."""
+    path = unquote(urlsplit(location).path) if is_url(location) else location
+    return PureWindowsPath(path.rstrip("/\\")).name
+
+
+def _limit_error(message: str, docs_url: str | None) -> NodeError:
+    """An input-limit error linking xAI's docs, as the engine's validators word and link theirs."""
+    if not docs_url:
+        return NodeError(message)
+    return NodeError(message, links=[NodeErrorLink(label=LIMITS_LINK_LABEL, url=docs_url)])
+
+
+# The format and duration are read from the file itself, so a MOV renamed to .mp4 is still refused,
+# and the name is checked too, so an MP4 saved as .mov is refused before xAI fails it. Only a file
+# on this machine is read: a remote URL or a data URI has only its name or type checked here.
+VIDEO_LIMITS = (
+    AllowedFormats(MP4_MIME_TYPE),
+    Mp4FileName(),
+    MaxDuration(MAX_INPUT_DURATION_SECONDS),
+)
 
 
 class GrokVideoEdit(GriptapeProxyNode):
@@ -168,9 +248,8 @@ class GrokVideoEdit(GriptapeProxyNode):
         """Return a public URL for the video input, or None to fall back to a data URI.
 
         A local video is uploaded to Griptape Cloud so xAI can fetch it, keeping it out of the
-        request body. A public http(s) URL is passed through. The helper is built here rather than
-        in __init__ because it raises without a Griptape Cloud credential, which should cost the
-        upload, not the node.
+        request body. The helper is built here rather than in __init__ because it raises without a
+        Griptape Cloud credential, which should cost the upload, not the node.
         """
         try:
             if self._video_upload is None:
@@ -199,6 +278,11 @@ class GrokVideoEdit(GriptapeProxyNode):
         if not video_value:
             msg = "Video input has no usable value."
             raise ValueError(msg)
+
+        # xAI fetches a public URL itself, so it goes as is, without the upload helper, which
+        # can't be built without a Griptape Cloud credential.
+        if is_publicly_reachable_url(video_value):
+            return video_value
 
         public_url = await self._upload_video()
         if public_url:
