@@ -15,6 +15,8 @@ from griptape_nodes.files.file import File, FileLoadError
 from PIL import Image, ImageOps
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from griptape_nodes.exe_types.node_types import BaseNode
 
 __all__ = [
@@ -140,44 +142,60 @@ async def _to_image_asset(image: Any, reference: str) -> dict[str, str]:
     return {"type": "image", "format": "jpg", "data_base64": data_base64}
 
 
-async def build_state_and_assets(node: BaseNode) -> tuple[str | dict | list, dict[str, dict[str, str]]]:
-    """Build JEV state and image assets from a node's Context and Images.
-
-    Each image is sent as an asset and listed in the state under "images" by its
-    reference, so the question can point at it the same way ("Is [image 1] darker
-    than [image 2]?").
-    """
+async def build_state_and_assets(node: BaseNode) -> tuple[str | dict | list | None, dict[str, dict[str, str]]]:
+    """Read a node's Context and encode its Images as JEV image assets keyed by reference."""
     state = to_state(node.get_parameter_value("context"))
     images = [image for image in node.get_parameter_list_value("images") or [] if image]
-    if not images:
-        if state is None:
-            raise ValueError("'Context' is empty. Connect the text for JEV to read.")
-        return state, {}
+    if not images and state is None:
+        raise ValueError("'Context' is empty. Connect the text for JEV to read.")
 
     assets: dict[str, dict[str, str]] = {}
     for index, image in enumerate(images):
         reference = image_reference(index)
         assets[reference] = await _to_image_asset(image, reference)
-    payload_bytes = sum(len(asset["data_base64"]) for asset in assets.values())
-    if payload_bytes > MAX_IMAGE_PAYLOAD_BYTES:
-        raise ValueError(
-            f"The {len(images)} images add up to more than JEV accepts in one request. Connect fewer images."
-        )
+    return state, assets
 
-    image_state: dict[str, Any] = {"images": list(assets)}
-    if state is not None:
-        image_state = {"context": state, **image_state}
-    return image_state, assets
+
+def _strings(value: Any) -> Iterator[str]:
+    """Yield every string value nested in `value`. Dict keys are labels JEV doesn't substitute into."""
+    match value:
+        case str():
+            yield value
+        case dict():
+            for item in value.values():
+                yield from _strings(item)
+        case list():
+            for item in value:
+                yield from _strings(item)
 
 
 def build_payload(
-    state: str | dict | list, question: dict[str, Any], assets: dict[str, dict[str, str]]
+    state: str | dict | list | None, question: dict[str, Any], assets: dict[str, dict[str, str]]
 ) -> dict[str, Any]:
-    """Build the JEV request body for one question, with image assets when there are any."""
-    payload: dict[str, Any] = {"state": state, "questions": {QUESTION_KEY: question}}
-    if assets:
-        payload["assets"] = assets
-    return payload
+    """Build the JEV request body for one question, with image assets when there are any.
+
+    JEV swaps every occurrence of an asset's reference for the image itself, so each
+    use sends the image again. Images the context or question already name are left
+    out of the state's "images" list; the rest are listed there so every asset is
+    referenced at least once.
+    """
+    if not assets:
+        return {"state": state, "questions": {QUESTION_KEY: question}}
+
+    texts = list(_strings([state, question]))
+    uses = {reference: sum(text.count(reference) for text in texts) for reference in assets}
+    unreferenced = [reference for reference, count in uses.items() if count == 0]
+    payload_bytes = sum(len(asset["data_base64"]) * max(uses[ref], 1) for ref, asset in assets.items())
+    if payload_bytes > MAX_IMAGE_PAYLOAD_BYTES:
+        raise ValueError(
+            "The images, counting each time the context or question names one, add up to more than JEV "
+            "accepts in one request. Connect fewer images or name each one fewer times."
+        )
+
+    image_state: dict[str, Any] = {"images": unreferenced}
+    if state is not None:
+        image_state = {"context": state, **image_state}
+    return {"state": image_state, "questions": {QUESTION_KEY: question}, "assets": assets}
 
 
 def add_context_parameter(node: BaseNode) -> None:

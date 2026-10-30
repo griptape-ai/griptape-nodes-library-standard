@@ -10,6 +10,7 @@ import pytest
 from griptape.artifacts import ImageArtifact
 from PIL import Image
 
+from griptape_nodes_library.classification import jev_common
 from griptape_nodes_library.classification.jev_ask_yes_no import JevAskYesNo
 from griptape_nodes_library.classification.jev_common import IMAGE_MAX_SIDE, IMAGE_MIN_SIDE
 from griptape_nodes_library.classification.jev_pick_one import JevPickOne
@@ -51,7 +52,8 @@ async def test_images_without_context_are_sent_as_assets(
 
     payload = await node._build_payload()
 
-    assert payload["state"] == {"images": ["[image 1]", "[image 2]"]}
+    named = {"[image 1]"} if node_class is JevAskYesNo else set()
+    assert payload["state"] == {"images": [ref for ref in ("[image 1]", "[image 2]") if ref not in named]}
     assert set(payload["assets"]) == {"[image 1]", "[image 2]"}
     for asset in payload["assets"].values():
         assert asset["type"] == "image"
@@ -65,7 +67,45 @@ async def test_context_and_images_are_combined_in_state(monkeypatch: pytest.Monk
 
     payload = await node._build_payload()
 
-    assert payload["state"] == {"context": {"shot": "010"}, "images": ["[image 1]"]}
+    assert payload["state"] == {"context": {"shot": "010"}, "images": []}
+
+
+@pytest.mark.asyncio
+async def test_only_images_no_text_names_are_listed_in_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _node(JevRate, {"context": "Compare [image 2] with the others."}, [_image(512, 512)] * 3, monkeypatch)
+    monkeypatch.setattr(node, "_rows", lambda: [("level_1", "[image 1] is worse"), ("level_2", "better")])
+
+    payload = await node._build_payload()
+
+    assert payload["state"] == {"context": "Compare [image 2] with the others.", "images": ["[image 3]"]}
+    assert set(payload["assets"]) == {"[image 1]", "[image 2]", "[image 3]"}
+
+
+@pytest.mark.asyncio
+async def test_references_in_keys_dont_count_as_uses(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _node(
+        JevAskYesNo,
+        {"context": '{"[image 1]": "hero shot"}', "question": "Is it sharp?"},
+        [_image(512, 512)],
+        monkeypatch,
+    )
+
+    payload = await node._build_payload()
+
+    assert payload["state"]["images"] == ["[image 1]"]
+
+
+@pytest.mark.asyncio
+async def test_size_check_counts_each_time_an_image_is_named(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _node(JevAskYesNo, {"question": "Is [image 1] in focus?"}, [_image(512, 512)], monkeypatch)
+    asset_bytes = len((await node._build_payload())["assets"]["[image 1]"]["data_base64"])
+    monkeypatch.setattr(jev_common, "MAX_IMAGE_PAYLOAD_BYTES", asset_bytes * 2)
+    node = _node(JevAskYesNo, {"question": "Is [image 1] sharper than [image 1]?"}, [_image(512, 512)], monkeypatch)
+    await node._build_payload()
+
+    node = _node(JevAskYesNo, {"question": "[image 1], [image 1], or [image 1]?"}, [_image(512, 512)], monkeypatch)
+    with pytest.raises(ValueError, match="name each one fewer times"):
+        await node._build_payload()
 
 
 @pytest.mark.asyncio
@@ -91,7 +131,7 @@ async def test_no_context_and_no_images_raises(monkeypatch: pytest.MonkeyPatch) 
     ("size", "expected"),
     [
         ((3136, 1568), (IMAGE_MAX_SIDE, 784)),
-        ((128, 256), (IMAGE_MIN_SIDE, 512)),
+        ((128, 256), (IMAGE_MIN_SIDE, 560)),
         ((1000, 800), (1000, 800)),
     ],
 )
