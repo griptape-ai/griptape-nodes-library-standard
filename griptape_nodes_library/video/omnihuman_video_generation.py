@@ -235,9 +235,13 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         try:
             await self._process_generation()
         finally:
-            await adelete_uploaded_artifacts(
-                (self._public_image_url_parameter, self._public_audio_url_parameter), node_name=self.name
+            # Cleanup uploaded artifacts (a polling timeout holds them until the generation
+            # reaches a final state, so a queued job does not lose its inputs).
+            helpers = self._hold_deferred_uploads_if_timed_out(
+                [self._public_image_url_parameter, self._public_audio_url_parameter]
             )
+            if helpers:
+                await adelete_uploaded_artifacts(helpers, node_name=self.name)
 
     async def _resolve_public_image_url(self) -> str:
         """Return a public URL for the input image, resizing first if it exceeds limits.

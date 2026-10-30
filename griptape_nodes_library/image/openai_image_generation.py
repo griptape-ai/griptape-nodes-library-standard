@@ -530,7 +530,9 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                     self.remove_parameter_element_by_name(scratch_name)
                 # Removing the parameter leaves its value behind, which the next run would replay.
                 self.parameter_values.pop(scratch_name, None)
-            await adelete_uploaded_artifacts((helper for helper, _ in pending), node_name=self.name)
+            helpers = self._hold_deferred_uploads_if_timed_out((helper for helper, _ in pending))
+            if helpers:
+                await adelete_uploaded_artifacts(helpers, node_name=self.name)
 
     async def _build_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {

@@ -22,6 +22,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import prepare_media_data_uri
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -413,7 +414,11 @@ class WanImageToVideoGeneration(GriptapeProxyNode):
         try:
             await super()._process_generation()
         finally:
-            await self._public_audio_url_parameter.adelete_uploaded_artifact()
+            # A polling timeout holds the upload until the generation reaches a final state, so
+            # a queued job does not lose the audio it fetches by URL.
+            helpers = self._hold_deferred_uploads_if_timed_out([self._public_audio_url_parameter])
+            if helpers:
+                await adelete_uploaded_artifacts(helpers, node_name=self.name)
 
     def _get_parameters(self) -> dict[str, Any]:
         model = self.get_parameter_value("model")

@@ -14,6 +14,7 @@ from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.image_utils import extract_image_url
 
@@ -116,7 +117,11 @@ class OmnihumanSubjectRecognition(GriptapeProxyNode):
         try:
             await super()._process_generation()
         finally:
-            await self._public_image_url_parameter.adelete_uploaded_artifact()
+            # A polling timeout holds the upload until the generation reaches a final state, so
+            # a queued job does not lose the image it fetches by URL.
+            helpers = self._hold_deferred_uploads_if_timed_out([self._public_image_url_parameter])
+            if helpers:
+                await adelete_uploaded_artifacts(helpers, node_name=self.name)
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []

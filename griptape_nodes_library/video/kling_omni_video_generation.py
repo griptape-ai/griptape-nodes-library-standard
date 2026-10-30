@@ -22,6 +22,7 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
 from griptape_nodes_library.media import prepare_media_data_uri
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -410,8 +411,11 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         try:
             await super().aprocess()
         finally:
-            # Always cleanup uploaded video artifact
-            await self._public_video_url_parameter.adelete_uploaded_artifact()
+            # Always cleanup uploaded video artifact (a polling timeout holds it until the
+            # generation reaches a final state, so a queued job does not lose its video).
+            helpers = self._hold_deferred_uploads_if_timed_out([self._public_video_url_parameter])
+            if helpers:
+                await adelete_uploaded_artifacts(helpers, node_name=self.name)
 
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
