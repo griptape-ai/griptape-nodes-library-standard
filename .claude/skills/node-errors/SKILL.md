@@ -123,13 +123,14 @@ return
 - **Exception: Math Expression** returns 0.0 for an expression it can't evaluate, so a typo doesn't
   stop the run.
 
-## Media inputs
+## Input limits
 
-Declare an image, video or audio input's provider limits on its parameter with
-`pre_run_validators=`, using the engine's `griptape_nodes.exe_types.validators`. The engine checks
-them before the node runs, and their errors already follow this skill: they name the input by its
-display name, give the value and the limit, say how to fix it, and link the page
-`input_limits_url()` returns.
+Declare a provider's limits on an input on its parameter with `pre_run_validators=`, using the
+engine's validators from `griptape_nodes.exe_types.validators`: `MaxCount` and `IfParameter` for any
+value, and the media validators (such as `AllowedFormats`, `MaxFileSize` and `SideRange`) for an
+image, video or audio file. The engine checks them before the node runs, and their errors already
+follow this skill: they name the input by its display name, give the value and the limit, say how
+to fix it, and link the page `input_limits_url()` returns.
 
 ```python
 # "JPEG or PNG, up to 10 MB, each side at least 300 px" - https://example.com/limits
@@ -148,9 +149,9 @@ def input_limits_url(self) -> str | None:
     return LIMITS_URL
 ```
 
-Use `ByParameter` for limits that depend on the selected model, and a `NodeValidator` in the
-node's `node_validators` for a rule across several inputs. Keep `validate_before_node_run` for
-checks that aren't media limits. Don't write your own media readers or limit checks. If two or
+Use `IfParameter` for limits that depend on the selected model, and the node's
+`validate_before_node_run` for a rule across several inputs and for checks that aren't limits on a
+value. Don't write your own media readers or limit checks. If two or
 more nodes from different providers need a validator the engine doesn't have, add it to the
 engine. See CLAUDE.md, "Validate inputs before the run", and the engine's [Checking inputs before a run](https://docs.griptapenodes.com/en/stable/development/custom_nodes/error_handling/#checking-inputs-before-a-run).
 

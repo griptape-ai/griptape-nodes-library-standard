@@ -15,9 +15,14 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.exe_types.validators.base import PreRunValidator
-from griptape_nodes.exe_types.validators.common import ByParameter
-from griptape_nodes.exe_types.validators.media import AllowedFormats, AspectRatioRange, MaxFileSize, SideRange
+from griptape_nodes.exe_types.validators import (
+    AllowedFormats,
+    AspectRatioRange,
+    IfParameter,
+    MaxFileSize,
+    PreRunValidator,
+    SideRange,
+)
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
@@ -64,13 +69,13 @@ def _frame_limits(model_id: str) -> list[PreRunValidator]:
     ]
 
 
-FIRST_FRAME_LIMITS = ByParameter(
+FIRST_FRAME_LIMITS = IfParameter(
     "model_id",
     {model_id: _frame_limits(model_id) for model_id in MODEL_IDS},
     default=_frame_limits(DEFAULT_MODEL_ID),
 )
 # Last Frame is sent only by the models in LAST_FRAME_MODELS, so it isn't checked for the others.
-LAST_FRAME_LIMITS = ByParameter(
+LAST_FRAME_LIMITS = IfParameter(
     "model_id",
     {model_id: _frame_limits(model_id) if model_id in LAST_FRAME_MODELS else [] for model_id in MODEL_IDS},
     default=_frame_limits(DEFAULT_MODEL_ID),

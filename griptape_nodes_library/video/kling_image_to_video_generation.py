@@ -19,13 +19,12 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.exe_types.validators.media import AllowedFormats, AspectRatioRange, MaxFileSize, SideRange
-from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.exe_types.validators import AllowedFormats, AspectRatioRange, MaxFileSize, SideRange
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.widget import Widget
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
-from griptape_nodes_library.media import coerce_media_url_or_data_uri
+from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -47,6 +46,9 @@ END_FRAME_LIMITS = (
     SideRange(min=300),
 )
 START_FRAME_LIMITS = (*END_FRAME_LIMITS, AspectRatioRange("1:2.5", "2.5:1"))
+# Static Mask (`static_mask`): "same format requirements as image field". The page states only the
+# format for it, so only the format is checked.
+STATIC_MASK_LIMITS = (AllowedFormats("image/jpeg", "image/png"),)
 DEFAULT_DURATION_5S = 5
 MAX_MULTI_PROMPT_COUNT = 6
 V3_MODEL_ID = "kling-v3"
@@ -334,6 +336,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 tooltip="Static brush application area. Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
+                pre_run_validators=STATIC_MASK_LIMITS,
             )
             ParameterString(
                 name="dynamic_masks",
@@ -854,34 +857,11 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             exceptions.append(ValueError(f"Multi-shot durations must sum to {duration} (got {total_duration})."))
 
     async def _prepare_image_data_url_async(self, image_input: Any) -> str | None:
-        """Convert image input to a data URL, handling external URLs by downloading and converting."""
-        if not image_input:
+        """Load an image input as raw base64; Kling expects no ``data:`` prefix."""
+        data_uri = await prepare_media_data_uri(image_input, kind="image", node_name=self.name)
+        if not data_uri:
             return None
-
-        image_url = coerce_media_url_or_data_uri(image_input, kind="image")
-        if not image_url:
-            return None
-
-        # If it's already a data URL, strip the prefix (Kling wants raw base64)
-        if image_url.startswith("data:image/"):
-            if ";base64," in image_url:
-                base64_data = image_url.split(";base64,", 1)[1]
-                return base64_data
-            return image_url
-
-        try:
-            data_uri = await File(image_url).aread_data_uri(fallback_mime="image/png")
-
-            # Kling API expects raw base64 string, not data URI with prefix
-            # Strip "data:image/xxx;base64," prefix if present
-            if data_uri and ";base64," in data_uri:
-                base64_data = data_uri.split(";base64,", 1)[1]
-                return base64_data
-
-            return data_uri
-        except FileLoadError as e:
-            logger.debug("%s failed to load image from %s: %s", self.name, image_url, e)
-            return None
+        return data_uri.split(";base64,", 1)[-1]
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         """Save the hosted video and record Kling's own id for it.

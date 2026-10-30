@@ -16,7 +16,14 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.exe_types.validators.media import AllowedFormats, AspectRatioRange, Duration, MaxFileSize, SideRange
+from griptape_nodes.exe_types.validators import (
+    AllowedFormats,
+    AspectRatioRange,
+    MaxDuration,
+    MaxFileSize,
+    MinDuration,
+    SideRange,
+)
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
@@ -72,7 +79,8 @@ VIDEO_LIMITS = (
     # "Format: MP4, AVI, or MOV"
     AllowedFormats("video/mp4", "video/x-msvideo", "video/quicktime"),
     # "Duration: 2 to 30 seconds."
-    Duration(min=2, max=30),
+    MinDuration(2),
+    MaxDuration(30),
     # "Width and height must each be in the range [200, 2048] pixels."
     SideRange(min=200, max=2048),
     ASPECT_RATIO_RANGE,

@@ -20,8 +20,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.exe_types.validators.base import NodeValidator
-from griptape_nodes.exe_types.validators.common import ByParameter
+from griptape_nodes.exe_types.validators import IfParameter
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
@@ -37,10 +36,10 @@ from griptape_nodes_library.proxy import ArtifactKind
 from griptape_nodes_library.video.seedance_common import (
     SEEDANCE_SENT_IMAGE_LIMITS,
     SeedanceProxyNode,
-    TotalDuration,
     coerce_video_url,
     seedance_reference_audio_limits,
     seedance_reference_video_limits,
+    total_duration_errors,
 )
 
 logger = logging.getLogger("griptape_nodes")
@@ -78,9 +77,9 @@ REFERENCE_VIDEO_PARAMETERS = {
 
 # First/Last Frame mode sends only the frames, Multimodal References mode only the references, and
 # Text Only nothing; media the mode doesn't send is reported by `_validate_parameters`.
-FRAME_LIMITS = ByParameter("input_mode", {INPUT_MODE_FIRST_LAST_FRAME: SEEDANCE_SENT_IMAGE_LIMITS})
-REFERENCE_IMAGE_LIMITS = ByParameter("input_mode", {INPUT_MODE_MULTIMODAL_REFERENCES: SEEDANCE_SENT_IMAGE_LIMITS})
-REFERENCE_VIDEO_LIMITS = ByParameter(
+FRAME_LIMITS = IfParameter("input_mode", {INPUT_MODE_FIRST_LAST_FRAME: SEEDANCE_SENT_IMAGE_LIMITS})
+REFERENCE_IMAGE_LIMITS = IfParameter("input_mode", {INPUT_MODE_MULTIMODAL_REFERENCES: SEEDANCE_SENT_IMAGE_LIMITS})
+REFERENCE_VIDEO_LIMITS = IfParameter(
     "input_mode",
     {
         INPUT_MODE_MULTIMODAL_REFERENCES: seedance_reference_video_limits(
@@ -88,7 +87,7 @@ REFERENCE_VIDEO_LIMITS = ByParameter(
         )
     },
 )
-REFERENCE_AUDIO_LIMITS = ByParameter(
+REFERENCE_AUDIO_LIMITS = IfParameter(
     "input_mode",
     {
         INPUT_MODE_MULTIMODAL_REFERENCES: seedance_reference_audio_limits(
@@ -179,23 +178,6 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
         - was_successful (bool): Whether generation succeeded
         - result_details (str): Details about the result or error
     """
-
-    node_validators: ClassVar[list[NodeValidator]] = [
-        TotalDuration(
-            REFERENCE_VIDEO_PARAMETERS,
-            max_total_seconds=MAX_TOTAL_REFERENCE_VIDEO_SECONDS,
-            what="videos",
-            fix="Use a Trim Video node to shorten one, or remove one.",
-            applies=_sends_references,
-        ),
-        TotalDuration(
-            {"reference_audio": "Reference Audio"},
-            max_total_seconds=MAX_TOTAL_REFERENCE_AUDIO_SECONDS,
-            what="clips",
-            fix="Trim one in an audio editor, or remove one.",
-            applies=_sends_references,
-        ),
-    ]
 
     # Migrates values saved before the dropdown stored the provider's own model id: old
     # display labels and catalog keys.
@@ -596,6 +578,28 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
     def validate_before_node_run(self) -> list[Exception] | None:
         """Validate parameters before execution."""
         exceptions = super().validate_before_node_run() or []
+
+        if _sends_references(self):
+            exceptions.extend(
+                total_duration_errors(
+                    self,
+                    REFERENCE_VIDEO_PARAMETERS,
+                    kind="video",
+                    max_total_seconds=MAX_TOTAL_REFERENCE_VIDEO_SECONDS,
+                    what="videos",
+                    fix="Use a Trim Video node to shorten one, or remove one.",
+                )
+            )
+            exceptions.extend(
+                total_duration_errors(
+                    self,
+                    {"reference_audio": "Reference Audio"},
+                    kind="audio",
+                    max_total_seconds=MAX_TOTAL_REFERENCE_AUDIO_SECONDS,
+                    what="clips",
+                    fix="Trim one in an audio editor, or remove one.",
+                )
+            )
 
         params = self._get_parameters()
 

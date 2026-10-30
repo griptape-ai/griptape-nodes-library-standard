@@ -30,7 +30,7 @@ from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.image.seedream_image_generation import SeedreamImageGeneration
 from griptape_nodes_library.proxy.griptape_proxy_node import GriptapeProxyNode
-from griptape_nodes_library.video.sora_video_generation import SoraVideoGeneration
+from griptape_nodes_library.video.wan_text_to_video_generation import WanTextToVideoGeneration
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -61,6 +61,7 @@ NODE_MODEL_CASES: list[tuple[str, str, str, str]] = [
     ("JevPickOne", "gtc_jev_preview", "jev-preview", "model"),
     ("JevRate", "gtc_jev_preview", "jev-preview", "model"),
     ("ElevenLabsTextToSpeechGeneration", "gtc_eleven_multilingual_v2", "eleven_multilingual_v2", "model"),
+    ("ElevenLabsSoundEffectGeneration", "gtc_eleven_text_to_sound_v3", "eleven_text_to_sound_v3", "model"),
     (
         "OmnihumanSubjectRecognition",
         "gtc_omnihuman_1_5_subject_recognition",
@@ -74,7 +75,6 @@ NODE_MODEL_CASES: list[tuple[str, str, str, str]] = [
         "model_id",
     ),  # only declared model
     ("OmnihumanVideoGeneration", "gtc_omnihuman_1_0", "omnihuman-1-0", "model_id"),
-    ("SoraVideoGeneration", "gtc_sora_2_pro", "sora-2-pro", "model"),
     ("WanTextToVideoGeneration", "gtc_wan_2_5_t2v_preview", "wan2.5-t2v-preview", "model"),
     ("WanImageToVideoGeneration", "gtc_wan_2_5_i2v_preview", "wan2.5-i2v-preview", "model"),
     ("WanAnimateGeneration", "gtc_wan_2_2_animate_move", "wan2.2-animate-move", "model"),
@@ -103,7 +103,7 @@ NODE_MODEL_CASES: list[tuple[str, str, str, str]] = [
     ("LTXImageToVideoGeneration", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),
     ("LTXAudioToVideoGeneration", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),
     ("LTXVideoExtend", "gtc_ltx_2_pro", "ltx-2-pro", "model"),
-    ("LTXVideoRetake", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),
+    ("LTXVideoRetake", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),  # only declared model
     ("LTXVideoToVideoHDR", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),  # only declared model
 ]
 
@@ -203,7 +203,7 @@ async def test_begin_generation_gates_on_denial(monkeypatch: pytest.MonkeyPatch)
     Construct the node BEFORE registering the deny hook, so the component's
     constructor-time snapshot is clean and doesn't relocate the stored value
     off the about-to-be-denied selection. Only one representative node
-    (SoraVideoGeneration) is exercised here: the gate itself lives in
+    (WanTextToVideoGeneration) is exercised here: the gate itself lives in
     `GriptapeProxyNode._begin_generation`, shared by every adopting node, so this
     isn't re-checked per node.
 
@@ -212,8 +212,8 @@ async def test_begin_generation_gates_on_denial(monkeypatch: pytest.MonkeyPatch)
     image or video to public storage, so a denied model reaching that far costs
     the caller an upload for work that can never run.
     """
-    node = cast("SoraVideoGeneration", _create_node("SoraVideoGeneration"))
-    node.set_parameter_value("model", "sora-2-pro")
+    node = cast("WanTextToVideoGeneration", _create_node("WanTextToVideoGeneration"))
+    node.set_parameter_value("model", "wan2.5-t2v-preview")
 
     build_calls: list[None] = []
 
@@ -230,7 +230,7 @@ async def test_begin_generation_gates_on_denial(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(node, "_build_payload", fake_build_payload)
     monkeypatch.setattr(node, "_submit_generation", fake_submit_generation)
 
-    hook = _deny_hook(CheckpointAction.OFFER_MODEL, "gtc_sora_2_pro")
+    hook = _deny_hook(CheckpointAction.OFFER_MODEL, "gtc_wan_2_5_t2v_preview")
     GriptapeNodes.EventManager().add_authorization_hook(hook)
     try:
         # Nothing is wired to the failure output, so the denial is raised.
@@ -252,7 +252,7 @@ async def test_begin_generation_gates_on_denial(monkeypatch: pytest.MonkeyPatch)
 
     assert len(build_calls) == 1
     assert len(submit_calls) == 1
-    assert submit_calls[0]["api_model_id"] == "sora-2-pro"
+    assert submit_calls[0]["api_model_id"] == "wan2.5-t2v-preview"
 
 
 def test_legacy_dropdown_value_migrates_and_resolves_denial_at_runtime(
@@ -295,8 +295,8 @@ def test_topaz_image_enhance_operation_has_no_model_access() -> None:
 
 @pytest.mark.parametrize(
     ("node_type", "denied_catalog_id", "denied_provider_id", "param_name"),
-    [case for case in NODE_MODEL_CASES if case[0] in {"KlingTextToVideoGeneration", "SoraVideoGeneration"}],
-    ids=["KlingTextToVideoGeneration", "SoraVideoGeneration"],
+    [case for case in NODE_MODEL_CASES if case[0] in {"KlingTextToVideoGeneration", "WanTextToVideoGeneration"}],
+    ids=["KlingTextToVideoGeneration", "WanTextToVideoGeneration"],
 )
 def test_validation_reports_denial_alongside_input_checks(
     node_type: str,
@@ -311,7 +311,7 @@ def test_validation_reports_denial_alongside_input_checks(
     report nothing but "requires a prompt" to an artist whose real blocker is the
     license, because those checks run before `process` ever starts. Two nodes are
     parametrized rather than all of them: `KlingTextToVideoGeneration` appends input
-    validation to the base result, `SoraVideoGeneration` adds none, so between them
+    validation to the base result, `WanTextToVideoGeneration` adds none, so between them
     they cover both shapes of the shared hook.
 
     Construct the node BEFORE registering the deny hook, so the component's
@@ -334,7 +334,7 @@ def test_validation_stays_quiet_when_model_is_permitted() -> None:
     Guards the `exceptions or None` return: with no deny hook registered and no input
     validation of its own, the node has nothing to report.
     """
-    node = cast("GriptapeProxyNode", _create_node("SoraVideoGeneration"))
-    node.set_parameter_value("model", "sora-2-pro")
+    node = cast("GriptapeProxyNode", _create_node("WanTextToVideoGeneration"))
+    node.set_parameter_value("model", "wan2.5-t2v-preview")
 
     assert node.validate_before_node_run() is None

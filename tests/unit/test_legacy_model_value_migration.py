@@ -85,7 +85,6 @@ NODE_TYPES_WITH_MODEL_ACCESS: list[str] = [
     "Seedance20VideoGeneration",
     "SeedanceVideoGeneration",
     "SeedreamImageGeneration",
-    "SoraVideoGeneration",
     "SummarizeText",
     "TranscribeAudio",
     "Veo3VideoGeneration",

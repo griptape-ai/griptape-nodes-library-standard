@@ -21,33 +21,40 @@ import io
 import json as _json
 import logging
 from abc import ABC
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any, NamedTuple
+from pathlib import Path
+from typing import Any, Literal, NamedTuple
 from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 
 import httpx
 from griptape_nodes.exe_types.core_types import NodeError, NodeErrorLink, Parameter, ParameterList, ParameterMode
-from griptape_nodes.exe_types.input_checks import LIMITS_LINK_LABEL
 from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
-from griptape_nodes.exe_types.validators.base import MediaInfo, MediaNeed, NodeValidator, PreRunValidator
-from griptape_nodes.exe_types.validators.media import (
+from griptape_nodes.exe_types.validators import (
+    LIMITS_LINK_LABEL,
     AllowedFormats,
     AspectRatioRange,
-    Duration,
     FrameRate,
+    MaxDuration,
     MaxFileSize,
+    MediaInfo,
+    MediaNeed,
+    MediaValidator,
+    MinDuration,
     PixelArea,
     SideRange,
     VideoCodecs,
+    reads,
 )
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.retained_mode.events.config_events import GetWorkspaceRequest, GetWorkspaceResultSuccess
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.utils import media_probe
 from PIL import Image, ImageOps
 
 from griptape_nodes_library.assets import (
@@ -92,7 +99,7 @@ __all__ = [
     "SEEDANCE_SENT_IMAGE_LIMITS",
     "SeedanceLimit",
     "SeedanceProxyNode",
-    "TotalDuration",
+    "total_duration_errors",
     "coerce_video_url",
     "downscale_oversized_image_data_uri",
     "downscale_oversized_image_file",
@@ -276,7 +283,7 @@ def downscale_oversized_image_file(path: str) -> DownscaledImage | None:
 
 
 @dataclass(frozen=True)
-class SeedanceLimit(PreRunValidator):
+class SeedanceLimit(MediaValidator):
     """One BytePlus limit, checked only on media the request sends as it is.
 
     A private-asset reference is sent as an ``asset://`` ID, so no limit is checked on it. An image
@@ -284,31 +291,28 @@ class SeedanceLimit(PreRunValidator):
     Seedance 2.0 and 2.5 nodes send it (see `SeedanceProxyNode._prepare_frame_url_async`), so for
     one only the limits a resize keeps are checked: the shortest side and the aspect ratio. Its
     format and file size are those of the re-encoded copy, which isn't read until the node runs,
-    so they aren't checked here; a PNG kept as PNG can still be over BytePlus's size limit after
-    the resize, and BytePlus then refuses it. Pass `kept_on_downscale=False` for those limits.
+    so they aren't checked here (wrap those limits as ``limit.unless(_is_downscaled)``); a PNG kept
+    as PNG can still be over BytePlus's size limit after the resize, and BytePlus then refuses it.
 
     Args:
         limit: The engine validator to run.
-        kept_on_downscale: Whether the limit still applies to an image the node downscales.
     """
 
-    limit: PreRunValidator
-    kept_on_downscale: bool = True
+    limit: MediaValidator
 
     def __post_init__(self) -> None:
-        # What `limit` reads, so the engine refuses it on a parameter of the wrong kind; a limit
-        # skipped on a downscaled image also reads the image, to tell whether it is downscaled.
-        needs = self.limit.needs if self.kept_on_downscale else self.limit.needs | {MediaNeed.IMAGE}
-        object.__setattr__(self, "needs", needs)
+        # What `limit` reads, so the engine refuses it on a parameter of the wrong kind.
+        object.__setattr__(self, "needs", self.limit.needs)
 
-    def check(self, value: Any, *, subject: str, media: MediaInfo, docs_url: str | None) -> NodeError | None:
+    def check_media(
+        self, value: Any, media: MediaInfo, *, subject: str, docs_url: str | None, position: int | None = None
+    ) -> NodeError | None:
         if is_provider_asset_reference(value):
             return None
-        if not self.kept_on_downscale and _is_downscaled(media):
-            return None
-        return self.limit.check(value, subject=subject, media=media, docs_url=docs_url)
+        return self.limit.check_media(value, media, subject=subject, docs_url=docs_url, position=position)
 
 
+@reads(MediaNeed.IMAGE)
 def _is_downscaled(media: MediaInfo) -> bool:
     """Whether an image is over SEEDANCE_MAX_IMAGE_DIMENSION_PX, so the node downscales it before sending."""
     return media.image is not None and max(media.image.width, media.image.height) > SEEDANCE_MAX_IMAGE_DIMENSION_PX
@@ -317,8 +321,8 @@ def _is_downscaled(media: MediaInfo) -> bool:
 # The limits on an image the Seedance 2.0 or 2.5 node sends, which it downscales when it's over
 # SEEDANCE_MAX_IMAGE_DIMENSION_PX.
 SEEDANCE_SENT_IMAGE_LIMITS = (
-    SeedanceLimit(AllowedFormats(*SUPPORTED_IMAGE_MIME_TYPES, *HEIF_IMAGE_MIME_TYPES), kept_on_downscale=False),
-    SeedanceLimit(MaxFileSize(MAX_IMAGE_BYTES, strict=True), kept_on_downscale=False),
+    SeedanceLimit(AllowedFormats(*SUPPORTED_IMAGE_MIME_TYPES, *HEIF_IMAGE_MIME_TYPES).unless(_is_downscaled)),
+    SeedanceLimit(MaxFileSize(MAX_IMAGE_BYTES, strict=True).unless(_is_downscaled)),
     SeedanceLimit(SideRange(min=MIN_IMAGE_SIDE)),
     SeedanceLimit(AspectRatioRange(TALLEST_ASPECT_RATIO, WIDEST_ASPECT_RATIO)),
 )
@@ -332,7 +336,8 @@ def seedance_reference_video_limits(*, min_seconds: float, max_seconds: float) -
             MaxFileSize(MAX_VIDEO_BYTES),
             AllowedFormats(*SUPPORTED_VIDEO_MIME_TYPES),
             VideoCodecs(*SUPPORTED_VIDEO_CODECS),
-            Duration(min=min_seconds, max=max_seconds),
+            MinDuration(min_seconds),
+            MaxDuration(max_seconds),
             SideRange(min=MIN_VIDEO_SIDE, max=MAX_VIDEO_SIDE),
             PixelArea(min_megapixels=MIN_VIDEO_MEGAPIXELS, max_megapixels=MAX_VIDEO_MEGAPIXELS),
             AspectRatioRange(TALLEST_ASPECT_RATIO, WIDEST_ASPECT_RATIO),
@@ -348,71 +353,57 @@ def seedance_reference_audio_limits(*, min_seconds: float, max_seconds: float) -
         for limit in (
             AllowedFormats(*SUPPORTED_AUDIO_MIME_TYPES),
             MaxFileSize(MAX_AUDIO_BYTES),
-            # Too long says to trim it in an audio editor, and too short to use a longer clip.
-            Duration(min=min_seconds, max=max_seconds),
+            MinDuration(min_seconds),
+            MaxDuration(max_seconds),
         )
     )
 
 
-class TotalDuration(NodeValidator):
-    """Reference clips longer together than BytePlus allows.
+def total_duration_errors(
+    node: BaseNode,
+    parameters: Mapping[str, str],
+    *,
+    kind: Literal["video", "audio"],
+    max_total_seconds: float,
+    what: str,
+    fix: str,
+) -> list[NodeError]:
+    """An error when the reference clips in `parameters` are longer together than BytePlus allows.
 
     Checked only for two or more clips (for one, its own maximum is the same number) when every
     clip's duration was read. It sums each clip's shorter reading, the one its own maximum is
-    checked against, from what the parameter validators already read. A private-asset reference
-    is sent as an ``asset://`` ID, so its duration counts as unknown and the total isn't checked.
+    checked against; during the node's checks the engine reads each file once, so this reuses what
+    the parameter validators read. A private-asset reference is sent as an ``asset://`` ID, so its
+    duration counts as unknown and the total isn't checked.
 
     Args:
+        node: The node about to run.
         parameters: The parameters holding the clips, each with its name as the UI shows it.
+        kind: Whether the clips are videos or audio, which says how to read their durations.
         max_total_seconds: The longest the clips may be together.
         what: The clips, for the message, such as "videos" or "clips".
         fix: What the artist can do about it.
-        applies: Whether the node sends these clips now; the total is checked only when it does.
     """
-
-    def __init__(
-        self,
-        parameters: Mapping[str, str],
-        *,
-        max_total_seconds: float,
-        what: str,
-        fix: str,
-        applies: Callable[[BaseNode], bool],
-    ) -> None:
-        self._parameters = dict(parameters)
-        self._max_total_seconds = max_total_seconds
-        self._what = what
-        self._fix = fix
-        self._applies = applies
-
-    def check(
-        self, node: BaseNode, *, media: Mapping[str, Sequence[MediaInfo]], docs_url: str | None
-    ) -> list[NodeError]:
-        if not self._applies(node):
-            return []
-        durations: list[float | None] = []
-        connected: list[str] = []
-        for parameter, shown_name in self._parameters.items():
-            clips = [
-                (value, info)
-                for value, info in zip(_values(node, parameter), media.get(parameter, ()), strict=False)
-                if value
-            ]
-            if clips:
-                connected.append(f"'{shown_name}'")
-            durations.extend(
-                None if is_provider_asset_reference(value) else _shortest_seconds(info) for value, info in clips
-            )
-        known = [seconds for seconds in durations if seconds is not None]
-        if len(durations) < 2 or len(known) < len(durations) or sum(known) <= self._max_total_seconds:  # noqa: PLR2004
-            return []
-        message = (
-            f"Together, the {self._what} in {_join_and(connected)} are "
-            f"{_seconds_past(sum(known), self._max_total_seconds)} seconds long and the limit is "
-            f"{self._max_total_seconds:g} seconds in total. {self._fix}"
+    durations: list[float | None] = []
+    connected: list[str] = []
+    for parameter, shown_name in parameters.items():
+        clips = [value for value in _values(node, parameter) if value]
+        if clips:
+            connected.append(f"'{shown_name}'")
+        durations.extend(
+            None if is_provider_asset_reference(value) else _shortest_seconds(value, kind) for value in clips
         )
-        links = [NodeErrorLink(label=LIMITS_LINK_LABEL, url=docs_url)] if docs_url else None
-        return [NodeError(message, links=links)]
+    known = [seconds for seconds in durations if seconds is not None]
+    if len(durations) < 2 or len(known) < len(durations) or sum(known) <= max_total_seconds:  # noqa: PLR2004
+        return []
+    message = (
+        f"Together, the {what} in {_join_and(connected)} are "
+        f"{_seconds_past(sum(known), max_total_seconds)} seconds long and the limit is "
+        f"{max_total_seconds:g} seconds in total. {fix}"
+    )
+    docs_url = node.input_limits_url()
+    links = [NodeErrorLink(label=LIMITS_LINK_LABEL, url=docs_url)] if docs_url else None
+    return [NodeError(message, links=links)]
 
 
 def _values(node: BaseNode, parameter: str) -> list[Any]:
@@ -422,9 +413,9 @@ def _values(node: BaseNode, parameter: str) -> list[Any]:
     return [node.get_parameter_value(parameter)]
 
 
-def _shortest_seconds(info: MediaInfo) -> float | None:
-    """A clip's shorter duration reading, or None when it wasn't read."""
-    probe = info.video or info.audio
+def _shortest_seconds(value: Any, kind: Literal["video", "audio"]) -> float | None:
+    """A clip's shorter duration reading, or None when it can't be read here."""
+    probe = media_probe.local_video_probe(value) if kind == "video" else media_probe.local_audio_probe(value)
     if probe is None:
         return None
     return probe.shortest_seconds
@@ -748,7 +739,11 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         workspace_relative = path.split("/workspace/", 1)[1]
         if not workspace_relative:
             return None
-        candidate = GriptapeNodes.ConfigManager().workspace_path / workspace_relative
+        # A request, not GriptapeNodes.ConfigManager(), so this resolves correctly from a worker process.
+        workspace_result = GriptapeNodes.handle_request(GetWorkspaceRequest(broadcast_result=False))
+        if not isinstance(workspace_result, GetWorkspaceResultSuccess):
+            return None
+        candidate = Path(workspace_result.workspace_path) / workspace_relative
         return str(candidate) if candidate.is_file() else None
 
     async def _resolve_public_url_for_media(self, media_value: Any, *, artifact_type: str) -> str:

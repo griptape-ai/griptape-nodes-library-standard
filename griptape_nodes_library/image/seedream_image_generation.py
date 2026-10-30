@@ -21,11 +21,11 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 from PIL import Image
 
+from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode, HostedArtifact
 
 logger = logging.getLogger("griptape_nodes")
@@ -656,21 +656,10 @@ class SeedreamImageGeneration(GriptapeProxyNode):
 
     async def _process_input_image(self, image_input: Any) -> str | None:
         """Process input image and convert to base64 data URI."""
-        if not image_input:
+        data_uri = await prepare_media_data_uri(image_input, kind="image", node_name=self.name)
+        if not data_uri:
             return None
-
-        # Extract string value from input
-        image_value = self._extract_image_value(image_input)
-        if not image_value:
-            return None
-
-        try:
-            data_uri = await File(image_value).aread_data_uri(fallback_mime="image/png")
-        except FileLoadError:
-            logger.debug("%s failed to load image value: %s", self.name, image_value)
-            return None
-        else:
-            return self._coerce_data_uri_to_image_mime(data_uri)
+        return self._coerce_data_uri_to_image_mime(data_uri)
 
     def _coerce_data_uri_to_image_mime(self, data_uri: str) -> str:
         """Ensure data URIs for input images use an image/* MIME type when detectable.
@@ -707,28 +696,6 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         if image_format:
             return f"image/{image_format}"
         return "image/png"
-
-    def _extract_image_value(self, image_input: Any) -> str | None:
-        """Extract string value from various image input types."""
-        if isinstance(image_input, str):
-            return image_input
-
-        try:
-            # ImageUrlArtifact: .value holds URL string
-            if hasattr(image_input, "value"):
-                value = getattr(image_input, "value", None)
-                if isinstance(value, str):
-                    return value
-
-            # ImageArtifact: .base64 holds raw or data-URI
-            if hasattr(image_input, "base64"):
-                b64 = getattr(image_input, "base64", None)
-                if isinstance(b64, str) and b64:
-                    return b64
-        except Exception as e:
-            self._log(f"Failed to extract image value: {e}")
-
-        return None
 
     def _log_request(self, payload: dict[str, Any]) -> None:
         with suppress(Exception):

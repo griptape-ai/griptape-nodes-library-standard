@@ -39,7 +39,6 @@ def flow(griptape_nodes: GriptapeNodes) -> Generator[str, None, None]:  # noqa: 
     [
         ("KlingOmniVideoGeneration", "duration", "8", 8),
         ("KlingTextToVideoGeneration", "duration", " 12 ", 12),
-        ("SoraVideoGeneration", "seconds", "8", 8),
         ("LTXTextToVideoGeneration", "fps", "48", 48),
     ],
 )

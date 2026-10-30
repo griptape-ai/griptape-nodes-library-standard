@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from griptape_nodes.exe_types import input_checks
 from griptape_nodes.exe_types.core_types import NodeError
-from griptape_nodes.exe_types.input_checks import ImageInfo, VideoProbe, input_check_readings
-from griptape_nodes.exe_types.pre_run_validation import run_pre_run_validators
+from griptape_nodes.exe_types.validators._runner import validate_node
+from griptape_nodes.utils import media_probe
+from griptape_nodes.utils.media_probe import ImageInfo, VideoProbe
 from PIL import Image
 
 from griptape_nodes_library.video.wan_animate_generation import WanAnimateGeneration
@@ -34,7 +34,7 @@ def video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     }
     # The validators probe through the engine's own reader, so patch it there.
     monkeypatch.setattr(
-        input_checks,
+        media_probe,
         "local_video_probe",
         lambda _value: VideoProbe(info=probe["info"], seconds=probe["seconds"], mime_type=probe["mime_type"]),
     )
@@ -49,8 +49,7 @@ def _image(tmp_path: Path, size: tuple[int, int] = (800, 600), image_format: str
 
 def _all_errors(node: WanAnimateGeneration) -> list[Exception]:
     """What the engine reports at the node's turn: its pre-run validators', then its own checks'."""
-    with input_check_readings():
-        return [*run_pre_run_validators(node), *(node.validate_before_node_run() or [])]
+    return validate_node(node)
 
 
 def _messages(node: WanAnimateGeneration) -> list[str]:
@@ -59,11 +58,11 @@ def _messages(node: WanAnimateGeneration) -> list[str]:
 
 def _oversized(monkeypatch: pytest.MonkeyPatch, suffix: str) -> None:
     """Make local files ending in `suffix` read as 1 GB, over each DashScope size limit, without writing one."""
-    read_size = input_checks._read_size_bytes
+    read_size = media_probe.local_size_bytes
     monkeypatch.setattr(
-        input_checks,
-        "_read_size_bytes",
-        lambda location: 1024**3 if location.endswith(suffix) else read_size(location),
+        media_probe,
+        "local_size_bytes",
+        lambda value, *, kind: 1024**3 if str(value).endswith(suffix) else read_size(value, kind=kind),
     )
 
 
@@ -153,7 +152,7 @@ def test_rejects_an_oversized_video(
         (1.5, "The video in 'Video URL' is 1.50 seconds long and the minimum is 2. Use a longer clip."),
         (
             31.0,
-            "The video in 'Video URL' is 31.00 seconds long and the limit is 30. Use a Trim Video node to shorten it.",
+            "The video in 'Video URL' is 31.00 seconds long and the limit is 30. Shorten it.",
         ),
     ],
     ids=["too-short", "too-long"],

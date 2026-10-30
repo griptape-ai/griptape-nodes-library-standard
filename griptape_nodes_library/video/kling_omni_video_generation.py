@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import logging
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -19,20 +18,20 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.exe_types.validators.media import (
+from griptape_nodes.exe_types.validators import (
     AllowedFormats,
     AspectRatioRange,
-    Duration,
     FrameRate,
+    MaxDuration,
     MaxFileSize,
+    MinDuration,
     PixelArea,
     SideRange,
 )
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
-from griptape_nodes_library.media import coerce_media_url_or_data_uri
+from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -86,7 +85,8 @@ IMAGE_LIMITS = (
 REFERENCE_VIDEO_LIMITS = (
     MaxFileSize(200 * 1024 * 1024),
     AllowedFormats("video/mp4", "video/quicktime"),
-    Duration(min=3, max=15.5),
+    MinDuration(3),
+    MaxDuration(15.5),
     SideRange(min=700, max=4553),
     PixelArea(max_megapixels=8.2944),
     ASPECT_RATIO_RANGE,
@@ -825,22 +825,8 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         return INPUT_LIMITS_URLS.get(self._get_selected_model_id(), INPUT_LIMITS_URLS["kling-v3-omni"])
 
     async def _prepare_image_data_url_async(self, image_input: Any) -> str | None:
-        """Convert image input to a data URL, handling external URLs by downloading and converting."""
-        if not image_input:
+        """Load an image input as raw base64; Kling expects no ``data:`` prefix."""
+        data_uri = await prepare_media_data_uri(image_input, kind="image", node_name=self.name)
+        if not data_uri:
             return None
-
-        image_url = coerce_media_url_or_data_uri(image_input, kind="image")
-        if not image_url:
-            return None
-
-        # If it's already a data URL, return it
-        if image_url.startswith("data:image/"):
-            return image_url
-
-        try:
-            image_bytes = await File(image_url).aread_bytes()
-        except FileLoadError as e:
-            logger.debug("%s failed to load image from %s: %s", self.name, image_url, e)
-            return None
-
-        return base64.b64encode(image_bytes).decode("utf-8")
+        return data_uri.split(";base64,", 1)[-1]

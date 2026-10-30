@@ -8,12 +8,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from griptape_nodes.exe_types import input_checks
 from griptape_nodes.exe_types.core_types import NodeError, ParameterList
-from griptape_nodes.exe_types.input_checks import AudioProbe, ImageInfo, VideoProbe, input_check_readings
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
-from griptape_nodes.exe_types.pre_run_validation import run_pre_run_validators
-from griptape_nodes.exe_types.validators.common import ByParameter
+from griptape_nodes.exe_types.validators import IfParameter
+from griptape_nodes.exe_types.validators._runner import validate_node
+from griptape_nodes.utils import media_probe
+from griptape_nodes.utils.media_probe import AudioProbe, ImageInfo, VideoProbe
 from PIL import Image
 
 from griptape_nodes_library.assets import ASSET_KIND_IMAGE, ASSET_KIND_VIDEO, create_provider_asset_reference
@@ -62,14 +62,13 @@ def audio_clips(monkeypatch: pytest.MonkeyPatch) -> dict[str, AudioProbe | None]
         return probes.get(Path(str(value)).name, valid)
 
     # The validators probe through the engine's own reader, so patch it there.
-    monkeypatch.setattr(input_checks, "local_audio_probe", fake_probe)
+    monkeypatch.setattr(media_probe, "local_audio_probe", fake_probe)
     return probes
 
 
 def _all_errors(node: Any) -> list[Exception]:
     """What the engine reports at the node's turn: its pre-run validators', then its own checks'."""
-    with input_check_readings():
-        return [*run_pre_run_validators(node), *(node.validate_before_node_run() or [])]
+    return validate_node(node)
 
 
 def _errors(node: Any) -> list[NodeError]:
@@ -78,9 +77,9 @@ def _errors(node: Any) -> list[NodeError]:
 
 def _file_size(monkeypatch: pytest.MonkeyPatch, suffix: str, size_bytes: int) -> None:
     """Make local files ending in `suffix` read as `size_bytes` long, without writing one that size."""
-    read_size = input_checks.local_size_bytes
+    read_size = media_probe.local_size_bytes
     monkeypatch.setattr(
-        input_checks,
+        media_probe,
         "local_size_bytes",
         lambda value, *, kind: size_bytes if str(value).endswith(suffix) else read_size(value, kind=kind),
     )
@@ -88,9 +87,9 @@ def _file_size(monkeypatch: pytest.MonkeyPatch, suffix: str, size_bytes: int) ->
 
 def _image_info(monkeypatch: pytest.MonkeyPatch, infos: dict[str, ImageInfo]) -> None:
     """Make the local images with these file names read as these sizes, without building ones that large."""
-    read_info = input_checks.local_image_info
+    read_info = media_probe.local_image_info
     monkeypatch.setattr(
-        input_checks,
+        media_probe,
         "local_image_info",
         lambda value: infos.get(Path(str(value)).name) or read_info(value),
     )
@@ -126,7 +125,7 @@ def videos(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, VideoPr
         return probes.get(Path(str(value)).name, valid)
 
     # The validators probe through the engine's own reader, so patch it there.
-    monkeypatch.setattr(input_checks, "local_video_probe", fake_probe)
+    monkeypatch.setattr(media_probe, "local_video_probe", fake_probe)
     for name in ("a.mp4", "b.mp4", "c.mp4"):
         (tmp_path / name).write_bytes(b"video")
     return probes
@@ -139,9 +138,9 @@ def videos(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, VideoPr
 )
 def test_refuses_limits_on_a_parameter_of_another_kind(limits: tuple[Any, ...]) -> None:
     # Each limit declares what it reads, so the engine refuses it where it could never fire, even
-    # behind the ByParameter the nodes pick their limits with.
+    # behind the IfParameter the nodes pick their limits with.
     with pytest.raises(TypeError, match="parameter holds audio"):
-        ParameterAudio(name="reference_audio", pre_run_validators=[ByParameter("mode", {"a": list(limits)})])
+        ParameterAudio(name="reference_audio", pre_run_validators=[IfParameter("mode", {"a": list(limits)})])
 
 
 class TestSeedanceVideoGeneration:
@@ -393,8 +392,7 @@ class TestSeedance20:
             ),
             (
                 VideoProbe(info=ImageInfo(1280, 720, None), seconds=16.0, fps=30.0),
-                "The video in 'Reference Video 1' is 16.00 seconds long and the limit is 15. "
-                "Use a Trim Video node to shorten it.",
+                "The video in 'Reference Video 1' is 16.00 seconds long and the limit is 15. Shorten it.",
             ),
             (
                 VideoProbe(info=ImageInfo(640, 480, None), seconds=5.0, fps=30.0),
@@ -548,8 +546,7 @@ class TestSeedance20:
             ),
             (
                 AudioProbe(mime_type="audio/wav", codec="pcm_s16le", profile=None, seconds=16.0),
-                "Audio clip 1 in 'Reference Audio' is 16.00 seconds long and the limit is 15. "
-                "Trim it in an audio editor.",
+                "Audio clip 1 in 'Reference Audio' is 16.00 seconds long and the limit is 15. Shorten it.",
             ),
         ],
         ids=["format", "too-short", "too-long"],
@@ -587,7 +584,7 @@ class TestSeedance20:
 
     def test_reads_a_real_audio_clips_duration(self, references: Seedance20VideoGeneration, tmp_path: Path) -> None:
         # A real WAV, read by the real ffprobe when one is installed.
-        if input_checks.local_audio_probe(_audio(tmp_path, name="probe.wav")) is None:
+        if media_probe.local_audio_probe(_audio(tmp_path, name="probe.wav")) is None:
             pytest.skip("ffprobe isn't installed")
         _set_list(references, "reference_audio", [_audio(tmp_path, seconds=1.0)])
         assert _messages(references) == [
@@ -718,7 +715,7 @@ class TestSeedance25:
         audio_clips["b.wav"] = AudioProbe(mime_type="audio/wav", codec="pcm_s16le", profile=None, seconds=20.0)
         _set_list(node, "reference_audio", [_audio(tmp_path, name="a.wav")])
         assert _messages(node) == [
-            "Audio clip 1 in 'Reference Audio' is 31.00 seconds long and the limit is 30. Trim it in an audio editor."
+            "Audio clip 1 in 'Reference Audio' is 31.00 seconds long and the limit is 30. Shorten it."
         ]
         _set_list(node, "reference_audio", [_audio(tmp_path, name="b.wav"), _audio(tmp_path, name="b2.wav")])
         audio_clips["b2.wav"] = audio_clips["b.wav"]
@@ -765,8 +762,7 @@ class TestSeedance25:
             (
                 SeedanceTask.VIDEO_EXTENSION,
                 31.0,
-                "Video 1 in 'Reference Videos' is 31.00 seconds long and the limit is 30. "
-                "Use a Trim Video node to shorten it.",
+                "Video 1 in 'Reference Videos' is 31.00 seconds long and the limit is 30. Shorten it.",
             ),
         ],
         ids=["reference-3s", "extension-3s", "reference-1.5s", "editing-3s", "extension-31s"],

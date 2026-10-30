@@ -15,10 +15,10 @@ from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
+from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
 logger = logging.getLogger("griptape_nodes")
@@ -294,41 +294,7 @@ class FluxImageGeneration(GriptapeProxyNode):
 
     async def _process_input_image(self, image_input: Any) -> str | None:
         """Process input image and convert to base64 data URI."""
-        if not image_input:
-            return None
-
-        # Extract string value from input
-        image_value = self._extract_image_value(image_input)
-        if not image_value:
-            return None
-
-        try:
-            return await File(image_value).aread_data_uri(fallback_mime="image/png")
-        except FileLoadError:
-            logger.debug("%s failed to load image value: %s", self.name, image_value)
-            return None
-
-    def _extract_image_value(self, image_input: Any) -> str | None:
-        """Extract string value from various image input types."""
-        if isinstance(image_input, str):
-            return image_input
-
-        try:
-            # ImageUrlArtifact: .value holds URL string
-            if hasattr(image_input, "value"):
-                value = getattr(image_input, "value", None)
-                if isinstance(value, str):
-                    return value
-
-            # ImageArtifact: .base64 holds raw or data-URI
-            if hasattr(image_input, "base64"):
-                b64 = getattr(image_input, "base64", None)
-                if isinstance(b64, str) and b64:
-                    return b64
-        except Exception as e:
-            self._log(f"Failed to extract image value: {e}")
-
-        return None
+        return await prepare_media_data_uri(image_input, kind="image", node_name=self.name)
 
     def _log_request(self, payload: dict[str, Any]) -> None:
         with suppress(Exception):

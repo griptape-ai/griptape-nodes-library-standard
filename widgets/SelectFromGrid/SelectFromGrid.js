@@ -1,12 +1,15 @@
 import { CARD_HUES, CARD_HEIGHTS, injectStyles } from './_styles.js';
 import { mkIcon } from './_icons.js';
 import { createToolbar } from './_toolbar.js';
+import { createViewer } from './_viewer.js';
 
 // ── SelectFromGrid widget ──────────────────────────────────────────────────────
 //
 // Displays a list of items as a clickable grid. The user selects items by
 // clicking or drag-selecting (lasso); the selection is written back to the
-// node via onChange as `selected_indices`.
+// node via onChange as `selected_indices`. The toolbar's fullscreen button, or
+// the one on each cell's hover, opens a fullscreen viewer (_viewer.js) that
+// shares the same selection.
 //
 // VALUE SHAPE (ParameterDict "grid")
 // ─────────────────────────────────
@@ -46,7 +49,8 @@ export default function SelectFromGrid(container, props) {
     container._sfgInst.handleUpdate(props);
     return { cleanup: container._sfgInst.cleanup, update: container._sfgInst.handleUpdate };
   }
-  if (container._sfgInst) delete container._sfgInst;
+  // A stale instance may still own an open fullscreen overlay and its key listener
+  if (container._sfgInst) container._sfgInst.cleanup();
 
   injectStyles();
 
@@ -77,10 +81,7 @@ export default function SelectFromGrid(container, props) {
       onLayoutChange(l)  { layout = l; animateGridChange(); emitChange(); },
       onClear()          {
         if (selectedIndices.length === 0) return;
-        selectedIndices = [];
-        grid.querySelectorAll(".sfg-cell.selected").forEach((c) => c.classList.remove("selected"));
-        updateCount();
-        emitChange();
+        setSelection([]);
       },
       onLabelsToggle(v)  {
         showLabels = v;
@@ -95,7 +96,19 @@ export default function SelectFromGrid(container, props) {
         labelSize = n;
         emitChange();
       },
+      onFullscreen() {
+        viewer.open(selectedIndices.length ? selectedIndices[0] : 0);
+      },
     });
+
+  const viewer = createViewer({
+    getItems:      () => items,
+    getSelected:   () => selectedIndices,
+    isMultiSelect: () => multiSelect,
+    isDisabled:    () => isDisabled,
+    onToggle:      (idx) => toggleSelection(idx),
+    onRemove:      (idx) => setSelection(selectedIndices.filter((i) => i !== idx)),
+  });
 
   wrapper.appendChild(controls);
   if (!showLabels) wrapper.classList.add("sfg-hide-labels");
@@ -119,6 +132,30 @@ export default function SelectFromGrid(container, props) {
       show_labels: showLabels,
       label_size:  labelSize,
     });
+  }
+
+  function syncSelectionClasses() {
+    grid.querySelectorAll(".sfg-cell").forEach((cell) => {
+      cell.classList.toggle("selected", selectedIndices.includes(parseInt(cell.dataset.idx, 10)));
+    });
+  }
+
+  function setSelection(indices) {
+    selectedIndices = indices;
+    syncSelectionClasses();
+    updateCount();
+    emitChange();
+    viewer.refresh();
+  }
+
+  // Click semantics: toggle in multi-select; in single-select, picking another replaces it.
+  function toggleSelection(idx) {
+    const alreadySelected = selectedIndices.includes(idx);
+    if (multiSelect) {
+      setSelection(alreadySelected ? selectedIndices.filter((i) => i !== idx) : [...selectedIndices, idx]);
+    } else {
+      setSelection(alreadySelected ? [] : [idx]);
+    }
   }
 
   function updateCount() {
@@ -213,6 +250,19 @@ export default function SelectFromGrid(container, props) {
     }
 
     cell.appendChild(inner);
+
+    const expandBtn = document.createElement("button");
+    expandBtn.type = "button";
+    expandBtn.className = "sfg-expand-btn";
+    expandBtn.title = "View fullscreen";
+    expandBtn.appendChild(mkIcon("maximize-2", 12));
+    // Stop here so the grid doesn't treat the press as a selection click or lasso start
+    expandBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+    expandBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      viewer.open(idx);
+    });
+    cell.appendChild(expandBtn);
 
     if (item.label) {
       const lbl = document.createElement("div");
@@ -514,28 +564,10 @@ export default function SelectFromGrid(container, props) {
         }
       });
 
-      if (changed) { updateCount(); emitChange(); }
+      if (changed) { updateCount(); emitChange(); viewer.refresh(); }
     } else if (!dragState.dragging && dragState.startCell) {
-      // Click — toggle selection; in single-select mode clear all others first
       const idx = parseInt(dragState.startCell.dataset.idx, 10);
-      if (!isNaN(idx)) {
-        const alreadySelected = selectedIndices.includes(idx);
-        if (multiSelect) {
-          if (alreadySelected) selectedIndices = selectedIndices.filter((i) => i !== idx);
-          else                 selectedIndices = [...selectedIndices, idx];
-        } else {
-          if (alreadySelected) {
-            selectedIndices = [];
-          } else {
-            // Deselect the previously selected cell visually before updating state
-            grid.querySelectorAll(".sfg-cell.selected").forEach((c) => c.classList.remove("selected"));
-            selectedIndices = [idx];
-          }
-        }
-        dragState.startCell.classList.toggle("selected", selectedIndices.includes(idx));
-        updateCount();
-        emitChange();
-      }
+      if (!isNaN(idx)) toggleSelection(idx);
     }
 
     dragState = null;
@@ -555,6 +587,7 @@ export default function SelectFromGrid(container, props) {
   // ── Update handler ────────────────────────────────────────────────────────
   function handleUpdate(newProps) {
     onChangeRef = newProps.onChange;
+    const disabledChanged = (newProps.disabled || false) !== isDisabled;
     isDisabled  = newProps.disabled || false;
     setDisabled(isDisabled);
 
@@ -589,7 +622,8 @@ export default function SelectFromGrid(container, props) {
       masonryBtn.classList.toggle("active", layout === "masonry");
       needsRender = true;
     }
-    if (newMultiSelect !== multiSelect) {
+    const multiSelectChanged = newMultiSelect !== multiSelect;
+    if (multiSelectChanged) {
       multiSelect = newMultiSelect;
       // If switching to single-select with multiple items selected, clear down to none
       if (!multiSelect && selectedIndices.length > 1) {
@@ -611,12 +645,14 @@ export default function SelectFromGrid(container, props) {
 
     latestValue = newVal;
     if (needsRender) renderGrid();
+    if (needsRender || disabledChanged || multiSelectChanged) viewer.refresh();
   }
 
   // ── Cleanup ───────────────────────────────────────────────────────────────
   function cleanup() {
     gridRO.disconnect();
     cellObserver.disconnect();
+    viewer.destroy();
     wrapper.remove();
     delete container._sfgInst;
   }
