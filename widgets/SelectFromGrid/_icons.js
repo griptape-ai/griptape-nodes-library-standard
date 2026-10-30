@@ -5,6 +5,10 @@ export const ICON_PATHS = {
   "loader-circle": `<path d="M21 12a9 9 0 1 1-6.219-8.56"/>`,
   "alert-circle":  `<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>`,
   "check":         `<polyline points="20 6 9 17 4 12"/>`,
+  "maximize-2":    `<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" x2="14" y1="3" y2="10"/><line x1="3" x2="10" y1="21" y2="14"/>`,
+  "x":             `<path d="M18 6 6 18"/><path d="m6 6 12 12"/>`,
+  "chevron-left":  `<path d="m15 18-6-6 6-6"/>`,
+  "chevron-right": `<path d="m9 18 6-6-6-6"/>`,
 };
 
 export function mkIcon(name, size = 14) {

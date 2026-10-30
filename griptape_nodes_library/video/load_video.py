@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
@@ -144,32 +145,58 @@ class LoadVideo(DataNode):
             self._copy_button.hide = True
 
     def process(self) -> None:
-        # Get parameter values and assign to outputs
+        video_artifact, path_value, local_path = self._prepare_outputs()
+        if local_path is not None:
+            video_artifact = VideoUrlArtifact(path_value, meta=ffmpeg_utils.extract_video_player_metadata(local_path))
+        self._set_outputs(video_artifact, path_value)
+
+    async def aprocess(self) -> None:
+        video_artifact, path_value, local_path = self._prepare_outputs()
+        if local_path is not None:
+            # Reading metadata can block for a long time: ffprobe on a slow or unusual file runs until
+            # its timeout, every call takes ffmpeg's install lock, and the first one also downloads
+            # ffmpeg. Run it in a thread so the event loop keeps serving other nodes, editor updates
+            # and cancel requests.
+            # asyncio.to_thread (not async_utils.to_thread) lets a cancel land without waiting: the
+            # metadata is only attached to the output, so a cancelled run discards it and the thread
+            # finishes in the background.
+            meta = await asyncio.to_thread(ffmpeg_utils.extract_video_player_metadata, local_path)
+            video_artifact = VideoUrlArtifact(path_value, meta=meta)
+        self._set_outputs(video_artifact, path_value)
+
+    def _prepare_outputs(self) -> tuple[Any, Any, str | None]:
+        """Return the video and path outputs, and the local file to read metadata from.
+
+        When a local file is returned, the path output is the video's resolved path and the
+        caller builds the video output from it once the metadata is read.
+        """
         video_artifact = self.get_parameter_value("video")
         path_value = self.get_parameter_value("path")
 
-        if isinstance(video_artifact, VideoUrlArtifact):
-            result = resolve_to_macro_path(video_artifact.value)  # pyright: ignore[reportAttributeAccessIssue]
-            update_external_file_controls(result, self._external_warning, self._copy_button, self.name, "video")
-            if not result.is_external:
-                resolved_path = result.resolved_path
-                path_value = resolved_path
-                # `resolved_path` may be a macro like "{inputs}/video.mp4", which ffprobe cannot
-                # open as a literal path. Resolve it to a real local path just for the ffprobe
-                # argument; the artifact and "path" output keep the macro form so the stored
-                # value stays portable across workspaces.
-                try:
-                    local_path = File(resolved_path).resolve()
-                except FileLoadError as e:
-                    logger.warning(
-                        f"LoadVideo '{self.name}': Attempted to resolve '{resolved_path}' to extract video "
-                        f"metadata. Failed due to {e.result_details}"
-                    )
-                    video_artifact = VideoUrlArtifact(resolved_path, meta={})
-                else:
-                    extracted_metadata = ffmpeg_utils.extract_video_player_metadata(local_path)
-                    video_artifact = VideoUrlArtifact(resolved_path, meta=extracted_metadata)
+        if not isinstance(video_artifact, VideoUrlArtifact):
+            return video_artifact, path_value, None
 
+        result = resolve_to_macro_path(video_artifact.value)  # pyright: ignore[reportAttributeAccessIssue]
+        update_external_file_controls(result, self._external_warning, self._copy_button, self.name, "video")
+        if result.is_external:
+            return video_artifact, path_value, None
+
+        resolved_path = result.resolved_path
+        # `resolved_path` may be a macro like "{inputs}/video.mp4", which ffprobe cannot
+        # open as a literal path. Resolve it to a real local path just for the ffprobe
+        # argument; the artifact and "path" output keep the macro form so the stored
+        # value stays portable across workspaces.
+        try:
+            local_path = File(resolved_path).resolve()
+        except FileLoadError as e:
+            logger.warning(
+                f"LoadVideo '{self.name}': Attempted to resolve '{resolved_path}' to extract video "
+                f"metadata. Failed due to {e.result_details}"
+            )
+            return VideoUrlArtifact(resolved_path, meta={}), resolved_path, None
+        return video_artifact, resolved_path, local_path
+
+    def _set_outputs(self, video_artifact: Any, path_value: Any) -> None:
         self.parameter_output_values["video"] = video_artifact
         self.parameter_output_values["path"] = path_value
 

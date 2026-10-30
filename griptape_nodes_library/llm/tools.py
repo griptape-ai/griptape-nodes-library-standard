@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 import dateparser
 from asteval import Interpreter
 from griptape_nodes.agents.pydantic_ai.mcp_servers import mcp_server_from_config
+from griptape_nodes.retained_mode.events.config_events import GetWorkspaceRequest, GetWorkspaceResultSuccess
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.utils.budget_refusal import BudgetExceededError
 from openai import OpenAI
@@ -26,6 +27,7 @@ from pydantic_ai import FunctionToolset, Tool, ToolOutput
 from griptape_nodes_library.llm.agent_state import AgentState
 from griptape_nodes_library.llm.runner import build_agent, output_to_text, run_agent_async
 from griptape_nodes_library.llm.web import format_search_results, scrape_url, search_web
+from griptape_nodes_library.utils.secret_utils import get_secret
 from griptape_nodes_library.utils.utilities import to_pascal_case
 
 if TYPE_CHECKING:
@@ -204,7 +206,12 @@ def _file_manager(config: dict) -> FunctionToolset:
     if location != "Workspace Directory":
         msg = f"FileManager location '{location}' is not supported."
         raise ValueError(msg)
-    workdir = Path(GriptapeNodes.ConfigManager().get_config_value("workspace_directory")).resolve()
+    # A request, not GriptapeNodes.ConfigManager(), so this resolves correctly from a worker process.
+    workspace_result = GriptapeNodes.handle_request(GetWorkspaceRequest(broadcast_result=False))
+    if not isinstance(workspace_result, GetWorkspaceResultSuccess):
+        msg = "Could not resolve the workspace directory."
+        raise RuntimeError(msg)
+    workdir = Path(workspace_result.workspace_path)
 
     def list_files_from_disk(path: str = ".") -> str:
         """List files on disk.
@@ -256,7 +263,7 @@ def _audio_transcription(config: dict) -> FunctionToolset:
             path: Path to an audio file on disk.
         """
         try:
-            api_key = GriptapeNodes.SecretsManager().get_secret("OPENAI_API_KEY", should_error_on_not_found=False)
+            api_key = get_secret("OPENAI_API_KEY", error_on_missing=False)
             with Path(path).open("rb") as audio:
                 return OpenAI(api_key=api_key).audio.transcriptions.create(model=model, file=audio).text
         except Exception as e:

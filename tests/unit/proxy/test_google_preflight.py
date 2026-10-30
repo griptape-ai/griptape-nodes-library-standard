@@ -7,17 +7,16 @@ anything it can't read locally.
 from __future__ import annotations
 
 import base64
-import sys
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 import pytest
 from griptape_nodes.exe_types.core_types import NodeError
-from griptape_nodes.exe_types.input_checks import input_check_readings
-from griptape_nodes.exe_types.pre_run_validation import run_pre_run_validators
+from griptape_nodes.exe_types.validators._runner import validate_node
 from griptape_nodes.node_library.library_registry import LibraryRegistry
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.utils import media_probe
 from PIL import Image
 
 from griptape_nodes_library.video import veo3_video_generation
@@ -38,16 +37,14 @@ def _image_uri(image_format: str = "PNG", size: tuple[int, int] = (16, 16)) -> s
     return f"data:image/{image_format.lower()};base64,{base64.b64encode(buffer.getvalue()).decode()}"
 
 
-def _node_module(node: Any) -> Any:
-    """The module a node's class was loaded from. The library registry loads node modules under its
-    own names, so patching an imported module would miss the one the node reads."""
-    return sys.modules[type(node).__module__]
+def _report_size(monkeypatch: pytest.MonkeyPatch, size_bytes: int) -> None:
+    """Have the engine's size reader report every input as `size_bytes`, so a limit can be broken without a huge file."""
+    monkeypatch.setattr(media_probe, "_read_size_bytes", lambda _location: size_bytes)
 
 
 def _all_errors(node: Any) -> list[Exception]:
     """What the engine reports at the node's turn: its pre-run validators', then its own checks'."""
-    with input_check_readings():
-        return [*run_pre_run_validators(node), *(node.validate_before_node_run() or [])]
+    return validate_node(node)
 
 
 def _node_errors(node: Any) -> list[NodeError]:
@@ -113,7 +110,7 @@ class TestGoogleImageGeneration:
     def test_rejects_an_oversized_image_only_with_auto_resize_off(
         self, node: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(_node_module(node), "MAX_IMAGE_SIZE_BYTES", 10)
+        _report_size(monkeypatch, 8 * 1024 * 1024)
         node.set_parameter_value("input_images", [_image_uri()])
 
         assert _all_errors(node) == []
@@ -127,7 +124,7 @@ class TestGoogleImageGeneration:
     def test_lets_auto_resize_convert_an_oversized_unsupported_image(
         self, node: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(_node_module(node), "MAX_IMAGE_SIZE_BYTES", 10)
+        _report_size(monkeypatch, 8 * 1024 * 1024)
         node.set_parameter_value("input_images", [_image_uri("GIF")])
         assert _all_errors(node) == []
 
@@ -135,7 +132,7 @@ class TestGoogleImageGeneration:
     def test_rejects_an_oversized_image_auto_resize_cannot_open(
         self, node: Any, monkeypatch: pytest.MonkeyPatch, *, auto_image_resize: bool
     ) -> None:
-        monkeypatch.setattr(_node_module(node), "MAX_IMAGE_SIZE_BYTES", 10)
+        _report_size(monkeypatch, 8 * 1024 * 1024)
         node.set_parameter_value("auto_image_resize", auto_image_resize)
         node.set_parameter_value("input_images", [str(HEIC_PHOTO)])
         errors = _node_errors(node)
@@ -168,7 +165,7 @@ class TestVeo3VideoGeneration:
         assert errors[0].links[0].url == veo3_video_generation.FRAME_FORMATS_URL
 
     def test_rejects_an_oversized_frame(self, node: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(_node_module(node), "MAX_FRAME_IMAGE_BYTES", 10)
+        _report_size(monkeypatch, 21 * 1024 * 1024)
         node.set_parameter_value("last_frame", _image_uri())
         errors = _node_errors(node)
         assert len(errors) == 1

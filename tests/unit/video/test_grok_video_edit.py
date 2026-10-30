@@ -5,19 +5,19 @@ from typing import Any
 
 import pytest
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types import input_checks
 from griptape_nodes.exe_types.core_types import NodeError
-from griptape_nodes.exe_types.input_checks import VideoProbe, input_check_readings
 from griptape_nodes.exe_types.param_components.artifact_url import (
     public_artifact_url_parameter as public_artifact_url_parameter_module,
 )
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
-from griptape_nodes.exe_types.pre_run_validation import run_pre_run_validators
+from griptape_nodes.exe_types.validators._runner import validate_node
 from griptape_nodes.files import file as file_module
 from griptape_nodes.files.file import FileLoadError
 from griptape_nodes.retained_mode.events.os_events import FileIOFailureReason
+from griptape_nodes.utils import media_probe
+from griptape_nodes.utils.media_probe import VideoProbe
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.video.grok_video_edit import XAI_VIDEO_EDIT_DOCS_URL, GrokVideoEdit
@@ -91,7 +91,7 @@ class TestPrepareVideoUrlFallback:
 def _stub_probe(monkeypatch: pytest.MonkeyPatch, duration: float | None, mime_type: str | None) -> None:
     probe = VideoProbe(info=None, seconds=duration, mime_type=mime_type)
     # The validators probe through the engine's own reader, so patch it there.
-    monkeypatch.setattr(input_checks, "local_video_probe", lambda _value: probe)
+    monkeypatch.setattr(media_probe, "local_video_probe", lambda _value: probe)
 
 
 def _validated_node(
@@ -107,8 +107,7 @@ def _validated_node(
 
 def _errors(node: GrokVideoEdit) -> list[Exception]:
     """What the engine reports at the node's turn: its pre-run validators', then its own checks'."""
-    with input_check_readings():
-        return [*run_pre_run_validators(node), *(node.validate_before_node_run() or [])]
+    return validate_node(node)
 
 
 def _messages(node: GrokVideoEdit) -> list[str]:
@@ -126,16 +125,62 @@ class TestInputLimits:
             f"The video in 'Video' is in {format_name} format. Convert it to MP4."
         ]
 
-    def test_reads_the_format_from_the_file_not_its_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # An MP4 saved as .mov is an MP4, so xAI takes it.
-        assert _messages(_validated_node(monkeypatch, "{inputs}/IMG_2689.mov", mime_type="video/mp4")) == []
+    def test_refuses_an_mp4_not_named_mp4(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # xAI requires the .mp4 extension and fails an MP4 saved as .mov with no reason.
+        errors = _errors(_validated_node(monkeypatch, "{inputs}/IMG_2689.mov", mime_type="video/mp4"))
+
+        assert [str(error) for error in errors] == [
+            "The video in 'Video' is named 'IMG_2689.mov', and xAI only accepts a file whose name ends in .mp4. "
+            "If it's already an MP4, rename it to end in .mp4; otherwise convert it to MP4."
+        ]
+        assert isinstance(errors[0], NodeError)
+        assert [link.url for link in errors[0].links or []] == [XAI_VIDEO_EDIT_DOCS_URL]
 
     @pytest.mark.parametrize(
         "video_input",
-        ["https://example.com/clip.webm?sig=1", "data:video/quicktime;base64,ABC"],
+        [
+            "{inputs}/CLIP.MP4",
+            "https://example.com/clip.Mp4?sig=a.mov",
+            "https://cloud.griptape.ai/api/buckets/b/signed/abc123?sig=1",
+            "{inputs}/clip",
+        ],
+        ids=["uppercase", "url-with-query", "url-without-extension", "path-without-extension"],
+    )
+    def test_passes_an_mp4_name_or_no_extension(self, monkeypatch: pytest.MonkeyPatch, video_input: str) -> None:
+        assert _messages(_validated_node(monkeypatch, video_input)) == []
+
+    def test_refuses_a_remote_url_not_named_mp4(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The real reader: it reads only files on this machine, so only the name is checked.
+        monkeypatch.setattr(subprocess, "run", lambda *_a, **_k: pytest.fail("ffprobe not run"))
+        node = GrokVideoEdit(name="GrokVideoEdit")
+        node.set_parameter_value("prompt", "make it snow")
+        node.set_parameter_value("video", "https://example.com/clip.webm?sig=1")
+
+        assert _messages(node) == [
+            "The video in 'Video' is named 'clip.webm', and xAI only accepts a file whose name ends in .mp4. "
+            "If it's already an MP4, rename it to end in .mp4; otherwise convert it to MP4."
+        ]
+
+    def test_passes_an_mp4_data_uri(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert _messages(_validated_node(monkeypatch, "data:video/mp4;base64,ABC", mime_type=None)) == []
+
+    def test_refuses_a_data_uri_not_typed_mp4(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert _messages(_validated_node(monkeypatch, "data:video/quicktime;base64,ABC", mime_type=None)) == [
+            "The video in 'Video' is a data URI that isn't typed video/mp4, which xAI requires. Convert it to MP4."
+        ]
+
+    def test_refuses_a_file_named_mp4_that_is_not_mp4(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Only the format error: converting the file to MP4 fixes both.
+        assert _messages(_validated_node(monkeypatch, "{inputs}/clip.mp4", mime_type="video/quicktime")) == [
+            "The video in 'Video' is in MOV format. Convert it to MP4."
+        ]
+
+    @pytest.mark.parametrize(
+        "video_input",
+        ["https://example.com/clip.mp4?sig=1", "data:video/mp4;base64,ABC"],
         ids=["url", "data-uri"],
     )
-    def test_leaves_a_video_it_cannot_read_locally_to_xai(
+    def test_leaves_the_contents_of_a_video_it_cannot_read_locally_to_xai(
         self, monkeypatch: pytest.MonkeyPatch, video_input: str
     ) -> None:
         # The real reader: it reads only files on this machine, so it returns nothing for these.
@@ -147,7 +192,7 @@ class TestInputLimits:
 
     def test_over_long_video_fails_validation_with_duration(self, monkeypatch: pytest.MonkeyPatch) -> None:
         assert _messages(_validated_node(monkeypatch, "{inputs}/clip.mp4", duration=8.798)) == [
-            "The video in 'Video' is 8.80 seconds long and the limit is 8.7. Use a Trim Video node to shorten it."
+            "The video in 'Video' is 8.80 seconds long and the limit is 8.7. Shorten it."
         ]
 
     def test_limit_errors_link_xai_docs(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -172,7 +217,7 @@ class TestInputLimits:
     def test_checks_the_limit_against_the_shorter_reading(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # 6 s of video with a 12 s audio track: the container is longer, but the clip may be within xAI's limit.
         probe = VideoProbe(info=None, seconds=6.0, container_seconds=12.0, mime_type="video/mp4")
-        monkeypatch.setattr(input_checks, "local_video_probe", lambda _value: probe)
+        monkeypatch.setattr(media_probe, "local_video_probe", lambda _value: probe)
         node = GrokVideoEdit(name="GrokVideoEdit")
         node.set_parameter_value("prompt", "make it snow")
         node.set_parameter_value("video", "{inputs}/clip.mp4")
@@ -257,6 +302,18 @@ class TestUpload:
     async def test_public_url_is_passed_through(
         self, monkeypatch: pytest.MonkeyPatch, captured_paths: list[str]
     ) -> None:
+        public_url = "https://example.com/clip.mp4"
+        node = _uploading_node(video=public_url)
+
+        assert await node._prepare_video_url(node.get_parameter_value("video")) == public_url
+        assert captured_paths == []
+
+    async def test_public_url_is_passed_through_without_cloud_credential(
+        self, monkeypatch: pytest.MonkeyPatch, captured_paths: list[str]
+    ) -> None:
+        monkeypatch.setattr(
+            public_artifact_url_parameter_module, "resolve_cloud_credential", lambda *_args, **_kwargs: None
+        )
         public_url = "https://example.com/clip.mp4"
         node = _uploading_node(video=public_url)
 

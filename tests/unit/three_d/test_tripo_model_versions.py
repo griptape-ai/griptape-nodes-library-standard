@@ -45,6 +45,7 @@ if TYPE_CHECKING:
 # working version or revives a deprecated one fails here.
 LIVE_VERSIONS: dict[TripoEndpoint, list[str]] = {
     TripoEndpoint.TEXT: [
+        "P2-20260801",
         "P1-20260311",
         "v3.1-20260211",
         "v3.0-20250812",
@@ -52,6 +53,7 @@ LIVE_VERSIONS: dict[TripoEndpoint, list[str]] = {
         "v1.4-20240625",
     ],
     TripoEndpoint.IMAGE: [
+        "P2-20260801",
         "P1-20260311",
         "v3.1-20260211",
         "v3.0-20250812",
@@ -59,6 +61,7 @@ LIVE_VERSIONS: dict[TripoEndpoint, list[str]] = {
         "v1.4-20240625",
     ],
     TripoEndpoint.MULTIVIEW: [
+        "P2-20260801",
         "P1-20260311",
         "v3.1-20260211",
         "v3.0-20250812",

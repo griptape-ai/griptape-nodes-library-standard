@@ -4,8 +4,7 @@ import asyncio
 import base64
 import json
 import logging
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact
@@ -18,8 +17,6 @@ from griptape_nodes.exe_types.core_types import (
     ParameterList,
     ParameterMode,
 )
-from griptape_nodes.exe_types.input_checks import LIMITS_LINK_LABEL, check_mime_type, check_size
-from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -27,11 +24,19 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.exe_types.validators.base import MediaInfo, MediaNeed, NodeValidator, PreRunValidator
-from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.exe_types.validators import (
+    LIMITS_LINK_LABEL,
+    AllowedFormats,
+    IfParameter,
+    MaxFileSize,
+    MediaInfo,
+    MediaNeed,
+    reads,
+)
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
+from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.image_utils import shrink_image_to_size
 
@@ -57,60 +62,38 @@ MAX_IMAGE_SIZE_BYTES = 7 * 1024 * 1024
 IMAGE_LIST_PARAMETERS = ("input_images", "object_images", "human_images")
 
 
-@dataclass(frozen=True)
-class GeminiInputImage(PreRunValidator):
-    """An input image Google is certain to reject: a format it doesn't take, or over 7 MB.
-
-    With 'Auto Image Resize' on, an oversized image Pillow can open is re-encoded to WEBP before
-    sending, so neither its size nor its source format is checked. Every other image is sent as it
-    is, so both are; the size error suggests the setting only when it is off and could shrink the
-    image.
-    """
-
-    needs = frozenset({MediaNeed.SIZE, MediaNeed.IMAGE})
-
-    auto_image_resize: bool = True
-
-    def selected(self, node: BaseNode) -> Sequence[PreRunValidator]:
-        return (replace(self, auto_image_resize=bool(node.get_parameter_value("auto_image_resize"))),)
-
-    def check(self, value: Any, *, subject: str, media: MediaInfo, docs_url: str | None) -> NodeError | None:  # noqa: ARG002
-        size_bytes = media.size_bytes
-        # 'Auto Image Resize' can only shrink an image Pillow opens; anything else is sent as it is.
-        can_open = media.image is not None
-        can_resize = self.auto_image_resize and can_open
-        if can_resize and size_bytes is not None and size_bytes > MAX_IMAGE_SIZE_BYTES:
-            return None
-        error = check_mime_type(media.mime_type, subject=subject, allowed=SUPPORTED_INPUT_MIME_TYPES, docs_url=docs_url)
-        if error is not None or can_resize:
-            return error
-        fix = (
-            "Turn on 'Auto Image Resize' or use a smaller image."
-            if can_open and not self.auto_image_resize
-            else "Use a smaller image."
-        )
-        return check_size(size_bytes, maximum_bytes=MAX_IMAGE_SIZE_BYTES, subject=subject, fix=fix, docs_url=docs_url)
+@reads(MediaNeed.IMAGE)
+def _pillow_can_open(media: MediaInfo) -> bool:
+    # 'Auto Image Resize' can only shrink an image Pillow opens; anything else is sent as it is.
+    return media.image is not None
 
 
-class TotalInputImages(NodeValidator):
-    """The most images Google takes across 'Input Images' and the deprecated image lists together."""
+@reads(MediaNeed.IMAGE, MediaNeed.SIZE)
+def _node_would_shrink_it(media: MediaInfo) -> bool:
+    """With 'Auto Image Resize' on, the node re-saves an oversized image Pillow opens as a smaller WEBP."""
+    return media.image is not None and (media.size_bytes or 0) > MAX_IMAGE_SIZE_BYTES
 
-    def check(
-        self,
-        node: BaseNode,
-        *,
-        media: Mapping[str, Sequence[MediaInfo]],  # noqa: ARG002
-        docs_url: str | None,
-    ) -> list[NodeError]:
-        total_images = sum(len(node.get_parameter_list_value(name) or []) for name in IMAGE_LIST_PARAMETERS)
-        if total_images <= MAX_INPUT_IMAGES:
-            return []
-        msg = (
-            f"{total_images} images are connected across 'Input Images', 'Object Images' and 'Human Images' "
-            f"and the limit is {MAX_INPUT_IMAGES}. Remove {total_images - MAX_INPUT_IMAGES}."
-        )
-        links = [NodeErrorLink(label=LIMITS_LINK_LABEL, url=docs_url)] if docs_url else None
-        return [NodeError(msg, links=links)]
+
+# An input image Google is certain to reject: a format it doesn't take, or over 7 MB. With 'Auto
+# Image Resize' on, an image the node will shrink is re-encoded before sending, so neither its size
+# nor its source format is checked. Otherwise both are, and the size error suggests the setting only
+# when it is off and could shrink the image.
+GEMINI_INPUT_IMAGE = IfParameter(
+    "auto_image_resize",
+    {
+        True: [
+            AllowedFormats(*SUPPORTED_INPUT_MIME_TYPES).unless(_node_would_shrink_it),
+            MaxFileSize(MAX_IMAGE_SIZE_BYTES, fix="Use a smaller image.").unless(_pillow_can_open),
+        ]
+    },
+    default=[
+        AllowedFormats(*SUPPORTED_INPUT_MIME_TYPES),
+        MaxFileSize(MAX_IMAGE_SIZE_BYTES, fix="Turn on 'Auto Image Resize' or use a smaller image.").when(
+            _pillow_can_open
+        ),
+        MaxFileSize(MAX_IMAGE_SIZE_BYTES, fix="Use a smaller image.").unless(_pillow_can_open),
+    ],
+)
 
 
 @dataclass
@@ -130,7 +113,6 @@ class GoogleImageGeneration(GriptapeProxyNode):
     SERVICE_NAME = "Griptape"
     API_KEY_NAME = "GT_CLOUD_API_KEY"
     DEFAULT_MODEL: ClassVar[str] = "gemini-3-pro-image"
-    node_validators: ClassVar[list[NodeValidator]] = [TotalInputImages()]
     MODEL_OPTIONS: ClassVar[list[str]] = ["gemini-3-pro-image", "gemini-3.1-flash-image"]
     # Migrates values saved before this dropdown stored the provider's own model id
     # (friendly labels and catalog keys alike).
@@ -221,7 +203,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Input Images", "expander": True, "hide_property": True},
                 max_items=MAX_INPUT_IMAGES,
-                pre_run_validators=[GeminiInputImage()],
+                pre_run_validators=[GEMINI_INPUT_IMAGE],
             )
         )
 
@@ -235,7 +217,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Object Images", "expander": True},
                 max_items=MAX_OBJECT_IMAGES,
-                pre_run_validators=[GeminiInputImage()],
+                pre_run_validators=[GEMINI_INPUT_IMAGE],
                 hide=True,
             )
         )
@@ -250,7 +232,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Human Images", "expander": True},
                 max_items=MAX_HUMAN_IMAGES,
-                pre_run_validators=[GeminiInputImage()],
+                pre_run_validators=[GEMINI_INPUT_IMAGE],
                 hide=True,
             )
         )
@@ -415,6 +397,16 @@ class GoogleImageGeneration(GriptapeProxyNode):
         prompt = self.get_parameter_value("prompt")
         if not prompt:
             exceptions.append(ValueError("'Prompt' is empty. Describe the image you want."))
+        # Google's limit is on all the images together, across the current list and the deprecated ones.
+        total_images = sum(len(self.get_parameter_list_value(name) or []) for name in IMAGE_LIST_PARAMETERS)
+        if total_images > MAX_INPUT_IMAGES:
+            message = (
+                f"{total_images} images are connected across 'Input Images', 'Object Images' and 'Human Images' "
+                f"and the limit is {MAX_INPUT_IMAGES}. Remove {total_images - MAX_INPUT_IMAGES}."
+            )
+            exceptions.append(
+                NodeError(message, links=[NodeErrorLink(label=LIMITS_LINK_LABEL, url=self.input_limits_url())])
+            )
 
         return exceptions or None
 
@@ -665,17 +657,8 @@ class GoogleImageGeneration(GriptapeProxyNode):
         Raises:
             ValueError: If auto_image_resize is False and the image exceeds the size limit
         """
-        if not image_input:
-            return None
-
-        image_value = self._extract_image_value(image_input)
-        if not image_value:
-            return None
-
-        try:
-            data_uri = await File(image_value).aread_data_uri(fallback_mime="image/png")
-        except FileLoadError:
-            logger.debug("%s failed to load image value: %s", self.name, image_value)
+        data_uri = await prepare_media_data_uri(image_input, kind="image", node_name=self.name)
+        if not data_uri:
             return None
 
         # Run CPU-bound base64 decode + PIL image resizing in a thread pool
@@ -783,26 +766,3 @@ class GoogleImageGeneration(GriptapeProxyNode):
         # Couldn't shrink enough, return original
         logger.warning("%s could not shrink image below %.0fMB limit, using original", self.name, max_mb)
         return (mime_type, base64_data)
-
-    def _extract_image_value(self, image_input: Any) -> str | None:
-        """Extract string value from various image input types."""
-        if isinstance(image_input, str):
-            return image_input
-
-        try:
-            # ImageUrlArtifact: .value holds URL string
-            if hasattr(image_input, "value"):
-                value = getattr(image_input, "value", None)
-                if isinstance(value, str):
-                    return value
-
-            # ImageArtifact: .base64 holds raw or data-URI
-            if hasattr(image_input, "base64"):
-                b64 = getattr(image_input, "base64", None)
-                if isinstance(b64, str) and b64:
-                    return b64
-        except Exception as e:
-            msg = f"{self.name} failed to extract image value: {e}"
-            logger.info(msg)
-
-        return None

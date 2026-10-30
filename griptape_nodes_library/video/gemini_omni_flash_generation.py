@@ -1,23 +1,25 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
 from contextlib import suppress
-from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.exe_types.validators.base import MediaInfo, PreRunValidator
-from griptape_nodes.exe_types.validators.media import AllowedFormats
+from griptape_nodes.exe_types.validators import AllowedFormats, IfParameter
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.retained_mode.events.parameter_events import (
+    GetConnectionsForParameterRequest,
+    GetConnectionsForParameterResultSuccess,
+)
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
@@ -37,26 +39,9 @@ INPUT_LIMITS_URL = (
 IMAGE_FORMATS = AllowedFormats("image/png", "image/jpeg", "image/webp", "image/heic", "image/heif")
 
 
-@dataclass(frozen=True)
-class UnlessReferenceImages(PreRunValidator):
-    """The deprecated image's format, checked only while no reference images are connected.
-
-    The request drops the deprecated image when reference images are connected, so it isn't checked then.
-    """
-
-    needs = IMAGE_FORMATS.needs
-
-    def selected(self, node: BaseNode) -> Sequence[PreRunValidator]:
-        if node.get_parameter_list_value("reference_images"):
-            return ()
-        return (IMAGE_FORMATS,)
-
-    def candidates(self) -> Sequence[PreRunValidator]:
-        return (IMAGE_FORMATS,)
-
-    def check(self, value: Any, *, subject: str, media: MediaInfo, docs_url: str | None) -> NodeError | None:  # noqa: ARG002
-        # The engine runs the validator `selected` picks; this one has nothing of its own to check.
-        return None
+# The deprecated image's format, checked only while no reference images are connected: the request
+# drops the deprecated image when they are.
+LEGACY_IMAGE_FORMATS = IfParameter("reference_images", {False: [IMAGE_FORMATS]}, key=bool)
 
 
 class Task(StrEnum):
@@ -97,10 +82,6 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
-        # Tracked from the connection hooks; there is no public API to query a parameter's
-        # incoming connections, and the deprecated `image` stays visible while one exists.
-        self._legacy_image_connected = False
-
         # INPUTS / PROPERTIES
         self.add_parameter(
             ParameterString(
@@ -124,7 +105,7 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
                 ui_options={"display_name": "image (deprecated)"},
-                pre_run_validators=[UnlessReferenceImages()],
+                pre_run_validators=[LEGACY_IMAGE_FORMATS],
             )
         )
 
@@ -145,7 +126,7 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
             )
         )
 
-        self._update_legacy_image_visibility()
+        self._update_legacy_image_visibility(connected=False)
 
         with ParameterGroup(name="Generation Settings") as generation_settings_group:
             # The model chooses clip length itself (3-10s); duration is not a
@@ -202,8 +183,7 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
         target_parameter: Parameter,
     ) -> None:
         if target_parameter.name == "image":
-            self._legacy_image_connected = True
-            self._update_legacy_image_visibility()
+            self._update_legacy_image_visibility(connected=True)
         return super().after_incoming_connection(source_node, source_parameter, target_parameter)
 
     def after_incoming_connection_removed(
@@ -213,13 +193,12 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
         target_parameter: Parameter,
     ) -> None:
         if target_parameter.name == "image":
-            self._legacy_image_connected = False
-            self._update_legacy_image_visibility()
+            self._update_legacy_image_visibility(connected=False)
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "image":
-            self._update_legacy_image_visibility()
+            self._update_legacy_image_visibility(connected=self._legacy_image_is_connected())
         return super().after_value_set(parameter, value)
 
     def validate_before_node_run(self) -> list[Exception] | None:
@@ -231,17 +210,23 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
     def input_limits_url(self) -> str | None:
         return INPUT_LIMITS_URL
 
-    def _update_legacy_image_visibility(self) -> None:
+    def _update_legacy_image_visibility(self, *, connected: bool) -> None:
         """Show the deprecated `image` parameter only while a workflow still uses it.
 
         New graphs never see it; graphs saved before `reference_images` existed keep working and
-        can still see what they are wired to.
+        can still see what they are wired to. ``connected`` is whether something is wired to it.
         """
-        in_use = bool(self.get_parameter_value("image")) or self._legacy_image_connected
+        in_use = bool(self.get_parameter_value("image")) or connected
         if in_use:
             self.show_parameter_by_name("image")
         else:
             self.hide_parameter_by_name("image")
+
+    def _legacy_image_is_connected(self) -> bool:
+        result = GriptapeNodes.handle_request(
+            GetConnectionsForParameterRequest(parameter_name="image", node_name=self.name, broadcast_result=False)
+        )
+        return isinstance(result, GetConnectionsForParameterResultSuccess) and result.has_incoming_connections()
 
     def _get_api_model_id(self) -> str:
         # Bare provider id; the base class builds POST /api/proxy/v2/models/{id}.

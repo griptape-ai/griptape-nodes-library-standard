@@ -384,10 +384,9 @@ def _sync_helpers_that_attribute() -> _Reach:
     Seeded on the *sites that attribute* rather than on the factory's name, which is the
     difference between this and a call graph rooted at `build_griptape_cloud_headers`. Rooting
     it at the name counts `get_bucket_list` and `check_provider_asset_access`, both of which
-    build with `attribution=False` and therefore dispatch nothing. That over-count is invisible
-    while the consumer only asks about `process` bodies -- neither is reachable from one -- and
-    produces three bogus entries the moment the consumer asks about lifecycle hooks, where both
-    are reached from an `__init__` or an `after_value_set`. The seed is the honest root: a stall starts where a dispatch does.
+    build with `attribution=False` and therefore dispatch nothing. That over-count produces
+    three bogus entries wherever either is reached: `get_bucket_list` from a `process`, and
+    `check_provider_asset_access` from an `after_value_set`. The seed is the honest root: a stall starts where a dispatch does.
     """
     functions = _library_functions()
     by_name = collections.Counter(function.name for function in functions.values())
@@ -537,8 +536,8 @@ LOOP_ENTRY_POINTS = frozenset(
 SYNC_ENTRY_POINTS_THAT_BLOCK = {
     "agents/agent.py:511 (process)": "build_agent_from_state -> build_model",
     "agents/memory/summarize_agent_memory.py:46 (process)": "prompt_model -> build_model",
-    "image/create_image.py:190 (process)": "prompt_model -> build_model; generate_image -> _generate_griptape_cloud",
-    "image/describe_image.py:386 (process)": "build_agent_from_state -> build_model",
+    "image/create_image.py:200 (process)": "prompt_model -> build_model; generate_image -> _generate_griptape_cloud",
+    "image/describe_image.py:431 (process)": "build_agent_from_state -> build_model",
     "tasks/mcp_task.py:296 (process)": "build_agent -> build_model",
     "text/random_text.py:280 (after_value_set)": "_get_random_selection -> prompt_model -> build_model",
     "text/random_text.py:308 (process)": "_get_random_selection -> prompt_model -> build_model",
@@ -571,7 +570,7 @@ def test_a_free_build_is_not_a_stall() -> None:
     """Pins the flag-awareness of the seed, which is otherwise invisible in the maps above.
 
     A census rooted at the factory's name rather than at the attributing call sites reports
-    three entry points that dispatch nothing -- an `__init__` reaching `get_bucket_list`, and
+    three entry points that dispatch nothing -- a `process` reaching `get_bucket_list`, and
     the `seedance_human_reference_asset` probe pair reaching `check_provider_asset_access`. All
     three build with `attribution=False`. They are the
     difference between a map that says where the loop stalls and one that says where a dict

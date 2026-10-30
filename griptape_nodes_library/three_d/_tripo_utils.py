@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from griptape.artifacts import ImageUrlArtifact
+from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
+from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.traits.options import Options
@@ -39,6 +41,8 @@ class TripoCapability(StrEnum):
     GEOMETRY_QUALITY = "geometry_quality"
     TEXTURE_ALIGNMENT = "texture_alignment"
     NEGATIVE_PROMPT = "negative_prompt"
+    QUAD = "quad"
+    FACE_LIMIT = "face_limit"
 
 
 @dataclass(frozen=True)
@@ -64,21 +68,47 @@ _EVERY_ENDPOINT = frozenset(TripoEndpoint)
 # Optional fields each endpoint exposes as a node parameter at all.
 _ENDPOINT_CAPABILITIES: dict[TripoEndpoint, frozenset[TripoCapability]] = {
     TripoEndpoint.TEXT: frozenset(
-        {TripoCapability.TEXTURE, TripoCapability.GEOMETRY_QUALITY, TripoCapability.NEGATIVE_PROMPT}
+        {
+            TripoCapability.TEXTURE,
+            TripoCapability.GEOMETRY_QUALITY,
+            TripoCapability.NEGATIVE_PROMPT,
+            TripoCapability.QUAD,
+            TripoCapability.FACE_LIMIT,
+        }
     ),
     TripoEndpoint.IMAGE: frozenset(
-        {TripoCapability.TEXTURE, TripoCapability.GEOMETRY_QUALITY, TripoCapability.TEXTURE_ALIGNMENT}
+        {
+            TripoCapability.TEXTURE,
+            TripoCapability.GEOMETRY_QUALITY,
+            TripoCapability.TEXTURE_ALIGNMENT,
+            TripoCapability.QUAD,
+            TripoCapability.FACE_LIMIT,
+        }
     ),
     TripoEndpoint.MULTIVIEW: frozenset(
-        {TripoCapability.TEXTURE, TripoCapability.GEOMETRY_QUALITY, TripoCapability.TEXTURE_ALIGNMENT}
+        {
+            TripoCapability.TEXTURE,
+            TripoCapability.GEOMETRY_QUALITY,
+            TripoCapability.TEXTURE_ALIGNMENT,
+            TripoCapability.QUAD,
+            TripoCapability.FACE_LIMIT,
+        }
     ),
 }
 
 _DOCS_URLS: dict[TripoEndpoint, str] = {
-    TripoEndpoint.TEXT: "https://docs.tripo3d.ai/model-generation/text-to-model-p1-20260311.html",
-    TripoEndpoint.IMAGE: "https://docs.tripo3d.ai/model-generation/image-to-model-p1-20260311.html",
-    TripoEndpoint.MULTIVIEW: "https://docs.tripo3d.ai/model-generation/multiview-to-model-p1-20260311.html",
+    TripoEndpoint.TEXT: "https://developers.tripo3d.ai/en/docs/generation-text-to-model/p",
+    TripoEndpoint.IMAGE: "https://developers.tripo3d.ai/en/docs/generation-image-to-model/p",
+    TripoEndpoint.MULTIVIEW: "https://developers.tripo3d.ai/en/docs/generation-multiview-to-model/p",
 }
+
+P2_MODEL_VERSION = "P2-20260801"
+
+# P2 face_limit ranges (Tripo v3 docs, P Series). Checked client-side so a bad value
+# fails with a clear message rather than an opaque 400 from the provider.
+P2_FACE_LIMIT_MIN = 48
+P2_FACE_LIMIT_MAX_TRIANGLE = 50000
+P2_FACE_LIMIT_MAX_QUAD = 25000
 
 # The versions Tripo currently generates on, newest family first. `label` stays short
 # because it is what the collapsed dropdown shows; the build date and the tradeoff go
@@ -87,12 +117,32 @@ _DOCS_URLS: dict[TripoEndpoint, str] = {
 # labels name the family instead of leaving the dates to imply an ordering.
 MODEL_VERSIONS: tuple[TripoModelVersion, ...] = (
     TripoModelVersion(
+        value=P2_MODEL_VERSION,
+        label="P2",
+        subtitle="Preview; low-poly with quad mesh output (2026-08-01)",
+        endpoints=_EVERY_ENDPOINT,
+        capabilities=frozenset(
+            {
+                TripoCapability.TEXTURE,
+                TripoCapability.TEXTURE_ALIGNMENT,
+                TripoCapability.NEGATIVE_PROMPT,
+                TripoCapability.QUAD,
+                TripoCapability.FACE_LIMIT,
+            }
+        ),
+    ),
+    TripoModelVersion(
         value="P1-20260311",
         label="P1",
         subtitle="Premium; low-poly, stable topology (2026-03-11)",
         endpoints=_EVERY_ENDPOINT,
         capabilities=frozenset(
-            {TripoCapability.TEXTURE, TripoCapability.TEXTURE_ALIGNMENT, TripoCapability.NEGATIVE_PROMPT}
+            {
+                TripoCapability.TEXTURE,
+                TripoCapability.TEXTURE_ALIGNMENT,
+                TripoCapability.NEGATIVE_PROMPT,
+                TripoCapability.FACE_LIMIT,
+            }
         ),
     ),
     TripoModelVersion(
@@ -299,16 +349,94 @@ def add_model_version_parameter(node: GriptapeProxyNode, endpoint: TripoEndpoint
     return parameter
 
 
+def add_mesh_topology_parameters(node: GriptapeProxyNode) -> None:
+    """Add the ``quad`` and ``face_limit`` parameters, hidden until a version supports them."""
+    node.add_parameter(
+        ParameterBool(
+            name="quad",
+            default_value=False,
+            tooltip="Output a quad mesh instead of triangles (P2 only). Produces an FBX file instead of GLB.",
+            allow_output=False,
+            hide=True,
+            ui_options={"display_name": "Quad Mesh"},
+        )
+    )
+    node.add_parameter(
+        ParameterInt(
+            name="face_limit",
+            default_value=0,
+            tooltip=(
+                "Maximum polycount for the output mesh. 0 lets Tripo decide. "
+                f"P2 triangle: {P2_FACE_LIMIT_MIN}-{P2_FACE_LIMIT_MAX_TRIANGLE}; "
+                f"P2 quad: {P2_FACE_LIMIT_MIN}-{P2_FACE_LIMIT_MAX_QUAD}."
+            ),
+            allow_output=False,
+            hide=True,
+            ui_options={"display_name": "Face Limit"},
+        )
+    )
+
+
+def update_mesh_topology_visibility(node: GriptapeProxyNode, endpoint: TripoEndpoint, model_version: str) -> None:
+    for name, capability in (("quad", TripoCapability.QUAD), ("face_limit", TripoCapability.FACE_LIMIT)):
+        if supports(endpoint, model_version, capability):
+            node.show_parameter_by_name(name)
+        else:
+            node.hide_parameter_by_name(name)
+
+
+def add_mesh_topology_fields(
+    node: GriptapeProxyNode, endpoint: TripoEndpoint, model_version: str, payload: dict[str, Any]
+) -> None:
+    """Add ``quad`` and a non-zero ``face_limit`` to ``payload`` where the version supports them.
+
+    Raises:
+        ValueError: If ``face_limit`` is outside P2's documented range for the chosen topology.
+    """
+    quad = False
+    if supports(endpoint, model_version, TripoCapability.QUAD):
+        quad = bool(node.get_parameter_value("quad"))
+        payload["quad"] = quad
+
+    if not supports(endpoint, model_version, TripoCapability.FACE_LIMIT):
+        return
+    face_limit = int(node.get_parameter_value("face_limit") or 0)
+    if not face_limit:
+        return
+    if model_version == P2_MODEL_VERSION:
+        maximum = P2_FACE_LIMIT_MAX_QUAD if quad else P2_FACE_LIMIT_MAX_TRIANGLE
+        if not P2_FACE_LIMIT_MIN <= face_limit <= maximum:
+            topology = "quad" if quad else "triangle"
+            msg = f"Face limit must be {P2_FACE_LIMIT_MIN}-{maximum} for P2 {topology} output, got {face_limit}."
+            raise ValueError(msg)
+    payload["face_limit"] = face_limit
+
+
+# Tripo returns GLB normally and FBX when quad=true; the proxy states which in the
+# hosted artifact's content type.
+_MODEL_EXTENSIONS_BY_CONTENT_TYPE = {
+    "model/vnd.fbx": "fbx",
+    "model/gltf-binary": "glb",
+}
+
+
+def _model_extension(content_type: str | None) -> str:
+    if not content_type:
+        return "glb"
+    return _MODEL_EXTENSIONS_BY_CONTENT_TYPE.get(content_type.split(";")[0].strip().lower(), "glb")
+
+
 async def parse_tripo_task_result(node: GriptapeProxyNode, result_json: dict[str, Any], generation_id: str) -> None:
     """Save a completed Tripo task's mesh and preview image as project files.
 
     The proxy hosts both, the mesh first, so neither of Tripo's signed URLs (they
     expire within five minutes) is ever handed downstream. The task payload is still
     read for the credits Tripo charged:
-        {"code": 0, "data": {"status": "success", "consumed_credit": 20, ...}}
+        {"code": 0, "data": {"status": "success", "credits_consumed": 20.0, ...}}
     """
     try:
-        model_bytes = await node._load_generated_media(generation_id, kind=ArtifactKind.MODEL_3D)
+        model_artifact = await node._hosted_artifact(generation_id, kind=ArtifactKind.MODEL_3D)
+        model_bytes = await node._download_artifact(model_artifact)
     except Exception as e:
         node._set_safe_defaults()
         node._set_status_results(
@@ -317,10 +445,9 @@ async def parse_tripo_task_result(node: GriptapeProxyNode, result_json: dict[str
         )
         return
 
-    output_file_value = node.get_parameter_value("output_file") or "tripo_model.glb"
-    model_path = Path(output_file_value)
-    if model_path.suffix.lower() != ".glb":
-        model_path = model_path.with_suffix(".glb")
+    extension = _model_extension(model_artifact.content_type)
+    output_file_value = node.get_parameter_value("output_file") or f"tripo_model.{extension}"
+    model_path = Path(output_file_value).with_suffix(f".{extension}")
     model_dest = ProjectFileDestination.from_situation(
         filename=str(model_path),
         situation="save_node_output",
@@ -329,7 +456,7 @@ async def parse_tripo_task_result(node: GriptapeProxyNode, result_json: dict[str
     saved_model = await model_dest.awrite_bytes(model_bytes)
     node.parameter_output_values["model_url"] = ThreeDUrlArtifact(
         value=saved_model.location,
-        meta={"filename": saved_model.name, "format": "glb"},
+        meta={"filename": saved_model.name, "format": extension},
     )
 
     # Tripo renders a preview for most task types but not all, so a missing one
@@ -351,7 +478,7 @@ async def parse_tripo_task_result(node: GriptapeProxyNode, result_json: dict[str
         )
 
     data = result_json.get("data") if isinstance(result_json, dict) else None
-    consumed = data.get("consumed_credit") if isinstance(data, dict) else None
+    consumed = (data.get("credits_consumed") or data.get("consumed_credit")) if isinstance(data, dict) else None
     detail = "3D model generated successfully."
     if consumed:
         detail += f" Tripo charged {consumed} credits."

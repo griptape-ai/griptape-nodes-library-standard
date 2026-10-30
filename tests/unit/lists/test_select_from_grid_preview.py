@@ -61,3 +61,29 @@ class TestResolvePreviewUrl:
 
         assert url == ""
         ahandle.assert_not_awaited()
+
+
+class TestImageItemFullUrl:
+    @pytest.mark.asyncio
+    async def test_preview_item_carries_original_for_fullscreen(self, node: SelectFromGrid) -> None:
+        """The grid gets the preview; the fullscreen viewer gets the original file."""
+        with (
+            patch.object(
+                SelectFromGrid, "_resolve_image_url_async", new=AsyncMock(return_value="http://h/preview.png")
+            ),
+            patch.object(SelectFromGrid, "_resolve_url_string", return_value="http://h/original.png"),
+        ):
+            item = await node._serialize_image_item_async("{outputs}/images/a.png")
+
+        assert item["url"] == "http://h/preview.png"
+        assert item["full_url"] == "http://h/original.png"
+
+    @pytest.mark.asyncio
+    async def test_no_full_url_when_preview_is_the_original(self, node: SelectFromGrid) -> None:
+        with (
+            patch.object(SelectFromGrid, "_resolve_image_url_async", new=AsyncMock(return_value="http://h/a.png")),
+            patch.object(SelectFromGrid, "_resolve_url_string", return_value="http://h/a.png"),
+        ):
+            item = await node._serialize_image_item_async("http://h/a.png")
+
+        assert "full_url" not in item
