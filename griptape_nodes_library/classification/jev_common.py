@@ -37,7 +37,7 @@ QUESTION_KEY = "answer"
 CONTEXT_INPUT_TYPES = ["str", "json", "dict", "list", "TextArtifact", "JsonArtifact"]
 
 # JEV's image limits: each side 256-1568 px, at least 280x280 px in total, and a 32 MiB request body.
-IMAGE_MIN_SIDE = 256
+IMAGE_MIN_SIDE = 280
 IMAGE_MAX_SIDE = 1568
 IMAGE_MIN_PIXELS = 280 * 280
 IMAGE_JPEG_QUALITY = 95
