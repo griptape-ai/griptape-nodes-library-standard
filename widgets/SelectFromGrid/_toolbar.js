@@ -1,11 +1,11 @@
 // _toolbar.js — Controls bar for the SelectFromGrid widget.
 //
 // Layout:
-//   [Columns ──●── N]  [Grid|Masonry]  [☑ Labels] [Aa ──●── N]  · · ·  [N selected]  [Clear]
+//   [Columns ──●── N]  [Grid|Masonry]  [☑ Labels] [Aa ──●── N]  · · ·  [N selected]  [Clear]  [⤢]
 //
 // createToolbar(opts) →
 //   { controls, colSlider, colVal, gridBtn, masonryBtn, countEl, clearBtn,
-//     labelsBtn, labelSizeSlider, labelSizeVal, setDisabled }
+//     labelsBtn, labelSizeSlider, labelSizeVal, fullscreenBtn, setDisabled }
 
 import { mkIcon } from './_icons.js';
 
@@ -17,6 +17,7 @@ export function createToolbar({
   onClear,
   onLabelsToggle,
   onLabelSizeChange, onLabelSizeCommit,
+  onFullscreen,
 }) {
 
   const controls = document.createElement("div");
@@ -104,6 +105,15 @@ export function createToolbar({
   clearBtn.textContent = "Clear";
   clearBtn.disabled = isDisabled;
 
+  // ── Fullscreen viewer ──────────────────────────────────────────────────────
+  // Stays enabled while the node is disabled: browsing doesn't change the value.
+
+  const fullscreenBtn = document.createElement("button");
+  fullscreenBtn.type = "button";
+  fullscreenBtn.className = "sfg-fullscreen-btn";
+  fullscreenBtn.title = "Fullscreen";
+  fullscreenBtn.appendChild(mkIcon("maximize-2", 12));
+
   // ── Assemble ───────────────────────────────────────────────────────────────
 
   controls.appendChild(colLabel);
@@ -112,6 +122,7 @@ export function createToolbar({
   controls.appendChild(labelSizeGroup);
   controls.appendChild(countEl);
   controls.appendChild(clearBtn);
+  controls.appendChild(fullscreenBtn);
 
   // ── Wire events ────────────────────────────────────────────────────────────
 
@@ -144,6 +155,12 @@ export function createToolbar({
   clearBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     onClear();
+  });
+
+  fullscreenBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+  fullscreenBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    onFullscreen();
   });
 
   labelsBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
@@ -179,6 +196,7 @@ export function createToolbar({
     gridBtn, masonryBtn,
     countEl, clearBtn,
     labelsBtn, labelSizeSlider, labelSizeVal,
+    fullscreenBtn,
     setDisabled,
   };
 }

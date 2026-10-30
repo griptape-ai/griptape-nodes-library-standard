@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from griptape_nodes.exe_types import input_checks
 from griptape_nodes.exe_types.core_types import NodeError
-from griptape_nodes.exe_types.input_checks import ImageInfo, VideoProbe, input_check_readings
-from griptape_nodes.exe_types.pre_run_validation import run_pre_run_validators
+from griptape_nodes.exe_types.validators._runner import validate_node
+from griptape_nodes.utils import media_probe
+from griptape_nodes.utils.media_probe import ImageInfo, VideoProbe
 from PIL import Image
 
 from griptape_nodes_library.video.kling_image_to_video_generation import KlingImageToVideoGeneration
@@ -27,9 +27,7 @@ def _image(tmp_path: Path, size: tuple[int, int] = (1280, 720), image_format: st
 
 def _errors(node: Any) -> list[NodeError]:
     """What the engine reports at the node's turn: its pre-run validators', then its own checks'."""
-    with input_check_readings():
-        exceptions = [*run_pre_run_validators(node), *(node.validate_before_node_run() or [])]
-    return [e for e in exceptions if isinstance(e, NodeError)]
+    return [e for e in validate_node(node) if isinstance(e, NodeError)]
 
 
 def _messages(node: Any) -> list[str]:
@@ -56,7 +54,7 @@ def video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     }
     # The validators probe through the engine's own reader, so patch it there.
     monkeypatch.setattr(
-        input_checks,
+        media_probe,
         "local_video_probe",
         lambda _value: VideoProbe(
             info=probe["info"], seconds=probe["seconds"], fps=probe["fps"], mime_type=probe["mime_type"]
@@ -220,8 +218,7 @@ class TestOmni:
             (
                 ImageInfo(1280, 720, None),
                 20.0,
-                "The video in 'reference_video' is 20.00 seconds long and the limit is 15.5. "
-                "Use a Trim Video node to shorten it.",
+                "The video in 'reference_video' is 20.00 seconds long and the limit is 15.5. Shorten it.",
             ),
             (
                 ImageInfo(640, 480, None),
@@ -414,7 +411,7 @@ class TestMotionControl:
         self, node: KlingMotionControl, tmp_path: Path, video: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # A real 65537 px image is too large to build in a test; have the reader report one instead.
-        monkeypatch.setattr(input_checks, "local_image_info", lambda _value: ImageInfo(65537, 30000, "image/png"))
+        monkeypatch.setattr(media_probe, "local_image_info", lambda _value: ImageInfo(65537, 30000, "image/png"))
         node.set_parameter_value("reference_image", _image(tmp_path, (1200, 800)))
         node.set_parameter_value("reference_video", video["path"])
         assert _messages(node) == [

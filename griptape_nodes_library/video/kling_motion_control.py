@@ -14,12 +14,13 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.exe_types.validators.common import ByParameter
-from griptape_nodes.exe_types.validators.media import (
+from griptape_nodes.exe_types.validators import (
     AllowedFormats,
     AspectRatioRange,
-    Duration,
+    IfParameter,
+    MaxDuration,
     MaxFileSize,
+    MinDuration,
     SideRange,
 )
 from griptape_nodes.traits.options import Options
@@ -51,12 +52,9 @@ MIN_VIDEO_SECONDS = 3
 REFERENCE_VIDEO_LIMITS = (
     MaxFileSize(100 * 1024 * 1024),
     AllowedFormats("video/mp4", "video/quicktime"),
+    MinDuration(MIN_VIDEO_SECONDS),
     # The longest clip depends on 'character orientation'.
-    ByParameter(
-        "character_orientation",
-        {"image": [Duration(min=MIN_VIDEO_SECONDS, max=10)]},
-        default=[Duration(min=MIN_VIDEO_SECONDS, max=30)],
-    ),
+    IfParameter("character_orientation", {"image": [MaxDuration(10)]}, default=[MaxDuration(30)]),
     SideRange(min=340, max=3850),
 )
 

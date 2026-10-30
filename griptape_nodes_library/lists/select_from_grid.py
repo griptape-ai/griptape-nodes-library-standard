@@ -34,7 +34,7 @@ _VIDEO_EXTENSIONS = frozenset({".mp4", ".webm", ".mov", ".avi", ".mkv"})
 _AUDIO_EXTENSIONS = frozenset({".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a"})
 _MEDIA_ITEM_TYPES = frozenset({"image", "video", "audio"})
 # Browser URLs name this machine's engine port and preview cache, so they are kept out of saved state.
-_URL_KEYS = frozenset({"url", "thumbnail"})
+_URL_KEYS = frozenset({"url", "thumbnail", "full_url"})
 
 # Thumbnails are resolved in chunks so the browser receives incremental updates
 # rather than waiting for all items to be processed in one silent blocking pass.
@@ -461,7 +461,14 @@ class SelectFromGrid(ControlNode):
         label = self._extract_media_label(item)
         path = item if isinstance(item, str) else getattr(item, "value", "")
         url = await self._resolve_image_url_async(str(path))
-        return {"type": "image", "url": url, **({"label": label} if label else {})}
+        # The grid shows the engine preview; the fullscreen viewer loads the original.
+        full_url = self._resolve_url_string(str(path))
+        return {
+            "type": "image",
+            "url": url,
+            **({"full_url": full_url} if full_url.startswith(("http://", "https://")) and full_url != url else {}),
+            **({"label": label} if label else {}),
+        }
 
     async def _serialize_video_item_async(self, item: Any) -> dict[str, Any]:
         """Resolve a video item, adding an engine-generated thumbnail as the poster frame."""

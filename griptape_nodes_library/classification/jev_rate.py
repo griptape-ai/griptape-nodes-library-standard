@@ -12,8 +12,10 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes_library.classification.jev_common import (
     QUESTION_KEY,
     add_context_parameter,
+    add_images_parameter,
     add_model_group,
-    to_state,
+    build_payload,
+    build_state_and_assets,
 )
 from griptape_nodes_library.classification.row_outputs import RowOutputsMixin, parse_row
 from griptape_nodes_library.proxy import GriptapeProxyNode
@@ -34,6 +36,7 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
 
     Inputs:
         - context (str): The text JEV reads to rate.
+        - images (list): Optional images JEV looks at, referred to as [image 1], [image 2], ...
         - question (str): Optional guidance on what JEV should rate.
         - levels (list[str]): Two to ten levels, lowest first. Use 'Label: description'
           to name a level or just a plain description.
@@ -60,6 +63,7 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
         self.remove_parameter_element(self.control_parameter_out)
 
         add_context_parameter(self)
+        add_images_parameter(self)
 
         self.add_parameter(
             ParameterString(
@@ -165,9 +169,7 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
         return f"Taken when the score rounds to {label}."
 
     async def _build_payload(self) -> dict[str, Any]:
-        state = to_state(self.get_parameter_value("context"))
-        if state is None:
-            raise ValueError("'Context' is empty. Connect the text for JEV to read.")
+        state, assets = await build_state_and_assets(self)
 
         rows = self._rows()
         descriptions = [parse_row(text)[1] or text for _, text in rows]
@@ -181,7 +183,7 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
         if question:
             score_q["instructions"] = question
 
-        return {"state": state, "questions": {QUESTION_KEY: score_q}}
+        return build_payload(state, score_q, assets)
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         self._route = None
