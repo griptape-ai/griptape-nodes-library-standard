@@ -11,7 +11,6 @@ from typing import Any
 
 import boto3  # pyright: ignore[reportMissingImports]
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import Button
 
 from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
@@ -143,9 +142,9 @@ class AmazonBedrockPrompt(BasePrompt):
 
     def start_session(self) -> boto3.Session:
         """Starts a session with Amazon Bedrock using the provided AWS credentials."""
-        aws_access_key_id = GriptapeNodes.SecretsManager().get_secret(AWS_ACCESS_KEY_ID_ENV_VAR)
-        aws_secret_access_key = GriptapeNodes.SecretsManager().get_secret(AWS_SECRET_ACCESS_KEY_ENV_VAR)
-        aws_default_region = GriptapeNodes.SecretsManager().get_secret(AWS_DEFAULT_REGION_ENV_VAR)
+        aws_access_key_id = self._get_secret(AWS_ACCESS_KEY_ID_ENV_VAR)
+        aws_secret_access_key = self._get_secret(AWS_SECRET_ACCESS_KEY_ENV_VAR)
+        aws_default_region = self._get_secret(AWS_DEFAULT_REGION_ENV_VAR)
 
         try:
             session = boto3.Session(

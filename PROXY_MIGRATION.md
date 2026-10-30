@@ -213,7 +213,6 @@ def _extract_error_message(self, response_json: dict[str, Any]) -> str:
 **Video Generation:**
 
 - `veo3_video_generation.py`
-- `sora_video_generation.py`
 - `wan_text_to_video_generation.py`
 - `wan_image_to_video_generation.py`
 - `wan_animate_generation.py`

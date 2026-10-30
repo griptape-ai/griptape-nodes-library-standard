@@ -21,6 +21,7 @@ import logging
 from abc import ABC
 from collections.abc import Iterable
 from contextlib import suppress
+from pathlib import Path
 from typing import Any, NamedTuple
 from urllib.parse import urljoin, urlparse
 from uuid import uuid4
@@ -31,6 +32,7 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
     PublicArtifactUrlParameter,
 )
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.retained_mode.events.config_events import GetWorkspaceRequest, GetWorkspaceResultSuccess
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from PIL import Image, ImageOps
 
@@ -495,7 +497,11 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         workspace_relative = path.split("/workspace/", 1)[1]
         if not workspace_relative:
             return None
-        candidate = GriptapeNodes.ConfigManager().workspace_path / workspace_relative
+        # A request, not GriptapeNodes.ConfigManager(), so this resolves correctly from a worker process.
+        workspace_result = GriptapeNodes.handle_request(GetWorkspaceRequest(broadcast_result=False))
+        if not isinstance(workspace_result, GetWorkspaceResultSuccess):
+            return None
+        candidate = Path(workspace_result.workspace_path) / workspace_relative
         return str(candidate) if candidate.is_file() else None
 
     async def _resolve_public_url_for_media(self, media_value: Any, *, artifact_type: str) -> str:

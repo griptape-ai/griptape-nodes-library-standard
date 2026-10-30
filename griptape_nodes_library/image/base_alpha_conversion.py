@@ -20,6 +20,9 @@ from griptape_nodes_library.utils.image_utils import (
 class BaseAlphaConversion(DataNode, ABC):
     """Shared node shell for converting an image between straight and premultiplied alpha."""
 
+    # A preview cache; a node without it runs again and gets the same result.
+    attributes_outside_parameters = frozenset({"_last_run_key"})
+
     INPUT_TOOLTIP: ClassVar[str]
     INVERT_TOOLTIP: ClassVar[str]
     OUTPUT_TOOLTIP: ClassVar[str]

@@ -59,6 +59,17 @@ class TestSavedGridState:
         assert state["columns"] == 5
         assert all("url" not in item for item in state["items"])
 
+    def test_saved_state_drops_full_res_url(self, node: SelectFromGrid) -> None:
+        with patch.object(SelectFromGrid, "_resolve_url_string", side_effect=_resolve_to_localhost):
+            node.set_parameter_value("list", ["{outputs}/images/a.png"])
+        grid = node.get_parameter_value("grid")
+        item = {**grid["items"][0], "url": _PREVIEW_URL, "full_url": "http://localhost:8124/a.png"}
+        node.set_parameter_value("grid", {**grid, "items": [item]})
+
+        saved_item = node.get_parameter_value("grid_state")["items"][0]
+        assert "full_url" not in saved_item
+        assert "url" not in saved_item
+
     def test_loading_saved_state_rebuilds_urls(self, node: SelectFromGrid) -> None:
         saved = {
             "items": [{"type": "image", "label": "a.png", "source": "{outputs}/images/a.png"}],

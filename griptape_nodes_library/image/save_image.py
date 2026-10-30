@@ -169,7 +169,11 @@ class SaveImage(SuccessFailureNode):
                 image_bytes = image_artifact.to_bytes()
             pil_image = Image.open(BytesIO(image_bytes))
             if target_format == "JPEG" and pil_image.mode in ("RGBA", "LA", "P"):
-                pil_image = pil_image.convert("RGB")
+                # JPEG has no alpha. Composite over black so transparent pixels come out
+                # black, rather than showing the straight-alpha RGB stored under them.
+                rgba = pil_image.convert("RGBA")
+                matte = Image.new("RGBA", rgba.size, (0, 0, 0, 255))
+                pil_image = Image.alpha_composite(matte, rgba).convert("RGB")
             converted_bytes = image_to_bytes(pil_image, target_format)
             dest = self._output_file.build_file()
             saved = dest.write_bytes(converted_bytes)
