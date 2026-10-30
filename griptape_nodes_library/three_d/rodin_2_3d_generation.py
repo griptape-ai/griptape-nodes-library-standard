@@ -16,11 +16,11 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_three_d import Parameter3D
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
+from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.three_d.three_d_artifact import ThreeDUrlArtifact
 
@@ -476,40 +476,9 @@ class Rodin23DGeneration(GriptapeProxyNode):
 
         return images
 
-    def _extract_image_value(self, image_input: Any) -> str | None:
-        """Extract a string value (URL, file path, or base64) from an image input."""
-        if isinstance(image_input, str):
-            return image_input
-
-        try:
-            if hasattr(image_input, "value"):
-                value = getattr(image_input, "value", None)
-                if isinstance(value, str):
-                    return value
-
-            if hasattr(image_input, "base64"):
-                b64 = getattr(image_input, "base64", None)
-                if isinstance(b64, str) and b64:
-                    return b64
-        except Exception:
-            return None
-
-        return None
-
     async def _prepare_image_data_uri(self, image_input: Any) -> str | None:
-        """Convert an image input to a data URI via File."""
-        if not image_input:
-            return None
-
-        image_value = self._extract_image_value(image_input)
-        if not image_value:
-            return None
-
-        try:
-            return await File(image_value).aread_data_uri(fallback_mime="image/png")
-        except FileLoadError:
-            logger.debug("%s failed to load image value: %s", self.name, image_value)
-            return None
+        """Convert an image input to a base64 data URI."""
+        return await prepare_media_data_uri(image_input, kind="image", node_name=self.name)
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         params = self._get_parameters()

@@ -8,6 +8,10 @@ from griptape_nodes.exe_types.core_types import ParameterMessage
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.files.file import File
 from griptape_nodes.files.project_file import ProjectFileDestination
+from griptape_nodes.retained_mode.events.parameter_events import (
+    GetConnectionsForParameterRequest,
+    GetConnectionsForParameterResultSuccess,
+)
 from griptape_nodes.retained_mode.events.project_events import (
     AttemptMapAbsolutePathToProjectRequest,
     AttemptMapAbsolutePathToProjectResultSuccess,
@@ -145,9 +149,15 @@ def update_external_file_controls(
     hidden since copying won't persist — the connected value overwrites it on the next run.
     """
     if result.is_external:
-        connections = GriptapeNodes.FlowManager().get_connections()
-        target_connections = connections.incoming_index.get(node_name)
-        has_incoming = bool(target_connections and target_connections.get(artifact_param_name))
+        connection_result = GriptapeNodes.handle_request(
+            GetConnectionsForParameterRequest(
+                parameter_name=artifact_param_name, node_name=node_name, broadcast_result=False
+            )
+        )
+        has_incoming = (
+            isinstance(connection_result, GetConnectionsForParameterResultSuccess)
+            and connection_result.has_incoming_connections()
+        )
         warning.hide = False
         if has_incoming:
             warning.value = _WARNING_TEXT_INCOMING
