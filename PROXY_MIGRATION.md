@@ -424,12 +424,11 @@ BaseProxyNode automatically adds the model field to the request.
 
 ### Validation Patterns
 
-Declare media inputs' provider limits on their parameters with `pre_run_validators=`, using the engine's validators in `griptape_nodes.exe_types.validators.media` and `griptape_nodes.exe_types.validators.common`. The engine checks them before the node runs, reads each input once, and names each input by its display name in the error. Override `input_limits_url()` to return the docs page the errors link to:
+Declare a provider's documented input limits on the parameters with `pre_run_validators=`, using the engine's validators from `griptape_nodes.exe_types.validators`. The engine checks them before the node runs, reads each media input once, and names each input by its display name in the error. Override `input_limits_url()` to return the docs page the errors link to:
 
 ```python
 from griptape_nodes.exe_types.core_types import ParameterList
-from griptape_nodes.exe_types.validators.common import MaxCount
-from griptape_nodes.exe_types.validators.media import AllowedFormats, MaxFileSize
+from griptape_nodes.exe_types.validators import AllowedFormats, MaxCount, MaxFileSize
 
 # "Up to 10 images, JPEG or PNG, each up to 10 MB" - https://example.com/limits
 LIMITS_URL = "https://example.com/limits"
@@ -443,6 +442,7 @@ IMAGE_LIMITS = (
 self.add_parameter(
     ParameterList(
         name="images",
+        tooltip="Up to 10 reference images",
         input_types=["ImageArtifact", "ImageUrlArtifact"],
         type="ImageUrlArtifact",
         pre_run_validators=IMAGE_LIMITS,
@@ -454,9 +454,9 @@ def input_limits_url(self) -> str | None:
     return LIMITS_URL
 ```
 
-Limits that change with the selected model go in `ByParameter("model", {...}, default=[...])`. A rule across several inputs, such as a total length, is a `NodeValidator` listed in the node's `node_validators`.
+Limits that change with the selected model go in `IfParameter("model", {...}, default=[...])`.
 
-Use `validate_before_node_run()` for the checks that aren't media limits. Return one exception per problem, each naming the parameter as the UI shows it and saying how to fix it, with no node name (the editor shows which node failed):
+Use `validate_before_node_run()` for a rule across several inputs, such as a total length, and for checks that aren't limits on a value. Return one exception per problem, each naming the parameter as the UI shows it and saying how to fix it, with no node name (the editor shows which node failed):
 
 ```python
 def validate_before_node_run(self) -> list[Exception] | None:
