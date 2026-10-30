@@ -404,9 +404,9 @@ class GoogleImageGeneration(GriptapeProxyNode):
                 f"{total_images} images are connected across 'Input Images', 'Object Images' and 'Human Images' "
                 f"and the limit is {MAX_INPUT_IMAGES}. Remove {total_images - MAX_INPUT_IMAGES}."
             )
-            exceptions.append(
-                NodeError(message, links=[NodeErrorLink(label=LIMITS_LINK_LABEL, url=self.input_limits_url())])
-            )
+            docs_url = self.input_limits_url()
+            links = [NodeErrorLink(label=LIMITS_LINK_LABEL, url=docs_url)] if docs_url else None
+            exceptions.append(NodeError(message, links=links))
 
         return exceptions or None
 

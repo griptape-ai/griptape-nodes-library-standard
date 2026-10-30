@@ -39,7 +39,7 @@ def _image_uri(image_format: str = "PNG", size: tuple[int, int] = (16, 16)) -> s
 
 def _report_size(monkeypatch: pytest.MonkeyPatch, size_bytes: int) -> None:
     """Have the engine's size reader report every input as `size_bytes`, so a limit can be broken without a huge file."""
-    monkeypatch.setattr(media_probe, "_read_size_bytes", lambda _location: size_bytes)
+    monkeypatch.setattr(media_probe, "local_size_bytes", lambda _value, *, kind: size_bytes)
 
 
 def _all_errors(node: Any) -> list[Exception]:
@@ -204,6 +204,13 @@ class TestVeo3VideoGeneration:
         node.set_parameter_value("reference_type", "style")
         node.set_parameter_value("reference_images", [_image_uri("PNG"), _image_uri("GIF")])
         assert _all_errors(node) == []
+
+    def test_checks_the_style_reference_it_sends(self, node: Any) -> None:
+        node.set_parameter_value("reference_type", "style")
+        node.set_parameter_value("reference_images", [_image_uri("GIF")])
+        assert [str(e) for e in _node_errors(node)] == [
+            "Image 1 in 'reference images' is in GIF format. Convert it to JPEG or PNG."
+        ]
 
 
 class TestGeminiOmniFlashGeneration:
