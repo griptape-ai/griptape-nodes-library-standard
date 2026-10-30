@@ -145,6 +145,16 @@ class TestOutputDirectoryFromSettings:
         assert output_dir == tmp_path / "shots"
         assert sent == [GetConnectedFileDestinationRequest(node_name=node.name, parameter_name="directory")]
 
+    def test_without_settings_uses_the_directory_value(
+        self, node: ExtractFrames, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _answer_settings_request(
+            monkeypatch, GetConnectedFileDestinationResultSuccess(destination=None, result_details="none")
+        )
+        node.set_parameter_value("directory", str(tmp_path / "frames"))
+
+        assert node._resolve_output_dir() == tmp_path / "frames"
+
     def test_a_failed_read_fails_the_node(self, node: ExtractFrames, monkeypatch: pytest.MonkeyPatch) -> None:
         _answer_settings_request(
             monkeypatch,
