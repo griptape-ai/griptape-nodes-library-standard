@@ -86,6 +86,10 @@ NODE_MODEL_CASES: list[tuple[str, str, str, str]] = [
     ("GrokImageGeneration", "gtc_grok_imagine_image", "grok-imagine-image", "model"),  # only declared model
     ("GrokImageEdit", "gtc_grok_imagine_image", "grok-imagine-image", "model"),  # only declared model
     ("Flux2ImageGeneration", "gtc_flux_2_flex", "flux-2-flex", "model"),
+    ("Flux3ImageGeneration", "gtc_flux_3_image_klein", "flux-3-image-klein", "model"),
+    ("Flux3VideoGeneration", "gtc_flux_3_video", "flux-3-video", "model"),  # only declared model
+    ("Flux3VideoEdit", "gtc_flux_video_edit_v1", "flux-video-edit-v1", "model"),  # only declared model
+    ("Flux3VideoUpscale", "gtc_flux_video_upscale_v1", "flux-video-upscale-v1", "model"),  # only declared model
     ("WanImageGeneration", "gtc_wan_2_7_image", "wan2.7-image", "model"),
     ("GoogleImageGeneration", "gtc_gemini_3_1_flash_image", "gemini-3.1-flash-image", "model"),
     ("OpenAiImageGeneration", "gtc_gpt_image_1", "gpt-image-1", "model"),

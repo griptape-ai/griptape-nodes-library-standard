@@ -553,6 +553,36 @@
                 "family": "FLUX",
                 "provider_model_id": "flux-2-klein-9b",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_flux_3_image": {
+                "display_name": "FLUX 3 Image",
+                "family": "FLUX",
+                "provider_model_id": "flux-3-image",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_flux_3_image_klein": {
+                "display_name": "FLUX 3 Image Klein",
+                "family": "FLUX",
+                "provider_model_id": "flux-3-image-klein",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_flux_3_video": {
+                "display_name": "FLUX 3 Video",
+                "family": "FLUX",
+                "provider_model_id": "flux-3-video",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_flux_video_edit_v1": {
+                "display_name": "FLUX Video Edit [fast]",
+                "family": "FLUX",
+                "provider_model_id": "flux-video-edit-v1",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_flux_video_upscale_v1": {
+                "display_name": "FLUX 3 Upscale",
+                "family": "FLUX",
+                "provider_model_id": "flux-video-upscale-v1",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
           },
@@ -4959,6 +4989,113 @@
               "gtc_flux_2_max",
               "gtc_flux_2_klein_4b",
               "gtc_flux_2_klein_9b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "Flux3ImageGeneration",
+      "file_path": "griptape_nodes_library/image/flux_3_image_generation.py",
+      "metadata": {
+        "category": "image",
+        "description": "Generate and edit images using FLUX 3 models via Griptape model proxy",
+        "display_name": "FLUX 3 Image Generation",
+        "group": "create",
+        "icon": "Zap",
+        "tags": [
+          "image",
+          "generation",
+          "edit",
+          "ai",
+          "api",
+          "flux"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_flux_3_image",
+              "gtc_flux_3_image_klein"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "Flux3VideoGeneration",
+      "file_path": "griptape_nodes_library/video/flux_3_video_generation.py",
+      "metadata": {
+        "category": "video",
+        "description": "Generate videos with synchronized audio using FLUX 3 Video via Griptape model proxy",
+        "display_name": "FLUX 3 Video Generation",
+        "group": "create",
+        "icon": "Zap",
+        "tags": [
+          "video",
+          "generation",
+          "ai",
+          "api",
+          "flux"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_flux_3_video"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "Flux3VideoEdit",
+      "file_path": "griptape_nodes_library/video/flux_3_video_edit.py",
+      "metadata": {
+        "category": "video",
+        "description": "Edit videos using FLUX Video Edit [fast] via Griptape model proxy",
+        "display_name": "FLUX 3 Video Edit",
+        "group": "edit",
+        "icon": "Zap",
+        "tags": [
+          "video",
+          "edit",
+          "ai",
+          "api",
+          "flux"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_flux_video_edit_v1"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "Flux3VideoUpscale",
+      "file_path": "griptape_nodes_library/video/flux_3_video_upscale.py",
+      "metadata": {
+        "category": "video",
+        "description": "Upscale videos 1.5x-3x using FLUX 3 Video Upscale via Griptape model proxy",
+        "display_name": "FLUX 3 Video Upscale",
+        "group": "edit",
+        "icon": "Zap",
+        "tags": [
+          "video",
+          "upscale",
+          "enhance",
+          "ai",
+          "api",
+          "flux"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_flux_video_upscale_v1"
             ]
           }
         ]
