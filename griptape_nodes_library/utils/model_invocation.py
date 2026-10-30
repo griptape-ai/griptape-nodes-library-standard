@@ -170,7 +170,11 @@ def require_model_access_sync(
 
 
 def require_budget_access_sync(
-    node: BaseNode, api_model_id: str, *, estimated_cost_micro_usd: int | None = None
+    node: BaseNode,
+    api_model_id: str,
+    *,
+    estimated_cost_micro_usd: int | None = None,
+    run_id: str | None = None,
 ) -> str | None:
     """Ask Griptape Cloud whether a direct provider call fits its budgets; raise if it doesn't.
 
@@ -178,6 +182,10 @@ def require_budget_access_sync(
     names the model by `api_model_id`, the provider's own name, which is also what the
     usage report sends. `estimated_cost_micro_usd` is optional; without it only a budget
     with no headroom left refuses the call. Fails open when Cloud can't be asked.
+
+    `run_id` is the workflow run making the call: `node.run_id`, saved when the call starts,
+    and sent again on the call's usage report. Without it the engine counts the call toward
+    whatever run is in progress when the request arrives.
 
     Returns the check's correlation id, to pass to `report_model_usage_sync`, or None
     when the check never ran.
@@ -193,6 +201,7 @@ def require_budget_access_sync(
             model=api_model_id,
             estimated_cost_micro_usd=estimated_cost_micro_usd,
             node_type=type(node).__name__,
+            run_id=run_id,
         )
     )
     # Any failure stops the call, not just `BudgetAccessResultFailure`: from a worker process
@@ -235,6 +244,7 @@ def report_model_usage_sync(  # noqa: PLR0913
     cache_audio_read_tokens: int = 0,
     correlation_id: str | None = None,
     activity_type: str = "chat_completion",
+    run_id: str | None = None,
 ) -> None:
     """Report a direct provider call's token counts; Griptape Cloud prices them.
 
@@ -242,6 +252,9 @@ def report_model_usage_sync(  # noqa: PLR0913
     `input_audio_tokens` is the audio share of it, and `cache_audio_read_tokens` the cached share
     of that audio, also counted in `cache_read_tokens`. Best-effort: never raises, and the result
     is ignored.
+
+    `run_id` is the workflow run that made the call, saved when the call started: the report can
+    arrive after the node's execution has ended, when `node.run_id` is already None.
     """
     try:
         GriptapeNodes.handle_request(
@@ -257,6 +270,7 @@ def report_model_usage_sync(  # noqa: PLR0913
                 cache_audio_read_tokens=cache_audio_read_tokens,
                 node_type=type(node).__name__,
                 correlation_id=correlation_id,
+                run_id=run_id,
             )
         )
     except Exception:

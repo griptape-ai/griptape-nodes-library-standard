@@ -36,6 +36,7 @@ from griptape_nodes.utils.budget_refusal import describe as describe_budget_refu
 import griptape_nodes_library.utils.model_invocation as model_invocation_module
 from griptape_nodes_library.utils.model_invocation import (
     report_model_usage_sync,
+    require_budget_access_sync,
     require_model_access_sync,
     require_model_invocation_sync,
 )
@@ -196,6 +197,15 @@ def test_access_declares_then_checks_budget(node: _StubNode, monkeypatch: pytest
     assert check.node_id is None
 
 
+def test_the_budget_check_names_the_run_making_the_call(node: _StubNode, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _routing(monkeypatch, _cleared())
+
+    require_budget_access_sync(node, "gpt-4o", run_id="run-1")
+
+    (check,) = seen
+    assert check.run_id == "run-1"
+
+
 def test_access_declares_the_catalog_key_but_checks_the_provider_name(
     node: _StubNode, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -345,6 +355,7 @@ def test_report_sends_token_counts_for_cloud_to_price(node: _StubNode, monkeypat
         input_audio_tokens=300,
         cache_audio_read_tokens=100,
         correlation_id="corr-1",
+        run_id="run-1",
     )
 
     (report,) = sent
@@ -361,6 +372,7 @@ def test_report_sends_token_counts_for_cloud_to_price(node: _StubNode, monkeypat
         "cache_audio_read_tokens": 100,
         "node_type": "_StubNode",
         "correlation_id": "corr-1",
+        "run_id": "run-1",
     }
 
 
