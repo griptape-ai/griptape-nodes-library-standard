@@ -222,7 +222,8 @@ def add_images_parameter(node: BaseNode) -> None:
             input_types=["ImageArtifact", "ImageUrlArtifact", "str"],
             default_value=[],
             tooltip="Optional. Images JEV looks at alongside the context. "
-            "Refer to them in the question as [image 1], [image 2], and so on.",
+            "Refer to them in the question as [image 1], [image 2], and so on, "
+            "numbered in order among connected images only, so empty rows are skipped.",
             allowed_modes={ParameterMode.INPUT},
             ui_options={"display_name": "Images", "hide_property": True},
         )
