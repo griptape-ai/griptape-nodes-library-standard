@@ -232,7 +232,9 @@ def test_direct_model_is_budget_checked_and_reports_its_tokens(
     # Token counts, not dollars: Cloud prices them.
     assert report.declared_cost_micro_usd is None
     assert (report.provider, report.model, report.correlation_id) == ("openai", "gpt-4o", "corr-1")
+    assert report.input_tokens is not None
     assert report.input_tokens > 0
+    assert report.output_tokens is not None
     assert report.output_tokens > 0
 
 

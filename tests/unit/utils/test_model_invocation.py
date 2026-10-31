@@ -378,13 +378,14 @@ def test_report_reaches_cloud_as_a_usage_body(node: _StubNode, monkeypatch: pyte
     """Through the engine's real handler: the body bound for POST /api/spend carries usage, not dollars."""
     posted: list[dict[str, Any]] = []
     monkeypatch.setattr(budget_manager_module, "resolve_cloud_credential", lambda _secrets: "gt-key")
-    monkeypatch.setattr(budget_manager_module.BudgetManager, "_send_report", lambda _self, body: posted.append(body))
 
-    class _NowExecutor:
-        def submit(self, fn: Any, *args: Any) -> None:
-            fn(*args)
+    class _RecordedQueue:
+        """Stands in for the queue the handler puts each body on for its background sender."""
 
-    monkeypatch.setattr(GriptapeNodes.BudgetManager(), "_report_executor", _NowExecutor())
+        def put(self, body: dict[str, Any]) -> None:
+            posted.append(body)
+
+    monkeypatch.setattr(GriptapeNodes.BudgetManager(), "_reports", _RecordedQueue())
 
     report_model_usage_sync(
         node,
