@@ -12,7 +12,7 @@ from griptape_nodes.exe_types.param_components.artifact_url import (
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
-from griptape_nodes.exe_types.validators._runner import validate_node
+from griptape_nodes.exe_types.validators import validate_node
 from griptape_nodes.files import file as file_module
 from griptape_nodes.files.file import FileLoadError
 from griptape_nodes.retained_mode.events.os_events import FileIOFailureReason
