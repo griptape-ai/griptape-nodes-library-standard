@@ -6,7 +6,7 @@ from typing import Any, ClassVar
 from urllib.parse import unquote, urlsplit
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import NodeError, NodeErrorLink, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, ParameterMode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
@@ -16,12 +16,12 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.exe_types.validators import (
-    LIMITS_LINK_LABEL,
     AllowedFormats,
     MaxDuration,
     MediaInfo,
     MediaNeed,
     MediaValidator,
+    limit_error,
 )
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.files.path_utils import is_url
@@ -77,14 +77,14 @@ class Mp4FileName(MediaValidator):
             mime_type = location.removeprefix("data:").split(",", 1)[0].split(";", 1)[0].strip().lower()
             if mime_type == MP4_MIME_TYPE:
                 return None
-            return _limit_error(
+            return limit_error(
                 f"{subject} is a data URI that isn't typed {MP4_MIME_TYPE}, which xAI requires. Convert it to MP4.",
                 docs_url,
             )
         name = _file_name(location)
         if PureWindowsPath(name).suffix.lower() in ("", MP4_EXTENSION):
             return None
-        return _limit_error(
+        return limit_error(
             f"{subject} is named '{name}', and xAI only accepts a file whose name ends in {MP4_EXTENSION}. "
             f"If it's already an MP4, rename it to end in {MP4_EXTENSION}; otherwise convert it to MP4.",
             docs_url,
@@ -95,13 +95,6 @@ def _file_name(location: str) -> str:
     """The last part of a path or URL, without a URL's query, such as a signed URL's signature."""
     path = unquote(urlsplit(location).path) if is_url(location) else location
     return PureWindowsPath(path.rstrip("/\\")).name
-
-
-def _limit_error(message: str, docs_url: str | None) -> NodeError:
-    """An input-limit error linking xAI's docs, as the engine's validators word and link theirs."""
-    if not docs_url:
-        return NodeError(message)
-    return NodeError(message, links=[NodeErrorLink(label=LIMITS_LINK_LABEL, url=docs_url)])
 
 
 # The format and duration are read from the file itself, so a MOV renamed to .mp4 is still refused,

@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 from griptape_nodes.exe_types.core_types import NodeError
-from griptape_nodes.exe_types.validators._runner import validate_node
+from griptape_nodes.exe_types.validators import validate_node
 from griptape_nodes.utils import media_probe
 from griptape_nodes.utils.media_probe import ImageInfo, VideoProbe
 from PIL import Image
