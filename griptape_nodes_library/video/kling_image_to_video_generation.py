@@ -19,6 +19,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.exe_types.validators import AllowedFormats, AspectRatioRange, MaxFileSize, SideRange
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.widget import Widget
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
@@ -32,6 +33,22 @@ __all__ = ["KlingImageToVideoGeneration"]
 
 # Constants
 MAX_PROMPT_LENGTH = 2500
+
+# Kling's documented limits for the Start Frame (`image`) and End Frame (`image_tail`) on
+# POST /v1/videos/image2video: "Supported image formats: .jpg / .jpeg / .png" and
+# "File size: ≤10MB, dimensions: min 300px, aspect ratio: 1:2.5 ~ 2.5:1". The aspect ratio is
+# stated for `image` only.
+# https://kling.ai/document-api/api/video/image-to-video
+INPUT_LIMITS_URL = "https://kling.ai/document-api/api/video/image-to-video"
+END_FRAME_LIMITS = (
+    AllowedFormats("image/jpeg", "image/png"),
+    MaxFileSize(10 * 1024 * 1024),
+    SideRange(min=300),
+)
+START_FRAME_LIMITS = (*END_FRAME_LIMITS, AspectRatioRange("1:2.5", "2.5:1"))
+# Static Mask (`static_mask`): "same format requirements as image field". The page states only the
+# format for it, so only the format is checked.
+STATIC_MASK_LIMITS = (AllowedFormats("image/jpeg", "image/png"),)
 DEFAULT_DURATION_5S = 5
 MAX_MULTI_PROMPT_COUNT = 6
 V3_MODEL_ID = "kling-v3"
@@ -264,6 +281,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
                 ui_options={"display_name": "Start Frame"},
+                pre_run_validators=START_FRAME_LIMITS,
             )
         )
         self.add_parameter(
@@ -274,6 +292,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
                 ui_options={"display_name": "End Frame"},
+                pre_run_validators=END_FRAME_LIMITS,
             )
         )
 
@@ -317,6 +336,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 tooltip="Static brush application area. Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
+                pre_run_validators=STATIC_MASK_LIMITS,
             )
             ParameterString(
                 name="dynamic_masks",
@@ -967,3 +987,6 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 exceptions.append(ValueError(f"'dynamic_masks' is not valid JSON: {e}"))
 
         return exceptions if exceptions else None
+
+    def input_limits_url(self) -> str | None:
+        return INPUT_LIMITS_URL
