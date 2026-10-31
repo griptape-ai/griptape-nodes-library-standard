@@ -9,7 +9,12 @@ from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact
 from griptape.artifacts.image_url_artifact import ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import (
+    Parameter,
+    ParameterGroup,
+    ParameterList,
+    ParameterMode,
+)
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -17,6 +22,15 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.exe_types.validators import (
+    AllowedFormats,
+    IfParameter,
+    MaxFileSize,
+    MediaInfo,
+    MediaNeed,
+    limit_error,
+    reads,
+)
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
@@ -28,14 +42,56 @@ logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["GoogleImageGeneration"]
 
-# Maximum image counts for reference images
+# Google's documented input limits for Gemini 3 Pro Image and Gemini 3.1 Flash Image.
+# Errors link the page for the selected model.
+INPUT_LIMITS_URLS = {
+    "gemini-3-pro-image": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-pro-image",
+    "gemini-3.1-flash-image": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-1-flash-image",
+}
 MAX_INPUT_IMAGES = 14
+SUPPORTED_INPUT_MIME_TYPES = ("image/png", "image/jpeg", "image/webp", "image/heic", "image/heif")
 # Deprecated constants - kept for backwards compatibility
 MAX_OBJECT_IMAGES = 6
 MAX_HUMAN_IMAGES = 5
 
-# Maximum image size in bytes (7MB)
+# "Maximum file size per file for inline data": 7 MB (same pages as above).
 MAX_IMAGE_SIZE_BYTES = 7 * 1024 * 1024
+# The image lists; together they hold at most MAX_INPUT_IMAGES.
+IMAGE_LIST_PARAMETERS = ("input_images", "object_images", "human_images")
+
+
+@reads(MediaNeed.IMAGE)
+def _pillow_can_open(media: MediaInfo) -> bool:
+    # 'Auto Image Resize' can only shrink an image Pillow opens; anything else is sent as it is.
+    return media.image is not None
+
+
+@reads(MediaNeed.IMAGE, MediaNeed.SIZE)
+def _node_would_shrink_it(media: MediaInfo) -> bool:
+    """With 'Auto Image Resize' on, the node re-saves an oversized image Pillow opens as a smaller WEBP."""
+    return media.image is not None and (media.size_bytes or 0) > MAX_IMAGE_SIZE_BYTES
+
+
+# An input image Google is certain to reject: a format it doesn't take, or over 7 MB. With 'Auto
+# Image Resize' on, an image the node will shrink is re-encoded before sending, so neither its size
+# nor its source format is checked. Otherwise both are, and the size error suggests the setting only
+# when it is off and could shrink the image.
+GEMINI_INPUT_IMAGE = IfParameter(
+    "auto_image_resize",
+    {
+        True: [
+            AllowedFormats(*SUPPORTED_INPUT_MIME_TYPES).unless(_node_would_shrink_it),
+            MaxFileSize(MAX_IMAGE_SIZE_BYTES, fix="Use a smaller image.").unless(_pillow_can_open),
+        ]
+    },
+    default=[
+        AllowedFormats(*SUPPORTED_INPUT_MIME_TYPES),
+        MaxFileSize(MAX_IMAGE_SIZE_BYTES, fix="Turn on 'Auto Image Resize' or use a smaller image.").when(
+            _pillow_can_open
+        ),
+        MaxFileSize(MAX_IMAGE_SIZE_BYTES, fix="Use a smaller image.").unless(_pillow_can_open),
+    ],
+)
 
 
 @dataclass
@@ -145,6 +201,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Input Images", "expander": True, "hide_property": True},
                 max_items=MAX_INPUT_IMAGES,
+                pre_run_validators=[GEMINI_INPUT_IMAGE],
             )
         )
 
@@ -158,6 +215,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Object Images", "expander": True},
                 max_items=MAX_OBJECT_IMAGES,
+                pre_run_validators=[GEMINI_INPUT_IMAGE],
                 hide=True,
             )
         )
@@ -172,6 +230,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Human Images", "expander": True},
                 max_items=MAX_HUMAN_IMAGES,
+                pre_run_validators=[GEMINI_INPUT_IMAGE],
                 hide=True,
             )
         )
@@ -336,22 +395,20 @@ class GoogleImageGeneration(GriptapeProxyNode):
         prompt = self.get_parameter_value("prompt")
         if not prompt:
             exceptions.append(ValueError("'Prompt' is empty. Describe the image you want."))
-
-        # Get all image lists
-        input_images = self.get_parameter_list_value("input_images") or []
-        object_images = self.get_parameter_list_value("object_images") or []
-        human_images = self.get_parameter_list_value("human_images") or []
-
-        # Validate combined image count does not exceed maximum
-        total_images = len(input_images) + len(object_images) + len(human_images)
+        # Google's limit is on all the images together, across the current list and the deprecated ones.
+        total_images = sum(len(self.get_parameter_list_value(name) or []) for name in IMAGE_LIST_PARAMETERS)
         if total_images > MAX_INPUT_IMAGES:
-            msg = (
-                f"{total_images} input images are connected and the limit is {MAX_INPUT_IMAGES}. "
-                "Remove some from 'Input Images'."
+            message = (
+                f"{total_images} images are connected across 'Input Images', 'Object Images' and 'Human Images' "
+                f"and the limit is {MAX_INPUT_IMAGES}. Remove {total_images - MAX_INPUT_IMAGES}."
             )
-            exceptions.append(ValueError(msg))
+            exceptions.append(limit_error(message, self.input_limits_url()))
 
         return exceptions or None
+
+    def input_limits_url(self) -> str | None:
+        """Google's limits page for the selected model; the default model's page when the selection is unknown."""
+        return INPUT_LIMITS_URLS.get(self._get_selected_model_id(), INPUT_LIMITS_URLS[self.DEFAULT_MODEL])
 
     async def _process_generation(self) -> None:
         await super()._process_generation()

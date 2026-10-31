@@ -13,6 +13,7 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.exe_types.validators import AllowedFormats, IfParameter
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.events.parameter_events import (
     GetConnectionsForParameterRequest,
@@ -29,6 +30,18 @@ __all__ = ["GeminiOmniFlashGeneration"]
 
 # Provider model id served by the Gemini API interactions endpoint via proxy.
 API_MODEL_ID = "gemini-omni-flash-preview"
+
+# The image formats Gemini Omni Flash accepts for reference images ("IMAGE_MIME").
+# https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/video/generate-videos-from-references
+INPUT_LIMITS_URL = (
+    "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/video/generate-videos-from-references"
+)
+IMAGE_FORMATS = AllowedFormats("image/png", "image/jpeg", "image/webp", "image/heic", "image/heif")
+
+
+# The deprecated image's format, checked only while no reference images are connected: the request
+# drops the deprecated image when they are.
+LEGACY_IMAGE_FORMATS = IfParameter("reference_images", {False: [IMAGE_FORMATS]}, key=bool)
 
 
 class Task(StrEnum):
@@ -92,6 +105,7 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
                 ui_options={"display_name": "image (deprecated)"},
+                pre_run_validators=[LEGACY_IMAGE_FORMATS],
             )
         )
 
@@ -108,6 +122,7 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
                 ),
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "reference images", "expander": True, "hide_property": True},
+                pre_run_validators=[IMAGE_FORMATS],
             )
         )
 
@@ -191,6 +206,9 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
         if not self.get_parameter_value("prompt"):
             exceptions.append(ValueError("A prompt is required. Enter one in 'prompt'."))
         return exceptions or None
+
+    def input_limits_url(self) -> str | None:
+        return INPUT_LIMITS_URL
 
     def _update_legacy_image_visibility(self, *, connected: bool) -> None:
         """Show the deprecated `image` parameter only while a workflow still uses it.
