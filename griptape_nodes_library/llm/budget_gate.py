@@ -56,13 +56,21 @@ def is_direct_provider(config: ModelConfig | ImageGenerationConfig) -> bool:
 class GatedCall:
     """One gated model call: the node it is charged to, and for a direct call, the tokens it used."""
 
-    def __init__(
-        self, node: BaseNode, config: ModelConfig | ImageGenerationConfig, correlation_id: str | None, *, direct: bool
+    def __init__(  # noqa: PLR0913
+        self,
+        node: BaseNode,
+        config: ModelConfig | ImageGenerationConfig,
+        correlation_id: str | None,
+        *,
+        direct: bool,
+        run_id: str | None = None,
     ) -> None:
         self.node = node
         self._config = config
         self._correlation_id = correlation_id
         self._direct = direct
+        # Read when the call opened: the report can come after the node's execution has ended.
+        self._run_id = run_id
         self._usage = RunUsage()
 
     def add(self, usage: RunUsage) -> None:
@@ -87,6 +95,7 @@ class GatedCall:
             input_audio_tokens=self._usage.input_audio_tokens,
             cache_audio_read_tokens=self._usage.cache_audio_read_tokens,
             correlation_id=self._correlation_id,
+            run_id=self._run_id,
         )
 
 
@@ -110,8 +119,9 @@ def _open_call(node: BaseNode, config: ModelConfig | ImageGenerationConfig) -> G
     """Budget-check a direct call, and start counting its tokens."""
     if not is_direct_provider(config):
         return GatedCall(node, config, None, direct=False)
-    correlation_id = require_budget_access_sync(node, config.model)
-    return GatedCall(node, config, correlation_id, direct=True)
+    run_id = node.run_id
+    correlation_id = require_budget_access_sync(node, config.model, run_id=run_id)
+    return GatedCall(node, config, correlation_id, direct=True, run_id=run_id)
 
 
 def run_gated[T](node: BaseNode, config: ModelConfig | ImageGenerationConfig, fn: Callable[[], T]) -> T:
