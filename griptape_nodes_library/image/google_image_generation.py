@@ -10,8 +10,6 @@ from typing import Any, ClassVar
 from griptape.artifacts import ImageArtifact
 from griptape.artifacts.image_url_artifact import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import (
-    NodeError,
-    NodeErrorLink,
     Parameter,
     ParameterGroup,
     ParameterList,
@@ -25,12 +23,12 @@ from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.validators import (
-    LIMITS_LINK_LABEL,
     AllowedFormats,
     IfParameter,
     MaxFileSize,
     MediaInfo,
     MediaNeed,
+    limit_error,
     reads,
 )
 from griptape_nodes.traits.options import Options
@@ -404,9 +402,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
                 f"{total_images} images are connected across 'Input Images', 'Object Images' and 'Human Images' "
                 f"and the limit is {MAX_INPUT_IMAGES}. Remove {total_images - MAX_INPUT_IMAGES}."
             )
-            docs_url = self.input_limits_url()
-            links = [NodeErrorLink(label=LIMITS_LINK_LABEL, url=docs_url)] if docs_url else None
-            exceptions.append(NodeError(message, links=links))
+            exceptions.append(limit_error(message, self.input_limits_url()))
 
         return exceptions or None
 

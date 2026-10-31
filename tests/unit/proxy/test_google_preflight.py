@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 from griptape_nodes.exe_types.core_types import NodeError
-from griptape_nodes.exe_types.validators._runner import validate_node
+from griptape_nodes.exe_types.validators import validate_node
 from griptape_nodes.node_library.library_registry import LibraryRegistry
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.utils import media_probe
