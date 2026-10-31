@@ -30,13 +30,12 @@ from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 
 import httpx
-from griptape_nodes.exe_types.core_types import NodeError, NodeErrorLink, Parameter, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
 from griptape_nodes.exe_types.validators import (
-    LIMITS_LINK_LABEL,
     AllowedFormats,
     AspectRatioRange,
     FrameRate,
@@ -49,6 +48,7 @@ from griptape_nodes.exe_types.validators import (
     PixelArea,
     SideRange,
     VideoCodecs,
+    limit_error,
     reads,
 )
 from griptape_nodes.files.file import File, FileLoadError
@@ -401,9 +401,7 @@ def total_duration_errors(
         f"{_seconds_past(sum(known), max_total_seconds)} seconds long and the limit is "
         f"{max_total_seconds:g} seconds in total. {fix}"
     )
-    docs_url = node.input_limits_url()
-    links = [NodeErrorLink(label=LIMITS_LINK_LABEL, url=docs_url)] if docs_url else None
-    return [NodeError(message, links=links)]
+    return [limit_error(message, node.input_limits_url())]
 
 
 def _values(node: BaseNode, parameter: str) -> list[Any]:

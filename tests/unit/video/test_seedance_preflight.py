@@ -10,8 +10,7 @@ from typing import Any
 import pytest
 from griptape_nodes.exe_types.core_types import NodeError, ParameterList
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
-from griptape_nodes.exe_types.validators import IfParameter
-from griptape_nodes.exe_types.validators._runner import validate_node
+from griptape_nodes.exe_types.validators import IfParameter, validate_node
 from griptape_nodes.utils import media_probe
 from griptape_nodes.utils.media_probe import AudioProbe, ImageInfo, VideoProbe
 from PIL import Image
