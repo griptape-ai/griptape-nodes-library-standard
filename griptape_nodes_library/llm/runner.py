@@ -27,8 +27,10 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import Model
 from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.run import AgentRunResultEvent
+from pydantic_ai.usage import RunUsage, UsageLimits
 
 from griptape_nodes_library.llm.budget import raise_budget_halt
+from griptape_nodes_library.llm.budget_gate import record_run_usage
 from griptape_nodes_library.llm.errors import raise_provider_error
 from griptape_nodes_library.llm.history import history_token_budget, prune_history
 from griptape_nodes_library.llm.model_config import USE_NATIVE_TOOLS_OPTION
@@ -39,7 +41,6 @@ if TYPE_CHECKING:
     from pydantic_ai.agent import AgentRetries, AgentRunResult
     from pydantic_ai.messages import ModelMessage
     from pydantic_ai.toolsets import AbstractToolset
-    from pydantic_ai.usage import UsageLimits
 
     from griptape_nodes_library.llm.model_config import ModelConfig
 
@@ -130,6 +131,7 @@ async def run_agent_async(
     message_history: list[ModelMessage] | None = None,
     callbacks: RunCallbacks | None = None,
     usage_limits: UsageLimits | None = None,
+    usage: RunUsage | None = None,
 ) -> AgentRunResult[Any]:
     callbacks = callbacks or RunCallbacks()
     result: AgentRunResult[Any] | None = None
@@ -143,6 +145,7 @@ async def run_agent_async(
     run_kwargs: dict[str, Any] = {
         "message_history": message_history or None,
         "usage_limits": usage_limits,
+        "usage": usage,
         "cancellation_token": token,
     }
     try:
@@ -227,9 +230,22 @@ def run_agent(
     Raises:
         AgentRunCancelledError: `callbacks.is_cancelled` returned True.
     """
-    return run_coroutine_sync(
-        run_agent_async(agent, prompt, message_history=message_history, callbacks=callbacks, usage_limits=usage_limits)
-    )
+    # The run fills `usage` as it goes, so a run that raises -- a cancel, or the request limit
+    # MCP Task ends on -- still records the requests it already made.
+    usage = RunUsage()
+    try:
+        return run_coroutine_sync(
+            run_agent_async(
+                agent,
+                prompt,
+                message_history=message_history,
+                callbacks=callbacks,
+                usage_limits=usage_limits,
+                usage=usage,
+            )
+        )
+    finally:
+        record_run_usage(usage)
 
 
 def output_to_text(output: Any) -> str:
