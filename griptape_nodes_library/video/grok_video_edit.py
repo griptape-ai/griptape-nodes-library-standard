@@ -1,33 +1,110 @@
 from __future__ import annotations
 
-import asyncio
 import logging
-from pathlib import Path
+from pathlib import PureWindowsPath
 from typing import Any, ClassVar
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, ParameterMode
+from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
+    PublicArtifactUrlParameter,
+)
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.exe_types.validators import (
+    AllowedFormats,
+    MaxDuration,
+    MediaInfo,
+    MediaNeed,
+    MediaValidator,
+    limit_error,
+)
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.files.path_utils import is_url
 
-from griptape_nodes_library.media import coerce_media_url_or_data_uri
+from griptape_nodes_library.media import coerce_media_url_or_data_uri, is_publicly_reachable_url
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
-from griptape_nodes_library.utils.ffmpeg_utils import extract_video_metadata_structured
 
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["GrokVideoEdit"]
 
-# xAI's documented input limits for video editing
-# (docs.x.ai/developers/model-capabilities/video/editing). xAI accepts a request that breaks
-# them and then fails the job with no reason, so they are checked before submitting.
+# xAI's documented input limits for video editing. xAI accepts a request that breaks them and
+# then fails the job with no reason, so they are checked before the node runs.
+XAI_VIDEO_EDIT_DOCS_URL = "https://docs.x.ai/developers/model-capabilities/video/editing"
 MAX_INPUT_DURATION_SECONDS = 8.7
-SUPPORTED_CONTAINER = "mp4"
+MP4_MIME_TYPE = "video/mp4"
+MP4_EXTENSION = ".mp4"
+_IS_MP4 = AllowedFormats(MP4_MIME_TYPE)
+
+
+class Mp4FileName(MediaValidator):
+    """xAI's rule that a video's name ends in .mp4, or that a data URI is typed video/mp4.
+
+    xAI fails a job whose video URL ends in another extension, even for an MP4 saved as .mov, and
+    gives no reason. The file's name normally reaches xAI intact: the uploaded URL ends in it, and
+    an inline video is typed from it. A name with no extension, such as a signed URL, passes.
+
+    The exception is a local name containing '#' or '?': the engine's upload currently cuts the
+    name at that character, so 'Take #2.mp4' passes here but is uploaded as 'Take '
+    (griptape-ai/griptape-nodes-engine#6048).
+    """
+
+    needs = frozenset({MediaNeed.VIDEO})
+
+    def check_media(
+        self,
+        value: Any,  # noqa: ARG002
+        media: MediaInfo,
+        *,
+        subject: str,
+        docs_url: str | None,
+        position: int | None = None,  # noqa: ARG002
+    ) -> NodeError | None:
+        location = media.location
+        if location is None:
+            return None
+        # A file read as another format already gets AllowedFormats' "Convert it to MP4", and
+        # converting it gives it an .mp4 name too, so this stays quiet rather than repeat it.
+        if media.video is not None and _IS_MP4.check_media(None, media, subject=subject, docs_url=None) is not None:
+            return None
+        if location.startswith("data:"):
+            mime_type = location.removeprefix("data:").split(",", 1)[0].split(";", 1)[0].strip().lower()
+            if mime_type == MP4_MIME_TYPE:
+                return None
+            return limit_error(
+                f"{subject} is a data URI that isn't typed {MP4_MIME_TYPE}, which xAI requires. Convert it to MP4.",
+                docs_url,
+            )
+        name = _file_name(location)
+        if PureWindowsPath(name).suffix.lower() in ("", MP4_EXTENSION):
+            return None
+        return limit_error(
+            f"{subject} is named '{name}', and xAI only accepts a file whose name ends in {MP4_EXTENSION}. "
+            f"If it's already an MP4, rename it to end in {MP4_EXTENSION}; otherwise convert it to MP4.",
+            docs_url,
+        )
+
+
+def _file_name(location: str) -> str:
+    """The last part of a path or URL, without a URL's query, such as a signed URL's signature."""
+    path = unquote(urlsplit(location).path) if is_url(location) else location
+    return PureWindowsPath(path.rstrip("/\\")).name
+
+
+# The format and duration are read from the file itself, so a MOV renamed to .mp4 is still refused,
+# and the name is checked too, so an MP4 saved as .mov is refused before xAI fails it. Only a file
+# on this machine is read: a remote URL or a data URI has only its name or type checked here.
+VIDEO_LIMITS = (
+    AllowedFormats(MP4_MIME_TYPE),
+    Mp4FileName(),
+    MaxDuration(MAX_INPUT_DURATION_SECONDS),
+)
 
 
 class GrokVideoEdit(GriptapeProxyNode):
@@ -92,16 +169,20 @@ class GrokVideoEdit(GriptapeProxyNode):
             allowed_modes={ParameterMode.INPUT},
             hide_property=True,
             ui_options={"display_name": "Video"},
+            pre_run_validators=VIDEO_LIMITS,
         )
         video_param.set_badge(
             variant="info",
             title="Video requirements",
             message=(
                 f"- .mp4 file\n- {MAX_INPUT_DURATION_SECONDS:g} seconds or less\n\n"
-                "Use a Trim Video node to convert or shorten a video."
+                "Use a Trim Video node to convert or shorten a video.\n\n"
+                "Running this node uploads a local video to a short-lived public URL, which xAI fetches."
             ),
         )
         self.add_parameter(video_param)
+        self._video_param = video_param
+        self._video_upload: PublicArtifactUrlParameter | None = None
 
         # OUTPUTS
         self.add_parameter(
@@ -147,60 +228,41 @@ class GrokVideoEdit(GriptapeProxyNode):
             return bool(value.value)
         return bool(value)
 
-    @staticmethod
-    def _container_token(video_value: str) -> str:
-        """Return the container named by the value's extension or MIME subtype, or "" if neither."""
-        if video_value.startswith("data:"):
-            header = video_value.removeprefix("data:").split(",", 1)[0]
-            return header.split(";", 1)[0].split("/", 1)[-1].lower()
-        return Path(urlsplit(video_value).path).suffix.lstrip(".").lower()
+    async def aprocess(self) -> None:
+        try:
+            await super().aprocess()
+        finally:
+            # Only once polling has finished: xAI fetches the video from this URL when the job
+            # starts, so deleting it any earlier would pull the video out from under a queued job.
+            if self._video_upload is not None:
+                await adelete_uploaded_artifacts([self._video_upload], node_name=self.name)
 
-    def _probe_duration(self, video_value: str) -> float | None:
-        """Return the video's duration in seconds, or None when it cannot be determined.
+    async def _upload_video(self) -> str | None:
+        """Return a public URL for the video input, or None to fall back to a data URI.
 
-        Probing is best-effort. A missing ffprobe or an unreadable remote URL should not block a
-        request that xAI might accept, so failures are logged and skipped.
+        A local video is uploaded to Griptape Cloud so xAI can fetch it, keeping it out of the
+        request body. The helper is built here rather than in __init__ because it raises without a
+        Griptape Cloud credential, which should cost the upload, not the node.
         """
         try:
-            location = File(video_value).resolve()
-            metadata = extract_video_metadata_structured(location)
-        except (FileLoadError, ValueError, RuntimeError) as e:
-            logger.warning("%s: could not probe input video duration, skipping the check: %s", self.name, e)
-            return None
-        return metadata.file_details.optional_duration
-
-    def _find_input_problems(self, video_value: str) -> list[str]:
-        """Return one short sentence pair per xAI input limit the video breaks.
-
-        Returns an empty list when the video is fine. A missing container token carries no
-        signal (a signed URL that strips the filename, say) and is let through. ffprobe can't
-        take a multi-megabyte data URI as an argument, so a data URI's duration goes unchecked
-        and xAI enforces it.
-        """
-        problems = []
-
-        token = self._container_token(video_value)
-        if token and token != SUPPORTED_CONTAINER:
-            problems.append(f"It's a .{token} file. Grok needs .mp4.")
-
-        if not video_value.startswith("data:"):
-            duration = self._probe_duration(video_value)
-            if duration is not None and duration > MAX_INPUT_DURATION_SECONDS:
-                problems.append(
-                    f"It's {duration:.2f} seconds long. Grok's limit is {MAX_INPUT_DURATION_SECONDS:g} seconds."
+            if self._video_upload is None:
+                self._video_upload = PublicArtifactUrlParameter(
+                    node=self,
+                    artifact_url_parameter=self._video_param,
                 )
+            public_url = await self._video_upload.aget_public_url_for_parameter()
+        except Exception as e:  # noqa: BLE001 - any upload failure should degrade to a data URI
+            logger.warning("%s: public-URL upload failed, sending the video inline instead: %s", self.name, e)
+            return None
 
-        return problems
+        # The helper passes through any http(s) URL not spelled `localhost`, so a static-server URL
+        # on a loopback or LAN IP comes back unuploaded. xAI can't fetch that; the local read can.
+        if not is_publicly_reachable_url(public_url):
+            return None
+        return public_url
 
-    async def _check_input_limits(self, video_value: str) -> None:
-        """Raise a short, user-facing error if the video breaks any of xAI's input limits."""
-        problems = await asyncio.to_thread(self._find_input_problems, video_value)
-        if problems:
-            msg = f"Grok can't edit this video. {' '.join(problems)} Use a Trim Video node to fix this."
-            raise ValueError(msg)
-
-    async def _prepare_video_data_uri(self, video_input: Any) -> str:
-        """Return the video as a data URI, raising a user-facing error if it can't be sent.
+    async def _prepare_video_url(self, video_input: Any) -> str:
+        """Return a URL xAI can read the video from, raising a user-facing error if it can't be sent.
 
         These errors are raised during execution, where the engine already prefixes the message
         with the node name several times, so they leave the name out.
@@ -210,7 +272,14 @@ class GrokVideoEdit(GriptapeProxyNode):
             msg = "Video input has no usable value."
             raise ValueError(msg)
 
-        await self._check_input_limits(video_value)
+        # xAI fetches a public URL itself, so it goes as is, without the upload helper, which
+        # can't be built without a Griptape Cloud credential.
+        if is_publicly_reachable_url(video_value):
+            return video_value
+
+        public_url = await self._upload_video()
+        if public_url:
+            return public_url
 
         if video_value.startswith("data:"):
             return video_value
@@ -240,15 +309,18 @@ class GrokVideoEdit(GriptapeProxyNode):
 
         return exceptions if exceptions else None
 
+    def input_limits_url(self) -> str | None:
+        return XAI_VIDEO_EDIT_DOCS_URL
+
     async def _build_payload(self) -> dict[str, Any]:
         prompt = (self.get_parameter_value("prompt") or "").strip()
         api_model_id = self._get_payload_model_id()
-        video_data_uri = await self._prepare_video_data_uri(self.get_parameter_value("video"))
+        video_url = await self._prepare_video_url(self.get_parameter_value("video"))
 
         return {
             "model": api_model_id,
             "prompt": prompt,
-            "video": {"url": video_data_uri},
+            "video": {"url": video_url},
         }
 
     async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
