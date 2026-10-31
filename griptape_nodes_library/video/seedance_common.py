@@ -2,9 +2,11 @@
 
 The Seedance 2.0 and 2.5 nodes talk to the same BytePlus endpoints through the same Griptape
 Cloud proxy, so everything that is about *the provider* rather than *the model* lives here:
-media coercion, audio-subtype normalization, provider response parsing, and the private-asset
-(``asset://``) registration flow. What differs per model version — task/input modes, capability
-tables, parameter layout, validation — stays in the node modules.
+media coercion, audio-subtype normalization, provider response parsing, the private-asset
+(``asset://``) registration flow, the input limits BytePlus documents for every Seedance model
+(which the Seedance 1.x node checks too), and the pre-run media checks the 2.0 and 2.5 nodes share.
+What differs per model version — task/input modes, capability tables, parameter layout,
+validation — stays in the node modules.
 
 `SeedanceProxyNode` is the shared base class. It carries the private-asset flow because that
 flow needs node state (the proxy base URL, the API key, the transient upload parameters it
@@ -19,21 +21,40 @@ import io
 import json as _json
 import logging
 from abc import ABC
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple
 from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 
 import httpx
-from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterList, ParameterMode
+from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
+)
+from griptape_nodes.exe_types.validators import (
+    AllowedFormats,
+    AspectRatioRange,
+    FrameRate,
+    MaxDuration,
+    MaxFileSize,
+    MediaInfo,
+    MediaNeed,
+    MediaValidator,
+    MinDuration,
+    PixelArea,
+    SideRange,
+    VideoCodecs,
+    limit_error,
+    reads,
 )
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.events.config_events import GetWorkspaceRequest, GetWorkspaceResultSuccess
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.utils import media_probe
 from PIL import Image, ImageOps
 
 from griptape_nodes_library.assets import (
@@ -42,6 +63,7 @@ from griptape_nodes_library.assets import (
     ASSET_KIND_VIDEO,
     get_provider_asset_kind,
     get_provider_asset_value,
+    is_provider_asset_reference,
 )
 from griptape_nodes_library.media import (
     coerce_media_url_or_data_uri,
@@ -63,14 +85,28 @@ __all__ = [
     "ASSET_STATUS_ACTIVE",
     "ASSET_STATUS_DELETED",
     "ASSET_STATUS_FAILED",
+    "HEIF_IMAGE_MIME_TYPES",
+    "MAX_IMAGE_BYTES",
+    "MIN_IMAGE_SIDE",
     "SEEDANCE_AUDIO_SUBTYPE_ALIASES",
     "SEEDANCE_MAX_IMAGE_DIMENSION_PX",
+    "SUPPORTED_AUDIO_MIME_TYPES",
+    "SUPPORTED_IMAGE_MIME_TYPES",
+    "SUPPORTED_VIDEO_CODECS",
+    "SUPPORTED_VIDEO_MIME_TYPES",
+    "TALLEST_ASPECT_RATIO",
+    "WIDEST_ASPECT_RATIO",
+    "SEEDANCE_SENT_IMAGE_LIMITS",
+    "SeedanceLimit",
     "SeedanceProxyNode",
+    "total_duration_errors",
     "coerce_video_url",
     "downscale_oversized_image_data_uri",
     "downscale_oversized_image_file",
     "normalize_audio_data_uri_subtype",
     "parse_provider_response",
+    "seedance_reference_audio_limits",
+    "seedance_reference_video_limits",
     "summarize_media_input",
 ]
 
@@ -96,6 +132,42 @@ _ASSET_KIND_ARTIFACT_TYPES = {
 # for an oversized image, while the 2.0 backend downscales it silently -- so any image we read
 # locally is downscaled to fit before it is sent, matching what 2.0 already does server-side.
 SEEDANCE_MAX_IMAGE_DIMENSION_PX = 6000
+
+# BytePlus states the input limits of every Seedance model on one page, "Create a video generation
+# task" (content > Image / Video / Audio); the Seedance 2.5 tutorial repeats them.
+SEEDANCE_INPUT_LIMITS_URL = "https://docs.byteplus.com/en/docs/ModelArk/1520757"
+
+# BytePlus's image limits, the same for every Seedance model unless noted.
+# "Format: jpeg, png, webp, bmp, tiff, or gif. Seedance 1.5 pro and later models also
+# support heic and heif."
+SUPPORTED_IMAGE_MIME_TYPES = ("image/jpeg", "image/png", "image/webp", "image/bmp", "image/tiff", "image/gif")
+HEIF_IMAGE_MIME_TYPES = ("image/heic", "image/heif")
+# "Single image must be less than 30 MB", so a file of exactly 30 MB is refused too.
+MAX_IMAGE_BYTES = 30 * 1024 * 1024
+# "Width and height (px): [300, 6000]"; the 6000 px maximum is SEEDANCE_MAX_IMAGE_DIMENSION_PX.
+MIN_IMAGE_SIDE = 300
+# "Aspect ratio (width/height): [0.4, 2.5]", for images and videos alike.
+WIDEST_ASPECT_RATIO = "2.5:1"
+TALLEST_ASPECT_RATIO = "1:2.5"
+# Videos (Seedance 2.0 and 2.5 only): "Video format: mp4, mov", and the table of supported encodings
+# gives "Video: H.264/AVC, H.265/HEVC" for both.
+SUPPORTED_VIDEO_MIME_TYPES = ("video/mp4", "video/quicktime")
+SUPPORTED_VIDEO_CODECS = ("h264", "hevc")
+# "Size: Each video must not exceed 200 MB."
+MAX_VIDEO_BYTES = 200 * 1024 * 1024
+# "Width and height (px): [300, 6000]"
+MIN_VIDEO_SIDE = 300
+MAX_VIDEO_SIDE = 6000
+# "Total pixels: [614×664=407696, 3326×2494=8295044]"
+MIN_VIDEO_MEGAPIXELS = 0.407696
+MAX_VIDEO_MEGAPIXELS = 8.295044
+# "Frame rate (FPS): [24, 60]"
+MIN_VIDEO_FPS = 24
+MAX_VIDEO_FPS = 60
+# Audio (Seedance 2.0 and 2.5 only): "Format: wav, mp3"
+SUPPORTED_AUDIO_MIME_TYPES = ("audio/wav", "audio/mpeg")
+# "Each audio file must not exceed 15 MB."
+MAX_AUDIO_BYTES = 15 * 1024 * 1024
 
 # Seedance only accepts audio data URIs whose subtype is exactly `wav` or `mp3` (per the BytePlus
 # docs). The local File/mimetypes layer emits other subtypes for the same formats (e.g. an .mp3
@@ -185,27 +257,182 @@ def downscale_oversized_image_data_uri(data_uri: str) -> DownscaledImage | None:
         return None
 
     # binascii.Error (a ValueError) for malformed base64; UnidentifiedImageError (an OSError) for
-    # formats PIL cannot decode, e.g. HEIC; OSError for truncated image data.
+    # formats PIL cannot decode, e.g. HEIC; OSError for truncated image data; DecompressionBombError
+    # for an image over Pillow's pixel limit, which the pre-run checks can't read either.
     try:
         raw_bytes = base64.b64decode(encoded)
         with Image.open(io.BytesIO(raw_bytes)) as decoded_image:
             return _downscale_decoded_image(decoded_image)
-    except (OSError, ValueError):
+    except (OSError, ValueError, Image.DecompressionBombError):
         return None
 
 
 def downscale_oversized_image_file(path: str) -> DownscaledImage | None:
     """Downscale an image file whose width or height exceeds SEEDANCE_MAX_IMAGE_DIMENSION_PX.
 
-    Returns None when no downscale is needed or the path is not an image PIL can open. Opening
+    Returns None when no downscale is needed or the path is not an image PIL will open (including
+    one over its decompression-bomb pixel limit, which is sent as it is). Opening
     reads only the image header, so measuring a file that turns out to be within the cap does not
     read it into memory.
     """
     try:
         with Image.open(path) as decoded_image:
             return _downscale_decoded_image(decoded_image)
-    except (OSError, ValueError):
+    except (OSError, ValueError, Image.DecompressionBombError):
         return None
+
+
+@dataclass(frozen=True)
+class SeedanceLimit(MediaValidator):
+    """One BytePlus limit, checked only on media the request sends as it is.
+
+    A private-asset reference is sent as an ``asset://`` ID, so no limit is checked on it. An image
+    over SEEDANCE_MAX_IMAGE_DIMENSION_PX is downscaled and re-encoded as PNG or JPEG before the
+    Seedance 2.0 and 2.5 nodes send it (see `SeedanceProxyNode._prepare_frame_url_async`), so for
+    one only the limits a resize keeps are checked: the shortest side and the aspect ratio. Its
+    format and file size are those of the re-encoded copy, which isn't read until the node runs,
+    so they aren't checked here (wrap those limits as ``limit.unless(_is_downscaled)``); a PNG kept
+    as PNG can still be over BytePlus's size limit after the resize, and BytePlus then refuses it.
+
+    Args:
+        limit: The engine validator to run.
+    """
+
+    limit: MediaValidator
+
+    def __post_init__(self) -> None:
+        # What `limit` reads, so the engine refuses it on a parameter of the wrong kind.
+        object.__setattr__(self, "needs", self.limit.needs)
+
+    def check_media(
+        self, value: Any, media: MediaInfo, *, subject: str, docs_url: str | None, position: int | None = None
+    ) -> NodeError | None:
+        if is_provider_asset_reference(value):
+            return None
+        return self.limit.check_media(value, media, subject=subject, docs_url=docs_url, position=position)
+
+
+@reads(MediaNeed.IMAGE)
+def _is_downscaled(media: MediaInfo) -> bool:
+    """Whether an image is over SEEDANCE_MAX_IMAGE_DIMENSION_PX, so the node downscales it before sending."""
+    return media.image is not None and max(media.image.width, media.image.height) > SEEDANCE_MAX_IMAGE_DIMENSION_PX
+
+
+# The limits on an image the Seedance 2.0 or 2.5 node sends, which it downscales when it's over
+# SEEDANCE_MAX_IMAGE_DIMENSION_PX.
+SEEDANCE_SENT_IMAGE_LIMITS = (
+    SeedanceLimit(AllowedFormats(*SUPPORTED_IMAGE_MIME_TYPES, *HEIF_IMAGE_MIME_TYPES).unless(_is_downscaled)),
+    SeedanceLimit(MaxFileSize(MAX_IMAGE_BYTES, strict=True).unless(_is_downscaled)),
+    SeedanceLimit(SideRange(min=MIN_IMAGE_SIDE)),
+    SeedanceLimit(AspectRatioRange(TALLEST_ASPECT_RATIO, WIDEST_ASPECT_RATIO)),
+)
+
+
+def seedance_reference_video_limits(*, min_seconds: float, max_seconds: float) -> tuple[SeedanceLimit, ...]:
+    """The BytePlus limits on each reference video the Seedance 2.0 or 2.5 node sends."""
+    return tuple(
+        SeedanceLimit(limit)
+        for limit in (
+            MaxFileSize(MAX_VIDEO_BYTES),
+            AllowedFormats(*SUPPORTED_VIDEO_MIME_TYPES),
+            VideoCodecs(*SUPPORTED_VIDEO_CODECS),
+            MinDuration(min_seconds),
+            MaxDuration(max_seconds),
+            SideRange(min=MIN_VIDEO_SIDE, max=MAX_VIDEO_SIDE),
+            PixelArea(min_megapixels=MIN_VIDEO_MEGAPIXELS, max_megapixels=MAX_VIDEO_MEGAPIXELS),
+            AspectRatioRange(TALLEST_ASPECT_RATIO, WIDEST_ASPECT_RATIO),
+            FrameRate(min=MIN_VIDEO_FPS, max=MAX_VIDEO_FPS),
+        )
+    )
+
+
+def seedance_reference_audio_limits(*, min_seconds: float, max_seconds: float) -> tuple[SeedanceLimit, ...]:
+    """The BytePlus limits on each reference audio clip the Seedance 2.0 or 2.5 node sends."""
+    return tuple(
+        SeedanceLimit(limit)
+        for limit in (
+            AllowedFormats(*SUPPORTED_AUDIO_MIME_TYPES),
+            MaxFileSize(MAX_AUDIO_BYTES),
+            MinDuration(min_seconds),
+            MaxDuration(max_seconds),
+        )
+    )
+
+
+def total_duration_errors(
+    node: BaseNode,
+    parameters: Mapping[str, str],
+    *,
+    kind: Literal["video", "audio"],
+    max_total_seconds: float,
+    what: str,
+    fix: str,
+) -> list[NodeError]:
+    """An error when the reference clips in `parameters` are longer together than BytePlus allows.
+
+    Checked only for two or more clips (for one, its own maximum is the same number) when every
+    clip's duration was read. It sums each clip's shorter reading, the one its own maximum is
+    checked against; during the node's checks the engine reads each file once, so this reuses what
+    the parameter validators read. A private-asset reference is sent as an ``asset://`` ID, so its
+    duration counts as unknown and the total isn't checked.
+
+    Args:
+        node: The node about to run.
+        parameters: The parameters holding the clips, each with its name as the UI shows it.
+        kind: Whether the clips are videos or audio, which says how to read their durations.
+        max_total_seconds: The longest the clips may be together.
+        what: The clips, for the message, such as "videos" or "clips".
+        fix: What the artist can do about it.
+    """
+    durations: list[float | None] = []
+    connected: list[str] = []
+    for parameter, shown_name in parameters.items():
+        clips = [value for value in _values(node, parameter) if value]
+        if clips:
+            connected.append(f"'{shown_name}'")
+        durations.extend(
+            None if is_provider_asset_reference(value) else _shortest_seconds(value, kind) for value in clips
+        )
+    known = [seconds for seconds in durations if seconds is not None]
+    if len(durations) < 2 or len(known) < len(durations) or sum(known) <= max_total_seconds:  # noqa: PLR2004
+        return []
+    message = (
+        f"Together, the {what} in {_join_and(connected)} are "
+        f"{_seconds_past(sum(known), max_total_seconds)} seconds long and the limit is "
+        f"{max_total_seconds:g} seconds in total. {fix}"
+    )
+    return [limit_error(message, node.input_limits_url())]
+
+
+def _values(node: BaseNode, parameter: str) -> list[Any]:
+    """A parameter's values in the order the engine read them: a list's items, or the one value."""
+    if isinstance(node.get_parameter_by_name(parameter), ParameterList):
+        return node.get_parameter_list_value(parameter)
+    return [node.get_parameter_value(parameter)]
+
+
+def _shortest_seconds(value: Any, kind: Literal["video", "audio"]) -> float | None:
+    """A clip's shorter duration reading, or None when it can't be read here."""
+    probe = media_probe.local_video_probe(value) if kind == "video" else media_probe.local_audio_probe(value)
+    if probe is None:
+        return None
+    return probe.shortest_seconds
+
+
+def _join_and(names: list[str]) -> str:
+    """Names joined for a message: "'A'", "'A' and 'B'", "'A', 'B' and 'C'"."""
+    if len(names) <= 1:
+        return "".join(names)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def _seconds_past(seconds: float, limit: float) -> str:
+    """Seconds over a limit to two places, with more when two would read as the limit itself."""
+    for places in range(2, 9):
+        text = f"{seconds:.{places}f}"
+        if float(text) > limit:
+            return text
+    return repr(seconds)
 
 
 def coerce_video_url(val: Any) -> str | None:
@@ -297,6 +524,9 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
         # finally blocks so they don't accumulate on the node across runs.
         self._pending_asset_uploads: list[tuple[PublicArtifactUrlParameter, str]] = []
 
+    def input_limits_url(self) -> str | None:
+        return SEEDANCE_INPUT_LIMITS_URL
+
     # --- Media preparation ------------------------------------------------------------------
 
     async def _prepare_frame_url_async(self, frame_input: Any, *, frame_label: str) -> str | None:
@@ -352,19 +582,29 @@ class SeedanceProxyNode(GriptapeProxyNode, ABC):
     def _downscale_local_image_if_oversized(self, image_url: str, *, label: str) -> str | None:
         """Return a downscaled data URI for a local image that exceeds the provider's dimension cap.
 
+        A plain path, an engine macro path (Load Image's output for a file in the project), or a
+        localhost static-server URL for a file inside or outside the workspace is resolved to its
+        file the same way the pre-run checks read it, so an image those checks let through as one
+        the node downscales is downscaled here. A static-server URL on this machine's LAN address
+        is mapped first, by `_local_path_for_static_server_url`.
+
         Returns None when the image is within limits, or when the value does not resolve to a file
-        on this machine (a data URI, an engine macro path, a remote URL) -- those cases are capped
-        where their bytes are materialized, or reported on by the provider.
+        on this machine (a data URI, a remote URL, a macro with no project to resolve against) --
+        a data URI is capped where its bytes are materialized, and a remote URL is reported on by
+        the provider.
         """
         if image_url.startswith("data:"):
             return None
 
+        local_path = None
         if image_url.startswith(("http://", "https://")):
             local_path = self._local_path_for_static_server_url(image_url)
-        else:
-            local_path = image_url
-        if not local_path:
-            return None
+        if local_path is None:
+            # A remote URL resolves to itself, which the downscale can't open, so it returns None.
+            try:
+                local_path = File(image_url).resolve()
+            except FileLoadError:
+                return None
 
         downscaled = downscale_oversized_image_file(local_path)
         if downscaled is None:

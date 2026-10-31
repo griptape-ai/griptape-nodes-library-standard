@@ -20,6 +20,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.exe_types.validators import IfParameter
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
@@ -33,8 +34,12 @@ from griptape_nodes_library.assets import (
 )
 from griptape_nodes_library.proxy import ArtifactKind
 from griptape_nodes_library.video.seedance_common import (
+    SEEDANCE_SENT_IMAGE_LIMITS,
     SeedanceProxyNode,
     coerce_video_url,
+    seedance_reference_audio_limits,
+    seedance_reference_video_limits,
+    total_duration_errors,
 )
 
 logger = logging.getLogger("griptape_nodes")
@@ -44,12 +49,56 @@ __all__ = ["Seedance20VideoGeneration"]
 INPUT_MODE_TEXT_ONLY = "Text Only"
 INPUT_MODE_FIRST_LAST_FRAME = "First/Last Frame"
 INPUT_MODE_MULTIMODAL_REFERENCES = "Multimodal References"
+INPUT_MODES = (INPUT_MODE_TEXT_ONLY, INPUT_MODE_FIRST_LAST_FRAME, INPUT_MODE_MULTIMODAL_REFERENCES)
 MODEL_NAME_SEEDANCE_2_0 = "dreamina-seedance-2-0-260128"
 MODEL_NAME_SEEDANCE_2_0_FAST = "dreamina-seedance-2-0-fast-260128"
 MODEL_NAME_SEEDANCE_2_0_MINI = "dreamina-seedance-2-0-mini-260615"
 SEEDANCE_2_0_MODEL_ID = "dreamina-seedance-2-0-260128"
 SEEDANCE_2_0_FAST_MODEL_ID = "dreamina-seedance-2-0-fast-260128"
 SEEDANCE_2_0_MINI_MODEL_ID = "dreamina-seedance-2-0-mini-260615"
+
+# The Seedance 2.0 limits from SEEDANCE_INPUT_LIMITS_URL; seedance_common holds the shared ones.
+# "Dreamina Seedance 2.0 series: Each video must be 2–15 seconds long. You can submit up to 3
+# reference videos with a total duration of no more than 15 seconds."
+MIN_REFERENCE_VIDEO_SECONDS = 2
+MAX_REFERENCE_VIDEO_SECONDS = 15
+MAX_TOTAL_REFERENCE_VIDEO_SECONDS = 15
+# "Dreamina Seedance 2.0 series: Each audio clip must be 2–15 seconds long. You can submit up to 3
+# reference audio clips with a total duration of no more than 15 seconds."
+MIN_REFERENCE_AUDIO_SECONDS = 2
+MAX_REFERENCE_AUDIO_SECONDS = 15
+MAX_TOTAL_REFERENCE_AUDIO_SECONDS = 15
+# Each reference video's parameter name and its label in the UI.
+REFERENCE_VIDEO_PARAMETERS = {
+    "reference_video_1": "Reference Video 1",
+    "reference_video_2": "Reference Video 2",
+    "reference_video_3": "Reference Video 3",
+}
+
+# First/Last Frame mode sends only the frames, Multimodal References mode only the references, and
+# Text Only nothing; media the mode doesn't send is reported by `_validate_parameters`.
+FRAME_LIMITS = IfParameter("input_mode", {INPUT_MODE_FIRST_LAST_FRAME: SEEDANCE_SENT_IMAGE_LIMITS})
+REFERENCE_IMAGE_LIMITS = IfParameter("input_mode", {INPUT_MODE_MULTIMODAL_REFERENCES: SEEDANCE_SENT_IMAGE_LIMITS})
+REFERENCE_VIDEO_LIMITS = IfParameter(
+    "input_mode",
+    {
+        INPUT_MODE_MULTIMODAL_REFERENCES: seedance_reference_video_limits(
+            min_seconds=MIN_REFERENCE_VIDEO_SECONDS, max_seconds=MAX_REFERENCE_VIDEO_SECONDS
+        )
+    },
+)
+REFERENCE_AUDIO_LIMITS = IfParameter(
+    "input_mode",
+    {
+        INPUT_MODE_MULTIMODAL_REFERENCES: seedance_reference_audio_limits(
+            min_seconds=MIN_REFERENCE_AUDIO_SECONDS, max_seconds=MAX_REFERENCE_AUDIO_SECONDS
+        )
+    },
+)
+
+
+def _sends_references(node: BaseNode) -> bool:
+    return node.get_parameter_value("input_mode") == INPUT_MODE_MULTIMODAL_REFERENCES
 
 
 @dataclass(frozen=True)
@@ -206,6 +255,7 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
                 ui_options={"display_name": "First Frame"},
+                pre_run_validators=[FRAME_LIMITS],
             )
         )
 
@@ -217,6 +267,7 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
                 ui_options={"display_name": "Last Frame"},
+                pre_run_validators=[FRAME_LIMITS],
             )
         )
 
@@ -230,6 +281,7 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Reference Images", "expander": True, "hide_property": True},
                 max_items=9,
+                pre_run_validators=[REFERENCE_IMAGE_LIMITS],
             )
         )
 
@@ -247,6 +299,7 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Reference Video 1"},
                 hide_property=True,
+                pre_run_validators=[REFERENCE_VIDEO_LIMITS],
             ),
             disclaimer_message="The Seedance 2.0 service utilizes this URL to access the reference video.",
         )
@@ -266,6 +319,7 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Reference Video 2"},
                 hide_property=True,
+                pre_run_validators=[REFERENCE_VIDEO_LIMITS],
                 hide=True,
             ),
             disclaimer_message="The Seedance 2.0 service utilizes this URL to access the reference video.",
@@ -287,6 +341,7 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Reference Video 3"},
                 hide_property=True,
+                pre_run_validators=[REFERENCE_VIDEO_LIMITS],
                 hide=True,
             ),
             disclaimer_message="The Seedance 2.0 service utilizes this URL to access the reference video.",
@@ -303,6 +358,7 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Reference Audio", "expander": True, "hide_property": True},
                 max_items=3,
+                pre_run_validators=[REFERENCE_AUDIO_LIMITS],
             )
         )
 
@@ -523,6 +579,28 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
         """Validate parameters before execution."""
         exceptions = super().validate_before_node_run() or []
 
+        if _sends_references(self):
+            exceptions.extend(
+                total_duration_errors(
+                    self,
+                    REFERENCE_VIDEO_PARAMETERS,
+                    kind="video",
+                    max_total_seconds=MAX_TOTAL_REFERENCE_VIDEO_SECONDS,
+                    what="videos",
+                    fix="Use a Trim Video node to shorten one, or remove one.",
+                )
+            )
+            exceptions.extend(
+                total_duration_errors(
+                    self,
+                    {"reference_audio": "Reference Audio"},
+                    kind="audio",
+                    max_total_seconds=MAX_TOTAL_REFERENCE_AUDIO_SECONDS,
+                    what="clips",
+                    fix="Trim one in an audio editor, or remove one.",
+                )
+            )
+
         params = self._get_parameters()
 
         # Validate parameter combinations
@@ -530,6 +608,15 @@ class Seedance20VideoGeneration(SeedanceProxyNode):
             self._validate_parameters(params)
         except ValueError as e:
             exceptions.append(e)
+
+        input_mode = params["input_mode"]
+        if input_mode not in INPUT_MODES:
+            exceptions.append(
+                ValueError(
+                    f"'Input Mode' is {input_mode!r}, which isn't one of {INPUT_MODE_TEXT_ONLY}, "
+                    f"{INPUT_MODE_FIRST_LAST_FRAME} or {INPUT_MODE_MULTIMODAL_REFERENCES}. Choose one of them."
+                )
+            )
 
         return exceptions if exceptions else None
 

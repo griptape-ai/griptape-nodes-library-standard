@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Hashable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, ClassVar
@@ -9,6 +10,7 @@ from griptape.artifacts import AudioArtifact, ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -16,6 +18,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.exe_types.validators import IfParameter, PreRunValidator
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
@@ -29,8 +32,12 @@ from griptape_nodes_library.assets import (
 )
 from griptape_nodes_library.proxy import ArtifactKind
 from griptape_nodes_library.video.seedance_common import (
+    SEEDANCE_SENT_IMAGE_LIMITS,
     SeedanceProxyNode,
     coerce_video_url,
+    seedance_reference_audio_limits,
+    seedance_reference_video_limits,
+    total_duration_errors,
 )
 
 logger = logging.getLogger("griptape_nodes")
@@ -45,6 +52,21 @@ MAX_REFERENCE_IMAGES = 30
 MAX_REFERENCE_VIDEOS = 10
 MAX_REFERENCE_AUDIO = 10
 MAX_TOTAL_REFERENCE_ASSETS = 50
+
+# The Seedance 2.5 limits from SEEDANCE_INPUT_LIMITS_URL; seedance_common holds the ones shared
+# with Seedance 2.0.
+# "Non-video-editing tasks: Each video must be 2–30 seconds long." "Video editing tasks: Each video
+# must be 4–30 seconds long." "You can submit up to 10 reference videos with a total duration of no
+# more than 30 seconds."
+MIN_REFERENCE_VIDEO_SECONDS = 2
+MIN_EDITED_VIDEO_SECONDS = 4
+MAX_REFERENCE_VIDEO_SECONDS = 30
+MAX_TOTAL_REFERENCE_VIDEO_SECONDS = 30
+# "Each audio clip must be 2–30 seconds long. You can submit up to 10 reference audio clips with a
+# total duration of no more than 30 seconds."
+MIN_REFERENCE_AUDIO_SECONDS = 2
+MAX_REFERENCE_AUDIO_SECONDS = 30
+MAX_TOTAL_REFERENCE_AUDIO_SECONDS = 30
 
 MIN_DURATION = 4
 MAX_DURATION = 30
@@ -210,6 +232,38 @@ def _get_task_constraints(task: str) -> TaskConstraints:
     return TASK_CONSTRAINTS[SeedanceTask.TEXT_TO_VIDEO]
 
 
+# A task sends either the frames or the references, per TASK_CONSTRAINTS; media it doesn't send is
+# reported by `_validate_parameters`, as is an unknown task, which checks nothing here.
+def _by_task(limits_for_task: Callable[[SeedanceTask], Sequence[PreRunValidator]], *, frames: bool) -> IfParameter:
+    """The limits each task applies to the frames, or to the references, and none for an unknown task."""
+    choices: dict[Hashable, Sequence[PreRunValidator]] = {}
+    for task in SeedanceTask:
+        constraints = TASK_CONSTRAINTS[task]
+        sends = constraints.allows_frames if frames else constraints.allows_references
+        choices[task.value] = limits_for_task(task) if sends else ()
+    return IfParameter("task", choices)
+
+
+def _reference_video_limits(task: SeedanceTask) -> Sequence[PreRunValidator]:
+    min_seconds = MIN_EDITED_VIDEO_SECONDS if task == SeedanceTask.VIDEO_EDITING else MIN_REFERENCE_VIDEO_SECONDS
+    return seedance_reference_video_limits(min_seconds=min_seconds, max_seconds=MAX_REFERENCE_VIDEO_SECONDS)
+
+
+FRAME_LIMITS = _by_task(lambda _task: SEEDANCE_SENT_IMAGE_LIMITS, frames=True)
+REFERENCE_IMAGE_LIMITS = _by_task(lambda _task: SEEDANCE_SENT_IMAGE_LIMITS, frames=False)
+REFERENCE_VIDEO_LIMITS = _by_task(_reference_video_limits, frames=False)
+REFERENCE_AUDIO_LIMITS = _by_task(
+    lambda _task: seedance_reference_audio_limits(
+        min_seconds=MIN_REFERENCE_AUDIO_SECONDS, max_seconds=MAX_REFERENCE_AUDIO_SECONDS
+    ),
+    frames=False,
+)
+
+
+def _sends_references(node: BaseNode) -> bool:
+    return _get_task_constraints(node.get_parameter_value("task")).allows_references
+
+
 class Seedance25VideoGeneration(SeedanceProxyNode):
     """Generate a video using Dreamina Seedance 2.5 via the Griptape Cloud model proxy.
 
@@ -299,6 +353,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
                 ui_options={"display_name": "First Frame"},
+                pre_run_validators=[FRAME_LIMITS],
             )
         )
 
@@ -310,6 +365,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
                 ui_options={"display_name": "Last Frame"},
+                pre_run_validators=[FRAME_LIMITS],
             )
         )
 
@@ -327,6 +383,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
                 ui_options={"display_name": "Reference Images", "expander": True, "hide_property": True},
                 child_prefix="Reference Image",
                 max_items=MAX_REFERENCE_IMAGES,
+                pre_run_validators=[REFERENCE_IMAGE_LIMITS],
             )
         )
 
@@ -344,6 +401,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
             ui_options={"display_name": "Reference Videos", "expander": True, "hide_property": True},
             child_prefix="Reference Video",
             max_items=MAX_REFERENCE_VIDEOS,
+            pre_run_validators=[REFERENCE_VIDEO_LIMITS],
         )
         self.add_parameter(reference_videos)
         reference_videos.set_badge(
@@ -367,6 +425,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
                 ui_options={"display_name": "Reference Audio", "expander": True, "hide_property": True},
                 child_prefix="Reference Audio",
                 max_items=MAX_REFERENCE_AUDIO,
+                pre_run_validators=[REFERENCE_AUDIO_LIMITS],
             )
         )
 
@@ -612,6 +671,28 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
     def validate_before_node_run(self) -> list[Exception] | None:
         """Validate parameters before execution."""
         exceptions = super().validate_before_node_run() or []
+
+        if _sends_references(self):
+            exceptions.extend(
+                total_duration_errors(
+                    self,
+                    {REFERENCE_VIDEOS_PARAMETER: "Reference Videos"},
+                    kind="video",
+                    max_total_seconds=MAX_TOTAL_REFERENCE_VIDEO_SECONDS,
+                    what="videos",
+                    fix="Use a Trim Video node to shorten one, or remove one.",
+                )
+            )
+            exceptions.extend(
+                total_duration_errors(
+                    self,
+                    {REFERENCE_AUDIO_PARAMETER: "Reference Audio"},
+                    kind="audio",
+                    max_total_seconds=MAX_TOTAL_REFERENCE_AUDIO_SECONDS,
+                    what="clips",
+                    fix="Trim one in an audio editor, or remove one.",
+                )
+            )
 
         try:
             self._validate_parameters(self._get_parameters())
