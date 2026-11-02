@@ -20,6 +20,7 @@ from griptape_nodes_library.video.topaz_video_upscale import (
     MAX_STARLIGHT_FRAMES,
     MODEL_FAMILIES,
     MODEL_MAPPING,
+    SHARPNESS_MODELS,
     STARLIGHT_MAX_OUTPUT_PIXELS,
     ResizeMode,
     TopazVideoUpscale,
@@ -65,6 +66,8 @@ def _node(name: str = "TopazVideoUpscale") -> TopazVideoUpscale:
 
 ASTRA_MODEL = "Astra 2"
 STARLIGHT_MODEL = "Starlight Precise 2.6"
+# The Starlight model with no controls at all, so it sends no filters.
+PLAIN_STARLIGHT_MODEL = "Starlight Precise 2.5"
 
 
 def _astra_node(name: str = "TopazVideoUpscale") -> TopazVideoUpscale:
@@ -282,10 +285,11 @@ async def test_build_payload_wraps_the_url_in_a_web_url_descriptor(monkeypatch: 
 
 
 @pytest.mark.asyncio
-async def test_build_payload_omits_filters(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The proxy synthesizes filters from the routed model id. Sending our own only
-    # risks the "filters[].model must match the requested model" rejection.
+async def test_starlight_2_5_omits_filters(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The proxy synthesizes filters from the routed model id, and 2.5 has no controls
+    # to put in one.
     node = _node()
+    node.set_parameter_value("model", PLAIN_STARLIGHT_MODEL)
     node.set_parameter_value("video", "{inputs}/clip.mp4")
     _stub_probe(monkeypatch, _metadata())
     _stub_public_url(node, monkeypatch)
@@ -296,11 +300,12 @@ async def test_build_payload_omits_filters(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_starlight_payload_has_only_source_and_output(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Starlight sends nothing but source and output. Asserting the exact key set
+async def test_starlight_2_5_payload_has_only_source_and_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Starlight 2.5 sends nothing but source and output. Asserting the exact key set
     # (rather than `"filters" not in payload`) catches any unexpected top-level key,
     # not just that one.
     node = _node()
+    node.set_parameter_value("model", PLAIN_STARLIGHT_MODEL)
     node.set_parameter_value("video", "{inputs}/clip.mp4")
     _stub_probe(monkeypatch, _metadata())
     _stub_public_url(node, monkeypatch)
@@ -656,7 +661,7 @@ def test_source_dependent_modes_carry_no_badge(mode: ResizeMode) -> None:
 # -- Astra: filters ----------------------------------------------------------
 
 
-async def _astra_payload(monkeypatch: pytest.MonkeyPatch, node: TopazVideoUpscale) -> dict:
+async def _build(monkeypatch: pytest.MonkeyPatch, node: TopazVideoUpscale) -> dict:
     node.set_parameter_value("video", "{inputs}/clip.mp4")
     _stub_probe(monkeypatch, _metadata())
     _stub_public_url(node, monkeypatch)
@@ -665,7 +670,7 @@ async def _astra_payload(monkeypatch: pytest.MonkeyPatch, node: TopazVideoUpscal
 
 @pytest.mark.asyncio
 async def test_astra_payload_carries_the_creative_filters(monkeypatch: pytest.MonkeyPatch) -> None:
-    payload = await _astra_payload(monkeypatch, _astra_node())
+    payload = await _build(monkeypatch, _astra_node())
 
     assert payload["filters"] == [{"creativity": 0.5, "sharp": 0.5, "realism": 0.5}]
 
@@ -675,7 +680,7 @@ async def test_astra_filters_omit_the_model_key(monkeypatch: pytest.MonkeyPatch)
     # The proxy stamps the routed model code onto filters[0] when no entry carries one.
     # Sending our own would risk the "filters[].model must match" rejection and would
     # force this node to know that the code is the api id minus its "topaz-video-" prefix.
-    payload = await _astra_payload(monkeypatch, _astra_node())
+    payload = await _build(monkeypatch, _astra_node())
 
     assert "model" not in payload["filters"][0]
 
@@ -684,7 +689,7 @@ async def test_astra_filters_omit_the_model_key(monkeypatch: pytest.MonkeyPatch)
 async def test_astra_filters_are_never_an_empty_list(monkeypatch: pytest.MonkeyPatch) -> None:
     # The proxy rejects `filters: []` outright ("must be a non-empty array when provided"),
     # so the key is either absent or populated -- never present and empty.
-    payload = await _astra_payload(monkeypatch, _astra_node())
+    payload = await _build(monkeypatch, _astra_node())
 
     assert payload["filters"]
 
@@ -696,7 +701,7 @@ async def test_astra_creative_values_reach_the_filter_verbatim(monkeypatch: pyte
     node.set_parameter_value("sharp", 0.1)
     node.set_parameter_value("realism", 0.75)
 
-    payload = await _astra_payload(monkeypatch, node)
+    payload = await _build(monkeypatch, node)
 
     assert payload["filters"][0]["creativity"] == 0.9
     assert payload["filters"][0]["sharp"] == 0.1
@@ -711,7 +716,7 @@ async def test_astra_creative_values_are_sent_as_floats(monkeypatch: pytest.Monk
     node.set_parameter_value("creativity", 1)
     node.set_parameter_value("sharp", 0)
 
-    payload = await _astra_payload(monkeypatch, node)
+    payload = await _build(monkeypatch, node)
 
     assert isinstance(payload["filters"][0]["creativity"], float)
     assert isinstance(payload["filters"][0]["sharp"], float)
@@ -722,7 +727,7 @@ async def test_astra_filters_include_a_nonempty_prompt(monkeypatch: pytest.Monke
     node = _astra_node()
     node.set_parameter_value("prompt", "a bouncing ball")
 
-    payload = await _astra_payload(monkeypatch, node)
+    payload = await _build(monkeypatch, node)
 
     assert payload["filters"][0]["prompt"] == "a bouncing ball"
 
@@ -734,7 +739,7 @@ async def test_astra_filters_omit_a_whitespace_only_prompt(monkeypatch: pytest.M
     node = _astra_node()
     node.set_parameter_value("prompt", "   \n ")
 
-    payload = await _astra_payload(monkeypatch, node)
+    payload = await _build(monkeypatch, node)
 
     assert "prompt" not in payload["filters"][0]
 
@@ -936,7 +941,7 @@ def _hidden(node: TopazVideoUpscale, name: str) -> bool:
 
 def test_the_creative_controls_are_hidden_on_a_fresh_starlight_node() -> None:
     # Not just tidiness: a visible prompt box under Starlight would silently do
-    # nothing, because Starlight sends no filters at all.
+    # nothing, because Starlight never sends Astra's filters.
     node = _node()
 
     for name in ASTRA_FILTER_PARAMS:
@@ -969,3 +974,63 @@ def test_selecting_astra_does_not_disturb_the_resize_fields() -> None:
     assert not _hidden(node, "target_height")
     assert _hidden(node, "percentage")
     assert _hidden(node, "target_size")
+
+
+# -- Starlight Precise 2.6: sharpness ----------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_starlight_2_6_sends_the_default_sharpness(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = await _build(monkeypatch, _node())
+
+    assert payload["filters"] == [{"sharpness": 5.0}]
+
+
+@pytest.mark.asyncio
+async def test_starlight_2_6_sharpness_reaches_the_filter_as_a_float(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _node()
+    node.set_parameter_value("sharpness", 2)
+
+    payload = await _build(monkeypatch, node)
+
+    assert payload["filters"] == [{"sharpness": 2.0}]
+    assert isinstance(payload["filters"][0]["sharpness"], float)
+
+
+@pytest.mark.asyncio
+async def test_astra_does_not_send_sharpness(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = await _build(monkeypatch, _astra_node())
+
+    assert "sharpness" not in payload["filters"][0]
+
+
+def test_every_sharpness_model_is_mapped() -> None:
+    assert set(SHARPNESS_MODELS) <= set(MODEL_MAPPING)
+
+
+def test_sharpness_is_visible_on_a_fresh_starlight_2_6_node() -> None:
+    assert not _hidden(_node(), "sharpness")
+
+
+@pytest.mark.parametrize("model", [PLAIN_STARLIGHT_MODEL, ASTRA_MODEL])
+def test_sharpness_is_hidden_for_models_without_it(model: str) -> None:
+    node = _node()
+    node.set_parameter_value("model", model)
+
+    assert _hidden(node, "sharpness")
+
+
+def test_switching_back_to_starlight_2_6_reveals_sharpness() -> None:
+    node = _astra_node()
+    node.set_parameter_value("model", STARLIGHT_MODEL)
+
+    assert not _hidden(node, "sharpness")
+
+
+@pytest.mark.parametrize("model", [PLAIN_STARLIGHT_MODEL, ASTRA_MODEL])
+def test_loading_a_workflow_hides_sharpness_for_models_without_it(model: str) -> None:
+    # Loading restores values with initial_setup, which skips after_value_set.
+    node = _node()
+    node.set_parameter_value("model", model, initial_setup=True)
+
+    assert _hidden(node, "sharpness")

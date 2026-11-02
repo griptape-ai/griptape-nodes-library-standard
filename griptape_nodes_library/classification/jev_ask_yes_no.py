@@ -18,8 +18,10 @@ from griptape_nodes.traits.slider import Slider
 from griptape_nodes_library.classification.jev_common import (
     QUESTION_KEY,
     add_context_parameter,
+    add_images_parameter,
     add_model_group,
-    to_state,
+    build_payload,
+    build_state_and_assets,
 )
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.node_error_utils import error_fields, error_response
@@ -37,6 +39,7 @@ class JevAskYesNo(GriptapeProxyNode):
 
     Inputs:
         - context (str): The text JEV reads to answer the question.
+        - images (list): Optional images JEV looks at, referred to as [image 1], [image 2], ...
         - question (str): A yes/no question about the context.
         - yes_means (str): Optional description of what counts as Yes.
         - no_means (str): Optional description of what counts as No.
@@ -73,6 +76,7 @@ class JevAskYesNo(GriptapeProxyNode):
         self.root_ui_element.add_child(self.failure_output)
 
         add_context_parameter(self)
+        add_images_parameter(self)
 
         self.add_parameter(
             ParameterString(
@@ -148,9 +152,7 @@ class JevAskYesNo(GriptapeProxyNode):
         )
 
     async def _build_payload(self) -> dict[str, Any]:
-        state = to_state(self.get_parameter_value("context"))
-        if state is None:
-            raise ValueError("'Context' is empty. Connect the text for JEV to read.")
+        state, assets = await build_state_and_assets(self)
 
         question = (self.get_parameter_value("question") or "").strip()
         if not question:
@@ -165,7 +167,7 @@ class JevAskYesNo(GriptapeProxyNode):
         if criteria:
             noul["criteria"] = criteria
 
-        return {"state": state, "questions": {QUESTION_KEY: noul}}
+        return build_payload(state, noul, assets)
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         answer_data = (result_json.get("answers") or {}).get(QUESTION_KEY) or {}
