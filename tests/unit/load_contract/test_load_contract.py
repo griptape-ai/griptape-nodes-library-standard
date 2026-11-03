@@ -164,6 +164,10 @@ class TestCreateVariable:
 
 
 class TestDescribeImage:
+    @pytest.mark.xfail(
+        reason="Engine 0.105.0 lists connections while a copy loads. Fixed in 0.106.0.",
+        strict=True,
+    )
     def test_loading_a_legacy_image_value_moves_it_to_a_row_without_graph_requests(
         self, canvas: str, scratch: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -264,6 +268,11 @@ class TestRowOutputs:
 
 
 class TestDisplayList:
+    @pytest.mark.xfail(
+        reason="The engine loads a copied list as a list of lists. "
+        "https://github.com/griptape-ai/griptape-nodes-engine/pull/6129",
+        strict=True,
+    )
     def test_loaded_copy_keeps_the_declared_element_type(
         self, canvas: str, scratch: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
