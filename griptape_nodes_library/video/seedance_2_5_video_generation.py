@@ -18,7 +18,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.exe_types.validators import IfParameter, PreRunValidator
+from griptape_nodes.exe_types.validators import IfParameter, PreRunRule
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
@@ -234,9 +234,9 @@ def _get_task_constraints(task: str) -> TaskConstraints:
 
 # A task sends either the frames or the references, per TASK_CONSTRAINTS; media it doesn't send is
 # reported by `_validate_parameters`, as is an unknown task, which checks nothing here.
-def _by_task(limits_for_task: Callable[[SeedanceTask], Sequence[PreRunValidator]], *, frames: bool) -> IfParameter:
+def _by_task(limits_for_task: Callable[[SeedanceTask], Sequence[PreRunRule]], *, frames: bool) -> IfParameter:
     """The limits each task applies to the frames, or to the references, and none for an unknown task."""
-    choices: dict[Hashable, Sequence[PreRunValidator]] = {}
+    choices: dict[Hashable, Sequence[PreRunRule]] = {}
     for task in SeedanceTask:
         constraints = TASK_CONSTRAINTS[task]
         sends = constraints.allows_frames if frames else constraints.allows_references
@@ -244,7 +244,7 @@ def _by_task(limits_for_task: Callable[[SeedanceTask], Sequence[PreRunValidator]
     return IfParameter("task", choices)
 
 
-def _reference_video_limits(task: SeedanceTask) -> Sequence[PreRunValidator]:
+def _reference_video_limits(task: SeedanceTask) -> Sequence[PreRunRule]:
     min_seconds = MIN_EDITED_VIDEO_SECONDS if task == SeedanceTask.VIDEO_EDITING else MIN_REFERENCE_VIDEO_SECONDS
     return seedance_reference_video_limits(min_seconds=min_seconds, max_seconds=MAX_REFERENCE_VIDEO_SECONDS)
 

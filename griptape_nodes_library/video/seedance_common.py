@@ -23,7 +23,6 @@ import logging
 from abc import ABC
 from collections.abc import Iterable, Mapping
 from contextlib import suppress
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, NamedTuple
 from urllib.parse import urljoin, urlparse
@@ -38,18 +37,16 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
 from griptape_nodes.exe_types.validators import (
     AllowedFormats,
     AspectRatioRange,
+    CheckContext,
     FrameRate,
     MaxDuration,
     MaxFileSize,
-    MediaInfo,
-    MediaNeed,
-    MediaValidator,
     MinDuration,
     PixelArea,
+    PreRunRule,
     SideRange,
     VideoCodecs,
     limit_error,
-    reads,
 )
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.events.config_events import GetWorkspaceRequest, GetWorkspaceResultSuccess
@@ -97,7 +94,6 @@ __all__ = [
     "TALLEST_ASPECT_RATIO",
     "WIDEST_ASPECT_RATIO",
     "SEEDANCE_SENT_IMAGE_LIMITS",
-    "SeedanceLimit",
     "SeedanceProxyNode",
     "total_duration_errors",
     "coerce_video_url",
@@ -282,56 +278,41 @@ def downscale_oversized_image_file(path: str) -> DownscaledImage | None:
         return None
 
 
-@dataclass(frozen=True)
-class SeedanceLimit(MediaValidator):
-    """One BytePlus limit, checked only on media the request sends as it is.
-
-    A private-asset reference is sent as an ``asset://`` ID, so no limit is checked on it. An image
-    over SEEDANCE_MAX_IMAGE_DIMENSION_PX is downscaled and re-encoded as PNG or JPEG before the
-    Seedance 2.0 and 2.5 nodes send it (see `SeedanceProxyNode._prepare_frame_url_async`), so for
-    one only the limits a resize keeps are checked: the shortest side and the aspect ratio. Its
-    format and file size are those of the re-encoded copy, which isn't read until the node runs,
-    so they aren't checked here (wrap those limits as ``limit.unless(_is_downscaled)``); a PNG kept
-    as PNG can still be over BytePlus's size limit after the resize, and BytePlus then refuses it.
-
-    Args:
-        limit: The engine validator to run.
-    """
-
-    limit: MediaValidator
-
-    def __post_init__(self) -> None:
-        # What `limit` reads, so the engine refuses it on a parameter of the wrong kind.
-        object.__setattr__(self, "needs", self.limit.needs)
-
-    def check_media(
-        self, value: Any, media: MediaInfo, *, subject: str, docs_url: str | None, position: int | None = None
-    ) -> NodeError | None:
-        if is_provider_asset_reference(value):
-            return None
-        return self.limit.check_media(value, media, subject=subject, docs_url=docs_url, position=position)
+def _is_asset_reference(value: Any, _ctx: CheckContext) -> bool:
+    """Whether the value is a private-asset reference, which is sent as an ``asset://`` ID and not read."""
+    return is_provider_asset_reference(value)
 
 
-@reads(MediaNeed.IMAGE)
-def _is_downscaled(media: MediaInfo) -> bool:
+def _is_downscaled(_value: Any, ctx: CheckContext) -> bool:
     """Whether an image is over SEEDANCE_MAX_IMAGE_DIMENSION_PX, so the node downscales it before sending."""
-    return media.image is not None and max(media.image.width, media.image.height) > SEEDANCE_MAX_IMAGE_DIMENSION_PX
+    image = ctx.media.image
+    return image is not None and max(image.width, image.height) > SEEDANCE_MAX_IMAGE_DIMENSION_PX
 
 
-# The limits on an image the Seedance 2.0 or 2.5 node sends, which it downscales when it's over
-# SEEDANCE_MAX_IMAGE_DIMENSION_PX.
-SEEDANCE_SENT_IMAGE_LIMITS = (
-    SeedanceLimit(AllowedFormats(*SUPPORTED_IMAGE_MIME_TYPES, *HEIF_IMAGE_MIME_TYPES).unless(_is_downscaled)),
-    SeedanceLimit(MaxFileSize(MAX_IMAGE_BYTES, strict=True).unless(_is_downscaled)),
-    SeedanceLimit(SideRange(min=MIN_IMAGE_SIDE)),
-    SeedanceLimit(AspectRatioRange(TALLEST_ASPECT_RATIO, WIDEST_ASPECT_RATIO)),
+# Every BytePlus limit is checked only on media the request sends as it is: a private-asset
+# reference is sent as an ``asset://`` ID, so each limit below is narrowed with
+# ``.unless(_is_asset_reference)``.
+#
+# An image over SEEDANCE_MAX_IMAGE_DIMENSION_PX is downscaled and re-encoded as PNG or JPEG before the
+# Seedance 2.0 and 2.5 nodes send it (see `SeedanceProxyNode._prepare_frame_url_async`), so for one
+# only the limits a resize keeps are checked: the shortest side and the aspect ratio. Its format and
+# file size are those of the re-encoded copy, which isn't read until the node runs, so they aren't
+# checked here; a PNG kept as PNG can still be over BytePlus's size limit after the resize, and
+# BytePlus then refuses it.
+SEEDANCE_SENT_IMAGE_LIMITS: tuple[PreRunRule, ...] = (
+    AllowedFormats(*SUPPORTED_IMAGE_MIME_TYPES, *HEIF_IMAGE_MIME_TYPES)
+    .unless(_is_downscaled)
+    .unless(_is_asset_reference),
+    MaxFileSize(MAX_IMAGE_BYTES, strict=True).unless(_is_downscaled).unless(_is_asset_reference),
+    SideRange(min=MIN_IMAGE_SIDE).unless(_is_asset_reference),
+    AspectRatioRange(TALLEST_ASPECT_RATIO, WIDEST_ASPECT_RATIO).unless(_is_asset_reference),
 )
 
 
-def seedance_reference_video_limits(*, min_seconds: float, max_seconds: float) -> tuple[SeedanceLimit, ...]:
+def seedance_reference_video_limits(*, min_seconds: float, max_seconds: float) -> tuple[PreRunRule, ...]:
     """The BytePlus limits on each reference video the Seedance 2.0 or 2.5 node sends."""
     return tuple(
-        SeedanceLimit(limit)
+        limit.unless(_is_asset_reference)
         for limit in (
             MaxFileSize(MAX_VIDEO_BYTES),
             AllowedFormats(*SUPPORTED_VIDEO_MIME_TYPES),
@@ -346,10 +327,10 @@ def seedance_reference_video_limits(*, min_seconds: float, max_seconds: float) -
     )
 
 
-def seedance_reference_audio_limits(*, min_seconds: float, max_seconds: float) -> tuple[SeedanceLimit, ...]:
+def seedance_reference_audio_limits(*, min_seconds: float, max_seconds: float) -> tuple[PreRunRule, ...]:
     """The BytePlus limits on each reference audio clip the Seedance 2.0 or 2.5 node sends."""
     return tuple(
-        SeedanceLimit(limit)
+        limit.unless(_is_asset_reference)
         for limit in (
             AllowedFormats(*SUPPORTED_AUDIO_MIME_TYPES),
             MaxFileSize(MAX_AUDIO_BYTES),
