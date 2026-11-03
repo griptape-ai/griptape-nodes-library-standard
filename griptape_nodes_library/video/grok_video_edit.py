@@ -17,9 +17,8 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.exe_types.validators import (
     AllowedFormats,
+    CheckContext,
     MaxDuration,
-    MediaInfo,
-    MediaNeed,
     MediaValidator,
     limit_error,
 )
@@ -55,39 +54,32 @@ class Mp4FileName(MediaValidator):
     (griptape-ai/griptape-nodes-engine#6048).
     """
 
-    needs = frozenset({MediaNeed.VIDEO})
+    kinds = frozenset({"video"})
 
-    def check_media(
-        self,
-        value: Any,  # noqa: ARG002
-        media: MediaInfo,
-        *,
-        subject: str,
-        docs_url: str | None,
-        position: int | None = None,  # noqa: ARG002
-    ) -> NodeError | None:
+    def check(self, value: Any, ctx: CheckContext) -> NodeError | None:
+        media = ctx.media
         location = media.location
         if location is None:
             return None
         # A file read as another format already gets AllowedFormats' "Convert it to MP4", and
         # converting it gives it an .mp4 name too, so this stays quiet rather than repeat it.
-        if media.video is not None and _IS_MP4.check_media(None, media, subject=subject, docs_url=None) is not None:
+        if media.video is not None and _IS_MP4.check(value, ctx) is not None:
             return None
         if location.startswith("data:"):
             mime_type = location.removeprefix("data:").split(",", 1)[0].split(";", 1)[0].strip().lower()
             if mime_type == MP4_MIME_TYPE:
                 return None
             return limit_error(
-                f"{subject} is a data URI that isn't typed {MP4_MIME_TYPE}, which xAI requires. Convert it to MP4.",
-                docs_url,
+                f"{ctx.subject} is a data URI that isn't typed {MP4_MIME_TYPE}, which xAI requires. Convert it to MP4.",
+                ctx.docs_url,
             )
         name = _file_name(location)
         if PureWindowsPath(name).suffix.lower() in ("", MP4_EXTENSION):
             return None
         return limit_error(
-            f"{subject} is named '{name}', and xAI only accepts a file whose name ends in {MP4_EXTENSION}. "
+            f"{ctx.subject} is named '{name}', and xAI only accepts a file whose name ends in {MP4_EXTENSION}. "
             f"If it's already an MP4, rename it to end in {MP4_EXTENSION}; otherwise convert it to MP4.",
-            docs_url,
+            ctx.docs_url,
         )
 
 
