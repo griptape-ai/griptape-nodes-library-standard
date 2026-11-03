@@ -137,8 +137,8 @@ def videos(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, VideoPr
     ids=["video limits", "image limits"],
 )
 def test_refuses_limits_on_a_parameter_of_another_kind(limits: tuple[Any, ...]) -> None:
-    # Each limit declares what it reads, so the engine refuses it where it could never fire, even
-    # behind the IfParameter the nodes pick their limits with.
+    # Each limit declares the media kinds it checks, so the engine refuses it where it could never
+    # fire, even behind the conditions and the IfParameter the nodes pick their limits with.
     with pytest.raises(TypeError, match="parameter holds audio"):
         ParameterAudio(name="reference_audio", pre_run_validators=[IfParameter("mode", {"a": list(limits)})])
 
