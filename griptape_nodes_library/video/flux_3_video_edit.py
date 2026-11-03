@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import logging
-from contextlib import suppress
-from typing import Any, ClassVar
+from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeError, ParameterGroup, ParameterMode
@@ -14,16 +12,13 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.utils.video_utils import has_media_value, probe_video_duration
 from griptape_nodes_library.video.flux_3_common import (
     SAFETY_TOLERANCE_OPTIONS,
     Flux3SafetyTolerance,
-    has_media_value,
     parse_flux_3_safety_tolerance,
     prepare_mp4_video_data_uri,
-    probe_video_duration,
 )
-
-logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["Flux3VideoEdit"]
 
@@ -54,8 +49,6 @@ class Flux3VideoEdit(GriptapeProxyNode):
         - was_successful (bool): Whether the edit succeeded
         - result_details (str): Details about the edit result or error
     """
-
-    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = LEGACY_MODEL_VALUES
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -151,10 +144,6 @@ class Flux3VideoEdit(GriptapeProxyNode):
             result_details_placeholder="Editing status and details will appear here.",
             parameter_group_initially_collapsed=True,
         )
-
-    def _log(self, message: str) -> None:
-        with suppress(Exception):
-            logger.info(message)
 
     def _probe_duration(self, video_value: str) -> float | None:
         return probe_video_duration(video_value, node_name=self.name)

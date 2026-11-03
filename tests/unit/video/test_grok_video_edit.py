@@ -127,9 +127,7 @@ def test_missing_ffprobe_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
         raise RuntimeError(msg)
 
     monkeypatch.setattr(file_module.File, "resolve", resolve)
-    monkeypatch.setattr(
-        "griptape_nodes_library.video.grok_video_edit.extract_video_metadata_structured", missing_ffprobe
-    )
+    monkeypatch.setattr("griptape_nodes_library.utils.video_utils.extract_video_metadata_structured", missing_ffprobe)
     node = GrokVideoEdit.__new__(GrokVideoEdit)
     node.name = "GrokVideoEdit"
     assert node._probe_duration("{inputs}/clip.mp4") is None

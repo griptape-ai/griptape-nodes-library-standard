@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import logging
-from contextlib import suppress
 from enum import StrEnum
-from typing import Any, ClassVar
+from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
@@ -14,20 +12,18 @@ from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
 
-from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri
+from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.utils.video_utils import has_media_value, probe_video_duration
 from griptape_nodes_library.video.flux_3_common import (
     SAFETY_TOLERANCE_OPTIONS,
     Flux3SafetyTolerance,
-    has_media_value,
     parse_flux_3_safety_tolerance,
+    prepare_mp4_video_data_uri,
 )
-
-logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["Flux3VideoGeneration"]
 
@@ -106,8 +102,6 @@ class Flux3VideoGeneration(GriptapeProxyNode):
         - was_successful (bool): Whether the generation succeeded
         - result_details (str): Details about the generation result or error
     """
-
-    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = LEGACY_MODEL_VALUES
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -227,7 +221,7 @@ class Flux3VideoGeneration(GriptapeProxyNode):
             ParameterBool(
                 name="draft",
                 default_value=False,
-                tooltip="Render a fast preview at 'hd' resolution (~40% of standard HD cost)",
+                tooltip="Render a fast preview at 'hd' resolution (about a third of the cost of a full render)",
                 allow_output=False,
             )
 
@@ -275,10 +269,6 @@ class Flux3VideoGeneration(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
 
-    def _log(self, message: str) -> None:
-        with suppress(Exception):
-            logger.info(message)
-
     def _sync_mode_visibility(self) -> None:
         mode = self.get_parameter_value("mode") or Flux3VideoMode.T2V.value
         current_duration = str(self.get_parameter_value("duration") or "auto")
@@ -314,10 +304,6 @@ class Flux3VideoGeneration(GriptapeProxyNode):
             self._sync_mode_visibility()
 
     @staticmethod
-    def _parse_safety_tolerance(value: str | None) -> int:
-        return parse_flux_3_safety_tolerance(value)
-
-    @staticmethod
     def _parse_duration(value: Any, *, mode: str) -> int | str:
         max_sec = MAX_V2V_DURATION_SEC if mode == Flux3VideoMode.V2V else MAX_T2V_DURATION_SEC
         if value is None or str(value).strip().lower() == "auto":
@@ -339,17 +325,14 @@ class Flux3VideoGeneration(GriptapeProxyNode):
         return [item for item in raw if item is not None and item != ""]
 
     async def _prepare_video_data_uri(self, video_input: Any) -> str:
-        video_value = coerce_media_url_or_data_uri(video_input, kind="video")
-        if not video_value:
-            msg = "Connect a video to 'Start Video'."
-            raise NodeError(msg)
-        if video_value.startswith("data:"):
-            return video_value
-        try:
-            return await File(video_value).aread_data_uri(fallback_mime="video/mp4")
-        except FileLoadError as e:
-            msg = f"Could not read the video connected to 'Start Video': {e}"
-            raise NodeError(msg) from e
+        return await prepare_mp4_video_data_uri(
+            video_input,
+            param_label="Start Video",
+            action_verb="continue",
+            service_label="FLUX 3 Video",
+            max_duration_seconds=MAX_V2V_DURATION_SEC,
+            duration_prober=lambda video_value: probe_video_duration(video_value, node_name=self.name),
+        )
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions = super().validate_before_node_run() or []
@@ -413,7 +396,7 @@ class Flux3VideoGeneration(GriptapeProxyNode):
         resolution = self.get_parameter_value("resolution") or Flux3VideoResolution.HD.value
         generate_audio = self.get_parameter_value("generate_audio")
         draft = bool(self.get_parameter_value("draft"))
-        safety_tolerance = self._parse_safety_tolerance(self.get_parameter_value("safety_tolerance"))
+        safety_tolerance = parse_flux_3_safety_tolerance(self.get_parameter_value("safety_tolerance"))
 
         payload: dict[str, Any] = {
             "mode": mode,
@@ -434,13 +417,12 @@ class Flux3VideoGeneration(GriptapeProxyNode):
                     self._raw_keyframes(), ImageUrlArtifact, accepted_types=(ImageArtifact,)
                 )
                 encoded_keyframes: list[str] = []
-                for image_input in keyframes_list[:MAX_KEYFRAMES]:
+                for index, image_input in enumerate(keyframes_list[:MAX_KEYFRAMES], start=1):
                     data_uri = await prepare_media_data_uri(image_input, kind="image", node_name=self.name)
-                    if data_uri:
-                        encoded_keyframes.append(data_uri)
-                if not encoded_keyframes:
-                    msg = "Connect at least one readable image to 'Keyframes'."
-                    raise NodeError(msg)
+                    if not data_uri:
+                        msg = f"Could not read keyframe {index} connected to 'Keyframes'. Reconnect it or remove it."
+                        raise NodeError(msg)
+                    encoded_keyframes.append(data_uri)
                 payload["keyframes"] = encoded_keyframes[0] if len(encoded_keyframes) == 1 else encoded_keyframes
             case Flux3VideoMode.V2V:
                 payload["start_video"] = await self._prepare_video_data_uri(self.get_parameter_value("start_video"))

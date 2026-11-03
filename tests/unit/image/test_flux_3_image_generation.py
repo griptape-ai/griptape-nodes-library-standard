@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from griptape.artifacts import ImageUrlArtifact
+from griptape_nodes.exe_types.core_types import NodeError
 
 from griptape_nodes_library.image.flux_3_image_generation import (
     Flux3ImageGeneration,
@@ -106,3 +107,62 @@ async def test_build_payload_for_flux_3_image_and_klein(monkeypatch: pytest.Monk
     assert klein_payload["output_format"] == "png"
     assert "seed" in klein_payload
     assert "grounding" not in klein_payload
+
+
+@pytest.mark.asyncio
+async def test_unreadable_reference_image_raises_instead_of_dropping(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_prepare(image_input: ImageUrlArtifact, **_kwargs: object) -> str | None:
+        return None if image_input.value == "bad" else "data:image/png;base64,AAA"
+
+    monkeypatch.setattr(
+        "griptape_nodes_library.image.flux_3_image_generation.prepare_media_data_uri",
+        fake_prepare,
+    )
+
+    node = _make_node()
+    node.set_parameter_value("prompt", "A red origami crane")
+    node.set_parameter_value(
+        "input_images",
+        [ImageUrlArtifact("https://example.com/good.png"), ImageUrlArtifact("bad")],
+    )
+
+    with pytest.raises(NodeError, match="Could not read image 2"):
+        await node._build_payload()
+
+
+def test_klein_supports_match_input() -> None:
+    node = _make_node()
+    node.set_parameter_value("model", Flux3ImageModel.FLUX_3_IMAGE_KLEIN.value)
+    model_param = node.get_parameter_by_name("model")
+    assert model_param is not None
+    node.after_value_set(model_param, Flux3ImageModel.FLUX_3_IMAGE_KLEIN.value)
+
+    node.set_parameter_value("prompt", "A red origami crane")
+    node.set_parameter_value("resolution", "match_input")
+    node.set_parameter_value("input_images", [ImageUrlArtifact("https://example.com/ref.png")])
+
+    assert node.validate_before_node_run() is None
+
+
+@pytest.mark.asyncio
+async def test_klein_match_input_omits_resolution_from_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_prepare(image_input: object, **_kwargs: object) -> str:  # noqa: ARG001
+        return "data:image/png;base64,AAA"
+
+    monkeypatch.setattr(
+        "griptape_nodes_library.image.flux_3_image_generation.prepare_media_data_uri",
+        fake_prepare,
+    )
+
+    node = _make_node()
+    node.set_parameter_value("model", Flux3ImageModel.FLUX_3_IMAGE_KLEIN.value)
+    model_param = node.get_parameter_by_name("model")
+    assert model_param is not None
+    node.after_value_set(model_param, Flux3ImageModel.FLUX_3_IMAGE_KLEIN.value)
+
+    node.set_parameter_value("prompt", "A red origami crane")
+    node.set_parameter_value("resolution", "match_input")
+    node.set_parameter_value("input_images", [ImageUrlArtifact("https://example.com/ref.png")])
+
+    payload = await node._build_payload()
+    assert "resolution" not in payload

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import logging
-from contextlib import suppress
 from enum import StrEnum
-from typing import Any, ClassVar
+from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterGroup, ParameterList, ParameterMode
@@ -25,8 +23,6 @@ from griptape_nodes_library.video.flux_3_common import (
     Flux3SafetyTolerance,
     parse_flux_3_safety_tolerance,
 )
-
-logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["Flux3ImageGeneration"]
 
@@ -84,7 +80,7 @@ ASPECT_RATIO_OPTIONS = [
 ]
 
 RESOLUTION_OPTIONS_FLUX_3_IMAGE = ["768sq", "1k", "1.5k", "2k", "4k", "match_input"]
-RESOLUTION_OPTIONS_KLEIN = ["768sq", "1k", "1.5k", "2k", "4k"]
+RESOLUTION_OPTIONS_KLEIN = ["768sq", "1k", "1.5k", "2k", "4k", "match_input"]
 SIZE_MODE_OPTIONS = [
     Flux3SizeMode.RESOLUTION_TIER.value,
     Flux3SizeMode.CUSTOM_DIMENSIONS.value,
@@ -101,7 +97,7 @@ class Flux3ImageGeneration(GriptapeProxyNode):
         - input_images (list): Optional reference images (up to 10) for editing or multi-reference composition
         - size_mode (str): Choose between resolution tier ("Resolution Tier") or exact pixel dimensions ("Custom Dimensions")
         - aspect_ratio (str): Output aspect ratio ("auto" or preset ratio)
-        - resolution (str): Output resolution tier ("768sq", "1k", "1.5k", "2k", "4k", or "match_input" on flux-3-image)
+        - resolution (str): Output resolution tier ("768sq", "1k", "1.5k", "2k", "4k", or "match_input" for edits)
         - width (int): Custom output width in pixels
         - height (int): Custom output height in pixels
         - grounding (bool): [flux-3-image only] Ground the prompt with web and image search (default: True)
@@ -117,8 +113,6 @@ class Flux3ImageGeneration(GriptapeProxyNode):
         - was_successful (bool): Whether the generation succeeded
         - result_details (str): Details about the generation result or error
     """
-
-    LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = LEGACY_MODEL_VALUES
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -195,7 +189,7 @@ class Flux3ImageGeneration(GriptapeProxyNode):
             ParameterString(
                 name="resolution",
                 default_value="1k",
-                tooltip="Equal-area resolution tier ('768sq', '1k', '1.5k', '2k', '4k', or 'match_input' for edits on flux-3-image)",
+                tooltip="Equal-area resolution tier ('768sq', '1k', '1.5k', '2k', '4k', or 'match_input' for edits)",
                 allow_output=False,
                 traits={Options(choices=RESOLUTION_OPTIONS_FLUX_3_IMAGE)},
                 ui_options={"display_name": "Resolution"},
@@ -302,10 +296,6 @@ class Flux3ImageGeneration(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
 
-    def _log(self, message: str) -> None:
-        with suppress(Exception):
-            logger.info(message)
-
     def _sync_model_parameter_visibility(self) -> None:
         api_model_id = self._get_selected_model_id() or DEFAULT_MODEL
         is_klein = api_model_id == Flux3ImageModel.FLUX_3_IMAGE_KLEIN
@@ -355,10 +345,6 @@ class Flux3ImageGeneration(GriptapeProxyNode):
         if parameter.name == "size_mode":
             self._sync_size_mode_visibility()
 
-    @staticmethod
-    def _parse_safety_tolerance(value: str | None) -> int:
-        return parse_flux_3_safety_tolerance(value)
-
     def _raw_input_images(self) -> list[Any]:
         raw = self.get_parameter_list_value("input_images") or self.parameter_values.get("input_images") or []
         if not isinstance(raw, list):
@@ -407,17 +393,12 @@ class Flux3ImageGeneration(GriptapeProxyNode):
                     )
         else:
             resolution = self.get_parameter_value("resolution") or "1k"
-            if resolution == "match_input":
-                if is_klein:
-                    exceptions.append(
-                        NodeError("'Resolution' cannot be 'match_input' when 'flux-3-image-klein' is selected.")
+            if resolution == "match_input" and not images:
+                exceptions.append(
+                    NodeError(
+                        "'Resolution' is set to 'match_input', which requires at least one reference image in 'Input Images'."
                     )
-                elif not images:
-                    exceptions.append(
-                        NodeError(
-                            "'Resolution' is set to 'match_input', which requires at least one reference image in 'Input Images'."
-                        )
-                    )
+                )
 
         return exceptions or None
 
@@ -426,7 +407,7 @@ class Flux3ImageGeneration(GriptapeProxyNode):
         is_klein = api_model_id == Flux3ImageModel.FLUX_3_IMAGE_KLEIN
 
         prompt = (self.get_parameter_value("prompt") or "").strip()
-        safety_tolerance = self._parse_safety_tolerance(self.get_parameter_value("safety_tolerance"))
+        safety_tolerance = parse_flux_3_safety_tolerance(self.get_parameter_value("safety_tolerance"))
         size_mode = self.get_parameter_value("size_mode") or Flux3SizeMode.RESOLUTION_TIER.value
 
         payload: dict[str, Any] = {
@@ -439,7 +420,10 @@ class Flux3ImageGeneration(GriptapeProxyNode):
             payload["height"] = int(self.get_parameter_value("height") or DEFAULT_IMAGE_SIZE)
         else:
             payload["aspect_ratio"] = self.get_parameter_value("aspect_ratio") or "auto"
-            payload["resolution"] = self.get_parameter_value("resolution") or "1k"
+            resolution = self.get_parameter_value("resolution") or "1k"
+            # Klein has no match_input value; leaving resolution out keeps the first reference's size.
+            if not (is_klein and resolution == "match_input"):
+                payload["resolution"] = resolution
 
         if is_klein:
             self._seed_parameter.preprocess()
@@ -454,10 +438,12 @@ class Flux3ImageGeneration(GriptapeProxyNode):
             self._raw_input_images(), ImageUrlArtifact, accepted_types=(ImageArtifact,)
         )
         encoded_images: list[str] = []
-        for image_input in input_images_list[:MAX_INPUT_IMAGES]:
+        for index, image_input in enumerate(input_images_list[:MAX_INPUT_IMAGES], start=1):
             data_uri = await prepare_media_data_uri(image_input, kind="image", node_name=self.name)
-            if data_uri:
-                encoded_images.append(data_uri)
+            if not data_uri:
+                msg = f"Could not read image {index} connected to 'Input Images'. Reconnect it or remove it."
+                raise NodeError(msg)
+            encoded_images.append(data_uri)
 
         if encoded_images:
             payload["images"] = encoded_images

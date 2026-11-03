@@ -3,20 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from collections.abc import Callable
 from enum import StrEnum
-from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 from griptape_nodes.exe_types.core_types import NodeError
 from griptape_nodes.files.file import File, FileLoadError
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
-from griptape_nodes_library.utils.ffmpeg_utils import extract_video_metadata_structured
-
-logger = logging.getLogger("griptape_nodes")
+from griptape_nodes_library.utils.video_utils import find_mp4_video_input_problems
 
 SUPPORTED_VIDEO_CONTAINER = "mp4"
 
@@ -52,58 +47,6 @@ def parse_flux_3_safety_tolerance(value: str | None) -> int:
             raise NodeError(msg)
 
 
-def has_media_value(value: Any) -> bool:
-    """Return True when a media parameter value is populated."""
-    if value is None:
-        return False
-    if hasattr(value, "value"):
-        return bool(value.value)
-    return bool(value)
-
-
-def video_container_token(video_value: str) -> str:
-    """Return the container named by the value's extension or MIME subtype, or '' if neither."""
-    if video_value.startswith("data:"):
-        header = video_value.removeprefix("data:").split(",", 1)[0]
-        return header.split(";", 1)[0].split("/", 1)[-1].lower()
-    return Path(urlsplit(video_value).path).suffix.lstrip(".").lower()
-
-
-def probe_video_duration(video_value: str, *, node_name: str) -> float | None:
-    """Return the video's duration in seconds, or None when it cannot be determined."""
-    try:
-        location = File(video_value).resolve()
-        metadata = extract_video_metadata_structured(location)
-    except (FileLoadError, ValueError, RuntimeError) as e:
-        logger.warning("%s: could not probe input video duration, skipping the check: %s", node_name, e)
-        return None
-    return metadata.file_details.optional_duration
-
-
-def find_mp4_video_input_problems(
-    video_value: str,
-    *,
-    service_label: str,
-    max_duration_seconds: float,
-    duration_prober: Callable[[str], float | None],
-) -> list[str]:
-    """Return one short sentence pair per BFL MP4/duration limit the video breaks."""
-    problems: list[str] = []
-
-    token = video_container_token(video_value)
-    if token and token != SUPPORTED_VIDEO_CONTAINER:
-        problems.append(f"It's a .{token} file. {service_label} requires .{SUPPORTED_VIDEO_CONTAINER}.")
-
-    if not video_value.startswith("data:"):
-        duration = duration_prober(video_value)
-        if duration is not None and duration > max_duration_seconds:
-            problems.append(
-                f"It's {duration:.2f} seconds long. {service_label}'s limit is {max_duration_seconds:g} seconds."
-            )
-
-    return problems
-
-
 async def prepare_mp4_video_data_uri(
     video_input: Any,
     *,
@@ -125,6 +68,7 @@ async def prepare_mp4_video_data_uri(
         service_label=service_label,
         max_duration_seconds=max_duration_seconds,
         duration_prober=duration_prober,
+        supported_container=SUPPORTED_VIDEO_CONTAINER,
     )
     if problems:
         msg = (

@@ -84,6 +84,41 @@ async def test_flux_3_video_build_payload_modes(monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.mark.asyncio
+async def test_flux_3_video_unreadable_keyframe_raises_instead_of_dropping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_prepare_image(image_input: ImageUrlArtifact, **_kwargs: object) -> str | None:
+        return None if image_input.value == "bad" else "data:image/png;base64,FRAME"
+
+    monkeypatch.setattr(
+        "griptape_nodes_library.video.flux_3_video_generation.prepare_media_data_uri",
+        fake_prepare_image,
+    )
+
+    node = Flux3VideoGeneration(name="Flux3Video")
+    node.set_parameter_value("mode", Flux3VideoMode.I2V.value)
+    node.set_parameter_value("prompt", "A lantern-lit alley")
+    node.set_parameter_value(
+        "keyframes",
+        [ImageUrlArtifact("https://example.com/frame1.png"), ImageUrlArtifact("bad")],
+    )
+
+    with pytest.raises(NodeError, match="Could not read keyframe 2"):
+        await node._build_payload()
+
+
+@pytest.mark.asyncio
+async def test_flux_3_video_v2v_rejects_non_mp4_container() -> None:
+    node = Flux3VideoGeneration(name="Flux3Video")
+    node.set_parameter_value("mode", Flux3VideoMode.V2V.value)
+    node.set_parameter_value("prompt", "Continue the scene")
+    node.set_parameter_value("start_video", VideoUrlArtifact("data:video/quicktime;base64,CLIP"))
+
+    with pytest.raises(NodeError, match=r"requires \.mp4"):
+        await node._build_payload()
+
+
+@pytest.mark.asyncio
 async def test_flux_3_video_edit_validation_and_payload() -> None:
     node = Flux3VideoEdit(name="Flux3VideoEdit")
     node._probe_duration = lambda _v: 5.0  # type: ignore[method-assign]
