@@ -24,12 +24,10 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.validators import (
     AllowedFormats,
+    CheckContext,
     IfParameter,
     MaxFileSize,
-    MediaInfo,
-    MediaNeed,
     limit_error,
-    reads,
 )
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
@@ -60,16 +58,14 @@ MAX_IMAGE_SIZE_BYTES = 7 * 1024 * 1024
 IMAGE_LIST_PARAMETERS = ("input_images", "object_images", "human_images")
 
 
-@reads(MediaNeed.IMAGE)
-def _pillow_can_open(media: MediaInfo) -> bool:
+def _pillow_can_open(_value: Any, ctx: CheckContext) -> bool:
     # 'Auto Image Resize' can only shrink an image Pillow opens; anything else is sent as it is.
-    return media.image is not None
+    return ctx.media.image is not None
 
 
-@reads(MediaNeed.IMAGE, MediaNeed.SIZE)
-def _node_would_shrink_it(media: MediaInfo) -> bool:
+def _node_would_shrink_it(_value: Any, ctx: CheckContext) -> bool:
     """With 'Auto Image Resize' on, the node re-saves an oversized image Pillow opens as a smaller WEBP."""
-    return media.image is not None and (media.size_bytes or 0) > MAX_IMAGE_SIZE_BYTES
+    return ctx.media.image is not None and (ctx.media.size_bytes or 0) > MAX_IMAGE_SIZE_BYTES
 
 
 # An input image Google is certain to reject: a format it doesn't take, or over 7 MB. With 'Auto
