@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any
 
@@ -21,10 +21,9 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.exe_types.validators import (
     AllowedFormats,
+    CheckContext,
     IfParameter,
     MaxFileSize,
-    MediaInfo,
-    MediaNeed,
     MediaValidator,
 )
 from griptape_nodes.files.file import File, FileLoadError
@@ -81,15 +80,13 @@ class VeoFrameImage(MediaValidator):
     so it applies to the frames only, and only to a frame in a format Google takes.
     """
 
-    needs = frozenset({MediaNeed.SIZE, MediaNeed.IMAGE})
+    kinds = frozenset({"image"})
 
-    def check_media(
-        self, value: Any, media: MediaInfo, *, subject: str, docs_url: str | None, position: int | None = None
-    ) -> NodeError | None:
-        error = _IMAGE_FORMATS.check_media(value, media, subject=subject, docs_url=FRAME_FORMATS_URL, position=position)
+    def check(self, value: Any, ctx: CheckContext) -> NodeError | None:
+        error = _IMAGE_FORMATS.check(value, replace(ctx, docs_url=FRAME_FORMATS_URL))
         if error is not None:
             return error
-        return _FRAME_SIZE.check_media(value, media, subject=subject, docs_url=docs_url, position=position)
+        return _FRAME_SIZE.check(value, ctx)
 
 
 class ModelId(StrEnum):
@@ -101,14 +98,10 @@ class ModelId(StrEnum):
 class VeoReferenceImageFormat(MediaValidator):
     """Google's JPEG or PNG rule for a reference image, linked to the reference images page that states it."""
 
-    needs = _IMAGE_FORMATS.needs
+    kinds = _IMAGE_FORMATS.kinds
 
-    def check_media(
-        self, value: Any, media: MediaInfo, *, subject: str, docs_url: str | None, position: int | None = None
-    ) -> NodeError | None:
-        return _IMAGE_FORMATS.check_media(
-            value, media, subject=subject, docs_url=REFERENCE_IMAGES_URL, position=position
-        )
+    def check(self, value: Any, ctx: CheckContext) -> NodeError | None:
+        return _IMAGE_FORMATS.check(value, replace(ctx, docs_url=REFERENCE_IMAGES_URL))
 
 
 # Only Veo 3.1 takes reference images; on any other model the run is refused for having them, so
