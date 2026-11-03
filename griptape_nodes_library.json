@@ -2450,6 +2450,7 @@
         "tags": [
           "video",
           "resize",
+          "reformat",
           "ffmpeg"
         ]
       }
@@ -5438,6 +5439,7 @@
         "tags": [
           "image",
           "resize",
+          "reformat",
           "transform"
         ]
       }
