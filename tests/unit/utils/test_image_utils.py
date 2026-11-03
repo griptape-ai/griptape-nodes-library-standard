@@ -7,7 +7,12 @@ import pytest
 from griptape.artifacts import ImageUrlArtifact
 from PIL import Image
 
-from griptape_nodes_library.utils.image_utils import extract_image_url, premultiply_rgba, unpremultiply_rgba
+from griptape_nodes_library.utils.image_utils import (
+    extract_channel_from_image,
+    extract_image_url,
+    premultiply_rgba,
+    unpremultiply_rgba,
+)
 
 
 class TestExtractImageUrl:
@@ -101,3 +106,21 @@ class TestUnpremultiplyRgba:
         usable = factor >= 0.25  # noqa: PLR2004
         err = np.abs(out[0, usable, :3] - np.array([200, 100, 50]))
         assert err.max() <= 2  # noqa: PLR2004
+
+
+class TestExtractChannelFromImage:
+    def test_alpha_of_rgb_image_is_fully_opaque(self) -> None:
+        image = Image.new("RGB", (3, 2), (200, 100, 50))
+        mask = extract_channel_from_image(image, "alpha")
+        assert mask.mode == "L"
+        assert mask.size == (3, 2)
+        assert np.unique(np.asarray(mask)).tolist() == [255]
+
+    @pytest.mark.parametrize(("channel", "expected"), [("red", 200), ("green", 100), ("blue", 50)])
+    def test_colour_channels_of_rgb_image(self, channel: str, expected: int) -> None:
+        mask = extract_channel_from_image(Image.new("RGB", (2, 2), (200, 100, 50)), channel)
+        assert np.unique(np.asarray(mask)).tolist() == [expected]
+
+    def test_alpha_of_rgba_image_is_its_alpha(self) -> None:
+        mask = extract_channel_from_image(Image.new("RGBA", (2, 2), (200, 100, 50, 7)), "alpha")
+        assert np.unique(np.asarray(mask)).tolist() == [7]

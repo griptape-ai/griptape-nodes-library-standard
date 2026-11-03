@@ -133,10 +133,7 @@ async def test_refresh_async_running_updates_status_without_parsing(monkeypatch:
             return RunningResponse()
 
     monkeypatch.setattr("griptape_nodes_library.proxy.griptape_proxy_node.httpx.AsyncClient", FakeAsyncClient)
-    monkeypatch.setattr(
-        "griptape_nodes_library.proxy.provider_asset_access.GriptapeNodes.SecretsManager",
-        lambda: type("S", (), {"get_secret": lambda self, _name, **_kwargs: "fake-key"})(),
-    )
+    monkeypatch.setenv("GT_CLOUD_API_KEY", "fake-key")
 
     node = Flux2ImageGeneration(name="Flux2")
     node.parameter_output_values["generation_id"] = "gen-running"
@@ -196,10 +193,7 @@ async def test_refresh_async_completed_invokes_parse_result(monkeypatch: pytest.
             return StatusResponse()
 
     monkeypatch.setattr("griptape_nodes_library.proxy.griptape_proxy_node.httpx.AsyncClient", FakeAsyncClient)
-    monkeypatch.setattr(
-        "griptape_nodes_library.proxy.provider_asset_access.GriptapeNodes.SecretsManager",
-        lambda: type("S", (), {"get_secret": lambda self, _name, **_kwargs: "fake-key"})(),
-    )
+    monkeypatch.setenv("GT_CLOUD_API_KEY", "fake-key")
 
     node = Flux2ImageGeneration(name="Flux2")
     node.parameter_output_values["generation_id"] = "gen-done"

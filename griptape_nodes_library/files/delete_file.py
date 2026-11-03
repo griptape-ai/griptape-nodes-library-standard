@@ -14,6 +14,7 @@ from griptape_nodes.exe_types.core_types import (
 )
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.files.file import FileLoadError
+from griptape_nodes.files.path_utils import sanitize_path_string
 from griptape_nodes.retained_mode.events.os_events import (
     DeleteFileRequest,
     DeleteFileResultFailure,
@@ -168,9 +169,7 @@ class DeleteFile(SuccessFailureNode):
         """
         param_values = self.get_parameter_list_value(self.file_paths.name)
         # Clean paths to remove newlines/carriage returns that cause Windows errors
-        cleaned_paths = [
-            GriptapeNodes.OSManager().sanitize_path_string(str(p)) if p is not None else p for p in param_values
-        ]
+        cleaned_paths = [sanitize_path_string(str(p)) if p is not None else p for p in param_values]
         # Remove duplicates
         return set(cleaned_paths)
 

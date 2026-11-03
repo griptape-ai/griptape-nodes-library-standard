@@ -1769,6 +1769,23 @@
     "serializable": true,
     "settable": true,
     "type": "ImageUrlArtifact"
+   },
+   {
+    "default_value": null,
+    "element": "Parameter",
+    "input_types": [
+     "str"
+    ],
+    "mode_allowed_input": false,
+    "mode_allowed_output": false,
+    "mode_allowed_property": true,
+    "name": "legacy_image_row",
+    "output_type": "str",
+    "parent_group_name": null,
+    "path": "",
+    "serializable": true,
+    "settable": true,
+    "type": "str"
    }
   ],
   "file": "griptape_nodes_library/image/describe_image.py"

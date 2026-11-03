@@ -9,6 +9,7 @@ from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.path_utils import sanitize_path_string
 from griptape_nodes.retained_mode.events.os_events import (
     ListDirectoryRequest,
     ListDirectoryResultFailure,
@@ -341,7 +342,7 @@ class ListFiles(SuccessFailureNode):
         directory_path = self.get_parameter_value("directory_path")
         # Clean directory path to remove newlines/carriage returns that cause Windows errors
         if directory_path:
-            directory_path = GriptapeNodes.OSManager().sanitize_path_string(directory_path)
+            directory_path = sanitize_path_string(directory_path)
         show_hidden = self.get_parameter_value("show_hidden")
         match_pattern = (self.get_parameter_value("match_pattern") or "").replace("\\", "/")
         match_pattern_case_sensitive = self.get_parameter_value("match_pattern_case_sensitive")

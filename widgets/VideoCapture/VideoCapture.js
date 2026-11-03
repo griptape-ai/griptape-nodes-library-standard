@@ -41,6 +41,22 @@ function mkSelect() {
   return sel;
 }
 
+function cameraErrorMessage(err) {
+  switch (err?.name) {
+    case "NotAllowedError":
+    case "SecurityError":
+      return "Camera access is blocked. Allow camera access in your browser or system privacy settings, then retry.";
+    case "NotFoundError":
+    case "OverconstrainedError":
+      return "No camera found. Connect a camera, then retry.";
+    case "NotReadableError":
+    case "AbortError":
+      return "Camera is in use by another app. Close it, then retry.";
+    default:
+      return `Camera unavailable (${err?.name || "unknown error"}).`;
+  }
+}
+
 function mkOverlayBtn(iconName, label) {
   const btn = document.createElement("button");
   btn.style.cssText = [
@@ -78,6 +94,9 @@ export default function VideoCapture(container, props) {
 
   let currentVideoId = "";
   let currentAudioId = "";
+  let cameraFailed = false;
+  let micUnavailable = false;
+  let _startSeq = 0;
 
   // ── DOM ──────────────────────────────────────────────────────────────────
 
@@ -111,6 +130,25 @@ export default function VideoCapture(container, props) {
     "border-radius:4px", "font-family:monospace", "pointer-events:none",
   ].join(";");
   recBadge.hidden = true;
+
+  // Shown when the camera streams but the microphone could not be opened; click to retry the mic
+  const micBadge = document.createElement("button");
+  micBadge.style.cssText = [
+    "position:absolute", "top:10px", "right:10px",
+    "background:rgba(0,0,0,0.6)", "color:#fff",
+    "font-size:11px", "padding:2px 8px",
+    "border-radius:4px", "border:none", "cursor:pointer",
+  ].join(";");
+  micBadge.textContent = "No microphone — recording video only (retry)";
+  micBadge.hidden = true;
+  micBadge.addEventListener("pointerdown", (e) => e.stopPropagation());
+  micBadge.addEventListener("mousedown",   (e) => e.stopPropagation());
+
+  const retryBtn = mkOverlayBtn("rotate-ccw", "Retry");
+  retryBtn.style.position = "absolute";
+  retryBtn.style.bottom = "12px";
+  retryBtn.style.left = "50%";
+  retryBtn.style.transform = "translateX(-50%)";
 
   // Encoding overlay
   const encodingOverlay = document.createElement("div");
@@ -154,7 +192,7 @@ export default function VideoCapture(container, props) {
   reviewOverlay.style.cssText = "position:absolute;bottom:12px;left:0;right:0;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;";
   reviewOverlay.append(playPauseBtn, acceptBtn, discardBtn);
 
-  videoWrap.append(placeholder, video, recBadge, encodingOverlay, recordBtn, reviewOverlay);
+  videoWrap.append(placeholder, video, recBadge, micBadge, encodingOverlay, recordBtn, reviewOverlay, retryBtn);
 
   // Device selector row
   const videoSel = mkSelect();
@@ -184,11 +222,14 @@ export default function VideoCapture(container, props) {
   function render() {
     placeholder.hidden      = isStreaming || hasRecording;
     video.hidden            = !isStreaming && !hasRecording;
-    recordBtn.hidden        = hasRecording;
+    recordBtn.hidden        = hasRecording || cameraFailed;
     recordBtn.disabled      = !isStreaming && !isRecording;
     recordBtn.style.opacity = (isStreaming || isRecording) ? "1" : "0.4";
     reviewOverlay.hidden    = !hasRecording;
     recBadge.hidden         = !isRecording;
+    micBadge.hidden         = !isStreaming || !micUnavailable;
+    micBadge.disabled       = isRecording;
+    retryBtn.hidden         = !cameraFailed || isStreaming || hasRecording;
 
     const devicesLocked          = isRecording || hasRecording;
     videoSel.disabled            = devicesLocked;
@@ -224,10 +265,10 @@ export default function VideoCapture(container, props) {
     } catch { /* permission not yet granted */ }
   }
 
-  async function switchDevices() {
+  async function switchDevices({ defaultMic = false } = {}) {
     if (isRecording || hasRecording) return;
     currentVideoId = videoSel.value;
-    currentAudioId = audioSel.value;
+    currentAudioId = defaultMic ? "" : audioSel.value;
     stream?.getTracks().forEach((t) => t.stop());
     stream = null;
     isStreaming = false;
@@ -235,23 +276,61 @@ export default function VideoCapture(container, props) {
     await startCamera();
   }
 
+  // getUserMedia fails the whole request if any track fails, so a missing or
+  // blocked microphone would otherwise take the camera down with it. Fall back
+  // to a video-only stream before reporting the camera as unavailable.
   async function startCamera() {
+    const seq = ++_startSeq;
+    const videoConstraint = currentVideoId ? { deviceId: { exact: currentVideoId } } : true;
+    const audioConstraint = currentAudioId ? { deviceId: { exact: currentAudioId } } : true;
+    cameraFailed = false;
+    placeholder.textContent = "Starting camera…";
+    render();
+
+    let s = null;
+    let audioMissing = false;
     try {
-      const constraints = {
-        video: currentVideoId ? { deviceId: { exact: currentVideoId } } : true,
-        audio: currentAudioId ? { deviceId: { exact: currentAudioId } } : true,
-      };
-      const s = await navigator.mediaDevices.getUserMedia(constraints);
-      if (hasRecording) { s.getTracks().forEach((t) => t.stop()); return; }
-      stream = s;
-      video.srcObject = stream;
-      video.muted = true;
-      isStreaming = true;
-      render();
-      await populateDevices();
-    } catch {
-      if (!hasRecording) placeholder.textContent = "Camera unavailable — check browser permissions.";
+      s = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: audioConstraint });
+    } catch (avErr) {
+      if (seq !== _startSeq) return;
+      try {
+        // A previously selected microphone may have been unplugged; try the default one first.
+        if (currentAudioId) {
+          s = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: true }).catch(() => null);
+        }
+        if (!s) {
+          s = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: false });
+          audioMissing = true;
+          console.warn("VideoCapture: microphone unavailable, recording video only:", avErr);
+        }
+      } catch (vErr) {
+        console.warn("VideoCapture: camera unavailable:", vErr);
+        if (seq !== _startSeq) return;
+        if (!hasRecording) {
+          placeholder.textContent = cameraErrorMessage(vErr);
+          cameraFailed = true;
+          render();
+        }
+        await populateDevices();
+        return;
+      }
     }
+
+    if (seq !== _startSeq || hasRecording) { s.getTracks().forEach((t) => t.stop()); return; }
+    stream = s;
+    micUnavailable = audioMissing;
+    video.srcObject = stream;
+    video.muted = true;
+    isStreaming = true;
+    render();
+    await populateDevices();
+  }
+
+  // A previously selected camera may have been unplugged, so retry with the defaults.
+  function retryCamera() {
+    currentVideoId = "";
+    currentAudioId = "";
+    startCamera();
   }
 
   function startRecording() {
@@ -369,6 +448,7 @@ export default function VideoCapture(container, props) {
   // ── Cleanup ───────────────────────────────────────────────────────────────
 
   function cleanup() {
+    _startSeq++; // a getUserMedia still in flight stops its tracks instead of attaching them
     clearInterval(timer);
     navigator.mediaDevices.removeEventListener("devicechange", populateDevices);
     if (recorder && recorder.state !== "inactive") { recorder.onstop = null; recorder.stop(); }
@@ -385,8 +465,10 @@ export default function VideoCapture(container, props) {
   playPauseBtn.addEventListener("click", togglePlayPause);
   acceptBtn.addEventListener("click",    accept);
   discardBtn.addEventListener("click",   discard);
-  videoSel.addEventListener("change",    switchDevices);
-  audioSel.addEventListener("change",    switchDevices);
+  retryBtn.addEventListener("click",     retryCamera);
+  micBadge.addEventListener("click",     () => switchDevices({ defaultMic: true }));
+  videoSel.addEventListener("change",    () => switchDevices());
+  audioSel.addEventListener("change",    () => switchDevices());
   navigator.mediaDevices.addEventListener("devicechange", populateDevices);
 
   container._vcInst = { handleUpdate, cleanup, wrapper };

@@ -108,6 +108,7 @@ class SetVariable(BaseVariableNode):
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter is self.variable_name_param:
             self.new_variable_name_param.hide = value != CREATE_NEW_SENTINEL
+            self._ensure_variable_exists(value)
 
     def after_incoming_connection(
         self,
@@ -142,11 +143,15 @@ class SetVariable(BaseVariableNode):
         # Intentionally do not re-emit SetVariableTypeRequest: leaving the engine-side variable
         # at its last inferred type is less disruptive than clobbering to 'any' on disconnect.
 
-    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
+    def _ensure_variable_exists(self, variable_name: Any) -> None:
         """Eagerly ensure the variable named in ``variable_name`` exists in the engine.
 
         Letting the variable exist at graph-edit time means downstream nodes (``GetVariable``,
         ``HasVariable``) can see it before this node has run.
+
+        Runs from ``after_value_set``, which the engine skips while loading a saved node: a load
+        must not read or change its flow's variables, and ``process()`` creates the variable when
+        the flow runs.
 
         We deliberately do NOT rename the prior variable when ``variable_name`` changes.
         There is no UI signal distinguishing "rename the variable I own" from "point this node
@@ -154,24 +159,17 @@ class SetVariable(BaseVariableNode):
         engine-side variable left behind by a re-point is filtered out at save time by
         ``NodeDependencies``-driven serialization.
 
-        If the node isn't attached to a flow yet (e.g. during deserialization), eager action
-        is silently skipped; ``process()`` will create the variable when the flow runs.
+        If the node isn't attached to a flow yet, eager action is silently skipped.
         """
-        if parameter is not self.variable_name_param:
-            return value
-
-        new_name = value
-        if not new_name or new_name == CREATE_NEW_SENTINEL:
-            return value
+        if not variable_name or variable_name == CREATE_NEW_SENTINEL:
+            return
 
         try:
-            self._eager_create_variable(new_name)
+            self._eager_create_variable(variable_name)
         except (RuntimeError, ValueError, LookupError) as exc:
             # Node may not be attached to a flow yet, or the engine rejected the op.
             # process() will reconcile on run.
             logger.debug("SetVariable '%s' skipped eager registration: %s", self.name, exc)
-
-        return value
 
     def _eager_create_variable(self, variable_name: str) -> None:
         """Create the variable in the engine if it isn't already visible from this node's flow.

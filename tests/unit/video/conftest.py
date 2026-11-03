@@ -10,7 +10,6 @@ method itself to run.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -69,9 +68,17 @@ def upload_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> UploadEnv:
         self._storage_driver = env  # type: ignore[assignment] - fake stands in for GriptapeCloudStorageDriver
 
     monkeypatch.setattr(PublicArtifactUrlParameter, "__init__", fake_init)
-    monkeypatch.setattr(
-        seedance_common.GriptapeNodes, "ConfigManager", lambda: SimpleNamespace(workspace_path=tmp_path)
-    )
+
+    # Resolution reads the workspace through a request, not GriptapeNodes.ConfigManager(), so the
+    # fixture answers GetWorkspaceRequest directly and passes every other request through.
+    real_handle_request = seedance_common.GriptapeNodes.handle_request
+
+    def fake_handle_request(request: Any) -> Any:
+        if isinstance(request, seedance_common.GetWorkspaceRequest):
+            return seedance_common.GetWorkspaceResultSuccess(workspace_path=str(tmp_path), result_details="stub")
+        return real_handle_request(request)
+
+    monkeypatch.setattr(seedance_common.GriptapeNodes, "handle_request", fake_handle_request)
 
     static_file = tmp_path / "static_files" / "style.png"
     static_file.parent.mkdir(parents=True, exist_ok=True)

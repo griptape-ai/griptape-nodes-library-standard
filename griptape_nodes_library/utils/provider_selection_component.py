@@ -14,6 +14,7 @@ from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.llm.model_config import ModelConfig, model_config_for_engine_provider
+from griptape_nodes_library.utils.secret_utils import get_secret
 
 _GRIPTAPE_CLOUD_PROVIDER = ProviderConfig(name="griptape_cloud", type="griptape_cloud", model="")
 
@@ -118,9 +119,7 @@ class ProviderSelectionComponent:
     def resolve_provider_api_key(self, provider_config: "ProviderConfig") -> str:
         secret_name = provider_config.api_key_secret_name or ""
         if secret_name:
-            return (
-                GriptapeNodes.SecretsManager().get_secret(secret_name, should_error_on_not_found=False) or "not-needed"
-            )
+            return get_secret(secret_name, error_on_missing=False) or "not-needed"
         return "not-needed"
 
     def _refresh_providers_button(

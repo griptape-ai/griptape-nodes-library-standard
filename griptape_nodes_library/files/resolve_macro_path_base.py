@@ -3,6 +3,7 @@ from typing import Any
 from griptape.artifacts import UrlArtifact
 from griptape_nodes.common.macro_parser import ParsedMacro
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.files.path_utils import sanitize_path_string
 from griptape_nodes.retained_mode.events.project_events import (
     GetPathForMacroRequest,
     GetPathForMacroResultFailure,
@@ -26,7 +27,7 @@ class BaseResolveMacroPath(SuccessFailureNode):
             raw = str(value.value)
         else:
             raw = str(value)
-        cleaned = GriptapeNodes.OSManager().sanitize_path_string(raw)
+        cleaned = sanitize_path_string(raw)
         return cleaned if cleaned else None
 
     def _resolve_one(self, path_str: str) -> str:

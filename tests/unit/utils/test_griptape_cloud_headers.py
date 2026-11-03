@@ -536,8 +536,8 @@ LOOP_ENTRY_POINTS = frozenset(
 SYNC_ENTRY_POINTS_THAT_BLOCK = {
     "agents/agent.py:511 (process)": "build_agent_from_state -> build_model",
     "agents/memory/summarize_agent_memory.py:46 (process)": "prompt_model -> build_model",
-    "image/create_image.py:190 (process)": "prompt_model -> build_model; generate_image -> _generate_griptape_cloud",
-    "image/describe_image.py:386 (process)": "build_agent_from_state -> build_model",
+    "image/create_image.py:200 (process)": "prompt_model -> build_model; generate_image -> _generate_griptape_cloud",
+    "image/describe_image.py:431 (process)": "build_agent_from_state -> build_model",
     "tasks/mcp_task.py:296 (process)": "build_agent -> build_model",
     "text/random_text.py:280 (after_value_set)": "_get_random_selection -> prompt_model -> build_model",
     "text/random_text.py:308 (process)": "_get_random_selection -> prompt_model -> build_model",

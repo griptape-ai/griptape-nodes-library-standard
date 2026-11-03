@@ -27,6 +27,9 @@ _IDLE: dict[str, Any] = {
 
 
 class Webcam(DataNode):
+    # Mirrors the gallery_store parameter, which is read again when it is missing.
+    attributes_outside_parameters = frozenset({"_items"})
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 

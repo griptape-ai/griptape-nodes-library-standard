@@ -121,10 +121,7 @@ class ListToDictKeys(SuccessFailureNode):
             parameter_group_initially_collapsed=True,
         )
 
-        # Internal state tracking for user value preservation
-        # _user_values: stores user-entered values to preserve them during regeneration
-        # _updating_generated_list: prevents infinite loops during parameter updates
-        self._user_values = {}
+        # Prevents infinite loops during parameter updates
         self._updating_generated_list = False
 
         # Check if we have existing KeyValuePairs data and refresh the UI
@@ -322,74 +319,6 @@ class ListToDictKeys(SuccessFailureNode):
         logger.debug(f"{self.name}: Generated {len(key_value_dict)} key-value pairs without duplicates")
         return key_value_dict
 
-    def _preserve_user_values(self, key_value_dict: dict[str, str]) -> dict[str, str]:
-        """Preserve user values for matching keys."""
-        # FAILURE CASES FIRST
-        try:
-            existing_kvp = self.get_parameter_value("KeyValuePairs")
-        except (AttributeError, KeyError) as e:
-            logger.warning(f"ListToDictKeys._preserve_user_values(): Error getting existing KeyValuePairs: {e}")
-            return self._fallback_to_saved_values(key_value_dict)
-
-        if not existing_kvp or not isinstance(existing_kvp, dict):
-            return self._fallback_to_saved_values(key_value_dict)
-
-        # SUCCESS PATH AT END - Only preserve values for keys that exist in the new key list
-        preserved_count = 0
-        for key_name in key_value_dict:
-            if key_name in existing_kvp and existing_kvp[key_name] and str(existing_kvp[key_name]).strip():
-                key_value_dict[key_name] = str(existing_kvp[key_name])
-                preserved_count += 1
-                logger.debug(f"{self.name}: Preserved user value for '{key_name}': '{existing_kvp[key_name]}'")
-
-        if preserved_count > 0:
-            logger.debug(f"{self.name}: Preserved {preserved_count} user values")
-        else:
-            logger.debug(f"{self.name}: No matching user values to preserve")
-
-        return key_value_dict
-
-    def _preserve_user_values_selectively(
-        self, key_value_dict: dict[str, str], provided_values: dict[int, str]
-    ) -> dict[str, str]:
-        """Preserve user values only for keys that don't have provided values."""
-        # FAILURE CASES FIRST
-        try:
-            existing_kvp = self.get_parameter_value("KeyValuePairs")
-        except (AttributeError, KeyError) as e:
-            logger.debug(f"{self.name}: Error getting existing KeyValuePairs: {e}")
-            return self._fallback_to_saved_values(key_value_dict)
-
-        if not existing_kvp or not isinstance(existing_kvp, dict):
-            logger.debug(f"{self.name}: No existing KeyValuePairs to preserve")
-            return self._fallback_to_saved_values(key_value_dict)
-
-        # SUCCESS PATH AT END - Only preserve values for keys that don't have provided values
-        preserved_count = 0
-        for i, (key_name, current_value) in enumerate(key_value_dict.items()):
-            # Skip if this key has a provided value (provided values take precedence)
-            if i in provided_values:
-                logger.debug(f"{self.name}: Skipping preservation for '{key_name}' - has provided value")
-                continue
-
-            # Only preserve if the existing value is not empty and different from current
-            if (
-                key_name in existing_kvp
-                and existing_kvp[key_name]
-                and str(existing_kvp[key_name]).strip()
-                and existing_kvp[key_name] != current_value
-            ):
-                key_value_dict[key_name] = str(existing_kvp[key_name])
-                preserved_count += 1
-                logger.debug(f"{self.name}: Preserved user value for '{key_name}': '{existing_kvp[key_name]}'")
-
-        if preserved_count > 0:
-            logger.debug(f"{self.name}: Preserved {preserved_count} user values")
-        else:
-            logger.debug(f"{self.name}: No user values to preserve (all have provided values or are empty)")
-
-        return key_value_dict
-
     def _preserve_user_values_for_new_keys(
         self, key_value_dict: dict[str, str], provided_values: dict[int, str]
     ) -> dict[str, str]:
@@ -431,19 +360,6 @@ class ListToDictKeys(SuccessFailureNode):
 
         return key_value_dict
 
-    def _fallback_to_saved_values(self, key_value_dict: dict[str, str]) -> dict[str, str]:
-        """Fallback to saved user values when parameter lookup fails."""
-        if not self._user_values:
-            return key_value_dict
-
-        existing_dict = self._user_values if isinstance(self._user_values, dict) else {}
-
-        for key_name in key_value_dict:
-            if key_name in existing_dict:
-                key_value_dict[key_name] = existing_dict[key_name]
-
-        return key_value_dict
-
     def _get_success_message(self) -> str:
         """Generate success message with key-value pair details."""
         try:
@@ -459,23 +375,6 @@ class ListToDictKeys(SuccessFailureNode):
     def _set_failure_output_values(self) -> None:
         """Set output parameter values to defaults on failure."""
         self.parameter_output_values["KeyValuePairs"] = {}
-
-    def _save_user_values(self) -> None:
-        """Save current user values from the KeyValuePairs parameter."""
-        # FAILURE CASES FIRST
-        self._user_values = {}
-
-        try:
-            kv_dict = self.get_parameter_value("KeyValuePairs")
-        except (AttributeError, KeyError) as e:
-            logger.debug(f"{self.name}: Error getting KeyValuePairs: {e}")
-            return
-
-        if not kv_dict or not isinstance(kv_dict, dict):
-            return
-
-        # SUCCESS PATH AT END
-        self._user_values = kv_dict.copy()
 
     def _update_parameters(self, key_value_dict: dict[str, str]) -> None:
         """Update the KeyValuePairs parameter with the key-value dictionary."""
@@ -501,7 +400,6 @@ class ListToDictKeys(SuccessFailureNode):
         self.set_parameter_value("KeyValuePairs", {})
         self.publish_update_to_parameter("KeyValuePairs", {})
         self.parameter_output_values["KeyValuePairs"] = {}
-        self._user_values = {}
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Update key-value pairs when a value is assigned to the keys or values parameter."""
@@ -509,10 +407,6 @@ class ListToDictKeys(SuccessFailureNode):
         if parameter in (self.keys, self.optional_values):
             logger.debug(f"{self.name}: Triggering _update_key_value_pairs due to {parameter.name} change")
             self._update_key_value_pairs()
-        elif parameter == self.key_value_pairs and isinstance(value, dict):
-            # User modified the KeyValuePairs dictionary directly - save their changes
-            logger.debug(f"{self.name}: User modified KeyValuePairs directly, saving values")
-            self._user_values = value.copy()
 
         return super().after_value_set(parameter, value)
 

@@ -3,10 +3,12 @@ from __future__ import annotations
 import ast
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import pytest
+from griptape_nodes.retained_mode.events.secrets_events import GetSecretValueRequest, GetSecretValueResultSuccess
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
-import griptape_nodes_library.proxy.provider_asset_access as access_module
 import griptape_nodes_library.utils.griptape_cloud_headers as headers_module
 from griptape_nodes_library.image.google_image_generation import GoogleImageGeneration
 from griptape_nodes_library.proxy.provider_asset_access import (
@@ -43,18 +45,22 @@ def test_only_shared_bases_define_the_credential_check() -> None:
 
 
 def _stub_secrets(monkeypatch: pytest.MonkeyPatch, secrets: dict[str, str | None]) -> None:
-    """Make credential resolution read from an in-memory dict instead of the real secret sources.
+    """Make the GetSecretValueRequest lookup read from an in-memory dict instead of the real secret sources.
 
     An absent secret is None and a secret registered with a blank value is that blank string,
     matching ``SecretsManager.get_secret``. Stubbed rather than driven through the environment
     because ``get_secret`` also reads the workspace and global ``.env`` files, so a developer
     running against Griptape Cloud would otherwise hand these tests a real credential.
     """
-    monkeypatch.setattr(
-        access_module.GriptapeNodes,
-        "SecretsManager",
-        lambda: type("S", (), {"get_secret": lambda self, name, **_kwargs: secrets.get(name)})(),
-    )
+
+    real_handle_request = GriptapeNodes.handle_request
+
+    def _fake_handle_request(request: Any) -> Any:
+        if isinstance(request, GetSecretValueRequest):
+            return GetSecretValueResultSuccess(value=secrets.get(request.key), result_details="stub")
+        return real_handle_request(request)
+
+    monkeypatch.setattr(GriptapeNodes, "handle_request", _fake_handle_request)
 
 
 @pytest.fixture(autouse=True)

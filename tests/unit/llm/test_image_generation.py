@@ -7,6 +7,8 @@ from typing import Any
 import httpx
 import pytest
 from griptape_nodes.exe_types.core_types import NodeError
+from griptape_nodes.retained_mode.events.secrets_events import GetSecretValueRequest, GetSecretValueResultSuccess
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 import griptape_nodes_library.llm.image_generation as image_generation
 from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, ImageProvider, generate_image
@@ -126,12 +128,16 @@ class TestOpenAiCompatible:
                 captured["client"] = kwargs
                 self.images = FakeImages()
 
-        class FakeSecrets:
-            def get_secret(self, name: str, *, should_error_on_not_found: bool = True) -> str | None:  # noqa: ARG002
-                return {"OPENAI_API_KEY": "sk-openai", "GROK_API_KEY": "xai-key"}.get(name)
+        real_handle_request = GriptapeNodes.handle_request
+
+        def _fake_handle_request(request: Any) -> Any:
+            if isinstance(request, GetSecretValueRequest):
+                value = {"OPENAI_API_KEY": "sk-openai", "GROK_API_KEY": "xai-key"}.get(request.key)
+                return GetSecretValueResultSuccess(value=value, result_details="stub")
+            return real_handle_request(request)
 
         monkeypatch.setattr(image_generation, "OpenAI", FakeOpenAI)
-        monkeypatch.setattr(image_generation.GriptapeNodes, "SecretsManager", staticmethod(FakeSecrets))
+        monkeypatch.setattr(GriptapeNodes, "handle_request", _fake_handle_request)
         return captured
 
     def test_gpt_image_sends_gpt_image_options_without_response_format(self, openai_calls: dict[str, Any]) -> None:

@@ -126,7 +126,7 @@ class TestSetVariableProcess:
 
 
 class TestSetVariableEagerRegistration:
-    """Exercises ``before_value_set``: variables register the moment the user selects a name."""
+    """Exercises ``after_value_set``: variables register the moment the user selects a name."""
 
     def test_entering_name_registers_variable(self, set_variable_node: SetVariable, flow: str) -> None:
         assert not _has_variable("eager", flow)

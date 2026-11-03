@@ -7,7 +7,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode, DataNode
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.files.path_utils import sanitize_path_string
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 
 
@@ -122,7 +122,7 @@ class TempFilename(DataNode):
         if not directory:
             return None
 
-        cleaned_dir = GriptapeNodes.OSManager().sanitize_path_string(str(directory))
+        cleaned_dir = sanitize_path_string(str(directory))
         cleaned_dir = str(cleaned_dir).strip()
 
         if not cleaned_dir:
@@ -149,7 +149,7 @@ class TempFilename(DataNode):
         if not value:
             return ""
 
-        cleaned = GriptapeNodes.OSManager().sanitize_path_string(str(value))
+        cleaned = sanitize_path_string(str(value))
         cleaned = str(cleaned).strip()
 
         return cleaned

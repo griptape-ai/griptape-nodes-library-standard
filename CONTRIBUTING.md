@@ -66,7 +66,19 @@ We welcome contributions to the Griptape Nodes Core Library! This library provid
     make fix    # Auto-fix issues where possible
     ```
 
+1. **Add a changelog entry** - If the change is user-facing, add an entry file to `changelog.d/`. See [Changelog](#changelog).
+
 1. **Submit a pull request** - Open a PR against the `main` branch of this repository.
+
+## Changelog
+
+[`CHANGELOG.md`](CHANGELOG.md) follows [Keep a Changelog 2.0.0](https://keepachangelog.com/en/2.0.0/), with one section per `library_version`.
+
+A PR with a user-facing change does not edit `CHANGELOG.md`. It adds one file to [`changelog.d/`](changelog.d/README.md), named `<type>-<slug>.md` for one of `added`, `changed`, `deprecated`, `removed`, `fixed`, or `security`. The whole file is the bullet, with no heading above it. One entry per file keeps PRs from conflicting. `make changelog` prints the `[Unreleased]` section with every entry file folded in.
+
+Write for the person updating the library: which node changed, what they will notice, and why. Link the GitHub issue on the entry's last line when there is one. Start breaking changes, anything that makes a saved workflow stop working or give a different result, with `**Breaking:**`. Refactors, tests, CI, and docs-only changes get no entry. The full style guide is in [CLAUDE.md](CLAUDE.md#changelog).
+
+`make check/changelog`, part of `make check` and CI, validates the structure of `CHANGELOG.md` and of every entry file. It never requires a PR to add an entry. That call stays with people.
 
 ## Making a Release (Maintainers)
 
@@ -84,7 +96,7 @@ make version/minor   # Bump minor (e.g. 0.52.4 -> 0.53.0)
 make version/major   # Bump major (e.g. 0.53.0 -> 1.0.0)
 ```
 
-These targets update `griptape_nodes_library.json`, commit the change, and you can then `git push`.
+These targets update `griptape_nodes_library.json`, fold the `changelog.d/` entries into a `CHANGELOG.md` section for the new version and delete them, and commit both. You can then `git push`. They stop first if `CHANGELOG.md` or `changelog.d/` holds uncommitted changes, since the roll would overwrite them.
 
 **Via GitHub Actions:** Trigger the `Version Bump (Patch)` or `Version Bump (Minor)` workflow manually from the Actions tab.
 

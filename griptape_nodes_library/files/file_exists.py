@@ -4,6 +4,7 @@ from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import FileLoadError
+from griptape_nodes.files.path_utils import sanitize_path_string
 from griptape_nodes.retained_mode.events.os_events import (
     GetFileInfoRequest,
     GetFileInfoResultSuccess,
@@ -57,7 +58,7 @@ class FileExists(DataNode):
 
     def process(self) -> None:
         path_str = self.get_parameter_value("path") or ""
-        path_str = GriptapeNodes.OSManager().sanitize_path_string(str(path_str))
+        path_str = sanitize_path_string(str(path_str))
 
         exists = False
         is_directory = False

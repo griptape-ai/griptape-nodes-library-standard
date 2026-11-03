@@ -11,9 +11,10 @@ The endpoints these nodes call all authenticate a License via the control plane'
 ``LicenseAuthMixin``: ``api/v1/chat/completions`` (chat models), ``api/images/generations``
 and ``api/images/variations`` (image drivers), and ``api/buckets`` (the FileManager tool).
 
-This wraps the engine's ``resolve_cloud_credential`` rather than reimplementing the
-precedence, and adds the ``""`` coercion the driver call sites need. Two things it is
-deliberately NOT for:
+This mirrors the engine's ``resolve_cloud_credential`` precedence (License before the API
+key) through a request rather than a ``SecretsManager`` instance, since this code can run
+inside a worker process; it also adds the ``""`` coercion the driver call sites need. Two
+things it is deliberately NOT for:
 
 - **BYOK provider keys.** ``OPENAI_API_KEY``, ``ANTHROPIC_API_KEY``, and friends are
   the user's own provider credentials; a Griptape License says nothing about them.
@@ -26,12 +27,12 @@ deliberately NOT for:
 from __future__ import annotations
 
 from griptape_nodes.drivers.cloud_credentials import (
+    LICENSE_SECRET_NAME,
     MISSING_CREDENTIAL_MESSAGE,
-    resolve_cloud_credential,
 )
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.utils.node_error_utils import MissingSecretError, secret_link
+from griptape_nodes_library.utils.secret_utils import get_secret
 
 __all__ = [
     "MISSING_CREDENTIAL_MESSAGE",
@@ -49,6 +50,11 @@ class MissingCredentialError(MissingSecretError):
     """No Griptape Cloud credential was found."""
 
 
+def _get_secret(secret_name: str) -> str | None:
+    """Read a secret by key, None if unset."""
+    return get_secret(secret_name, error_on_missing=False)
+
+
 def resolve_cloud_api_key() -> str:
     """Return the Griptape Cloud bearer credential, preferring a License.
 
@@ -58,7 +64,7 @@ def resolve_cloud_api_key() -> str:
     report a missing credential from ``validate_before_workflow_run`` (see
     :func:`missing_credential_message`), which runs before any request is sent.
     """
-    return resolve_cloud_credential(GriptapeNodes.SecretsManager(), secret_name=API_KEY_ENV_VAR) or ""
+    return _get_secret(LICENSE_SECRET_NAME) or _get_secret(API_KEY_ENV_VAR) or ""
 
 
 def missing_credential_message(attempted: str) -> str:

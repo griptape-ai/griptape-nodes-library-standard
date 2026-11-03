@@ -5,6 +5,7 @@ from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.path_utils import sanitize_path_string
 from griptape_nodes.retained_mode.events.os_events import (
     CreateFileRequest,
     CreateFileResultFailure,
@@ -97,7 +98,7 @@ class CreateFolder(FileOperationBaseNode):
         fail_if_already_exists = bool(self.get_parameter_value(self.fail_if_already_exists.name))
 
         folder_path = self._extract_value_from_artifact(folder_path_raw)
-        folder_path = GriptapeNodes.OSManager().sanitize_path_string(folder_path)
+        folder_path = sanitize_path_string(folder_path)
 
         self.set_parameter_value(self.created_path_output.name, "")
         self.set_parameter_value(self.already_existed_output.name, False)

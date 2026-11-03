@@ -8,6 +8,11 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.retained_mode.events.parameter_events import (
+    GetConnectionsForParameterRequest,
+    GetConnectionsForParameterResultSuccess,
+)
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 
@@ -56,9 +61,6 @@ LEGACY_MODEL_VALUES = {
 class GenerateImage(ControlNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-
-        # TODO: https://github.com/griptape-ai/griptape-nodes/issues/720
-        self._has_connection_to_prompt = False
 
         self.add_parameter(
             Parameter(
@@ -163,10 +165,18 @@ class GenerateImage(ControlNode):
                 exceptions.append(missing_credential_error("generate an image"))
 
         prompt_error = self.validate_empty_parameter(param="prompt")
-        if prompt_error and not self._has_connection_to_prompt:
+        # TODO: https://github.com/griptape-ai/griptape-nodes/issues/720
+        if prompt_error and not self._prompt_is_connected():
             exceptions.append(prompt_error)
 
         return exceptions if exceptions else None
+
+    def _prompt_is_connected(self) -> bool:
+        """Whether something is connected to the prompt, so an empty prompt is still waiting on its value."""
+        result = GriptapeNodes.handle_request(
+            GetConnectionsForParameterRequest(parameter_name="prompt", node_name=self.name, broadcast_result=False)
+        )
+        return isinstance(result, GetConnectionsForParameterResultSuccess) and result.has_incoming_connections()
 
     def after_value_set(
         self,
@@ -282,9 +292,7 @@ class GenerateImage(ControlNode):
         target_parameter: Parameter,
     ) -> None:
         """Callback after a Connection has been established TO this Node."""
-        # Record a connection to the prompt Parameter so that node validation doesn't get aggro
         if target_parameter.name == "prompt":
-            self._has_connection_to_prompt = True
             # hey.. what if we just remove the property mode from the prompt parameter?
             if ParameterMode.PROPERTY in target_parameter.allowed_modes:
                 target_parameter.allowed_modes = target_parameter.allowed_modes - {ParameterMode.PROPERTY}
@@ -309,9 +317,7 @@ class GenerateImage(ControlNode):
         target_parameter: Parameter,
     ) -> None:
         """Callback after a Connection TO this Node was REMOVED."""
-        # Remove the state maintenance of the connection to the prompt Parameter
         if target_parameter.name == "prompt":
-            self._has_connection_to_prompt = False
             # If we have no connections to the prompt parameter, add the property mode back
             target_parameter.allowed_modes = target_parameter.allowed_modes | {ParameterMode.PROPERTY}
 

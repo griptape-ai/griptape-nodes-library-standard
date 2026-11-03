@@ -12,6 +12,9 @@ from griptape_nodes.exe_types.node_types import BaseNode
 
 
 class IfElse(BaseNode):
+    # Type negotiation for the editor; process() passes the chosen value through without reading it.
+    attributes_outside_parameters = frozenset({"_locked_type", "_possibility_space", "_output_connected"})
+
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
 

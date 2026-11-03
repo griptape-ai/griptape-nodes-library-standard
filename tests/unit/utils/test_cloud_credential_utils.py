@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-import griptape_nodes_library.utils.cloud_credential_utils as cloud_credential_utils
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
@@ -15,11 +14,14 @@ _LICENSE = "header.payload.signature"
 
 
 def _stub_secrets(monkeypatch: pytest.MonkeyPatch, secrets: dict[str, str]) -> None:
-    class _FakeSecrets:
-        def get_secret(self, name: str, **_kwargs: object) -> str | None:
-            return secrets.get(name)
-
-    monkeypatch.setattr(cloud_credential_utils.GriptapeNodes, "SecretsManager", lambda: _FakeSecrets())
+    """Resolution reads secrets through a request, which the isolated test env answers from
+    `os.environ` -- the highest-priority source `SecretsManager.get_secret` searches.
+    """
+    for name in ("GRIPTAPE_NODES_LICENSE", "GT_CLOUD_API_KEY"):
+        if name in secrets:
+            monkeypatch.setenv(name, secrets[name])
+        else:
+            monkeypatch.delenv(name, raising=False)
 
 
 def test_resolves_api_key_when_only_api_key_set(monkeypatch: pytest.MonkeyPatch) -> None:

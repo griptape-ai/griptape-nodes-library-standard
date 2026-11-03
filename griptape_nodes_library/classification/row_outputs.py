@@ -30,6 +30,8 @@ class RowOutputsMixin(BaseNode):
 
     ROWS_PARAM: ClassVar[str]
     OUTPUT_PREFIX: ClassVar[str]
+    # Guards against re-entering the row sync from its own edits; nothing that runs the node reads it.
+    attributes_outside_parameters = frozenset({"_syncing"})
     _syncing = False
 
     def _row_output_label(self, index: int, text: str) -> str:

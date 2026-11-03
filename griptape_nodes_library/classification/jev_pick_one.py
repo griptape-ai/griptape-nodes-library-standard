@@ -11,8 +11,10 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes_library.classification.jev_common import (
     QUESTION_KEY,
     add_context_parameter,
+    add_images_parameter,
     add_model_group,
-    to_state,
+    build_payload,
+    build_state_and_assets,
 )
 from griptape_nodes_library.classification.row_outputs import RowOutputsMixin, parse_row
 from griptape_nodes_library.proxy import GriptapeProxyNode
@@ -33,6 +35,7 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
 
     Inputs:
         - context (str): The text JEV reads to pick an option.
+        - images (list): Optional images JEV looks at, referred to as [image 1], [image 2], ...
         - question (str): Optional guidance on what JEV should decide.
         - options (list[str]): Two or more options as 'Label' or 'Label: description'.
         - model (str): JEV model alias.
@@ -55,6 +58,7 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
         self.remove_parameter_element(self.control_parameter_out)
 
         add_context_parameter(self)
+        add_images_parameter(self)
 
         self.add_parameter(
             ParameterString(
@@ -146,9 +150,7 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
         return criteria
 
     async def _build_payload(self) -> dict[str, Any]:
-        state = to_state(self.get_parameter_value("context"))
-        if state is None:
-            raise ValueError("'Context' is empty. Connect the text for JEV to read.")
+        state, assets = await build_state_and_assets(self)
 
         criteria = self._criteria()
         question = (self.get_parameter_value("question") or "").strip()
@@ -160,7 +162,7 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
         if question:
             choice_q["instructions"] = question
 
-        return {"state": state, "questions": {QUESTION_KEY: choice_q}}
+        return build_payload(state, choice_q, assets)
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         answer_data = (result_json.get("answers") or {}).get(QUESTION_KEY) or {}

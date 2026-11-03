@@ -1,5 +1,6 @@
 """File utility functions for generating filenames and managing file operations."""
 
+from griptape_nodes.retained_mode.events.context_events import GetWorkflowContextRequest, GetWorkflowContextSuccess
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 # Supported text file extensions (based on LoadText node)
@@ -49,10 +50,10 @@ def generate_filename(
     """
     # Get workflow name from context if not provided
     if workflow_name is None:
-        try:
-            context_manager = GriptapeNodes.ContextManager()
-            workflow_name = context_manager.get_current_workflow_name()
-        except Exception:
+        result = GriptapeNodes.handle_request(GetWorkflowContextRequest(broadcast_result=False))
+        if isinstance(result, GetWorkflowContextSuccess) and result.workflow_name is not None:
+            workflow_name = result.workflow_name
+        else:
             workflow_name = "unknown_workflow"
 
     # Clean up names for filename use - keep only alphanumeric, hyphens, and underscores

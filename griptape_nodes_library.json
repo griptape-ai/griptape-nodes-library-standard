@@ -29,7 +29,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.89.0",
+    "library_version": "0.90.1",
     "engine_version": "0.104.0",
     "tags": [
       "Griptape",
@@ -980,6 +980,12 @@
                 "display_name": "Eleven Text to Sound v2",
                 "family": "ElevenLabs",
                 "provider_model_id": "eleven_text_to_sound_v2",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_eleven_text_to_sound_v3": {
+                "display_name": "Eleven Text to Sound v3",
+                "family": "ElevenLabs",
+                "provider_model_id": "eleven_text_to_sound_v3",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_eleven_multilingual_v2": {
@@ -2321,7 +2327,8 @@
           {
             "type": "model_usage",
             "model_ids": [
-              "gtc_eleven_text_to_sound_v2"
+              "gtc_eleven_text_to_sound_v2",
+              "gtc_eleven_text_to_sound_v3"
             ]
           }
         ]
@@ -6813,7 +6820,11 @@
         "tags": [
           "data",
           "variable",
-          "workflow"
+          "workflow",
+          "teleport",
+          "postage stamp",
+          "stamp",
+          "set node"
         ]
       }
     },
@@ -6847,7 +6858,11 @@
         "tags": [
           "data",
           "variable",
-          "workflow"
+          "workflow",
+          "teleport",
+          "postage stamp",
+          "stamp",
+          "get node"
         ]
       }
     },
@@ -6863,7 +6878,11 @@
         "tags": [
           "data",
           "variable",
-          "workflow"
+          "workflow",
+          "teleport",
+          "postage stamp",
+          "stamp",
+          "set node"
         ]
       }
     },

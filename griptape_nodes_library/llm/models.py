@@ -35,6 +35,7 @@ from griptape_nodes_library.llm.model_config import (
 from griptape_nodes_library.utils.cloud_credential_utils import missing_credential_error, resolve_cloud_api_key
 from griptape_nodes_library.utils.griptape_cloud_headers import build_griptape_cloud_headers
 from griptape_nodes_library.utils.node_error_utils import missing_secret_error
+from griptape_nodes_library.utils.secret_utils import get_secret
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
@@ -51,7 +52,7 @@ AWS_DEFAULT_REGION_SECRET = "AWS_DEFAULT_REGION"
 def _secret(name: str | None) -> str | None:
     if not name:
         return None
-    return GriptapeNodes.SecretsManager().get_secret(name, should_error_on_not_found=False) or None
+    return get_secret(name, error_on_missing=False) or None
 
 
 def resolve_api_key(config: ModelConfig) -> str | None:

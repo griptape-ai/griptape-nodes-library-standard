@@ -5,6 +5,10 @@ from typing import Any, ClassVar
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, Trait
 from griptape_nodes.exe_types.node_types import BaseNode, TransformedParameterValue
 from griptape_nodes.files.path_utils import sanitize_path_string
+from griptape_nodes.retained_mode.events.parameter_events import (
+    GetConnectionsForParameterRequest,
+    GetConnectionsForParameterResultSuccess,
+)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 
@@ -272,10 +276,15 @@ class ArtifactPathTethering:
             self._updating_from_parameter = None
 
         # Second, handle connection-aware settable restoration
-        connections = GriptapeNodes.FlowManager().get_connections()
-        target_connections = connections.incoming_index.get(self.node.name)
-
-        has_artifact_connection = target_connections and target_connections.get(self.artifact_parameter.name)
+        connection_result = GriptapeNodes.handle_request(
+            GetConnectionsForParameterRequest(
+                parameter_name=self.artifact_parameter.name, node_name=self.node.name, broadcast_result=False
+            )
+        )
+        has_artifact_connection = (
+            isinstance(connection_result, GetConnectionsForParameterResultSuccess)
+            and connection_result.has_incoming_connections()
+        )
 
         # If artifact parameter has connections, make both read-only again
         if has_artifact_connection:

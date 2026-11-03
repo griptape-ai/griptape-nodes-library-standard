@@ -11,6 +11,12 @@ from griptape_nodes.exe_types.core_types import (
 )
 from griptape_nodes.exe_types.node_types import BaseNode, ControlNode
 from griptape_nodes.retained_mode.events.connection_events import DeleteConnectionRequest
+from griptape_nodes.retained_mode.events.parameter_events import (
+    GetConnectionsForParameterRequest,
+    GetConnectionsForParameterResultSuccess,
+    GetParameterDetailsRequest,
+    GetParameterDetailsResultSuccess,
+)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 
 from griptape_nodes_library.three_d.three_d_artifact import ThreeDArtifact, ThreeDUrlArtifact
@@ -55,21 +61,25 @@ class DisplayList(ControlNode):
             ui_options={"hide_property": False},
         )
         self.add_parameter(self.items_list)
-        # Track whether we're already updating to prevent duplicate calls
-        self._updating_display_list = False
         # Declared element type, captured from the upstream `output_type` when
         # an incoming connection lands on `items` (e.g. `list[Sequence]` →
         # `"Sequence"`). When set, it overrides per-value type detection so
         # downstream connections see a typed-not-`any` parameter even before
         # values have flowed. None means fall back to per-value detection
         # (the historical behavior). Reset on `items` disconnect.
-        self._declared_element_type: str | None = None
-        # True while `items` has an active incoming connection. Drives the
-        # `settable` lock on the dynamic children (the connection owns
-        # their values, so manual edits / adds shouldn't be exposed).
-        # Tracked alongside the connection events instead of querying the
-        # FlowManager on each rebuild.
-        self._items_connected: bool = False
+        # A hidden parameter rather than an attribute so a copy of this node
+        # loaded without its connections (e.g. in a worker) still has it.
+        self.declared_element_type = Parameter(
+            name="declared_element_type",
+            type=ParameterTypeBuiltin.STR.value,
+            default_value=None,
+            tooltip="Element type declared by the list connected to 'items'.",
+            allowed_modes={ParameterMode.PROPERTY},
+            hide=True,
+        )
+        self.add_parameter(self.declared_element_type)
+        # Track whether we're already updating to prevent duplicate calls
+        self._updating_display_list = False
         # We'll create output parameters dynamically during processing
 
     def process(self) -> None:
@@ -135,9 +145,8 @@ class DisplayList(ControlNode):
                 self._update_existing_parameter(self.items_list[i], item, item_specific_type)
             else:
                 self._create_new_parameter(item, item_specific_type)
-        # Newly created or re-typed children inherit settable from the current
-        # connection state, not from whatever the parent had a moment ago.
-        self._apply_settable_state()
+        # Newly created or re-typed children inherit the container's lock.
+        self._apply_settable_state(locked=not self.items_list.settable)
         self._updating_display_list = False
 
     def _update_existing_parameter(self, parameter: Parameter, item: Any, item_specific_type: str) -> None:
@@ -302,18 +311,19 @@ class DisplayList(ControlNode):
         parameter. Falls back to per-value detection when no declared type
         is on file.
         """
-        if self._declared_element_type is not None:
-            return self._declared_element_type
+        declared_element_type = self.get_parameter_value(self.declared_element_type.name)
+        if declared_element_type is not None:
+            return declared_element_type
         return self._determine_item_type(item)
 
-    def _apply_settable_state(self) -> None:
-        """Sync `settable` on the container and existing children to the connection state.
+    def _apply_settable_state(self, *, locked: bool) -> None:
+        """Set `settable` on the container and existing children.
 
-        Locked while `items` has an incoming connection, unlocked otherwise.
-        Called from connection / disconnect events and after every rebuild
-        so freshly created children inherit the right state.
+        Locked while `items` has an incoming connection (the connection owns
+        their values, so manual edits / adds shouldn't be exposed), unlocked
+        otherwise. Connection / disconnect events set the container's lock;
+        every rebuild passes it on so freshly created children inherit it.
         """
-        locked = self._items_connected
         self.items_list.settable = not locked
         for child in self.items_list.find_elements_by_type(Parameter):
             child.settable = not locked
@@ -367,26 +377,30 @@ class DisplayList(ControlNode):
         node_logger = logging.getLogger("griptape_nodes")
 
         # Get outgoing connections from the specific parameter
-        connections = GriptapeNodes.FlowManager().get_connections()
-        outgoing_for_node = connections.outgoing_index.get(self.name, {})
-        connection_ids = outgoing_for_node.get(parameter_name, [])
-
-        if not connection_ids:
+        connections_result = GriptapeNodes.handle_request(
+            GetConnectionsForParameterRequest(
+                parameter_name=parameter_name, node_name=self.name, broadcast_result=False
+            )
+        )
+        if not isinstance(connections_result, GetConnectionsForParameterResultSuccess):
             return
 
         # Validate type compatibility and remove incompatible connections
-        for connection_id in connection_ids:
-            if connection_id not in connections.connections:
+        for connection in connections_result.outgoing_connections:
+            target_node_name = connection.target_node_name
+            target_param_name = connection.target_parameter_name
+            target_details = GriptapeNodes.handle_request(
+                GetParameterDetailsRequest(
+                    parameter_name=target_param_name, node_name=target_node_name, broadcast_result=False
+                )
+            )
+            if not isinstance(target_details, GetParameterDetailsResultSuccess):
                 continue
-
-            connection = connections.connections[connection_id]
-            target_param = connection.target_parameter
-            target_node = connection.target_node
 
             # Check if target parameter accepts the new output type
             is_compatible = any(
                 ParameterType.are_types_compatible(new_output_type, input_type)
-                for input_type in target_param.input_types
+                for input_type in target_details.input_types
             )
 
             if not is_compatible:
@@ -396,9 +410,9 @@ class DisplayList(ControlNode):
                     self.name,
                     parameter_name,
                     new_output_type,
-                    target_node.name,
-                    target_param.name,
-                    target_param.input_types,
+                    target_node_name,
+                    target_param_name,
+                    target_details.input_types,
                 )
 
                 # Remove the incompatible connection
@@ -406,8 +420,8 @@ class DisplayList(ControlNode):
                     DeleteConnectionRequest(
                         source_node_name=self.name,
                         source_parameter_name=parameter_name,
-                        target_node_name=target_node.name,
-                        target_parameter_name=target_param.name,
+                        target_node_name=target_node_name,
+                        target_parameter_name=target_param_name,
                     )
                 )
 
@@ -416,8 +430,8 @@ class DisplayList(ControlNode):
                         "Failed to delete incompatible connection from %s.%s to %s.%s: %s",
                         self.name,
                         parameter_name,
-                        target_node.name,
-                        target_param.name,
+                        target_node_name,
+                        target_param_name,
                         delete_result.result_details,
                     )
 
@@ -449,10 +463,12 @@ class DisplayList(ControlNode):
         the connection owns their values.
         """
         if target_parameter == self.items:
-            self._declared_element_type = self._extract_inner_list_type(source_parameter.output_type)
-            self._items_connected = True
+            self.set_parameter_value(
+                self.declared_element_type.name, self._extract_inner_list_type(source_parameter.output_type)
+            )
+            self.items_list.settable = False
             self._update_display_list()
-            self._apply_settable_state()
+            self._apply_settable_state(locked=True)
         return super().after_incoming_connection(source_node, source_parameter, target_parameter)
 
     def after_incoming_connection_removed(
@@ -467,9 +483,9 @@ class DisplayList(ControlNode):
         DisplayList only narrows based on `items`.
         """
         if target_parameter == self.items:
-            self._declared_element_type = None
-            self._items_connected = False
+            self.set_parameter_value(self.declared_element_type.name, None)
+            self.items_list.settable = True
         self._update_display_list()
         if target_parameter == self.items:
-            self._apply_settable_state()
+            self._apply_settable_state(locked=False)
         return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)

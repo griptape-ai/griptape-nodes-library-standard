@@ -389,7 +389,9 @@ def _extract_from_rgb(image: Image.Image, channel: str) -> Image.Image:
         return green
     if channel == "blue":
         return blue
-    # alpha not available in RGB, use red as fallback
+    if channel == "alpha":
+        # An RGB image has no alpha, so every pixel is fully opaque
+        return Image.new("L", image.size, 255)
     return red
 
 

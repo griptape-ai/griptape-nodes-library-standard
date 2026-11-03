@@ -9,10 +9,10 @@ import httpx
 import trafilatura
 from ddgs import DDGS
 from exa_py import Exa
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from trafilatura.settings import use_config
 
 from griptape_nodes_library.utils.node_error_utils import missing_secret_error
+from griptape_nodes_library.utils.secret_utils import get_secret
 
 DEFAULT_RESULTS_COUNT = 5
 GOOGLE_API_KEY_SECRET = "GOOGLE_API_KEY"
@@ -27,7 +27,7 @@ class SearchEngine(StrEnum):
 
 
 def _secret(name: str) -> str:
-    value = GriptapeNodes.SecretsManager().get_secret(name, should_error_on_not_found=False)
+    value = get_secret(name, error_on_missing=False)
     if not value:
         raise missing_secret_error(name)
     return value
