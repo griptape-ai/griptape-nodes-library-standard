@@ -11,19 +11,19 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from griptape_nodes.exe_types.node_types import BaseNode
+from griptape_nodes.exe_types.node_types import BaseNode, aprocess_scope
 from griptape_nodes.utils.budget_refusal import BudgetExceededError
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
-from pydantic_ai.usage import UsageLimits
+from pydantic_ai.usage import RunUsage, UsageLimits
 
 import griptape_nodes_library.llm.budget_gate as gate_module
 import griptape_nodes_library.llm.tools as tools_module
 from griptape_nodes_library.llm import models
 from griptape_nodes_library.llm.agent_state import AgentState
-from griptape_nodes_library.llm.budget_gate import check_model_permission, is_direct_provider, run_gated
+from griptape_nodes_library.llm.budget_gate import check_model_permission, gate_call, is_direct_provider, run_gated
 from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, ImageProvider
 from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
 from griptape_nodes_library.llm.models import override_model
@@ -140,7 +140,30 @@ def test_a_direct_call_is_checked_then_reports_its_tokens(node: _StubNode, calls
         "input_audio_tokens": usage.input_audio_tokens,
         "cache_audio_read_tokens": usage.cache_audio_read_tokens,
         "correlation_id": "corr-gpt-4o",
+        "run_id": None,
     }
+
+
+def test_a_direct_call_names_the_run_it_opened_under_even_when_it_reports_later(
+    node: _StubNode, calls: list[tuple[str, Any, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The report can come after the node's execution has ended, when `node.run_id` is None again."""
+    checked_runs: list[str | None] = []
+
+    def _check(_gated_node: Any, _model: str, *, run_id: str | None = None, **_kw: Any) -> str:
+        checked_runs.append(run_id)
+        return "corr"
+
+    monkeypatch.setattr(gate_module, "require_budget_access_sync", _check)
+
+    with aprocess_scope(node=node, run_id="run-that-made-the-call"):
+        call = gate_call(node, OPENAI)
+    assert node.run_id is None
+    call.add(RunUsage(input_tokens=10, output_tokens=2))
+    call.report()
+
+    assert checked_runs == ["run-that-made-the-call"]
+    assert [report["run_id"] for report in _reports(calls)] == ["run-that-made-the-call"]
 
 
 def test_a_run_that_raises_still_reports_the_tokens_it_used(node: _StubNode, calls: list[tuple[str, Any, Any]]) -> None:
