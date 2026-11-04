@@ -5512,6 +5512,22 @@
       }
     },
     {
+      "class_name": "RotateImage",
+      "file_path": "griptape_nodes_library/image/rotate_image.py",
+      "metadata": {
+        "category": "image",
+        "description": "Rotate an image by 90, 180, or 270 degrees, or by a custom angle",
+        "display_name": "Rotate Image",
+        "icon": "rotate-cw",
+        "group": "edit",
+        "tags": [
+          "image",
+          "transform",
+          "rotate"
+        ]
+      }
+    },
+    {
       "class_name": "GaussianBlurImage",
       "file_path": "griptape_nodes_library/image/gaussian_blur_image.py",
       "metadata": {
