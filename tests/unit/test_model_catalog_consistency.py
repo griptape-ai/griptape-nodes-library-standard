@@ -100,7 +100,7 @@ def _provider(library: dict[str, Any], provider_id: str) -> dict[str, Any]:
     return catalog["providers"][provider_id]
 
 
-@pytest.mark.parametrize("class_name", ["Agent", "GriptapeCloudPrompt"])
+@pytest.mark.parametrize("class_name", ["Agent", "GriptapeCloudPrompt", "SummarizeAgentMemory"])
 def test_chat_node_model_usage_matches_static_choices(class_name: str) -> None:
     """The chat model list in Python and the models the node declares must agree.
 
