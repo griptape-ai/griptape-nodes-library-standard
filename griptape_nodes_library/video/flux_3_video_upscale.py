@@ -37,11 +37,6 @@ class Flux3UpscaleCreativity(StrEnum):
     CREATIVE = "creative"
 
 
-LEGACY_MODEL_VALUES: dict[str, str] = {
-    "FLUX 3 Upscale": DEFAULT_MODEL,
-    "gtc_flux_video_upscale_v1": DEFAULT_MODEL,
-}
-
 CREATIVITY_OPTIONS = [
     Flux3UpscaleCreativity.PRECISE.value,
     Flux3UpscaleCreativity.CREATIVE.value,
@@ -84,7 +79,6 @@ class Flux3VideoUpscale(GriptapeProxyNode):
             parameter=model_param,
             model_choices=MODEL_OPTIONS,
             default_model=DEFAULT_MODEL,
-            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         video_param = ParameterVideo(

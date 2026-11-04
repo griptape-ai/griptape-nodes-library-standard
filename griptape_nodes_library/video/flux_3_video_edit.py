@@ -27,11 +27,6 @@ MODEL_OPTIONS = [DEFAULT_MODEL]
 MAX_INPUT_DURATION_SECONDS = 15.0
 MAX_PROMPT_LENGTH = 4096
 
-LEGACY_MODEL_VALUES: dict[str, str] = {
-    "FLUX Video Edit [fast]": DEFAULT_MODEL,
-    "gtc_flux_video_edit_v1": DEFAULT_MODEL,
-}
-
 
 class Flux3VideoEdit(GriptapeProxyNode):
     """Edit videos using Black Forest Labs FLUX Video Edit [fast] via Griptape model proxy.
@@ -67,7 +62,6 @@ class Flux3VideoEdit(GriptapeProxyNode):
             parameter=model_param,
             model_choices=MODEL_OPTIONS,
             default_model=DEFAULT_MODEL,
-            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(

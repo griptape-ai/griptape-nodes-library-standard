@@ -48,11 +48,6 @@ class Flux3VideoResolution(StrEnum):
     UHD = "uhd"
 
 
-LEGACY_MODEL_VALUES: dict[str, str] = {
-    "FLUX 3 Video": DEFAULT_MODEL,
-    "gtc_flux_3_video": DEFAULT_MODEL,
-}
-
 MODE_OPTIONS = [
     Flux3VideoMode.T2V.value,
     Flux3VideoMode.I2V.value,
@@ -120,7 +115,6 @@ class Flux3VideoGeneration(GriptapeProxyNode):
             parameter=model_param,
             model_choices=MODEL_OPTIONS,
             default_model=DEFAULT_MODEL,
-            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(

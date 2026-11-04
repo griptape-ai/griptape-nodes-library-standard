@@ -53,13 +53,6 @@ MODEL_OPTIONS = [
 ]
 DEFAULT_MODEL = Flux3ImageModel.FLUX_3_IMAGE.value
 
-LEGACY_MODEL_VALUES: dict[str, str] = {
-    "FLUX 3 Image": Flux3ImageModel.FLUX_3_IMAGE.value,
-    "FLUX 3 Image Klein": Flux3ImageModel.FLUX_3_IMAGE_KLEIN.value,
-    "gtc_flux_3_image": Flux3ImageModel.FLUX_3_IMAGE.value,
-    "gtc_flux_3_image_klein": Flux3ImageModel.FLUX_3_IMAGE_KLEIN.value,
-}
-
 ASPECT_RATIO_OPTIONS = [
     "auto",
     "21:9",
@@ -79,8 +72,7 @@ ASPECT_RATIO_OPTIONS = [
     "9:21",
 ]
 
-RESOLUTION_OPTIONS_FLUX_3_IMAGE = ["768sq", "1k", "1.5k", "2k", "4k", "match_input"]
-RESOLUTION_OPTIONS_KLEIN = ["768sq", "1k", "1.5k", "2k", "4k", "match_input"]
+RESOLUTION_OPTIONS = ["768sq", "1k", "1.5k", "2k", "4k", "match_input"]
 SIZE_MODE_OPTIONS = [
     Flux3SizeMode.RESOLUTION_TIER.value,
     Flux3SizeMode.CUSTOM_DIMENSIONS.value,
@@ -131,7 +123,6 @@ class Flux3ImageGeneration(GriptapeProxyNode):
             parameter=model_param,
             model_choices=MODEL_OPTIONS,
             default_model=DEFAULT_MODEL,
-            deprecated_values=LEGACY_MODEL_VALUES,
         )
 
         self.add_parameter(
@@ -191,7 +182,7 @@ class Flux3ImageGeneration(GriptapeProxyNode):
                 default_value="1k",
                 tooltip="Equal-area resolution tier ('768sq', '1k', '1.5k', '2k', '4k', or 'match_input' for edits)",
                 allow_output=False,
-                traits={Options(choices=RESOLUTION_OPTIONS_FLUX_3_IMAGE)},
+                traits={Options(choices=RESOLUTION_OPTIONS)},
                 ui_options={"display_name": "Resolution"},
             )
         )
@@ -299,23 +290,18 @@ class Flux3ImageGeneration(GriptapeProxyNode):
     def _sync_model_parameter_visibility(self) -> None:
         api_model_id = self._get_selected_model_id() or DEFAULT_MODEL
         is_klein = api_model_id == Flux3ImageModel.FLUX_3_IMAGE_KLEIN
-        current_res = self.get_parameter_value("resolution") or "1k"
         if is_klein:
             self.hide_parameter_by_name("grounding")
             self.show_parameter_by_name("randomize_seed")
             self.show_parameter_by_name("seed")
             self.show_parameter_by_name("output_format")
             self.show_parameter_by_name("steps")
-            default_res = current_res if current_res in RESOLUTION_OPTIONS_KLEIN else "1k"
-            self._update_option_choices("resolution", RESOLUTION_OPTIONS_KLEIN, default_res)
         else:
             self.show_parameter_by_name("grounding")
             self.hide_parameter_by_name("randomize_seed")
             self.hide_parameter_by_name("seed")
             self.hide_parameter_by_name("output_format")
             self.hide_parameter_by_name("steps")
-            default_res = current_res if current_res in RESOLUTION_OPTIONS_FLUX_3_IMAGE else "1k"
-            self._update_option_choices("resolution", RESOLUTION_OPTIONS_FLUX_3_IMAGE, default_res)
 
     def _sync_size_mode_visibility(self) -> None:
         size_mode = self.get_parameter_value("size_mode") or Flux3SizeMode.RESOLUTION_TIER.value
