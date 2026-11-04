@@ -243,10 +243,6 @@ class ImageGridSplitter(DataNode):
 
         return super().after_value_set(parameter, value)
 
-    def process(self) -> None:
-        # Synchronous fallback: run the same logic without offloading work.
-        self._process_sync()
-
     async def aprocess(self) -> None:
         """Async implementation.
 
@@ -275,7 +271,7 @@ class ImageGridSplitter(DataNode):
         self.parameter_output_values["preview"] = preview_artifact
 
         # Ensure the per-cell output parameters exist for this run.
-        self._ensure_cell_output_parameters(rows, cols)
+        await self._ensure_cell_output_parameters(rows, cols)
 
         outputs: list[ImageUrlArtifact] = []
         for r_idx in range(rows):
@@ -287,43 +283,6 @@ class ImageGridSplitter(DataNode):
                 self.set_parameter_value("cell_file", f"{cell_name}.jpg")
                 cell_dest = self._cell_file.build_file()
                 cell_saved = await cell_dest.awrite_bytes(cell_buffer.getvalue())
-                cell_artifact = ImageUrlArtifact(cell_saved.location)
-                outputs.append(cell_artifact)
-                self.parameter_output_values[cell_name] = cell_artifact
-
-        self.parameter_output_values["images"] = outputs
-
-    def _process_sync(self) -> None:
-        self.parameter_output_values["images"] = []
-        self.parameter_output_values["preview"] = None
-
-        pil_image = self._load_input_as_pil()
-        if pil_image is None:
-            return
-
-        rows, cols = self._get_effective_grid(pil_image)
-        self._publish_detected(rows, cols)
-
-        preview, cell_images = self._compute_preview_and_cells(pil_image, rows, cols)
-        preview_buffer = BytesIO()
-        preview.save(preview_buffer, format="JPEG")
-        dest = self._preview_file.build_file()
-        saved = dest.write_bytes(preview_buffer.getvalue())
-        preview_artifact = ImageUrlArtifact(saved.location)
-        self.parameter_output_values["preview"] = preview_artifact
-
-        self._ensure_cell_output_parameters(rows, cols)
-
-        outputs: list[ImageUrlArtifact] = []
-        for r_idx in range(rows):
-            for c_idx in range(cols):
-                cell = cell_images[r_idx][c_idx]
-                cell_name = f"r{r_idx + 1}c{c_idx + 1}"
-                cell_buffer = BytesIO()
-                cell.save(cell_buffer, format="JPEG")
-                self.set_parameter_value("cell_file", f"{cell_name}.jpg")
-                cell_dest = self._cell_file.build_file()
-                cell_saved = cell_dest.write_bytes(cell_buffer.getvalue())
                 cell_artifact = ImageUrlArtifact(cell_saved.location)
                 outputs.append(cell_artifact)
                 self.parameter_output_values[cell_name] = cell_artifact
@@ -993,8 +952,8 @@ class ImageGridSplitter(DataNode):
     # Dynamic output parameters
     # -------------------------
 
-    def _ensure_cell_output_parameters(self, rows: int, cols: int) -> None:
-        self._remove_existing_cell_outputs()
+    async def _ensure_cell_output_parameters(self, rows: int, cols: int) -> None:
+        await self._remove_existing_cell_outputs()
 
         for r in range(1, rows + 1):
             for c in range(1, cols + 1):
@@ -1023,7 +982,7 @@ class ImageGridSplitter(DataNode):
                 )
                 self.add_parameter(param)
 
-    def _remove_existing_cell_outputs(self) -> None:
+    async def _remove_existing_cell_outputs(self) -> None:
         to_remove: list[str] = []
         for param in self.parameters:
             if not getattr(param, "user_defined", False):
@@ -1034,4 +993,6 @@ class ImageGridSplitter(DataNode):
                 to_remove.append(param.name)
 
         for name in to_remove:
-            GriptapeNodes.handle_request(RemoveParameterFromNodeRequest(parameter_name=name, node_name=self.name))
+            await GriptapeNodes.ahandle_request(
+                RemoveParameterFromNodeRequest(parameter_name=name, node_name=self.name)
+            )
