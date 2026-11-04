@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+
 import pytest
 from PIL import Image
 
@@ -116,3 +118,17 @@ def test_custom_parameters_are_hidden_until_custom_is_picked(node: RotateImage) 
 
     node.set_parameter_value("rotation", Rotation.ROTATE_180)
     assert angle.ui_options.get("hide") is True
+
+
+def test_rotates_from_exif_orientation(node: RotateImage) -> None:
+    """A sideways phone photo is rotated as it is displayed, not as it is stored."""
+    stored = Image.new("RGB", (40, 20), RED)
+    exif = stored.getexif()
+    exif[0x0112] = 6  # displayed rotated 90° clockwise, as 20x40
+    buffer = io.BytesIO()
+    stored.save(buffer, format="JPEG", exif=exif)
+    photo = Image.open(io.BytesIO(buffer.getvalue()))
+
+    result = node._process_image(photo, rotation=Rotation.COUNTER_CLOCKWISE_90)
+
+    assert result.size == (40, 20)

@@ -9,7 +9,7 @@ from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
-from PIL import Image
+from PIL import Image, ImageOps
 
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
 from griptape_nodes_library.utils.color_utils import parse_color_to_rgba
@@ -128,6 +128,9 @@ class RotateImage(BaseImageProcessor):
         rotation = kwargs.get("rotation") or Rotation.CLOCKWISE_90
 
         logger.debug(f"{self.name}: Rotating image with rotation={rotation}")
+
+        # Rotate the image as it is displayed, since the saved output drops the EXIF orientation tag.
+        pil_image = ImageOps.exif_transpose(pil_image)
 
         match rotation:
             case Rotation.CLOCKWISE_90 | Rotation.ROTATE_180 | Rotation.COUNTER_CLOCKWISE_90:
