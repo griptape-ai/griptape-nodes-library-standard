@@ -26,7 +26,7 @@ ANGLE_MIN = -360.0
 ANGLE_MAX = 360.0
 OPAQUE = 255
 CUSTOM_ONLY_PARAMETERS = ["angle", "expand_canvas", "background_color"]
-PREVIEW_PARAMETERS = {"rotation", *CUSTOM_ONLY_PARAMETERS}
+PREVIEW_PARAMETERS = ["rotation", *CUSTOM_ONLY_PARAMETERS]
 DEFAULT_BACKGROUND = "#00000000"
 
 
@@ -67,7 +67,13 @@ class RotateImage(BaseImageProcessor):
                 default_value={"image_url": ""},
                 tooltip="Preview of the rotation. The image is only rotated when the node runs.",
                 allowed_modes={ParameterMode.PROPERTY},
-                traits={Widget(name="RotateImagePreview", library="Griptape Nodes Library")},
+                traits={
+                    Widget(
+                        name="RotateImagePreview",
+                        library="Griptape Nodes Library",
+                        synced_parameters=PREVIEW_PARAMETERS,
+                    )
+                },
             )
         )
 
