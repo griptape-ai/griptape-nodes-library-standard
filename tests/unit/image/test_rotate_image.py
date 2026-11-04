@@ -268,6 +268,7 @@ def test_sixteen_bit_file_rotates_from_orientation_once(file_format: str) -> Non
     rotated = rotate_sixteen_bit_file(data, file_format, file_format, rotation=Rotation.COUNTER_CLOCKWISE_90)
 
     pixels = cv2.imdecode(np.frombuffer(rotated, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+    assert pixels is not None
     assert pixels.dtype == np.uint16
     assert pixels.shape == (20, 40)
 
