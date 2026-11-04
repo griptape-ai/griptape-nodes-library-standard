@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 
 import pytest
+from griptape.artifacts import ImageUrlArtifact
 from PIL import Image
 
 from griptape_nodes_library.image.rotate_image import ROTATION_ICONS, RotateImage, Rotation
@@ -154,3 +155,23 @@ def test_dropdown_shows_an_icon_for_every_choice(node: RotateImage) -> None:
     assert rotation.ui_options["dropdown_row_icons"] is True
     assert [row["name"] for row in rotation.ui_options["data"]] == [r.value for r in Rotation]
     assert set(ROTATION_ICONS) == set(Rotation)
+
+
+def test_changing_rotation_updates_the_preview_without_rotating_the_image(node: RotateImage) -> None:
+    node.set_parameter_value("input_image", ImageUrlArtifact(value="https://example.com/cat.png"))
+
+    node.set_parameter_value("rotation", Rotation.CUSTOM)
+    node.set_parameter_value("angle", 33.0)
+
+    preview = node.get_parameter_value("rotation_preview")
+    assert preview["image_url"] == "https://example.com/cat.png"
+    assert preview["rotation"] == Rotation.CUSTOM
+    assert preview["angle"] == 33.0
+    assert node.get_parameter_value("output") is None
+
+
+def test_clearing_the_input_image_clears_the_preview(node: RotateImage) -> None:
+    node.set_parameter_value("input_image", ImageUrlArtifact(value="https://example.com/cat.png"))
+    node.set_parameter_value("input_image", None)
+
+    assert node.get_parameter_value("rotation_preview")["image_url"] == ""

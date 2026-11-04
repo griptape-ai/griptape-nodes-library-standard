@@ -1296,6 +1296,11 @@
       "description": "Interactive crop editor — drag to move/resize the crop rectangle, draw a new crop area, with rule-of-thirds guides and live coordinate readout."
     },
     {
+      "name": "RotateImagePreview",
+      "path": "widgets/RotateImagePreview/RotateImagePreview.js",
+      "description": "Display-only preview of the Rotate Image node's rotation, drawn on a canvas that scales with the node."
+    },
+    {
       "name": "CropVideoEditor",
       "path": "widgets/CropVideoEditor/CropVideoEditor.js",
       "description": "Interactive video crop editor — drag handles on a live video frame with frame scrubber, aspect ratio, resolution, and position presets."
