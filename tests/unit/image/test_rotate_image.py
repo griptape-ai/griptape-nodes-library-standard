@@ -103,6 +103,20 @@ def test_custom_angle_converts_grayscale_for_color_fill(node: RotateImage) -> No
     assert result.getpixel((0, 0)) == (255, 0, 0, 255)
 
 
+@pytest.mark.parametrize(("mode", "value", "expected"), [("I;16", 20000, 78), ("I", 20000, 78), ("F", 0.5, 127)])
+def test_custom_angle_scales_high_bit_depth_grayscale(
+    node: RotateImage, mode: str, value: float, expected: int
+) -> None:
+    img = Image.new(mode, (100, 50), value)
+
+    result = node._process_image(
+        img, rotation=Rotation.CUSTOM, angle=10.0, expand_canvas=True, background_color="#00000000"
+    )
+
+    assert result.mode == "RGBA"
+    assert result.getpixel((result.width // 2, result.height // 2)) == (expected, expected, expected, 255)
+
+
 def test_unknown_rotation_raises(node: RotateImage, landscape: Image.Image) -> None:
     with pytest.raises(ValueError, match="Unknown rotation"):
         node._process_image(landscape, rotation="sideways")

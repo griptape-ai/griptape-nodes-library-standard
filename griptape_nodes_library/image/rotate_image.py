@@ -15,6 +15,7 @@ from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
 from griptape_nodes_library.utils.color_utils import parse_color_to_rgba
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
+    grayscale_to_eight_bit,
     load_pil_from_url,
 )
 
@@ -167,7 +168,7 @@ class RotateImage(BaseImageProcessor):
             fill_color: tuple[int, ...] = fill[:3]
         else:
             if pil_image.mode != "RGBA":
-                pil_image = pil_image.convert("RGBA")
+                pil_image = grayscale_to_eight_bit(pil_image).convert("RGBA")
             fill_color = fill
 
         # PIL rotates counter-clockwise for positive angles.
