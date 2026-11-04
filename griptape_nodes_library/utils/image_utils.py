@@ -896,11 +896,8 @@ def apply_blur_to_mask(alpha: Image.Image, blur_radius: float, context_name: str
         msg = f"{context_name}: Using OpenCV for blur operation (radius={blur_radius})"
         logger.debug(msg)
         alpha_array = np.array(alpha, dtype=np.uint8)
-        # OpenCV GaussianBlur requires kernel size to be odd
-        kernel_size = int(blur_radius * 2 + 1)
-        if kernel_size % 2 == 0:
-            kernel_size += 1
-        alpha_array = cv2.GaussianBlur(alpha_array, (kernel_size, kernel_size), blur_radius)
+        # A (0, 0) kernel lets OpenCV size it from sigma, so the blur matches PIL's GaussianBlur.
+        alpha_array = cv2.GaussianBlur(alpha_array, (0, 0), blur_radius)
         return Image.fromarray(alpha_array, mode="L")
 
     msg = f"{context_name}: Using PIL for blur operation (radius={blur_radius})"

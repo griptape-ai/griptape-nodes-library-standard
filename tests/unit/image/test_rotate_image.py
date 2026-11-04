@@ -17,6 +17,7 @@ from griptape_nodes_library.image.rotate_image import (
     expanded_size,
     is_sixteen_bit,
     rotate_array,
+    rotate_sixteen_bit_file,
 )
 
 RED = (255, 0, 0)
@@ -247,3 +248,45 @@ def test_exif_transpose_array_matches_pil(orientation: int) -> None:
     expected = np.asarray(ImageOps.exif_transpose(img))
 
     np.testing.assert_array_equal(exif_transpose_array(pixels, orientation), expected)
+
+
+def _oriented_sixteen_bit_gray(file_format: str) -> bytes:
+    """A 40x20 16-bit grayscale file tagged to display rotated 90° clockwise, as 20x40."""
+    img = Image.fromarray(np.full((20, 40), 40000, dtype=np.uint16))
+    exif = img.getexif()
+    exif[0x0112] = 6
+    buffer = io.BytesIO()
+    img.save(buffer, format=file_format, exif=exif)
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize("file_format", ["PNG", "TIFF"])
+def test_sixteen_bit_file_rotates_from_orientation_once(file_format: str) -> None:
+    data = _oriented_sixteen_bit_gray(file_format)
+    assert is_sixteen_bit(Image.open(io.BytesIO(data)))
+
+    rotated = rotate_sixteen_bit_file(data, file_format, file_format, rotation=Rotation.COUNTER_CLOCKWISE_90)
+
+    pixels = cv2.imdecode(np.frombuffer(rotated, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+    assert pixels.dtype == np.uint16
+    assert pixels.shape == (20, 40)
+
+
+def test_sixteen_bit_file_round_trips_every_value(sixteen_bit_bgr: np.ndarray) -> None:
+    ok, buffer = cv2.imencode(".png", sixteen_bit_bgr)
+    assert ok
+
+    rotated = rotate_sixteen_bit_file(buffer.tobytes(), "PNG", "TIFF", rotation=Rotation.ROTATE_180)
+
+    pixels = cv2.imdecode(np.frombuffer(rotated, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+    np.testing.assert_array_equal(pixels, np.rot90(sixteen_bit_bgr, 2))
+
+
+def test_sixteen_bit_bmp_is_not_treated_as_sixteen_bit() -> None:
+    buffer = io.BytesIO()
+    Image.new("RGB", (4, 4)).save(buffer, format="BMP")
+    bmp = bytearray(buffer.getvalue())
+    bmp[28] = 16  # BITMAPINFOHEADER bits per pixel: a 5-6-5 BMP
+    img = Image.open(io.BytesIO(bytes(bmp)))
+
+    assert not is_sixteen_bit(img)

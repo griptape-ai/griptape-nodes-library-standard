@@ -1,3 +1,4 @@
+import io
 import math
 from enum import StrEnum
 from typing import Any
@@ -70,6 +71,8 @@ def is_sixteen_bit(pil_image: Image.Image) -> bool:
 
     PIL decodes 16-bit RGB and RGBA to 8 bits, so this reads the raw mode it would decode from.
     """
+    if (pil_image.format or "").upper() not in SIXTEEN_BIT_FORMATS:
+        return False
     if pil_image.mode.startswith("I;16"):
         return True
     for tile in getattr(pil_image, "tile", []):
@@ -188,6 +191,34 @@ def rotate_array(
             raise ValueError(msg)
 
 
+def rotate_sixteen_bit_file(data: bytes, input_format: str, output_format: str, **kwargs) -> bytes:
+    """Rotate an encoded 16-bit PNG or TIFF and encode the result as 16-bit output_format."""
+    pixels = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+    if pixels is None or pixels.dtype != np.uint16:
+        msg = f"Couldn't read the {input_format} image as 16 bits per channel."
+        raise ValueError(msg)
+
+    # Rotate the image as it is displayed, since the saved output drops the EXIF orientation tag.
+    # OpenCV already applies a TIFF's orientation when decoding it.
+    if input_format.upper() != "TIFF":
+        orientation = Image.open(io.BytesIO(data)).getexif().get(EXIF_ORIENTATION)
+        pixels = exif_transpose_array(pixels, orientation)
+
+    rotated = rotate_array(
+        pixels,
+        kwargs.get("rotation") or Rotation.CLOCKWISE_90,
+        angle=kwargs.get("angle") or 0.0,
+        expand_canvas=kwargs.get("expand_canvas", True),
+        background_color=kwargs.get("background_color") or "#00000000",
+    )
+
+    ok, buffer = cv2.imencode(SIXTEEN_BIT_FORMATS[output_format.upper()], rotated)
+    if not ok:
+        msg = f"Couldn't save the rotated image as 16-bit {output_format}."
+        raise ValueError(msg)
+    return buffer.tobytes()
+
+
 def image_url(image_value: Any) -> str:
     """URL of an image parameter value, which may be an artifact or its dict form."""
     if isinstance(image_value, dict):
@@ -298,27 +329,8 @@ class RotateImage(BaseImageProcessor):
 
     def _rotate_sixteen_bit(self, pil_image: Image.Image, url: str, output_format: str, **kwargs) -> ImageUrlArtifact:
         """Rotate a 16-bit image without reducing its bit depth, and save it as 16-bit PNG or TIFF."""
-        encoded = np.frombuffer(File(url).read_bytes(), dtype=np.uint8)
-        pixels = cv2.imdecode(encoded, cv2.IMREAD_UNCHANGED)
-        if pixels is None:
-            msg = f"Couldn't read the 16-bit image at {url}."
-            raise ValueError(msg)
-
-        # Rotate the image as it is displayed, since the saved output drops the EXIF orientation tag.
-        pixels = exif_transpose_array(pixels, pil_image.getexif().get(EXIF_ORIENTATION))
-        rotated = rotate_array(
-            pixels,
-            kwargs.get("rotation") or Rotation.CLOCKWISE_90,
-            angle=kwargs.get("angle") or 0.0,
-            expand_canvas=kwargs.get("expand_canvas", True),
-            background_color=kwargs.get("background_color") or "#00000000",
-        )
-
-        ok, buffer = cv2.imencode(SIXTEEN_BIT_FORMATS[output_format], rotated)
-        if not ok:
-            msg = f"Couldn't save the rotated image as 16-bit {output_format}."
-            raise ValueError(msg)
-        saved = self._output_file.build_file().write_bytes(buffer.tobytes())
+        rotated = rotate_sixteen_bit_file(File(url).read_bytes(), pil_image.format or "", output_format, **kwargs)
+        saved = self._output_file.build_file().write_bytes(rotated)
         return ImageUrlArtifact(saved.location)
 
     def _get_processing_description(self) -> str:
