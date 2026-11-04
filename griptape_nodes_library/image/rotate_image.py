@@ -1,10 +1,15 @@
+import math
 from enum import StrEnum
 from typing import Any
 
+import cv2
+import numpy as np
+from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
@@ -21,6 +26,13 @@ from griptape_nodes_library.utils.image_utils import (
 ANGLE_MIN = -360.0
 ANGLE_MAX = 360.0
 OPAQUE = 255
+# Scales an 8-bit color channel to 16 bits: 255 * 257 == 65535.
+EIGHT_TO_SIXTEEN_BIT = 257
+EXIF_ORIENTATION = 0x0112
+GRAYSCALE_DIMENSIONS = 2
+BGR_CHANNELS = 3
+# Formats that hold 16 bits per channel, mapped to the extension OpenCV encodes them by.
+SIXTEEN_BIT_FORMATS = {"PNG": ".png", "TIFF": ".tiff"}
 CUSTOM_ONLY_PARAMETERS = ["angle", "expand_canvas", "background_color"]
 PREVIEW_PARAMETERS = {"rotation", *CUSTOM_ONLY_PARAMETERS}
 
@@ -38,6 +50,152 @@ QUARTER_TURNS = {
     Rotation.COUNTER_CLOCKWISE_90: Image.Transpose.ROTATE_90,
 }
 
+# np.rot90 turns counter-clockwise for positive k.
+QUARTER_TURNS_K = {
+    Rotation.CLOCKWISE_90: -1,
+    Rotation.ROTATE_180: 2,
+    Rotation.COUNTER_CLOCKWISE_90: 1,
+}
+
+ROTATION_ICONS = {
+    Rotation.CLOCKWISE_90: "rotate-cw",
+    Rotation.ROTATE_180: "refresh-cw",
+    Rotation.COUNTER_CLOCKWISE_90: "rotate-ccw",
+    Rotation.CUSTOM: "sliders-horizontal",
+}
+
+
+def is_sixteen_bit(pil_image: Image.Image) -> bool:
+    """Whether the file behind an unloaded PIL image stores 16 bits per channel.
+
+    PIL decodes 16-bit RGB and RGBA to 8 bits, so this reads the raw mode it would decode from.
+    """
+    if pil_image.mode.startswith("I;16"):
+        return True
+    for tile in getattr(pil_image, "tile", []):
+        rawmode = tile.args if isinstance(tile.args, str) else (tile.args or ("",))[0]
+        if isinstance(rawmode, str) and ";16" in rawmode:
+            return True
+    return False
+
+
+def exif_transpose_array(pixels: np.ndarray, orientation: int | None) -> np.ndarray:
+    """Turn pixels to how an EXIF orientation tag says they are displayed, like ImageOps.exif_transpose."""
+    match orientation:
+        case None | 1:
+            return pixels
+        case 2:
+            return pixels[:, ::-1]
+        case 3:
+            return np.rot90(pixels, 2)
+        case 4:
+            return pixels[::-1]
+        case 5:
+            return pixels.swapaxes(0, 1)
+        case 6:
+            return np.rot90(pixels, -1)
+        case 7:
+            return np.rot90(pixels, 2).swapaxes(0, 1)
+        case 8:
+            return np.rot90(pixels, 1)
+        case _:
+            return pixels
+
+
+def expanded_size(width: int, height: int, angle: float) -> tuple[int, int]:
+    """Canvas size that fits an image rotated by angle degrees, rounded the way PIL's rotate(expand=True) does."""
+    if angle % 180 == 0:
+        return width, height
+    if angle % 90 == 0:
+        return height, width
+    radians = math.radians(angle)
+    cos = round(math.cos(radians), 15)
+    sin = round(math.sin(radians), 15)
+    center_x, center_y = width / 2, height / 2
+    xs, ys = [], []
+    for x, y in ((0, 0), (width, 0), (width, height), (0, height)):
+        xs.append(cos * (x - center_x) - sin * (y - center_y) + center_x)
+        ys.append(sin * (x - center_x) + cos * (y - center_y) + center_y)
+    return math.ceil(max(xs)) - math.floor(min(xs)), math.ceil(max(ys)) - math.floor(min(ys))
+
+
+def rotate_array_by_angle(
+    pixels: np.ndarray, angle: float, *, expand_canvas: bool, background_color: str
+) -> np.ndarray:
+    """Rotate 16-bit OpenCV (BGR) pixels clockwise by an arbitrary angle, filling exposed corners."""
+    red, green, blue, alpha = (channel * EIGHT_TO_SIXTEEN_BIT for channel in parse_color_to_rgba(background_color))
+    channels = 1 if pixels.ndim == GRAYSCALE_DIMENSIONS else pixels.shape[2]
+
+    if channels == BGR_CHANNELS and alpha == OPAQUE * EIGHT_TO_SIXTEEN_BIT:
+        border: tuple[int, ...] = (blue, green, red)
+    else:
+        match channels:
+            case 1:
+                pixels = cv2.cvtColor(pixels, cv2.COLOR_GRAY2BGRA)
+            case 3:
+                pixels = cv2.cvtColor(pixels, cv2.COLOR_BGR2BGRA)
+            case 4:
+                pass
+            case _:
+                msg = f"Can't rotate an image with {channels} channels."
+                raise ValueError(msg)
+        border = (blue, green, red, alpha)
+
+    height, width = pixels.shape[:2]
+    # Whole quarter turns that keep every pixel are done losslessly, as PIL does.
+    if angle % 180 == 0 or (angle % 90 == 0 and (expand_canvas or width == height)):
+        return np.ascontiguousarray(np.rot90(pixels, -round(angle / 90)))
+
+    out_width, out_height = expanded_size(width, height, angle) if expand_canvas else (width, height)
+
+    # Map source pixel centers onto the output, turning clockwise on screen (y points down).
+    radians = math.radians(angle)
+    cos, sin = math.cos(radians), math.sin(radians)
+    src_x, src_y = (width - 1) / 2, (height - 1) / 2
+    dst_x, dst_y = (out_width - 1) / 2, (out_height - 1) / 2
+    matrix = np.array(
+        [
+            [cos, -sin, dst_x - cos * src_x + sin * src_y],
+            [sin, cos, dst_y - sin * src_x - cos * src_y],
+        ]
+    )
+    return cv2.warpAffine(
+        pixels,
+        matrix,
+        (out_width, out_height),
+        flags=cv2.INTER_CUBIC,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=border,
+    )
+
+
+def rotate_array(
+    pixels: np.ndarray, rotation: str, *, angle: float, expand_canvas: bool, background_color: str
+) -> np.ndarray:
+    """Rotate 16-bit OpenCV pixels the same way RotateImage rotates PIL images."""
+    match rotation:
+        case Rotation.CLOCKWISE_90 | Rotation.ROTATE_180 | Rotation.COUNTER_CLOCKWISE_90:
+            return np.ascontiguousarray(np.rot90(pixels, QUARTER_TURNS_K[Rotation(rotation)]))
+        case Rotation.CUSTOM:
+            return rotate_array_by_angle(
+                np.ascontiguousarray(pixels),
+                angle,
+                expand_canvas=expand_canvas,
+                background_color=background_color,
+            )
+        case _:
+            msg = f"Unknown rotation: {rotation!r}"
+            raise ValueError(msg)
+
+
+def image_url(image_value: Any) -> str:
+    """URL of an image parameter value, which may be an artifact or its dict form."""
+    if isinstance(image_value, dict):
+        return dict_to_image_url_artifact(image_value).value
+    if hasattr(image_value, "to_dict"):
+        return dict_to_image_url_artifact(image_value.to_dict()).value
+    return image_value.value
+
 
 class RotateImage(BaseImageProcessor):
     """Rotate an image by a quarter turn or a custom angle."""
@@ -49,6 +207,10 @@ class RotateImage(BaseImageProcessor):
                 name="rotation",
                 default_value=Rotation.CLOCKWISE_90,
                 tooltip="Quarter turns are lossless. Pick 'custom angle' to rotate by any number of degrees.",
+                ui_options={
+                    "data": [{"name": rotation.value, "icon": icon} for rotation, icon in ROTATION_ICONS.items()],
+                    "dropdown_row_icons": True,
+                },
             )
             rotation_parameter.add_trait(Options(choices=[r.value for r in Rotation]))
             self.add_parameter(rotation_parameter)
@@ -110,14 +272,54 @@ class RotateImage(BaseImageProcessor):
                 image_artifact = image_value
 
             pil_image = load_pil_from_url(image_artifact.value)
-            processed_image = self._process_image(pil_image, **self._get_custom_parameters())
-            output_artifact = self._save_image_artifact(processed_image, "png")
+            custom_parameters = self._get_custom_parameters()
+            if is_sixteen_bit(pil_image):
+                output_artifact = self._rotate_sixteen_bit(pil_image, image_artifact.value, "PNG", **custom_parameters)
+            else:
+                processed_image = self._process_image(pil_image, **custom_parameters)
+                output_artifact = self._save_image_artifact(processed_image, "png")
 
             self.set_parameter_value("output", output_artifact)
             self.publish_update_to_parameter("output", output_artifact)
 
         except Exception as e:
             logger.warning(f"{self.name}: Live preview failed: {e}")
+
+    def _process(self, pil_image: Image.Image, detected_format: str, **kwargs) -> None:
+        """Rotate 16-bit images with OpenCV, since PIL would reduce their color to 8 bits."""
+        output_format = self._get_output_format(detected_format).upper()
+        if not (is_sixteen_bit(pil_image) and output_format in SIXTEEN_BIT_FORMATS):
+            super()._process(pil_image, detected_format, **kwargs)
+            return
+
+        self.append_value_to_parameter("logs", f"{self._get_processing_description()} at 16 bits per channel\n")
+        url = image_url(self.parameter_values.get("input_image"))
+        self.parameter_output_values["output"] = self._rotate_sixteen_bit(pil_image, url, output_format, **kwargs)
+
+    def _rotate_sixteen_bit(self, pil_image: Image.Image, url: str, output_format: str, **kwargs) -> ImageUrlArtifact:
+        """Rotate a 16-bit image without reducing its bit depth, and save it as 16-bit PNG or TIFF."""
+        encoded = np.frombuffer(File(url).read_bytes(), dtype=np.uint8)
+        pixels = cv2.imdecode(encoded, cv2.IMREAD_UNCHANGED)
+        if pixels is None:
+            msg = f"Couldn't read the 16-bit image at {url}."
+            raise ValueError(msg)
+
+        # Rotate the image as it is displayed, since the saved output drops the EXIF orientation tag.
+        pixels = exif_transpose_array(pixels, pil_image.getexif().get(EXIF_ORIENTATION))
+        rotated = rotate_array(
+            pixels,
+            kwargs.get("rotation") or Rotation.CLOCKWISE_90,
+            angle=kwargs.get("angle") or 0.0,
+            expand_canvas=kwargs.get("expand_canvas", True),
+            background_color=kwargs.get("background_color") or "#00000000",
+        )
+
+        ok, buffer = cv2.imencode(SIXTEEN_BIT_FORMATS[output_format], rotated)
+        if not ok:
+            msg = f"Couldn't save the rotated image as 16-bit {output_format}."
+            raise ValueError(msg)
+        saved = self._output_file.build_file().write_bytes(buffer.tobytes())
+        return ImageUrlArtifact(saved.location)
 
     def _get_processing_description(self) -> str:
         """Get description of what this processor does."""
