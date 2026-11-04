@@ -114,7 +114,8 @@ def test_validate_rejects_too_many_reference_images(node: OpenAiImageGeneration,
     node.set_parameter_value("model", model_name)
     node.set_parameter_value("prompt", "Use the reference images")
     node.set_parameter_value("size", "1024x1024")
-    node.set_parameter_value("input_images", [f"image_{index}.png" for index in range(17)])
+    # The list's rows refuse a 17th item, so the excess can only arrive as a whole list from a connection.
+    node.parameter_values["input_images"] = [f"image_{index}.png" for index in range(17)]
 
     exceptions = node.validate_before_node_run()
 
