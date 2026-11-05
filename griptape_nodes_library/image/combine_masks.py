@@ -4,7 +4,7 @@ import io
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -64,11 +64,12 @@ class CombineMasks(ImagePreviewMixin, DataNode):
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="combined_mask.png")
         self._output_file.add_parameter()
 
-    def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        """Give the preview the masks whenever the list or one of its items changes."""
-        if parameter.name == "masks" or parameter.parent_container_name == "masks":
-            self._update_preview()
-        return super().after_value_set(parameter, value)
+    def _is_preview_source(self, parameter_name: str) -> bool:
+        """The masks list and each of its items feed the preview."""
+        if parameter_name == "masks":
+            return True
+        parameter = self.get_parameter_by_name(parameter_name)
+        return parameter is not None and parameter.parent_container_name == "masks"
 
     def _preview_extras(self) -> dict[str, Any]:
         """Each mask's URL paired with its mode, which decides whether the mask is read from its alpha.

@@ -36,9 +36,36 @@ class ImagePreviewMixin(BaseNode):
     # A node that already has a parameter called "preview" names the widget's parameter something else
     PREVIEW_PARAMETER_NAME: ClassVar[str] = "preview"
 
+    def set_parameter_value(
+        self,
+        param_name: str,
+        value: Any,
+        *,
+        initial_setup: bool = False,
+        emit_change: bool = True,
+        skip_before_value_set: bool = False,
+    ) -> None:
+        """Keep the preview in step while a workflow loads.
+
+        Loading sets values with initial_setup, which skips after_value_set, so a saved image would
+        never reach the preview and a saved font URL would never be refreshed. The preview is worked out
+        again whenever a value it is built from loads, so it ends up right whatever order they load in.
+        """
+        super().set_parameter_value(
+            param_name,
+            value,
+            initial_setup=initial_setup,
+            emit_change=emit_change,
+            skip_before_value_set=skip_before_value_set,
+        )
+        if not initial_setup or self.PREVIEW_OPERATION is None:
+            return
+        if param_name == self.PREVIEW_PARAMETER_NAME or self._is_preview_source(param_name):
+            self._update_preview()
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Give the preview widget the new image when one of its images changes."""
-        if self.PREVIEW_OPERATION is not None and parameter.name in self.PREVIEW_IMAGES:
+        if self.PREVIEW_OPERATION is not None and self._is_preview_source(parameter.name):
             self._update_preview()
         elif parameter.name == self.PREVIEW_PARAMETER_NAME and isinstance(value, dict):
             self._refresh_session_extras(value)
@@ -73,6 +100,10 @@ class ImagePreviewMixin(BaseNode):
                 },
             )
         )
+
+    def _is_preview_source(self, parameter_name: str) -> bool:
+        """Whether the preview is built from this parameter's value. Override for sources it doesn't list."""
+        return parameter_name in self.PREVIEW_IMAGES
 
     def _preview_extras(self) -> dict[str, Any]:
         """Data the widget needs that isn't a parameter, such as an image's mode. Override to add some."""

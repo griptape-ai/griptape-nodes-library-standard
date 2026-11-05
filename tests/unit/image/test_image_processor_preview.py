@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from griptape.artifacts import ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
+from griptape_nodes.exe_types.core_types import ParameterList
 from PIL import Image
 
 from griptape_nodes_library.image import image_grid_splitter, image_preview
@@ -128,6 +129,32 @@ def test_setting_the_source_gives_the_preview_its_url(node_class: type[ImagePrev
     assert preview[key] == media.value
 
 
+@pytest.mark.parametrize("node_class", WITH_SOURCE)
+def test_a_loaded_source_reaches_the_preview(node_class: type[ImagePreviewMixin]) -> None:
+    node = node_class(name="test_node")
+    [(parameter_name, key)] = node_class.PREVIEW_IMAGES.items()
+    if key == "video_url":
+        media = VideoUrlArtifact(value="https://example.com/cat.mp4")
+    else:
+        media = ImageUrlArtifact(value="https://example.com/cat.png")
+
+    # As a workflow loads: initial_setup skips after_value_set, which used to leave the preview empty.
+    node.set_parameter_value(parameter_name, media, initial_setup=True)
+
+    assert node.get_parameter_value(node_class.PREVIEW_PARAMETER_NAME)[key] == media.value
+
+
+def test_combine_masks_items_feed_the_preview() -> None:
+    node = CombineMasks(name="test_node")
+    masks = node.get_parameter_by_name("masks")
+    assert isinstance(masks, ParameterList)
+    item = masks.add_child_parameter()
+
+    assert node._is_preview_source("masks")
+    assert node._is_preview_source(item.name)
+    assert not node._is_preview_source("output_mask")
+
+
 @pytest.mark.parametrize("node_class", [AddTextToImage, AddTextToExistingImage])
 def test_text_previews_carry_the_font_pillow_draws_with(node_class: type[ImagePreviewMixin]) -> None:
     node = node_class(name="test_node")
@@ -191,7 +218,8 @@ def test_a_saved_font_url_is_replaced_with_this_sessions(
     monkeypatch.setattr(node, "_pillow_font_url", lambda: "http://localhost:8124/fresh-font.ttf")
     saved = {**node.get_parameter_value("preview"), "font_url": "http://elsewhere:8124/stale-font.ttf"}
 
-    node.set_parameter_value("preview", saved)
+    # Loading a workflow sets values with initial_setup, which skips after_value_set.
+    node.set_parameter_value("preview", saved, initial_setup=True)
 
     assert node.get_parameter_value("preview")["font_url"] == "http://localhost:8124/fresh-font.ttf"
 
