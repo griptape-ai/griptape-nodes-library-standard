@@ -270,6 +270,10 @@ class _PolicyDest:
 
 def _direct_save_node(monkeypatch: pytest.MonkeyPatch, folder: Path, policy: str) -> Any:
     async def fake_stream(url: str, path: Path, *, headers: dict[str, str] | None = None) -> None:  # noqa: ARG001
+        # The download must land beside the destination, never in the system temp dir.
+        assert path.parent == folder
+        assert path.name.startswith(".")
+        assert path.name.endswith(".partial")
         path.write_bytes(b"big")
 
     monkeypatch.setattr(GriptapeProxyNode, "_download_url_to_file", staticmethod(fake_stream))
@@ -320,15 +324,17 @@ async def test_direct_save_overwrite_policy_overwrites(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio
-async def test_overwrite_copy_failure_leaves_old_file_intact(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+async def test_overwrite_replace_failure_leaves_old_file_intact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     (tmp_path / "out.mp4").write_bytes(b"old")
     node = _direct_save_node(monkeypatch, tmp_path, "overwrite")
 
-    def broken_copy(*_: Any) -> None:
+    def broken_replace(*_: Any) -> None:
         msg = "disk full"
         raise OSError(msg)
 
-    monkeypatch.setattr(f"{proxy_module.__name__}.shutil.copyfile", broken_copy)
+    monkeypatch.setattr(f"{proxy_module.__name__}.os.replace", broken_replace)
 
     assert not await _save(node)
 
@@ -337,18 +343,38 @@ async def test_overwrite_copy_failure_leaves_old_file_intact(monkeypatch: pytest
 
 
 @pytest.mark.asyncio
-async def test_copy_failure_removes_the_reserved_placeholder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+async def test_replace_failure_removes_the_reserved_placeholder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     node = _direct_save_node(monkeypatch, tmp_path, "create_new")
 
-    def broken_copy(*_: Any) -> None:
+    def broken_replace(*_: Any) -> None:
         msg = "disk full"
         raise OSError(msg)
 
-    monkeypatch.setattr(f"{proxy_module.__name__}.shutil.copyfile", broken_copy)
+    monkeypatch.setattr(f"{proxy_module.__name__}.os.replace", broken_replace)
 
     assert not await _save(node)
 
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_failed_download_leaves_old_file_and_no_partial(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    (tmp_path / "out.mp4").write_bytes(b"old")
+    node = _direct_save_node(monkeypatch, tmp_path, "overwrite")
+
+    async def failing_stream(url: str, path: Path, *, headers: dict[str, str] | None = None) -> None:  # noqa: ARG001
+        path.write_bytes(b"half")
+        msg = "connection lost"
+        raise httpx.ConnectError(msg)
+
+    monkeypatch.setattr(GriptapeProxyNode, "_download_url_to_file", staticmethod(failing_stream))
+
+    assert not await _save(node)
+
+    assert (tmp_path / "out.mp4").read_bytes() == b"old"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["out.mp4"]
 
 
 @pytest.mark.asyncio

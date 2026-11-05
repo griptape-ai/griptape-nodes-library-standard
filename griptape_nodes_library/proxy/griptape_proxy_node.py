@@ -5,11 +5,10 @@ import json
 import logging
 import os
 import re
-import shutil
-import tempfile
 import threading
+import uuid
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from enum import StrEnum
 from pathlib import Path
@@ -1602,19 +1601,20 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         return True
 
     async def _stream_artifact_to_project(self, artifact: HostedArtifact, generation_id: str) -> File:
-        """Stream one provider-URL artifact to a temp file, then place it in the project.
+        """Stream one provider-URL artifact straight into the project's output directory.
 
         Outputs here can be multiple gigabytes, so the bytes are never held in memory and the
-        blocking disk work runs in threads. The engine's write API takes whole-content writes
-        only, so the download goes to a temp file first. Then:
+        blocking disk work runs in threads. The download is streamed into a hidden temporary
+        sibling of the final file, in the destination directory and never ``$TMPDIR``: that is
+        one write, no copy across volumes, and no RAM-backed tmpfs. The sibling is then moved
+        into place with ``os.replace``:
 
-        - If the destination's policy is OVERWRITE and the target exists, the temp file is copied
-          to a sibling of the target and swapped in with ``os.replace``, so the old output
-          survives any failure.
-        - Otherwise the destination is claimed with an empty ``awrite_bytes``, which applies the
-          destination's own policy exactly as a hosted save does (CREATE_NEW picks the next free
-          index, FAIL refuses an existing file) and returns the macro-form location. The temp
-          file is then copied over that new placeholder, which is removed on any failure.
+        - If the destination's policy is OVERWRITE and the target exists, it replaces the target,
+          so the old output survives any failed download.
+        - Otherwise the destination is claimed first with an empty ``awrite_bytes``, which applies
+          the destination's own policy exactly as a hosted save does (CREATE_NEW picks the next
+          free index, FAIL refuses an existing file) and returns the macro-form location. The
+          sibling replaces that placeholder, which is removed on any failure.
 
         The policy is read from the destination's private ``_existing_file_policy`` because the
         engine exposes no public accessor; if it is absent the claim path is used.
@@ -1626,39 +1626,16 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         self._log(
             f"Streaming direct-download artifact {artifact.index} ({artifact.kind}) of generation {generation_id}"
         )
-        suffix = Path(urlparse(artifact.url).path).suffix
-        fd, temp_name = tempfile.mkstemp(suffix=suffix, prefix="gtn_direct_download_")
-        os.close(fd)
-        temp_path = Path(temp_name)
-        try:
-            # Download first: an existing output must survive a failed or expired download.
-            await self._download_url_to_file(artifact.url, temp_path)
-            dest = self._output_file.build_file()
-            if getattr(dest, "_existing_file_policy", None) == ExistingFilePolicy.OVERWRITE:
-                target = Path(dest.resolve())
-                if target.exists():
-                    return await self._replace_existing_output(dest, temp_path, target)
-            return await self._claim_and_copy_output(dest, temp_path)
-        finally:
-            temp_path.unlink(missing_ok=True)
-
-    @staticmethod
-    async def _replace_existing_output(dest: Any, temp_path: Path, target: Path) -> File:
-        sibling = target.with_name(f".{target.name}.{os.getpid()}.partial")
-        try:
-            await asyncio.to_thread(shutil.copyfile, temp_path, sibling)
-            await asyncio.to_thread(os.replace, sibling, target)
-        finally:
-            sibling.unlink(missing_ok=True)
-        mapper = getattr(dest, "_map_to_macro_file", None)
-        return mapper(File(str(target))) if mapper is not None else File(str(target))
-
-    @staticmethod
-    async def _claim_and_copy_output(dest: Any, temp_path: Path) -> File:
+        dest = self._output_file.build_file()
+        if getattr(dest, "_existing_file_policy", None) == ExistingFilePolicy.OVERWRITE:
+            target = Path(dest.resolve())
+            if target.exists():
+                await self._download_into_place(artifact.url, target)
+                return self._macro_form(dest, target)
         reserved = await dest.awrite_bytes(b"")
         reserved_path = Path(reserved.resolve())
         try:
-            await asyncio.to_thread(shutil.copyfile, temp_path, reserved_path)
+            await self._download_into_place(artifact.url, reserved_path)
         except BaseException:
             # The placeholder is the empty file claimed just above, so removing it loses nothing.
             reserved_path.unlink(missing_ok=True)
@@ -1666,27 +1643,44 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         return reserved
 
     @staticmethod
-    async def _download_url_to_file(url: str, path: Path, *, headers: dict[str, str] | None = None) -> None:
-        """Stream a URL to ``path`` in chunks, retrying once on transient failures.
+    def _macro_form(dest: Any, target: Path) -> File:
+        mapper = getattr(dest, "_map_to_macro_file", None)
+        return mapper(File(str(target))) if mapper is not None else File(str(target))
 
-        Same retry and URL-redaction behaviour as ``_download_bytes_from_url``. Redirects are followed;
-        pass no ``headers`` for provider URLs so no credential follows them.
+    @staticmethod
+    async def _download_into_place(url: str, target: Path) -> None:
+        """Download ``url`` into a hidden sibling of ``target``, then ``os.replace`` it over ``target``.
+
+        The sibling is named like the engine's ``atomic_write_bytes`` scratch file: dot-prefixed,
+        self-identifying, and ending in a fixed ``.partial`` so extension globs never match it
+        mid-download. It is removed on any failure, leaving ``target`` untouched.
+        """
+        partial = target.parent / f".gtn-download-partial-{uuid.uuid4().hex}{target.suffix}.partial"
+        try:
+            await GriptapeProxyNode._download_url_to_file(url, partial)
+            await asyncio.to_thread(os.replace, partial, target)
+        finally:
+            partial.unlink(missing_ok=True)
+
+    @staticmethod
+    async def _download_with_retry[T](url: str, attempt_download: Callable[[], Awaitable[T]]) -> T:
+        """Run ``attempt_download`` up to twice, retrying once on transient failures.
+
+        Transient failures (timeouts, connection errors, and 5xx responses) are retried a single
+        time after a short delay. Permanent failures (3xx/4xx, e.g. an expired or missing provider
+        URL) are raised immediately, since retrying cannot help.
+
+        A raised HTTP status error carries the URL's scheme, host, and path but not its query
+        string: a presigned artifact URL carries its credential there, and
+        ``Response.raise_for_status()`` otherwise bakes the full URL, credential included, into
+        the message callers log and show the user.
         """
         parsed_url = urlparse(url)
         redacted_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
         attempts = 2
-        timeout = httpx.Timeout(30.0, read=300.0)
         for attempt in range(1, attempts + 1):
             try:
-                async with (
-                    httpx.AsyncClient() as client,
-                    client.stream("GET", url, headers=headers, timeout=timeout, follow_redirects=True) as resp,
-                ):
-                    resp.raise_for_status()
-                    with path.open("wb") as f:
-                        async for chunk in resp.aiter_bytes(DOWNLOAD_STREAM_CHUNK_BYTES):
-                            await asyncio.to_thread(f.write, chunk)
-                    return
+                return await attempt_download()
             except httpx.HTTPStatusError as e:
                 is_client_error = HTTP_REDIRECT_MIN <= e.response.status_code < HTTP_CLIENT_ERROR_MAX
                 if is_client_error or attempt >= attempts:
@@ -1697,8 +1691,30 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                     raise
             await asyncio.sleep(DOWNLOAD_RETRY_DELAY_SECONDS)
 
+        # Unreachable: the loop either returns or raises on the final attempt.
         msg = f"Failed to download from {redacted_url}"
         raise httpx.HTTPError(msg)
+
+    @staticmethod
+    async def _download_url_to_file(url: str, path: Path, *, headers: dict[str, str] | None = None) -> None:
+        """Stream a URL to ``path`` in chunks, retrying once on transient failures.
+
+        Same retry and URL-redaction behaviour as ``_download_bytes_from_url``. Redirects are followed;
+        pass no ``headers`` for provider URLs so no credential follows them.
+        """
+        timeout = httpx.Timeout(30.0, read=300.0)
+
+        async def attempt() -> None:
+            async with (
+                httpx.AsyncClient() as client,
+                client.stream("GET", url, headers=headers, timeout=timeout, follow_redirects=True) as resp,
+            ):
+                resp.raise_for_status()
+                with path.open("wb") as f:
+                    async for chunk in resp.aiter_bytes(DOWNLOAD_STREAM_CHUNK_BYTES):
+                        await asyncio.to_thread(f.write, chunk)
+
+        await GriptapeProxyNode._download_with_retry(url, attempt)
 
     @staticmethod
     async def _download_bytes_from_url(
@@ -1728,28 +1744,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Raises:
             httpx.HTTPError: If the download fails (after a retry for transient errors).
         """
-        parsed_url = urlparse(url)
-        redacted_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
-        attempts = 2
-        for attempt in range(1, attempts + 1):
-            try:
-                async with httpx.AsyncClient() as client:
-                    # Passed only when asked for, so hosted downloads make exactly the call they always did.
-                    extra: dict[str, Any] = {"follow_redirects": True} if follow_redirects else {}
-                    resp = await client.get(url, headers=headers, timeout=120, **extra)
-                    resp.raise_for_status()
-                    return resp.content
-            except httpx.HTTPStatusError as e:
-                # 4xx are permanent (expired/missing URL); do not retry.
-                is_client_error = HTTP_REDIRECT_MIN <= e.response.status_code < HTTP_CLIENT_ERROR_MAX
-                if is_client_error or attempt >= attempts:
-                    msg = f"Download failed: HTTP {e.response.status_code} for {redacted_url}"
-                    raise httpx.HTTPStatusError(msg, request=e.request, response=e.response) from e
-            except (httpx.TimeoutException, httpx.TransportError):
-                if attempt >= attempts:
-                    raise
-            await asyncio.sleep(DOWNLOAD_RETRY_DELAY_SECONDS)
+        # Passed only when asked for, so hosted downloads make exactly the call they always did.
+        extra: dict[str, Any] = {"follow_redirects": True} if follow_redirects else {}
 
-        # Unreachable: the loop either returns or raises on the final attempt.
-        msg = f"Failed to download from {redacted_url}"
-        raise httpx.HTTPError(msg)
+        async def attempt() -> bytes:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, headers=headers, timeout=120, **extra)
+                resp.raise_for_status()
+                return resp.content
+
+        return await GriptapeProxyNode._download_with_retry(url, attempt)
