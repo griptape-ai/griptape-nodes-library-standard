@@ -164,10 +164,6 @@ class TestCreateVariable:
 
 
 class TestDescribeImage:
-    @pytest.mark.xfail(
-        reason="Engine 0.105.0 lists connections while a copy loads. Fixed in 0.106.0.",
-        strict=True,
-    )
     def test_loading_a_legacy_image_value_moves_it_to_a_row_without_graph_requests(
         self, canvas: str, scratch: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:

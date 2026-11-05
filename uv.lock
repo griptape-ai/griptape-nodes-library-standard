@@ -672,7 +672,7 @@ loaders-pdf = [
 
 [[package]]
 name = "griptape-nodes-engine"
-version = "0.105.0"
+version = "0.106.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -703,16 +703,15 @@ dependencies = [
     { name = "tenacity" },
     { name = "tomlkit" },
     { name = "truststore" },
-    { name = "typer" },
     { name = "uv" },
     { name = "uvicorn" },
     { name = "watchfiles" },
     { name = "websockets" },
     { name = "xdg-base-dirs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5f/b7/c141bc2bc1c07e939190f52b2bbebc118e03871b99754de040e64ff78df0/griptape_nodes_engine-0.105.0.tar.gz", hash = "sha256:d87913428fb81151ba924ecc4f274ba8f95dbbb527949c9f457d490e18849be0", size = 1590231, upload-time = "2026-10-27T19:48:03.057Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fd/eb/2ab6d816689e0769ed273810791abfd169924b654e244c982ac0deb5010d/griptape_nodes_engine-0.106.0.tar.gz", hash = "sha256:ac300172ea0404523ed6f4ddf96e7e57b76a4f5ff015e83a04af88004d5c63b0", size = 1622223, upload-time = "2026-11-02T19:34:45.418Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/55/a8/88e837054c7a7e2c3ac923cdbf7847af061548a1e627777d9fb614f0ba45/griptape_nodes_engine-0.105.0-py3-none-any.whl", hash = "sha256:5dd647b92a3d6fc78fabedb2130fcf4c93403653821918d86a68cd7b66c6bce3", size = 1868431, upload-time = "2026-10-27T19:48:01.628Z" },
+    { url = "https://files.pythonhosted.org/packages/67/5c/c1f6fe2029b67a5f11ce71089a0a3b5f92547f736ac2b0b2fca2c496a1a6/griptape_nodes_engine-0.106.0-py3-none-any.whl", hash = "sha256:8e03d6cfe83064e89a15a79ad7f3139f1dfe377cb03f2ac1054c34eff8f3a8e0", size = 1900087, upload-time = "2026-11-02T19:34:44.036Z" },
 ]
 
 [[package]]
@@ -775,7 +774,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "griptape-nodes-engine", specifier = ">=0.105.0" },
+    { name = "griptape-nodes-engine", specifier = ">=0.106.0" },
     { name = "lxml-stubs", specifier = ">=0.5.1" },
     { name = "pyright", specifier = ">=1.1.396" },
     { name = "pytest" },

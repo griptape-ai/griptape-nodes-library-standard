@@ -117,6 +117,20 @@ def test_set_rejects_too_many_reference_images(node: OpenAiImageGeneration, mode
         node.set_parameter_value("input_images", [f"image_{index}.png" for index in range(17)])
 
 
+@pytest.mark.parametrize("model_name", ["GPT Image 1", "GPT Image 1.5", *GPT_IMAGE_2_FAMILY_MODELS])
+def test_validate_rejects_too_many_reference_images(
+    node: OpenAiImageGeneration, model_name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    node.set_parameter_value("model", model_name)
+    node.set_parameter_value("prompt", "Use the reference images")
+    monkeypatch.setattr(node, "_get_input_images_value", lambda: ["image.png"] * 17)
+
+    exceptions = node.validate_before_node_run()
+
+    assert exceptions is not None
+    assert any("supports up to 16 reference images" in str(exception) for exception in exceptions)
+
+
 @pytest.mark.parametrize("model_name", GPT_IMAGE_2_FAMILY_MODELS)
 @pytest.mark.parametrize(
     ("size", "message_fragment"),
