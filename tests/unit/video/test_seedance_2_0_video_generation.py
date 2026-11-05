@@ -512,6 +512,71 @@ async def test_oversized_file_reference_image_is_downscaled_not_uploaded(
 
 
 @pytest.mark.asyncio
+async def test_oversized_macro_path_reference_image_is_downscaled_not_uploaded(
+    monkeypatch: pytest.MonkeyPatch, upload_env, tmp_path
+) -> None:
+    # Load Image outputs a project macro path for a file in the project. The pre-run checks resolve
+    # it and skip the format and 30 MB limits on an image over 6000px because the node downscales
+    # it, so the downscale has to resolve the macro too, or the original goes up at full size.
+    reference_image = tmp_path / "huge.png"
+    Image.new("RGB", (6500, 500)).save(reference_image, format="PNG")
+    macro_path = "{inputs}/huge.png"
+    resolve = File.resolve
+
+    def resolve_inputs_macro(self: File) -> str:
+        return str(reference_image) if self.location == macro_path else resolve(self)
+
+    monkeypatch.setattr(File, "resolve", resolve_inputs_macro)
+    node = _multimodal_node_with_reference_images([ImageUrlArtifact(macro_path)])
+
+    payload = await node._build_payload()
+    image_entries = [item for item in payload["content"] if item["type"] == "image_url"]
+
+    assert len(image_entries) == 1
+    assert image_entries[0]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert len(upload_env.uploaded_keys) == 0
+
+
+@pytest.mark.asyncio
+async def test_oversized_external_static_url_reference_image_is_downscaled_not_uploaded(upload_env, tmp_path) -> None:
+    # The static server serves a file outside the workspace at an `/external/` URL. The pre-run
+    # checks resolve it to the file, so the downscale has to as well.
+    reference_image = tmp_path / "huge.png"
+    Image.new("RGB", (6500, 500)).save(reference_image, format="PNG")
+    external_url = f"http://localhost:8124/external{reference_image.as_posix()}?v=1"
+    node = _multimodal_node_with_reference_images([ImageUrlArtifact(external_url)])
+
+    payload = await node._build_payload()
+    image_entries = [item for item in payload["content"] if item["type"] == "image_url"]
+
+    assert len(image_entries) == 1
+    assert image_entries[0]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert len(upload_env.uploaded_keys) == 0
+
+
+@pytest.mark.asyncio
+async def test_image_over_pillows_pixel_limit_is_uploaded_as_it_is(
+    monkeypatch: pytest.MonkeyPatch, upload_env, tmp_path
+) -> None:
+    # Pillow refuses to open an image over its decompression-bomb limit, so the pre-run checks
+    # can't read it and the node can't downscale it; it goes up unchanged for the provider to judge
+    # rather than failing the run with Pillow's "decompression bomb DOS attack" message. Lowering
+    # the limit stands in for a ~180 MP file.
+    reference_image = tmp_path / "huge.png"
+    Image.new("RGB", (6500, 500)).save(reference_image, format="PNG")
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1000)
+    node = _multimodal_node_with_reference_images([ImageUrlArtifact(str(reference_image))])
+
+    payload = await node._build_payload()
+    image_entries = [item for item in payload["content"] if item["type"] == "image_url"]
+
+    assert image_entries == [
+        {"type": "image_url", "image_url": {"url": upload_env.signed_url}, "role": "reference_image"}
+    ]
+    assert len(upload_env.uploaded_keys) == 1
+
+
+@pytest.mark.asyncio
 async def test_private_asset_accepts_a_public_http_url(upload_env) -> None:
     # Provider asset registration needs a URL the provider can fetch, and plain http on a real
     # domain qualifies. Requiring https here rejected an input that registers fine, because the

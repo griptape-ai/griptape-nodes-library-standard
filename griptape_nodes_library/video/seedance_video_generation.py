@@ -15,15 +15,71 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.exe_types.validators import (
+    AllowedFormats,
+    AspectRatioRange,
+    IfParameter,
+    MaxFileSize,
+    PreRunValidator,
+    SideRange,
+)
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.video.seedance_common import (
+    HEIF_IMAGE_MIME_TYPES,
+    MAX_IMAGE_BYTES,
+    MIN_IMAGE_SIDE,
+    SEEDANCE_INPUT_LIMITS_URL,
+    SEEDANCE_MAX_IMAGE_DIMENSION_PX,
+    SUPPORTED_IMAGE_MIME_TYPES,
+    TALLEST_ASPECT_RATIO,
+    WIDEST_ASPECT_RATIO,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
 __all__ = ["SeedanceVideoGeneration"]
+
+# The models that send a Last Frame; Seedance 1.0 Pro Fast takes a first frame only.
+LAST_FRAME_MODELS = ("seedance-1-5-pro-251215", "seedance-1-0-pro-250528")
+
+# "Seedance 1.5 pro and later models also support heic and heif."
+HEIF_MODELS = ("seedance-1-5-pro-251215",)
+# The model this node uses when none is selected.
+DEFAULT_MODEL_ID = "seedance-1-5-pro-251215"
+# The models the dropdown offers; each one's frame limits are declared below.
+MODEL_IDS = ("seedance-1-5-pro-251215", "seedance-1-0-pro-250528", "seedance-1-0-pro-fast-251015")
+
+
+def _frame_limits(model_id: str) -> list[PreRunValidator]:
+    """The BytePlus limits on a frame `model_id` takes.
+
+    Unlike the Seedance 2.0 and 2.5 nodes, this one sends a frame as it is, never downscaled, so the
+    6000 px maximum applies.
+    """
+    heif_mime_types = HEIF_IMAGE_MIME_TYPES if model_id in HEIF_MODELS else ()
+    return [
+        AllowedFormats(*SUPPORTED_IMAGE_MIME_TYPES, *heif_mime_types),
+        MaxFileSize(MAX_IMAGE_BYTES, strict=True),
+        SideRange(min=MIN_IMAGE_SIDE, max=SEEDANCE_MAX_IMAGE_DIMENSION_PX),
+        AspectRatioRange(TALLEST_ASPECT_RATIO, WIDEST_ASPECT_RATIO),
+    ]
+
+
+FIRST_FRAME_LIMITS = IfParameter(
+    "model_id",
+    {model_id: _frame_limits(model_id) for model_id in MODEL_IDS},
+    default=_frame_limits(DEFAULT_MODEL_ID),
+)
+# Last Frame is sent only by the models in LAST_FRAME_MODELS, so it isn't checked for the others.
+LAST_FRAME_LIMITS = IfParameter(
+    "model_id",
+    {model_id: _frame_limits(model_id) if model_id in LAST_FRAME_MODELS else [] for model_id in MODEL_IDS},
+    default=_frame_limits(DEFAULT_MODEL_ID),
+)
 
 
 class SeedanceVideoGeneration(GriptapeProxyNode):
@@ -77,7 +133,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         # INPUTS / PROPERTIES
         model_id_param = ParameterString(
             name="model_id",
-            default_value="seedance-1-5-pro-251215",
+            default_value=DEFAULT_MODEL_ID,
             tooltip="Model to use for video generation",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             ui_options={
@@ -91,12 +147,8 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         self._model_access = ModelAccessComponent(
             node=self,
             parameter=model_id_param,
-            model_choices=[
-                "seedance-1-5-pro-251215",
-                "seedance-1-0-pro-250528",
-                "seedance-1-0-pro-fast-251015",
-            ],
-            default_model="seedance-1-5-pro-251215",
+            model_choices=list(MODEL_IDS),
+            default_model=DEFAULT_MODEL_ID,
             deprecated_values=self.LEGACY_MODEL_VALUES,
         )
 
@@ -121,6 +173,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
                 ui_options={"display_name": "First Frame"},
+                pre_run_validators=[FIRST_FRAME_LIMITS],
             )
         )
 
@@ -133,6 +186,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
                 ui_options={"display_name": "Last Frame"},
+                pre_run_validators=[LAST_FRAME_LIMITS],
             )
         )
 
@@ -218,7 +272,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         )
 
         # Set initial parameter visibility based on default model
-        self._update_parameter_visibility("seedance-1-5-pro-251215")
+        self._update_parameter_visibility(DEFAULT_MODEL_ID)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to show/hide dependent parameters based on model capabilities.
@@ -237,11 +291,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         """Show/hide first_frame, last_frame, and generate_audio based on model capabilities."""
         self.show_parameter_by_name("first_frame")
 
-        supports_last_frame = provider_model_id in (
-            "seedance-1-5-pro-251215",
-            "seedance-1-0-pro-250528",
-        )
-        if supports_last_frame:
+        if provider_model_id in LAST_FRAME_MODELS:
             self.show_parameter_by_name("last_frame")
         else:
             self.hide_parameter_by_name("last_frame")
@@ -251,19 +301,22 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         else:
             self.hide_parameter_by_name("generate_audio")
 
+    def input_limits_url(self) -> str | None:
+        return SEEDANCE_INPUT_LIMITS_URL
+
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
 
         The stored dropdown value is already the provider's model id.
         """
-        return self.get_parameter_value("model_id") or "seedance-1-5-pro-251215"
+        return self.get_parameter_value("model_id") or DEFAULT_MODEL_ID
 
     def _log(self, message: str) -> None:
         with suppress(Exception):
             logger.info(message)
 
     def _get_parameters(self) -> dict[str, Any]:
-        model_id = self.get_parameter_value("model_id") or "seedance-1-5-pro-251215"
+        model_id = self.get_parameter_value("model_id") or DEFAULT_MODEL_ID
 
         return {
             "prompt": self.get_parameter_value("prompt") or "",
@@ -324,21 +377,13 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
 
         Role is always specified in image_url object: "first_frame" or "last_frame"
         """
-        model_id = params["model_id"]
-
-        # Determine which frames this model supports
-        supports_last_frame = model_id in (
-            "seedance-1-5-pro-251215",
-            "seedance-1-0-pro-250528",
-        )
-
         # Add first_frame if provided
         first_frame_url = await self._prepare_frame_url_async(params["first_frame"])
         if first_frame_url:
             content_list.append({"type": "image_url", "image_url": {"url": first_frame_url}, "role": "first_frame"})
 
         # Add last_frame only if model supports it and it's provided
-        if supports_last_frame:
+        if params["model_id"] in LAST_FRAME_MODELS:
             last_frame_url = await self._prepare_frame_url_async(params["last_frame"])
             if last_frame_url:
                 content_list.append({"type": "image_url", "image_url": {"url": last_frame_url}, "role": "last_frame"})
