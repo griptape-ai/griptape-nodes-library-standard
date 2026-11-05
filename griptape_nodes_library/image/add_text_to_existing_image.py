@@ -506,6 +506,8 @@ class AddTextToExistingImage(SuccessFailureNode):
             return image.encode(ImageFormat.PNG)
 
         text_align = self._text_align(text_horizontal_alignment)
+        # Trailing newlines would be measured as empty lines and push the text off its alignment
+        text = text.rstrip("\n")
 
         # The built-in font's text box starts at the draw origin, so it is the box's top-left.
         text_box = text_size(text, font_size, spacing=TEXT_LINE_SPACING_PX)

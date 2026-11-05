@@ -187,11 +187,12 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
                 return ImageFormat.JPEG
             case ImageFormat() as image_format:
                 return image_format
+            case None:
+                # Default to PNG if format can't be detected
+                return ImageFormat.PNG
             case _:
-                pass
-
-        # Default to PNG if format can't be detected
-        return "PNG"
+                msg = f"Unknown image format: {image.format!r}"
+                raise ValueError(msg)
 
     def _get_output_format(self, input_format: str) -> str:
         """Get the output format based on user preference."""

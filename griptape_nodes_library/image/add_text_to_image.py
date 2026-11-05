@@ -195,6 +195,8 @@ class AddTextToImage(SuccessFailureNode):
 
         # Draw text if not empty
         if text.strip():
+            # Trailing newlines would be measured as empty lines and push the text off center
+            text = text.rstrip("\n")
             # Center the text box (the built-in font's box starts at the draw origin)
             try:
                 box = text_size(text, font_size)

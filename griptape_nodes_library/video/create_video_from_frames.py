@@ -450,8 +450,8 @@ class CreateVideoFromFrames(SuccessFailureNode):
             return False
         try:
             with GriptapeImage.open(image_path) as img:
-                # Reading the header fails for a file that isn't an image
-                _ = img.width
+                # Decoding fails for a file that isn't an image or is cut short
+                img.to_array()
             return True
         except Exception as e:
             logger.warning("%s skipping invalid/corrupted image file %s: %s", self.name, image_path, e)

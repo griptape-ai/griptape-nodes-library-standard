@@ -81,23 +81,18 @@ class InvertMask(DataNode):
             mode_name = get_image_color_info(mask).color_space
             logger.debug(f"{self.name}: Processing mask with mode {mode_name}, size {(mask.width, mask.height)}")
 
-            # Convert to grayscale first to ensure consistent processing
-            if mode_name == ImageMode.RGBA:
-                # For RGBA images, use the alpha channel
-                mask_to_invert = extract_channel_from_image(mask, "alpha", "mask")
-                logger.debug(f"{self.name}: Using alpha channel from RGBA image")
-            elif mode_name == ImageMode.RGB:
-                # For RGB images, convert to grayscale
-                mask_to_invert = converted(mask, ImageMode.GRAY)
-                logger.debug(f"{self.name}: Converted RGB to grayscale")
-            elif mode_name == ImageMode.GRAY:
-                # Already grayscale
-                mask_to_invert = mask
-                logger.debug(f"{self.name}: Using grayscale image directly")
-            else:
-                # For other modes, convert to grayscale
-                mask_to_invert = converted(mask, ImageMode.GRAY)
-                logger.debug(f"{self.name}: Converted {mode_name} to grayscale")
+            # Reduce to one channel: alpha for RGBA, otherwise gray. Matching on channels covers
+            # 16-bit and float masks too.
+            match mask.channels:
+                case 4:
+                    mask_to_invert = extract_channel_from_image(mask, "alpha", "mask")
+                    logger.debug(f"{self.name}: Using alpha channel from {mode_name} image")
+                case 1 | 2 | 3:
+                    mask_to_invert = converted(mask, ImageMode.GRAY)
+                    logger.debug(f"{self.name}: Converted {mode_name} to grayscale")
+                case _:
+                    msg = f"Unsupported mask with {mask.channels} channels"
+                    raise ValueError(msg)
 
             # Invert the mask
             inverted_mask = GriptapeImagePipeline(mask_to_invert).invert().end()

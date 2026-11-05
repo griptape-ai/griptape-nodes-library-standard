@@ -584,7 +584,7 @@ class CreateColorBars(BaseNode):
         ring_value = np.where(distance < max_radius, rings, 128)
         radial_value = np.floor(np.mod(angle / math.pi * 10, 2) * 255)
 
-        gray = np.floor((ring_value + radial_value) / 2).astype(np.uint8)
+        gray = np.clip(np.floor((ring_value + radial_value) / 2), 0, 255).astype(np.uint8)
         canvas.pixels[:, :] = gray[:, :, np.newaxis]
 
         return canvas
@@ -715,7 +715,7 @@ class CreateColorBars(BaseNode):
                 )
             column_colors.append((r, g, b))
 
-        canvas.pixels[:, :] = np.array(column_colors, dtype=np.uint8)
+        canvas.pixels[:, :] = np.clip(column_colors, 0, 255).astype(np.uint8)
 
         return canvas
 
@@ -730,7 +730,7 @@ class CreateColorBars(BaseNode):
             r, g, b = colorsys.hsv_to_rgb(hue / 360, 1.0, 1.0)
             column_colors.append((int(r * 255), int(g * 255), int(b * 255)))
 
-        canvas.pixels[:, :] = np.array(column_colors, dtype=np.uint8)
+        canvas.pixels[:, :] = np.clip(column_colors, 0, 255).astype(np.uint8)
 
         return canvas
 
