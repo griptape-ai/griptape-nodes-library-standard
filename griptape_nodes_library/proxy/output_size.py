@@ -17,9 +17,11 @@ PIXELS_1080P = 1920 * 1080
 
 # Half-float RGB: three channels of two bytes each.
 EXR_HALF_FLOAT_RGB_BYTES_PER_PIXEL = 6
-# Fraction of the uncompressed size an EXR ZIP frame occupies. 1.0 is conservative (assumes no
-# compression), so the guard errs towards asking for direct download. To be calibrated from real jobs.
-EXR_ZIP_COMPRESSION_FACTOR = 1.0
+# Fraction of the uncompressed half-float RGB size an LTX HDR EXR frame occupies. The ZIP is stored
+# uncompressed, but each EXR is compressed internally, and how well depends on the output colour
+# space. Measured on real 1080p LTX jobs (2026-11-05): ACEScct 0.22, sRGB linear 0.23, ACEScg 0.38,
+# ACES2065-1 0.60. Set above the worst case seen, since busier footage compresses less well.
+EXR_ZIP_COMPRESSION_FACTOR = 0.75
 
 
 def format_gb(size_bytes: float) -> str:
